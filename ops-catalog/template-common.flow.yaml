@@ -22,17 +22,18 @@ collections:
         partition: true
 
   ops/TENANT/catalog-stats:
-    schema: catalog-stats-schema.json
-    key: [/name, /grain, /ts]
+    schema: ops-catalog-stats-schema.json
+    key: [/catalogName, /grain, /ts]
     projections:
-      bytes_written_by: /statsSummary/writtenBy/bytesTotal
-      docs_written_by: /statsSummary/writtenBy/docsTotal
-      bytes_read_by: /statsSummary/readBy/bytesTotal
-      docs_read_by: /statsSummary/readBy/docsTotal
-      bytes_written_to: /statsSummary/writtenTo/bytesTotal
-      docs_written_to: /statsSummary/writtenTo/docsTotal
-      bytes_read_from: /statsSummary/readFrom/bytesTotal
-      docs_read_from: /statsSummary/readFrom/docsTotal
+      catalog_name: /catalogName
+      bytes_written_by_me: /statsSummary/writtenByMe/bytesTotal
+      docs_written_by_me: /statsSummary/writtenByMe/docsTotal
+      bytes_read_by_me: /statsSummary/readByMe/bytesTotal
+      docs_read_by_me: /statsSummary/readByMe/docsTotal
+      bytes_written_to_me: /statsSummary/writtenToMe/bytesTotal
+      docs_written_to_me: /statsSummary/writtenToMe/docsTotal
+      bytes_read_from_me: /statsSummary/readFromMe/bytesTotal
+      docs_read_from_me: /statsSummary/readFromMe/docsTotal
 
     derivation:
       shards:
@@ -112,6 +113,12 @@ tests:
                   publish:
                     out: { docsTotal: 2, bytesTotal: 2 }
                     secondsTotal: 2
+                transform3:
+                  source: "tenant/test/source-collection1" # Different transform, reading from the same collection as another one.
+                  input: { docsTotal: 7, bytesTotal: 40 }
+                  publish:
+                    out: { docsTotal: 2, bytesTotal: 2 }
+                    secondsTotal: 2
               out: { docsTotal: 7, bytesTotal: 75 } # What was written to the collection.
             txnCount: 2
             openSecondsTotal: 0.012
@@ -120,268 +127,180 @@ tests:
         collection: ops/TENANT/catalog-stats
         documents:
             # Capture task
-          - name: "tenant/test/cap"
+          - catalogName: "tenant/test/cap"
             grain: "daily"
             ts: "2022-04-03T00:00:00.000Z"
             statsSummary:
-              readBy:
-                bytesTotal: 0
-              writtenBy:
-                bytesTotal: 65
-              readFrom:
-                bytesTotal: 0
-              writtenTo:
-                bytesTotal: 0
-          - name: "tenant/test/cap"
+              readByMe:     { bytesTotal: 0 }
+              writtenByMe:  { bytesTotal: 65 }
+              readFromMe:   { bytesTotal: 0 }
+              writtenToMe:  { bytesTotal: 0 }
+          - catalogName: "tenant/test/cap"
             grain: "hourly"
             ts: "2022-04-03T02:00:00.000Z"
             statsSummary:
-              readBy:
-                bytesTotal: 0
-              writtenBy:
-                bytesTotal: 20
-              readFrom:
-                bytesTotal: 0
-              writtenTo:
-                bytesTotal: 0
-          - name: "tenant/test/cap"
+              readByMe:     { bytesTotal: 0 }
+              writtenByMe:  { bytesTotal: 20 }
+              readFromMe:   { bytesTotal: 0 }
+              writtenToMe:  { bytesTotal: 0 }
+          - catalogName: "tenant/test/cap"
             grain: "hourly"
             ts: "2022-04-03T03:00:00.000Z"
             statsSummary:
-              readBy:
-                bytesTotal: 0
-              writtenBy:
-                bytesTotal: 45
-              readFrom:
-                bytesTotal: 0
-              writtenTo:
-                bytesTotal: 0
-          - name: "tenant/test/cap"
+              readByMe:     { bytesTotal: 0 }
+              writtenByMe:  { bytesTotal: 45 }
+              readFromMe:   { bytesTotal: 0 }
+              writtenToMe:  { bytesTotal: 0 }
+          - catalogName: "tenant/test/cap"
             grain: "monthly"
             ts: "2022-04-01T00:00:00.000Z"
             statsSummary:
-              readBy:
-                bytesTotal: 0
-              writtenBy:
-                bytesTotal: 65
-              readFrom:
-                bytesTotal: 0
-              writtenTo:
-                bytesTotal: 0
+              readByMe:     { bytesTotal: 0 }
+              writtenByMe:  { bytesTotal: 65 }
+              readFromMe:   { bytesTotal: 0 }
+              writtenToMe:  { bytesTotal: 0 }
 
             # Collection & derivation combo entity
-          - name: "tenant/test/collection"
+          - catalogName: "tenant/test/collection"
             grain: "daily"
             ts: "2022-04-03T00:00:00.000Z" # Capture day
             statsSummary:
-              readBy:
-                bytesTotal: 0
-              writtenBy:
-                bytesTotal: 0
-              readFrom:
-                bytesTotal: 0
-              writtenTo:
-                bytesTotal: 65
-          - name: "tenant/test/collection"
+              readByMe:     { bytesTotal: 0 }
+              writtenByMe:  { bytesTotal: 0 }
+              readFromMe:   { bytesTotal: 0 }
+              writtenToMe:  { bytesTotal: 65 }
+          - catalogName: "tenant/test/collection"
             grain: "daily"
             ts: "2022-04-04T00:00:00.000Z" # Materialization day
             statsSummary:
-              readBy:
-                bytesTotal: 0
-              writtenBy:
-                bytesTotal: 0
-              readFrom:
-                bytesTotal: 150
-              writtenTo:
-                bytesTotal: 0
-          - name: "tenant/test/collection"
+              readByMe:     { bytesTotal: 0 }
+              writtenByMe:  { bytesTotal: 0 }
+              readFromMe:   { bytesTotal: 150 }
+              writtenToMe:  { bytesTotal: 0 }
+          - catalogName: "tenant/test/collection"
             grain: "daily"
             ts: "2022-04-05T00:00:00.000Z" # Derivation day
             statsSummary:
-              readBy:
-                bytesTotal: 50
-              writtenBy:
-                bytesTotal: 75
-              readFrom:
-                bytesTotal: 0
-              writtenTo:
-                bytesTotal: 75
-          - name: "tenant/test/collection"
+              readByMe:     { bytesTotal: 90 }
+              writtenByMe:  { bytesTotal: 75 }
+              readFromMe:   { bytesTotal: 0 }
+              writtenToMe:  { bytesTotal: 75 }
+          - catalogName: "tenant/test/collection"
             grain: "hourly"
             ts: "2022-04-03T02:00:00.000Z" # Capture hour 1
             statsSummary:
-              readBy:
-                bytesTotal: 0
-              writtenBy:
-                bytesTotal: 0
-              readFrom:
-                bytesTotal: 0
-              writtenTo:
-                bytesTotal: 20
-          - name: "tenant/test/collection"
+              readByMe:     { bytesTotal: 0 }
+              writtenByMe:  { bytesTotal: 0 }
+              readFromMe:   { bytesTotal: 0 }
+              writtenToMe:  { bytesTotal: 20 }
+          - catalogName: "tenant/test/collection"
             grain: "hourly"
             ts: "2022-04-03T03:00:00.000Z" # Capture hour 2
             statsSummary:
-              readBy:
-                bytesTotal: 0
-              writtenBy:
-                bytesTotal: 0
-              readFrom:
-                bytesTotal: 0
-              writtenTo:
-                bytesTotal: 45
-          - name: "tenant/test/collection"
+              readByMe:     { bytesTotal: 0 }
+              writtenByMe:  { bytesTotal: 0 }
+              readFromMe:   { bytesTotal: 0 }
+              writtenToMe:  { bytesTotal: 45 }
+          - catalogName: "tenant/test/collection"
             grain: "hourly"
             ts: "2022-04-04T03:00:00.000Z" # Materialization hour
             statsSummary:
-              readBy:
-                bytesTotal: 0
-              writtenBy:
-                bytesTotal: 0
-              readFrom:
-                bytesTotal: 150
-              writtenTo:
-                bytesTotal: 0
-          - name: "tenant/test/collection"
+              readByMe:     { bytesTotal: 0 }
+              writtenByMe:  { bytesTotal: 0 }
+              readFromMe:   { bytesTotal: 150 }
+              writtenToMe:  { bytesTotal: 0 }
+          - catalogName: "tenant/test/collection"
             grain: "hourly"
             ts: "2022-04-05T05:00:00.000Z" # Derivation hour
             statsSummary:
-              readBy:
-                bytesTotal: 50
-              writtenBy:
-                bytesTotal: 75
-              readFrom:
-                bytesTotal: 0
-              writtenTo:
-                bytesTotal: 75
-          - name: "tenant/test/collection"
+              readByMe:     { bytesTotal: 90 }
+              writtenByMe:  { bytesTotal: 75 }
+              readFromMe:   { bytesTotal: 0 }
+              writtenToMe:  { bytesTotal: 75 }
+          - catalogName: "tenant/test/collection"
             grain: "monthly"
             ts: "2022-04-01T00:00:00.000Z" # Same month for capture, materialization, and derivation.
             statsSummary:
-              readBy:
-                bytesTotal: 50
-                docsTotal: 11
-              writtenBy:
-                bytesTotal: 75
-                docsTotal: 7
-              readFrom:
-                bytesTotal: 150
-                docsTotal: 10
-              writtenTo:
-                bytesTotal: 140
-                docsTotal: 13
+              readByMe:     { bytesTotal: 90,  docsTotal: 18 }
+              writtenByMe:  { bytesTotal: 75,  docsTotal: 7 }
+              readFromMe:   { bytesTotal: 150, docsTotal: 10 }
+              writtenToMe:  { bytesTotal: 140, docsTotal: 13 }
 
             # The materializaton task.
-          - name: "tenant/test/mat"
+          - catalogName: "tenant/test/mat"
             grain: "daily"
             ts: "2022-04-04T00:00:00.000Z"
             statsSummary:
-              readBy:
-                bytesTotal: 150
-              writtenBy:
-                bytesTotal: 0
-              readFrom:
-                bytesTotal: 0
-              writtenTo:
-                bytesTotal: 0
-          - name: "tenant/test/mat"
+              readByMe:     { bytesTotal: 150 }
+              writtenByMe:  { bytesTotal: 0 }
+              readFromMe:   { bytesTotal: 0 }
+              writtenToMe:  { bytesTotal: 0 }
+          - catalogName: "tenant/test/mat"
             grain: "hourly"
             ts: "2022-04-04T03:00:00.000Z"
             statsSummary:
-              readBy:
-                bytesTotal: 150
-              writtenBy:
-                bytesTotal: 0
-              readFrom:
-                bytesTotal: 0
-              writtenTo:
-                bytesTotal: 0
-          - name: "tenant/test/mat"
+              readByMe:     { bytesTotal: 150 }
+              writtenByMe:  { bytesTotal: 0 }
+              readFromMe:   { bytesTotal: 0 }
+              writtenToMe:  { bytesTotal: 0 }
+          - catalogName: "tenant/test/mat"
             grain: "monthly"
             ts: "2022-04-01T00:00:00.000Z"
             statsSummary:
-              readBy:
-                bytesTotal: 150
-              writtenBy:
-                bytesTotal: 0
-              readFrom:
-                bytesTotal: 0
-              writtenTo:
-                bytesTotal: 0
+              readByMe:     { bytesTotal: 150 }
+              writtenByMe:  { bytesTotal: 0 }
+              readFromMe:   { bytesTotal: 0 }
+              writtenToMe:  { bytesTotal: 0 }
 
             # Source collections for the derivation.
-          - name: "tenant/test/source-collection1"
+          - catalogName: "tenant/test/source-collection1"
             grain: "daily"
             ts: "2022-04-05T00:00:00.000Z"
             statsSummary:
-              readBy:
-                bytesTotal: 0
-              writtenBy:
-                bytesTotal: 0
-              readFrom:
-                bytesTotal: 20
-              writtenTo:
-                bytesTotal: 0
-          - name: "tenant/test/source-collection1"
+              readByMe:     { bytesTotal: 0 }
+              writtenByMe:  { bytesTotal: 0 }
+              readFromMe:   { bytesTotal: 60 }
+              writtenToMe:  { bytesTotal: 0 }
+          - catalogName: "tenant/test/source-collection1"
             grain: "hourly"
             ts: "2022-04-05T05:00:00.000Z"
             statsSummary:
-              readBy:
-                bytesTotal: 0
-              writtenBy:
-                bytesTotal: 0
-              readFrom:
-                bytesTotal: 20
-              writtenTo:
-                bytesTotal: 0
-          - name: "tenant/test/source-collection1"
+              readByMe:     { bytesTotal: 0 }
+              writtenByMe:  { bytesTotal: 0 }
+              readFromMe:   { bytesTotal: 60 }
+              writtenToMe:  { bytesTotal: 0 }
+          - catalogName: "tenant/test/source-collection1"
             grain: "monthly"
             ts: "2022-04-01T00:00:00.000Z"
             statsSummary:
-              readBy:
-                bytesTotal: 0
-              writtenBy:
-                bytesTotal: 0
-              readFrom:
-                bytesTotal: 20
-              writtenTo:
-                bytesTotal: 0
-          - name: "tenant/test/source-collection2"
+              readByMe:     { bytesTotal: 0 }
+              writtenByMe:  { bytesTotal: 0 }
+              readFromMe:   { bytesTotal: 60 }
+              writtenToMe:  { bytesTotal: 0 }
+          - catalogName: "tenant/test/source-collection2"
             grain: "daily"
             ts: "2022-04-05T00:00:00.000Z"
             statsSummary:
-              readBy:
-                bytesTotal: 0
-              writtenBy:
-                bytesTotal: 0
-              readFrom:
-                bytesTotal: 30
-              writtenTo:
-                bytesTotal: 0
-          - name: "tenant/test/source-collection2"
+              readByMe:     { bytesTotal: 0 }
+              writtenByMe:  { bytesTotal: 0 }
+              readFromMe:   { bytesTotal: 30 }
+              writtenToMe:  { bytesTotal: 0 }
+          - catalogName: "tenant/test/source-collection2"
             grain: "hourly"
             ts: "2022-04-05T05:00:00.000Z"
             statsSummary:
-              readBy:
-                bytesTotal: 0
-              writtenBy:
-                bytesTotal: 0
-              readFrom:
-                bytesTotal: 30
-              writtenTo:
-                bytesTotal: 0
-          - name: "tenant/test/source-collection2"
+              readByMe:     { bytesTotal: 0 }
+              writtenByMe:  { bytesTotal: 0 }
+              readFromMe:   { bytesTotal: 30 }
+              writtenToMe:  { bytesTotal: 0 }
+          - catalogName: "tenant/test/source-collection2"
             grain: "monthly"
             ts: "2022-04-01T00:00:00.000Z"
             statsSummary:
-              readBy:
-                bytesTotal: 0
-              writtenBy:
-                bytesTotal: 0
-              readFrom:
-                bytesTotal: 30
-              writtenTo:
-                bytesTotal: 0
+              readByMe:     { bytesTotal: 0 }
+              writtenByMe:  { bytesTotal: 0 }
+              readFromMe:   { bytesTotal: 30 }
+              writtenToMe:  { bytesTotal: 0 }
 
 # TODO(johnny): this is used only for local testing with `flowctl-go` and can go away soon.
 storageMappings:

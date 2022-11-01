@@ -21,11 +21,11 @@ begin
   -- The `stats_loader` user materializes directly into tentant partitions.
   set role stats_loader;
   insert into catalog_stat_partitions.alice_stats (
-    name, grain, ts, flow_document,
-    bytes_written_by, docs_written_by,
-    bytes_read_by, docs_read_by,
-    bytes_written_to, docs_written_to,
-    bytes_read_from, docs_read_from
+    catalog_name, grain, ts, flow_document,
+    bytes_written_by_me, docs_written_by_me,
+    bytes_read_by_me, docs_read_by_me,
+    bytes_written_to_me, docs_written_to_me,
+    bytes_read_from_me, docs_read_from_me
   ) values
     (
       'aliceCo/hello', 'hourly', '2022-08-29T13:00:00Z', '{"alice":1}',
@@ -35,11 +35,11 @@ begin
       0, 0
     );
   insert into catalog_stat_partitions.bob_stats (
-    name, grain, ts, flow_document,
-    bytes_written_by, docs_written_by,
-    bytes_read_by, docs_read_by,
-    bytes_written_to, docs_written_to,
-    bytes_read_from, docs_read_from
+    catalog_name, grain, ts, flow_document,
+    bytes_written_by_me, docs_written_by_me,
+    bytes_read_by_me, docs_read_by_me,
+    bytes_written_to_me, docs_written_to_me,
+    bytes_read_from_me, docs_read_from_me
   ) values
     (
       'bobCo/world', 'daily', '2022-08-29T00:00:00Z', '{"bob":1}',
@@ -52,11 +52,11 @@ begin
 
   -- We can also load through `catalog_stats` which will route records appropriatey.
   insert into catalog_stats (
-    name, grain, ts, flow_document,
-    bytes_written_by, docs_written_by,
-    bytes_read_by, docs_read_by,
-    bytes_written_to, docs_written_to,
-    bytes_read_from, docs_read_from
+    catalog_name, grain, ts, flow_document,
+    bytes_written_by_me, docs_written_by_me,
+    bytes_read_by_me, docs_read_by_me,
+    bytes_written_to_me, docs_written_to_me,
+    bytes_read_from_me, docs_read_from_me
   ) values
     (
       'carolCo/foobar', 'monthly', '2022-08-01T00:00:00Z', '{"carol":1}',
@@ -67,17 +67,17 @@ begin
   );
 
   return query select results_eq(
-    $i$ select name::text, grain::text, flow_document::text from catalog_stat_partitions.alice_stats $i$,
+    $i$ select catalog_name::text, grain::text, flow_document::text from catalog_stat_partitions.alice_stats $i$,
     $i$ values ('aliceCo/hello','hourly','{"alice":1}') $i$,
     'alice stats are in alice partition'
   );
   return query select results_eq(
-    $i$ select name::text, grain::text, flow_document::text from catalog_stat_partitions.bob_stats $i$,
+    $i$ select catalog_name::text, grain::text, flow_document::text from catalog_stat_partitions.bob_stats $i$,
     $i$ values ('bobCo/world','daily','{"bob":1}') $i$,
     'bob stats are in bob partition'
   );
   return query select results_eq(
-    $i$ select name::text, grain::text, flow_document::text from catalog_stat_partitions.carol_stats $i$,
+    $i$ select catalog_name::text, grain::text, flow_document::text from catalog_stat_partitions.carol_stats $i$,
     $i$ values ('carolCo/foobar','monthly','{"carol":1}') $i$,
     'carol stats are in carol partition'
   );
@@ -85,11 +85,11 @@ begin
   return query select throws_like(
     $i$
     insert into catalog_stats (
-      name, grain, ts, flow_document,
-      bytes_written_by, docs_written_by,
-      bytes_read_by, docs_read_by,
-      bytes_written_to, docs_written_to,
-      bytes_read_from, docs_read_from
+      catalog_name, grain, ts, flow_document,
+      bytes_written_by_me, docs_written_by_me,
+      bytes_read_by_me, docs_read_by_me,
+      bytes_written_to_me, docs_written_to_me,
+      bytes_read_from_me, docs_read_from_me
     ) values
       (
         'frankCo/whoops', 'monthly', '2022-08-01T00:00:00Z', '{"frank":1}',
@@ -102,11 +102,11 @@ begin
   return query select throws_like(
     $i$
     insert into catalog_stat_partitions.bob_stats (
-      name, grain, ts, flow_document,
-      bytes_written_by, docs_written_by,
-      bytes_read_by, docs_read_by,
-      bytes_written_to, docs_written_to,
-      bytes_read_from, docs_read_from
+      catalog_name, grain, ts, flow_document,
+      bytes_written_by_me, docs_written_by_me,
+      bytes_read_by_me, docs_read_by_me,
+      bytes_written_to_me, docs_written_to_me,
+      bytes_read_from_me, docs_read_from_me
     ) values
       (
         'aliceCo/hello', 'monthly', '2022-08-01T00:00:00Z', '{"alice":1}',
@@ -122,7 +122,7 @@ begin
   set request.jwt.claim.sub to '11111111-1111-1111-1111-111111111111';
 
   return query select results_eq(
-    $i$ select name::text, grain::text, flow_document::text from catalog_stats $i$,
+    $i$ select catalog_name::text, grain::text, flow_document::text from catalog_stats $i$,
     $i$ values ('aliceCo/hello','hourly','{"alice":1}') $i$,
     'alice can read alice stats only'
   );

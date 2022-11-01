@@ -15,15 +15,15 @@ materializations:
         fields:
           recommended: false
           include:
-            name: {}
+            catalog_name: {}
             grain: {}
             ts: {}
-            bytes_written_by: {}
-            docs_written_by: {}
-            bytes_read_by: {}
-            docs_read_by: {}
-            bytes_written_to: {}
-            docs_written_to: {}
-            bytes_read_from: {}
-            docs_read_from: {}
+            bytes_written_by_me: {}
+            docs_written_by_me: {}
+            bytes_read_by_me: {}
+            docs_read_by_me: {}
+            bytes_written_to_me: {}
+            docs_written_to_me: {}
+            bytes_read_from_me: {}
+            docs_read_from_me: {}
             flow_document: {}
