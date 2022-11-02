@@ -115,8 +115,8 @@ async fn test_publication_data_operations() {
     .await
     .unwrap();
 
-    let draft_id = Id::new([0xdd, 0xdd, 0xdd, 0xdd, 0xdd, 0xdd, 0xdd, 0xdd]);
-    let pub_id = Id::new([0xee, 0xee, 0xee, 0xee, 0xee, 0xee, 0xee, 0xee]);
+    let draft_id = Id::from_hex("dddddddddddddddd").unwrap();
+    let pub_id = Id::from_hex("eeeeeeeeeeeeeeee").unwrap();
     let alice = Uuid::from_bytes([
         0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
         0x11,
@@ -158,7 +158,7 @@ async fn test_publication_data_operations() {
 
     // Remove a stale flow of a now-deleted spec.
     agent_sql::publications::delete_stale_flow(
-        Id::new([0xbb, 0, 0, 0, 0, 0, 0, 0]),
+        Id::from_hex("bb00000000000000").unwrap(),
         CatalogType::Collection,
         &mut txn,
     )
@@ -166,12 +166,16 @@ async fn test_publication_data_operations() {
     .unwrap();
 
     // Insert a number of flows between `aliceCo/Test/Fixture` and other specs.
-    // Expect all flows are resolved.
+    // Expect all flows that can be resolved, are resolved. Others are ignored.
     agent_sql::publications::insert_live_spec_flows(
-        Id::new([0xcc, 0, 0, 0, 0, 0, 0, 0]),
+        Id::from_hex("cc00000000000000").unwrap(),
         &Some(agent_sql::CatalogType::Test),
-        Some(vec!["aliceCo/First/Thing"]),
-        Some(vec!["aliceCo/First/Thing", "aliceCo/Second/Thing"]),
+        Some(vec!["aliceCo/First/Thing", "does/not/exist"]),
+        Some(vec![
+            "aliceCo/First/Thing",
+            "aliceCo/Second/Thing",
+            "also/does/not/exist",
+        ]),
         &mut txn,
     )
     .await

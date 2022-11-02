@@ -58,7 +58,7 @@ pub async fn resolve_unknown_connectors(
             live_spec.catalog_name
         from live_specs as live_spec
         left join connectors as connector on connector.image_name = live_spec.connector_image_name
-        where live_spec.id = ANY($1) and connector.image_name is null
+        where live_spec.id = ANY($1) and live_spec.connector_image_name is not null and connector.image_name is null
         order by live_spec.id asc;"#,
     )
     .bind(&live_spec_ids[..])
