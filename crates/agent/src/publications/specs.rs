@@ -547,3 +547,210 @@ fn split_tag(image_full: &str) -> (String, String) {
         (image, String::new())
     }
 }
+
+#[cfg(test)]
+mod test {
+
+    use crate::publications::JobStatus;
+
+    use super::super::PublishHandler;
+    use agent_sql::Id;
+    use reqwest::Url;
+    use sqlx::{Connection, Postgres, Transaction};
+
+    // Squelch warnings about struct fields never being read.
+    // They actually are read by insta when snapshotting.
+    #[allow(dead_code)]
+    #[derive(Debug)]
+    struct ScenarioResult {
+        draft_id: Id,
+        status: JobStatus,
+        errors: Vec<String>,
+    }
+
+    const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
+
+    const CLEANUP: &str = r#"
+    with specs_delete as (
+        delete from live_specs
+    ),
+    drafts_delete as (
+        delete from drafts
+    ),
+    draft_specs_delete as (
+        delete from draft_specs
+    ),
+    publications_delete as (
+        delete from publications
+    ),
+    role_grants_delete as (
+        delete from role_grants
+    ),
+    user_grants_delete as (
+        delete from user_grants
+    ),
+    tags_delete as (
+        delete from connector_tags
+    ),
+    connectors_delete as (
+        delete from connectors
+    )
+    select 1;
+    "#;
+
+    async fn scenario_snapshot<'c>(
+        scenario: &str,
+        mut txn: Transaction<'c, Postgres>,
+    ) -> Vec<ScenarioResult> {
+        sqlx::query(CLEANUP).execute(&mut txn).await.unwrap();
+        sqlx::query(scenario).execute(&mut txn).await.unwrap();
+
+        let bs_url: Url = "http://example.com".parse().unwrap();
+
+        let (logs_tx, mut logs_rx) = tokio::sync::mpsc::channel(8192);
+
+        // Just in case anything gets through
+        logs_rx.close();
+
+        let mut handler = PublishHandler::new("", &bs_url, &bs_url, "", &bs_url, &logs_tx);
+
+        let mut results: Vec<ScenarioResult> = vec![];
+
+        while let Some(row) = agent_sql::publications::dequeue(&mut txn).await.unwrap() {
+            let mut sub_tx = txn.begin().await.unwrap();
+            let row_draft_id = row.draft_id.clone();
+            let (id, status) = handler.process(row, &mut sub_tx, true).await.unwrap();
+
+            let errors = sqlx::query!(
+                r#"
+            select draft_id as "draft_id: Id", scope, detail
+            from draft_errors
+            where draft_errors.draft_id = $1::flowid;"#,
+                row_draft_id as Id
+            )
+            .fetch_all(&mut sub_tx)
+            .await
+            .unwrap();
+
+            let formatted_errors: Vec<String> = errors.into_iter().map(|e| e.detail).collect();
+
+            results.push(ScenarioResult {
+                draft_id: row_draft_id,
+                status: status.clone(),
+                errors: formatted_errors,
+            });
+
+            agent_sql::publications::resolve(id, &status, &mut sub_tx)
+                .await
+                .unwrap();
+            sub_tx.commit().await.unwrap();
+        }
+
+        results
+    }
+
+    #[tokio::test]
+    async fn test_forbidden_connector() {
+        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+            .await
+            .unwrap();
+        let txn = conn.begin().await.unwrap();
+
+        let results = scenario_snapshot(r#"
+            with p1 as (
+              insert into auth.users (id) values
+              ('43a18a3e-5a59-11ed-9b6a-0242ac120002')
+            ),
+            p2 as (
+              insert into drafts (id, user_id) values
+              ('1110000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120002')
+            ),
+            p3 as (
+              insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
+              ('1111000000000000', '1110000000000000', 'usageB/CaptureC', '{
+                  "bindings": [{"target": "usageB/CaptureC", "resource": {"binding": "foo", "syncMode": "incremental"}}],
+                  "endpoint": {"connector": {"image": "forbidden_connector", "config": {}}}
+              }'::json, 'capture')
+            ),
+            p4 as (
+              insert into publications (id, job_status, user_id, draft_id) values
+              ('1111100000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120002', '1110000000000000')
+            ),
+            p5 as (
+              insert into role_grants (subject_role, object_role, capability) values
+              ('usageB/', 'usageB/', 'admin')
+            ),
+            p6 as (
+              insert into user_grants (user_id, object_role, capability) values
+              ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'usageB/', 'admin')
+            )
+            select 1;
+        "#,
+        txn).await;
+
+        insta::assert_debug_snapshot!(results, @r#"
+        [
+            ScenarioResult {
+                draft_id: 1110000000000000,
+                status: BuildFailed,
+                errors: [
+                    "Forbidden connector image 'forbidden_connector'",
+                ],
+            },
+        ]
+        "#);
+    }
+    #[tokio::test]
+    async fn test_allowed_connector() {
+        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+            .await
+            .unwrap();
+        let txn = conn.begin().await.unwrap();
+
+        let results = scenario_snapshot(r#"
+            with p1 as (
+              insert into auth.users (id) values
+              ('43a18a3e-5a59-11ed-9b6a-0242ac120002')
+            ),
+            p2 as (
+              insert into drafts (id, user_id) values
+              ('1110000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120002')
+            ),
+            p3 as (
+              insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
+              ('1111000000000000', '1110000000000000', 'usageB/CaptureC', '{
+                  "bindings": [{"target": "usageB/CaptureC", "resource": {"binding": "foo", "syncMode": "incremental"}}],
+                  "endpoint": {"connector": {"image": "allowed_connector", "config": {}}}
+              }'::json, 'capture')
+            ),
+            p4 as (
+              insert into publications (id, job_status, user_id, draft_id) values
+              ('1111100000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120002', '1110000000000000')
+            ),
+            p5 as (
+              insert into role_grants (subject_role, object_role, capability) values
+              ('usageB/', 'usageB/', 'admin')
+            ),
+            p6 as (
+              insert into user_grants (user_id, object_role, capability) values
+              ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'usageB/', 'admin')
+            ),
+            p7 as (
+                insert into connectors (external_url, image_name, title, short_description, logo_url) values
+                    ('http://example.com', 'allowed_connector', '{"en-US": "foo"}'::json, '{"en-US": "foo"}'::json, '{"en-US": "foo"}'::json)
+            )
+            select 1;
+        "#,
+        txn).await;
+
+        insta::assert_debug_snapshot!(results, @r#"
+        [
+            ScenarioResult {
+                draft_id: 1110000000000000,
+                status: Success,
+                errors: [],
+            },
+        ]
+        "#);
+    }
+}

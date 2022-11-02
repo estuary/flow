@@ -17,7 +17,7 @@ pub struct Error {
 }
 
 /// JobStatus is the possible outcomes of a handled draft submission.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum JobStatus {
     Queued,
@@ -73,7 +73,7 @@ impl Handler for PublishHandler {
             None
         };
 
-        let (id, status) = self.process(row, &mut txn).await?;
+        let (id, status) = self.process(row, &mut txn, false).await?;
         info!(%id, ?status, "finished");
 
         agent_sql::publications::resolve(id, &status, &mut txn).await?;
@@ -95,6 +95,7 @@ impl PublishHandler {
         &mut self,
         row: Row,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        test_run: bool,
     ) -> anyhow::Result<(Id, JobStatus)> {
         info!(
             %row.created_at,
@@ -243,6 +244,14 @@ impl PublishHandler {
         .await?;
         if !errors.is_empty() {
             return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
+        }
+
+        if test_run {
+            agent_sql::publications::rollback_noop(txn)
+                .await
+                .context("rolling back to savepoint")?;
+
+            return Ok((row.pub_id, JobStatus::Success));
         }
 
         let tmpdir = tempfile::TempDir::new().context("creating tempdir")?;
