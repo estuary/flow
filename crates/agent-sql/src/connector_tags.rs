@@ -42,7 +42,7 @@ pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::R
     .await
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug, FromRow, Serialize)]
 pub struct UnknownConnector {
     pub catalog_name: String,
     pub image_name: String,
@@ -54,12 +54,12 @@ pub async fn resolve_unknown_connectors(
 ) -> sqlx::Result<Vec<UnknownConnector>> {
     let res = sqlx::query_as::<_, UnknownConnector>(
         r#"select
-            live_spec.connector_image_name,
+            live_spec.connector_image_name as "image_name",
             live_spec.catalog_name
         from live_specs as live_spec
         left join connectors as connector on connector.image_name = live_spec.connector_image_name
         where live_spec.id = ANY($1) and connector.image_name is null
-        order by live_specs.id asc;"#,
+        order by live_spec.id asc;"#,
     )
     .bind(&live_spec_ids[..])
     .fetch_all(txn)
