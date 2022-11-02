@@ -1,7 +1,7 @@
 use super::Error;
 use crate::Id;
 
-use agent_sql::publications::{ExpandedRow, ResourceUsageChanges, SpecRow, Tenant};
+use agent_sql::publications::{ExpandedRow, SpecRow, Tenant};
 use agent_sql::{Capability, CatalogType};
 use anyhow::Context;
 use itertools::{Either, Itertools};
@@ -354,46 +354,30 @@ pub async fn enforce_resource_quotas(
     spec_rows: &[SpecRow],
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<Vec<Error>> {
-    let tenants = spec_rows
+    let spec_ids = spec_rows
         .iter()
-        .map(|spec_row| tenant_name_for_catalog_name(spec_row.catalog_name.clone()))
-        .collect::<Result<HashSet<_>, _>>()?;
+        .map(|spec_row| spec_row.live_spec_id)
+        .collect();
 
-    let errors = agent_sql::publications::find_tenant_quotas(tenants.into_iter().collect(), txn)
+    let errors = agent_sql::publications::find_tenant_quotas(spec_ids, txn)
         .await?
         .into_iter()
         .flat_map(|tenant| {
             let mut errs = vec![];
-            if tenant.collections_used > tenant.collections_quota {
+            if tenant.tasks_used > tenant.tasks_quota as i64 {
+                errs.push(format!(
+                    "Tenant {} would exceed task quota of {} by {}",
+                    tenant.name,
+                    tenant.tasks_quota,
+                    (tenant.tasks_used - tenant.tasks_quota as i64)
+                ))
+            }
+            if tenant.collections_used > tenant.collections_quota as i64 {
                 errs.push(format!(
                     "Tenant {} would exceed collection quota of {} by {}",
                     tenant.name,
                     tenant.collections_quota,
-                    (tenant.collections_used - tenant.collections_quota)
-                ))
-            }
-            if tenant.derivations_used > tenant.derivations_quota {
-                errs.push(format!(
-                    "Tenant {} would exceed derivation quota of {} by {}",
-                    tenant.name,
-                    tenant.derivations_quota,
-                    (tenant.derivations_used - tenant.derivations_quota)
-                ))
-            }
-            if tenant.captures_used > tenant.captures_quota {
-                errs.push(format!(
-                    "Tenant {} would exceed capture quota of {} by {}",
-                    tenant.name,
-                    tenant.captures_quota,
-                    (tenant.captures_used - tenant.captures_quota)
-                ))
-            }
-            if tenant.materializations_used > tenant.materializations_quota {
-                errs.push(format!(
-                    "Tenant {} would exceed materialization quota of {} by {}",
-                    tenant.name,
-                    tenant.materializations_quota,
-                    (tenant.materializations_used - tenant.materializations_quota)
+                    (tenant.collections_used - tenant.collections_quota as i64)
                 ))
             }
             errs
@@ -411,7 +395,7 @@ pub fn tenant_name_for_catalog_name(catalog_name: String) -> anyhow::Result<Stri
     catalog_name
         .split("/")
         .next()
-        .map(|val| val.to_string())
+        .map(|val| format!("{}/", val.to_string()))
         .ok_or(anyhow::anyhow!("Invalid catalog name: {}", catalog_name))
 }
 
@@ -609,5 +593,97 @@ fn split_tag(image_full: &str) -> (String, String) {
         (image, tag)
     } else {
         (image, String::new())
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::super::PublishHandler;
+    use reqwest::Url;
+    use sqlx::Connection;
+
+    const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
+
+    #[tokio::test]
+    async fn test_quota_enforcement_single_tenant() {
+        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+            .await
+            .unwrap();
+        let mut txn = conn.begin().await.unwrap();
+
+        sqlx::query(
+            r#"
+            with p1 as (
+                insert into live_specs (id, catalog_name, spec, spec_type, last_build_id, last_pub_id) values
+                ('1000000000000000', 'usageB/CaptureA', '{"endpoint": {},"bindings": []}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+                ('2000000000000000', 'usageB/CaptureB', '{"endpoint": {},"bindings": []}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+                ('3000000000000000', 'usageB/CaptureDisabled', '{"shards": {"disable": true}}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
+              ),
+              p2 as (
+                  insert into tenants (tenant, tasks_quota, collections_quota) values
+                  ('usageB/', 2, 3)
+              ),
+              p3 as (
+                insert into auth.users (id) values
+                ('43a18a3e-5a59-11ed-9b6a-0242ac120002')
+              ),
+              p4 as (
+                insert into drafts (id, user_id) values
+                ('1110000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120002')
+              ),
+              p5 as (
+                insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
+                ('1111000000000000', '1110000000000000', 'usageB/CaptureC', '{
+                    "bindings": [{"target": "usageB/CaptureC", "resource": {"binding": "foo", "syncMode": "incremental"}}],
+                    "endpoint": {"connector": {"image": "foo", "config": {}}}
+                }'::json, 'capture')
+              ),
+              p6 as (
+                insert into publications (id, job_status, user_id, draft_id) values
+                ('1111100000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120002', '1110000000000000')
+              ),
+              p7 as (
+                insert into role_grants (subject_role, object_role, capability) values
+                ('usageB/', 'usageB/', 'admin')
+              ),
+              p8 as (
+                insert into user_grants (user_id, object_role, capability) values
+                ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'usageB/', 'admin')
+              )
+              select 1;
+        "#,
+        )
+        .execute(&mut txn)
+        .await
+        .unwrap();
+
+        let bs_url: Url = "http://example.com".parse().unwrap();
+
+        let (logs_tx, mut logs_rx) = tokio::sync::mpsc::channel(8192);
+
+        // Just in case anything gets through
+        logs_rx.close();
+
+        let mut handler = PublishHandler::new("", &bs_url, &bs_url, "", &bs_url, &logs_tx);
+        let row = agent_sql::publications::dequeue(&mut txn)
+            .await
+            .unwrap()
+            .unwrap();
+        let res = handler.process(row, &mut txn).await;
+
+        insta::assert_debug_snapshot!(res);
+
+        let errors = sqlx::query!(
+            r#"
+            select scope, detail
+            from draft_errors
+            where draft_errors.draft_id = '1110000000000000';"#
+        )
+        .fetch_all(&mut txn)
+        .await
+        .unwrap();
+
+        insta::assert_debug_snapshot!(errors);
     }
 }

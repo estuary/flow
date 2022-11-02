@@ -1,0 +1,11 @@
+---
+source: crates/agent/src/publications/specs.rs
+assertion_line: 687
+expression: errors
+---
+[
+    Record {
+        scope: "",
+        detail: "Tenant usageB/ would exceed task quota of 2 by 1",
+    },
+]

@@ -6,15 +6,8 @@ create table tenants (
   -- and data-plane assignment onto this record.
   tenant                  catalog_tenant unique not null,
 
-  captures_quota          integer        not null DEFAULT 10,
-  derivations_quota       integer        not null DEFAULT 10,
-  materializations_quota  integer        not null DEFAULT 10,
-  collections_quota       integer        not null DEFAULT 100,
-
-  captures_used          integer        not null DEFAULT 0,
-  derivations_used       integer        not null DEFAULT 0,
-  materializations_used  integer        not null DEFAULT 0,
-  collections_used       integer        not null DEFAULT 0
+  tasks_quota             integer        not null default 10,
+  collections_quota       integer        not null default 100
 );
 alter table tenants enable row level security;
 

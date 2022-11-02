@@ -208,121 +208,52 @@ pub async fn resolve_spec_rows(
     .await
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Tenant {
     pub name: String,
-    pub captures_quota: i32,
-    pub derivations_quota: i32,
-    pub materializations_quota: i32,
+    pub tasks_quota: i32,
     pub collections_quota: i32,
-    pub captures_used: i32,
-    pub derivations_used: i32,
-    pub materializations_used: i32,
-    pub collections_used: i32,
-}
-
-#[derive(Debug)]
-struct TenantFromDB {
-    pub name: String,
-    pub captures_quota: i32,
-    pub derivations_quota: i32,
-    pub materializations_quota: i32,
-    pub collections_quota: i32,
-    // These are Option<i64> because even if we add `coalesce(.., 0) to the query
-    // sqlx still infers them as nullable. So for our purposes assume None to be 0
-    pub captures_used: Option<i64>,
-    pub derivations_used: Option<i64>,
-    pub materializations_used: Option<i64>,
-    pub collections_used: Option<i64>,
-}
-
-impl From<TenantFromDB> for Tenant {
-    fn from(db: TenantFromDB) -> Self {
-        Tenant {
-            name: db.name,
-            captures_quota: db.captures_quota,
-            derivations_quota: db.derivations_quota,
-            materializations_quota: db.materializations_quota,
-            collections_quota: db.collections_quota,
-            captures_used: db.captures_used.unwrap_or(0) as i32,
-            derivations_used: db.derivations_used.unwrap_or(0) as i32,
-            materializations_used: db.materializations_used.unwrap_or(0) as i32,
-            collections_used: db.collections_used.unwrap_or(0).try_into().unwrap(),
-        }
-    }
+    pub tasks_used: i64,
+    pub collections_used: i64,
 }
 
 pub async fn find_tenant_quotas(
-    tenant_names: Vec<String>,
+    live_spec_ids: Vec<Id>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<Vec<Tenant>> {
     sqlx::query_as!(
-        TenantFromDB,
+        Tenant,
         r#"
+        with tenant_names as (
+            select tenants.tenant as tenant_name
+            from tenants
+            join live_specs on starts_with(live_specs.catalog_name, tenants.tenant)
+            where live_specs.id = ANY($1::flowid[])
+            group by tenants.tenant
+        )
         select
             tenants.tenant as name,
-            tenants.captures_quota,
-            tenants.derivations_quota,
-            tenants.materializations_quota,
-            tenants.collections_quota,
-            count(live_specs.catalog_name) filter (where live_specs.spec_type = 'capture') as captures_used,
-            count(live_specs.catalog_name) filter (where live_specs.spec_type = 'collection' and live_specs.spec->'derivation' is not null) as derivations_used,
-            count(live_specs.catalog_name) filter (where live_specs.spec_type = 'materialization') as materializations_used,
-            count(live_specs.catalog_name) filter (where live_specs.spec_type = 'collection') as collections_used
+            max(tenants.tasks_quota) as "tasks_quota!",
+            max(tenants.collections_quota) as "collections_quota!",
+            count(live_specs.catalog_name) filter (
+                where
+                    live_specs.spec_type = 'capture' or
+                    live_specs.spec_type = 'materialization' or
+                    live_specs.spec_type = 'collection' and live_specs.spec->'derivation' is not null
+            ) as "tasks_used!",
+            count(live_specs.catalog_name) filter (
+                where live_specs.spec_type = 'collection'
+            ) as "collections_used!"
         from tenants
-        join live_specs on live_specs.catalog_name LIKE tenants.tenant || '%' and (live_specs.spec->'shards'->>'disable')::boolean is not true
-        where tenants.tenant = ANY($1)
-        group by tenants.tenant, tenants.captures_quota, tenants.materializations_quota, tenants.derivations_quota, tenants.collections_quota;
-        "#,
-        &tenant_names[..]
+        join live_specs on
+            starts_with(live_specs.catalog_name, tenants.tenant) and
+            (live_specs.spec->'shards'->>'disable')::boolean is not true
+        where tenants.tenant in (select tenant_name from tenant_names)
+        group by tenants.tenant;"#,
+        live_spec_ids as Vec<Id>
     )
     .fetch_all(txn)
     .await
-    .map(|tenants| tenants.into_iter().map(Tenant::from).collect())
-}
-
-#[derive(Default)]
-pub struct ResourceUsageChanges {
-    pub capture_count_change: i32,
-    pub derivation_count_change: i32,
-    pub materialization_count_change: i32,
-    pub collection_count_change: i32,
-}
-
-impl ResourceUsageChanges {
-    pub fn merge(&mut self, other: &Self) {
-        self.capture_count_change += other.capture_count_change;
-        self.derivation_count_change += other.derivation_count_change;
-        self.materialization_count_change += other.materialization_count_change;
-        self.collection_count_change += other.collection_count_change;
-    }
-}
-
-pub async fn update_tenants_resource_usage(
-    tenant: String,
-    usage_update: &ResourceUsageChanges,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<()> {
-    sqlx::query!(
-        r#"
-        update tenants set
-            captures_used = captures_used + $2,
-            derivations_used = derivations_used + $3,
-            materializations_used = materializations_used + $4,
-            collections_used = collections_used + $5
-        where tenants.tenant = $1
-        returning 1 as "must_exist";
-        "#,
-        tenant,
-        usage_update.capture_count_change,
-        usage_update.derivation_count_change,
-        usage_update.materialization_count_change,
-        usage_update.collection_count_change
-    )
-    .fetch_one(txn)
-    .await?;
-
-    Ok(())
 }
 
 #[derive(Debug)]
