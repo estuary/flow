@@ -35,9 +35,10 @@ pub async fn run_flow_capture_connector(
     let exit_status_task =
         async move { check_exit_status("flow capture connector:", child.wait().await) };
 
-    tokio::try_join!(streaming_all_task, exit_status_task)?;
-
-    Ok(())
+    tokio::select! {
+        Err(e) = streaming_all_task => Err(e),
+        resp = exit_status_task => resp,
+    }
 }
 
 pub async fn run_flow_materialize_connector(
@@ -60,9 +61,10 @@ pub async fn run_flow_materialize_connector(
     let exit_status_task =
         async move { check_exit_status("flow materialize connector:", child.wait().await) };
 
-    tokio::try_join!(streaming_all_task, exit_status_task)?;
-
-    Ok(())
+    tokio::select! {
+        Err(e) = streaming_all_task => Err(e),
+        resp = exit_status_task => resp,
+    }
 }
 
 pub async fn run_airbyte_source_connector(
