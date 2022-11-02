@@ -156,8 +156,7 @@ impl PublishHandler {
         }
 
         let errors =
-            specs::validate_transition(&draft_catalog, &live_catalog, row.pub_id, &spec_rows, txn)
-                .await;
+            specs::validate_transition(&draft_catalog, &live_catalog, row.pub_id, &spec_rows);
         if !errors.is_empty() {
             return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
         }

@@ -42,7 +42,6 @@ pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::R
     .await
 }
 
-// ConnectorTags represent all of the tags defined for a particular connector
 #[derive(Debug, FromRow)]
 pub struct UnknownConnector {
     pub catalog_name: String,

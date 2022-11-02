@@ -166,12 +166,11 @@ pub fn extend_catalog<'a>(
     errors
 }
 
-pub async fn validate_transition(
+pub fn validate_transition(
     draft: &models::Catalog,
     live: &models::Catalog,
     pub_id: Id,
     spec_rows: &[SpecRow],
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Vec<Error> {
     let mut errors = Vec::new();
 
