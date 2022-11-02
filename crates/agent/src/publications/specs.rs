@@ -613,109 +613,59 @@ fn split_tag(image_full: &str) -> (String, String) {
 #[cfg(test)]
 mod test {
 
+    use crate::publications::JobStatus;
+
     use super::super::PublishHandler;
     use agent_sql::Id;
     use reqwest::Url;
-    use sqlx::Connection;
+    use sqlx::{Connection, Postgres, Transaction};
+
+    // Squelch warnings about struct fields never being read.
+    // They actually are read by insta when snapshotting.
+    #[allow(dead_code)]
+    #[derive(Debug)]
+    struct ScenarioResult {
+        draft_id: Id,
+        status: JobStatus,
+        errors: Vec<String>,
+    }
 
     const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
-    #[tokio::test]
-    async fn test_quota_enforcement() {
-        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
-            .await
-            .unwrap();
-        let mut txn = conn.begin().await.unwrap();
+    const CLEANUP: &str = r#"
+    with specs_delete as (
+        delete from live_specs
+    ),
+    drafts_delete as (
+        delete from drafts
+    ),
+    draft_specs_delete as (
+        delete from draft_specs
+    ),
+    publications_delete as (
+        delete from publications
+    ),
+    role_grants_delete as (
+        delete from role_grants
+    ),
+    user_grants_delete as (
+        delete from user_grants
+    ),
+    tags_delete as (
+        delete from connector_tags
+    ),
+    connectors_delete as (
+        delete from connectors
+    )
+    select 1;
+    "#;
 
-        sqlx::query(
-            r#"
-            with specs_delete as (
-                delete from live_specs
-            ),
-            drafts_delete as (
-                delete from drafts
-            ),
-            draft_specs_delete as (
-                delete from draft_specs
-            ),
-            publications_delete as (
-                delete from publications
-            ),
-            role_grants_delete as (
-                delete from role_grants
-            ),
-            user_grants_delete as (
-                delete from user_grants
-            ),
-            p1 as (
-                insert into live_specs (id, catalog_name, spec, spec_type, last_build_id, last_pub_id) values
-                ('1000000000000000', 'usageB/CollectionA', '{}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-                ('1100000000000000', 'usageB/CollectionB', '{}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-                ('2000000000000000', 'usageB/CaptureA', '{"endpoint": {},"bindings": []}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-                ('3000000000000000', 'usageB/CaptureB', '{"endpoint": {},"bindings": []}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-                ('4000000000000000', 'usageB/CaptureDisabled', '{"shards": {"disable": true}}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-
-                -- Testing that we can disable tasks to reduce usage when at quota
-                ('a100000000000000', 'usageC/CollectionA', '{"schema": {}, "key": ["foo"]}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-                ('a200000000000000', 'usageC/CaptureA', '{
-                    "bindings": [{"target": "usageC/CollectionA", "resource": {"binding": "foo", "syncMode": "incremental"}}],
-                    "endpoint": {"connector": {"image": "foo", "config": {}}}
-                }'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-                ('a300000000000000', 'usageC/CaptureB', '{
-                    "bindings": [{"target": "usageC/CollectionA", "resource": {"binding": "foo", "syncMode": "incremental"}}],
-                    "endpoint": {"connector": {"image": "foo", "config": {}}}
-                }'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
-              ),
-              p2 as (
-                  insert into tenants (tenant, tasks_quota, collections_quota) values
-                  ('usageB/', 2, 2),
-                  ('usageC/', 1, 1)
-              ),
-              p3 as (
-                insert into auth.users (id) values
-                ('43a18a3e-5a59-11ed-9b6a-0242ac120002')
-              ),
-              p4 as (
-                insert into drafts (id, user_id) values
-                ('1110000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120002'),
-                ('1120000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120002'),
-                ('1130000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120002')
-              ),
-              p5 as (
-                insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
-                ('1111000000000000', '1110000000000000', 'usageB/CaptureC', '{
-                    "bindings": [{"target": "usageB/CaptureC", "resource": {"binding": "foo", "syncMode": "incremental"}}],
-                    "endpoint": {"connector": {"image": "foo", "config": {}}}
-                }'::json, 'capture'),
-                ('1112000000000000', '1120000000000000', 'usageB/DerivationA', '{"schema": {}, "key": ["foo"], "derivation": {"transform":{"key": {"source": {"name": "usageB/CollectionA"}}}}}'::json, 'collection'),
-                ('1113000000000000', '1130000000000000', 'usageC/CaptureA', '{
-                    "bindings": [{"target": "usageC/CollectionA", "resource": {"binding": "foo", "syncMode": "incremental"}}],
-                    "endpoint": {"connector": {"image": "foo", "config": {}}},
-                    "shards": {"disable": true}
-                }'::json, 'capture')
-              ),
-              p6 as (
-                insert into publications (id, job_status, user_id, draft_id) values
-                ('1111100000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120002', '1110000000000000'),
-                ('1111200000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120002', '1120000000000000'),
-                ('1111300000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120002', '1130000000000000')
-              ),
-              p7 as (
-                insert into role_grants (subject_role, object_role, capability) values
-                ('usageB/', 'usageB/', 'admin'),
-                ('usageC/', 'usageC/', 'admin')
-              ),
-              p8 as (
-                insert into user_grants (user_id, object_role, capability) values
-                ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'usageB/', 'admin'),
-                ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'usageC/', 'admin')
-              )
-              select 1;
-        "#,
-        )
-        .execute(&mut txn)
-        .await
-        .unwrap();
+    async fn scenario_snapshot<'c>(
+        scenario: &str,
+        mut txn: Transaction<'c, Postgres>,
+    ) -> Vec<ScenarioResult> {
+        sqlx::query(CLEANUP).execute(&mut txn).await.unwrap();
+        sqlx::query(scenario).execute(&mut txn).await.unwrap();
 
         let bs_url: Url = "http://example.com".parse().unwrap();
 
@@ -725,6 +675,8 @@ mod test {
         logs_rx.close();
 
         let mut handler = PublishHandler::new("", &bs_url, &bs_url, "", &bs_url, &logs_tx);
+
+        let mut results: Vec<ScenarioResult> = vec![];
 
         while let Some(row) = agent_sql::publications::dequeue(&mut txn).await.unwrap() {
             let mut sub_tx = txn.begin().await.unwrap();
@@ -744,16 +696,281 @@ mod test {
 
             let formatted_errors: Vec<String> = errors.into_iter().map(|e| e.detail).collect();
 
-            insta::assert_json_snapshot!(serde_json::json!({
-                "draft_id": &row_draft_id,
-                "status": &status,
-                "errors": &formatted_errors
-            }));
+            results.push(ScenarioResult {
+                draft_id: row_draft_id,
+                status: status.clone(),
+                errors: formatted_errors,
+            });
 
             agent_sql::publications::resolve(id, &status, &mut sub_tx)
                 .await
                 .unwrap();
             sub_tx.commit().await.unwrap();
         }
+
+        results
+    }
+
+    #[tokio::test]
+    async fn test_happy_path() {
+        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+            .await
+            .unwrap();
+        let txn = conn.begin().await.unwrap();
+
+        let results = scenario_snapshot(r#"
+            with p1 as (
+              insert into auth.users (id) values
+              ('43a18a3e-5a59-11ed-9b6a-0242ac120002')
+            ),
+            p2 as (
+              insert into drafts (id, user_id) values
+              ('1110000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120002')
+            ),
+            p3 as (
+                insert into live_specs (id, catalog_name, spec, spec_type, last_build_id, last_pub_id) values
+                ('1000000000000000', 'usageB/CollectionA', '{"schema": {},"key": ["foo"]}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
+            ),
+            p4 as (
+              insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
+              (
+                '1111000000000000',
+                '1110000000000000',
+                'usageB/DerivationA',
+                '{
+                    "schema": {},
+                    "key": ["foo"],
+                    "derivation": {
+                        "transform":{
+                            "key": {
+                                "source": {
+                                    "name": "usageB/CollectionA"
+                                }
+                            }
+                        }
+                    }
+                }'::json,
+                'collection'
+              )
+            ),
+            p5 as (
+              insert into publications (id, job_status, user_id, draft_id) values
+              ('1111100000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120002', '1110000000000000')
+            ),
+            p6 as (
+              insert into role_grants (subject_role, object_role, capability) values
+              ('usageB/', 'usageB/', 'admin')
+            ),
+            p7 as (
+              insert into user_grants (user_id, object_role, capability) values
+              ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'usageB/', 'admin')
+            )
+            select 1;
+        "#,
+        txn).await;
+
+        insta::assert_debug_snapshot!(results, @r#"
+        [
+            ScenarioResult {
+                draft_id: 1110000000000000,
+                status: Success,
+                errors: [],
+            },
+        ]
+        "#);
+    }
+
+    #[tokio::test]
+    async fn test_quota_single_task() {
+        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+            .await
+            .unwrap();
+        let txn = conn.begin().await.unwrap();
+
+        let results = scenario_snapshot(r#"
+            with p1 as (
+                insert into live_specs (id, catalog_name, spec, spec_type, last_build_id, last_pub_id) values
+                ('1000000000000000', 'usageB/CollectionA', '{}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+                ('1100000000000000', 'usageB/CollectionB', '{}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+                ('2000000000000000', 'usageB/CaptureA', '{"endpoint": {},"bindings": []}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+                ('3000000000000000', 'usageB/CaptureB', '{"endpoint": {},"bindings": []}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+                ('4000000000000000', 'usageB/CaptureDisabled', '{"shards": {"disable": true}}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
+              ),
+              p2 as (
+                  insert into tenants (tenant, tasks_quota, collections_quota) values
+                  ('usageB/', 2, 2)
+              ),
+              p3 as (
+                insert into auth.users (id) values
+                ('43a18a3e-5a59-11ed-9b6a-0242ac120002')
+              ),
+              p4 as (
+                insert into drafts (id, user_id) values
+                ('1110000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120002')
+              ),
+              p5 as (
+                insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
+                ('1111000000000000', '1110000000000000', 'usageB/CaptureC', '{
+                    "bindings": [{"target": "usageB/CaptureC", "resource": {"binding": "foo", "syncMode": "incremental"}}],
+                    "endpoint": {"connector": {"image": "foo", "config": {}}}
+                }'::json, 'capture')
+              ),
+              p6 as (
+                insert into publications (id, job_status, user_id, draft_id) values
+                ('1111100000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120002', '1110000000000000')
+              ),
+              p7 as (
+                insert into role_grants (subject_role, object_role, capability) values
+                ('usageB/', 'usageB/', 'admin')
+              ),
+              p8 as (
+                insert into user_grants (user_id, object_role, capability) values
+                ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'usageB/', 'admin')
+              )
+              select 1;
+              "#,
+              txn).await;
+
+        insta::assert_debug_snapshot!(results, @r#"
+        [
+            ScenarioResult {
+                draft_id: 1110000000000000,
+                status: BuildFailed,
+                errors: [
+                    "Request to add 1 task(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
+                ],
+            },
+        ]
+        "#);
+    }
+
+    #[tokio::test]
+    async fn test_quota_derivations() {
+        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+            .await
+            .unwrap();
+        let txn = conn.begin().await.unwrap();
+
+        let results = scenario_snapshot(r#"
+            with p1 as (
+                insert into live_specs (id, catalog_name, spec, spec_type, last_build_id, last_pub_id) values
+                ('1000000000000000', 'usageB/CollectionA', '{}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+                ('1100000000000000', 'usageB/CollectionB', '{}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+                ('2000000000000000', 'usageB/CaptureA', '{"endpoint": {},"bindings": []}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+                ('3000000000000000', 'usageB/CaptureB', '{"endpoint": {},"bindings": []}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+                ('4000000000000000', 'usageB/CaptureDisabled', '{"shards": {"disable": true}}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
+              ),
+              p2 as (
+                  insert into tenants (tenant, tasks_quota, collections_quota) values
+                  ('usageB/', 2, 2)
+              ),
+              p3 as (
+                insert into auth.users (id) values
+                ('43a18a3e-5a59-11ed-9b6a-0242ac120002')
+              ),
+              p4 as (
+                insert into drafts (id, user_id) values
+                ('1120000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120002')
+              ),
+              p5 as (
+                insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
+                ('1112000000000000', '1120000000000000', 'usageB/DerivationA', '{"schema": {}, "key": ["foo"], "derivation": {"transform":{"key": {"source": {"name": "usageB/CollectionA"}}}}}'::json, 'collection')
+              ),
+              p6 as (
+                insert into publications (id, job_status, user_id, draft_id) values
+                ('1111200000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120002', '1120000000000000')
+              ),
+              p7 as (
+                insert into role_grants (subject_role, object_role, capability) values
+                ('usageB/', 'usageB/', 'admin')
+              ),
+              p8 as (
+                insert into user_grants (user_id, object_role, capability) values
+                ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'usageB/', 'admin')
+              )
+              select 1;
+              "#,
+              txn).await;
+
+        insta::assert_debug_snapshot!(results, @r#"
+        [
+            ScenarioResult {
+                draft_id: 1120000000000000,
+                status: BuildFailed,
+                errors: [
+                    "Request to add 1 task(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
+                    "Request to add 1 collections(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
+                ],
+            },
+        ]
+        "#);
+    }
+
+    // Testing that we can disable tasks to reduce usage when at quota
+    #[tokio::test]
+    async fn test_disable_when_over_quota() {
+        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+            .await
+            .unwrap();
+        let txn = conn.begin().await.unwrap();
+
+        let results = scenario_snapshot(r#"
+            with p1 as (
+                insert into live_specs (id, catalog_name, spec, spec_type, last_build_id, last_pub_id) values
+                ('a100000000000000', 'usageC/CollectionA', '{"schema": {}, "key": ["foo"]}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+                ('a200000000000000', 'usageC/CaptureA', '{
+                    "bindings": [{"target": "usageC/CollectionA", "resource": {"binding": "foo", "syncMode": "incremental"}}],
+                    "endpoint": {"connector": {"image": "foo", "config": {}}}
+                }'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+                ('a300000000000000', 'usageC/CaptureB', '{
+                    "bindings": [{"target": "usageC/CollectionA", "resource": {"binding": "foo", "syncMode": "incremental"}}],
+                    "endpoint": {"connector": {"image": "foo", "config": {}}}
+                }'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
+              ),
+              p2 as (
+                  insert into tenants (tenant, tasks_quota, collections_quota) values
+                  ('usageC/', 1, 1)
+              ),
+              p3 as (
+                insert into auth.users (id) values
+                ('43a18a3e-5a59-11ed-9b6a-0242ac120002')
+              ),
+              p4 as (
+                insert into drafts (id, user_id) values
+                ('1130000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120002')
+              ),
+              p5 as (
+                insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
+                ('1113000000000000', '1130000000000000', 'usageC/CaptureA', '{
+                    "bindings": [{"target": "usageC/CollectionA", "resource": {"binding": "foo", "syncMode": "incremental"}}],
+                    "endpoint": {"connector": {"image": "foo", "config": {}}},
+                    "shards": {"disable": true}
+                }'::json, 'capture')
+              ),
+              p6 as (
+                insert into publications (id, job_status, user_id, draft_id) values
+                ('1111300000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120002', '1130000000000000')
+              ),
+              p7 as (
+                insert into role_grants (subject_role, object_role, capability) values
+                ('usageC/', 'usageC/', 'admin')
+              ),
+              p8 as (
+                insert into user_grants (user_id, object_role, capability) values
+                ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'usageC/', 'admin')
+              )
+              select 1;
+              "#,
+              txn).await;
+
+        insta::assert_debug_snapshot!(results, @r#"
+        [
+            ScenarioResult {
+                draft_id: 1130000000000000,
+                status: Success,
+                errors: [],
+            },
+        ]
+        "#);
     }
 }

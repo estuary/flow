@@ -17,7 +17,7 @@ pub struct Error {
 }
 
 /// JobStatus is the possible outcomes of a handled draft submission.
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum JobStatus {
     Queued,

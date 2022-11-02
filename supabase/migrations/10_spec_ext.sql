@@ -17,17 +17,24 @@ create type user_profile as (
   avatar_url text
 );
 
+create view internal.user_profiles as
+  select
+    id as user_id,
+    email,
+    coalesce(raw_user_meta_data->>'full_name', raw_user_meta_data->>'name') as full_name,
+    coalesce(raw_user_meta_data->>'picture', raw_user_meta_data->>'avatar_url') as avatar_url from auth.users;
+
 -- Provide API clients a way to map a User ID to a user profile.
 -- `bearer_user_id` is a UUID ID of the auth.users table and is treated as a bearer token:
 -- Anyone able to identify a UUID is able to retrieve their profile.
 create function view_user_profile(bearer_user_id uuid)
 returns user_profile as $$
   select
-    id as user_id,
+    user_id,
     email,
-    coalesce(raw_user_meta_data->>'full_name', raw_user_meta_data->>'name') as full_name,
-    coalesce(raw_user_meta_data->>'picture', raw_user_meta_data->>'avatar_url') as avatar_url
-  from auth.users where id = bearer_user_id;
+    full_name,
+    avatar_url
+  from internal.user_profiles where user_id = bearer_user_id;
 $$ language sql stable security definer;
 
 comment on function view_user_profile is
@@ -66,8 +73,8 @@ select
   u.email as user_email,
   u.full_name as user_full_name,
   g.user_id as user_id
-from user_grants g,
-lateral view_user_profile(g.user_id) u
+from user_grants g
+left outer join internal.user_profiles u on u.user_id = g.user_id;
 ;
 alter view combined_grants_ext owner to authenticated;
 
@@ -93,12 +100,20 @@ select
   u.email as last_pub_user_email,
   u.full_name as last_pub_user_full_name
 from live_specs l
+left outer join (
+  select role_prefix, max(capability) as capability from internal.user_roles(auth_uid()) group by role_prefix
+) r on starts_with(l.catalog_name, r.role_prefix) and r.capability >= 'read'
 left outer join publication_specs p on l.id = p.live_spec_id and l.last_pub_id = p.pub_id
 left outer join connectors c on c.image_name = l.connector_image_name
-left outer join connector_tags t on c.id = t.connector_id and l.connector_image_tag = t.image_tag,
-lateral view_user_profile(p.user_id) u
+left outer join connector_tags t on c.id = t.connector_id and l.connector_image_tag = t.image_tag
+left outer join internal.user_profiles u on u.user_id = p.user_id
 ;
-alter view live_specs_ext owner to authenticated;
+-- Using `grant select` is discouraged because it allows the view to query the
+-- table as the user 'postgres' which bypasses RLS policies. However in this
+-- case, we are inlining the policy as a join in the query for performance
+-- reasons, and the join with internal.user_roles ensures that the rows returned
+-- are ones accessible by the authenticated user.
+grant select on live_specs_ext to authenticated;
 
 comment on view live_specs_ext is
   'View of `live_specs` extended with metadata of its last publication';
