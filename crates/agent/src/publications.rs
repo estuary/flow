@@ -161,6 +161,9 @@ impl PublishHandler {
             return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
         }
 
+        let task_ids = spec_rows.iter().map(|row| row.live_spec_id).collect();
+        let prev_quota_usage = agent_sql::publications::find_tenant_quotas(task_ids, txn).await?;
+
         for spec_row in &spec_rows {
             specs::apply_updates_for_row(
                 &draft_catalog,
@@ -174,7 +177,7 @@ impl PublishHandler {
             .with_context(|| format!("applying spec updates for {}", spec_row.catalog_name))?;
         }
 
-        let errors = specs::enforce_resource_quotas(&spec_rows, txn).await?;
+        let errors = specs::enforce_resource_quotas(&spec_rows, prev_quota_usage, txn).await?;
         if !errors.is_empty() {
             return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
         }

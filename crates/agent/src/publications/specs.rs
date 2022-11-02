@@ -352,8 +352,13 @@ pub fn validate_transition(
 
 pub async fn enforce_resource_quotas(
     spec_rows: &[SpecRow],
+    prev_tenants: Vec<Tenant>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<Vec<Error>> {
+    let prev_tenant_usages = prev_tenants
+        .into_iter()
+        .map(|tenant| (tenant.name.clone(), tenant))
+        .collect::<HashMap<_, _>>();
     let spec_ids = spec_rows
         .iter()
         .map(|spec_row| spec_row.live_spec_id)
@@ -365,19 +370,35 @@ pub async fn enforce_resource_quotas(
         .flat_map(|tenant| {
             let mut errs = vec![];
             if tenant.tasks_used > tenant.tasks_quota as i64 {
+                let prev_tenant_tasks_usage = prev_tenant_usages
+                    .get(&tenant.name)
+                    .map(|t| t.tasks_used)
+                    .unwrap_or(0);
+
+                let tasks_delta = tenant.tasks_used - prev_tenant_tasks_usage;
+
                 errs.push(format!(
-                    "Tenant {} would exceed task quota of {} by {}",
+                    "Request to add {} task(s) would exceed tenant '{}' quota of {}. {} are currently in use.",
+                    tasks_delta,
                     tenant.name,
                     tenant.tasks_quota,
-                    (tenant.tasks_used - tenant.tasks_quota as i64)
+                    prev_tenant_tasks_usage
                 ))
             }
             if tenant.collections_used > tenant.collections_quota as i64 {
+                let prev_tenant_collections_usage = prev_tenant_usages
+                    .get(&tenant.name)
+                    .map(|t| t.collections_used)
+                    .unwrap_or(0);
+
+                let collections_delta = tenant.collections_used - prev_tenant_collections_usage;
+
                 errs.push(format!(
-                    "Tenant {} would exceed collection quota of {} by {}",
+                    "Request to add {} task(s) would exceed tenant '{}' quota of {}. {} are in use.",
+                    collections_delta,
                     tenant.name,
                     tenant.collections_quota,
-                    (tenant.collections_used - tenant.collections_quota as i64)
+                    prev_tenant_collections_usage
                 ))
             }
             errs
