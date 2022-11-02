@@ -310,7 +310,7 @@ async fn do_draft(
 #[derive(Deserialize, Serialize)]
 pub struct SpecSummaryItem {
     pub catalog_name: String,
-    pub spec_type: Option<String>,
+    pub spec_type: String,
 }
 impl CliOutput for SpecSummaryItem {
     type TableAlt = ();

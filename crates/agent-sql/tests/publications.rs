@@ -4,6 +4,54 @@ use sqlx::{types::Uuid, Connection, Row};
 const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
 #[tokio::test]
+async fn test_tenant_usage_quotas() {
+    let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+        .await
+        .expect("connect");
+
+    let mut txn = conn.begin().await.unwrap();
+
+    // Fixture: insert live_specs, grants, drafts, and draft_specs fixtures.
+    sqlx::query(
+        r#"
+        with p1 as (
+            insert into live_specs (id, catalog_name, spec, spec_type, last_build_id, last_pub_id) values
+            ('1000000000000000', 'usageA/CollectionA', '1', 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+            ('2000000000000000', 'usageA/CaptureA', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+            ('3000000000000000', 'usageA/MaterializationA', '1', 'materialization', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+            ('5000000000000000', 'usageA/DerivationA', '{"derivation": {}}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+            ('6000000000000000', 'usageB/CaptureA', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+            ('7000000000000000', 'usageB/CaptureB', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+            ('8000000000000000', 'usageB/CaptureC', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+            ('9000000000000000', 'usageB/CaptureD', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+            ('1100000000000000', 'usageB/CaptureDisabled', '{"shards": {"disable": true}}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
+          ),
+          p2 as (
+              insert into tenants (tenant, tasks_quota, collections_quota) values
+              ('usageA/', 6, 3),
+              ('usageB/', 1, 5)
+          )
+          select 1;
+        "#,
+    )
+    .execute(&mut txn)
+    .await
+    .unwrap();
+
+    let res = agent_sql::publications::find_tenant_quotas(
+        vec![
+            Id::from_hex("1000000000000000").unwrap(),
+            Id::from_hex("6000000000000000").unwrap(),
+        ],
+        &mut txn,
+    )
+    .await
+    .unwrap();
+
+    insta::assert_json_snapshot!(res);
+}
+
+#[tokio::test]
 async fn test_publication_data_operations() {
     let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
         .await
@@ -15,44 +63,44 @@ async fn test_publication_data_operations() {
     sqlx::query(
         r#"
         with p1 as (
-          insert into live_specs (id, catalog_name, spec, spec_type, last_build_id, last_pub_id) values
-          ('aa00000000000000', 'aliceCo/First/Thing', '1', 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-          ('bb00000000000000', 'aliceCo/Second/Thing', '1', 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-          ('cc00000000000000', 'aliceCo/Test/Fixture', '1', 'test', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-          ('ff00000000000000', 'aliceCo/Unrelated/Thing', '1', 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
-        ),
-        p2 as (
-            insert into user_grants(user_id, object_role, capability) values
-                ('11111111-1111-1111-1111-111111111111', 'aliceCo/', 'admin')
-        ),
-        p3 as (
-            insert into role_grants(subject_role, object_role, capability) values
-                ('aliceCo/', 'aliceCo/', 'write'),
-                ('aliceCo/', 'examples/', 'admin'),
-                ('aliceCo/', 'ops/aliceCo/', 'read')
-        ),
-        p4 as (
-          -- A "stale" flow of Second/Thing reading First/Thing, which we'll remove later.
-          insert into live_spec_flows (source_id, target_id, flow_type) values
-          ('aa00000000000000', 'bb00000000000000', 'collection')
-        ),
-        p5 as (
-          insert into drafts (id, user_id) values
-          ('dddddddddddddddd', '11111111-1111-1111-1111-111111111111')
-        ),
-        p6 as (
-          insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
-          ('1100000000000000', 'dddddddddddddddd', 'aliceCo/First/Thing', '2', 'collection'),
-          ('2200000000000000', 'dddddddddddddddd', 'aliceCo/Second/Thing', null, null),
-          ('3300000000000000', 'dddddddddddddddd', 'aliceCo/New/Thing', '2', 'collection'),
-          ('4400000000000000', 'dddddddddddddddd', 'otherCo/Not/AliceCo', '2', 'collection'),
-          ('5500000000000000', 'dddddddddddddddd', 'aliceCo/Test/Fixture', '2', 'test')
-        ),
-        p7 as (
-          insert into publications (id, user_id, draft_id) values
-          ('eeeeeeeeeeeeeeee', '11111111-1111-1111-1111-111111111111','dddddddddddddddd')
-        )
-        select 1;
+            insert into live_specs (id, catalog_name, spec, spec_type, last_build_id, last_pub_id) values
+            ('aa00000000000000', 'aliceCo/First/Thing', '1', 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+            ('bb00000000000000', 'aliceCo/Second/Thing', '1', 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+            ('cc00000000000000', 'aliceCo/Test/Fixture', '1', 'test', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+            ('ff00000000000000', 'aliceCo/Unrelated/Thing', '1', 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
+          ),
+          p2 as (
+              insert into user_grants(user_id, object_role, capability) values
+                  ('11111111-1111-1111-1111-111111111111', 'aliceCo/', 'admin')
+          ),
+          p3 as (
+              insert into role_grants(subject_role, object_role, capability) values
+                  ('aliceCo/', 'aliceCo/', 'write'),
+                  ('aliceCo/', 'examples/', 'admin'),
+                  ('aliceCo/', 'ops/aliceCo/', 'read')
+          ),
+          p4 as (
+            -- A "stale" flow of Second/Thing reading First/Thing, which we'll remove later.
+            insert into live_spec_flows (source_id, target_id, flow_type) values
+            ('aa00000000000000', 'bb00000000000000', 'collection')
+          ),
+          p5 as (
+            insert into drafts (id, user_id) values
+            ('dddddddddddddddd', '11111111-1111-1111-1111-111111111111')
+          ),
+          p6 as (
+            insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
+            ('1100000000000000', 'dddddddddddddddd', 'aliceCo/First/Thing', '2', 'collection'),
+            ('2200000000000000', 'dddddddddddddddd', 'aliceCo/Second/Thing', null, null),
+            ('3300000000000000', 'dddddddddddddddd', 'aliceCo/New/Thing', '2', 'collection'),
+            ('4400000000000000', 'dddddddddddddddd', 'otherCo/Not/AliceCo', '2', 'collection'),
+            ('5500000000000000', 'dddddddddddddddd', 'aliceCo/Test/Fixture', '2', 'test')
+          ),
+          p7 as (
+            insert into publications (id, user_id, draft_id) values
+            ('eeeeeeeeeeeeeeee', '11111111-1111-1111-1111-111111111111','dddddddddddddddd')
+          )
+          select 1;
         "#,
     )
     .execute(&mut txn)

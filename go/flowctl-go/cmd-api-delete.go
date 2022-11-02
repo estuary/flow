@@ -90,7 +90,7 @@ func (cmd apiDelete) execute(ctx context.Context) error {
 		}
 
 		driver, err := capture.NewDriver(ctx,
-			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), cmd.Network, spec.ShardTemplate.Id.String(), ops.StdLogger())
+			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), cmd.Network, ops.StdLogger())
 		if err != nil {
 			return fmt.Errorf("building driver for capture %q: %w", spec.Capture, err)
 		}
@@ -127,7 +127,7 @@ func (cmd apiDelete) execute(ctx context.Context) error {
 		}
 
 		driver, err := materialize.NewDriver(ctx,
-			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), cmd.Network, spec.ShardTemplate.Id.String(), ops.StdLogger())
+			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), cmd.Network, ops.StdLogger())
 		if err != nil {
 			return fmt.Errorf("building driver for materialization %q: %w", spec.Materialization, err)
 		}

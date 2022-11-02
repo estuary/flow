@@ -3,7 +3,6 @@ package connector
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -62,7 +61,6 @@ func Run(
 	image string,
 	protocol Protocol,
 	networkName string,
-	containerName string,
 	args []string,
 	writeLoop func(io.Writer) error,
 	output io.WriteCloser,
@@ -126,33 +124,12 @@ func Run(
 		// Mount the connector-proxy binary, as well as the output of inspecting the docker image.
 		"--mount", fmt.Sprintf("type=bind,source=%s,target=/flow-connector-proxy", tmpProxy.Name()),
 		"--mount", fmt.Sprintf("type=bind,source=%s,target=/image-inspect.json", tmpInspect.Name()),
-	}
-
-	// Name the container to avoid duplicate connectors.
-	// Container names must match [a-zA-Z0-9][a-zA-Z0-9_.-]+.
-	// Set SHA hash of name+command as the container name and readable
-	// shard/task ID, command labels.
-	if containerName != "" {
-		hash := sha256.New()
-		hash.Write([]byte(containerName))
-
-		imageArgs = append(imageArgs,
-			"--label", fmt.Sprintf("shard=%s", containerName))
-		if len(args) > 0 {
-			imageArgs = append(imageArgs,
-				"--label", fmt.Sprintf("command=%s", args[0]))
-			hash.Write([]byte(args[0]))
-		}
-
-		imageArgs = append(imageArgs, "--name", fmt.Sprintf("%x", hash.Sum(nil)))
-	}
-
-	imageArgs = append(imageArgs,
 		image,
 		// Arguments following `image` are arguments of the connector proxy and not of docker:
 		"--image-inspect-json-path=/image-inspect.json",
 		"--log.level", ops.LogrusToFlowLevel(logger.Level()).String(),
-		protocol.proxyCommand())
+		protocol.proxyCommand(),
+	}
 
 	logger = ops.NewLoggerWithFields(logger, logrus.Fields{
 		ops.LogSourceField: image,

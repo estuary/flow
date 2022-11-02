@@ -1,18 +1,18 @@
-use anyhow::Context;
-use apis::{FlowCaptureOperation, FlowMaterializeOperation, FlowRuntimeProtocol};
 use clap::Parser;
-use connector_runner::{
-    run_airbyte_source_connector, run_flow_capture_connector, run_flow_materialize_connector,
-};
-use errors::Error;
 use flow_cli_common::{init_logging, LogArgs};
-use libs::image_inspect::ImageInspect;
 
 pub mod apis;
 pub mod connector_runner;
 pub mod errors;
 pub mod interceptors;
 pub mod libs;
+
+use apis::{FlowCaptureOperation, FlowMaterializeOperation, FlowRuntimeProtocol};
+use connector_runner::{
+    run_airbyte_source_connector, run_flow_capture_connector, run_flow_materialize_connector,
+};
+use errors::Error;
+use libs::image_inspect::ImageInspect;
 
 #[derive(Debug, clap::ArgEnum, Clone)]
 pub enum CaptureConnectorProtocol {
@@ -74,7 +74,8 @@ static DEFAULT_CONNECTOR_ENTRYPOINT: &str = "/connector/connector";
 //    network proxy specs, and starts the network proxy for the rest commands. See apis.rs for details.nd allows additional
 //    functionalities to be triggered during the communications.
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let Args {
         image_inspect_json_path,
         proxy_command,
@@ -82,22 +83,12 @@ fn main() -> anyhow::Result<()> {
     } = Args::parse();
     init_logging(&log_args);
 
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("building tokio runtime")?;
-
-    let result = runtime.block_on(async_main(image_inspect_json_path, proxy_command));
-
-    // Explicitly call Runtime::shutdown_background as an alternative to calling Runtime::Drop.
-    // This shuts down the runtime without waiting for blocking background tasks to complete,
-    // which is good because they likely never will. Consider a blocking call to read from stdin,
-    // where the sender is itself waiting for us to exit or write to our stdout.
-    // (Note that tokio::io maps AsyncRead of file descriptors to blocking tasks under the hood).
-    runtime.shutdown_background();
+    let result = async_main(image_inspect_json_path, proxy_command).await;
 
     match result {
-        Err(err) => Err(err.into()),
+        Err(err) => {
+            Err(err.into())
+        }
         Ok(()) => {
             tracing::info!(message = "connector-proxy exiting");
             Ok(())
@@ -124,10 +115,7 @@ async fn proxy_flow_capture(
     let image_inspect = ImageInspect::parse_from_json_file(image_inspect_json_path)?;
     let connector_protocol = image_inspect.infer_runtime_protocol();
     if connector_protocol != FlowRuntimeProtocol::Capture {
-        return Err(Error::MismatchingRuntimeProtocol(
-            connector_protocol.to_string(),
-            "capture",
-        ));
+        return Err(Error::MismatchingRuntimeProtocol(connector_protocol.to_string(), "capture"));
     }
 
     let entrypoint = image_inspect.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]);
@@ -151,10 +139,7 @@ async fn proxy_flow_materialize(
     let image_inspect = ImageInspect::parse_from_json_file(image_inspect_json_path)?;
     let connector_protocol = image_inspect.infer_runtime_protocol();
     if connector_protocol != FlowRuntimeProtocol::Materialize {
-        return Err(Error::MismatchingRuntimeProtocol(
-            connector_protocol.to_string(),
-            "materialize",
-        ));
+        return Err(Error::MismatchingRuntimeProtocol(connector_protocol.to_string(), "materialize"));
     }
 
     let entrypoint = image_inspect.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]);

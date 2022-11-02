@@ -88,6 +88,7 @@ strum = {version = "0.24", features = ["derive"]}
 strum_macros = "0.24"
 superslice = "1.0"
 sqlx = { version = "0.6", features = [ "chrono", "json", "macros", "postgres", "runtime-tokio-native-tls", "uuid" ] }
+hex = "0.4.3"
 
 tempfile = "3.3"
 tempdir = "0.3"

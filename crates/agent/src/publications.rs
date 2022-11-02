@@ -174,6 +174,11 @@ impl PublishHandler {
             .with_context(|| format!("applying spec updates for {}", spec_row.catalog_name))?;
         }
 
+        let errors = specs::enforce_resource_quotas(&spec_rows, txn).await?;
+        if !errors.is_empty() {
+            return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
+        }
+
         let expanded_rows = specs::expanded_specifications(&spec_rows, txn).await?;
         tracing::debug!(specs = %expanded_rows.len(), "resolved expanded specifications");
 

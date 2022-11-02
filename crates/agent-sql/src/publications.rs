@@ -208,6 +208,54 @@ pub async fn resolve_spec_rows(
     .await
 }
 
+#[derive(Debug, Serialize)]
+pub struct Tenant {
+    pub name: String,
+    pub tasks_quota: i32,
+    pub collections_quota: i32,
+    pub tasks_used: i64,
+    pub collections_used: i64,
+}
+
+pub async fn find_tenant_quotas(
+    live_spec_ids: Vec<Id>,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<Vec<Tenant>> {
+    sqlx::query_as!(
+        Tenant,
+        r#"
+        with tenant_names as (
+            select tenants.tenant as tenant_name
+            from tenants
+            join live_specs on starts_with(live_specs.catalog_name, tenants.tenant)
+            where live_specs.id = ANY($1::flowid[])
+            group by tenants.tenant
+        )
+        select
+            tenants.tenant as name,
+            max(tenants.tasks_quota) as "tasks_quota!",
+            max(tenants.collections_quota) as "collections_quota!",
+            count(live_specs.catalog_name) filter (
+                where
+                    live_specs.spec_type = 'capture' or
+                    live_specs.spec_type = 'materialization' or
+                    live_specs.spec_type = 'collection' and live_specs.spec->'derivation' is not null
+            ) as "tasks_used!",
+            count(live_specs.catalog_name) filter (
+                where live_specs.spec_type = 'collection'
+            ) as "collections_used!"
+        from tenants
+        join live_specs on
+            starts_with(live_specs.catalog_name, tenants.tenant) and
+            (live_specs.spec->'shards'->>'disable')::boolean is not true
+        where tenants.tenant in (select tenant_name from tenant_names)
+        group by tenants.tenant;"#,
+        live_spec_ids as Vec<Id>
+    )
+    .fetch_all(txn)
+    .await
+}
+
 #[derive(Debug)]
 pub struct ExpandedRow {
     // Name of the specification.

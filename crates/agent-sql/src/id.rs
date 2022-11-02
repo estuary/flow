@@ -1,3 +1,4 @@
+use hex::FromHexError;
 use sqlx::{postgres, Decode, Encode, Type, TypeInfo};
 
 /// Id is the Rust equivalent of the Postgres `flowid` type domain.
@@ -11,6 +12,18 @@ impl Id {
     }
     pub fn new(b: [u8; 8]) -> Self {
         Self(b)
+    }
+}
+
+impl Id {
+    pub fn from_hex<T: AsRef<[u8]>>(hex: T) -> Result<Self, FromHexError> {
+        let vec_bytes = hex::decode(hex)?;
+        let exact: [u8; 8] = vec_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| FromHexError::InvalidStringLength)?;
+
+        Ok(Id(exact))
     }
 }
 

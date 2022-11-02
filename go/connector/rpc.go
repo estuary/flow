@@ -45,7 +45,6 @@ func UnaryRPC(
 	},
 	logger ops.Logger,
 	network string,
-	containerName string,
 ) error {
 	var source = new(EndpointSpec)
 
@@ -65,7 +64,7 @@ func UnaryRPC(
 	request = nil                          // Ensure we don't use original again.
 
 	var first = true
-	err = Run(ctx, source.Image, protocol, network, containerName,
+	err = Run(ctx, source.Image, protocol, network,
 		[]string{command},
 		func(w io.Writer) error {
 			defer ZeroBytes(decrypted)
@@ -102,7 +101,6 @@ func StreamRPC(
 	newRespFn func() proto.Message,
 	logger ops.Logger,
 	network string,
-	containerName string,
 ) error {
 	var (
 		ctx    = stream.Context()
@@ -126,7 +124,7 @@ func StreamRPC(
 	*pluckEndpointSpec(cloned) = decrypted // Pass along decrypted config.
 	open = nil                             // Ensure we don't use original again.
 
-	return Run(ctx, source.Image, protocol, network, containerName,
+	return Run(ctx, source.Image, protocol, network,
 		[]string{command},
 		func(w io.Writer) error { return protoWriteLoop(stream, cloned, newReqFn, w) },
 		NewProtoOutput(

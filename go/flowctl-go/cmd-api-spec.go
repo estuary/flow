@@ -36,7 +36,6 @@ type apiSpec struct {
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 	Image       string                `long:"image" required:"true" description:"Docker image of the connector to use"`
 	Network     string                `long:"network" description:"The Docker network that connector containers are given access to."`
-	Name        string                `long:"name" description:"The Docker container name."`
 }
 
 const FLOW_RUNTIME_PROTOCOL_KEY = "FLOW_RUNTIME_PROTOCOL"
@@ -83,7 +82,7 @@ func (cmd apiSpec) execute(ctx context.Context) (specResponse, error) {
 
 func (cmd apiSpec) specCapture(ctx context.Context, spec json.RawMessage) (specResponse, error) {
 	var driver, err = capture.NewDriver(ctx,
-		flow.EndpointType_AIRBYTE_SOURCE, spec, cmd.Network, cmd.Name, ops.StdLogger())
+		flow.EndpointType_AIRBYTE_SOURCE, spec, cmd.Network, ops.StdLogger())
 	if err != nil {
 		return specResponse{}, err
 	}
@@ -116,7 +115,7 @@ func (cmd apiSpec) specCapture(ctx context.Context, spec json.RawMessage) (specR
 
 func (cmd apiSpec) specMaterialization(ctx context.Context, spec json.RawMessage) (specResponse, error) {
 	var driver, err = materialize.NewDriver(ctx,
-		flow.EndpointType_FLOW_SINK, spec, cmd.Network, cmd.Name, ops.StdLogger())
+		flow.EndpointType_FLOW_SINK, spec, cmd.Network, ops.StdLogger())
 	if err != nil {
 		return specResponse{}, err
 	}

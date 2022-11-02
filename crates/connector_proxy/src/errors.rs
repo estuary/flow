@@ -27,7 +27,7 @@ pub enum Error {
     #[error("go.estuary.dev/E007: The connector's protocol does not match the requested protocol. Connector protocol is {0}, requested protocol is {1}")]
     MismatchingRuntimeProtocol(String, &'static str),
 
-    #[error(transparent)]
+    #[error("go.estuary.dev/E008: IO Error")]
     IOError(#[from] std::io::Error),
 
     #[error("go.estuary.dev/E009: Json Error")]
@@ -87,10 +87,8 @@ pub fn create_custom_error(message: &str) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::Other, message)
 }
 
-pub fn interceptor_stream_to_io_stream(
-    stream: InterceptorStream,
-) -> impl TryStream<Item = std::io::Result<Bytes>, Ok = Bytes, Error = std::io::Error> {
-    stream.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+pub fn interceptor_stream_to_io_stream(stream: InterceptorStream) -> impl TryStream<Item = std::io::Result<Bytes>, Ok = Bytes, Error = std::io::Error> {
+    stream.map_err(|e| create_custom_error(&e.to_string()))
 }
 
 pub fn io_stream_to_interceptor_stream(stream: impl Stream<Item = std::io::Result<Bytes>> + Send + Sync + 'static) -> InterceptorStream {
