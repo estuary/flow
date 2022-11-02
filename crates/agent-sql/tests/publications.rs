@@ -54,7 +54,24 @@ async fn test_tenant_usage_quotas() {
     .await
     .unwrap();
 
-    insta::assert_json_snapshot!(res);
+    insta::assert_debug_snapshot!(res, @r#"
+        [
+            Tenant {
+                name: "usageA/",
+                tasks_quota: 6,
+                collections_quota: 3,
+                tasks_used: 3,
+                collections_used: 2,
+            },
+            Tenant {
+                name: "usageB/",
+                tasks_quota: 1,
+                collections_quota: 5,
+                tasks_used: 4,
+                collections_used: 0,
+            },
+        ]
+    "#);
 }
 
 #[tokio::test]
