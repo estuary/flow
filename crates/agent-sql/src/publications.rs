@@ -249,7 +249,8 @@ pub async fn find_tenant_quotas(
             starts_with(live_specs.catalog_name, tenants.tenant) and
             (live_specs.spec->'shards'->>'disable')::boolean is not true
         where tenants.tenant in (select tenant_name from tenant_names)
-        group by tenants.tenant, tenants.tasks_quota, tenants.collections_quota;"#,
+        group by tenants.tenant, tenants.tasks_quota, tenants.collections_quota
+        order by tenants.tenant;"#,
         live_spec_ids as Vec<Id>
     )
     .fetch_all(txn)
