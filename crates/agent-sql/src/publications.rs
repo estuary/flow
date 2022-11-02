@@ -230,26 +230,33 @@ pub async fn find_tenant_quotas(
             join live_specs on starts_with(live_specs.catalog_name, tenants.tenant)
             where live_specs.id = ANY($1::flowid[])
             group by tenants.tenant
+        ),
+        tenant_usages as (
+            select
+                tenant_names.tenant_name,
+                count(live_specs.catalog_name) filter (
+                    where
+                        live_specs.spec_type = 'capture' or
+                        live_specs.spec_type = 'materialization' or
+                        live_specs.spec_type = 'collection' and live_specs.spec->'derivation' is not null
+                ) as tasks_used,
+                count(live_specs.catalog_name) filter (
+                    where live_specs.spec_type = 'collection'
+                ) as collections_used
+            from tenant_names
+            join live_specs on
+                starts_with(live_specs.catalog_name, tenant_names.tenant_name) and
+                (live_specs.spec->'shards'->>'disable')::boolean is not true
+            group by tenant_names.tenant_name
         )
         select
             tenants.tenant as name,
             tenants.tasks_quota as "tasks_quota!",
             tenants.collections_quota as "collections_quota!",
-            count(live_specs.catalog_name) filter (
-                where
-                    live_specs.spec_type = 'capture' or
-                    live_specs.spec_type = 'materialization' or
-                    live_specs.spec_type = 'collection' and live_specs.spec->'derivation' is not null
-            ) as "tasks_used!",
-            count(live_specs.catalog_name) filter (
-                where live_specs.spec_type = 'collection'
-            ) as "collections_used!"
-        from tenants
-        join live_specs on
-            starts_with(live_specs.catalog_name, tenants.tenant) and
-            (live_specs.spec->'shards'->>'disable')::boolean is not true
-        where tenants.tenant in (select tenant_name from tenant_names)
-        group by tenants.tenant, tenants.tasks_quota, tenants.collections_quota
+            tenant_usages.tasks_used as "tasks_used!",
+            tenant_usages.collections_used as "collections_used!"
+        from tenant_usages
+        join tenants on tenants.tenant = tenant_usages.tenant_name
         order by tenants.tenant;"#,
         live_spec_ids as Vec<Id>
     )
