@@ -14,7 +14,13 @@ async fn test_tenant_usage_quotas() {
     // Fixture: insert live_specs, grants, drafts, and draft_specs fixtures.
     sqlx::query(
         r#"
-        with p1 as (
+        with specs_delete as (
+            delete from live_specs
+        ),
+        tenants_delete as (
+            delete from tenants
+        ),
+        p1 as (
             insert into live_specs (id, catalog_name, spec, spec_type, last_build_id, last_pub_id) values
             ('1000000000000000', 'usageA/CollectionA', '1', 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
             ('2000000000000000', 'usageA/CaptureA', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),

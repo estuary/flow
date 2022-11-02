@@ -613,8 +613,6 @@ fn split_tag(image_full: &str) -> (String, String) {
 #[cfg(test)]
 mod test {
 
-    use crate::publications::JobStatus;
-
     use super::super::PublishHandler;
     use agent_sql::Id;
     use reqwest::Url;
@@ -631,7 +629,25 @@ mod test {
 
         sqlx::query(
             r#"
-            with p1 as (
+            with specs_delete as (
+                delete from live_specs
+            ),
+            drafts_delete as (
+                delete from drafts
+            ),
+            draft_specs_delete as (
+                delete from draft_specs
+            ),
+            publications_delete as (
+                delete from publications
+            ),
+            role_grants_delete as (
+                delete from role_grants
+            ),
+            user_grants_delete as (
+                delete from user_grants
+            ),
+            p1 as (
                 insert into live_specs (id, catalog_name, spec, spec_type, last_build_id, last_pub_id) values
                 ('1000000000000000', 'usageB/CollectionA', '{}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
                 ('1100000000000000', 'usageB/CollectionB', '{}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
