@@ -233,8 +233,8 @@ pub async fn find_tenant_quotas(
         )
         select
             tenants.tenant as name,
-            max(tenants.tasks_quota) as "tasks_quota!",
-            max(tenants.collections_quota) as "collections_quota!",
+            tenants.tasks_quota as "tasks_quota!",
+            tenants.collections_quota as "collections_quota!",
             count(live_specs.catalog_name) filter (
                 where
                     live_specs.spec_type = 'capture' or
@@ -249,7 +249,7 @@ pub async fn find_tenant_quotas(
             starts_with(live_specs.catalog_name, tenants.tenant) and
             (live_specs.spec->'shards'->>'disable')::boolean is not true
         where tenants.tenant in (select tenant_name from tenant_names)
-        group by tenants.tenant;"#,
+        group by tenants.tenant, tenants.tasks_quota, tenants.collections_quota;"#,
         live_spec_ids as Vec<Id>
     )
     .fetch_all(txn)

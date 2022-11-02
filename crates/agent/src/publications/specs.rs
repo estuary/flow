@@ -1,13 +1,12 @@
 use super::Error;
-use crate::Id;
 
 use agent_sql::publications::{ExpandedRow, SpecRow, Tenant};
-use agent_sql::{Capability, CatalogType};
+use agent_sql::{Capability, CatalogType, Id};
 use anyhow::Context;
-use itertools::{Either, Itertools};
+use itertools::Itertools;
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 // resolve_specifications returns the definitive set of specifications which
 // are changing in this publication. It obtains sufficient locks to ensure
@@ -369,14 +368,23 @@ pub async fn enforce_resource_quotas(
         .into_iter()
         .flat_map(|tenant| {
             let mut errs = vec![];
-            if tenant.tasks_used > tenant.tasks_quota as i64 {
-                let prev_tenant_tasks_usage = prev_tenant_usages
-                    .get(&tenant.name)
-                    .map(|t| t.tasks_used)
-                    .unwrap_or(0);
 
-                let tasks_delta = tenant.tasks_used - prev_tenant_tasks_usage;
+            let prev_tenant_tasks_usage = prev_tenant_usages
+                .get(&tenant.name)
+                .map(|t| t.tasks_used)
+                .unwrap_or(0);
+            let prev_tenant_collections_usage = prev_tenant_usages
+                .get(&tenant.name)
+                .map(|t| t.collections_used)
+                .unwrap_or(0);
 
+            let tasks_delta = tenant.tasks_used - prev_tenant_tasks_usage;
+            let collections_delta = tenant.collections_used - prev_tenant_collections_usage;
+
+            // We don't want to stop you from disabling tasks if you're at/over your quota
+            // NOTE: technically this means that you can add new tasks even if your usage
+            // exceeds your quota, so long as you remove/disable more tasks than you add.
+            if tasks_delta >= 0 && tenant.tasks_used > tenant.tasks_quota as i64 {
                 errs.push(format!(
                     "Request to add {} task(s) would exceed tenant '{}' quota of {}. {} are currently in use.",
                     tasks_delta,
@@ -385,16 +393,9 @@ pub async fn enforce_resource_quotas(
                     prev_tenant_tasks_usage
                 ))
             }
-            if tenant.collections_used > tenant.collections_quota as i64 {
-                let prev_tenant_collections_usage = prev_tenant_usages
-                    .get(&tenant.name)
-                    .map(|t| t.collections_used)
-                    .unwrap_or(0);
-
-                let collections_delta = tenant.collections_used - prev_tenant_collections_usage;
-
+            if collections_delta >= 0 && tenant.collections_used > tenant.collections_quota as i64 {
                 errs.push(format!(
-                    "Request to add {} task(s) would exceed tenant '{}' quota of {}. {} are in use.",
+                    "Request to add {} collections(s) would exceed tenant '{}' quota of {}. {} are currently in use.",
                     collections_delta,
                     tenant.name,
                     tenant.collections_quota,
@@ -410,14 +411,6 @@ pub async fn enforce_resource_quotas(
         .collect();
 
     Ok(errors)
-}
-
-pub fn tenant_name_for_catalog_name(catalog_name: String) -> anyhow::Result<String> {
-    catalog_name
-        .split("/")
-        .next()
-        .map(|val| format!("{}/", val.to_string()))
-        .ok_or(anyhow::anyhow!("Invalid catalog name: {}", catalog_name))
 }
 
 pub async fn apply_updates_for_row(
@@ -620,14 +613,17 @@ fn split_tag(image_full: &str) -> (String, String) {
 #[cfg(test)]
 mod test {
 
+    use crate::publications::JobStatus;
+
     use super::super::PublishHandler;
+    use agent_sql::Id;
     use reqwest::Url;
     use sqlx::Connection;
 
     const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
     #[tokio::test]
-    async fn test_quota_enforcement_single_tenant() {
+    async fn test_quota_enforcement() {
         let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
             .await
             .unwrap();
@@ -637,13 +633,27 @@ mod test {
             r#"
             with p1 as (
                 insert into live_specs (id, catalog_name, spec, spec_type, last_build_id, last_pub_id) values
-                ('1000000000000000', 'usageB/CaptureA', '{"endpoint": {},"bindings": []}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-                ('2000000000000000', 'usageB/CaptureB', '{"endpoint": {},"bindings": []}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-                ('3000000000000000', 'usageB/CaptureDisabled', '{"shards": {"disable": true}}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
+                ('1000000000000000', 'usageB/CollectionA', '{}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+                ('1100000000000000', 'usageB/CollectionB', '{}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+                ('2000000000000000', 'usageB/CaptureA', '{"endpoint": {},"bindings": []}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+                ('3000000000000000', 'usageB/CaptureB', '{"endpoint": {},"bindings": []}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+                ('4000000000000000', 'usageB/CaptureDisabled', '{"shards": {"disable": true}}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+
+                -- Testing that we can disable tasks to reduce usage when at quota
+                ('a100000000000000', 'usageC/CollectionA', '{"schema": {}, "key": ["foo"]}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+                ('a200000000000000', 'usageC/CaptureA', '{
+                    "bindings": [{"target": "usageC/CollectionA", "resource": {"binding": "foo", "syncMode": "incremental"}}],
+                    "endpoint": {"connector": {"image": "foo", "config": {}}}
+                }'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+                ('a300000000000000', 'usageC/CaptureB', '{
+                    "bindings": [{"target": "usageC/CollectionA", "resource": {"binding": "foo", "syncMode": "incremental"}}],
+                    "endpoint": {"connector": {"image": "foo", "config": {}}}
+                }'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
               ),
               p2 as (
                   insert into tenants (tenant, tasks_quota, collections_quota) values
-                  ('usageB/', 2, 3)
+                  ('usageB/', 2, 2),
+                  ('usageC/', 1, 1)
               ),
               p3 as (
                 insert into auth.users (id) values
@@ -651,26 +661,38 @@ mod test {
               ),
               p4 as (
                 insert into drafts (id, user_id) values
-                ('1110000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120002')
+                ('1110000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120002'),
+                ('1120000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120002'),
+                ('1130000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120002')
               ),
               p5 as (
                 insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
                 ('1111000000000000', '1110000000000000', 'usageB/CaptureC', '{
                     "bindings": [{"target": "usageB/CaptureC", "resource": {"binding": "foo", "syncMode": "incremental"}}],
                     "endpoint": {"connector": {"image": "foo", "config": {}}}
+                }'::json, 'capture'),
+                ('1112000000000000', '1120000000000000', 'usageB/DerivationA', '{"schema": {}, "key": ["foo"], "derivation": {"transform":{"key": {"source": {"name": "usageB/CollectionA"}}}}}'::json, 'collection'),
+                ('1113000000000000', '1130000000000000', 'usageC/CaptureA', '{
+                    "bindings": [{"target": "usageC/CollectionA", "resource": {"binding": "foo", "syncMode": "incremental"}}],
+                    "endpoint": {"connector": {"image": "foo", "config": {}}},
+                    "shards": {"disable": true}
                 }'::json, 'capture')
               ),
               p6 as (
                 insert into publications (id, job_status, user_id, draft_id) values
-                ('1111100000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120002', '1110000000000000')
+                ('1111100000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120002', '1110000000000000'),
+                ('1111200000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120002', '1120000000000000'),
+                ('1111300000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120002', '1130000000000000')
               ),
               p7 as (
                 insert into role_grants (subject_role, object_role, capability) values
-                ('usageB/', 'usageB/', 'admin')
+                ('usageB/', 'usageB/', 'admin'),
+                ('usageC/', 'usageC/', 'admin')
               ),
               p8 as (
                 insert into user_grants (user_id, object_role, capability) values
-                ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'usageB/', 'admin')
+                ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'usageB/', 'admin'),
+                ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'usageC/', 'admin')
               )
               select 1;
         "#,
@@ -687,24 +709,35 @@ mod test {
         logs_rx.close();
 
         let mut handler = PublishHandler::new("", &bs_url, &bs_url, "", &bs_url, &logs_tx);
-        let row = agent_sql::publications::dequeue(&mut txn)
-            .await
-            .unwrap()
-            .unwrap();
-        let res = handler.process(row, &mut txn).await;
 
-        insta::assert_debug_snapshot!(res);
+        while let Some(row) = agent_sql::publications::dequeue(&mut txn).await.unwrap() {
+            let mut sub_tx = txn.begin().await.unwrap();
+            let row_draft_id = row.draft_id.clone();
+            let (id, status) = handler.process(row, &mut sub_tx, true).await.unwrap();
 
-        let errors = sqlx::query!(
-            r#"
-            select scope, detail
+            let errors = sqlx::query!(
+                r#"
+            select draft_id as "draft_id: Id", scope, detail
             from draft_errors
-            where draft_errors.draft_id = '1110000000000000';"#
-        )
-        .fetch_all(&mut txn)
-        .await
-        .unwrap();
+            where draft_errors.draft_id = $1::flowid;"#,
+                row_draft_id as Id
+            )
+            .fetch_all(&mut sub_tx)
+            .await
+            .unwrap();
 
-        insta::assert_debug_snapshot!(errors);
+            let formatted_errors: Vec<String> = errors.into_iter().map(|e| e.detail).collect();
+
+            insta::assert_json_snapshot!(serde_json::json!({
+                "draft_id": &row_draft_id,
+                "status": &status,
+                "errors": &formatted_errors
+            }));
+
+            agent_sql::publications::resolve(id, &status, &mut sub_tx)
+                .await
+                .unwrap();
+            sub_tx.commit().await.unwrap();
+        }
     }
 }

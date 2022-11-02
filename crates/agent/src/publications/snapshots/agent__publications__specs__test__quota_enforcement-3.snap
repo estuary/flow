@@ -1,0 +1,12 @@
+---
+source: crates/agent/src/publications/specs.rs
+assertion_line: 727
+expression: "serde_json::json!({\n        \"draft_id\" : & row_draft_id, \"status\" : & status, \"errors\" : &\n        formatted_errors\n    })"
+---
+{
+  "draft_id": "1130000000000000",
+  "errors": [],
+  "status": {
+    "type": "success"
+  }
+}
