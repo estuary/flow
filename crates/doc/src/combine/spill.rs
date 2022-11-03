@@ -49,11 +49,13 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
     /// Write a segment to the spill file. The segment iterator must yield
     /// documents in sorted key order. Documents will be grouped into chunks
     /// of the given size, and are then written in-order to the spill file.
+    /// Each chunks is compressed using LZ4.
+    /// The written size of the segment is returned.
     pub fn write_segment<'alloc, S>(
         &mut self,
         segment: S,
         docs_per_chunk: usize,
-    ) -> Result<(), io::Error>
+    ) -> Result<u64, io::Error>
     where
         S: Iterator<Item = HeapDoc<'alloc>>,
     {
@@ -61,30 +63,45 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
 
         let begin = self.spill.seek(io::SeekFrom::Current(0))?;
         let mut ser = rkyv::ser::serializers::AllocSerializer::<8192>::default();
+        let mut lz4_buf = Vec::new();
 
         for chunk in chunks.into_iter() {
             let chunk = chunk.collect::<Vec<_>>();
 
-            // Reserve space for a length header, then archive.
-            ser.write(&[0; 4])
-                .expect("serialize of byte header to memory always succeeds");
+            // Archive chunk into uncompressed "raw" buffer.
             ser.serialize_value(&chunk)
                 .expect("serialize of HeapDoc to memory always succeeds");
+            let (raw_buf, scratch, _shared) = ser.into_components();
+            let mut raw_buf = raw_buf.into_inner();
 
-            let (buf, scratch, _shared) = ser.into_components();
-            let mut buf = buf.into_inner();
+            // Prepare a buffer to hold the compressed result, reserving the leading eight bytes for the chunk header.
+            lz4_buf.clear();
+            lz4_buf.reserve(8 + lz4::block::compress_bound(raw_buf.len())?);
+            unsafe { lz4_buf.set_len(lz4_buf.capacity()) };
 
-            // Update the length header with the correct chunk length, then send to writer.
-            let header = u32::to_ne_bytes(buf.len() as u32 - 4);
-            buf[0..4].copy_from_slice(&header);
-            self.spill.write_all(&buf)?;
+            // Compress the raw buffer, reserving the header.
+            let n = lz4::block::compress_to_buffer(
+                &raw_buf,
+                Some(lz4::block::CompressionMode::DEFAULT),
+                false,
+                &mut lz4_buf[8..],
+            )?;
+            unsafe { lz4_buf.set_len(8 + n) }; // Safety: lz4 will not write beyond our given slice.
+
+            // Update the header with the raw and lz4'd chunk lengths, then send to writer.
+            let lz4_len = u32::to_ne_bytes(lz4_buf.len() as u32 - 8);
+            let raw_len = u32::to_ne_bytes(raw_buf.len() as u32);
+            lz4_buf[0..4].copy_from_slice(&lz4_len);
+            lz4_buf[4..8].copy_from_slice(&raw_len);
+
+            self.spill.write_all(&lz4_buf)?;
 
             // Re-compose the `rkyv` serializer, preserving allocated capacity.
             // rkyv::SharedSerializeMap doesn't provide an API to reset while preserving its allocations.
-            buf.clear();
+            raw_buf.clear();
 
             ser = rkyv::ser::serializers::CompositeSerializer::new(
-                rkyv::ser::serializers::AlignedSerializer::new(buf),
+                rkyv::ser::serializers::AlignedSerializer::new(raw_buf),
                 scratch,
                 Default::default(),
             );
@@ -97,7 +114,7 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
             self.ranges.push(begin..end);
         }
 
-        Ok(())
+        Ok(end - begin)
     }
 
     pub fn segment_ranges(&self) -> &[Range<u64>] {
@@ -130,28 +147,43 @@ impl Segment {
         r: &mut R,
         range: Range<u64>,
         mut backing: rkyv::AlignedVec,
+        lz4_buf: &mut Vec<u8>,
     ) -> Result<Self, io::Error> {
         assert_ne!(range.start, range.end);
+        lz4_buf.clear();
         backing.clear();
 
-        // Read length header.
-        let mut header = [0, 0, 0, 0];
+        // Read chunk header.
+        let mut header = [0, 0, 0, 0, 0, 0, 0, 0];
         r.seek(io::SeekFrom::Start(range.start))?;
         r.read_exact(&mut header)?;
-        let len = u32::from_ne_bytes(header) as u64;
+
+        let lz4_len = u32::from_ne_bytes(header[0..4].try_into().unwrap()) as u64;
+        let raw_len = u32::from_ne_bytes(header[4..8].try_into().unwrap()) as u64;
 
         // Compute implied next chunk range and ensure it remains valid.
-        let next = range.start + 4 + len..range.end;
+        let next = range.start + 8 + lz4_len..range.end;
         assert!(
             next.start <= next.end,
-            "read header len {len} which is outside of region {next:?}"
+            "read header len {lz4_len} which is outside of region {next:?}"
         );
 
-        // Allocate and read into `out`.
+        // Allocate and read compressed chunk into `tmp`.
         // Safety: we're immediately reading into allocated memory, overwriting its uninitialized content.
-        backing.reserve(len as usize);
-        unsafe { backing.set_len(len as usize) }
-        r.read_exact(&mut backing)?;
+        lz4_buf.reserve(lz4_len as usize);
+        unsafe { lz4_buf.set_len(lz4_len as usize) }
+        r.read_exact(lz4_buf)?;
+
+        // Allocate and decompress into `backing`.
+        // Safety: we're immediately decompressing into allocated memory, overwriting its uninitialized content.
+        backing.reserve(raw_len as usize);
+        unsafe { backing.set_len(raw_len as usize) }
+
+        assert_eq!(
+            lz4::block::decompress_to_buffer(&lz4_buf, Some(raw_len as i32), &mut backing)?,
+            backing.len(),
+            "bytes actually decompressed don't match the length encoded in the chunk header"
+        );
 
         // Cast `backing` into its archived type.
         let docs = unsafe { rkyv::archived_root::<Vec<HeapDoc>>(&backing) };
@@ -180,7 +212,11 @@ impl Segment {
     /// Next is called after the current head() has been fully processed.
     /// It is unsafe to access a previous head() after calling next().
     /// If no more documents remain in the Segment then Ok(None) is returned.
-    pub fn next<R: io::Read + io::Seek>(self, r: &mut R) -> Result<Option<Self>, io::Error> {
+    pub fn next<R: io::Read + io::Seek>(
+        self,
+        r: &mut R,
+        tmp: &mut Vec<u8>,
+    ) -> Result<Option<Self>, io::Error> {
         let Segment {
             _backing: backing,
             docs,
@@ -196,7 +232,7 @@ impl Segment {
                 next,
             }))
         } else if !next.is_empty() {
-            Ok(Some(Self::new(key, r, next, backing)?))
+            Ok(Some(Self::new(key, r, next, backing, tmp)?))
         } else {
             Ok(None)
         }
@@ -231,6 +267,7 @@ pub struct SpillDrainer<F: io::Read + io::Write + io::Seek> {
     key: Rc<[Pointer]>,
     schema: url::Url,
     spill: F,
+    tmp: Vec<u8>,
 }
 
 impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
@@ -243,9 +280,16 @@ impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
         ranges: &[Range<u64>],
     ) -> Result<Self, std::io::Error> {
         let mut heap = BinaryHeap::with_capacity(ranges.len());
+        let mut tmp = Vec::new();
 
         for range in ranges {
-            let segment = Segment::new(key.clone(), &mut spill, range.clone(), Default::default())?;
+            let segment = Segment::new(
+                key.clone(),
+                &mut spill,
+                range.clone(),
+                Default::default(),
+                &mut tmp,
+            )?;
             heap.push(cmp::Reverse(segment));
         }
 
@@ -254,6 +298,7 @@ impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
             key,
             schema,
             spill,
+            tmp,
         })
     }
 
@@ -263,6 +308,7 @@ impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
             key,
             schema,
             spill,
+            tmp: _,
         } = self;
         (key, schema, spill)
     }
@@ -361,7 +407,10 @@ impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
                 };
                 revalidate = true;
 
-                if let Some(other) = other.next(&mut self.spill).map_err(Error::SpillIO)? {
+                if let Some(other) = other
+                    .next(&mut self.spill, &mut self.tmp)
+                    .map_err(Error::SpillIO)?
+                {
                     self.heap.push(cmp::Reverse(other));
                 }
             }
@@ -376,7 +425,10 @@ impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
 
             let done = !callback(root, reduced)?;
 
-            if let Some(segment) = segment.next(&mut self.spill).map_err(Error::SpillIO)? {
+            if let Some(segment) = segment
+                .next(&mut self.spill, &mut self.tmp)
+                .map_err(Error::SpillIO)?
+            {
                 self.heap.push(cmp::Reverse(segment));
             }
 
@@ -424,60 +476,59 @@ mod test {
         let (mut spill, ranges) = spill.into_parts();
 
         // Assert we wrote the expected range and regression fixture.
-        assert_eq!(ranges, vec![0..248]);
+        assert_eq!(ranges, vec![0..204]);
 
-        let hexdump = hexdump::hexdump_iter(&spill.get_ref())
-            .map(|line| format!("{line}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        insta::assert_snapshot!(hexdump, @r###"
-        |9c000000 6b657976 fcffffff 03000000| ....keyv........ 00000000
-        |08000000 61616100 00000003 00000000| ....aaa......... 00000010
-        |e7ffffff 01000000 08000000 6170706c| ............appl 00000020
-        |65000005 00000000 ccffffff 03000000| e............... 00000030
-        |08000000 62626200 00000003 00000000| ....bbb......... 00000040
-        |b7ffffff 01000000 08000000 62616e61| ............bana 00000050
-        |6e610006 00000000 06000000 9cffffff| na.............. 00000060
-        |02000000 00000000 00000000 00000000| ................ 00000070
-        |06000000 b4ffffff 02000000 00000000| ................ 00000080
-        |01000000 00000000 d0ffffff 02000000| ................ 00000090
-        |54000000 6b657976 fcffffff 03000000| T...keyv........ 000000a0
-        |08000000 63636300 00000003 00000000| ....ccc......... 000000b0
-        |e7ffffff 01000000 08000000 63617272| ............carr 000000c0
-        |6f740006 00000000 06000000 ccffffff| ot.............. 000000d0
-        |02000000 00000000 03000000 00000000| ................ 000000e0
-        |e8ffffff 01000000|                   ........         000000f0
-                                                               000000f8
+        insta::assert_snapshot!(to_hex(&spill.get_ref()), @r###"
+        |71000000 a0000000 f0086b65 79760000| q.........keyv.. 00000000
+        |0000f8ff ffff0300 00000800 00006161| ..............aa 00000010
+        |61130000 0f006400 e3ffffff 01180070| a.....d........p 00000020
+        |70706c65 0000051d 0017c830 00306262| pple.......0.0bb 00000030
+        |62130001 300017b3 30008062 616e616e| b...0...0..banan 00000040
+        |6100061d 00000500 509cffff ff020d00| a.......P....... 00000050
+        |07020000 180017b4 1800006c 00000200| ...........l.... 00000060
+        |80d0ffff ff020000 004b0000 00580000| .........K...X.. 00000070
+        |00f0086b 65797600 000000f8 ffffff03| ...keyv......... 00000080
+        |00000008 00000063 63631300 000f0064| .......ccc.....d 00000090
+        |00e3ffff ff011800 70617272 6f740006| ........parrot.. 000000a0
+        |1d000005 0050ccff ffff020d 00042d00| .....P........-. 000000b0
+        |b0000000 e8ffffff 01000000|          ............     000000c0
+                                                               000000cc
         "###);
 
         // Parse the region as a Segment.
         let key: Rc<[Pointer]> = vec![Pointer::from_str("/key")].into();
+        let mut tmp = Vec::new();
         let mut actual = Vec::new();
-        let mut segment =
-            Segment::new(key, &mut spill, ranges[0].clone(), Default::default()).unwrap();
+        let mut segment = Segment::new(
+            key,
+            &mut spill,
+            ranges[0].clone(),
+            Default::default(),
+            &mut tmp,
+        )
+        .unwrap();
 
         // First chunk has two documents.
         assert_eq!(segment.docs.len(), 2);
-        assert_eq!(segment._backing.len(), 156);
-        assert_eq!(segment.next, 160..248);
+        assert_eq!(segment._backing.len(), 160);
+        assert_eq!(segment.next, 121..204);
 
         actual.push(serde_json::to_value(&segment.head().root.as_node()).unwrap());
 
-        segment = segment.next(&mut spill).unwrap().unwrap();
+        segment = segment.next(&mut spill, &mut tmp).unwrap().unwrap();
         actual.push(serde_json::to_value(&segment.head().root.as_node()).unwrap());
 
         // Next chunk is read and has one document.
-        segment = segment.next(&mut spill).unwrap().unwrap();
+        segment = segment.next(&mut spill, &mut tmp).unwrap().unwrap();
 
         assert_eq!(segment.docs.len(), 1);
-        assert_eq!(segment._backing.len(), 84);
-        assert_eq!(segment.next, 248..248);
+        assert_eq!(segment._backing.len(), 88);
+        assert_eq!(segment.next, 204..204);
 
         actual.push(serde_json::to_value(&segment.head().root.as_node()).unwrap());
 
         // Stepping the segment again consumes it, as no chunks remain.
-        assert!(segment.next(&mut spill).unwrap().is_none());
+        assert!(segment.next(&mut spill, &mut tmp).unwrap().is_none());
 
         insta::assert_json_snapshot!(actual, @r###"
         [
@@ -627,5 +678,28 @@ mod test {
           ]
         ]
         "###);
+    }
+
+    #[test]
+    fn test_bumpalo_chunk_capacity() {
+        let alloc = bumpalo::Bump::with_capacity(1 << 15);
+        assert_eq!(alloc.chunk_capacity(), 36800);
+
+        // Allocation which fits within the current chunk.
+        alloc.alloc_str("hello world");
+
+        // Expect chunk capacity is lower than before, because of the allocation.
+        // TODO(johnny): This is broken currently.
+        // Filed issue: https://github.com/fitzgen/bumpalo/issues/185
+        // I'm leaving this test in to identify when it's fixed,
+        // because we'll want to update our MemTable spill logic to reflect the new behavior.
+        assert_eq!(alloc.chunk_capacity(), 36800); // <- Should be assert_ne!().
+    }
+
+    fn to_hex(b: &[u8]) -> String {
+        hexdump::hexdump_iter(b)
+            .map(|line| format!("{line}"))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }

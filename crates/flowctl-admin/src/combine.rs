@@ -2,7 +2,7 @@ use anyhow::Context;
 use doc::{combine, ptr::Pointer, SchemaIndex, SchemaIndexBuilder, Validator};
 use futures::future::LocalBoxFuture;
 use protocol::flow::{self, build_api};
-use std::io;
+use std::io::{self, Write};
 use url::Url;
 
 #[derive(Debug, clap::Args)]
@@ -70,11 +70,13 @@ pub fn run(CombineArgs { build_source }: CombineArgs) -> Result<(), anyhow::Erro
         false,
         drainer.drain_while(&mut validator, |node, _fully_reduced| {
             serde_json::to_writer(&mut out, &node).context("writing document to stdout")?;
+            out.write(b"\n")?;
             out_docs += 1;
             Ok::<_, anyhow::Error>(true)
         })?,
         "implementation error: drain_while exited with remaining items to drain"
     );
+    out.flush()?;
 
     tracing::info!(
         input_docs = in_docs,

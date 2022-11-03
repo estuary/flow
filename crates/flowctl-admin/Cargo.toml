@@ -11,7 +11,6 @@ license.workspace = true
 [dependencies]
 assemble = { path = "../assemble" }
 build = { path = "../build" }
-derive = { path = "../derive" }
 doc = { path = "../doc" }
 flow_cli_common = { path = "../flow_cli_common" }
 labels = { path = "../labels" }
