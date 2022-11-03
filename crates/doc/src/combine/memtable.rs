@@ -14,12 +14,17 @@ use std::{cmp, io, rc::Rc};
 /// After some threshold amount of allocation, a MemTable should
 /// be spilled into SpillWriter.
 pub struct MemTable {
-    alloc: Pin<Box<bumpalo::Bump>>,
+    // Careful! Order matters. We must drop all the usages of `alloc`
+    // before we drop `alloc` itself. Note that Rust drops struct fields
+    // in declaration order, which we rely upon here:
+    // https://doc.rust-lang.org/reference/destructors.html#destructors
+    //
+    // Safety: MemTable is not Sync and we never lend a reference to `entries`.
+    entries: UnsafeCell<BTreeSet<KeyedDoc>>,
     dedup: dedup::Deduper<'static>,
     key: Rc<[Pointer]>,
     schema: url::Url,
-    // Safety: MemTable is not Sync and we never lend a reference to `entries`.
-    entries: UnsafeCell<BTreeSet<KeyedDoc>>,
+    alloc: Pin<Box<bumpalo::Bump>>,
 }
 
 /// KeyedDoc is a HeapDoc and the composite JSON-Pointers over which it's combined.
@@ -261,12 +266,20 @@ impl MemTable {
         } = self;
 
         let entries = entries.into_inner();
-        let docs_per_chunk = SpillWriter::<F>::target_docs_per_chunk(&alloc, entries.len());
+        let docs = entries.len();
+        let docs_per_chunk = SpillWriter::<F>::target_docs_per_chunk(&alloc, docs);
+        let mem_used = alloc.allocated_bytes() - alloc.chunk_capacity();
 
-        writer.write_segment(
+        let archive_used = writer.write_segment(
             entries.into_iter().map(|KeyedDoc { doc, .. }| doc),
             docs_per_chunk,
         )?;
+
+        tracing::debug!(%mem_used, %archive_used, %docs, %docs_per_chunk,
+            // TODO(johnny): remove when `mem_used` calculation is accurate.
+            mem_alloc=%alloc.allocated_bytes(),
+            mem_cap=%alloc.chunk_capacity(),
+            "spilled MemTable to disk segment");
 
         Ok((key, schema))
     }

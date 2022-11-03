@@ -52,14 +52,8 @@ impl Accumulator {
     pub fn memtable(&mut self) -> Result<&MemTable, Error> {
         let Self { memtable, spill } = self;
 
-        if memtable.alloc().allocated_bytes() > SPILL_THRESHOLD {
-            // TODO(johnny) remove me
-            eprintln!(
-                "spilling memtable with bytes allocated {} entries {}",
-                memtable.alloc().allocated_bytes(),
-                memtable.len()
-            );
-
+        let mem_used = memtable.alloc().allocated_bytes() - memtable.alloc().chunk_capacity();
+        if mem_used > SPILL_THRESHOLD {
             std::mem::replace(
                 memtable,
                 MemTable::new(memtable.key().clone(), memtable.schema().clone()),
@@ -168,7 +162,7 @@ const REDUCED_FLAG: u8 = 1;
 // The document has had reductions applied and must be revalidated prior to combiner drain.
 const REVALIDATE_FLAG: u8 = 2;
 // The bump-allocator threshold after which we'll spill a MemTable to a SpillWriter.
-const SPILL_THRESHOLD: usize = 8 * (1 << 28) / 10; // 80% of 256MB.
+const SPILL_THRESHOLD: usize = 8 * (1 << 27) / 10; // 80% of 128MB.
 
 fn serialize_as_display<T, S>(thing: T, serializer: S) -> Result<S::Ok, S::Error>
 where

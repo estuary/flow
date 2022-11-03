@@ -62,14 +62,6 @@ fn test_spill_and_merge_fuzzing(seq: Vec<(u8, u8)>) -> bool {
     for (seq_key, seq_value) in seq {
         // Produce an empirically reasonable number of spills, given quickcheck's defaults.
         if memtable.len() > 15 {
-            /*
-            eprintln!(
-                "spilling memtable with bytes allocated {} entries {}",
-                memtable.alloc().allocated_bytes(),
-                memtable.len()
-            );
-            */
-
             memtable.spill(&mut spill).unwrap();
             memtable = combine::MemTable::new(key.clone(), schema.curi.clone());
         }
@@ -132,6 +124,5 @@ fn test_spill_and_merge_fuzzing(seq: Vec<(u8, u8)>) -> bool {
         }
     }
 
-    // eprintln!("done with pass");
     true
 }
