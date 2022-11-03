@@ -59,6 +59,8 @@ begin
   payload := json_build_object('timestamp',CURRENT_TIMESTAMP,'table',TG_TABLE_NAME);
 
   -- Notify the channel
-  PERFORM pg_notify("agent_notifications", payload);
+  perform pg_notify('agent_notifications', payload);
+
+  return null;
 END;
 $trigger$ LANGUAGE plpgsql;
