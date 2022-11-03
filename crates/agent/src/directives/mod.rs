@@ -63,7 +63,7 @@ impl Handler for DirectiveHandler {
         let mut txn = pg_pool.begin().await?;
 
         let row: Row = match agent_sql::directives::dequeue(&mut txn).await? {
-            None => return Ok(HandlerStatus::NoMoreWork),
+            None => return Ok(HandlerStatus::Idle),
             Some(row) => row,
         };
 
@@ -73,10 +73,10 @@ impl Handler for DirectiveHandler {
         agent_sql::directives::resolve(id, status, &mut txn).await?;
         txn.commit().await?;
 
-        Ok(HandlerStatus::MoreWork)
+        Ok(HandlerStatus::Active)
     }
 
-    fn channel_name(&self) -> &'static str {
+    fn table_name(&self) -> &'static str {
         "applied_directives"
     }
 }

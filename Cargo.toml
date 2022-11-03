@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [ "crates/*"]
+members = ["crates/*"]
 
 [workspace.package]
 version = "0.0.0"
@@ -13,9 +13,13 @@ repository = "https://github.com/estuary/flow"
 license = "BSL"
 
 [workspace.dependencies]
-addr = {version="0.15.4", features=["idna", "std","psl"]}
+addr = { version = "0.15.4", features = ["idna", "std", "psl"] }
 anyhow = "1.0"
-async-compression = { version = "0.3", features = ["all-algorithms", "tokio", "futures-io"] }
+async-compression = { version = "0.3", features = [
+    "all-algorithms",
+    "tokio",
+    "futures-io",
+] }
 async-trait = "0.1"
 atty = "0.2"
 avro-rs = { version = "0.13", features = ["snappy"] }
@@ -28,13 +32,13 @@ bytelines = "2.4"
 byteorder = "1.4"
 caseless = "0.2"
 chardetng = "0.1"
-chrono = "0.4"
-clap = { version = "3.2", features = ["derive", "env"]}
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "3.2", features = ["derive", "env"] }
 comfy-table = "6.1"
 crossterm = "0.25"
 csv = "1.1"
 dirs = "4.0"
-encoding_rs = {version = "0.8", features = ["serde"]}
+encoding_rs = { version = "0.8", features = ["serde"] }
 exponential-backoff = "1.1.0"
 fancy-regex = "0.10"
 flate2 = "1.0"
@@ -45,14 +49,17 @@ fxhash = "0.2"
 humantime = "2.1"
 humantime-serde = "1.1"
 itertools = "0.10"
-indexmap = { version = "1.8", features = ["serde"]}
+indexmap = { version = "1.8", features = ["serde"] }
 iri-string = "0.6.0"
 jemallocator = "0.3"
 jemalloc-ctl = "0.3"
 json-patch = "0.2"
 lazy_static = "1.4"
 libc = "0.2"
-librocksdb-sys = { version = "6.20", default-features = false, features = ["snappy", "rtti"] }
+librocksdb-sys = { version = "6.20", default-features = false, features = [
+    "snappy",
+    "rtti",
+] }
 mime = "0.3"
 memchr = "2.5"
 num-bigint = "0.4"
@@ -73,37 +80,61 @@ protobuf-parse = "3.1"
 rand = "0.8"
 regex = "1.5"
 
-reqwest = { version = "0.11", default_features = false, features = ["json", "rustls-tls", "stream"] }
-rocksdb = { version = "0.17", default-features = false, features = ["snappy", "rtti"] }
-rusqlite = { version = "0.27", features = ["bundled-full"]}
+reqwest = { version = "0.11", default_features = false, features = [
+    "json",
+    "rustls-tls",
+    "stream",
+] }
+rocksdb = { version = "0.17", default-features = false, features = [
+    "snappy",
+    "rtti",
+] }
+rusqlite = { version = "0.27", features = ["bundled-full"] }
 schemars = "0.8"
 scopeguard = "1.1"
-serde = { version = "1.0", features = ["derive"]}
-serde_json = { version = "1.0.85", features = ["raw_value"]}
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0.85", features = ["raw_value"] }
 serde_yaml = "0.8"
 serde-transcode = "1.1"
 size = "0.4"
 strsim = "0.10"
-strum = {version = "0.24", features = ["derive"]}
+strum = { version = "0.24", features = ["derive"] }
 strum_macros = "0.24"
 superslice = "1.0"
-sqlx = { version = "0.6", features = [ "chrono", "json", "macros", "postgres", "runtime-tokio-native-tls", "uuid" ] }
+sqlx = { version = "0.6", features = [
+    "chrono",
+    "json",
+    "macros",
+    "postgres",
+    "runtime-tokio-native-tls",
+    "uuid",
+] }
 
 tempfile = "3.3"
 tempdir = "0.3"
 thiserror = "1.0"
-time = { version = "0.3", features = ["serde-well-known", "macros", "formatting", "parsing"] }
-tinyvec = {version = "1.6", features = ["alloc"]}
+time = { version = "0.3", features = [
+    "serde-well-known",
+    "macros",
+    "formatting",
+    "parsing",
+] }
+tinyvec = { version = "1.6", features = ["alloc"] }
 tokio = { version = "1.15", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io", "compat"] }
-tonic = {version = "0.8", features = [ "tls", "tls-roots"]}
+tonic = { version = "0.8", features = ["tls", "tls-roots"] }
 tower = "0.4"
 tracing = "0.1"
-tracing-subscriber = {version = "0.3", features = ["time", "json", "env-filter", "fmt"]}
+tracing-subscriber = { version = "0.3", features = [
+    "time",
+    "json",
+    "env-filter",
+    "fmt",
+] }
 
 unicode-bom = "1.1"
 unicode-normalization = "0.1"
-url = {version = "2.2", features = ["serde"]}
+url = { version = "2.2", features = ["serde"] }
 uuid = { version = "1.1", features = ["serde", "v4"] }
 validator = { version = "0.15", features = ["derive"] }
 quickcheck = "1.0"
@@ -114,7 +145,7 @@ zstd = "0.11.2"
 
 # Used exclusively as dev-dependencies
 assert_cmd = "2.0"
-insta = { version = "1.20", features = ["redactions", "json", "yaml"]}
+insta = { version = "1.20", features = ["redactions", "json", "yaml"] }
 criterion = "0.3"
 glob = "0.3"
 
@@ -128,7 +159,7 @@ warp = "0.3.3"
 
 [profile.release]
 incremental = true
-debug = 0 # Set this to 1 or 2 to get more useful backtraces in debugger.
+debug = 0          # Set this to 1 or 2 to get more useful backtraces in debugger.
 
 [patch.'crates-io']
 rocksdb = { git = "https://github.com/jgraettinger/rust-rocksdb" }

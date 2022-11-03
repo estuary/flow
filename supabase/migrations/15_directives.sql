@@ -71,8 +71,8 @@ create table applied_directives (
 alter table applied_directives enable row level security;
 alter publication supabase_realtime add table applied_directives;
 
-CREATE TRIGGER applied_directives_notify AFTER INSERT OR UPDATE OR DELETE ON applied_directives
-FOR EACH ROW EXECUTE PROCEDURE notify_channel("applied_directives");
+create trigger "Notify agent of applied directive" after insert or update on applied_directives
+for each statement execute procedure internal.notify_agent();
 
 create policy "Users can access only their applied directives"
   on applied_directives as permissive

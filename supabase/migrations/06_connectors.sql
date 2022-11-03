@@ -1,6 +1,6 @@
 create domain jsonb_internationalized_value as jsonb check (
   (value is null) OR -- This feels wrong, but without it the check constraint fails on nulls
-  (jsonb_typeof(value) = 'object' AND 
+  (jsonb_typeof(value) = 'object' AND
   (value->'en-US' IS NOT NULL))
 );
 comment on domain jsonb_internationalized_value is
@@ -71,8 +71,8 @@ create table connector_tags (
 -- Public, no RLS.
 alter publication supabase_realtime add table connector_tags;
 
-CREATE TRIGGER connector_tags_notify AFTER INSERT OR UPDATE OR DELETE ON connector_tags
-FOR EACH ROW EXECUTE PROCEDURE notify_channel("connector_tags");
+create trigger "Notify agent about changes to connector_tags" after insert or update on connector_tags
+for each statement execute procedure internal.notify_agent();
 
 comment on table connector_tags is '
 Available image tags (versions) of connectors.

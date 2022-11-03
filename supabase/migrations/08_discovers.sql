@@ -11,8 +11,8 @@ create table discovers (
 alter table discovers enable row level security;
 alter publication supabase_realtime add table discovers;
 
-CREATE TRIGGER discovers_notify AFTER INSERT OR UPDATE OR DELETE ON discovers
-FOR EACH ROW EXECUTE PROCEDURE notify_channel("discovers");
+create trigger "Notify agent about changes to discover requests" after insert or update on discovers
+for each statement execute procedure internal.notify_agent();
 
 create policy "Users access their discovers"
   on discovers as permissive

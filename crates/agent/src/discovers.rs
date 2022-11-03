@@ -43,7 +43,7 @@ impl Handler for DiscoverHandler {
         let mut txn = pg_pool.begin().await?;
 
         let row: Row = match agent_sql::discover::dequeue(&mut txn).await? {
-            None => return Ok(HandlerStatus::NoMoreWork),
+            None => return Ok(HandlerStatus::Idle),
             Some(row) => row,
         };
 
@@ -53,10 +53,10 @@ impl Handler for DiscoverHandler {
         agent_sql::discover::resolve(id, status, &mut txn).await?;
         txn.commit().await?;
 
-        Ok(HandlerStatus::MoreWork)
+        Ok(HandlerStatus::Active)
     }
 
-    fn channel_name(&self) -> &'static str {
+    fn table_name(&self) -> &'static str {
         "discovers"
     }
 }

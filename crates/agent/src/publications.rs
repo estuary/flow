@@ -65,7 +65,7 @@ impl Handler for PublishHandler {
         let mut txn = pg_pool.begin().await?;
 
         let row: Row = match agent_sql::publications::dequeue(&mut txn).await? {
-            None => return Ok(HandlerStatus::NoMoreWork),
+            None => return Ok(HandlerStatus::Idle),
             Some(row) => row,
         };
 
@@ -87,10 +87,10 @@ impl Handler for PublishHandler {
             agent_sql::publications::delete_draft(delete_draft_id, pg_pool).await?;
         }
 
-        Ok(HandlerStatus::MoreWork)
+        Ok(HandlerStatus::Active)
     }
 
-    fn channel_name(&self) -> &'static str {
+    fn table_name(&self) -> &'static str {
         "publications"
     }
 }
