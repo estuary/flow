@@ -79,6 +79,7 @@ protobuf-json-mapping = "3.1"
 protobuf-parse = "3.1"
 rand = "0.8"
 regex = "1.5"
+hex = "0.4.3"
 
 reqwest = { version = "0.11", default_features = false, features = [
     "json",

@@ -62,6 +62,7 @@ name = "agent-sql"
 version = "0.0.0"
 dependencies = [
  "chrono",
+ "hex",
  "insta",
  "schemars",
  "serde",

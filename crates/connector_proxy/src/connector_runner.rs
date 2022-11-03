@@ -1,10 +1,8 @@
 use crate::apis::{FlowCaptureOperation, FlowMaterializeOperation, InterceptorStream};
-use crate::errors::{Error, self, io_stream_to_interceptor_stream, interceptor_stream_to_io_stream};
-use crate::interceptors::{
-    airbyte_source_interceptor::AirbyteSourceInterceptor,
-    network_tunnel_capture_interceptor::NetworkTunnelCaptureInterceptor,
-    network_tunnel_materialize_interceptor::NetworkTunnelMaterializeInterceptor,
+use crate::errors::{
+    self, interceptor_stream_to_io_stream, io_stream_to_interceptor_stream, Error,
 };
+use crate::interceptors::airbyte_source_interceptor::AirbyteSourceInterceptor;
 use crate::libs::command::{
     check_exit_status, invoke_connector_delayed, invoke_connector_direct, parse_child,
 };
@@ -15,18 +13,7 @@ use proto_flow::capture::PullResponse;
 use proto_flow::flow::DriverCheckpoint;
 use tokio::io::copy;
 use tokio::process::{ChildStdin, ChildStdout};
-use tokio::task::JoinHandle;
 use tokio_util::io::{ReaderStream, StreamReader};
-
-async fn flatten_join_handle<T, E: std::convert::From<tokio::task::JoinError>>(
-    handle: JoinHandle<Result<T, E>>,
-) -> Result<T, E> {
-    match handle.await {
-        Ok(Ok(result)) => Ok(result),
-        Ok(Err(err)) => Err(err),
-        Err(err) => Err(err.into()),
-    }
-}
 
 pub async fn run_flow_capture_connector(
     op: &FlowCaptureOperation,
@@ -38,29 +25,20 @@ pub async fn run_flow_capture_connector(
     let (mut child, child_stdin, child_stdout) =
         parse_child(invoke_connector_direct(entrypoint, args)?)?;
 
-    let adapted_request_stream =
-        NetworkTunnelCaptureInterceptor::adapt_request_stream(op, request_stream())?;
+    let adapted_request_stream = request_stream();
 
-    let adapted_response_stream =
-        NetworkTunnelCaptureInterceptor::adapt_response_stream(op, response_stream(child_stdout))?;
+    let adapted_response_stream = response_stream(child_stdout);
 
-    let streaming_all_task = tokio::spawn(streaming_all(
-        child_stdin,
-        adapted_request_stream,
-        adapted_response_stream,
-    ));
+    let streaming_all_task =
+        streaming_all(child_stdin, adapted_request_stream, adapted_response_stream);
 
     let exit_status_task =
-        tokio::spawn(
-            async move { check_exit_status("flow capture connector:", child.wait().await) },
-        );
+        async move { check_exit_status("flow capture connector:", child.wait().await) };
 
-    tokio::try_join!(
-        flatten_join_handle(streaming_all_task),
-        flatten_join_handle(exit_status_task)
-    )?;
-
-    Ok(())
+    tokio::select! {
+        Err(e) = streaming_all_task => Err(e),
+        resp = exit_status_task => resp,
+    }
 }
 
 pub async fn run_flow_materialize_connector(
@@ -73,30 +51,20 @@ pub async fn run_flow_materialize_connector(
     let (mut child, child_stdin, child_stdout) =
         parse_child(invoke_connector_direct(entrypoint, args)?)?;
 
-    let adapted_request_stream =
-        NetworkTunnelMaterializeInterceptor::adapt_request_stream(op, request_stream())?;
+    let adapted_request_stream = request_stream();
 
-    let adapted_response_stream = NetworkTunnelMaterializeInterceptor::adapt_response_stream(
-        op,
-        response_stream(child_stdout),
-    )?;
+    let adapted_response_stream = response_stream(child_stdout);
 
-    let streaming_all_task = tokio::spawn(streaming_all(
-        child_stdin,
-        adapted_request_stream,
-        adapted_response_stream,
-    ));
+    let streaming_all_task =
+        streaming_all(child_stdin, adapted_request_stream, adapted_response_stream);
 
-    let exit_status_task = tokio::spawn(async move {
-        check_exit_status("flow materialize connector:", child.wait().await)
-    });
+    let exit_status_task =
+        async move { check_exit_status("flow materialize connector:", child.wait().await) };
 
-    tokio::try_join!(
-        flatten_join_handle(streaming_all_task),
-        flatten_join_handle(exit_status_task)
-    )?;
-
-    Ok(())
+    tokio::select! {
+        Err(e) = streaming_all_task => Err(e),
+        resp = exit_status_task => resp,
+    }
 }
 
 pub async fn run_airbyte_source_connector(
@@ -111,10 +79,7 @@ pub async fn run_airbyte_source_connector(
     let (mut child, child_stdin, child_stdout) =
         parse_child(invoke_connector_delayed(entrypoint, args)?)?;
 
-    let adapted_request_stream = airbyte_interceptor.adapt_request_stream(
-        op,
-        NetworkTunnelCaptureInterceptor::adapt_request_stream(op, request_stream())?,
-    )?;
+    let adapted_request_stream = airbyte_interceptor.adapt_request_stream(op, request_stream())?;
 
     let res_stream =
         airbyte_interceptor.adapt_response_stream(op, response_stream(child_stdout))?;
@@ -139,7 +104,9 @@ pub async fn run_airbyte_source_connector(
                         (msg, bytes)
                     }
                     None => {
-                        sender.send(transaction_pending).map_err(|_| errors::Error::AirbyteCheckpointPending)?;
+                        sender
+                            .send(transaction_pending)
+                            .map_err(|_| errors::Error::AirbyteCheckpointPending)?;
                         return Ok(None);
                     }
                 };
@@ -151,17 +118,13 @@ pub async fn run_airbyte_source_connector(
         res_stream
     };
 
-    let adapted_response_stream =
-        NetworkTunnelCaptureInterceptor::adapt_response_stream(op, res_stream)?;
+    let adapted_response_stream = res_stream;
 
-    let streaming_all_task = tokio::spawn(streaming_all(
-        child_stdin,
-        adapted_request_stream,
-        adapted_response_stream,
-    ));
+    let streaming_all_task =
+        streaming_all(child_stdin, adapted_request_stream, adapted_response_stream);
 
     let cloned_op = op.clone();
-    let exit_status_task = tokio::spawn(async move {
+    let exit_status_task = async move {
         let exit_status_result = check_exit_status("airbyte source connector:", child.wait().await);
 
         // There are some Airbyte connectors that write records, and exit successfully, without ever writing
@@ -197,12 +160,9 @@ pub async fn run_airbyte_source_connector(
         }
 
         exit_status_result
-    });
+    };
 
-    tokio::try_join!(
-        flatten_join_handle(streaming_all_task),
-        flatten_join_handle(exit_status_task)
-    )?;
+    tokio::try_join!(streaming_all_task, exit_status_task)?;
 
     Ok(())
 }
@@ -216,11 +176,15 @@ fn parse_entrypoint(entrypoint: &Vec<String>) -> Result<(String, Vec<String>), E
 }
 
 fn request_stream() -> InterceptorStream {
-    Box::pin(io_stream_to_interceptor_stream(ReaderStream::new(tokio::io::stdin())))
+    Box::pin(io_stream_to_interceptor_stream(ReaderStream::new(
+        tokio::io::stdin(),
+    )))
 }
 
 fn response_stream(child_stdout: ChildStdout) -> InterceptorStream {
-    Box::pin(io_stream_to_interceptor_stream(ReaderStream::new(child_stdout)))
+    Box::pin(io_stream_to_interceptor_stream(ReaderStream::new(
+        child_stdout,
+    )))
 }
 
 async fn streaming_all(
@@ -228,23 +192,20 @@ async fn streaming_all(
     request_stream: InterceptorStream,
     response_stream: InterceptorStream,
 ) -> Result<(), Error> {
-    let mut request_stream_reader = StreamReader::new(interceptor_stream_to_io_stream(request_stream));
-    let mut response_stream_reader = StreamReader::new(interceptor_stream_to_io_stream(response_stream));
+    let mut request_stream_reader =
+        StreamReader::new(interceptor_stream_to_io_stream(request_stream));
+    let mut response_stream_reader =
+        StreamReader::new(interceptor_stream_to_io_stream(response_stream));
     let mut response_stream_writer = tokio::io::stdout();
 
     let request_stream_copy =
-        tokio::spawn(
-            async move { copy(&mut request_stream_reader, &mut request_stream_writer).await },
-        );
+        async move { copy(&mut request_stream_reader, &mut request_stream_writer).await };
 
-    let response_stream_copy = tokio::spawn(async move {
-        copy(&mut response_stream_reader, &mut response_stream_writer).await
-    });
+    let response_stream_copy =
+        async move { copy(&mut response_stream_reader, &mut response_stream_writer).await };
 
-    let (req_stream_bytes, resp_stream_bytes) = tokio::try_join!(
-        flatten_join_handle(request_stream_copy),
-        flatten_join_handle(response_stream_copy)
-    )?;
+    let (req_stream_bytes, resp_stream_bytes) =
+        tokio::try_join!(request_stream_copy, response_stream_copy)?;
 
     tracing::debug!(
         req_stream = req_stream_bytes,
