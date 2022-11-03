@@ -201,8 +201,7 @@ mod test {
         });
 
         let alloc = HeapNode::new_allocator();
-        let dedup = HeapNode::new_deduper(&alloc);
-        let doc = HeapNode::from_serde(&fixture, &alloc, &dedup).unwrap();
+        let doc = HeapNode::from_serde(&fixture, &alloc).unwrap();
 
         let mut walker = MockWalker { calls: Vec::new() };
 

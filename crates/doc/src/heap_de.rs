@@ -1,5 +1,4 @@
-use super::dedup::Deduper;
-use super::heap::{BumpVec, HeapField, HeapNode};
+use super::heap::{BumpVec, HeapField, HeapNode, HeapString};
 
 use serde::de;
 
@@ -11,28 +10,25 @@ impl<'alloc> HeapNode<'alloc> {
     /// use doc::HeapNode;
     ///
     /// let alloc = HeapNode::new_allocator();
-    /// let dedup = HeapNode::new_deduper(&alloc);
     /// let mut deser = serde_json::Deserializer::from_str(r#"{"hello": "world", "one": 2}"#);
-    /// HeapNode::from_serde(&mut deser, &alloc, &dedup).unwrap();
+    /// HeapNode::from_serde(&mut deser, &alloc).unwrap();
     /// ```
     pub fn from_serde<'de, 'dedup, D>(
         deser: D,
         alloc: &'alloc bumpalo::Bump,
-        dedup: &'dedup Deduper<'alloc>,
     ) -> Result<Self, D::Error>
     where
         D: de::Deserializer<'de>,
     {
-        deser.deserialize_any(HeapDocVisitor { alloc, dedup })
+        deser.deserialize_any(HeapDocVisitor { alloc })
     }
 }
 
-struct HeapDocVisitor<'alloc, 'dedup> {
+struct HeapDocVisitor<'alloc> {
     alloc: &'alloc bumpalo::Bump,
-    dedup: &'dedup Deduper<'alloc>,
 }
 
-impl<'alloc, 'de, 'b> de::Visitor<'de> for HeapDocVisitor<'alloc, 'b> {
+impl<'alloc, 'de> de::Visitor<'de> for HeapDocVisitor<'alloc> {
     type Value = HeapNode<'alloc>;
 
     fn expecting(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -75,8 +71,8 @@ impl<'alloc, 'de, 'b> de::Visitor<'de> for HeapDocVisitor<'alloc, 'b> {
     where
         E: de::Error,
     {
-        let Self { dedup, .. } = self;
-        Ok(dedup.alloc_string(v))
+        let Self { alloc } = self;
+        Ok(HeapNode::String(HeapString(alloc.alloc_str(v))))
     }
 
     fn visit_unit<E>(self) -> Result<Self::Value, E>
@@ -90,11 +86,11 @@ impl<'alloc, 'de, 'b> de::Visitor<'de> for HeapDocVisitor<'alloc, 'b> {
     where
         V: de::SeqAccess<'de>,
     {
-        let Self { alloc, dedup } = self;
+        let Self { alloc } = self;
         let mut arr =
             bumpalo::collections::Vec::with_capacity_in(v.size_hint().unwrap_or_default(), alloc);
 
-        while let Some(child) = v.next_element_seed(HeapDocVisitor { alloc, dedup })? {
+        while let Some(child) = v.next_element_seed(HeapDocVisitor { alloc })? {
             arr.push(child);
         }
         Ok(HeapNode::Array(BumpVec(arr)))
@@ -104,18 +100,18 @@ impl<'alloc, 'de, 'b> de::Visitor<'de> for HeapDocVisitor<'alloc, 'b> {
     where
         V: de::MapAccess<'de>,
     {
-        let Self { alloc, dedup } = self;
+        let Self { alloc } = self;
 
         let mut fields =
             bumpalo::collections::Vec::with_capacity_in(v.size_hint().unwrap_or_default(), alloc);
         let mut not_sorted = false;
 
         while let Some(property) = v.next_key::<&str>()? {
-            let property = dedup.alloc_shared_string(property);
-            let value = v.next_value_seed(HeapDocVisitor { alloc, dedup })?;
+            let property = HeapString(alloc.alloc_str(property));
+            let value = v.next_value_seed(HeapDocVisitor { alloc })?;
 
             not_sorted = not_sorted
-                || matches!(fields.last(), Some(HeapField{property: prev, ..}) if prev > &property);
+                || matches!(fields.last(), Some(HeapField{property: prev, ..}) if prev.0 > property.0);
 
             fields.push(HeapField { property, value });
         }
@@ -137,7 +133,7 @@ impl<'alloc, 'de, 'b> de::Visitor<'de> for HeapDocVisitor<'alloc, 'b> {
     }
 }
 
-impl<'alloc, 'de, 'b> de::DeserializeSeed<'de> for HeapDocVisitor<'alloc, 'b> {
+impl<'alloc, 'de> de::DeserializeSeed<'de> for HeapDocVisitor<'alloc> {
     type Value = HeapNode<'alloc>;
 
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
