@@ -1,7 +1,6 @@
 use super::{
-    dedup::Deduper,
     lazy::{LazyDestructured, LazyField, LazyNode},
-    AsNode, Field, Fields, HeapField, HeapNode, Node, Valid,
+    AsNode, Field, Fields, HeapField, HeapNode, HeapString, Node, Valid,
 };
 use itertools::EitherOrBoth;
 
@@ -92,7 +91,6 @@ pub fn reduce<'alloc, N: AsNode>(
     rhs: LazyNode<'alloc, '_, N>,
     rhs_valid: Valid,
     alloc: &'alloc bumpalo::Bump,
-    dedup: &Deduper<'alloc>,
     full: bool,
 ) -> Result<HeapNode<'alloc>> {
     let tape = rhs_valid.extract_reduce_annotations();
@@ -105,7 +103,6 @@ pub fn reduce<'alloc, N: AsNode>(
         lhs,
         rhs,
         alloc,
-        dedup,
     }
     .reduce()?;
 
@@ -121,7 +118,6 @@ pub struct Cursor<'alloc, 'schema, 'tmp, 'l, 'r, L: AsNode, R: AsNode> {
     lhs: LazyNode<'alloc, 'l, L>,
     rhs: LazyNode<'alloc, 'r, R>,
     alloc: &'alloc bumpalo::Bump,
-    dedup: &'tmp Deduper<'alloc>,
 }
 
 type Index<'a> = &'a [(&'a Strategy, u64)];
@@ -161,8 +157,7 @@ fn count_nodes_heap(node: &HeapNode<'_>) -> usize {
         | HeapNode::NegInt(_)
         | HeapNode::Null
         | HeapNode::PosInt(_)
-        | HeapNode::StringOwned(_)
-        | HeapNode::StringShared(_) => 1,
+        | HeapNode::String(_) => 1,
         HeapNode::Array(v) => v.0.iter().fold(1, |c, vv| c + count_nodes_heap(vv)),
         HeapNode::Object(v) => {
             v.0.iter()
@@ -177,12 +172,11 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
     full: bool,
     eob: EitherOrBoth<LazyField<'alloc, '_, L>, LazyField<'alloc, '_, R>>,
     alloc: &'alloc bumpalo::Bump,
-    dedup: &Deduper<'alloc>,
 ) -> Result<HeapField<'alloc>> {
     match eob {
-        EitherOrBoth::Left(lhs) => Ok(lhs.into_heap_field(alloc, dedup)),
+        EitherOrBoth::Left(lhs) => Ok(lhs.into_heap_field(alloc)),
         EitherOrBoth::Right(rhs) => {
-            let rhs = rhs.into_heap_field(alloc, dedup);
+            let rhs = rhs.into_heap_field(alloc);
             *tape = &tape[count_nodes_heap(&rhs.value)..];
             Ok(rhs)
         }
@@ -193,18 +187,18 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
                     LazyNode::Heap(lhs.value),
                     LazyNode::Heap(rhs.value),
                 ),
-                (LazyField::Heap(lhs), LazyField::Doc(rhs)) => (
+                (LazyField::Heap(lhs), LazyField::Node(rhs)) => (
                     lhs.property,
                     LazyNode::Heap(lhs.value),
                     LazyNode::Node(rhs.value()),
                 ),
-                (LazyField::Doc(lhs), LazyField::Heap(rhs)) => (
+                (LazyField::Node(lhs), LazyField::Heap(rhs)) => (
                     rhs.property,
                     LazyNode::Node(lhs.value()),
                     LazyNode::Heap(rhs.value),
                 ),
-                (LazyField::Doc(lhs), LazyField::Doc(rhs)) => (
-                    dedup.alloc_shared_string(lhs.property()),
+                (LazyField::Node(lhs), LazyField::Node(rhs)) => (
+                    HeapString(alloc.alloc_str(lhs.property())),
                     LazyNode::Node(lhs.value()),
                     LazyNode::Node(rhs.value()),
                 ),
@@ -217,7 +211,6 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
                 lhs,
                 rhs,
                 alloc,
-                dedup,
             }
             .reduce()?;
 
@@ -232,12 +225,11 @@ fn reduce_item<'alloc, L: AsNode, R: AsNode>(
     full: bool,
     eob: EitherOrBoth<(usize, LazyNode<'alloc, '_, L>), (usize, LazyNode<'alloc, '_, R>)>,
     alloc: &'alloc bumpalo::Bump,
-    dedup: &Deduper<'alloc>,
 ) -> Result<HeapNode<'alloc>> {
     match eob {
-        EitherOrBoth::Left((_, lhs)) => Ok(lhs.into_heap_node(alloc, dedup)),
+        EitherOrBoth::Left((_, lhs)) => Ok(lhs.into_heap_node(alloc)),
         EitherOrBoth::Right((_, rhs)) => {
-            let rhs = rhs.into_heap_node(alloc, dedup);
+            let rhs = rhs.into_heap_node(alloc);
             *tape = &tape[count_nodes_heap(&rhs)..];
             Ok(rhs)
         }
@@ -248,7 +240,6 @@ fn reduce_item<'alloc, L: AsNode, R: AsNode>(
             lhs,
             rhs,
             alloc,
-            dedup,
         }
         .reduce(),
     }
@@ -266,12 +257,11 @@ pub mod test {
     #[test]
     fn test_node_counting() {
         let alloc = HeapNode::new_allocator();
-        let dedup = HeapNode::new_deduper(&alloc);
 
         let test_case = |fixture: Value, expect: usize| {
             assert_eq!(count_nodes_generic(&fixture.as_node()), expect);
             assert_eq!(
-                count_nodes_heap(&HeapNode::from_node(fixture.as_node(), &alloc, &dedup)),
+                count_nodes_heap(&HeapNode::from_node(fixture.as_node(), &alloc)),
                 expect
             );
         };
@@ -316,7 +306,6 @@ pub mod test {
         let index = index.into_index();
 
         let alloc = HeapNode::new_allocator();
-        let dedup = HeapNode::new_deduper(&alloc);
 
         let mut validator = Validator::new(&index);
         let mut lhs: Option<HeapNode<'_>> = None;
@@ -333,7 +322,7 @@ pub mod test {
 
             let lhs_cloned = lhs
                 .as_ref()
-                .map(|doc| HeapNode::from_node(doc.as_node(), &alloc, &dedup));
+                .map(|doc| HeapNode::from_node(doc.as_node(), &alloc));
 
             let reduced = match lhs_cloned {
                 Some(lhs) => reduce(
@@ -341,10 +330,9 @@ pub mod test {
                     LazyNode::Node(&rhs),
                     rhs_valid,
                     &alloc,
-                    &dedup,
                     prune,
                 ),
-                None => Ok(HeapNode::from_node(rhs.as_node(), &alloc, &dedup)),
+                None => Ok(HeapNode::from_node(rhs.as_node(), &alloc)),
             };
 
             match expect {

@@ -133,7 +133,6 @@ impl Strategy {
             lhs,
             rhs,
             alloc,
-            dedup,
             full: _,
         } = cur;
 
@@ -144,10 +143,10 @@ impl Strategy {
                 let mut arr = BumpVec::with_capacity_in(lhs.len() + rhs.len(), alloc);
 
                 for lhs in lhs.into_iter() {
-                    arr.0.push(lhs.into_heap_node(alloc, dedup));
+                    arr.0.push(lhs.into_heap_node(alloc));
                 }
                 for rhs in rhs.into_iter() {
-                    let rhs = rhs.into_heap_node(alloc, dedup);
+                    let rhs = rhs.into_heap_node(alloc);
                     *tape = &tape[count_nodes_heap(&rhs)..];
                     arr.0.push(rhs)
                 }
@@ -181,13 +180,13 @@ impl Strategy {
         cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
     ) -> Result<HeapNode<'alloc>> {
         *cur.tape = &cur.tape[count_nodes(&cur.rhs)..];
-        Ok(cur.lhs.into_heap_node(cur.alloc, cur.dedup))
+        Ok(cur.lhs.into_heap_node(cur.alloc))
     }
 
     fn last_write_wins<'alloc, L: AsNode, R: AsNode>(
         cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
     ) -> Result<HeapNode<'alloc>> {
-        let rhs = cur.rhs.into_heap_node(cur.alloc, cur.dedup);
+        let rhs = cur.rhs.into_heap_node(cur.alloc);
         *cur.tape = &cur.tape[count_nodes_heap(&rhs)..];
         Ok(rhs)
     }
@@ -204,7 +203,6 @@ impl Strategy {
             lhs,
             rhs,
             alloc,
-            dedup,
         } = cur;
 
         let ord = match (key.is_empty(), reverse) {
@@ -219,15 +217,15 @@ impl Strategy {
         match ord {
             Ordering::Less => {
                 *tape = &tape[count_nodes(&rhs)..];
-                Ok(lhs.into_heap_node(alloc, dedup))
+                Ok(lhs.into_heap_node(alloc))
             }
             Ordering::Greater => {
-                let rhs = rhs.into_heap_node(alloc, dedup);
+                let rhs = rhs.into_heap_node(alloc);
                 *tape = &tape[count_nodes_heap(&rhs)..];
                 Ok(rhs)
             }
             Ordering::Equal if key.is_empty() => {
-                let rhs = rhs.into_heap_node(alloc, dedup);
+                let rhs = rhs.into_heap_node(alloc);
                 *tape = &tape[count_nodes_heap(&rhs)..];
                 Ok(rhs)
             }
@@ -240,7 +238,6 @@ impl Strategy {
                     lhs,
                     rhs,
                     alloc,
-                    dedup,
                 };
                 Self::merge_with_key(cur, &[])
             }
@@ -271,7 +268,6 @@ impl Strategy {
             lhs,
             rhs,
             alloc: _,
-            dedup: _,
         } = cur;
 
         let (lhs, rhs) = (lhs.destructure(), rhs.destructure());
@@ -323,7 +319,6 @@ impl Strategy {
             lhs,
             rhs,
             alloc,
-            dedup,
             full,
         } = cur;
 
@@ -337,7 +332,7 @@ impl Strategy {
                     itertools::merge_join_by(lhs.into_iter(), rhs.into_iter(), |lhs, rhs| {
                         lhs.property().cmp(rhs.property())
                     })
-                    .map(|eob| reduce_prop(tape, loc, full, eob, alloc, dedup))
+                    .map(|eob| reduce_prop(tape, loc, full, eob, alloc))
                 {
                     fields.0.push(field?);
                 }
@@ -359,7 +354,7 @@ impl Strategy {
                         }
                     },
                 )
-                .map(|eob| reduce_item(tape, loc, full, eob, alloc, dedup))
+                .map(|eob| reduce_item(tape, loc, full, eob, alloc))
                 {
                     arr.0.push(item?);
                 }

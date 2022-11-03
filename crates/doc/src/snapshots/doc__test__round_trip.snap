@@ -6,24 +6,24 @@ Object(
     BumpVec(
         [
             HeapField {
-                property: SharedString(
+                property: HeapString(
                     "big string",
                 ),
-                value: StringOwned(
-                    OwnedString(
-                        "a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string a big string",
+                value: String(
+                    HeapString(
+                        "a bigger string",
                     ),
                 ),
             },
             HeapField {
-                property: SharedString(
+                property: HeapString(
                     "nested",
                 ),
                 value: Object(
                     BumpVec(
                         [
                             HeapField {
-                                property: SharedString(
+                                property: HeapString(
                                     "false",
                                 ),
                                 value: Bool(
@@ -31,18 +31,18 @@ Object(
                                 ),
                             },
                             HeapField {
-                                property: SharedString(
+                                property: HeapString(
                                     "shared string",
                                 ),
                                 value: Object(
                                     BumpVec(
                                         [
                                             HeapField {
-                                                property: SharedString(
+                                                property: HeapString(
                                                     "shared string",
                                                 ),
-                                                value: StringShared(
-                                                    SharedString(
+                                                value: String(
+                                                    HeapString(
                                                         "shared string",
                                                     ),
                                                 ),
@@ -52,7 +52,7 @@ Object(
                                 ),
                             },
                             HeapField {
-                                property: SharedString(
+                                property: HeapString(
                                     "true",
                                 ),
                                 value: Bool(
@@ -60,7 +60,7 @@ Object(
                                 ),
                             },
                             HeapField {
-                                property: SharedString(
+                                property: HeapString(
                                     "two",
                                 ),
                                 value: PosInt(
@@ -72,13 +72,13 @@ Object(
                 ),
             },
             HeapField {
-                property: SharedString(
+                property: HeapString(
                     "null",
                 ),
                 value: Null,
             },
             HeapField {
-                property: SharedString(
+                property: HeapString(
                     "numbers",
                 ),
                 value: Array(
@@ -98,38 +98,38 @@ Object(
                 ),
             },
             HeapField {
-                property: SharedString(
+                property: HeapString(
                     "shared string",
                 ),
-                value: StringShared(
-                    SharedString(
+                value: String(
+                    HeapString(
                         "shared string",
                     ),
                 ),
             },
             HeapField {
-                property: SharedString(
+                property: HeapString(
                     "small string",
                 ),
-                value: StringOwned(
-                    OwnedString(
+                value: String(
+                    HeapString(
                         "smol",
                     ),
                 ),
             },
             HeapField {
-                property: SharedString(
+                property: HeapString(
                     "some",
                 ),
                 value: Object(
                     BumpVec(
                         [
                             HeapField {
-                                property: SharedString(
+                                property: HeapString(
                                     "bytes",
                                 ),
-                                value: StringShared(
-                                    SharedString(
+                                value: String(
+                                    HeapString(
                                         "c29tZSBieXRlcw==",
                                     ),
                                 ),

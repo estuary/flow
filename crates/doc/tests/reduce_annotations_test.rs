@@ -65,7 +65,6 @@ fn test_validate_then_reduce() {
 
     let mut validator = Validator::new(&index);
     let alloc = HeapNode::new_allocator();
-    let dedup = HeapNode::new_deduper(&alloc);
 
     let cases = vec![
         (json!({"lww": "one"}), json!({"lww": "one"})),
@@ -153,11 +152,10 @@ fn test_validate_then_reduce() {
                 LazyNode::Node(&rhs),
                 rhs_valid,
                 &alloc,
-                &dedup,
                 true,
             )
             .unwrap(),
-            None => HeapNode::from_node(rhs.as_node(), &alloc, &dedup),
+            None => HeapNode::from_node(rhs.as_node(), &alloc),
         };
 
         assert_eq!(
@@ -372,7 +370,6 @@ struct TestMap {
 
 fn reduce_tree(validator: &mut Validator, curi: &Url, docs: Vec<Value>) -> Value {
     let alloc = HeapNode::new_allocator();
-    let dedup = HeapNode::new_deduper(&alloc);
 
     let mut docs = docs.iter().map(LazyNode::Node).collect::<Vec<_>>();
 
@@ -396,7 +393,7 @@ fn reduce_tree(validator: &mut Validator, curi: &Url, docs: Vec<Value>) -> Value
 
                     lhs = Some(match lhs {
                         Some(lhs) => LazyNode::Heap(
-                            reduce::reduce(lhs, rhs, rhs_valid, &alloc, &dedup, n == 0).unwrap(),
+                            reduce::reduce(lhs, rhs, rhs_valid, &alloc, n == 0).unwrap(),
                         ),
                         None => rhs,
                     });
@@ -406,11 +403,7 @@ fn reduce_tree(validator: &mut Validator, curi: &Url, docs: Vec<Value>) -> Value
             .collect();
     }
 
-    let root = docs
-        .into_iter()
-        .next()
-        .unwrap()
-        .into_heap_node(&alloc, &dedup);
+    let root = docs.into_iter().next().unwrap().into_heap_node(&alloc);
 
     serde_json::to_value(&root.as_node()).unwrap()
 }

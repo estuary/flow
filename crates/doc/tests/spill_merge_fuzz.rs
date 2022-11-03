@@ -72,7 +72,6 @@ fn test_spill_and_merge_fuzzing(seq: Vec<(u8, u8)>) -> bool {
         let doc = HeapNode::from_serde(
             &mut serde_json::Deserializer::from_slice(&buf),
             memtable.alloc(),
-            memtable.dedup(),
         )
         .unwrap();
 

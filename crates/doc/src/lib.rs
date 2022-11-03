@@ -45,13 +45,8 @@ pub trait Field<'a, N: AsNode> {
 mod archived;
 pub use archived::{ArchivedDoc, ArchivedField, ArchivedNode};
 pub mod heap;
-pub use heap::{HeapDoc, HeapField, HeapNode};
+pub use heap::{HeapDoc, HeapField, HeapNode, HeapString};
 mod value;
-
-// Dedup de-duplicates strings used in the construction of HeapNodes.
-// This also reduces the size of serialized ArchivedNodes, as the archival format
-// stores one copy of each deduplicated string.
-pub mod dedup;
 
 // HeapNode may be directly deserialized using serde.
 mod heap_de;
@@ -108,11 +103,6 @@ mod test {
 
     #[test]
     fn test_round_trip() {
-        let big_string = std::iter::repeat("a big string")
-            .take(30)
-            .collect::<Vec<_>>()
-            .join(" ");
-
         let fixture = json!({
             "numbers": [ 0x1111111111111111 as u64, -1234, 56.7891122334455],
             "shared string": "shared string",
@@ -124,14 +114,13 @@ mod test {
                 "two": 2,
                 "shared string": {"shared string": "shared string"},
             },
-            "big string": big_string,
-            "small string": "smol", // Not de-duplicated because it's so small.
+            "big string": "a bigger string",
+            "small string": "smol",
         });
 
         // We can deserialize into a Doc.
         let alloc = HeapNode::new_allocator();
-        let dedup = HeapNode::new_deduper(&alloc);
-        let doc = HeapNode::from_serde(&fixture, &alloc, &dedup).unwrap();
+        let doc = HeapNode::from_serde(&fixture, &alloc).unwrap();
         insta::assert_debug_snapshot!(doc);
 
         // The document can be archived with a stable byte layout.

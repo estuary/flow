@@ -1,5 +1,5 @@
 use super::{
-    dedup, heap, AsNode, FailedValidation, Field, Fields, HeapField, HeapNode, Node, Pointer,
+    heap, AsNode, FailedValidation, Field, Fields, HeapField, HeapNode, HeapString, Node, Pointer,
     Valid, Validation, Validator,
 };
 
@@ -31,23 +31,19 @@ pub enum LazyDestructured<'alloc, 'n, N: AsNode> {
 
 /// LazyField is either an AsNode::Fields::Field, or is a HeapField.
 pub enum LazyField<'alloc, 'n, N: AsNode + 'n> {
-    Doc(<N::Fields as Fields<N>>::Field<'n>),
+    Node(<N::Fields as Fields<N>>::Field<'n>),
     Heap(HeapField<'alloc>),
 }
 
 impl<'alloc> HeapNode<'alloc> {
     // from_node builds a HeapNode from another AsNode implementation.
-    pub fn from_node<'n, N: AsNode>(
-        node: Node<'n, N>,
-        alloc: &'alloc bumpalo::Bump,
-        dedup: &dedup::Deduper<'alloc>,
-    ) -> Self {
+    pub fn from_node<'n, N: AsNode>(node: Node<'n, N>, alloc: &'alloc bumpalo::Bump) -> Self {
         match node {
             Node::Array(arr) => {
                 let mut vec = bumpalo::collections::Vec::with_capacity_in(arr.len(), alloc);
                 vec.extend(
                     arr.iter()
-                        .map(|item| Self::from_node(item.as_node(), alloc, dedup)),
+                        .map(|item| Self::from_node(item.as_node(), alloc)),
                 );
                 HeapNode::Array(heap::BumpVec(vec))
             }
@@ -64,12 +60,12 @@ impl<'alloc> HeapNode<'alloc> {
             Node::Object(fields) => {
                 let mut vec = bumpalo::collections::Vec::with_capacity_in(fields.len(), alloc);
                 vec.extend(fields.iter().map(|field| HeapField {
-                    property: dedup.alloc_shared_string(field.property()),
-                    value: Self::from_node(field.value().as_node(), alloc, dedup),
+                    property: HeapString(alloc.alloc_str(field.property())),
+                    value: Self::from_node(field.value().as_node(), alloc),
                 }));
                 HeapNode::Object(heap::BumpVec(vec))
             }
-            Node::String(s) => dedup.alloc_string(s),
+            Node::String(s) => HeapNode::String(HeapString(alloc.alloc_str(s))),
         }
     }
 }
@@ -89,13 +85,9 @@ impl<'alloc, 'n, N: AsNode> LazyNode<'alloc, 'n, N> {
         }
     }
 
-    pub fn into_heap_node(
-        self,
-        alloc: &'alloc bumpalo::Bump,
-        dedup: &dedup::Deduper<'alloc>,
-    ) -> HeapNode<'alloc> {
+    pub fn into_heap_node(self, alloc: &'alloc bumpalo::Bump) -> HeapNode<'alloc> {
         match self {
-            Self::Node(doc) => HeapNode::from_node(doc.as_node(), alloc, dedup),
+            Self::Node(doc) => HeapNode::from_node(doc.as_node(), alloc),
             Self::Heap(doc) => doc,
         }
     }
@@ -185,7 +177,7 @@ impl<'alloc, 'n, N: AsNode> LazyObject<'alloc, 'n, N> {
 
     pub fn into_iter(self) -> impl Iterator<Item = LazyField<'alloc, 'n, N>> {
         let (it1, it2) = match self {
-            Self::Node(fields) => (Some(fields.iter().map(LazyField::Doc)), None),
+            Self::Node(fields) => (Some(fields.iter().map(LazyField::Node)), None),
             Self::Heap(fields) => (None, Some(fields.0.into_iter().map(LazyField::Heap))),
         };
         it1.into_iter().flatten().chain(it2.into_iter().flatten())
@@ -195,20 +187,16 @@ impl<'alloc, 'n, N: AsNode> LazyObject<'alloc, 'n, N> {
 impl<'alloc, 'n, N: AsNode> LazyField<'alloc, 'n, N> {
     pub fn property(&self) -> &str {
         match self {
-            LazyField::Doc(field) => field.property(),
+            LazyField::Node(field) => field.property(),
             LazyField::Heap(field) => field.property(),
         }
     }
 
-    pub fn into_heap_field(
-        self,
-        alloc: &'alloc bumpalo::Bump,
-        dedup: &dedup::Deduper<'alloc>,
-    ) -> HeapField<'alloc> {
+    pub fn into_heap_field(self, alloc: &'alloc bumpalo::Bump) -> HeapField<'alloc> {
         match self {
-            Self::Doc(field) => HeapField {
-                property: dedup.alloc_shared_string(field.property()),
-                value: HeapNode::from_node(field.value().as_node(), alloc, dedup),
+            Self::Node(field) => HeapField {
+                property: HeapString(alloc.alloc_str(field.property())),
+                value: HeapNode::from_node(field.value().as_node(), alloc),
             },
             Self::Heap(field) => field,
         }
@@ -223,7 +211,7 @@ impl<'alloc, 'n, N: AsNode> LazyField<'alloc, 'n, N> {
     ///
     pub fn into_parts(self) -> (Result<&'n str, &'alloc str>, LazyNode<'alloc, 'n, N>) {
         match self {
-            Self::Doc(field) => (Ok(field.property()), LazyNode::Node(field.value())),
+            Self::Node(field) => (Ok(field.property()), LazyNode::Node(field.value())),
             Self::Heap(field) => (Err(field.property.0), LazyNode::Heap(field.value)),
         }
     }
