@@ -1,6 +1,6 @@
 use super::{Error, SpillWriter, REDUCED_FLAG, REVALIDATE_FLAG};
 use crate::{
-    dedup, reduce,
+    reduce,
     validation::{Validation, Validator},
     ArchivedNode, AsNode, HeapDoc, HeapNode, LazyNode, Pointer,
 };
@@ -21,7 +21,6 @@ pub struct MemTable {
     //
     // Safety: MemTable is not Sync and we never lend a reference to `entries`.
     entries: UnsafeCell<BTreeSet<KeyedDoc>>,
-    dedup: dedup::Deduper<'static>,
     key: Rc<[Pointer]>,
     schema: url::Url,
     alloc: Pin<Box<bumpalo::Bump>>,
@@ -56,16 +55,9 @@ impl MemTable {
         assert!(!key.is_empty());
 
         let alloc = Box::pin(HeapNode::new_allocator());
-        let dedup: dedup::Deduper<'_> = HeapNode::new_deduper(&alloc);
-
-        // Transmute Deduper from anonymous lifetime to 'static.
-        // Safety: MemTable is a guard over its pinned allocator, and ensures that Deduper
-        // and entries are always stored alongside and have the same lifetime as its bump allocator.
-        let dedup: dedup::Deduper<'static> = unsafe { std::mem::transmute(dedup) };
 
         Self {
             alloc,
-            dedup,
             key,
             schema,
             entries: UnsafeCell::new(BTreeSet::new()),
@@ -89,16 +81,6 @@ impl MemTable {
         &self.alloc
     }
 
-    /// Dedup returns the Deduper of this MemTable.
-    /// As with alloc(), it's exposed to allow callers to build HeapNodes
-    /// which this MemTable can then combine or reduce.
-    pub fn dedup<'s>(&'s self) -> &dedup::Deduper<'s> {
-        // Safety: narrowing from 'static to 's.
-        // The allows the caller to build HeapNode<'s>.
-        unsafe { std::mem::transmute(&self.dedup) }
-    }
-
-    /// Len returns the number of documents in this MemTable.
     pub fn len(&self) -> usize {
         let entries = unsafe { &*self.entries.get() };
         entries.len()
@@ -167,7 +149,6 @@ impl MemTable {
             LazyNode::Heap(rhs),
             rhs_valid,
             alloc,
-            &self.dedup,
             true,
         )?;
         entry.doc.flags |= REVALIDATE_FLAG;
@@ -221,7 +202,6 @@ impl MemTable {
                         LazyNode::Heap(rhs.doc.root),
                         rhs_valid,
                         alloc,
-                        &self.dedup,
                         lhs_flags & REDUCED_FLAG != 0,
                     )?,
                     flags: lhs_flags | REVALIDATE_FLAG,
@@ -237,7 +217,6 @@ impl MemTable {
     pub fn into_drainer(self) -> MemDrainer {
         let MemTable {
             alloc,
-            dedup: _, // Safe to drop now.
             entries,
             key,
             schema,
@@ -259,7 +238,6 @@ impl MemTable {
     ) -> Result<(Rc<[Pointer]>, url::Url), io::Error> {
         let MemTable {
             alloc,
-            dedup: _, // Safe to drop now.
             entries,
             key,
             schema,
@@ -388,8 +366,7 @@ mod test {
         ];
 
         for (full, fixture) in &fixtures {
-            let fixture =
-                HeapNode::from_node(fixture.as_node(), memtable.alloc(), memtable.dedup());
+            let fixture = HeapNode::from_node(fixture.as_node(), memtable.alloc());
 
             if *full {
                 memtable.reduce_left(fixture, &mut validator).unwrap();

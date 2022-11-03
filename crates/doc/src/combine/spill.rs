@@ -332,7 +332,6 @@ impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
     {
         while let Some(cmp::Reverse(segment)) = self.heap.pop() {
             let alloc = HeapNode::new_allocator();
-            let dedup = HeapNode::new_deduper(&alloc);
 
             let mut root = LazyNode::Node(&segment.head().root);
             let mut reduced = segment.head().flags & REDUCED_FLAG != 0;
@@ -368,7 +367,6 @@ impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
                                     LazyNode::Node(rhs),
                                     rhs_valid,
                                     &alloc,
-                                    &dedup,
                                     reduced,
                                 )
                                 .map_err(Error::Reduction)?,
@@ -385,15 +383,8 @@ impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
 
                         (
                             LazyNode::Heap(
-                                reduce::reduce(
-                                    LazyNode::Node(lhs),
-                                    rhs,
-                                    rhs_valid,
-                                    &alloc,
-                                    &dedup,
-                                    true,
-                                )
-                                .map_err(Error::Reduction)?,
+                                reduce::reduce(LazyNode::Node(lhs), rhs, rhs_valid, &alloc, true)
+                                    .map_err(Error::Reduction)?,
                             ),
                             true,
                         )
@@ -462,12 +453,11 @@ mod test {
         // Write fixtures into a SpillWriter.
         let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
         let alloc = HeapNode::new_allocator();
-        let dedup = HeapNode::new_deduper(&alloc);
 
         spill
             .write_segment(
                 fixtures.into_iter().map(|(value, flags)| HeapDoc {
-                    root: HeapNode::from_node(value.as_node(), &alloc, &dedup),
+                    root: HeapNode::from_node(value.as_node(), &alloc),
                     flags,
                 }),
                 2,
@@ -476,23 +466,22 @@ mod test {
         let (mut spill, ranges) = spill.into_parts();
 
         // Assert we wrote the expected range and regression fixture.
-        assert_eq!(ranges, vec![0..204]);
+        assert_eq!(ranges, vec![0..189]);
 
         insta::assert_snapshot!(to_hex(&spill.get_ref()), @r###"
-        |71000000 a0000000 f0086b65 79760000| q.........keyv.. 00000000
-        |0000f8ff ffff0300 00000800 00006161| ..............aa 00000010
-        |61130000 0f006400 e3ffffff 01180070| a.....d........p 00000020
-        |70706c65 0000051d 0017c830 00306262| pple.......0.0bb 00000030
-        |62130001 300017b3 30008062 616e616e| b...0...0..banan 00000040
-        |6100061d 00000500 509cffff ff020d00| a.......P....... 00000050
-        |07020000 180017b4 1800006c 00000200| ...........l.... 00000060
-        |80d0ffff ff020000 004b0000 00580000| .........K...X.. 00000070
-        |00f0086b 65797600 000000f8 ffffff03| ...keyv......... 00000080
-        |00000008 00000063 63631300 000f0064| .......ccc.....d 00000090
-        |00e3ffff ff011800 70617272 6f740006| ........parrot.. 000000a0
-        |1d000005 0050ccff ffff020d 00042d00| .....P........-. 000000b0
-        |b0000000 e8ffffff 01000000|          ............     000000c0
-                                                               000000cc
+        |67000000 98000000 f1006b65 79000000| g.........key... 00000000
+        |00030800 00006161 610c0000 05001076| ......aaa......v 00000010
+        |05003100 00011800 7070706c 65000005| ..1.....ppple... 00000020
+        |11000830 00306262 62130010 03050008| ...0.0bbb....... 00000030
+        |30008062 616e616e 61000618 00000500| 0..banana....... 00000040
+        |509cffff ff020d00 07020000 180017b4| P............... 00000050
+        |18001301 1c0080d0 ffffff02 00000046| ...............F 00000060
+        |00000050 000000f1 006b6579 00000000| ...P.....key.... 00000070
+        |03080000 00636363 0c000005 00107605| .....ccc......v. 00000080
+        |00310000 01180070 6172726f 74000611| .1.....parrot... 00000090
+        |00000500 50ccffff ff020d00 00390001| ....P........9.. 000000a0
+        |0600a000 00e8ffff ff010000 00|       .............    000000b0
+                                                               000000bd
         "###);
 
         // Parse the region as a Segment.
@@ -510,8 +499,8 @@ mod test {
 
         // First chunk has two documents.
         assert_eq!(segment.docs.len(), 2);
-        assert_eq!(segment._backing.len(), 160);
-        assert_eq!(segment.next, 121..204);
+        assert_eq!(segment._backing.len(), 152);
+        assert_eq!(segment.next, 111..189);
 
         actual.push(serde_json::to_value(&segment.head().root.as_node()).unwrap());
 
@@ -522,8 +511,8 @@ mod test {
         segment = segment.next(&mut spill, &mut tmp).unwrap().unwrap();
 
         assert_eq!(segment.docs.len(), 1);
-        assert_eq!(segment._backing.len(), 88);
-        assert_eq!(segment.next, 204..204);
+        assert_eq!(segment._backing.len(), 80);
+        assert_eq!(segment.next, 189..189);
 
         actual.push(serde_json::to_value(&segment.head().root.as_node()).unwrap());
 
@@ -591,12 +580,11 @@ mod test {
 
         for segment in fixtures {
             let alloc = HeapNode::new_allocator();
-            let dedup = HeapNode::new_deduper(&alloc);
 
             spill
                 .write_segment(
                     segment.into_iter().map(|(value, flags)| HeapDoc {
-                        root: HeapNode::from_node(value.as_node(), &alloc, &dedup),
+                        root: HeapNode::from_node(value.as_node(), &alloc),
                         flags,
                     }),
                     2,

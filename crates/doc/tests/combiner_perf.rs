@@ -163,7 +163,6 @@ pub fn combiner_perf() {
         let doc = doc::HeapNode::from_serde(
             &mut serde_json::Deserializer::from_slice(&buf),
             memtable.alloc(),
-            memtable.dedup(),
         )
         .unwrap();
 

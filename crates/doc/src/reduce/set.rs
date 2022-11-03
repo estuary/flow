@@ -1,8 +1,8 @@
 use super::{
-    count_nodes, count_nodes_heap, reduce_item, reduce_prop, Cursor, Error, Index, Result,
+    count_nodes, count_nodes_heap, reduce_item, reduce_prop, Cursor, Error, HeapString, Index,
+    Result,
 };
 use crate::{
-    dedup::Deduper,
     heap::BumpVec,
     lazy::{LazyArray, LazyDestructured, LazyField, LazyObject},
     AsNode, Field, Fields, HeapField, HeapNode, LazyNode, Pointer,
@@ -137,7 +137,6 @@ struct Builder<'alloc, 'schema, 'tmp> {
     full: bool,
     key: &'schema [Pointer],
     alloc: &'alloc bumpalo::Bump,
-    dedup: &'tmp Deduper<'alloc>,
 }
 
 impl<'alloc> Builder<'alloc, '_, '_> {
@@ -161,7 +160,6 @@ impl<'alloc> Builder<'alloc, '_, '_> {
             full,
             key,
             alloc,
-            dedup,
         } = self;
 
         if rhs.is_some() {
@@ -216,16 +214,15 @@ impl<'alloc> Builder<'alloc, '_, '_> {
         ) {
             match eob {
                 EitherOrBoth::Left((_, lhs)) if LEFT & mask != 0 => {
-                    arr.0.push(lhs.into_heap_node(alloc, dedup));
+                    arr.0.push(lhs.into_heap_node(alloc));
                 }
                 EitherOrBoth::Right((_, rhs)) if RIGHT & mask != 0 => {
-                    let rhs = rhs.into_heap_node(alloc, dedup);
+                    let rhs = rhs.into_heap_node(alloc);
                     **tape = &tape[count_nodes_heap(&rhs)..];
                     arr.0.push(rhs);
                 }
                 EitherOrBoth::Both(_, _) if BOTH & mask != 0 => {
-                    arr.0
-                        .push(reduce_item(*tape, *loc, *full, eob, alloc, dedup)?);
+                    arr.0.push(reduce_item(*tape, *loc, *full, eob, alloc)?);
                 }
                 EitherOrBoth::Left(_) => {
                     // Discard.
@@ -254,7 +251,6 @@ impl<'alloc> Builder<'alloc, '_, '_> {
             full,
             key: _,
             alloc,
-            dedup,
         } = self;
 
         if rhs.is_some() {
@@ -305,17 +301,15 @@ impl<'alloc> Builder<'alloc, '_, '_> {
         ) {
             match eob {
                 EitherOrBoth::Left(lhs) if LEFT & mask != 0 => {
-                    fields.0.push(lhs.into_heap_field(alloc, dedup));
+                    fields.0.push(lhs.into_heap_field(alloc));
                 }
                 EitherOrBoth::Right(rhs) if RIGHT & mask != 0 => {
-                    let rhs: HeapField = rhs.into_heap_field(alloc, dedup);
+                    let rhs: HeapField = rhs.into_heap_field(alloc);
                     **tape = &tape[count_nodes_heap(&rhs.value)..];
                     fields.0.push(rhs);
                 }
                 EitherOrBoth::Both(_, _) if BOTH & mask != 0 => {
-                    fields
-                        .0
-                        .push(reduce_prop(*tape, *loc, *full, eob, alloc, dedup)?);
+                    fields.0.push(reduce_prop(*tape, *loc, *full, eob, alloc)?);
                 }
                 EitherOrBoth::Left(_) => {
                     // Discard.
@@ -342,7 +336,6 @@ impl Set {
             lhs,
             rhs,
             alloc,
-            dedup,
             full,
         } = cur;
 
@@ -354,13 +347,12 @@ impl Set {
             full,
             key: &self.key,
             alloc,
-            dedup,
         };
         let mut out = BumpVec::with_capacity_in(2, alloc);
 
-        let add = bld.dedup.alloc_shared_string("add");
-        let intersect = bld.dedup.alloc_shared_string("intersect");
-        let remove = bld.dedup.alloc_shared_string("remove");
+        let add = HeapString(alloc.alloc_str("add"));
+        let intersect = HeapString(alloc.alloc_str("intersect"));
+        let remove = HeapString(alloc.alloc_str("remove"));
 
         match Destructured::extract(loc, lhs, rhs)? {
             // I,A reduce I,A

@@ -37,28 +37,7 @@ impl ArchivedNode {
     }
 }
 
-impl<'alloc> rkyv::Archive for heap::SharedString<'alloc> {
-    type Archived =
-        rkyv::rc::ArchivedRc<<str as rkyv::ArchiveUnsized>::Archived, SharedStringFlavor>;
-    type Resolver = rkyv::rc::RcResolver<<str as rkyv::ArchiveUnsized>::MetadataResolver>;
-
-    unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
-        Self::Archived::resolve_from_ref(self.0, pos, resolver, out);
-    }
-}
-pub struct SharedStringFlavor;
-
-impl<'alloc, S> rkyv::Serialize<S> for heap::SharedString<'alloc>
-where
-    S: rkyv::ser::Serializer + rkyv::ser::SharedSerializeRegistry + ?Sized,
-{
-    #[inline]
-    fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
-        Self::Archived::serialize_from_ref(self.0, serializer)
-    }
-}
-
-impl<'alloc> rkyv::Archive for heap::OwnedString<'alloc> {
+impl<'alloc> rkyv::Archive for heap::HeapString<'alloc> {
     type Archived = rkyv::string::ArchivedString;
     type Resolver = rkyv::string::StringResolver;
 
@@ -67,9 +46,9 @@ impl<'alloc> rkyv::Archive for heap::OwnedString<'alloc> {
     }
 }
 
-impl<'alloc, S> rkyv::Serialize<S> for heap::OwnedString<'alloc>
+impl<'alloc, S> rkyv::Serialize<S> for heap::HeapString<'alloc>
 where
-    S: rkyv::ser::Serializer + rkyv::ser::SharedSerializeRegistry + ?Sized,
+    S: rkyv::ser::Serializer + ?Sized,
 {
     #[inline]
     fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
@@ -92,10 +71,7 @@ where
 
 impl<'alloc, S, T> rkyv::Serialize<S> for heap::BumpVec<'alloc, T>
 where
-    S: rkyv::ser::Serializer
-        + rkyv::ser::ScratchSpace
-        + rkyv::ser::SharedSerializeRegistry
-        + ?Sized,
+    S: rkyv::ser::Serializer + rkyv::ser::ScratchSpace + ?Sized,
     T: rkyv::Serialize<S> + std::fmt::Debug,
 {
     #[inline]
@@ -117,8 +93,7 @@ impl AsNode for ArchivedNode {
             ArchivedNode::Null => Node::Null,
             ArchivedNode::Object(o) => Node::Object(o.as_slice()),
             ArchivedNode::PosInt(n) => Node::Number(json::Number::Unsigned(n.value())),
-            ArchivedNode::StringOwned(s) => Node::String(s),
-            ArchivedNode::StringShared(s) => Node::String(s),
+            ArchivedNode::String(s) => Node::String(s),
         }
     }
 }

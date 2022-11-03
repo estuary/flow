@@ -150,10 +150,9 @@ mod test {
         // Now assert that all flavors of Value, HeapNode,
         // and ArchiveNode give a consistent answer.
         let alloc = HeapNode::new_allocator();
-        let dedup = HeapNode::new_deduper(&alloc);
 
-        let lhs_heap = HeapNode::from_serde(lhs, &alloc, &dedup).unwrap();
-        let rhs_heap = HeapNode::from_serde(rhs, &alloc, &dedup).unwrap();
+        let lhs_heap = HeapNode::from_serde(lhs, &alloc).unwrap();
+        let rhs_heap = HeapNode::from_serde(rhs, &alloc).unwrap();
 
         let buf = lhs_heap.to_archive();
         let lhs_arch = ArchivedNode::from_archive(&buf);

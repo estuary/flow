@@ -55,7 +55,6 @@ pub fn run(CombineArgs { build_source }: CombineArgs) -> Result<(), anyhow::Erro
         let rhs = doc::HeapNode::from_serde(
             &mut serde_json::Deserializer::from_str(&line),
             memtable.alloc(),
-            memtable.dedup(),
         )?;
 
         in_docs += 1;

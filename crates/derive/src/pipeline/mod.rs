@@ -541,19 +541,17 @@ impl Pipeline {
                 // We'd need to first update the owned InvokeOutput type to bytes::Bytes
                 // or similar first, which will make sense to do with Deno and/or using hyper
                 // to directly invoke lambdas from rust.
-                let mut doc =
-                    doc::HeapNode::from_node(doc.as_node(), memtable.alloc(), memtable.dedup());
+                let mut doc = doc::HeapNode::from_node(doc.as_node(), memtable.alloc());
 
-                if let Some(node) = self.document_uuid_ptr.create_heap_node(
-                    &mut doc,
-                    memtable.alloc(),
-                    memtable.dedup(),
-                ) {
-                    *node = doc::HeapNode::StringShared(
+                if let Some(node) = self
+                    .document_uuid_ptr
+                    .create_heap_node(&mut doc, memtable.alloc())
+                {
+                    *node = doc::HeapNode::String(doc::HeapString(
                         memtable
-                            .dedup()
-                            .alloc_shared_string(crate::combine_api::UUID_PLACEHOLDER),
-                    );
+                            .alloc()
+                            .alloc_str(crate::combine_api::UUID_PLACEHOLDER),
+                    ));
                 }
 
                 memtable.combine_right(doc, &mut self.document_schema_guard.validator)?;
