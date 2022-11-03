@@ -123,7 +123,7 @@ impl Pointer {
         })
     }
 
-    // Push a new Token onto the Pointer.
+    /// Push a new Token onto the Pointer.
     pub fn push<'t>(&mut self, token: Token<'t>) -> &mut Pointer {
         match token {
             Token::Index(ind) => {
@@ -144,6 +144,11 @@ impl Pointer {
             }
         }
         self
+    }
+
+    /// Pop last token from the pointer
+    pub fn pop(&mut self) {
+        self.0.pop();
     }
 
     /// Iterate over pointer tokens.
