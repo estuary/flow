@@ -91,7 +91,7 @@ impl Format {
             }
             Self::DateTime => ValidationResult::from(time::OffsetDateTime::parse(
                 val,
-                &time::format_description::well_known::Rfc3339,
+                &time::format_description::well_known::Iso8601::DEFAULT,
             )),
             Self::Time => ValidationResult::from(time::Time::parse(
                 val,
@@ -174,8 +174,10 @@ mod test {
         for (format, value, expect) in [
             ("date", "2022-09-11", true),
             ("date", "2022-09-11T10:31:25.123Z", false),
-            ("date-time", "2022-09-11T10:31:25.123Z", true),
+            ("date-time", "2022-09-11T10:31:25.123Z", true), // RFC3339
             ("datetime", "2022-09-11T10:31:25.123Z", true), // Accepted alias.
+            ("date-time", "2019-09-07T15:50+00Z ", true), // ISO8601, but not RFC3339
+            ("date-time", "2019-09-07T15:50-04:00", true), // ISO8601, but not RFC3339
             ("date-time", "10:31:25.123Z", false),
             ("time", "10:31:25.123Z", true),
             ("email", "john@doe.com", true),
