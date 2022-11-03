@@ -5,6 +5,7 @@ mod jobs;
 pub mod logs;
 mod publications;
 
+use anyhow::Context;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use sqlx::postgres::PgListener;
@@ -63,69 +64,96 @@ where
 
     listener.listen(AGENT_NOTIFICATION_CHANNEL).await?;
 
-    let (task_tx, mut task_rx) = mpsc::channel::<String>(1000);
+    // We use a channel here for two reasons:
+    // 1. Because handlers run one task at a time, and can also indicate that they have more work to perform or not,
+    //    we want to balance the time spent processing each type of handler so that no one handler can monopolize resources.
+    // 2. It makes it easy to preemptively schedule at least one run of each handler on boot up to allow for handling requests
+    //    that came in while we weren't running
+    // NOTE: it is critical that we use an unbounded channel here, otherwise we would open ourselves up to a deadlock scenario
+    // Example deadlock when using a bounded channel:
+    // 1. A spike of work comes in
+    let (task_tx, mut task_rx) = mpsc::unbounded_channel::<String>();
 
-    // Each task gets run at least once to check if there is any pending work
+    // Each handler gets run at least once to check if there is any pending work
     for (handler_table, _) in handlers_by_table.iter() {
-        task_tx.send(handler_table.to_string()).await?;
+        task_tx.send(handler_table.to_string())?;
     }
 
-    tokio::pin!(exit);
-
-    let listen_to_queue = async {
+    let task_tx_cloned = task_tx.clone();
+    let listen_to_datbase_notifications = async move {
         loop {
-            let item = listener.recv().await?;
-            let notification: AgentNotification = serde_json::from_str(item.payload())?;
+            let item = listener.recv().await.map_err(|e| anyhow::Error::from(e))?;
+            let notification: AgentNotification = serde_json::from_str(item.payload())
+                .context("deserializing agent task notification")?;
             let table: &str = &notification.table;
-            match handlers_by_table.get(table) {
-                Some(_) => {
-                    tracing::debug!(table = table, "Message received to invoke handler");
-                    task_tx.send(table.to_string()).await?
-                }
-                None => tracing::warn!(table = table, "Message received to handle unknown table"),
-            }
+
+            tracing::debug!(table = table, "Message received to invoke handler");
+            task_tx_cloned
+                .send(table.to_string())
+                .map_err(|e| anyhow::Error::from(e))?
         }
-    };
-
-    let handle_from_queue = async {
-        while let Some(chan) = task_rx.recv().await {
-            let mut handler = handlers_by_table
-                .get(chan.as_str())
-                .expect(format!("Unexpected task channel {}", chan).as_str())
-                .lock()
-                .await;
-
-            let handle_result = handler.handle(&pg_pool).await;
-
-            match handle_result {
-                Ok(status) => {
-                    tracing::info!(handler = %handler.name(), table = %handler.table_name(), status = ?status, "invoked handler");
-                    match status {
-                        HandlerStatus::Active => {
-                            // Re-schedule another run to handle this MoreWork
-                            task_tx.send(handler.table_name().to_string()).await?;
-                        }
-                        _ => {}
-                    }
-                }
-                Err(err) => {
-                    // Do we actually just want to crash here?
-                    tracing::error!(handler = %handler.name(), table = %handler.table_name(), "Error invoking handler: {}", err.to_string());
-                }
-            }
-        }
+        // Need this here to indicate that this future returns an anyhow::Result<()>
+        #[allow(unreachable_code)]
         Ok::<(), anyhow::Error>(())
     };
 
-    tokio::select! {
-        listen_res = listen_to_queue => {
-            return listen_res;
-        }
-        handle_res = handle_from_queue => {
-            return handle_res;
-        }
-        _ = exit => {
-            return Ok(())
+    let mut listener_handler = tokio::spawn(listen_to_datbase_notifications);
+
+    tokio::pin!(exit);
+
+    loop {
+        tokio::select! {
+            _ = &mut exit => {
+                return Ok(())
+            }
+            listener_res = &mut listener_handler => {
+                match listener_res {
+                    // It should be impossible to get here since `listen_to_datbase_notifications` loop has no `return`s or `break`s
+                    Ok(Ok(())) => return Err(anyhow::anyhow!("Unexpected notification listener exit")),
+                    // If we get an error from inside `listen_to_datbase_notifications`,
+                    // something went wrong when actually listening to the postgres channel
+                    Ok(Err(e)) => return Err(e.into()),
+                    // If we got a JoinError, the listener failed unexpectedly
+                    Err(e) => return Err(e.into()),
+                }
+            }
+            maybe_handler_table = task_rx.recv() => {
+                match maybe_handler_table {
+                    Some(handler_table) => {
+                        let mut handler = match handlers_by_table.get(&handler_table as &str) {
+                            Some(handler) => handler.lock().await,
+                            None => {
+                                tracing::warn!(table = &handler_table, "Message received to handle unknown table");
+                                continue;
+                            },
+                        };
+
+                        let handle_result = handler.handle(&pg_pool).await;
+
+                        match handle_result {
+                            Ok(status) => {
+                                tracing::info!(handler = %handler.name(), table = %handler.table_name(), status = ?status, "invoked handler");
+                                match status {
+                                    HandlerStatus::Active => {
+                                        // Re-schedule another run to handle this MoreWork
+                                        task_tx.send(handler.table_name().to_string())?;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            Err(err) => {
+                                // Do we actually just want to crash here?
+                                tracing::error!(handler = %handler.name(), table = %handler.table_name(), "Error invoking handler: {err}");
+                            }
+                        }
+                    },
+                    None => {
+                        // If `task_rx.recv()` returns None, the channel has been closed
+                        // This shouldn't happen, so if it does then something probably went wrong and we should exit
+                        return Ok(())
+                    },
+                }
+            }
         }
     }
 }
