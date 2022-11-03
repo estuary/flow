@@ -33,7 +33,15 @@ pub async fn run_flow_capture_connector(
         streaming_all(child_stdin, adapted_request_stream, adapted_response_stream);
 
     let exit_status_task =
-        async move { check_exit_status("flow capture connector:", child.wait().await) };
+        async move {
+            let exit_status_result = check_exit_status("flow capture connector:", child.wait().await);
+            if exit_status_result.is_ok() {
+                // We wait a few seconds to let any remaining writes to be done
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            }
+
+            exit_status_result
+        };
 
     tokio::select! {
         Err(e) = streaming_all_task => Err(e),
@@ -59,7 +67,16 @@ pub async fn run_flow_materialize_connector(
         streaming_all(child_stdin, adapted_request_stream, adapted_response_stream);
 
     let exit_status_task =
-        async move { check_exit_status("flow materialize connector:", child.wait().await) };
+        async move {
+            let exit_status_result = check_exit_status("flow materialize connector:", child.wait().await);
+
+            if exit_status_result.is_ok() {
+                // We wait a few seconds to let any remaining writes to be done
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            }
+
+            exit_status_result
+        };
 
     tokio::select! {
         Err(e) = streaming_all_task => Err(e),
