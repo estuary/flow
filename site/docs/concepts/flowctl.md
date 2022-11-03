@@ -22,12 +22,12 @@ flowctl binaries for MacOS and Linux are available.
 
    * For Linux:
    ```console
-   sudo curl -o /usr/local/bin/flowctl -L 'https://github.com/estuary/flowctl/releases/latest/download/flowctl-x86_64-linux' && sudo chmod +x /usr/local/bin/flowctl
+   sudo curl -o /usr/local/bin/flowctl -L 'https://github.com/estuary/flow/releases/latest/download/flowctl-x86_64-linux' && sudo chmod +x /usr/local/bin/flowctl
    ```
 
    * For Mac:
    ```console
-   sudo curl -o /usr/local/bin/flowctl -L 'https://github.com/estuary/flowctl/releases/latest/download/flowctl-multiarch-macos' && sudo chmod +x /usr/local/bin/flowctl
+   sudo curl -o /usr/local/bin/flowctl -L 'https://github.com/estuary/flow/releases/latest/download/flowctl-multiarch-macos' && sudo chmod +x /usr/local/bin/flowctl
    ```
 
    Alternatively, you can find the source files on GitHub [here](https://go.estuary.dev/flowctl).
