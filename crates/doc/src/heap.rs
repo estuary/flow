@@ -30,8 +30,7 @@ pub enum HeapNode<'alloc> {
     Null,
     Object(BumpVec<'alloc, HeapField<'alloc>>),
     PosInt(u64),
-    StringOwned(OwnedString<'alloc>),
-    StringShared(SharedString<'alloc>),
+    String(HeapString<'alloc>),
 }
 
 /// HeapField is a field representation stored in the heap.
@@ -43,22 +42,26 @@ pub enum HeapNode<'alloc> {
     )
 )]
 pub struct HeapField<'alloc> {
-    pub property: SharedString<'alloc>,
+    pub property: HeapString<'alloc>,
     #[omit_bounds]
     pub value: HeapNode<'alloc>,
 }
 
-/// SharedString is a &str which has multiple usages within a Doc.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SharedString<'alloc>(pub &'alloc str);
-
-/// OwnedString is a &mut str which has a unique, owned usage within a Doc.
+/// HeapString is a string representation stored in the heap.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct OwnedString<'alloc>(pub &'alloc mut str);
+pub struct HeapString<'alloc>(pub &'alloc str);
 
 /// BumpVec is a generic Vec<T> that's bound to a bump allocator.
 #[derive(Debug)]
 pub struct BumpVec<'alloc, T: std::fmt::Debug>(pub bumpalo::collections::Vec<'alloc, T>);
+
+impl<'alloc> HeapNode<'alloc> {
+    // new_allocator builds a bumpalo::Bump allocator for use in building HeapNodes.
+    // It's a trivial helper which can reduce type imports.
+    pub fn new_allocator() -> bumpalo::Bump {
+        bumpalo::Bump::new()
+    }
+}
 
 impl<'alloc> AsNode for HeapNode<'alloc> {
     type Fields = [HeapField<'alloc>];
@@ -73,8 +76,7 @@ impl<'alloc> AsNode for HeapNode<'alloc> {
             HeapNode::Null => Node::Null,
             HeapNode::Object(o) => Node::Object(o.0.as_slice()),
             HeapNode::PosInt(n) => Node::Number(json::Number::Unsigned(*n)),
-            HeapNode::StringOwned(s) => Node::String(&s.0),
-            HeapNode::StringShared(s) => Node::String(&s.0),
+            HeapNode::String(s) => Node::String(&s.0),
         }
     }
 }
@@ -121,7 +123,7 @@ impl<'alloc, T: std::fmt::Debug> BumpVec<'alloc, T> {
 
 impl<'alloc> BumpVec<'alloc, HeapField<'alloc>> {
     /// Insert or obtain a mutable reference to a child HeapNode with the given property.
-    pub fn insert_mut(&mut self, property: SharedString<'alloc>) -> &mut HeapNode<'alloc> {
+    pub fn insert_mut(&mut self, property: HeapString<'alloc>) -> &mut HeapNode<'alloc> {
         let ind = match self.0.binary_search_by(|l| l.property.0.cmp(&property.0)) {
             Ok(ind) => ind,
             Err(ind) => {

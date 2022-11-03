@@ -152,14 +152,13 @@ impl Registers {
             .expect("key must be loaded before reduce");
 
         let alloc = doc::HeapNode::new_allocator();
-        let dedup = doc::HeapNode::new_deduper(&alloc);
 
         let mut reg = match reg_ref {
-            Some(v) => doc::HeapNode::from_node(v.as_node(), &alloc, &dedup),
+            Some(v) => doc::HeapNode::from_node(v.as_node(), &alloc),
             None => {
                 // If the register doesn't exist, initialize it now.
                 self.stats.inc_created();
-                doc::HeapNode::from_node(initial.as_node(), &alloc, &dedup)
+                doc::HeapNode::from_node(initial.as_node(), &alloc)
             }
         };
 
@@ -172,7 +171,6 @@ impl Registers {
                 doc::LazyNode::Node(&rhs),
                 rhs_valid,
                 &alloc,
-                &dedup,
                 true,
             )?;
             Validation::validate(validator, schema, &reg)?.ok()?;

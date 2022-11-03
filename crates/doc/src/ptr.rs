@@ -1,4 +1,4 @@
-use super::{compare, dedup::Deduper, heap::BumpVec, AsNode, Field, Fields, HeapNode, Node};
+use super::{compare, heap::BumpVec, AsNode, Field, Fields, HeapNode, HeapString, Node};
 use std::str::FromStr;
 
 /// Token is a parsed token of a JSON pointer.
@@ -246,7 +246,6 @@ impl Pointer {
         &self,
         node: &'n mut HeapNode<'alloc>,
         alloc: &'alloc bumpalo::Bump,
-        dedup: &Deduper<'alloc>,
     ) -> Option<&'n mut HeapNode<'alloc>> {
         let mut v = node;
 
@@ -269,10 +268,10 @@ impl Pointer {
                 HeapNode::Object(fields) => match token {
                     // Create or modify existing entry.
                     Token::Index(ind) => {
-                        fields.insert_mut(dedup.alloc_shared_string(ind.to_string()))
+                        fields.insert_mut(HeapString(alloc.alloc_str(&ind.to_string())))
                     }
-                    Token::Property(prop) => fields.insert_mut(dedup.alloc_shared_string(prop)),
-                    Token::NextIndex => fields.insert_mut(dedup.alloc_shared_string("-")),
+                    Token::Property(prop) => fields.insert_mut(HeapString(alloc.alloc_str(prop))),
+                    Token::NextIndex => fields.insert_mut(HeapString(alloc.alloc_str("-"))),
                 },
                 HeapNode::Array(BumpVec(arr)) => match token {
                     Token::Index(ind) => {
@@ -298,8 +297,7 @@ impl Pointer {
                 | HeapNode::Float(_)
                 | HeapNode::NegInt(_)
                 | HeapNode::PosInt(_)
-                | HeapNode::StringOwned(_)
-                | HeapNode::StringShared(_) => {
+                | HeapNode::String(_) => {
                     return None; // Cannot match (attempt to take child of scalar).
                 }
                 HeapNode::Null => unreachable!("null already handled"),
@@ -437,8 +435,7 @@ mod test {
         });
 
         let alloc = HeapNode::new_allocator();
-        let dedup = HeapNode::new_deduper(&alloc);
-        let heap_doc = HeapNode::from_serde(&doc, &alloc, &dedup).unwrap();
+        let heap_doc = HeapNode::from_serde(&doc, &alloc).unwrap();
 
         let archive = heap_doc.to_archive();
         let arch_doc = ArchivedNode::from_archive(&archive);
@@ -498,7 +495,6 @@ mod test {
         let mut root_value = json!(null);
 
         let alloc = HeapNode::new_allocator();
-        let dedup = HeapNode::new_deduper(&alloc);
         let mut root_heap_doc = HeapNode::Null;
 
         for case in [
@@ -518,10 +514,9 @@ mod test {
         .iter_mut()
         {
             let ptr = Pointer::from(case.0);
-            let child = HeapNode::from_serde(&case.1, &alloc, &dedup).unwrap();
+            let child = HeapNode::from_serde(&case.1, &alloc).unwrap();
 
-            *ptr.create_heap_node(&mut root_heap_doc, &alloc, &dedup)
-                .unwrap() = child;
+            *ptr.create_heap_node(&mut root_heap_doc, &alloc).unwrap() = child;
 
             std::mem::swap(ptr.create_value(&mut root_value).unwrap(), &mut case.1);
         }
@@ -544,9 +539,7 @@ mod test {
             let ptr = Pointer::from(*case);
 
             assert!(ptr.create_value(&mut root_value).is_none());
-            assert!(ptr
-                .create_heap_node(&mut root_heap_doc, &alloc, &dedup)
-                .is_none());
+            assert!(ptr.create_heap_node(&mut root_heap_doc, &alloc).is_none());
         }
     }
 

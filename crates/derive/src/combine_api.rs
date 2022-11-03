@@ -213,14 +213,14 @@ fn parse_node_with_placeholder<'m>(
     let mut doc = doc::HeapNode::from_serde(
         &mut serde_json::Deserializer::from_slice(data),
         memtable.alloc(),
-        memtable.dedup(),
     )
     .map_err(|e| Error::Json(JsonError::new(data, e)))?;
 
     if let Some(ptr) = uuid_placeholder_ptr.as_ref() {
-        if let Some(node) = ptr.create_heap_node(&mut doc, memtable.alloc(), memtable.dedup()) {
-            *node =
-                doc::HeapNode::StringShared(memtable.dedup().alloc_shared_string(UUID_PLACEHOLDER));
+        if let Some(node) = ptr.create_heap_node(&mut doc, memtable.alloc()) {
+            *node = doc::HeapNode::String(doc::HeapString(
+                memtable.alloc().alloc_str(UUID_PLACEHOLDER),
+            ));
         }
     }
     Ok(doc)
