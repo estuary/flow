@@ -73,17 +73,20 @@ pub async fn provision_tenant(
         grant_user_admin_to_tenant as (
             insert into user_grants (user_id, object_role, capability, detail) values
                 ($1, $2, 'admin', $3)
+            on conflict do nothing
         ),
         grant_to_tenant as (
             insert into role_grants (subject_role, object_role, capability, detail) values
                 ($2, $2, 'write', $3),              -- Tenant specs may write to other tenant specs.
                 ($2, 'ops/' || $2, 'read', $3),     -- Tenant may read `ops/$tenant/...` collections.
                 ($2, 'estuary/public/', 'read', $3) -- Tenant may read `estuary/pubic/` collections.
+            on conflict do nothing
         ),
         create_storage_mappings as (
             insert into storage_mappings (catalog_prefix, spec, detail) values
                 ($2, '{"stores": [{"provider": "GCS", "bucket": "estuary-trial"}]}', $3),
                 ('recovery/' || $2, '{"stores": [{"provider": "GCS", "bucket": "estuary-trial"}]}', $3)
+            on conflict do nothing
         ),
         -- Create a draft for provisioned catalog specifications owned by the accounts root user.
         -- It will be filled out later but within this same transaction.
