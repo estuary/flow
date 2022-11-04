@@ -68,7 +68,7 @@ It supports strong schematization, durable transactions with exactly-once semant
 
 * Required JSON schemas ensure that only clean, consistent data is ingested into Flow or written to external systems. If a document violates its schema, Flow pauses the pipeline, giving you a chance to fix the error.
 * Schemas can encode constraints, like that a latitude value must be between +90 and -90 degrees, or that a field must be a valid email address.
-* Flow can projects JSON schema into other flavors, like TypeScript types or SQL tables. Strong type checking catches bugs before they're applied to production.
+* Flow can project JSON schema into other flavors, like TypeScript types or SQL tables. Strong type checking catches bugs before they're applied to production.
 * Flow's declarative tests verify the integrated, end-to-end behavior of data flows.
 
 ### Dynamic scaling
