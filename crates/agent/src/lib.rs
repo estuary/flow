@@ -104,7 +104,8 @@ where
     loop {
         tokio::select! {
             _ = &mut exit => {
-                return Ok(())
+                tracing::debug!("caught signal; exiting...");
+                return Ok(()) // All done.
             }
             listener_res = &mut listener_handler => {
                 match listener_res {
