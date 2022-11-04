@@ -24,6 +24,9 @@ create view internal.user_profiles as
     coalesce(raw_user_meta_data->>'full_name', raw_user_meta_data->>'name') as full_name,
     coalesce(raw_user_meta_data->>'picture', raw_user_meta_data->>'avatar_url') as avatar_url from auth.users;
 
+GRANT SELECT ON TABLE internal.user_profiles TO authenticated;
+GRANT ALL ON TABLE internal.user_profiles TO postgres;
+
 -- Provide API clients a way to map a User ID to a user profile.
 -- `bearer_user_id` is a UUID ID of the auth.users table and is treated as a bearer token:
 -- Anyone able to identify a UUID is able to retrieve their profile.
