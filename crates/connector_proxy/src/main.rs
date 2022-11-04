@@ -87,7 +87,7 @@ fn main() -> anyhow::Result<()> {
         .build()
         .context("building tokio runtime")?;
 
-    let result = runtime.block_on(async_main(image_inspect_json_path, proxy_command));
+    let result = runtime.block_on(async_main(image_inspect_json_path, proxy_command, &log_args));
 
     // Explicitly call Runtime::shutdown_background as an alternative to calling Runtime::Drop.
     // This shuts down the runtime without waiting for blocking background tasks to complete,
@@ -108,11 +108,12 @@ fn main() -> anyhow::Result<()> {
 async fn async_main(
     image_inspect_json_path: Option<String>,
     proxy_command: ProxyCommand,
+    log_args: &LogArgs,
 ) -> Result<(), Error> {
     match proxy_command {
-        ProxyCommand::ProxyFlowCapture(c) => proxy_flow_capture(c, image_inspect_json_path).await,
+        ProxyCommand::ProxyFlowCapture(c) => proxy_flow_capture(c, image_inspect_json_path, log_args).await,
         ProxyCommand::ProxyFlowMaterialize(m) => {
-            proxy_flow_materialize(m, image_inspect_json_path).await
+            proxy_flow_materialize(m, image_inspect_json_path, log_args).await
         }
     }
 }
@@ -120,6 +121,7 @@ async fn async_main(
 async fn proxy_flow_capture(
     c: ProxyFlowCapture,
     image_inspect_json_path: Option<String>,
+    log_args: &LogArgs,
 ) -> Result<(), Error> {
     let image_inspect = ImageInspect::parse_from_json_file(image_inspect_json_path)?;
     let connector_protocol = image_inspect.infer_runtime_protocol();
@@ -130,7 +132,8 @@ async fn proxy_flow_capture(
         ));
     }
 
-    let entrypoint = image_inspect.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]);
+    let mut entrypoint = image_inspect.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]);
+    entrypoint.push(format!("--log.level={}", log_args.level.to_string()));
 
     match image_inspect
         .get_connector_protocol::<CaptureConnectorProtocol>(CaptureConnectorProtocol::Airbyte)
@@ -147,6 +150,7 @@ async fn proxy_flow_capture(
 async fn proxy_flow_materialize(
     m: ProxyFlowMaterialize,
     image_inspect_json_path: Option<String>,
+    log_args: &LogArgs,
 ) -> Result<(), Error> {
     let image_inspect = ImageInspect::parse_from_json_file(image_inspect_json_path)?;
     let connector_protocol = image_inspect.infer_runtime_protocol();
@@ -157,7 +161,8 @@ async fn proxy_flow_materialize(
         ));
     }
 
-    let entrypoint = image_inspect.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]);
+    let mut entrypoint = image_inspect.get_entrypoint(vec![DEFAULT_CONNECTOR_ENTRYPOINT.to_string()]);
+    entrypoint.push(format!("--log.level={}", log_args.level.to_string()));
 
     run_flow_materialize_connector(&m.operation, entrypoint).await
 }
