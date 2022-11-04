@@ -7,7 +7,7 @@ mod publications;
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgListener;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{mpsc, Mutex};
@@ -24,7 +24,7 @@ pub enum HandlerStatus {
     Idle,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct AgentNotification {
     timestamp: DateTime<Utc>,
     table: String,
@@ -201,4 +201,136 @@ async fn upsert_draft_specs(
 
     agent_sql::touch_draft(draft_id, txn).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use std::time::Duration;
+
+    use crate::{serve, AgentNotification, Handler, HandlerStatus, AGENT_NOTIFICATION_CHANNEL};
+
+    use futures::{FutureExt, TryFutureExt};
+    use sqlx::{postgres::PgListener, PgPool};
+
+    const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
+    const CLEANUP: &str = include_str!("publications/test_resources/cleanup.sql");
+
+    #[derive(Debug)]
+    struct MockHandler {
+        notifier: tokio::sync::mpsc::UnboundedSender<()>,
+        table_name: &'static str,
+    }
+
+    impl MockHandler {
+        fn new(table_name: &'static str, notifier: tokio::sync::mpsc::UnboundedSender<()>) -> Self {
+            MockHandler {
+                notifier,
+                table_name,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Handler for MockHandler {
+        async fn handle(&mut self, _: &sqlx::PgPool) -> anyhow::Result<HandlerStatus> {
+            self.notifier.send(()).unwrap();
+            Ok(HandlerStatus::Idle)
+        }
+
+        fn table_name(&self) -> &'static str {
+            &self.table_name
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handlers_react_quickly() -> anyhow::Result<()> {
+        let pg_pool = PgPool::connect(&FIXED_DATABASE_URL).await.unwrap();
+
+        let (handler_notify_tx, mut handler_notify_rx) =
+            tokio::sync::mpsc::unbounded_channel::<()>();
+        let (_, exit_rx) = tokio::sync::oneshot::channel::<()>();
+
+        let server = serve(
+            vec![Box::new(MockHandler::new(
+                "publications",
+                handler_notify_tx,
+            ))],
+            pg_pool.clone(),
+            exit_rx.map(|_| ()),
+        );
+
+        tokio::pin!(server);
+
+        tokio::select! {
+            _ = &mut server => {
+                Err(anyhow::anyhow!("Handler unexpectedly exited"))
+            }
+            res = async move {
+                // Do this 10 times in a row to make sure that our handler gets called consistently quickly
+                for _ in 0..10{
+                    let mut txn = pg_pool.begin().await.unwrap();
+                    sqlx::query(CLEANUP).execute(&mut txn).await.unwrap();
+                    // Sets up the database to have a valid publication task and associated draft/specs
+                    sqlx::query(include_str!("publications/test_resources/happy_path.sql"))
+                        .execute(&mut txn)
+                        .await
+                        .unwrap();
+
+                    // We have to commit the transaction for the NOTIFY to get sent
+                    txn.commit().await.unwrap();
+
+                    // Make sure that our mock publication handler was called within 25ms
+                    let res = tokio::time::timeout(Duration::from_millis(25), handler_notify_rx.recv().map(|_|()))
+                        .await
+                        .map_err(|_| anyhow::anyhow!("Timed out waiting for mock publication handler to get called"));
+
+                    res?;
+                }
+                Ok(())
+            } => {
+                res
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_pg_notifications() {
+        let pg_pool = PgPool::connect(&FIXED_DATABASE_URL).await.unwrap();
+        let mut txn = pg_pool.begin().await.unwrap();
+
+        let mut listener = PgListener::connect_with(&pg_pool).await.unwrap();
+
+        listener.listen(AGENT_NOTIFICATION_CHANNEL).await.unwrap();
+
+        // This sets up the database to have a valid publication
+        // which should trigger a NOTIFY on the AGENT_NOTIFICATION_CHANNEL
+        sqlx::query(CLEANUP).execute(&mut txn).await.unwrap();
+        sqlx::query(include_str!("publications/test_resources/happy_path.sql"))
+            .execute(&mut txn)
+            .await
+            .unwrap();
+
+        // We have to commit the transaction for the NOTIFY to get sent
+        txn.commit().await.unwrap();
+
+        let notification: AgentNotification = tokio::time::timeout(
+            Duration::from_millis(50),
+            listener
+                .recv()
+                .map_ok(|item| serde_json::from_str(item.payload()).unwrap()),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        insta::assert_json_snapshot!(
+            notification,
+            {".timestamp" => "[timestamp]"},
+            @r#"
+            {
+              "timestamp": "[timestamp]",
+              "table": "publications"
+            }"#
+        );
+    }
 }
