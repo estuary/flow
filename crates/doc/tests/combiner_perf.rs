@@ -1,21 +1,19 @@
-use doc::{Annotation, Pointer};
-use json::schema::{build::build_schema, index::IndexBuilder};
-use json::validator::{SpanContext, Validator};
+use doc::Validator;
+use json::schema::build::build_schema;
 use rand::{distributions::Distribution, Rng, SeedableRng};
 use serde_json::{json, value::RawValue, Value};
 use std::io::Write;
-use std::rc::Rc;
 use std::time::Instant;
 
 // This benchmark is regularly run as part of our test sweet to ensure it remains functional.
 // When actually developing it, you may wish to run as:
 //
-//   cargo test --release -p doc-poc --test combiner_perf -- --nocapture
+//   cargo test --release -p doc --test combiner_perf -- --nocapture
 //
 // And additionally increase TOTAL_ROUNDS to a larger value.
 
 // How many total rounds to run?
-const TOTAL_ROUNDS: usize = 10000;
+const TOTAL_ROUNDS: usize = 1000;
 // Keys are drawn from the Zipfian distribution. The choice of parameter means
 // that about 55% of sampled keys are unique, and the remaining 45% are duplicates.
 // Of the duplicates, key 1 is about twice as likely as key 2, which is twice as
@@ -65,9 +63,8 @@ pub fn combiner_perf() {
         }
     });
 
-    let url = url::Url::parse("http://schema").unwrap();
-    let schema = build_schema::<Annotation>(
-        url,
+    let schema = build_schema(
+        url::Url::parse("http://schema").unwrap(),
         &json!({
             "type": "object",
             "properties": {
@@ -86,12 +83,6 @@ pub fn combiner_perf() {
         }),
     )
     .unwrap();
-    let key: Rc<[Pointer]> = vec!["/key".into()].into();
-
-    let mut index = IndexBuilder::new();
-    index.add(&schema).unwrap();
-    index.verify_references().unwrap();
-    let index = index.into_index();
 
     // Load all github document fixtures into RawValue.
     let github_docs = GITHUB_SCRAPES
@@ -107,13 +98,13 @@ pub fn combiner_perf() {
     // Assemble parts for document generation and validation.
     let mut rng = rand::rngs::SmallRng::seed_from_u64(8675309);
     let key_dist = rand_distr::Zipf::new(u64::MAX, ZIPF_PARAM).unwrap();
-    let mut val = Validator::<Annotation, SpanContext>::new(&index);
 
     // Initialize the combiner itself.
     let mut accum = doc::combine::Accumulator::new(
-        key.clone(),
-        schema.curi.clone(),
+        vec!["/key".into()].into(),
+        None,
         tempfile::tempfile().unwrap(),
+        Validator::new(schema).unwrap(),
     )
     .unwrap();
 
@@ -166,7 +157,7 @@ pub fn combiner_perf() {
         )
         .unwrap();
 
-        memtable.combine_right(doc, &mut val).unwrap();
+        memtable.add(doc, false).unwrap();
     }
 
     let peak_stats = allocator::current_mem_stats();
@@ -174,7 +165,7 @@ pub fn combiner_perf() {
 
     let mut drainer = accum.into_drainer().unwrap();
     while drainer
-        .drain_while(&mut val, |_entry, _reduce| {
+        .drain_while(|_entry, _reduce| {
             drained += 1;
             Ok::<_, doc::combine::Error>(true)
         })

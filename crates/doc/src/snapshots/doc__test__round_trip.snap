@@ -3,141 +3,95 @@ source: crates/doc/src/lib.rs
 expression: doc
 ---
 Object(
-    BumpVec(
-        [
-            HeapField {
-                property: HeapString(
-                    "big string",
-                ),
-                value: String(
-                    HeapString(
-                        "a bigger string",
-                    ),
-                ),
-            },
-            HeapField {
-                property: HeapString(
-                    "nested",
-                ),
-                value: Object(
-                    BumpVec(
-                        [
-                            HeapField {
-                                property: HeapString(
-                                    "false",
-                                ),
-                                value: Bool(
-                                    false,
-                                ),
-                            },
-                            HeapField {
-                                property: HeapString(
-                                    "shared string",
-                                ),
-                                value: Object(
-                                    BumpVec(
-                                        [
-                                            HeapField {
-                                                property: HeapString(
-                                                    "shared string",
-                                                ),
-                                                value: String(
-                                                    HeapString(
-                                                        "shared string",
-                                                    ),
-                                                ),
-                                            },
-                                        ],
+    [
+        HeapField {
+            property: "big string",
+            value: String(
+                "a bigger string",
+            ),
+        },
+        HeapField {
+            property: "nested",
+            value: Object(
+                [
+                    HeapField {
+                        property: "false",
+                        value: Bool(
+                            false,
+                        ),
+                    },
+                    HeapField {
+                        property: "shared string",
+                        value: Object(
+                            [
+                                HeapField {
+                                    property: "shared string",
+                                    value: String(
+                                        "shared string",
                                     ),
-                                ),
-                            },
-                            HeapField {
-                                property: HeapString(
-                                    "true",
-                                ),
-                                value: Bool(
-                                    true,
-                                ),
-                            },
-                            HeapField {
-                                property: HeapString(
-                                    "two",
-                                ),
-                                value: PosInt(
-                                    2,
-                                ),
-                            },
-                        ],
+                                },
+                            ],
+                        ),
+                    },
+                    HeapField {
+                        property: "true",
+                        value: Bool(
+                            true,
+                        ),
+                    },
+                    HeapField {
+                        property: "two",
+                        value: PosInt(
+                            2,
+                        ),
+                    },
+                ],
+            ),
+        },
+        HeapField {
+            property: "null",
+            value: Null,
+        },
+        HeapField {
+            property: "numbers",
+            value: Array(
+                [
+                    PosInt(
+                        1229782938247303441,
                     ),
-                ),
-            },
-            HeapField {
-                property: HeapString(
-                    "null",
-                ),
-                value: Null,
-            },
-            HeapField {
-                property: HeapString(
-                    "numbers",
-                ),
-                value: Array(
-                    BumpVec(
-                        [
-                            PosInt(
-                                1229782938247303441,
-                            ),
-                            NegInt(
-                                -1234,
-                            ),
-                            Float(
-                                56.7891122334455,
-                            ),
-                        ],
+                    NegInt(
+                        -1234,
                     ),
-                ),
-            },
-            HeapField {
-                property: HeapString(
-                    "shared string",
-                ),
-                value: String(
-                    HeapString(
-                        "shared string",
+                    Float(
+                        56.7891122334455,
                     ),
-                ),
-            },
-            HeapField {
-                property: HeapString(
-                    "small string",
-                ),
-                value: String(
-                    HeapString(
-                        "smol",
-                    ),
-                ),
-            },
-            HeapField {
-                property: HeapString(
-                    "some",
-                ),
-                value: Object(
-                    BumpVec(
-                        [
-                            HeapField {
-                                property: HeapString(
-                                    "bytes",
-                                ),
-                                value: String(
-                                    HeapString(
-                                        "c29tZSBieXRlcw==",
-                                    ),
-                                ),
-                            },
-                        ],
-                    ),
-                ),
-            },
-        ],
-    ),
+                ],
+            ),
+        },
+        HeapField {
+            property: "shared string",
+            value: String(
+                "shared string",
+            ),
+        },
+        HeapField {
+            property: "small string",
+            value: String(
+                "smol",
+            ),
+        },
+        HeapField {
+            property: "some",
+            value: Object(
+                [
+                    HeapField {
+                        property: "bytes",
+                        value: String(
+                            "c29tZSBieXRlcw==",
+                        ),
+                    },
+                ],
+            ),
+        },
+    ],
 )

@@ -1,11 +1,9 @@
 use super::{
-    count_nodes, count_nodes_heap, reduce_item, reduce_prop, Cursor, Error, HeapString, Index,
-    Result,
+    count_nodes, count_nodes_heap, reduce_item, reduce_prop, Cursor, Error, Index, Result,
 };
 use crate::{
-    heap::BumpVec,
     lazy::{LazyArray, LazyDestructured, LazyField, LazyObject},
-    AsNode, Field, Fields, HeapField, HeapNode, LazyNode, Pointer,
+    AsNode, BumpVec, Field, Fields, HeapField, HeapNode, LazyNode, Pointer,
 };
 use itertools::EitherOrBoth;
 use std::iter::Iterator;
@@ -59,9 +57,10 @@ impl<'alloc, 'l, 'r, L: AsNode, R: AsNode> Destructured<'alloc, 'l, 'r, L, R> {
             for field in obj.into_iter() {
                 let (property, value) = field.into_parts();
 
-                // Collapse separate 'n and 'alloc lifetimes into one.
-                let property = match property {
-                    Ok(p) | Err(p) => p,
+                // Collapse owned vs borrowed cases into one &str.
+                let property = match &property {
+                    Ok(archive) => archive,
+                    Err(heap) => heap.as_str(),
                 };
 
                 match (property, value.destructure()) {
@@ -203,7 +202,7 @@ impl<'alloc> Builder<'alloc, '_, '_> {
         let lhs = lhs.into_iter().flat_map(LazyArray::into_iter);
         let lhs_diff_sub: Box<dyn Iterator<Item = LazyNode<_>>> = match sub {
             Some(LazyArray::Node(arr)) => subtract(key, lhs, arr.iter(), naught),
-            Some(LazyArray::Heap(arr)) => subtract(key, lhs, arr.0.iter(), naught),
+            Some(LazyArray::Heap(arr)) => subtract(key, lhs, arr.iter(), naught),
             None => Box::new(lhs),
         };
 
@@ -214,15 +213,15 @@ impl<'alloc> Builder<'alloc, '_, '_> {
         ) {
             match eob {
                 EitherOrBoth::Left((_, lhs)) if LEFT & mask != 0 => {
-                    arr.0.push(lhs.into_heap_node(alloc));
+                    arr.push(lhs.into_heap_node(alloc), alloc);
                 }
                 EitherOrBoth::Right((_, rhs)) if RIGHT & mask != 0 => {
                     let rhs = rhs.into_heap_node(alloc);
                     **tape = &tape[count_nodes_heap(&rhs)..];
-                    arr.0.push(rhs);
+                    arr.push(rhs, alloc);
                 }
                 EitherOrBoth::Both(_, _) if BOTH & mask != 0 => {
-                    arr.0.push(reduce_item(*tape, *loc, *full, eob, alloc)?);
+                    arr.push(reduce_item(*tape, *loc, *full, eob, alloc)?, alloc);
                 }
                 EitherOrBoth::Left(_) => {
                     // Discard.
@@ -290,7 +289,7 @@ impl<'alloc> Builder<'alloc, '_, '_> {
         let lhs = lhs.into_iter().flat_map(LazyObject::into_iter);
         let lhs_diff_sub: Box<dyn Iterator<Item = LazyField<_>>> = match sub {
             Some(LazyObject::Node(fields)) => subtract(lhs, fields.iter(), naught),
-            Some(LazyObject::Heap(fields)) => subtract(lhs, fields.0.iter(), naught),
+            Some(LazyObject::Heap(fields)) => subtract(lhs, fields.iter(), naught),
             None => Box::new(lhs),
         };
 
@@ -301,15 +300,15 @@ impl<'alloc> Builder<'alloc, '_, '_> {
         ) {
             match eob {
                 EitherOrBoth::Left(lhs) if LEFT & mask != 0 => {
-                    fields.0.push(lhs.into_heap_field(alloc));
+                    fields.push(lhs.into_heap_field(alloc), alloc);
                 }
                 EitherOrBoth::Right(rhs) if RIGHT & mask != 0 => {
                     let rhs: HeapField = rhs.into_heap_field(alloc);
                     **tape = &tape[count_nodes_heap(&rhs.value)..];
-                    fields.0.push(rhs);
+                    fields.push(rhs, alloc);
                 }
                 EitherOrBoth::Both(_, _) if BOTH & mask != 0 => {
-                    fields.0.push(reduce_prop(*tape, *loc, *full, eob, alloc)?);
+                    fields.push(reduce_prop(*tape, *loc, *full, eob, alloc)?, alloc);
                 }
                 EitherOrBoth::Left(_) => {
                     // Discard.
@@ -350,9 +349,9 @@ impl Set {
         };
         let mut out = BumpVec::with_capacity_in(2, alloc);
 
-        let add = HeapString(alloc.alloc_str("add"));
-        let intersect = HeapString(alloc.alloc_str("intersect"));
-        let remove = HeapString(alloc.alloc_str("remove"));
+        let add = "add";
+        let intersect = "intersect";
+        let remove = "remove";
 
         match Destructured::extract(loc, lhs, rhs)? {
             // I,A reduce I,A
@@ -362,7 +361,7 @@ impl Set {
             } => {
                 // Reduce "add" as: (LA - RI') U RA.
                 if let Some(term) = bld.vec_term(la, Some(&ri), true, UNION, ra)? {
-                    *out.insert_mut(add) = term;
+                    *out.insert_property(add, alloc) = term;
                 }
 
                 // Reduce "intersect" as: LI & RI.
@@ -376,7 +375,7 @@ impl Set {
                     )?,
                     bld.full,
                 ) {
-                    *out.insert_mut(intersect) = term;
+                    *out.insert_property(intersect, alloc) = term;
                 }
             }
             // I,A reduce R,A
@@ -386,7 +385,7 @@ impl Set {
             } => {
                 // Reduce "add" as: (LA - RR) U RA.
                 if let Some(term) = bld.vec_term(la, rr.as_ref(), false, UNION, ra)? {
-                    *out.insert_mut(add) = term;
+                    *out.insert_property(add, alloc) = term;
                 }
 
                 // Reduce "intersect" as: LI - RR.
@@ -400,7 +399,7 @@ impl Set {
                     )?,
                     bld.full,
                 ) {
-                    *out.insert_mut(intersect) = term;
+                    *out.insert_property(intersect, alloc) = term;
                 }
             }
             // R,A reduce I,A
@@ -410,7 +409,7 @@ impl Set {
             } => {
                 // Reduce "add" as: (LA - RI') U RA.
                 if let Some(term) = bld.vec_term(la, Some(&ri), true, UNION, ra)? {
-                    *out.insert_mut(add) = term;
+                    *out.insert_property(add, alloc) = term;
                 }
 
                 // Reduce "intersect" as: RI - LR.
@@ -424,7 +423,7 @@ impl Set {
                     )?,
                     bld.full,
                 ) {
-                    *out.insert_mut(intersect) = term;
+                    *out.insert_property(intersect, alloc) = term;
                 }
             }
             // R,A reduce R,A
@@ -435,7 +434,7 @@ impl Set {
             } => {
                 // Reduce "add" as: (LA - RR) U RA.
                 if let Some(term) = bld.vec_term(la, rr.as_ref(), false, UNION, ra)? {
-                    *out.insert_mut(add) = term;
+                    *out.insert_property(add, alloc) = term;
                 }
 
                 // Reduce "remove" as: LR U RR.
@@ -443,7 +442,7 @@ impl Set {
                     bld.vec_term(lr, None, false, if bld.full { NONE } else { UNION }, rr)?,
                     bld.full,
                 ) {
-                    *out.insert_mut(remove) = term;
+                    *out.insert_property(remove, alloc) = term;
                 }
             }
 
@@ -454,7 +453,7 @@ impl Set {
             } => {
                 // Reduce "add" as: (LA - RI') U RA.
                 if let Some(term) = bld.map_term(la, Some(&ri), true, UNION, ra)? {
-                    *out.insert_mut(add) = term;
+                    *out.insert_property(add, alloc) = term;
                 }
 
                 // Reduce "intersect" as: LI & RI.
@@ -468,7 +467,7 @@ impl Set {
                     )?,
                     bld.full,
                 ) {
-                    *out.insert_mut(intersect) = term;
+                    *out.insert_property(intersect, alloc) = term;
                 }
             }
             // I,A reduce R,A
@@ -478,7 +477,7 @@ impl Set {
             } => {
                 // Reduce "add" as: (LA - RR) U RA.
                 if let Some(term) = bld.map_term(la, rr.as_ref(), false, UNION, ra)? {
-                    *out.insert_mut(add) = term;
+                    *out.insert_property(add, alloc) = term;
                 }
 
                 // Reduce "intersect" as: LI - RR.
@@ -492,7 +491,7 @@ impl Set {
                     )?,
                     bld.full,
                 ) {
-                    *out.insert_mut(intersect) = term;
+                    *out.insert_property(intersect, alloc) = term;
                 }
             }
             // R,A reduce I,A
@@ -503,7 +502,7 @@ impl Set {
             } => {
                 // Reduce "add" as: (LA - RI') U RA.
                 if let Some(term) = bld.map_term(la, Some(&ri), true, UNION, ra)? {
-                    *out.insert_mut(add) = term;
+                    *out.insert_property(add, alloc) = term;
                 }
 
                 // Reduce "intersect" as: RI - LR.
@@ -517,7 +516,7 @@ impl Set {
                     )?,
                     bld.full,
                 ) {
-                    *out.insert_mut(intersect) = term;
+                    *out.insert_property(intersect, alloc) = term;
                 }
             }
             // R,A reduce R,A
@@ -528,7 +527,7 @@ impl Set {
             } => {
                 // Reduce "add" as: (LA - RR) U RA.
                 if let Some(term) = bld.map_term(la, rr.as_ref(), false, UNION, ra)? {
-                    *out.insert_mut(add) = term;
+                    *out.insert_property(add, alloc) = term;
                 }
 
                 // Reduce "remove" as: LR U RR.
@@ -536,7 +535,7 @@ impl Set {
                     bld.map_term(lr, None, false, if bld.full { NONE } else { UNION }, rr)?,
                     bld.full,
                 ) {
-                    *out.insert_mut(remove) = term;
+                    *out.insert_property(remove, alloc) = term;
                 }
             }
 
