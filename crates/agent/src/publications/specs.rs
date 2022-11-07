@@ -569,34 +569,6 @@ mod test {
 
     const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
-    const CLEANUP: &str = r#"
-    with specs_delete as (
-        delete from live_specs
-    ),
-    drafts_delete as (
-        delete from drafts
-    ),
-    draft_specs_delete as (
-        delete from draft_specs
-    ),
-    publications_delete as (
-        delete from publications
-    ),
-    role_grants_delete as (
-        delete from role_grants
-    ),
-    user_grants_delete as (
-        delete from user_grants
-    ),
-    tags_delete as (
-        delete from connector_tags
-    ),
-    connectors_delete as (
-        delete from connectors
-    )
-    select 1;
-    "#;
-
     async fn execute_publications(txn: &mut Transaction<'_, Postgres>) -> Vec<ScenarioResult> {
         let bs_url: Url = "http://example.com".parse().unwrap();
 
