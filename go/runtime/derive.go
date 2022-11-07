@@ -195,7 +195,8 @@ func (d *Derive) deriveStats(txnStats *pf.DeriveAPI_Stats) StatsEvent {
 		}
 		var tfSpec = d.derivation.Transforms[i]
 		var stats = DeriveTransformStats{
-			Input: docsAndBytesFromProto(tf.Input),
+			Source: tfSpec.Shuffle.SourceCollection.String(),
+			Input:  docsAndBytesFromProto(tf.Input),
 		}
 		if tfSpec.UpdateLambda != nil {
 			includesUpdate = true

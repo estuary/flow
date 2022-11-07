@@ -120,6 +120,10 @@
             "description": "Stats for a specific transform of a derivation, which will have an update, publish, or both.",
             "type": "object",
             "properties": {
+                "source": {
+                    "description": "The name of the collection that this transform sources from",
+                    "type": "string"
+                },
                 "input": {
                     "description": "The input documents that were fed into this transform.",
                     "$ref": "#/$defs/docsAndBytes"
