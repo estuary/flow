@@ -15,7 +15,7 @@ license = "BSL"
 [workspace.dependencies]
 addr = {version="0.15.4", features=["idna", "std","psl"]}
 anyhow = "1.0"
-async-compression = { version = "0.3", features = ["gzip", "zstd", "tokio"] }
+async-compression = { version = "0.3", features = ["gzip", "zstd", "tokio", "futures-io"] }
 async-trait = "0.1"
 atty = "0.2"
 avro-rs = { version = "0.13", features = ["snappy"] }

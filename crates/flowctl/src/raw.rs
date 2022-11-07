@@ -1,3 +1,7 @@
+use anyhow::Context;
+use doc::combine;
+use std::io::{self, Write};
+
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct Advanced {
@@ -22,13 +26,15 @@ pub enum Command {
     /// Issue a custom RPC request to the API.
     ///
     /// Requests are issued to a specific --function and require a
-    /// requesty --body. As with `get`, you may pass optional query
+    /// request --body. As with `get`, you may pass optional query
     /// parameters.
     Rpc(Rpc),
     /// Issue a custom table update request to the API.
     Update(Update),
     /// Bundle catalog sources into a flattened and inlined catalog.
     Bundle(Bundle),
+    /// Combine over an input stream of documents and write the output.
+    Combine(Combine),
 }
 
 #[derive(Debug, clap::Args)]
@@ -73,9 +79,20 @@ pub struct Rpc {
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct Bundle {
-    /// Path or URL to a Flow catalog file to bundle.
+    /// Path or URL to a Flow specification file to bundle.
     #[clap(long)]
     source: String,
+}
+
+#[derive(Debug, clap::Args)]
+#[clap(rename_all = "kebab-case")]
+pub struct Combine {
+    /// Path or URL to a Flow specification file to bundle.
+    #[clap(long)]
+    source: String,
+    /// Name of a collection in the Flow specification file.
+    #[clap(long)]
+    collection: String,
 }
 
 impl Advanced {
@@ -85,6 +102,7 @@ impl Advanced {
             Command::Update(update) => do_update(ctx, update).await,
             Command::Rpc(rpc) => do_rpc(ctx, rpc).await,
             Command::Bundle(bundle) => do_bundle(ctx, bundle).await,
+            Command::Combine(combine) => do_combine(ctx, combine).await,
         }
     }
 }
@@ -123,12 +141,77 @@ async fn do_rpc(
     Ok(())
 }
 
-pub async fn do_bundle(
-    _ctx: &mut crate::CliContext,
-    Bundle { source }: &Bundle,
-) -> anyhow::Result<()> {
+async fn do_bundle(_ctx: &mut crate::CliContext, Bundle { source }: &Bundle) -> anyhow::Result<()> {
     let catalog = crate::source::bundle(source).await?;
-    serde_json::to_writer_pretty(std::io::stdout(), &catalog)?;
+    serde_json::to_writer_pretty(io::stdout(), &catalog)?;
+    Ok(())
+}
+
+async fn do_combine(
+    _ctx: &mut crate::CliContext,
+    Combine { source, collection }: &Combine,
+) -> anyhow::Result<()> {
+    let collection = models::Collection::new(collection);
+    let catalog = crate::source::bundle(source).await?;
+
+    let Some(models::CollectionDef{schema: models::Schema::Object(schema), key, .. }) = catalog.collections.get(&collection) else {
+        anyhow::bail!("did not find collection {collection:?} in the source specification");
+    };
+
+    let schema = doc::validation::build_schema(
+        url::Url::parse("https://example/schema").unwrap(),
+        &serde_json::Value::Object(schema.clone()),
+    )?;
+
+    let mut accumulator = combine::Accumulator::new(
+        key.iter().map(|ptr| doc::Pointer::from_str(ptr)).collect(),
+        None,
+        tempfile::tempfile().context("opening tempfile")?,
+        doc::Validator::new(schema)?,
+    )?;
+
+    let mut in_docs = 0usize;
+    let mut in_bytes = 0usize;
+    let mut out_docs = 0usize;
+    // We don't track out_bytes because it's awkward to do so
+    // and the user can trivially measure for themselves.
+
+    for line in io::stdin().lines() {
+        let line = line?;
+
+        let memtable = accumulator.memtable()?;
+        let rhs = doc::HeapNode::from_serde(
+            &mut serde_json::Deserializer::from_str(&line),
+            memtable.alloc(),
+        )?;
+
+        in_docs += 1;
+        in_bytes += line.len() + 1;
+        memtable.add(rhs, false)?;
+    }
+
+    let mut out = io::BufWriter::new(io::stdout().lock());
+
+    let mut drainer = accumulator.into_drainer()?;
+    assert_eq!(
+        false,
+        drainer.drain_while(|node, _fully_reduced| {
+            serde_json::to_writer(&mut out, &node).context("writing document to stdout")?;
+            out.write(b"\n")?;
+            out_docs += 1;
+            Ok::<_, anyhow::Error>(true)
+        })?,
+        "implementation error: drain_while exited with remaining items to drain"
+    );
+    out.flush()?;
+
+    tracing::info!(
+        input_docs = in_docs,
+        input_bytes = in_bytes,
+        output_docs = out_docs,
+        "completed combine"
+    );
+
     Ok(())
 }
 
