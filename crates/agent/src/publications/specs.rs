@@ -556,55 +556,35 @@ mod test {
     use super::super::PublishHandler;
     use agent_sql::Id;
     use reqwest::Url;
+    use serde::Deserialize;
+    use serde_json::Value;
     use sqlx::{Connection, Postgres, Transaction};
 
     // Squelch warnings about struct fields never being read.
     // They actually are read by insta when snapshotting.
+    #[allow(dead_code)]
+    #[derive(Debug, Deserialize)]
+    struct LiveSpec {
+        catalog_name: String,
+        connector_image_name: Option<String>,
+        connector_image_tag: Option<String>,
+        reads_from: Option<Vec<String>>,
+        writes_to: Option<Vec<String>>,
+        spec: Option<Value>,
+        spec_type: Option<String>,
+    }
     #[allow(dead_code)]
     #[derive(Debug)]
     struct ScenarioResult {
         draft_id: Id,
         status: JobStatus,
         errors: Vec<String>,
+        live_specs: Vec<LiveSpec>,
     }
 
     const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
-    const CLEANUP: &str = r#"
-    with specs_delete as (
-        delete from live_specs
-    ),
-    drafts_delete as (
-        delete from drafts
-    ),
-    draft_specs_delete as (
-        delete from draft_specs
-    ),
-    publications_delete as (
-        delete from publications
-    ),
-    role_grants_delete as (
-        delete from role_grants
-    ),
-    user_grants_delete as (
-        delete from user_grants
-    ),
-    tags_delete as (
-        delete from connector_tags
-    ),
-    connectors_delete as (
-        delete from connectors
-    )
-    select 1;
-    "#;
-
-    async fn scenario_snapshot<'c>(
-        scenario: &str,
-        mut txn: Transaction<'c, Postgres>,
-    ) -> Vec<ScenarioResult> {
-        sqlx::query(CLEANUP).execute(&mut txn).await.unwrap();
-        sqlx::query(scenario).execute(&mut txn).await.unwrap();
-
+    async fn execute_publications(txn: &mut Transaction<'_, Postgres>) -> Vec<ScenarioResult> {
         let bs_url: Url = "http://example.com".parse().unwrap();
 
         let (logs_tx, mut logs_rx) = tokio::sync::mpsc::channel(8192);
@@ -616,34 +596,64 @@ mod test {
 
         let mut results: Vec<ScenarioResult> = vec![];
 
-        while let Some(row) = agent_sql::publications::dequeue(&mut txn).await.unwrap() {
-            let mut sub_tx = txn.begin().await.unwrap();
+        while let Some(row) = agent_sql::publications::dequeue(&mut *txn).await.unwrap() {
             let row_draft_id = row.draft_id.clone();
-            let (id, status) = handler.process(row, &mut sub_tx, true).await.unwrap();
+            let (pub_id, status) = handler.process(row, &mut *txn, true).await.unwrap();
 
-            let errors = sqlx::query!(
-                r#"
-            select draft_id as "draft_id: Id", scope, detail
-            from draft_errors
-            where draft_errors.draft_id = $1::flowid;"#,
-                row_draft_id as Id
-            )
-            .fetch_all(&mut sub_tx)
-            .await
-            .unwrap();
-
-            let formatted_errors: Vec<String> = errors.into_iter().map(|e| e.detail).collect();
-
-            results.push(ScenarioResult {
-                draft_id: row_draft_id,
-                status: status.clone(),
-                errors: formatted_errors,
-            });
-
-            agent_sql::publications::resolve(id, &status, &mut sub_tx)
+            agent_sql::publications::resolve(pub_id, &status, &mut *txn)
                 .await
                 .unwrap();
-            sub_tx.commit().await.unwrap();
+
+            match status {
+                JobStatus::Success => {
+                    let specs = sqlx::query_as!(
+                        LiveSpec,
+                        r#"
+                        select catalog_name as "catalog_name!",
+                               connector_image_name,
+                               connector_image_tag,
+                               reads_from,
+                               writes_to,
+                               spec,
+                               spec_type as "spec_type: String"
+                        from live_specs
+                        where live_specs.last_pub_id = $1::flowid;"#,
+                        pub_id as Id
+                    )
+                    .fetch_all(&mut *txn)
+                    .await
+                    .unwrap();
+
+                    results.push(ScenarioResult {
+                        draft_id: row_draft_id,
+                        status: JobStatus::Success,
+                        errors: vec![],
+                        live_specs: specs,
+                    })
+                }
+                _ => {
+                    let errors = sqlx::query!(
+                        r#"
+                select draft_id as "draft_id: Id", scope, detail
+                from draft_errors
+                where draft_errors.draft_id = $1::flowid;"#,
+                        row_draft_id as Id
+                    )
+                    .fetch_all(&mut *txn)
+                    .await
+                    .unwrap();
+
+                    let formatted_errors: Vec<String> =
+                        errors.into_iter().map(|e| e.detail).collect();
+
+                    results.push(ScenarioResult {
+                        draft_id: row_draft_id,
+                        status: status.clone(),
+                        errors: formatted_errors,
+                        live_specs: vec![],
+                    });
+                }
+            };
         }
 
         results
@@ -654,9 +664,9 @@ mod test {
         let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
             .await
             .unwrap();
-        let txn = conn.begin().await.unwrap();
+        let mut txn = conn.begin().await.unwrap();
 
-        let results = scenario_snapshot(r#"
+        sqlx::query(r#"
             with p1 as (
               insert into auth.users (id) values
               ('43a18a3e-5a59-11ed-9b6a-0242ac120002')
@@ -704,8 +714,9 @@ mod test {
               ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'usageB/', 'admin')
             )
             select 1;
-        "#,
-        txn).await;
+        "#).execute(&mut txn).await.unwrap();
+
+        let results = execute_publications(&mut txn).await;
 
         insta::assert_debug_snapshot!(results, @r#"
         [
@@ -713,6 +724,39 @@ mod test {
                 draft_id: 1110000000000000,
                 status: Success,
                 errors: [],
+                live_specs: [
+                    LiveSpec {
+                        catalog_name: "usageB/DerivationA",
+                        connector_image_name: None,
+                        connector_image_tag: None,
+                        reads_from: Some(
+                            [
+                                "usageB/CollectionA",
+                            ],
+                        ),
+                        writes_to: None,
+                        spec: Some(
+                            Object {
+                                "derivation": Object {
+                                    "transform": Object {
+                                        "key": Object {
+                                            "source": Object {
+                                                "name": String("usageB/CollectionA"),
+                                            },
+                                        },
+                                    },
+                                },
+                                "key": Array [
+                                    String("foo"),
+                                ],
+                                "schema": Object {},
+                            },
+                        ),
+                        spec_type: Some(
+                            "collection",
+                        ),
+                    },
+                ],
             },
         ]
         "#);
@@ -723,9 +767,9 @@ mod test {
         let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
             .await
             .unwrap();
-        let txn = conn.begin().await.unwrap();
+        let mut txn = conn.begin().await.unwrap();
 
-        let results = scenario_snapshot(r#"
+        sqlx::query(r#"
             with p1 as (
               insert into auth.users (id) values
               ('43a18a3e-5a59-11ed-9b6a-0242ac120002')
@@ -754,8 +798,9 @@ mod test {
               ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'usageB/', 'admin')
             )
             select 1;
-        "#,
-        txn).await;
+        "#).execute(&mut txn).await.unwrap();
+
+        let results = execute_publications(&mut txn).await;
 
         insta::assert_debug_snapshot!(results, @r#"
         [
@@ -765,18 +810,20 @@ mod test {
                 errors: [
                     "Forbidden connector image 'forbidden_connector'",
                 ],
+                live_specs: [],
             },
         ]
         "#);
     }
+
     #[tokio::test]
     async fn test_allowed_connector() {
         let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
             .await
             .unwrap();
-        let txn = conn.begin().await.unwrap();
+        let mut txn = conn.begin().await.unwrap();
 
-        let results = scenario_snapshot(r#"
+        sqlx::query(r#"
             with p1 as (
               insert into auth.users (id) values
               ('43a18a3e-5a59-11ed-9b6a-0242ac120002')
@@ -809,8 +856,9 @@ mod test {
                     ('http://example.com', 'allowed_connector', '{"en-US": "foo"}'::json, '{"en-US": "foo"}'::json, '{"en-US": "foo"}'::json)
             )
             select 1;
-        "#,
-        txn).await;
+            "#).execute(&mut txn).await.unwrap();
+
+        let results = execute_publications(&mut txn).await;
 
         insta::assert_debug_snapshot!(results, @r#"
         [
@@ -818,6 +866,45 @@ mod test {
                 draft_id: 1110000000000000,
                 status: Success,
                 errors: [],
+                live_specs: [
+                    LiveSpec {
+                        catalog_name: "usageB/CaptureC",
+                        connector_image_name: Some(
+                            "allowed_connector",
+                        ),
+                        connector_image_tag: Some(
+                            "",
+                        ),
+                        reads_from: None,
+                        writes_to: Some(
+                            [
+                                "usageB/CaptureC",
+                            ],
+                        ),
+                        spec: Some(
+                            Object {
+                                "bindings": Array [
+                                    Object {
+                                        "resource": Object {
+                                            "binding": String("foo"),
+                                            "syncMode": String("incremental"),
+                                        },
+                                        "target": String("usageB/CaptureC"),
+                                    },
+                                ],
+                                "endpoint": Object {
+                                    "connector": Object {
+                                        "config": Object {},
+                                        "image": String("allowed_connector"),
+                                    },
+                                },
+                            },
+                        ),
+                        spec_type: Some(
+                            "capture",
+                        ),
+                    },
+                ],
             },
         ]
         "#);

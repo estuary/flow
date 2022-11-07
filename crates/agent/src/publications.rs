@@ -247,10 +247,6 @@ impl PublishHandler {
         }
 
         if test_run {
-            agent_sql::publications::rollback_noop(txn)
-                .await
-                .context("rolling back to savepoint")?;
-
             return Ok((row.pub_id, JobStatus::Success));
         }
 
