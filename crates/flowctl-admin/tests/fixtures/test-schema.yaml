@@ -1,8 +1,0 @@
-type: object
-properties:
-  id: {type: integer}
-  a: { type: string, reduce: {strategy: firstWriteWins} }
-  b: {type: integer, reduce: {strategy: sum}}
-required: [id]
-reduce: {strategy: merge}
-
