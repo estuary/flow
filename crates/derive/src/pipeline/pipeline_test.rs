@@ -293,8 +293,8 @@ impl FixtureBuilder {
             key_ptrs,
         } = self;
 
-        let temp_dir = tempfile::TempDir::new().unwrap();
-        let reg = Registers::new(rocksdb::Options::default(), temp_dir.path()).unwrap();
+        let dir = tempfile::TempDir::new().unwrap();
+        let rocks_db = Registers::open_rocks(rocksdb::Options::default(), dir.path()).unwrap();
 
         let transform_specs = transforms
             .iter()
@@ -339,11 +339,11 @@ impl FixtureBuilder {
             }),
         };
 
-        let pipeline = Pipeline::from_config_and_parts(config, reg, 0)
+        let pipeline = Pipeline::from_config_and_parts(config, rocks_db, 0)
             .expect("failed to create test pipeline");
         Fixture {
             pipeline,
-            _temp_dir: temp_dir,
+            _temp_dir: dir,
             transforms,
         }
     }

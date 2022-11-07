@@ -1,6 +1,4 @@
-use super::registers;
-use super::ValidatorGuard;
-use crate::{DocCounter, StatsAccumulator};
+use crate::{combine_api, new_validator, registers, DocCounter, StatsAccumulator};
 use anyhow::Context;
 use block::{Block, BlockInvoke};
 use doc::AsNode;
@@ -57,8 +55,6 @@ pub struct Pipeline {
     combiner_stats: DocCounter,
     // Key components of derived documents.
     document_key_ptrs: Rc<[doc::Pointer]>,
-    // Schema against which documents must validate.
-    document_schema_guard: ValidatorGuard,
     // JSON pointer to the derived document UUID.
     document_uuid_ptr: doc::Pointer,
     // Next Block currently being constructed.
@@ -70,8 +66,6 @@ pub struct Pipeline {
     publishes_model: Vec<Invocation>,
     // Initial value of registers which have not yet been written.
     register_initial: serde_json::Value,
-    // Schema against which registers must validate.
-    register_schema_guard: ValidatorGuard,
     // Registers updated by "update" lambdas.
     // Pipeline owns Registers, but it's pragmatically public due to
     // unrelated usages in derive_api (clearing registers & checkpoints).
@@ -110,7 +104,7 @@ impl StatsAccumulator for TransformStats {
 impl Pipeline {
     pub fn from_config_and_parts(
         cfg: derive_api::Config,
-        registers: registers::Registers,
+        rocks_db: rocksdb::DB,
         block_id: usize,
     ) -> Result<Self, Error> {
         let derive_api::Config { derivation } = cfg;
@@ -168,12 +162,12 @@ impl Pipeline {
         let first_block = Block::new(block_id, &updates_model, &publishes_model);
 
         // Build Combiner.
-        let document_schema_guard =
-            ValidatorGuard::new(&document_schema_json).context("parsing collection schema")?;
         let combiner = doc::Combiner::new(
             document_key_ptrs.clone().into(),
-            document_schema_guard.schema.curi.clone(),
+            None,
             tempfile::tempfile().context("opening temporary spill file")?,
+            new_validator(&document_schema_json)
+                .context("while preparing document schema validator")?,
         )
         .map_err(Error::Combiner)?;
 
@@ -191,8 +185,11 @@ impl Pipeline {
             })
             .collect();
 
-        let register_schema_guard =
-            ValidatorGuard::new(&register_schema_json).context("parsing register schema")?;
+        let registers = registers::Registers::with_db_and_validator(
+            rocks_db,
+            new_validator(&register_schema_json)
+                .context("while preparing register schema validator")?,
+        );
         let register_initial = serde_json::from_str(&register_initial_json)
             .context("parsing register initial value")?;
 
@@ -205,13 +202,11 @@ impl Pipeline {
             combiner,
             combiner_stats: DocCounter::default(),
             document_key_ptrs,
-            document_schema_guard,
             document_uuid_ptr,
             next: first_block,
             partitions,
             publishes_model,
             register_initial,
-            register_schema_guard,
             registers,
             trampoline: cgo::Trampoline::new(),
             transforms,
@@ -220,13 +215,13 @@ impl Pipeline {
         })
     }
 
-    // Consume this Pipeline, returning its Registers and next Block ID.
+    // Consume this Pipeline, returning its registers rocks DB and next Block ID.
     // This may only be called in between transactions, after draining.
-    pub fn into_inner(self) -> (registers::Registers, usize) {
+    pub fn into_inner(self) -> (rocksdb::DB, usize) {
         assert_eq!(self.next.num_bytes, 0);
         assert!(self.trampoline.is_empty());
 
-        (self.registers, self.next.id)
+        (self.registers.into_db(), self.next.id)
     }
 
     // Delegate to load the last persisted checkpoint.
@@ -404,12 +399,11 @@ impl Pipeline {
             doc::Combiner::Drainer(d) => d,
         };
 
-        let more = crate::combine_api::drain_chunk(
+        let more = combine_api::drain_chunk(
             &mut drainer,
             target_length,
             &self.document_key_ptrs,
             &self.partitions,
-            &mut self.document_schema_guard.validator,
             arena,
             out,
             &mut self.combiner_stats,
@@ -480,13 +474,8 @@ impl Pipeline {
             // If we have deltas to apply, reduce them and assemble into
             // a future publish invocation body.
             if !deltas.is_empty() {
-                self.registers.reduce(
-                    key,
-                    &self.register_schema_guard.schema.curi,
-                    &self.register_initial,
-                    deltas.into_iter(),
-                    &mut self.register_schema_guard.validator,
-                )?;
+                self.registers
+                    .reduce(key, &self.register_initial, deltas.into_iter())?;
                 publish.end_register(Some(self.registers.read(key, &self.register_initial)));
             } else {
                 publish.end_register(None);
@@ -547,17 +536,16 @@ impl Pipeline {
                     .document_uuid_ptr
                     .create_heap_node(&mut doc, memtable.alloc())
                 {
-                    *node = doc::HeapNode::String(doc::HeapString(
-                        memtable
-                            .alloc()
-                            .alloc_str(crate::combine_api::UUID_PLACEHOLDER),
+                    *node = doc::HeapNode::String(doc::BumpStr::from_str(
+                        crate::combine_api::UUID_PLACEHOLDER,
+                        memtable.alloc(),
                     ));
                 }
 
-                memtable.combine_right(doc, &mut self.document_schema_guard.validator)?;
+                memtable.add(doc, false)?;
             }
         }
-        tracing::trace!(block = %block.transforms.len(), total = ?memtable.len(), "combined documents");
+        tracing::trace!(block = %block.transforms.len(), "combined documents");
 
         // Verify that we precisely consumed expected outputs from each lambda.
         for mut it in tf_derived_docs {
