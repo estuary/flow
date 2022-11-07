@@ -1,5 +1,4 @@
-use super::ValidatorGuard;
-use crate::{DocCounter, JsonError, StatsAccumulator};
+use crate::{new_validator, DocCounter, JsonError, StatsAccumulator};
 use anyhow::Context;
 use bytes::Buf;
 use doc::AsNode;
@@ -63,8 +62,6 @@ struct State {
     combiner: doc::Combiner,
     // Fields which are extracted and returned from combined documents.
     field_ptrs: Vec<doc::Pointer>,
-    // Schema validator through which we're combining, which provides reduction annotations.
-    guard: ValidatorGuard,
     // Document key components over which we're grouping while combining.
     key_ptrs: Rc<[doc::Pointer]>,
     // Statistics of a current combine operation.
@@ -123,17 +120,16 @@ impl cgo::Service for API {
                     s => Some(doc::Pointer::from(s)),
                 };
 
-                let guard = ValidatorGuard::new(&schema_json)?;
                 let combiner = doc::Combiner::new(
                     key_ptrs.clone(),
-                    guard.schema.curi.clone(),
+                    None,
                     tempfile::tempfile().context("opening temporary spill file")?,
+                    new_validator(&schema_json)?,
                 )?;
 
                 self.state = Some(State {
                     combiner,
                     field_ptrs,
-                    guard,
                     key_ptrs,
                     uuid_placeholder_ptr,
                     stats: CombineStats::default(),
@@ -151,7 +147,7 @@ impl cgo::Service for API {
 
                 let memtable = accumulator.memtable()?;
                 let doc = parse_node_with_placeholder(memtable, data, &state.uuid_placeholder_ptr)?;
-                memtable.reduce_left(doc, &mut state.guard.validator)?;
+                memtable.add(doc, true)?;
 
                 self.state = Some(state);
                 Ok(())
@@ -167,7 +163,7 @@ impl cgo::Service for API {
 
                 let memtable = accumulator.memtable()?;
                 let doc = parse_node_with_placeholder(memtable, data, &state.uuid_placeholder_ptr)?;
-                memtable.combine_right(doc, &mut state.guard.validator)?;
+                memtable.add(doc, false)?;
 
                 self.state = Some(state);
                 Ok(())
@@ -183,7 +179,6 @@ impl cgo::Service for API {
                     data.get_u32() as usize,
                     &state.key_ptrs,
                     &state.field_ptrs,
-                    &mut state.guard.validator,
                     arena,
                     out,
                     &mut state.stats.out,
@@ -218,9 +213,8 @@ fn parse_node_with_placeholder<'m>(
 
     if let Some(ptr) = uuid_placeholder_ptr.as_ref() {
         if let Some(node) = ptr.create_heap_node(&mut doc, memtable.alloc()) {
-            *node = doc::HeapNode::String(doc::HeapString(
-                memtable.alloc().alloc_str(UUID_PLACEHOLDER),
-            ));
+            *node =
+                doc::HeapNode::String(doc::BumpStr::from_str(UUID_PLACEHOLDER, memtable.alloc()));
         }
     }
     Ok(doc)
@@ -233,7 +227,6 @@ pub fn drain_chunk(
     target_length: usize,
     key_ptrs: &[doc::Pointer],
     field_ptrs: &[doc::Pointer],
-    validator: &mut doc::Validator,
     arena: &mut Vec<u8>,
     out: &mut Vec<cgo::Out>,
     stats: &mut DocCounter,
@@ -241,7 +234,7 @@ pub fn drain_chunk(
     // Convert target from a delta to an absolute target length of the arena.
     let target_length = target_length + arena.len();
 
-    drainer.drain_while(validator, |doc, fully_reduced| {
+    drainer.drain_while(|doc, fully_reduced| {
         // Send serialized document.
         let begin = arena.len();
         let w: &mut Vec<u8> = &mut *arena;

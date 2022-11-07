@@ -112,11 +112,14 @@ pub fn walk_test_step(
     if shape.index.fetch(&shape.schema).is_none() {
         // Referential integrity error, which we've already reported.
     } else {
-        let mut validator = doc::Validator::new(&shape.index);
         for doc in ingest {
-            if let Err(err) = doc::Validation::validate(&mut validator, &shape.schema, doc)
-                .unwrap()
-                .ok()
+            if let Err(err) = doc::Validation::validate(
+                &mut doc::RawValidator::new(&shape.index),
+                &shape.schema,
+                doc,
+            )
+            .unwrap()
+            .ok()
             {
                 Error::IngestDocInvalid(err).push(scope, errors);
             }

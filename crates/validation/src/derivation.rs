@@ -106,7 +106,7 @@ fn walk_derivation(
     {
         // Referential integrity error, which we've already reported.
     } else if let Err(err) = doc::Validation::validate(
-        &mut doc::Validator::new(&register_schema.index),
+        &mut doc::RawValidator::new(&register_schema.index),
         &register_schema.schema,
         register_initial,
     )

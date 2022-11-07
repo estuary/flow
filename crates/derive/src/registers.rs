@@ -1,13 +1,12 @@
 use crate::{DebugJson, StatsAccumulator};
 
-use doc::{reduce, AsNode, FailedValidation, Validation, Validator};
+use doc::{reduce, AsNode};
 use prost::Message;
 use proto_flow::flow::derive_api;
 use proto_gazette::consumer::Checkpoint;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
-use url::Url;
 
 #[derive(thiserror::Error, Debug, serde::Serialize)]
 pub enum Error {
@@ -23,7 +22,7 @@ pub enum Error {
     #[error("failed to reduce register documents")]
     Reduce(#[from] reduce::Error),
     #[error("document is invalid: {0:#}")]
-    FailedValidation(#[from] FailedValidation),
+    FailedValidation(#[from] doc::FailedValidation),
     #[error(transparent)]
     #[serde(serialize_with = "crate::serialize_as_display")]
     SchemaIndex(#[from] json::schema::index::Error),
@@ -49,6 +48,7 @@ pub struct Registers {
     // Backing database of all registers.
     rocks_db: rocksdb::DB,
     cache: HashMap<Box<[u8]>, Option<Value>>,
+    validator: doc::Validator,
 }
 
 impl std::fmt::Debug for Registers {
@@ -67,12 +67,14 @@ impl std::fmt::Debug for Registers {
 }
 
 impl Registers {
-    /// Build a new Registers instance.
-    pub fn new(mut opts: rocksdb::Options, dir: impl AsRef<Path>) -> Result<Registers, Error> {
+    pub fn open_rocks(
+        mut opts: rocksdb::Options,
+        dir: impl AsRef<Path>,
+    ) -> Result<rocksdb::DB, Error> {
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
 
-        let rocks_db = rocksdb::DB::open_cf(
+        Ok(rocksdb::DB::open_cf(
             &opts,
             dir,
             [
@@ -80,13 +82,16 @@ impl Registers {
                 super::registers::REGISTERS_CF,
             ]
             .iter(),
-        )?;
+        )?)
+    }
 
-        Ok(Registers {
+    pub fn with_db_and_validator(rocks_db: rocksdb::DB, validator: doc::Validator) -> Self {
+        Self {
             rocks_db,
             cache: HashMap::new(),
             stats: RegisterStats::default(),
-        })
+            validator,
+        }
     }
 
     /// Retrieves the last Checkpoint committed into the Registers database,
@@ -140,10 +145,8 @@ impl Registers {
     pub fn reduce(
         &mut self,
         key: &[u8],
-        schema: &Url,
         initial: &Value,
         deltas: impl IntoIterator<Item = Value>,
-        validator: &mut Validator,
     ) -> Result<(), Error> {
         // Obtain a &mut to the pre-loaded Value into which we'll reduce.
         let reg_ref = self
@@ -165,7 +168,7 @@ impl Registers {
         // Apply all register deltas, in order.
         for rhs in deltas.into_iter() {
             // Validate the RHS delta, reduce, and then validate the result.
-            let rhs_valid = Validation::validate(validator, schema, &rhs)?.ok()?;
+            let rhs_valid = self.validator.validate(None, &rhs)?.ok()?;
             reg = doc::reduce::reduce(
                 doc::LazyNode::Heap(reg),
                 doc::LazyNode::Node(&rhs),
@@ -173,7 +176,7 @@ impl Registers {
                 &alloc,
                 true,
             )?;
-            Validation::validate(validator, schema, &reg)?.ok()?;
+            self.validator.validate(None, &reg)?.ok()?;
         }
 
         *reg_ref = Some(serde_json::to_value(reg.as_node()).unwrap());
@@ -214,6 +217,18 @@ impl Registers {
             .delete_range_cf(cf, &[0x00, 0x00, 0x00, 0x00], &[0xff, 0xff, 0xff, 0xff])
             .map_err(Into::into)
     }
+
+    pub fn into_db(self) -> rocksdb::DB {
+        let Self {
+            rocks_db,
+            cache,
+            stats: _,
+            validator: _,
+        } = self;
+
+        assert!(cache.is_empty(), "into_db() called when cache is non-empty");
+        rocks_db
+    }
 }
 
 // Checkpoint key is the key encoding under which a marshalled checkpoint is stored.
@@ -222,17 +237,18 @@ pub const REGISTERS_CF: &str = "registers";
 
 #[cfg(test)]
 mod test {
-    use super::super::test::build_min_max_sum_schema;
-    use super::super::ValidatorGuard;
     use super::*;
+    use crate::{new_validator, test::build_min_max_sum_schema};
     use serde_json::{json, Map, Value};
 
     #[test]
     fn test_lifecycle() {
         let dir = tempfile::TempDir::new().unwrap();
-        let mut reg = Registers::new(rocksdb::Options::default(), dir.path()).unwrap();
+        let mut reg = Registers::with_db_and_validator(
+            Registers::open_rocks(rocksdb::Options::default(), dir.path()).unwrap(),
+            new_validator(&build_min_max_sum_schema()).unwrap(),
+        );
 
-        let mut guard = ValidatorGuard::new(&build_min_max_sum_schema()).unwrap();
         let initial = json!({});
 
         assert_eq!(Checkpoint::default(), reg.last_checkpoint().unwrap());
@@ -252,14 +268,7 @@ mod test {
             (b"baz", vec![json!({"min": 1, "max": 1.1})]),
             (b"baz", vec![json!({"min": 2, "max": 2.2})]),
         ] {
-            reg.reduce(
-                key,
-                &guard.schema.curi,
-                &initial,
-                values,
-                &mut guard.validator,
-            )
-            .unwrap();
+            reg.reduce(key, &initial, values).unwrap();
         }
         assert_eq!(2, reg.stats.drain().created);
         // Assert that the counter is reset after drain.
@@ -321,9 +330,11 @@ mod test {
     #[test]
     fn test_validation() {
         let dir = tempfile::TempDir::new().unwrap();
-        let mut reg = Registers::new(rocksdb::Options::default(), dir.path()).unwrap();
+        let mut reg = Registers::with_db_and_validator(
+            Registers::open_rocks(rocksdb::Options::default(), dir.path()).unwrap(),
+            new_validator(&build_min_max_sum_schema()).unwrap(),
+        );
 
-        let mut guard = ValidatorGuard::new(&build_min_max_sum_schema()).unwrap();
         let initial = json!({
             "positive": true, // Causes schema to require that reduced sum >= 0.
             "sum": 0,
@@ -334,10 +345,8 @@ mod test {
         // Reduce in updates which validate successfully.
         reg.reduce(
             b"key",
-            &guard.schema.curi,
             &initial,
             vec![json!({"sum": 1}), json!({"sum": -0.1}), json!({"sum": 1.2})],
-            &mut guard.validator,
         )
         .unwrap();
 
@@ -350,10 +359,8 @@ mod test {
         let err = reg
             .reduce(
                 b"key",
-                &guard.schema.curi,
                 &initial,
                 vec![json!({"sum": 1}), json!({"sum": -4}), json!({"sum": 5})],
-                &mut guard.validator,
             )
             .unwrap_err();
 
