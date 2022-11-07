@@ -35,10 +35,10 @@ See [generate.go](generate.go) for details on how it models these properties. It
 
 Collections are implemented and explained in [flow.yaml](flow.yaml).
 
-They're also tested in [tests.flow.yaml](tests.flow.yaml). Flow puts a lot of emphasis on making integrated, contract-based testing of derivations really easy. Let's run `flowctl-admin test` to confirm the behavior of our derivations:
+They're also tested in [tests.flow.yaml](tests.flow.yaml). Flow puts a lot of emphasis on making integrated, contract-based testing of derivations really easy. Let's run `flowctl-go test` to confirm the behavior of our derivations:
 
 ```console
-$ flowctl-admin test --source examples/segment/flow.yaml
+$ flowctl-go test --source examples/segment/flow.yaml
 
 Running  3  tests...
 Segment membership updates with segmentation events: PASSED
@@ -51,7 +51,7 @@ Ran 3 tests, 3 passed, 0 failed
 Now start Flow in development mode:
 
 ```console
-$ flowctl-admin develop --source examples/segment/flow.yaml --port 8080
+$ flowctl-go develop --source examples/segment/flow.yaml --port 8080
 ```
 
 In another tab, begin ingesting generated segment events into Flow.
@@ -210,7 +210,7 @@ a segment: events that transition a user from "added" to "removed" and
 vice versa. This behavior is mostly in service of making an interesting
 example and reducing data volume enough to be able to follow it.
 
-Stop `flowctl-admin` and `generate.go`, and start
+Stop `flowctl-go` and `generate.go`, and start
 [`demo-webhook-api.js`](../demo-webhook-api.js) in another tab:
 
 ```console
@@ -224,7 +224,7 @@ by doing more (or less) reduction work per-transaction to match the throughput
 characteristics of the API.
 
 Uncomment / enable a materialization of toggles to the webhook in [flow.yaml](flow.yaml),
-and then start `flowctl-admin develop` again:
+and then start `flowctl-go develop` again:
 
 ```yaml
 materializations:
@@ -242,7 +242,7 @@ webhook server.
 
 ## Cleanup
 
-Stop `flowctl-admin`, remove the `flowctl_develop` runtime directory, and remove
+Stop `flowctl-go`, remove the `flowctl_develop` runtime directory, and remove
 `examples/examples.db` to complete a development session and restore
 to a pristine state. If you're working from a Git clone of the Flow repo,
 simply `git clean -f -d`.
@@ -269,7 +269,7 @@ be able to comfortably manage. Keep in mind, for every event Flow is:
 -   Performing precise, incremental materializations of the `profiles` and `memberships` SQLite tables.
 
 In a production setting these tasks would be assigned across a fleet of hardware.
-`flowctl-admin develop` is essentially the production Flow runtime, shrunk down into a single process.
+`flowctl-go develop` is essentially the production Flow runtime, shrunk down into a single process.
 It's quite early -- we haven't begun performance optimization in earnest -- but on the author's
 hardware (AMD Ryzen 9 3900X), Flow currently manages 10K events per second with 5-700% CPU
 utilization.

@@ -81,11 +81,14 @@ func TestValidationFailuresAreLogged(t *testing.T) {
     "valid": false
   },
   "document": {
+    "_meta": {
+      "uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef"
+    },
     "i": "not an int"
   }
 }`,
 			Fields: map[string]interface{}{
-				"error":     `{"CombineError":{"PreReduceValidation":{"document":{"i":"not an int"},"basic_output":{"errors":[{"absoluteKeywordLocation":"file:///int-strings.flow.yaml?ptr=/collections/int-strings/schema#/properties/i","error":"Invalid: Must be of type \"integer\".","instanceLocation":"/i","keywordLocation":"#/properties/i"}],"valid":false}}}}`,
+				"error":     `{"CombineError":{"FailedValidation":{"document":{"_meta":{"uuid":"DocUUIDPlaceholder-329Bb50aa48EAa9ef"},"i":"not an int"},"basic_output":{"errors":[{"absoluteKeywordLocation":"file:///int-strings.flow.yaml?ptr=/collections/int-strings/schema#/properties/i","error":"Invalid: Must be of type \"integer\".","instanceLocation":"/i","keywordLocation":"#/properties/i"}],"valid":false}}}}`,
 				"logSource": "combine",
 			},
 		},
