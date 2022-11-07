@@ -555,16 +555,30 @@ mod test {
     use super::super::PublishHandler;
     use agent_sql::Id;
     use reqwest::Url;
+    use serde::Deserialize;
+    use serde_json::Value;
     use sqlx::{Connection, Postgres, Transaction};
 
     // Squelch warnings about struct fields never being read.
     // They actually are read by insta when snapshotting.
+    #[allow(dead_code)]
+    #[derive(Debug, Deserialize)]
+    struct LiveSpec {
+        catalog_name: String,
+        connector_image_name: Option<String>,
+        connector_image_tag: Option<String>,
+        reads_from: Option<Vec<String>>,
+        writes_to: Option<Vec<String>>,
+        spec: Option<Value>,
+        spec_type: Option<String>,
+    }
     #[allow(dead_code)]
     #[derive(Debug)]
     struct ScenarioResult {
         draft_id: Id,
         status: JobStatus,
         errors: Vec<String>,
+        live_specs: Vec<LiveSpec>,
     }
 
     const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
@@ -583,30 +597,62 @@ mod test {
 
         while let Some(row) = agent_sql::publications::dequeue(&mut *txn).await.unwrap() {
             let row_draft_id = row.draft_id.clone();
-            let (id, status) = handler.process(row, &mut *txn, true).await.unwrap();
+            let (pub_id, status) = handler.process(row, &mut *txn, true).await.unwrap();
 
-            let errors = sqlx::query!(
-                r#"
-            select draft_id as "draft_id: Id", scope, detail
-            from draft_errors
-            where draft_errors.draft_id = $1::flowid;"#,
-                row_draft_id as Id
-            )
-            .fetch_all(&mut *txn)
-            .await
-            .unwrap();
-
-            let formatted_errors: Vec<String> = errors.into_iter().map(|e| e.detail).collect();
-
-            results.push(ScenarioResult {
-                draft_id: row_draft_id,
-                status: status.clone(),
-                errors: formatted_errors,
-            });
-
-            agent_sql::publications::resolve(id, &status, &mut *txn)
+            agent_sql::publications::resolve(pub_id, &status, &mut *txn)
                 .await
                 .unwrap();
+
+            match status {
+                JobStatus::Success => {
+                    let specs = sqlx::query_as!(
+                        LiveSpec,
+                        r#"
+                        select catalog_name as "catalog_name!",
+                               connector_image_name,
+                               connector_image_tag,
+                               reads_from,
+                               writes_to,
+                               spec,
+                               spec_type as "spec_type: String"
+                        from live_specs
+                        where live_specs.last_pub_id = $1::flowid;"#,
+                        pub_id as Id
+                    )
+                    .fetch_all(&mut *txn)
+                    .await
+                    .unwrap();
+
+                    results.push(ScenarioResult {
+                        draft_id: row_draft_id,
+                        status: JobStatus::Success,
+                        errors: vec![],
+                        live_specs: specs,
+                    })
+                }
+                _ => {
+                    let errors = sqlx::query!(
+                        r#"
+                select draft_id as "draft_id: Id", scope, detail
+                from draft_errors
+                where draft_errors.draft_id = $1::flowid;"#,
+                        row_draft_id as Id
+                    )
+                    .fetch_all(&mut *txn)
+                    .await
+                    .unwrap();
+
+                    let formatted_errors: Vec<String> =
+                        errors.into_iter().map(|e| e.detail).collect();
+
+                    results.push(ScenarioResult {
+                        draft_id: row_draft_id,
+                        status: status.clone(),
+                        errors: formatted_errors,
+                        live_specs: vec![],
+                    });
+                }
+            };
         }
 
         results
@@ -677,6 +723,39 @@ mod test {
                 draft_id: 1110000000000000,
                 status: Success,
                 errors: [],
+                live_specs: [
+                    LiveSpec {
+                        catalog_name: "usageB/DerivationA",
+                        connector_image_name: None,
+                        connector_image_tag: None,
+                        reads_from: Some(
+                            [
+                                "usageB/CollectionA",
+                            ],
+                        ),
+                        writes_to: None,
+                        spec: Some(
+                            Object {
+                                "derivation": Object {
+                                    "transform": Object {
+                                        "key": Object {
+                                            "source": Object {
+                                                "name": String("usageB/CollectionA"),
+                                            },
+                                        },
+                                    },
+                                },
+                                "key": Array [
+                                    String("foo"),
+                                ],
+                                "schema": Object {},
+                            },
+                        ),
+                        spec_type: Some(
+                            "collection",
+                        ),
+                    },
+                ],
             },
         ]
         "#);
