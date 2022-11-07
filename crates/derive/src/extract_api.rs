@@ -1,5 +1,4 @@
-use super::ValidatorGuard;
-use crate::JsonError;
+use crate::{new_validator, JsonError};
 use prost::Message;
 use proto_flow::flow::{
     self,
@@ -71,7 +70,7 @@ pub struct API {
 struct State {
     uuid_ptr: doc::Pointer,
     field_ptrs: Vec<doc::Pointer>,
-    schema_validator: Option<ValidatorGuard>,
+    validator: Option<doc::Validator>,
 }
 
 impl cgo::Service for API {
@@ -102,16 +101,16 @@ impl cgo::Service for API {
                     field_ptrs,
                 } = extract_api::Config::decode(data)?;
 
-                let schema_validator = if schema_json.is_empty() {
+                let validator = if schema_json.is_empty() {
                     None
                 } else {
-                    Some(ValidatorGuard::new(&schema_json)?)
+                    Some(new_validator(&schema_json)?)
                 };
 
                 self.state = Some(State {
                     uuid_ptr: doc::Pointer::from(&uuid_ptr),
                     field_ptrs: field_ptrs.iter().map(doc::Pointer::from).collect(),
-                    schema_validator,
+                    validator,
                 });
                 Ok(())
             }
@@ -127,8 +126,9 @@ impl cgo::Service for API {
 
                 if proto_gazette::message_flags::ACK_TXN & uuid.producer_and_flags != 0 {
                     // Transaction acknowledgements aren't expected to validate.
-                } else if let Some(guard) = &mut state.schema_validator {
-                    doc::Validation::validate(&mut guard.validator, &guard.schema.curi, &doc)?
+                } else if let Some(validator) = &mut state.validator {
+                    validator
+                        .validate(None, &doc)?
                         .ok()
                         .map_err(Error::FailedValidation)?;
                 }

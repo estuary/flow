@@ -29,7 +29,7 @@ pub struct API {
 // State is the private inner state machine of the API.
 enum State {
     Init,
-    Opened(registers::Registers),
+    Opened(rocksdb::DB),
     Idle(Pipeline),
     Running(Pipeline),
     DocHeader(Pipeline, derive_api::DocHeader),
@@ -79,20 +79,20 @@ impl cgo::Service for API {
 
                 let mut opts = rocksdb::Options::default();
                 opts.set_env(&env);
-                let registers = registers::Registers::new(opts, &local_dir)?;
+                let rocks_db = registers::Registers::open_rocks(opts, &local_dir)?;
 
-                self.state = State::Opened(registers);
+                self.state = State::Opened(rocks_db);
             }
-            (Code::Configure, State::Opened(registers)) => {
+            (Code::Configure, State::Opened(rocks_db)) => {
                 let config = derive_api::Config::decode(data)?;
-                let pipeline = pipeline::Pipeline::from_config_and_parts(config, registers, 1)?;
+                let pipeline = pipeline::Pipeline::from_config_and_parts(config, rocks_db, 1)?;
                 self.state = State::Idle(pipeline);
             }
             (Code::Configure, State::Idle(pipeline)) => {
                 let config = derive_api::Config::decode(data)?;
-                let (registers, next_id) = pipeline.into_inner();
+                let (rocks_db, next_id) = pipeline.into_inner();
                 let pipeline =
-                    pipeline::Pipeline::from_config_and_parts(config, registers, next_id)?;
+                    pipeline::Pipeline::from_config_and_parts(config, rocks_db, next_id)?;
                 self.state = State::Idle(pipeline);
             }
             (Code::RestoreCheckpoint, State::Idle(pipeline)) => {
