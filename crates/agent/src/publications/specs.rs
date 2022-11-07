@@ -616,7 +616,7 @@ mod test {
     use crate::publications::JobStatus;
 
     use super::super::PublishHandler;
-    use agent_sql::Id;
+    use agent_sql::{publications::find_tenant_quotas, Id};
     use reqwest::Url;
     use serde::Deserialize;
     use serde_json::Value;
@@ -884,6 +884,7 @@ mod test {
                 errors: [
                     "Request to add 1 task(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
                 ],
+                live_specs: [],
             },
         ]
         "#);
@@ -947,6 +948,7 @@ mod test {
                     "Request to add 1 task(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
                     "Request to add 1 collections(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
                 ],
+                live_specs: [],
             },
         ]
         "#);
@@ -1016,6 +1018,48 @@ mod test {
                 draft_id: 1130000000000000,
                 status: Success,
                 errors: [],
+                live_specs: [
+                    LiveSpec {
+                        catalog_name: "usageC/CaptureA",
+                        connector_image_name: Some(
+                            "foo",
+                        ),
+                        connector_image_tag: Some(
+                            "",
+                        ),
+                        reads_from: None,
+                        writes_to: Some(
+                            [
+                                "usageC/CollectionA",
+                            ],
+                        ),
+                        spec: Some(
+                            Object {
+                                "bindings": Array [
+                                    Object {
+                                        "resource": Object {
+                                            "binding": String("foo"),
+                                            "syncMode": String("incremental"),
+                                        },
+                                        "target": String("usageC/CollectionA"),
+                                    },
+                                ],
+                                "endpoint": Object {
+                                    "connector": Object {
+                                        "config": Object {},
+                                        "image": String("foo"),
+                                    },
+                                },
+                                "shards": Object {
+                                    "disable": Bool(true),
+                                },
+                            },
+                        ),
+                        spec_type: Some(
+                            "capture",
+                        ),
+                    },
+                ],
             },
         ]
         "#);

@@ -1,5 +1,6 @@
 ---
 source: crates/agent-sql/tests/publications.rs
+assertion_line: 101
 expression: resolved
 ---
 [
@@ -18,6 +19,38 @@ expression: resolved
     },
     "live_spec_id": "<redacted>",
     "live_type": "Collection",
+    "spec_capabilities": [
+      {
+        "subject_role": "aliceCo/",
+        "object_role": "aliceCo/",
+        "capability": "write"
+      },
+      {
+        "subject_role": "aliceCo/",
+        "object_role": "examples/",
+        "capability": "admin"
+      },
+      {
+        "subject_role": "aliceCo/",
+        "object_role": "ops/aliceCo/",
+        "capability": "read"
+      }
+    ],
+    "user_capability": "admin"
+  },
+  {
+    "catalog_name": "aliceCo/New/Thing",
+    "draft_spec": {
+      "$serde_json::private::RawValue": "2"
+    },
+    "draft_spec_id": "3300000000000000",
+    "draft_type": "Collection",
+    "expect_pub_id": null,
+    "last_build_id": "eeeeeeeeeeeeeeee",
+    "last_pub_id": "eeeeeeeeeeeeeeee",
+    "live_spec": null,
+    "live_spec_id": "<redacted>",
+    "live_type": null,
     "spec_capabilities": [
       {
         "subject_role": "aliceCo/",
@@ -84,38 +117,6 @@ expression: resolved
     },
     "live_spec_id": "<redacted>",
     "live_type": "Test",
-    "spec_capabilities": [
-      {
-        "subject_role": "aliceCo/",
-        "object_role": "aliceCo/",
-        "capability": "write"
-      },
-      {
-        "subject_role": "aliceCo/",
-        "object_role": "examples/",
-        "capability": "admin"
-      },
-      {
-        "subject_role": "aliceCo/",
-        "object_role": "ops/aliceCo/",
-        "capability": "read"
-      }
-    ],
-    "user_capability": "admin"
-  },
-  {
-    "catalog_name": "aliceCo/New/Thing",
-    "draft_spec": {
-      "$serde_json::private::RawValue": "2"
-    },
-    "draft_spec_id": "3300000000000000",
-    "draft_type": "Collection",
-    "expect_pub_id": null,
-    "last_build_id": "eeeeeeeeeeeeeeee",
-    "last_pub_id": "eeeeeeeeeeeeeeee",
-    "live_spec": null,
-    "live_spec_id": "<redacted>",
-    "live_type": null,
     "spec_capabilities": [
       {
         "subject_role": "aliceCo/",

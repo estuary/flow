@@ -199,6 +199,7 @@ pub async fn resolve_spec_rows(
         join live_specs
             on draft_specs.catalog_name = live_specs.catalog_name
         where draft_specs.draft_id = $1
+        order by draft_specs.catalog_name asc
         for update of draft_specs, live_specs;
         "#,
         draft_id as Id,
@@ -234,15 +235,15 @@ pub async fn find_tenant_quotas(
         tenant_usages as (
             select
                 tenant_names.tenant_name,
-                count(live_specs.catalog_name) filter (
+                (count(live_specs.catalog_name) filter (
                     where
                         live_specs.spec_type = 'capture' or
                         live_specs.spec_type = 'materialization' or
                         live_specs.spec_type = 'collection' and live_specs.spec->'derivation' is not null
-                ) as tasks_used,
-                count(live_specs.catalog_name) filter (
+                ))::integer as tasks_used,
+                (count(live_specs.catalog_name) filter (
                     where live_specs.spec_type = 'collection'
-                ) as collections_used
+                ))::integer as collections_used
             from tenant_names
             join live_specs on
                 starts_with(live_specs.catalog_name, tenant_names.tenant_name) and
@@ -251,8 +252,8 @@ pub async fn find_tenant_quotas(
         )
         select
             tenants.tenant as name,
-            tenants.tasks_quota as "tasks_quota!: i32",
-            tenants.collections_quota as "collections_quota!: i32",
+            tenants.tasks_quota::integer as "tasks_quota!: i32",
+            tenants.collections_quota::integer as "collections_quota!: i32",
             tenant_usages.tasks_used as "tasks_used!: i32",
             tenant_usages.collections_used as "collections_used!: i32"
         from tenant_usages

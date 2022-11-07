@@ -96,6 +96,7 @@ async fn test_publication_data_operations() {
     let resolved = agent_sql::publications::resolve_spec_rows(draft_id, alice, &mut txn)
         .await
         .unwrap();
+
     insta::assert_json_snapshot!(resolved, {
       "[].live_spec_id" => "<redacted>",
     });
@@ -239,8 +240,8 @@ async fn test_tenant_usage_quotas() {
 
     let res = agent_sql::publications::find_tenant_quotas(
         vec![
-            Id::from_hex("1000000000000000").unwrap(),
-            Id::from_hex("6000000000000000").unwrap(),
+            Id::from_hex("1000000000000000").unwrap(), // usageA/
+            Id::from_hex("6000000000000000").unwrap(), // usageB/
         ],
         &mut txn,
     )
