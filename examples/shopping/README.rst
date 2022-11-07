@@ -30,7 +30,7 @@ We can apply our collection to a local Flow instance by running:
 
 .. code-block:: console
 
-    $ flowctl-admin build && flowctl-admin develop
+    $ flowctl-go build && flowctl-go develop
 
 Now that it's applied, we'll leave that terminal running and open a new one to simulate some
 users being added.
@@ -45,7 +45,7 @@ come back to later. Let's check out our data in Postgres:
 .. code-block::
 
     $ psql 'postgresql://flow:flow@localhost:5432/flow?sslmode=disable' -c "select id, email, name from shopping_users;"
-    id |         email         |      name 
+    id |         email         |      name
     ----+-----------------------+----------------
     6 | bigguy@dk.com         | Donkey Kong
     7 | explorer@ocean.net    | Echo
@@ -83,13 +83,13 @@ scripts for ingesting documents and verifying expected results.
 Each test is a sequence of ``ingest`` and ``verify`` steps, which will be executed in the order
 written. In this test, we are first ingesting documents for the users Jane and Jill. The second
 ``ingest`` step provides a new email address for Jane. The ``verify`` step includes both
-documents, and will fail if any of the properties do not match. 
+documents, and will fail if any of the properties do not match.
 
 We can run the tests using:
 
 .. code-block:: console
 
-    $ flowctl-admin build && flowctl-admin test
+    $ flowctl-go build && flowctl-go test
 
 Next Steps
 ~~~~~~~~~~
