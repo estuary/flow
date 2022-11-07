@@ -157,10 +157,6 @@ ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h &:
 ${RUSTBIN}/librocks-exp/librocksdb.a:
 	cargo build --release --locked -p librocks-exp
 
-.PHONY: ${RUSTBIN}/flowctl-admin
-${RUSTBIN}/flowctl-admin:
-	cargo build --release --locked -p flowctl-admin
-
 .PHONY: ${RUSTBIN}/agent
 ${RUSTBIN}/agent:
 	cargo build --release --locked -p agent
@@ -198,7 +194,6 @@ ${RUST_MUSL_BIN}/flowctl:
 GNU_TARGETS = \
 	${PKGDIR}/bin/agent \
 	${PKGDIR}/bin/etcd \
-	${PKGDIR}/bin/flowctl-admin \
 	${PKGDIR}/bin/flowctl-go \
 	${PKGDIR}/bin/gazette \
 	${PKGDIR}/bin/sops
@@ -237,8 +232,6 @@ package: ${PKGDIR}/flow-$(PACKAGE_ARCH).tar.gz
 ${PKGDIR}:
 	mkdir -p ${PKGDIR}/bin
 	mkdir ${PKGDIR}/lib
-${PKGDIR}/bin/flowctl-admin: ${RUSTBIN}/flowctl-admin | ${PKGDIR}
-	cp ${RUSTBIN}/flowctl-admin $@
 
 # The following binaries are statically linked, so come from a different subdirectory
 ${PKGDIR}/bin/flow-connector-proxy: ${RUST_MUSL_BIN}/flow-connector-proxy | ${PKGDIR}
@@ -322,23 +315,23 @@ data-plane-test-setup:
 ifeq ($(SKIP_BUILD),true)
 data-plane-test-setup:
 	@echo "testing using pre-built binaries:"
-	@ls -al ${PKGDIR}/bin/ 
-	${PKGDIR}/bin/flowctl-admin json-schema > flow.schema.json
+	@ls -al ${PKGDIR}/bin/
+	${PKGDIR}/bin/flowctl-go json-schema > flow.schema.json
 else
-data-plane-test-setup: ${PKGDIR}/bin/flowctl-admin ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/flow-connector-proxy ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops flow.schema.json
+data-plane-test-setup: ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/flow-connector-proxy ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops flow.schema.json
 endif
 
 
 .PHONY: catalog-test
 catalog-test: data-plane-test-setup
-	${PKGDIR}/bin/flowctl-admin test --source examples/local-sqlite.flow.yaml $(ARGS)
+	${PKGDIR}/bin/flowctl-go test --source examples/local-sqlite.flow.yaml $(ARGS)
 
 .PHONY: end-to-end-test
 end-to-end-test: data-plane-test-setup
 	./tests/run-all.sh
 
-flow.schema.json: | ${PKGDIR}/bin/flowctl-admin ${PKGDIR}/bin/flowctl-go
-	${PKGDIR}/bin/flowctl-admin json-schema > $@
+flow.schema.json: |  ${PKGDIR}/bin/flowctl-go
+	${PKGDIR}/bin/flowctl-go json-schema > $@
 
 # These docker targets intentionally don't depend on any upstream targets. This is because the
 # upstream targes are all PHONY as well, so there would be no way to prevent them from running twice if you

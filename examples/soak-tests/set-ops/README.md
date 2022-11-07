@@ -9,16 +9,16 @@ The basic gist of running these tests is to first get Flow running the catalog i
 Then you run `setops_test.go`, which runs indefinitely until it detects a failure.
 The soak tests require postgres, and don't work with sqlite.
 
-## Running locally with flowctl-admin develop
+## Running locally with flowctl-go develop
 
 - `docker run --name testpg --rm -it -p 5432:5432 -e POSTGRES_PASSWORD=admin postgres:latest`
-- `flowctl-admin develop --source examples/local-postgres.flow.yaml`
+- `flowctl-go develop --source examples/local-postgres.flow.yaml`
 - `go test -v ./examples/soak-tests/set-ops -streams 20 -ops-per-second -verify-period 15s`
 
 
 ## Running in a local kubernetes environment
 
-- `flowctl-admin apply --source examples/local-k8s.flow.yaml`
+- `flowctl-go apply --source examples/local-k8s.flow.yaml`
 - `./examples/soak-tests/set-ops/run-k8s.sh`
 - `kubectl logs job.batch/soak-test-set-ops -f`
 
