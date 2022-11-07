@@ -14,6 +14,6 @@ control-plane agent, run:
 flowctl raw bundle --source ops-catalog/template-local.flow.yaml
 ```
 
-The template expects that a new partition of table `task_stats`, defined in SQL
+The template expects that a new partition of table `catalog_stats`, defined in SQL
 migration `11_stats.sql`, is explicitly created by the agent prior to the
 materialization being applied.

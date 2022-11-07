@@ -73,17 +73,20 @@ pub async fn provision_tenant(
         grant_user_admin_to_tenant as (
             insert into user_grants (user_id, object_role, capability, detail) values
                 ($1, $2, 'admin', $3)
+            on conflict do nothing
         ),
         grant_to_tenant as (
             insert into role_grants (subject_role, object_role, capability, detail) values
                 ($2, $2, 'write', $3),              -- Tenant specs may write to other tenant specs.
                 ($2, 'ops/' || $2, 'read', $3),     -- Tenant may read `ops/$tenant/...` collections.
                 ($2, 'estuary/public/', 'read', $3) -- Tenant may read `estuary/pubic/` collections.
+            on conflict do nothing
         ),
         create_storage_mappings as (
             insert into storage_mappings (catalog_prefix, spec, detail) values
                 ($2, '{"stores": [{"provider": "GCS", "bucket": "estuary-trial"}]}', $3),
                 ('recovery/' || $2, '{"stores": [{"provider": "GCS", "bucket": "estuary-trial"}]}', $3)
+            on conflict do nothing
         ),
         -- Create a draft for provisioned catalog specifications owned by the accounts root user.
         -- It will be filled out later but within this same transaction.
@@ -107,11 +110,11 @@ pub async fn provision_tenant(
     .fetch_one(&mut *txn)
     .await?;
 
-    // Create partition of task_stats which will home all stats of the tenant.
+    // Create partition of catalog_stats which will home all stats of the tenant.
     sqlx::query(&format!(
         r#"
-        create table task_stat_partitions."{tenant}_stats"
-            partition of public.task_stats for values in ('{prefix}');
+        create table catalog_stat_partitions."{tenant}_stats"
+            partition of public.catalog_stats for values in ('{prefix}');
         "#
     ))
     .execute(&mut *txn)
@@ -120,7 +123,7 @@ pub async fn provision_tenant(
     // stats_loader must own the materialization target so that it can apply
     // related table DDL, such as comments.
     sqlx::query(&format!(
-        r#"alter table task_stat_partitions."{tenant}_stats" owner to stats_loader;"#
+        r#"alter table catalog_stat_partitions."{tenant}_stats" owner to stats_loader;"#
     ))
     .execute(&mut *txn)
     .await?;

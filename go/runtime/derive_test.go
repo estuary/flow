@@ -20,14 +20,23 @@ func TestDeriveStats(t *testing.T) {
 				Transform:     pf.Transform("transformA"),
 				UpdateLambda:  &pf.LambdaSpec{},
 				PublishLambda: &pf.LambdaSpec{},
+				Shuffle: pf.Shuffle{
+					SourceCollection: "collectionA",
+				},
 			},
 			{
 				Transform:    pf.Transform("transformB"),
 				UpdateLambda: &pf.LambdaSpec{},
+				Shuffle: pf.Shuffle{
+					SourceCollection: "collectionA",
+				},
 			},
 			{
 				Transform:     pf.Transform("transformC"),
 				PublishLambda: &pf.LambdaSpec{},
+				Shuffle: pf.Shuffle{
+					SourceCollection: "collectionC",
+				},
 			},
 			{
 				Transform:     pf.Transform("transformD"),
@@ -109,6 +118,7 @@ func TestDeriveStats(t *testing.T) {
 	var expected = DeriveStats{
 		Transforms: map[string]DeriveTransformStats{
 			"transformA": {
+				Source: "collectionA",
 				Input: DocsAndBytes{
 					Docs:  6,
 					Bytes: 6666,
@@ -129,6 +139,7 @@ func TestDeriveStats(t *testing.T) {
 				},
 			},
 			"transformB": {
+				Source: "collectionA",
 				Input: DocsAndBytes{
 					Docs:  1,
 					Bytes: 1111,
@@ -142,6 +153,7 @@ func TestDeriveStats(t *testing.T) {
 				},
 			},
 			"transformC": {
+				Source: "collectionC",
 				Input: DocsAndBytes{
 					Docs:  8,
 					Bytes: 8888,

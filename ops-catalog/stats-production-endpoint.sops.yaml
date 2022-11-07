@@ -3,7 +3,7 @@ address: db.eyrcnmuzzyriypdajwdk.supabase.co:6543
 database: postgres
 password_sops: ENC[AES256_GCM,data:X0aaH7/FlUVgMzqZxQXx2egsm2ShGTbAAJi9nLE28EJgnUJD,iv:aN4/LkzkSr5tAgn6IlylQ6kOlrU4zYC1DWx9lJnEIT4=,tag:T+I1C/4vwmT0X7ve4+bjvQ==,type:str]
 user: stats_loader
-schema: task_stat_partitions
+schema: catalog_stat_partitions
 sops:
     kms: []
     gcp_kms:
