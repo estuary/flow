@@ -597,13 +597,7 @@ mod test {
     select 1;
     "#;
 
-    async fn scenario_snapshot<'c>(
-        scenario: &str,
-        mut txn: Transaction<'c, Postgres>,
-    ) -> Vec<ScenarioResult> {
-        sqlx::query(CLEANUP).execute(&mut txn).await.unwrap();
-        sqlx::query(scenario).execute(&mut txn).await.unwrap();
-
+    async fn execute_publications(txn: &mut Transaction<'_, Postgres>) -> Vec<ScenarioResult> {
         let bs_url: Url = "http://example.com".parse().unwrap();
 
         let (logs_tx, mut logs_rx) = tokio::sync::mpsc::channel(8192);
@@ -615,10 +609,9 @@ mod test {
 
         let mut results: Vec<ScenarioResult> = vec![];
 
-        while let Some(row) = agent_sql::publications::dequeue(&mut txn).await.unwrap() {
-            let mut sub_tx = txn.begin().await.unwrap();
+        while let Some(row) = agent_sql::publications::dequeue(&mut *txn).await.unwrap() {
             let row_draft_id = row.draft_id.clone();
-            let (id, status) = handler.process(row, &mut sub_tx, true).await.unwrap();
+            let (id, status) = handler.process(row, &mut *txn, true).await.unwrap();
 
             let errors = sqlx::query!(
                 r#"
@@ -627,7 +620,7 @@ mod test {
             where draft_errors.draft_id = $1::flowid;"#,
                 row_draft_id as Id
             )
-            .fetch_all(&mut sub_tx)
+            .fetch_all(&mut *txn)
             .await
             .unwrap();
 
@@ -639,10 +632,9 @@ mod test {
                 errors: formatted_errors,
             });
 
-            agent_sql::publications::resolve(id, &status, &mut sub_tx)
+            agent_sql::publications::resolve(id, &status, &mut *txn)
                 .await
                 .unwrap();
-            sub_tx.commit().await.unwrap();
         }
 
         results
@@ -653,9 +645,9 @@ mod test {
         let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
             .await
             .unwrap();
-        let txn = conn.begin().await.unwrap();
+        let mut txn = conn.begin().await.unwrap();
 
-        let results = scenario_snapshot(r#"
+        sqlx::query(r#"
             with p1 as (
               insert into auth.users (id) values
               ('43a18a3e-5a59-11ed-9b6a-0242ac120002')
@@ -703,8 +695,9 @@ mod test {
               ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'usageB/', 'admin')
             )
             select 1;
-        "#,
-        txn).await;
+        "#).execute(&mut txn).await.unwrap();
+
+        let results = execute_publications(&mut txn).await;
 
         insta::assert_debug_snapshot!(results, @r#"
         [
