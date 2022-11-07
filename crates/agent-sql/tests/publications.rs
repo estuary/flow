@@ -13,16 +13,7 @@ async fn test_finding_forbidden_connectors() {
 
     sqlx::query(
         r#"
-        with specs_delete as (
-            delete from live_specs
-        ),
-        tags_delete as (
-            delete from connector_tags
-        ),
-        connectors_delete as (
-            delete from connectors
-        ),
-        p1 as (
+        with p1 as (
           insert into live_specs (id, catalog_name, spec, spec_type, connector_image_name, last_build_id, last_pub_id) values
           ('aa00000000000000', 'testConnectors/Forbidden', '{}'::json, 'capture', 'forbidden_image', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
           ('bb00000000000000', 'testConnectors/Allowed', '{}'::json, 'capture', 'allowed_image', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
@@ -39,10 +30,9 @@ async fn test_finding_forbidden_connectors() {
     .unwrap();
 
     let res = agent_sql::connector_tags::resolve_unknown_connectors(
-        // TODO(js): Switch to using `Id::from_hex` once that PR is merged
         vec![
-            Id::new([0xaa, 0, 0, 0, 0, 0, 0, 0]),
-            Id::new([0xbb, 0, 0, 0, 0, 0, 0, 0]),
+            Id::from_hex("aa00000000000000").unwrap(),
+            Id::from_hex("bb00000000000000").unwrap(),
         ],
         &mut txn,
     )
