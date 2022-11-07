@@ -1,5 +1,6 @@
 use super::{reduce, walker::walk_document, Annotation, AsNode};
 use json::validator::Context;
+use std::pin::Pin;
 
 // Specialize json templates for the Flow `Annotation` type.
 pub type Schema = json::schema::Schema<Annotation>;
@@ -7,33 +8,118 @@ pub type SchemaIndexBuilder<'sm> = json::schema::index::IndexBuilder<'sm, Annota
 pub type SchemaIndex<'sm> = json::schema::index::Index<'sm, Annotation>;
 pub type FullContext = json::validator::FullContext;
 pub type SpanContext = json::validator::SpanContext;
-pub type Validator<'sm> = json::validator::Validator<'sm, Annotation, SpanContext>;
+pub type RawValidator<'sm> = json::validator::Validator<'sm, Annotation, SpanContext>;
+
+pub use json::schema::build::build_schema;
+
+// Validator wraps a json::Validator and manages ownership of the schemas under validation.
+pub struct Validator {
+    // Careful, order matters! Fields are dropped in declaration order.
+    inner: json::validator::Validator<'static, Annotation, SpanContext>,
+    index: Pin<Box<SchemaIndex<'static>>>,
+    schemas: Pin<Box<[Schema]>>,
+}
+
+impl Validator {
+    pub fn new(schema: Schema) -> Result<Self, json::schema::index::Error> {
+        Self::new_from_iter(std::iter::once(schema))
+    }
+
+    pub fn new_from_iter<I>(it: I) -> Result<Self, json::schema::index::Error>
+    where
+        I: IntoIterator<Item = Schema>,
+    {
+        let schemas: Vec<Schema> = it.into_iter().collect();
+        let schemas: Pin<Box<[Schema]>> = Pin::new(schemas.into_boxed_slice());
+
+        // Safety: we manually keep owned schemas alongside the associated index and validator,
+        // and ensure they're dropped last.
+        let schemas_static =
+            unsafe { std::mem::transmute::<&'_ [Schema], &'static [Schema]>(&schemas) };
+
+        let mut index = SchemaIndexBuilder::new();
+        for schema in schemas_static {
+            index.add(schema)?;
+        }
+        index.verify_references()?;
+
+        // Safety: we manually keep the owned index alongside the associated validator,
+        // and drop it before the validator.
+        let index = Box::pin(index.into_index());
+        let index_static =
+            unsafe { std::mem::transmute::<&'_ SchemaIndex, &'static SchemaIndex>(&index) };
+
+        Ok(Self {
+            inner: json::validator::Validator::new(index_static),
+            index,
+            schemas,
+        })
+    }
+
+    /// Fetch the SchemaIndex of this Validator.
+    pub fn schema_index(&self) -> &SchemaIndex<'static> {
+        &self.index
+    }
+
+    /// Fetch the Schemas indexed by this Validator.
+    pub fn schemas(&self) -> &[Schema] {
+        &self.schemas
+    }
+
+    /// Validate validates the given document against the given schema.
+    /// If schema is None, than the root_curi() of this Validator is validated.
+    pub fn validate<'doc, 'v, N: AsNode>(
+        &'v mut self,
+        schema: Option<&'v url::Url>,
+        document: &'doc N,
+    ) -> Result<Validation<'static, 'doc, 'v, N>, json::schema::index::Error> {
+        let effective_schema = match schema {
+            Some(schema) => schema,
+            None if self.schemas.len() == 1 => &self.schemas[0].curi,
+            None => {
+                panic!("root_curi() may only be used with Validators having a single root schema")
+            }
+        };
+        self.inner.prepare(effective_schema)?;
+
+        let root = json::Location::Root;
+        let span = walk_document(document, &mut self.inner, &root, 0);
+
+        Ok(Validation {
+            document,
+            schema: effective_schema,
+            span,
+            validator: &mut self.inner,
+        })
+    }
+}
 
 /// Validation represents the outcome of a document validation.
 pub struct Validation<'schema, 'doc, 'tmp, N: AsNode> {
-    /// Schema which was validated.
-    pub schema: &'tmp url::Url,
     /// Document which was validated.
     pub document: &'doc N,
-    /// Validator which holds the validation outcome.
-    // Note use of Validator in a loop requires that we separate these lifetimes.
-    pub validator: &'tmp mut Validator<'schema>,
+    /// Schema which was validated.
+    pub schema: &'tmp url::Url,
     /// Walked document span.
     pub span: json::Span,
+    /// Validator which holds the validation outcome.
+    // Note use of Validator in a loop requires that we separate these lifetimes.
+    pub validator: &'tmp mut RawValidator<'schema>,
 }
 
 // Valid is a Validation known to have had a valid outcome.
 pub struct Valid<'schema, 'tmp> {
     /// Validator which holds the validation outcome.
-    pub validator: &'tmp mut Validator<'schema>,
+    pub validator: &'tmp mut RawValidator<'schema>,
     /// Walked document span.
     pub span: json::Span,
 }
 
 impl<'schema, 'doc, 'tmp, N: AsNode> Validation<'schema, 'doc, 'tmp, N> {
-    /// Validate validates the given document against the given schema.
+    /// Validate is a lower-level API for verifying a given document against the given schema.
+    /// You probably want to use Validator::validate() instead of this function.
     pub fn validate(
-        validator: &'tmp mut Validator<'schema>,
+        validator: &'tmp mut RawValidator<'schema>,
         schema: &'tmp url::Url,
         document: &'doc N,
     ) -> Result<Self, json::schema::index::Error> {
@@ -43,10 +129,10 @@ impl<'schema, 'doc, 'tmp, N: AsNode> Validation<'schema, 'doc, 'tmp, N> {
         let span = walk_document(document, validator, &root, 0);
 
         Ok(Self {
-            schema,
             document,
-            validator,
+            schema,
             span,
+            validator,
         })
     }
 

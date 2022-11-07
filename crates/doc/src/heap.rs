@@ -1,4 +1,4 @@
-use super::{AsNode, Field, Fields, Node};
+use super::{AsNode, BumpStr, BumpVec, Field, Fields, Node};
 
 /// HeapDoc is a document representation stored in the heap.
 #[derive(Debug, rkyv::Archive, rkyv::Serialize)]
@@ -30,7 +30,7 @@ pub enum HeapNode<'alloc> {
     Null,
     Object(BumpVec<'alloc, HeapField<'alloc>>),
     PosInt(u64),
-    String(HeapString<'alloc>),
+    String(BumpStr<'alloc>),
 }
 
 /// HeapField is a field representation stored in the heap.
@@ -42,18 +42,10 @@ pub enum HeapNode<'alloc> {
     )
 )]
 pub struct HeapField<'alloc> {
-    pub property: HeapString<'alloc>,
+    pub property: BumpStr<'alloc>,
     #[omit_bounds]
     pub value: HeapNode<'alloc>,
 }
-
-/// HeapString is a string representation stored in the heap.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct HeapString<'alloc>(pub &'alloc str);
-
-/// BumpVec is a generic Vec<T> that's bound to a bump allocator.
-#[derive(Debug)]
-pub struct BumpVec<'alloc, T: std::fmt::Debug>(pub bumpalo::collections::Vec<'alloc, T>);
 
 impl<'alloc> HeapNode<'alloc> {
     // new_allocator builds a bumpalo::Bump allocator for use in building HeapNodes.
@@ -68,15 +60,15 @@ impl<'alloc> AsNode for HeapNode<'alloc> {
 
     fn as_node<'a>(&'a self) -> Node<'a, Self> {
         match self {
-            HeapNode::Array(a) => Node::Array(a.0.as_slice()),
+            HeapNode::Array(a) => Node::Array(a),
             HeapNode::Bool(b) => Node::Bool(*b),
-            HeapNode::Bytes(b) => Node::Bytes(&b.0),
+            HeapNode::Bytes(b) => Node::Bytes(b),
             HeapNode::Float(n) => Node::Number(json::Number::Float(*n)),
             HeapNode::NegInt(n) => Node::Number(json::Number::Signed(*n)),
             HeapNode::Null => Node::Null,
-            HeapNode::Object(o) => Node::Object(o.0.as_slice()),
+            HeapNode::Object(o) => Node::Object(o.as_slice()),
             HeapNode::PosInt(n) => Node::Number(json::Number::Unsigned(*n)),
-            HeapNode::String(s) => Node::String(&s.0),
+            HeapNode::String(s) => Node::String(s),
         }
     }
 }
@@ -86,7 +78,7 @@ impl<'alloc> Fields<HeapNode<'alloc>> for [HeapField<'alloc>] {
     type Iter<'a> = std::slice::Iter<'a, HeapField<'alloc>> where 'alloc: 'a;
 
     fn get<'a>(&'a self, property: &str) -> Option<Self::Field<'a>> {
-        match self.binary_search_by(|l| l.property.0.cmp(property)) {
+        match self.binary_search_by(|l| l.property.cmp(property)) {
             Ok(ind) => Some(&self[ind]),
             Err(_) => None,
         }
@@ -103,47 +95,41 @@ impl<'alloc> Fields<HeapNode<'alloc>> for [HeapField<'alloc>] {
 
 impl<'a, 'alloc> Field<'a, HeapNode<'alloc>> for &'a HeapField<'alloc> {
     fn property(&self) -> &'a str {
-        &self.property.0
+        &self.property
     }
     fn value(&self) -> &'a HeapNode<'alloc> {
         &self.value
     }
 }
 
-impl<'alloc, T: std::fmt::Debug> BumpVec<'alloc, T> {
-    pub fn new(alloc: &'alloc bumpalo::Bump) -> Self {
-        Self(bumpalo::collections::vec::Vec::new_in(alloc))
-    }
-    pub fn with_capacity_in(capacity: usize, alloc: &'alloc bumpalo::Bump) -> Self {
-        Self(bumpalo::collections::vec::Vec::with_capacity_in(
-            capacity, alloc,
-        ))
-    }
-}
-
 impl<'alloc> BumpVec<'alloc, HeapField<'alloc>> {
     /// Insert or obtain a mutable reference to a child HeapNode with the given property.
-    pub fn insert_mut(&mut self, property: HeapString<'alloc>) -> &mut HeapNode<'alloc> {
-        let ind = match self.0.binary_search_by(|l| l.property.0.cmp(&property.0)) {
+    pub fn insert_property(
+        &mut self,
+        property: &str,
+        alloc: &'alloc bumpalo::Bump,
+    ) -> &mut HeapNode<'alloc> {
+        let ind = match self.binary_search_by(|l| l.property.cmp(property)) {
             Ok(ind) => ind,
             Err(ind) => {
-                self.0.insert(
+                self.insert(
                     ind,
                     HeapField {
-                        property,
+                        property: BumpStr::from_str(property, alloc),
                         value: HeapNode::Null,
                     },
+                    alloc,
                 );
                 ind
             }
         };
-        &mut self.0[ind].value
+        &mut self[ind].value
     }
 
     // Remove the named property, returning its removed HeapField if found.
-    pub fn remove(&mut self, property: &str) -> Option<HeapField<'alloc>> {
-        match self.0.binary_search_by(|l| l.property.0.cmp(property)) {
-            Ok(ind) => Some(self.0.remove(ind)),
+    pub fn remove_property(&mut self, property: &str) -> Option<HeapField<'alloc>> {
+        match self.binary_search_by(|l| l.property.cmp(property)) {
+            Ok(ind) => Some(self.remove(ind)),
             Err(_) => None,
         }
     }

@@ -1,4 +1,4 @@
-use super::{heap, AsNode, Field, Fields, HeapNode, Node};
+use super::{heap, AsNode, BumpStr, BumpVec, Field, Fields, HeapNode, Node};
 
 use rkyv::ser::Serializer;
 
@@ -37,26 +37,26 @@ impl ArchivedNode {
     }
 }
 
-impl<'alloc> rkyv::Archive for heap::HeapString<'alloc> {
+impl<'alloc> rkyv::Archive for BumpStr<'alloc> {
     type Archived = rkyv::string::ArchivedString;
     type Resolver = rkyv::string::StringResolver;
 
     unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
-        Self::Archived::resolve_from_str(self.0, pos, resolver, out);
+        Self::Archived::resolve_from_str(self, pos, resolver, out);
     }
 }
 
-impl<'alloc, S> rkyv::Serialize<S> for heap::HeapString<'alloc>
+impl<'alloc, S> rkyv::Serialize<S> for BumpStr<'alloc>
 where
     S: rkyv::ser::Serializer + ?Sized,
 {
     #[inline]
     fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
-        Self::Archived::serialize_from_str(self.0, serializer)
+        Self::Archived::serialize_from_str(self, serializer)
     }
 }
 
-impl<'alloc, T: rkyv::Archive> rkyv::Archive for heap::BumpVec<'alloc, T>
+impl<'alloc, T: rkyv::Archive> rkyv::Archive for BumpVec<'alloc, T>
 where
     T: rkyv::Archive + std::fmt::Debug,
 {
@@ -65,18 +65,18 @@ where
 
     #[inline]
     unsafe fn resolve(&self, pos: usize, resolver: Self::Resolver, out: *mut Self::Archived) {
-        Self::Archived::resolve_from_slice(self.0.as_slice(), pos, resolver, out);
+        Self::Archived::resolve_from_slice(self, pos, resolver, out);
     }
 }
 
-impl<'alloc, S, T> rkyv::Serialize<S> for heap::BumpVec<'alloc, T>
+impl<'alloc, S, T> rkyv::Serialize<S> for BumpVec<'alloc, T>
 where
     S: rkyv::ser::Serializer + rkyv::ser::ScratchSpace + ?Sized,
     T: rkyv::Serialize<S> + std::fmt::Debug,
 {
     #[inline]
     fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
-        Self::Archived::serialize_from_slice(self.0.as_slice(), serializer)
+        Self::Archived::serialize_from_slice(self, serializer)
     }
 }
 

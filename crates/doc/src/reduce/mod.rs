@@ -1,6 +1,6 @@
 use super::{
     lazy::{LazyDestructured, LazyField, LazyNode},
-    AsNode, Field, Fields, HeapField, HeapNode, HeapString, Node, Valid,
+    AsNode, BumpStr, Field, Fields, HeapField, HeapNode, Node, Valid,
 };
 use itertools::EitherOrBoth;
 
@@ -158,11 +158,10 @@ fn count_nodes_heap(node: &HeapNode<'_>) -> usize {
         | HeapNode::Null
         | HeapNode::PosInt(_)
         | HeapNode::String(_) => 1,
-        HeapNode::Array(v) => v.0.iter().fold(1, |c, vv| c + count_nodes_heap(vv)),
-        HeapNode::Object(v) => {
-            v.0.iter()
-                .fold(1, |c, field| c + count_nodes_heap(&field.value))
-        }
+        HeapNode::Array(v) => v.iter().fold(1, |c, vv| c + count_nodes_heap(vv)),
+        HeapNode::Object(v) => v
+            .iter()
+            .fold(1, |c, field| c + count_nodes_heap(&field.value)),
     }
 }
 
@@ -198,7 +197,7 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
                     LazyNode::Heap(rhs.value),
                 ),
                 (LazyField::Node(lhs), LazyField::Node(rhs)) => (
-                    HeapString(alloc.alloc_str(lhs.property())),
+                    BumpStr::from_str(lhs.property(), alloc),
                     LazyNode::Node(lhs.value()),
                     LazyNode::Node(rhs.value()),
                 ),
@@ -206,7 +205,7 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
 
             let value = Cursor {
                 tape,
-                loc: loc.push_prop(property.0),
+                loc: loc.push_prop(&property),
                 full,
                 lhs,
                 rhs,
@@ -249,8 +248,8 @@ fn reduce_item<'alloc, L: AsNode, R: AsNode>(
 pub mod test {
     use super::*;
 
-    use crate::{Schema, Validation, Validator};
-    use json::schema::{build::build_schema, index::IndexBuilder};
+    use crate::Validator;
+    use json::schema::build::build_schema;
     pub use serde_json::{json, Value};
     use std::error::Error as StdError;
 
@@ -298,16 +297,8 @@ pub mod test {
 
     pub fn run_reduce_cases(schema: Value, cases: Vec<Case>) {
         let curi = url::Url::parse("http://example/schema").unwrap();
-        let schema: Schema = build_schema(curi.clone(), &schema).unwrap();
-
-        let mut index = IndexBuilder::new();
-        index.add(&schema).unwrap();
-        index.verify_references().unwrap();
-        let index = index.into_index();
-
+        let mut validator = Validator::new(build_schema(curi, &schema).unwrap()).unwrap();
         let alloc = HeapNode::new_allocator();
-
-        let mut validator = Validator::new(&index);
         let mut lhs: Option<HeapNode<'_>> = None;
 
         for case in cases {
@@ -315,10 +306,7 @@ pub mod test {
                 Partial { rhs, expect } => (rhs, expect, false),
                 Full { rhs, expect } => (rhs, expect, true),
             };
-            let rhs_valid = Validation::validate(&mut validator, &curi, &rhs)
-                .unwrap()
-                .ok()
-                .unwrap();
+            let rhs_valid = validator.validate(None, &rhs).unwrap().ok().unwrap();
 
             let lhs_cloned = lhs
                 .as_ref()
