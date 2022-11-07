@@ -214,7 +214,32 @@ mod test {
     use sqlx::{postgres::PgListener, PgPool};
 
     const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
-    const CLEANUP: &str = include_str!("publications/test_resources/cleanup.sql");
+
+    // Delete in reverse order to avoid integrity-check issues
+    const HAPPY_PATH_CLEANUP: &str = r#"
+      with p7 as (
+        delete from user_grants where user_id = '43a18a3e-5a59-11ed-9b6a-0242ac120002'
+      ),
+      p6 as (
+        delete from role_grants where subject_role = 'usageB/'
+      ),
+      p5 as (
+        delete from publications where id = '1111100000000000'
+      ),
+      p4 as (
+        delete from draft_specs where id = '1111000000000000'
+      ),
+      p3 as (
+          delete from live_specs where id = '1000000000000000'
+      ),
+      p2 as (
+        delete from drafts where id = '1110000000000000'
+      ),
+      p1 as (
+        delete from auth.users where id = '43a18a3e-5a59-11ed-9b6a-0242ac120002'
+      )
+      select 1;
+    "#;
 
     #[derive(Debug)]
     struct MockHandler {
@@ -244,12 +269,15 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_handlers_react_quickly() -> anyhow::Result<()> {
+    async fn test_handlers_react_quickly() {
         let pg_pool = PgPool::connect(&FIXED_DATABASE_URL).await.unwrap();
 
         let (handler_notify_tx, mut handler_notify_rx) =
             tokio::sync::mpsc::unbounded_channel::<()>();
-        let (_, exit_rx) = tokio::sync::oneshot::channel::<()>();
+        // Must allow `exit_tx` to exist here,
+        // otherwise it'll get instantly dropped and kill the server prematurely
+        #[allow(unused_variables)]
+        let (exit_tx, exit_rx) = tokio::sync::oneshot::channel::<()>();
 
         let server = serve(
             vec![Box::new(MockHandler::new(
@@ -263,14 +291,13 @@ mod test {
         tokio::pin!(server);
 
         tokio::select! {
-            _ = &mut server => {
-                Err(anyhow::anyhow!("Handler unexpectedly exited"))
+            res = &mut server => {
+                Err(anyhow::anyhow!("Handler unexpectedly exited: {:#?}", res))
             }
             res = async move {
                 // Do this 10 times in a row to make sure that our handler gets called consistently quickly
                 for _ in 0..10{
                     let mut txn = pg_pool.begin().await.unwrap();
-                    sqlx::query(CLEANUP).execute(&mut txn).await.unwrap();
                     // Sets up the database to have a valid publication task and associated draft/specs
                     sqlx::query(include_str!("publications/test_resources/happy_path.sql"))
                         .execute(&mut txn)
@@ -285,13 +312,19 @@ mod test {
                         .await
                         .map_err(|_| anyhow::anyhow!("Timed out waiting for mock publication handler to get called"));
 
-                    res?;
+                    res.unwrap();
+
+                    // We have to clean up because we commit the transaction above
+                    // We can't use `txn` since `.commit()` consumes itself, so we have to
+                    // acquire another connection for a sec to do this cleanup
+                    let mut conn = pg_pool.acquire().await.unwrap();
+                    sqlx::query(HAPPY_PATH_CLEANUP).execute(&mut conn).await.unwrap();
                 }
                 Ok(())
             } => {
                 res
             }
-        }
+        }.unwrap()
     }
 
     #[tokio::test]
@@ -305,7 +338,6 @@ mod test {
 
         // This sets up the database to have a valid publication
         // which should trigger a NOTIFY on the AGENT_NOTIFICATION_CHANNEL
-        sqlx::query(CLEANUP).execute(&mut txn).await.unwrap();
         sqlx::query(include_str!("publications/test_resources/happy_path.sql"))
             .execute(&mut txn)
             .await
@@ -323,6 +355,14 @@ mod test {
         .await
         .unwrap()
         .unwrap();
+
+        // We can't use `txn` since `.commit()` consumes itself, so we have to
+        // acquire another connection for a sec to do this cleanup
+        let mut conn = pg_pool.acquire().await.unwrap();
+        sqlx::query(HAPPY_PATH_CLEANUP)
+            .execute(&mut conn)
+            .await
+            .unwrap();
 
         insta::assert_json_snapshot!(
             notification,

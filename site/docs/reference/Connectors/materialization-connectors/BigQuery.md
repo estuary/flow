@@ -55,14 +55,7 @@ During account creation:
 
 2. Select the new service account from the list of service accounts. On the Keys tab, click **Add key** and create a new JSON key.
 
-   The key is automatically downloaded to your machine.
-
-3. In your terminal, base64-encode the JSON key:
-   ```console
-   base64 /path/to/key.json
-   ```
-
-   You'll use the resulting string when you configure the connector.
+   The key is automatically downloaded. You'll use it to configure the connector.
 
 ## Configuration
 
@@ -85,7 +78,7 @@ For a complete introduction to resource organization in Bigquery, see the [BigQu
 | **`/region`** | Region | The GCS region. | String | Required |
 | **`/bucket`** | Bucket | Name of the GCS bucket. | String | Required |
 | `/bucket_path` | Bucket path | Base path within the GCS bucket. Also called "Folder" in the GCS console. | String | |
-| **`/credentials_json`** | Credentials JSON | Base64-encoded string of the full service account file. | Byte | Required |
+| **`/credentials_json`** | Service Account JSON | The JSON credentials of the service account to use for authorization. | String | Required |
 
 To learn more about project billing, [see the BigQuery docs](https://cloud.google.com/billing/docs/how-to/verify-billing-enabled).
 
@@ -135,7 +128,7 @@ materializations:
           region: US
           bucket: our-gcs-bucket
           bucket_path: bucket-path/
-          credentials_json: SSBqdXN0IHdhbm5hIHRlbGwgeW91IGhvdyBJJ20gZmVlbGluZwpHb3R0YSBtYWtlIHlvdSB1bmRlcnN0YW5kCk5ldmVyIGdvbm5hIGdpdmUgeW91IHVwCk5ldmVyIGdvbm5hIGxldCB5b3UgZG93bgpOZXZlciBnb25uYSBydW4gYXJvdW5kIGFuZCBkZXNlcnQgeW91Ck5ldmVyIGdvbm5hIG1ha2UgeW91IGNyeQpOZXZlciBnb25uYSBzYXkgZ29vZGJ5ZQpOZXZlciBnb25uYSB0ZWxsIGEgbGllIGFuZCBodXJ0IHlvdQ==
+          credentials_json: <secret>
         image: ghcr.io/estuary/materialize-bigquery:dev
     bindings:
   	- resource:
