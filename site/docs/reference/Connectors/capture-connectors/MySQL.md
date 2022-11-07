@@ -2,12 +2,13 @@
 sidebar_position: 7
 ---
 
-This is a change data capture (CDC) connector that captures change events from a MySQL database via the [Binary Log](https://dev.mysql.com/doc/refman/8.0/en/binary-log.html).
+This is a change data capture (CDC) connector that captures change events from a MySQL database via the [Binary Log](https://dev.mysql.com/doc/refman/8.0/en/binary-log.html). It also supports MariaDB databases.
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-mysql:dev`](https://github.com/estuary/connectors/pkgs/container/source-mysql) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
-To use this connector, you'll need a MySQL database setup with the following:
+To use this connector, you'll need a MySQL or MariaDB database setup with the following.
+Links here are to the MySQL documentation, but equivalent settings and features can be found in the [MariaDB docs](https://mariadb.com/kb/en/):
 * [`binlog_format`](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_format)
   system variable set to `ROW` (the default value).
 * [Binary log expiration period](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_expire_logs_seconds) set to MySQL's default value of 30 days (2592000 seconds) if at all possible.
