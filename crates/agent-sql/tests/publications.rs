@@ -4,77 +4,6 @@ use sqlx::{types::Uuid, Connection, Row};
 const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
 #[tokio::test]
-async fn test_tenant_usage_quotas() {
-    let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
-        .await
-        .expect("connect");
-
-    let mut txn = conn.begin().await.unwrap();
-
-    // Fixture: insert live_specs, grants, drafts, and draft_specs fixtures.
-    sqlx::query(
-        r#"
-        with specs_delete as (
-            delete from live_specs
-        ),
-        tenants_delete as (
-            delete from tenants
-        ),
-        p1 as (
-            insert into live_specs (id, catalog_name, spec, spec_type, last_build_id, last_pub_id) values
-            ('1000000000000000', 'usageA/CollectionA', '1', 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-            ('2000000000000000', 'usageA/CaptureA', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-            ('3000000000000000', 'usageA/MaterializationA', '1', 'materialization', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-            ('5000000000000000', 'usageA/DerivationA', '{"derivation": {}}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-            ('6000000000000000', 'usageB/CaptureA', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-            ('7000000000000000', 'usageB/CaptureB', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-            ('8000000000000000', 'usageB/CaptureC', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-            ('9000000000000000', 'usageB/CaptureD', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-            ('1100000000000000', 'usageB/CaptureDisabled', '{"shards": {"disable": true}}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
-          ),
-          p2 as (
-              insert into tenants (tenant, tasks_quota, collections_quota) values
-              ('usageA/', 6, 3),
-              ('usageB/', 1, 5)
-          )
-          select 1;
-        "#,
-    )
-    .execute(&mut txn)
-    .await
-    .unwrap();
-
-    let res = agent_sql::publications::find_tenant_quotas(
-        vec![
-            Id::from_hex("1000000000000000").unwrap(),
-            Id::from_hex("6000000000000000").unwrap(),
-        ],
-        &mut txn,
-    )
-    .await
-    .unwrap();
-
-    insta::assert_debug_snapshot!(res, @r#"
-        [
-            Tenant {
-                name: "usageA/",
-                tasks_quota: 6,
-                collections_quota: 3,
-                tasks_used: 3,
-                collections_used: 2,
-            },
-            Tenant {
-                name: "usageB/",
-                tasks_quota: 1,
-                collections_quota: 5,
-                tasks_used: 4,
-                collections_used: 0,
-            },
-        ]
-    "#);
-}
-
-#[tokio::test]
 async fn test_publication_data_operations() {
     let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
         .await
@@ -271,4 +200,69 @@ async fn test_publication_data_operations() {
       "[].created_at" => "<redacted-timestamp>",
       "[].updated_at" => "<redacted-timestamp>",
     });
+}
+
+#[tokio::test]
+async fn test_tenant_usage_quotas() {
+    let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+        .await
+        .expect("connect");
+
+    let mut txn = conn.begin().await.unwrap();
+
+    // Fixture: insert live_specs, grants, drafts, and draft_specs fixtures.
+    sqlx::query(
+        r#"
+        with p1 as (
+            insert into live_specs (id, catalog_name, spec, spec_type, last_build_id, last_pub_id) values
+            ('1000000000000000', 'usageA/CollectionA', '1', 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+            ('2000000000000000', 'usageA/CaptureA', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+            ('3000000000000000', 'usageA/MaterializationA', '1', 'materialization', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+            ('5000000000000000', 'usageA/DerivationA', '{"derivation": {}}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+            ('6000000000000000', 'usageB/CaptureA', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+            ('7000000000000000', 'usageB/CaptureB', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+            ('8000000000000000', 'usageB/CaptureC', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+            ('9000000000000000', 'usageB/CaptureD', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+            ('1100000000000000', 'usageB/CaptureDisabled', '{"shards": {"disable": true}}'::json, 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
+          ),
+          p2 as (
+              insert into tenants (tenant, tasks_quota, collections_quota) values
+              ('usageA/', 6, 3),
+              ('usageB/', 1, 5)
+          )
+          select 1;
+        "#,
+    )
+    .execute(&mut txn)
+    .await
+    .unwrap();
+
+    let res = agent_sql::publications::find_tenant_quotas(
+        vec![
+            Id::from_hex("1000000000000000").unwrap(),
+            Id::from_hex("6000000000000000").unwrap(),
+        ],
+        &mut txn,
+    )
+    .await
+    .unwrap();
+
+    insta::assert_debug_snapshot!(res, @r#"
+        [
+            Tenant {
+                name: "usageA/",
+                tasks_quota: 6,
+                collections_quota: 3,
+                tasks_used: 3,
+                collections_used: 2,
+            },
+            Tenant {
+                name: "usageB/",
+                tasks_quota: 1,
+                collections_quota: 5,
+                tasks_used: 4,
+                collections_used: 0,
+            },
+        ]
+    "#);
 }
