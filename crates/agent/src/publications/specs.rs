@@ -282,8 +282,8 @@ pub fn validate_transition(
 
         // Verify that the live specification has not existed and then been deleted in the past.
         // TODO(johnny): remove once we introduce data plane pet-names.
-        if live_type.is_none() && draft_type.is_some() && *last_pub_id != pub_id   {
-                errors.push(Error {
+        if live_type.is_none() && draft_type.is_some() && *last_pub_id != pub_id {
+            errors.push(Error {
                     catalog_name: catalog_name.clone(),
                     detail: format!(
                         "A specification with this name previously existed and then was deleted. At present Flow does not allow for re-creation with this same name."
@@ -544,5 +544,220 @@ fn split_tag(image_full: &str) -> (String, String) {
         (image, tag)
     } else {
         (image, String::new())
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use crate::publications::JobStatus;
+
+    use super::super::PublishHandler;
+    use agent_sql::Id;
+    use reqwest::Url;
+    use serde::Deserialize;
+    use serde_json::Value;
+    use sqlx::{Connection, Postgres, Transaction};
+
+    // Squelch warnings about struct fields never being read.
+    // They actually are read by insta when snapshotting.
+    #[allow(dead_code)]
+    #[derive(Debug, Deserialize)]
+    struct LiveSpec {
+        catalog_name: String,
+        connector_image_name: Option<String>,
+        connector_image_tag: Option<String>,
+        reads_from: Option<Vec<String>>,
+        writes_to: Option<Vec<String>>,
+        spec: Option<Value>,
+        spec_type: Option<String>,
+    }
+    #[allow(dead_code)]
+    #[derive(Debug)]
+    struct ScenarioResult {
+        draft_id: Id,
+        status: JobStatus,
+        errors: Vec<String>,
+        live_specs: Vec<LiveSpec>,
+    }
+
+    const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
+
+    async fn execute_publications(txn: &mut Transaction<'_, Postgres>) -> Vec<ScenarioResult> {
+        let bs_url: Url = "http://example.com".parse().unwrap();
+
+        let (logs_tx, mut logs_rx) = tokio::sync::mpsc::channel(8192);
+
+        // Just in case anything gets through
+        logs_rx.close();
+
+        let mut handler = PublishHandler::new("", &bs_url, &bs_url, "", &bs_url, &logs_tx);
+
+        let mut results: Vec<ScenarioResult> = vec![];
+
+        while let Some(row) = agent_sql::publications::dequeue(&mut *txn).await.unwrap() {
+            let row_draft_id = row.draft_id.clone();
+            let (pub_id, status) = handler.process(row, &mut *txn, true).await.unwrap();
+
+            agent_sql::publications::resolve(pub_id, &status, &mut *txn)
+                .await
+                .unwrap();
+
+            match status {
+                JobStatus::Success => {
+                    let specs = sqlx::query_as!(
+                        LiveSpec,
+                        r#"
+                        select catalog_name as "catalog_name!",
+                               connector_image_name,
+                               connector_image_tag,
+                               reads_from,
+                               writes_to,
+                               spec,
+                               spec_type as "spec_type: String"
+                        from live_specs
+                        where live_specs.last_pub_id = $1::flowid;"#,
+                        pub_id as Id
+                    )
+                    .fetch_all(&mut *txn)
+                    .await
+                    .unwrap();
+
+                    results.push(ScenarioResult {
+                        draft_id: row_draft_id,
+                        status: JobStatus::Success,
+                        errors: vec![],
+                        live_specs: specs,
+                    })
+                }
+                _ => {
+                    let errors = sqlx::query!(
+                        r#"
+                select draft_id as "draft_id: Id", scope, detail
+                from draft_errors
+                where draft_errors.draft_id = $1::flowid;"#,
+                        row_draft_id as Id
+                    )
+                    .fetch_all(&mut *txn)
+                    .await
+                    .unwrap();
+
+                    let formatted_errors: Vec<String> =
+                        errors.into_iter().map(|e| e.detail).collect();
+
+                    results.push(ScenarioResult {
+                        draft_id: row_draft_id,
+                        status: status.clone(),
+                        errors: formatted_errors,
+                        live_specs: vec![],
+                    });
+                }
+            };
+        }
+
+        results
+    }
+
+    #[tokio::test]
+    async fn test_happy_path() {
+        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+            .await
+            .unwrap();
+        let mut txn = conn.begin().await.unwrap();
+
+        sqlx::query(r#"
+            with p1 as (
+              insert into auth.users (id) values
+              ('43a18a3e-5a59-11ed-9b6a-0242ac120002')
+            ),
+            p2 as (
+              insert into drafts (id, user_id) values
+              ('1110000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120002')
+            ),
+            p3 as (
+                insert into live_specs (id, catalog_name, spec, spec_type, last_build_id, last_pub_id) values
+                ('1000000000000000', 'usageB/CollectionA', '{"schema": {},"key": ["foo"]}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
+            ),
+            p4 as (
+              insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
+              (
+                '1111000000000000',
+                '1110000000000000',
+                'usageB/DerivationA',
+                '{
+                    "schema": {},
+                    "key": ["foo"],
+                    "derivation": {
+                        "transform":{
+                            "key": {
+                                "source": {
+                                    "name": "usageB/CollectionA"
+                                }
+                            }
+                        }
+                    }
+                }'::json,
+                'collection'
+              )
+            ),
+            p5 as (
+              insert into publications (id, job_status, user_id, draft_id) values
+              ('1111100000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120002', '1110000000000000')
+            ),
+            p6 as (
+              insert into role_grants (subject_role, object_role, capability) values
+              ('usageB/', 'usageB/', 'admin')
+            ),
+            p7 as (
+              insert into user_grants (user_id, object_role, capability) values
+              ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'usageB/', 'admin')
+            )
+            select 1;
+        "#).execute(&mut txn).await.unwrap();
+
+        let results = execute_publications(&mut txn).await;
+
+        insta::assert_debug_snapshot!(results, @r#"
+        [
+            ScenarioResult {
+                draft_id: 1110000000000000,
+                status: Success,
+                errors: [],
+                live_specs: [
+                    LiveSpec {
+                        catalog_name: "usageB/DerivationA",
+                        connector_image_name: None,
+                        connector_image_tag: None,
+                        reads_from: Some(
+                            [
+                                "usageB/CollectionA",
+                            ],
+                        ),
+                        writes_to: None,
+                        spec: Some(
+                            Object {
+                                "derivation": Object {
+                                    "transform": Object {
+                                        "key": Object {
+                                            "source": Object {
+                                                "name": String("usageB/CollectionA"),
+                                            },
+                                        },
+                                    },
+                                },
+                                "key": Array [
+                                    String("foo"),
+                                ],
+                                "schema": Object {},
+                            },
+                        ),
+                        spec_type: Some(
+                            "collection",
+                        ),
+                    },
+                ],
+            },
+        ]
+        "#);
     }
 }

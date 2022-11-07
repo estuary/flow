@@ -12,6 +12,15 @@ impl Id {
     pub fn new(b: [u8; 8]) -> Self {
         Self(b)
     }
+    pub fn from_hex<T: AsRef<[u8]>>(hex: T) -> Result<Self, hex::FromHexError> {
+        let vec_bytes = hex::decode(hex)?;
+        let exact: [u8; 8] = vec_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| hex::FromHexError::InvalidStringLength)?;
+
+        Ok(Id(exact))
+    }
 }
 
 impl std::fmt::Display for Id {
