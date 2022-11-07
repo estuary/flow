@@ -213,8 +213,8 @@ pub struct Tenant {
     pub name: String,
     pub tasks_quota: i32,
     pub collections_quota: i32,
-    pub tasks_used: i64,
-    pub collections_used: i64,
+    pub tasks_used: i32,
+    pub collections_used: i32,
 }
 
 pub async fn find_tenant_quotas(
@@ -251,10 +251,10 @@ pub async fn find_tenant_quotas(
         )
         select
             tenants.tenant as name,
-            tenants.tasks_quota as "tasks_quota!",
-            tenants.collections_quota as "collections_quota!",
-            tenant_usages.tasks_used as "tasks_used!",
-            tenant_usages.collections_used as "collections_used!"
+            tenants.tasks_quota as "tasks_quota!: i32",
+            tenants.collections_quota as "collections_quota!: i32",
+            tenant_usages.tasks_used as "tasks_used!: i32",
+            tenant_usages.collections_used as "collections_used!: i32"
         from tenant_usages
         join tenants on tenants.tenant = tenant_usages.tenant_name
         order by tenants.tenant;"#,

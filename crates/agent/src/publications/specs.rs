@@ -384,7 +384,7 @@ pub async fn enforce_resource_quotas(
             // We don't want to stop you from disabling tasks if you're at/over your quota
             // NOTE: technically this means that you can add new tasks even if your usage
             // exceeds your quota, so long as you remove/disable more tasks than you add.
-            if tasks_delta >= 0 && tenant.tasks_used > tenant.tasks_quota as i64 {
+            if tasks_delta >= 0 && tenant.tasks_used > tenant.tasks_quota {
                 errs.push(format!(
                     "Request to add {} task(s) would exceed tenant '{}' quota of {}. {} are currently in use.",
                     tasks_delta,
@@ -393,7 +393,7 @@ pub async fn enforce_resource_quotas(
                     prev_tenant_tasks_usage
                 ))
             }
-            if collections_delta >= 0 && tenant.collections_used > tenant.collections_quota as i64 {
+            if collections_delta >= 0 && tenant.collections_used > tenant.collections_quota {
                 errs.push(format!(
                     "Request to add {} collections(s) would exceed tenant '{}' quota of {}. {} are currently in use.",
                     collections_delta,
