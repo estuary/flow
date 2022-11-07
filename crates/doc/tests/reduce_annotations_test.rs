@@ -4,9 +4,7 @@ extern crate quickcheck;
 #[macro_use(quickcheck)]
 extern crate quickcheck_macros;
 
-use doc::{
-    compare, reduce, AsNode, HeapNode, LazyNode, Schema, SchemaIndexBuilder, Validation, Validator,
-};
+use doc::{compare, reduce, AsNode, HeapNode, LazyNode, Schema, Validator};
 use itertools::{EitherOrBoth, Itertools};
 use json::schema::build::build_schema;
 use serde::Deserialize;
@@ -16,55 +14,49 @@ use url::Url;
 
 #[test]
 fn test_validate_then_reduce() {
-    let schema = json!({
-        "properties": {
-            "min": {
-                "type": "integer",
-                "reduce": {"strategy": "minimize"}
-            },
-            "max": {
-                "type": "number",
-                "reduce": {"strategy": "maximize"}
-            },
-            "sum": {
-                "type": "number",
-                "reduce": {"strategy": "sum"}
-            },
-            "lww": {
-                "type": "string",
-                "reduce": {"strategy": "lastWriteWins"}
-            },
-            "fww": {
-                "type": "string",
-                "reduce": {"strategy": "firstWriteWins"}
-            },
-            "nodes": {
-                "type": "array",
-                "items": {"$ref": "#"},
-                "reduce": {
-                    "strategy": "merge",
-                    "key": ["/k"]
+    let schema = build_schema(
+        Url::parse("https://example/schema").unwrap(),
+        &json!({
+            "properties": {
+                "min": {
+                    "type": "integer",
+                    "reduce": {"strategy": "minimize"}
+                },
+                "max": {
+                    "type": "number",
+                    "reduce": {"strategy": "maximize"}
+                },
+                "sum": {
+                    "type": "number",
+                    "reduce": {"strategy": "sum"}
+                },
+                "lww": {
+                    "type": "string",
+                    "reduce": {"strategy": "lastWriteWins"}
+                },
+                "fww": {
+                    "type": "string",
+                    "reduce": {"strategy": "firstWriteWins"}
+                },
+                "nodes": {
+                    "type": "array",
+                    "items": {"$ref": "#"},
+                    "reduce": {
+                        "strategy": "merge",
+                        "key": ["/k"]
+                    }
                 }
-            }
-        },
+            },
 
-        // If/then which resets the LHS if presented with an empty object.
-        // Otherwise, a deep-merge is performed.
-        "if": { "type": "object", "maxProperties": 0 },
-        "then": { "reduce": {"strategy": "lastWriteWins"} },
-        "else": { "reduce": {"strategy": "merge"} },
-    });
-
-    let curi = Url::parse("https://example/schema").unwrap();
-    let schema: Schema = build_schema(curi.clone(), &schema).unwrap();
-
-    let mut index = SchemaIndexBuilder::new();
-    index.add(&schema).unwrap();
-    index.verify_references().unwrap();
-    let index = index.into_index();
-
-    let mut validator = Validator::new(&index);
-    let alloc = HeapNode::new_allocator();
+            // If/then which resets the LHS if presented with an empty object.
+            // Otherwise, a deep-merge is performed.
+            "if": { "type": "object", "maxProperties": 0 },
+            "then": { "reduce": {"strategy": "lastWriteWins"} },
+            "else": { "reduce": {"strategy": "merge"} },
+        }),
+    )
+    .unwrap();
+    let mut validator = Validator::new(schema).unwrap();
 
     let cases = vec![
         (json!({"lww": "one"}), json!({"lww": "one"})),
@@ -138,13 +130,11 @@ fn test_validate_then_reduce() {
         ),
     ];
 
+    let alloc = HeapNode::new_allocator();
     let mut lhs: Option<HeapNode<'_>> = None;
 
     for (rhs, expect) in cases {
-        let rhs_valid = Validation::validate(&mut validator, &curi, &rhs)
-            .unwrap()
-            .ok()
-            .unwrap();
+        let rhs_valid = validator.validate(None, &rhs).unwrap().ok().unwrap();
 
         let reduced = match lhs {
             Some(lhs) => reduce::reduce(
@@ -221,41 +211,34 @@ fn test_qc_set_array(mut seq: Vec<(bool, Vec<u8>, Vec<u8>)>) -> bool {
         }
     }
 
-    let schema = json!({
-        "$defs": {
-            "entry": {
-                "type": "array",
-                "items": [
-                    { "type": "integer" },
-                    {
-                        "type": "integer",
-                        "reduce": { "strategy": "sum" },
-                    },
-                ],
-                "reduce": { "strategy": "merge" },
-            }
-        },
-        "properties": {
-            "add": { "items": { "$ref": "#/$defs/entry" } }
-        },
-        "reduce": {
-            "strategy": "set",
-            "key": ["/0"],
-        },
-    });
+    let schema = build_schema(
+        Url::parse("https://example/schema").unwrap(),
+        &json!({
+            "$defs": {
+                "entry": {
+                    "type": "array",
+                    "items": [
+                        { "type": "integer" },
+                        {
+                            "type": "integer",
+                            "reduce": { "strategy": "sum" },
+                        },
+                    ],
+                    "reduce": { "strategy": "merge" },
+                }
+            },
+            "properties": {
+                "add": { "items": { "$ref": "#/$defs/entry" } }
+            },
+            "reduce": {
+                "strategy": "set",
+                "key": ["/0"],
+            },
+        }),
+    )
+    .unwrap();
 
-    let curi = Url::parse("https://example/schema").unwrap();
-    let schema: Schema = build_schema(curi.clone(), &schema).unwrap();
-
-    let mut index = SchemaIndexBuilder::new();
-    index.add(&schema).unwrap();
-    index.verify_references().unwrap();
-    let index = index.into_index();
-
-    let mut validator = Validator::new(&index);
-
-    let actual: TestArray =
-        serde_json::from_value(reduce_tree(&mut validator, &curi, docs)).unwrap();
+    let actual: TestArray = serde_json::from_value(reduce_tree(schema, docs)).unwrap();
     actual.add == expect
 }
 
@@ -333,31 +316,25 @@ fn test_qc_set_map(seq: Vec<(bool, Vec<u8>, Vec<u8>)>) -> bool {
         }
     }
 
-    let schema = json!({
-        "properties": {
-            "add": {
-                "additionalProperties": {
-                    "type": "integer",
-                    "reduce": { "strategy": "sum" },
+    let schema = build_schema(
+        Url::parse("https://example/schema").unwrap(),
+        &json!({
+            "properties": {
+                "add": {
+                    "additionalProperties": {
+                        "type": "integer",
+                        "reduce": { "strategy": "sum" },
+                    }
                 }
-            }
-        },
-        "reduce": {
-            "strategy": "set",
-        },
-    });
+            },
+            "reduce": {
+                "strategy": "set",
+            },
+        }),
+    )
+    .unwrap();
 
-    let curi = Url::parse("https://example/schema").unwrap();
-    let schema: Schema = build_schema(curi.clone(), &schema).unwrap();
-
-    let mut index = SchemaIndexBuilder::new();
-    index.add(&schema).unwrap();
-    index.verify_references().unwrap();
-    let index = index.into_index();
-
-    let mut validator = Validator::new(&index);
-
-    let actual: TestMap = serde_json::from_value(reduce_tree(&mut validator, &curi, docs)).unwrap();
+    let actual: TestMap = serde_json::from_value(reduce_tree(schema, docs)).unwrap();
     actual.add == expect
 }
 
@@ -368,7 +345,8 @@ struct TestMap {
     add: BTreeMap<String, u32>,
 }
 
-fn reduce_tree(validator: &mut Validator, curi: &Url, docs: Vec<Value>) -> Value {
+fn reduce_tree(schema: Schema, docs: Vec<Value>) -> Value {
+    let mut validator = Validator::new(schema).unwrap();
     let alloc = HeapNode::new_allocator();
 
     let mut docs = docs.iter().map(LazyNode::Node).collect::<Vec<_>>();
@@ -389,7 +367,7 @@ fn reduce_tree(validator: &mut Validator, curi: &Url, docs: Vec<Value>) -> Value
                 let mut lhs: Option<LazyNode<Value>> = None;
 
                 for rhs in chunk {
-                    let rhs_valid = rhs.validate_ok(validator, curi).unwrap().unwrap();
+                    let rhs_valid = rhs.validate_ok(&mut validator, None).unwrap().unwrap();
 
                     lhs = Some(match lhs {
                         Some(lhs) => LazyNode::Heap(

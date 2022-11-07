@@ -1,4 +1,4 @@
-use super::heap::{BumpVec, HeapField, HeapNode, HeapString};
+use super::{BumpStr, BumpVec, HeapField, HeapNode};
 
 use serde::de;
 
@@ -72,7 +72,7 @@ impl<'alloc, 'de> de::Visitor<'de> for HeapDocVisitor<'alloc> {
         E: de::Error,
     {
         let Self { alloc } = self;
-        Ok(HeapNode::String(HeapString(alloc.alloc_str(v))))
+        Ok(HeapNode::String(BumpStr::from_str(v, alloc)))
     }
 
     fn visit_unit<E>(self) -> Result<Self::Value, E>
@@ -87,13 +87,12 @@ impl<'alloc, 'de> de::Visitor<'de> for HeapDocVisitor<'alloc> {
         V: de::SeqAccess<'de>,
     {
         let Self { alloc } = self;
-        let mut arr =
-            bumpalo::collections::Vec::with_capacity_in(v.size_hint().unwrap_or_default(), alloc);
+        let mut arr = BumpVec::with_capacity_in(v.size_hint().unwrap_or_default(), alloc);
 
         while let Some(child) = v.next_element_seed(HeapDocVisitor { alloc })? {
-            arr.push(child);
+            arr.push(child, alloc);
         }
-        Ok(HeapNode::Array(BumpVec(arr)))
+        Ok(HeapNode::Array(arr))
     }
 
     fn visit_map<V>(self, mut v: V) -> Result<Self::Value, V::Error>
@@ -102,24 +101,23 @@ impl<'alloc, 'de> de::Visitor<'de> for HeapDocVisitor<'alloc> {
     {
         let Self { alloc } = self;
 
-        let mut fields =
-            bumpalo::collections::Vec::with_capacity_in(v.size_hint().unwrap_or_default(), alloc);
+        let mut fields = BumpVec::with_capacity_in(v.size_hint().unwrap_or_default(), alloc);
         let mut not_sorted = false;
 
         while let Some(property) = v.next_key::<&str>()? {
-            let property = HeapString(alloc.alloc_str(property));
+            let property = BumpStr::from_str(property, alloc);
             let value = v.next_value_seed(HeapDocVisitor { alloc })?;
 
             not_sorted = not_sorted
-                || matches!(fields.last(), Some(HeapField{property: prev, ..}) if prev.0 > property.0);
+                || matches!(fields.last(), Some(HeapField{property: prev, ..}) if prev.as_str() > property.as_str());
 
-            fields.push(HeapField { property, value });
+            fields.push(HeapField { property, value }, alloc);
         }
 
         if not_sorted {
             fields.sort_by(|lhs, rhs| lhs.property.cmp(&rhs.property));
         }
-        Ok(HeapNode::Object(BumpVec(fields)))
+        Ok(HeapNode::Object(fields))
     }
 
     fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
@@ -127,9 +125,7 @@ impl<'alloc, 'de> de::Visitor<'de> for HeapDocVisitor<'alloc> {
         E: serde::de::Error,
     {
         let Self { alloc, .. } = self;
-        let mut vec = bumpalo::collections::Vec::with_capacity_in(v.len(), alloc);
-        vec.extend_from_slice(v);
-        Ok(HeapNode::Bytes(BumpVec(vec)))
+        Ok(HeapNode::Bytes(BumpVec::from_slice(v, alloc)))
     }
 }
 

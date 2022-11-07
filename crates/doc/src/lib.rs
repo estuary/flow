@@ -45,8 +45,16 @@ pub trait Field<'a, N: AsNode> {
 mod archived;
 pub use archived::{ArchivedDoc, ArchivedField, ArchivedNode};
 pub mod heap;
-pub use heap::{HeapDoc, HeapField, HeapNode, HeapString};
+pub use heap::{HeapDoc, HeapField, HeapNode};
 mod value;
+
+// BumpStr is a low-level String type built upon a Bump allocator.
+mod bump_str;
+pub use bump_str::BumpStr;
+
+// BumpVec is a low-level Vector type built upon a Bump allocator.
+mod bump_vec;
+pub use bump_vec::BumpVec;
 
 // HeapNode may be directly deserialized using serde.
 mod heap_de;
@@ -80,7 +88,8 @@ pub use annotation::Annotation;
 // over AsNode implementations.
 pub mod validation;
 pub use validation::{
-    FailedValidation, Schema, SchemaIndex, SchemaIndexBuilder, Valid, Validation, Validator,
+    FailedValidation, RawValidator, Schema, SchemaIndex, SchemaIndexBuilder, Valid, Validation,
+    Validator,
 };
 
 // Doc implementations may be reduced.
@@ -98,7 +107,7 @@ pub mod inference;
 #[cfg(test)]
 mod test {
 
-    use super::{ArchivedNode, AsNode, HeapNode};
+    use super::{ArchivedNode, AsNode, BumpStr, BumpVec, HeapNode};
     use serde_json::json;
 
     #[test]
@@ -152,13 +161,46 @@ mod test {
 
     #[test]
     fn test_data_serialization() {
-        let bump = bumpalo::Bump::new();
-
-        let doc = HeapNode::Bytes(super::heap::BumpVec(
-            bumpalo::vec![in &bump; 8, 6, 7, 5, 3, 0, 9],
-        ));
+        let alloc = bumpalo::Bump::new();
+        let doc = HeapNode::Bytes(super::BumpVec::from_slice(&[8, 6, 7, 5, 3, 0, 9], &alloc));
         let human_doc = serde_json::to_value(doc.as_node()).unwrap();
 
         insta::assert_debug_snapshot!(human_doc, @r###"String("CAYHBQMACQ==")"###);
+    }
+
+    #[test]
+    fn test_sizes() {
+        // HeapNode is about as efficient as it can be, considering it's an enum
+        // with many variants, most of which are 8-byte aligned.
+        assert_eq!(std::mem::size_of::<HeapNode<'static>>(), 16);
+
+        // String references are "fat" pointers which is why we don't use them.
+        // If we did, it would increase wasted space by 33%.
+        assert_eq!(std::mem::size_of::<&str>(), 16);
+
+        pub enum NaiveStr<'a> {
+            _String(&'a str),
+            _XXX(bool),
+            _YYY(u64),
+        }
+        assert_eq!(std::mem::size_of::<NaiveStr<'static>>(), 24);
+        assert_eq!(std::mem::align_of::<NaiveStr<'static>>(), 8);
+
+        // Instead, BumpStr is 8 bytes.
+        assert_eq!(std::mem::size_of::<BumpStr>(), 8);
+
+        // bumpalo's Vec type, the obvious alternative to BumpVec, is worse:
+        assert_eq!(std::mem::size_of::<bumpalo::collections::Vec<bool>>(), 32);
+
+        pub enum NaiveVec<'a> {
+            _Vec(bumpalo::collections::Vec<'a, bool>),
+            _XXX(bool),
+            _YYY(u64),
+        }
+        assert_eq!(std::mem::size_of::<NaiveVec<'static>>(), 40); // Ouch!
+        assert_eq!(std::mem::align_of::<NaiveVec<'static>>(), 8);
+
+        // Instead, BumpVec is 8 bytes.
+        assert_eq!(std::mem::size_of::<BumpVec<bool>>(), 8);
     }
 }
