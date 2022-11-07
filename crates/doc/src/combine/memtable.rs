@@ -1,273 +1,310 @@
-use super::{Error, SpillWriter, REDUCED_FLAG, REVALIDATE_FLAG};
-use crate::{
-    reduce,
-    validation::{Validation, Validator},
-    ArchivedNode, AsNode, HeapDoc, HeapNode, LazyNode, Pointer,
-};
+use super::{Error, SpillWriter, FLAG_REDUCED};
+use crate::{ArchivedNode, HeapDoc, HeapNode, LazyNode, Pointer, Validator};
+use bumpalo::Bump;
 use std::cell::UnsafeCell;
-use std::collections::BTreeSet;
 use std::pin::Pin;
-use std::{cmp, io, rc::Rc};
+use std::{cmp, io, ops, rc::Rc};
 
 /// MemTable is an in-memory combiner of HeapDocs.
 /// It requires heap memory for storing and reducing documents.
 /// After some threshold amount of allocation, a MemTable should
 /// be spilled into SpillWriter.
 pub struct MemTable {
-    // Careful! Order matters. We must drop all the usages of `alloc`
-    // before we drop `alloc` itself. Note that Rust drops struct fields
+    // Careful! Order matters. We must drop all the usages of `zz_alloc`
+    // before we drop the allocator itself. Note that Rust drops struct fields
     // in declaration order, which we rely upon here:
     // https://doc.rust-lang.org/reference/destructors.html#destructors
     //
-    // Safety: MemTable is not Sync and we never lend a reference to `entries`.
-    entries: UnsafeCell<BTreeSet<KeyedDoc>>,
+    // Safety: MemTable never lends a reference to `entries`.
+    entries: UnsafeCell<Entries>,
     key: Rc<[Pointer]>,
-    schema: url::Url,
-    alloc: Pin<Box<bumpalo::Bump>>,
+    schema: Option<url::Url>,
+    zz_alloc: Pin<Box<Bump>>,
 }
 
-/// KeyedDoc is a HeapDoc and the composite JSON-Pointers over which it's combined.
-pub struct KeyedDoc {
-    key: Rc<[Pointer]>,
-    doc: HeapDoc<'static>,
+struct Entries {
+    // Queued documents are in any order.
+    queued: Vec<HeapDoc<'static>>,
+    // Sorted documents are ordered such that partial combined documents are first,
+    // and fully-reduced documents are second. A key may appear at most twice,
+    // with different types. We must hold reduced keys separate from combined keys
+    // in order to preserve the overall associative order of reductions. We cannot,
+    // for example, reduce a reduced LHS with a combined RHS if we might later
+    // discover there were other combined documents which are associatively before
+    // the RHS we just smashed into LHS.
+    sorted: Vec<HeapDoc<'static>>,
+    // Owned validator for reductions.
+    validator: Validator,
 }
 
-// KeyedDoc is ordered on its document's extracted key.
-impl Ord for KeyedDoc {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        Pointer::compare(&self.key, &self.doc.root, &other.doc.root)
+impl Entries {
+    fn should_compact(&mut self) -> bool {
+        // Rationale for these heuristics:
+        //
+        // * In the common case where every key is unique, we want each successive
+        //   compaction to have equal numbers of sorted and queued documents,
+        //   such that the number of output documents doubles each time.
+        //   This amortizes the cost of sorting and merging, much like an LSM tree.
+        //
+        // * In cases where there _is_ a lot of reduction, it's often inefficient
+        //   to reduce a small document into a much larger document. Instead we
+        //   want to take advantage of the associative property of reductions,
+        //   and first reduce a bunch of small documents together before we reduce
+        //   their (larger) combination into a (still larger) left-hand document.
+        //
+        // So, seek to double the number of output documents each time, assuming
+        // keys are unique -- and if they aren't that's fine. In the pedantic case
+        // of just one key which is reduced over and over, ensure we're combining
+        // over a bunch of (small) right-hand documents before combining into its
+        // value in `self.sorted`.
+        self.queued.len() >= cmp::max(32, self.sorted.len())
+    }
+
+    fn compact(
+        &mut self,
+        alloc: &'static Bump,
+        key: &[Pointer],
+        schema: Option<&url::Url>,
+    ) -> Result<(), Error> {
+        // Documents are sorted such that partial-combine documents come before
+        // fully-reduced reduce documents, and within each type they're ordered
+        // on `self.key`. There are typically fewer reduce documents so they're
+        // cheaper to split off of the Vec end when we drain.
+        let key_cmp = |lhs: &HeapDoc, rhs: &HeapDoc| {
+            let c = (lhs.flags & FLAG_REDUCED != 0).cmp(&(rhs.flags & FLAG_REDUCED != 0));
+            if c.is_eq() {
+                Pointer::compare(key, &lhs.root, &rhs.root)
+            } else {
+                c
+            }
+        };
+
+        // Sort queued documents. It's important that this be a stable sort,
+        // as we're combining in left-to-right application order.
+        self.queued.sort_by(key_cmp);
+
+        let sorted_len = self.sorted.len();
+        let queued_len = self.queued.len();
+
+        let mut next = Vec::with_capacity(sorted_len + queued_len);
+        let mut queued = self.queued.drain(..).peekable();
+        let mut sorted = self.sorted.drain(..).peekable();
+
+        while let Some(mut cur) = queued.next() {
+            // Emit documents from `sorted` which are less than `cur`.
+            // Post-condition: sorted.next() is greater-than or equal to `cur`.
+            while matches!(sorted.peek(), Some(peek) if key_cmp(&cur, peek).is_gt()) {
+                next.push(sorted.next().unwrap());
+            }
+
+            // Look for additional documents of this key from `queued` to combine into `cur`.
+            while matches!(queued.peek(), Some(peek) if key_cmp(&cur, peek).is_eq()) {
+                let next = queued.next().unwrap();
+                cur = super::smash(
+                    alloc,
+                    LazyNode::Heap(cur.root),
+                    cur.flags,
+                    LazyNode::Heap(next.root),
+                    next.flags,
+                    schema,
+                    &mut self.validator,
+                )?;
+            }
+
+            // Look for a single matching `sorted` document to combine with `cur`,
+            // which comes before it under our application order.
+            if matches!(sorted.peek(), Some(peek) if key_cmp(&cur, peek).is_eq()) {
+                let prev = sorted.next().unwrap();
+                cur = super::smash(
+                    alloc,
+                    LazyNode::Heap(prev.root),
+                    prev.flags,
+                    LazyNode::Heap(cur.root),
+                    cur.flags,
+                    schema,
+                    &mut self.validator,
+                )?;
+            }
+
+            next.push(cur);
+        }
+        // `queued` is now empty. Extend with any `sorted` remainder.
+        next.extend(sorted);
+        self.sorted = next;
+
+        tracing::trace!(
+            %queued_len,
+            %sorted_len,
+            next_len = %self.sorted.len(),
+            "compacted entries",
+        );
+
+        Ok(())
     }
 }
-impl PartialOrd for KeyedDoc {
-    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-impl PartialEq for KeyedDoc {
-    fn eq(&self, other: &Self) -> bool {
-        self.cmp(other) == cmp::Ordering::Equal
-    }
-}
-impl Eq for KeyedDoc {}
 
 impl MemTable {
-    pub fn new(key: Rc<[Pointer]>, schema: url::Url) -> Self {
+    pub fn new(key: Rc<[Pointer]>, schema: Option<url::Url>, validator: Validator) -> Self {
         assert!(!key.is_empty());
 
         let alloc = Box::pin(HeapNode::new_allocator());
 
         Self {
-            alloc,
+            entries: UnsafeCell::new(Entries {
+                queued: Vec::new(),
+                sorted: Vec::new(),
+                validator,
+            }),
             key,
             schema,
-            entries: UnsafeCell::new(BTreeSet::new()),
+            zz_alloc: alloc,
         }
-    }
-
-    /// Key returns the key by which documents of this MemTable is grouped.
-    pub fn key(&self) -> &Rc<[Pointer]> {
-        &self.key
-    }
-
-    /// Schema returns the schema URL against which MemTable documents are validated.
-    pub fn schema(&self) -> &url::Url {
-        &self.schema
     }
 
     /// Alloc returns the bump allocator of this MemTable.
     /// Its exposed to allow callers to allocate HeapNode structures
     /// having this MemTable's lifetime, which it can later combine or reduce.
-    pub fn alloc<'s>(&'s self) -> &'s bumpalo::Bump {
-        &self.alloc
+    pub fn alloc(&self) -> &Bump {
+        &self.zz_alloc
     }
 
-    pub fn len(&self) -> usize {
-        let entries = unsafe { &*self.entries.get() };
-        entries.len()
-    }
-
-    /// Reduce the fully reduced left-hand document with a partially reduced right-hand
-    /// document that's already in the MemTable. It's an error if there is already a fully
-    /// reduced right-hand document.
-    pub fn reduce_left<'s>(
-        &'s self,
-        lhs: HeapNode<'s>,
-        validator: &mut Validator,
-    ) -> Result<(), Error> {
-        // Safety: we are not Sync, and mutable borrow does not escape this function.
+    /// Add the document to the MemTable.
+    pub fn add<'s>(&'s self, doc: HeapNode<'s>, reduced: bool) -> Result<(), Error> {
+        // Safety: mutable borrow does not escape this function.
         let entries = unsafe { &mut *self.entries.get() };
+        let doc = unsafe { std::mem::transmute::<HeapNode<'s>, HeapNode<'static>>(doc) };
 
-        // Transmute from &'s self lifetime to internal 'static lifetime.
-        let alloc = unsafe { std::mem::transmute(self.alloc()) };
-        let lhs = unsafe { std::mem::transmute(lhs) };
+        // If `doc` is fully reduced we must validate now and cannot defer.
+        // We do defer right-hand documents, as they're validated immediately
+        // prior to reduction in order to gather annotations. Or, if they're
+        // never reduced, they'll be validated upon being drained.
+        //
+        // A left-hand document, though, is _not_ validated prior to reduction
+        // and it's thus possible that we otherwise skip its validation entirely.
+        if reduced {
+            entries
+                .validator
+                .validate(self.schema.as_ref(), &doc)?
+                .ok()
+                .map_err(Error::FailedValidation)?;
+        }
 
-        // Ensure LHS is valid against the schema.
-        Validation::validate(validator, &self.schema, &lhs)?
-            .ok()
-            .map_err(Error::PreReduceValidation)?;
+        entries.queued.push(HeapDoc {
+            root: doc,
+            flags: if reduced { FLAG_REDUCED } else { 0 },
+        });
 
-        let mut entry = KeyedDoc {
-            key: self.key.clone(),
-            doc: HeapDoc {
-                root: lhs,
-                flags: REDUCED_FLAG,
-            },
-        };
-
-        // Look for a corresponding right-hand side document.
-        let rhs = match entries.take(&entry) {
-            None => {
-                // No match? Just take the LHS.
-                entries.insert(entry);
-                return Ok(());
-            }
-            Some(KeyedDoc {
-                key: _,
-                doc:
-                    HeapDoc {
-                        root: rhs,
-                        flags: rhs_flags,
-                    },
-            }) => {
-                if rhs_flags & REDUCED_FLAG != 0 {
-                    return Err(Error::AlreadyFullyReduced(
-                        serde_json::to_value(entry.doc.root.as_node()).unwrap(),
-                    ));
-                }
-                rhs
-            }
-        };
-
-        // Validate RHS (again) to gather annotations. Note that it must have already
-        // validated in order to have been in the docs set.
-        let rhs_valid = Validation::validate(validator, &self.schema, &rhs)?
-            .ok()
-            .map_err(Error::PostReduceValidation)?;
-
-        entry.doc.root = reduce::reduce(
-            LazyNode::Heap::<ArchivedNode>(entry.doc.root),
-            LazyNode::Heap(rhs),
-            rhs_valid,
-            alloc,
-            true,
-        )?;
-        entry.doc.flags |= REVALIDATE_FLAG;
-
-        entries.insert(entry);
-        Ok(())
+        if entries.should_compact() {
+            self.compact()
+        } else {
+            Ok(())
+        }
     }
 
-    /// Combine the partial right-hand side document into the left-hand document held by the Combiner.
-    pub fn combine_right<'s>(
-        &'s self,
-        rhs: HeapNode<'s>,
-        validator: &mut Validator,
-    ) -> Result<(), Error> {
-        // Safety: we are not Sync, and mutable borrow does not escape this function.
+    fn compact(&self) -> Result<(), Error> {
+        // Safety: mutable borrow does not escape this function.
         let entries = unsafe { &mut *self.entries.get() };
+        let alloc = unsafe { std::mem::transmute::<&Bump, &'static Bump>(&self.zz_alloc) };
 
-        // Transmute from 's to internal 'static lifetime.
-        let alloc = unsafe { std::mem::transmute(self.alloc()) };
-        let rhs = unsafe { std::mem::transmute(rhs) };
-
-        let rhs = KeyedDoc {
-            key: self.key.clone(),
-            doc: HeapDoc {
-                root: rhs,
-                flags: 0,
-            },
-        };
-        let rhs_valid = Validation::validate(validator, &self.schema, &rhs.doc.root)?
-            .ok()
-            .map_err(Error::PreReduceValidation)?;
-
-        let lhs = entries.take(&rhs);
-
-        let entry = match lhs {
-            // No match: Just take the RHS.
-            None => rhs,
-            // Match: we must reduce the nodes together.
-            Some(KeyedDoc {
-                key,
-                doc:
-                    HeapDoc {
-                        root: lhs,
-                        flags: lhs_flags,
-                    },
-            }) => KeyedDoc {
-                key,
-                doc: HeapDoc {
-                    root: reduce::reduce(
-                        LazyNode::Heap::<ArchivedNode>(lhs),
-                        LazyNode::Heap(rhs.doc.root),
-                        rhs_valid,
-                        alloc,
-                        lhs_flags & REDUCED_FLAG != 0,
-                    )?,
-                    flags: lhs_flags | REVALIDATE_FLAG,
-                },
-            },
-        };
-
-        entries.insert(entry);
-        Ok(())
+        entries.compact(alloc, &self.key, self.schema.as_ref())
     }
 
-    /// Convert this MemTable into a MemDrainer.
-    pub fn into_drainer(self) -> MemDrainer {
+    fn try_into_parts(
+        self,
+    ) -> Result<
+        (
+            Vec<HeapDoc<'static>>,
+            Rc<[Pointer]>,
+            Option<url::Url>,
+            Validator,
+            Pin<Box<Bump>>,
+        ),
+        Error,
+    > {
         let MemTable {
-            alloc,
             entries,
             key,
             schema,
+            zz_alloc,
         } = self;
 
-        MemDrainer {
-            _alloc: alloc,
-            it: entries.into_inner().into_iter(),
+        // Perform a final compaction, then decompose Entries.
+        let mut entries = entries.into_inner();
+        let alloc = unsafe { std::mem::transmute::<&Bump, &'static Bump>(&zz_alloc) };
+        entries.compact(alloc, &key, schema.as_ref())?;
+
+        let Entries {
+            sorted, validator, ..
+        } = entries;
+
+        Ok((sorted, key, schema, validator, zz_alloc))
+    }
+
+    /// Convert this MemTable into a MemDrainer.
+    pub fn try_into_drainer(self) -> Result<MemDrainer, Error> {
+        let (mut sorted, key, schema, validator, zz_alloc) = self.try_into_parts()?;
+
+        let pivot = sorted.partition_point(|doc| doc.flags & FLAG_REDUCED == 0);
+        let other = sorted.split_off(pivot);
+
+        Ok(MemDrainer {
+            it1: sorted.into_iter().peekable(),
+            it2: other.into_iter().peekable(),
             key,
             schema,
-        }
+            validator,
+            zz_alloc,
+        })
     }
 
     /// Spill this MemTable into a SpillWriter.
     /// If the MemTable is empty this is a no-op.
+    /// The `chunk_target_size` range is the target (begin) and maximum
+    /// (end) size of a serialized chunk of the spilled segment.
+    /// In practice, values like 256KB..1MB are reasonable.
     pub fn spill<F: io::Read + io::Write + io::Seek>(
         self,
         writer: &mut SpillWriter<F>,
-    ) -> Result<(Rc<[Pointer]>, url::Url), io::Error> {
-        let MemTable {
-            alloc,
-            entries,
-            key,
-            schema,
-        } = self;
+        chunk_target_size: ops::Range<usize>,
+    ) -> Result<(Rc<[Pointer]>, Option<url::Url>, Validator), Error> {
+        let (sorted, key, schema, validator, alloc) = self.try_into_parts()?;
 
-        let entries = entries.into_inner();
-        let docs = entries.len();
-        let docs_per_chunk = SpillWriter::<F>::target_docs_per_chunk(&alloc, docs);
+        let docs = sorted.len();
+        let pivot = sorted.partition_point(|doc| doc.flags & FLAG_REDUCED == 0);
         let mem_used = alloc.allocated_bytes() - alloc.chunk_capacity();
 
-        let archive_used = writer.write_segment(
-            entries.into_iter().map(|KeyedDoc { doc, .. }| doc),
-            docs_per_chunk,
-        )?;
+        // We write combined and reduced documents into separate segments,
+        // because each segment may contain only sorted and unique keys.
+        // Put differently, SpillDrainer only concerns itself with combines
+        // and reductions _across_ segments and not within them.
+        // If there are no combine or reduce documents, these are no-ops.
+        let combine_bytes = writer.write_segment(&sorted[..pivot], chunk_target_size.clone())?;
+        let reduce_bytes = writer.write_segment(&sorted[pivot..], chunk_target_size)?;
 
-        tracing::debug!(%mem_used, %archive_used, %docs, %docs_per_chunk,
+        tracing::debug!(
+            %docs,
+            %pivot,
+            %mem_used,
+            %reduce_bytes,
+            %combine_bytes,
             // TODO(johnny): remove when `mem_used` calculation is accurate.
             mem_alloc=%alloc.allocated_bytes(),
             mem_cap=%alloc.chunk_capacity(),
-            "spilled MemTable to disk segment");
+            "spilled MemTable to disk segment",
+        );
+        std::mem::drop(alloc); // Now safe to drop.
 
-        Ok((key, schema))
+        Ok((key, schema, validator))
     }
 }
 
 pub struct MemDrainer {
-    _alloc: Pin<Box<bumpalo::Bump>>,
-    it: std::collections::btree_set::IntoIter<KeyedDoc>,
+    it1: std::iter::Peekable<std::vec::IntoIter<HeapDoc<'static>>>,
+    it2: std::iter::Peekable<std::vec::IntoIter<HeapDoc<'static>>>,
     key: Rc<[Pointer]>,
-    schema: url::Url,
+    schema: Option<url::Url>,
+    validator: Validator,
+    zz_alloc: Pin<Box<Bump>>, // Careful! Order matters. See MemTable.
 }
 
 impl MemDrainer {
@@ -279,108 +316,139 @@ impl MemDrainer {
     /// A future call to drain_while() can then resume the drain operation at
     /// its next ordered document. drain_while() returns true while documents
     /// remain to drain, and false only after all documents have been drained.
-    pub fn drain_while<C, CE>(
-        &mut self,
-        validator: &mut Validator,
-        mut callback: C,
-    ) -> Result<bool, CE>
+    pub fn drain_while<C, CE>(&mut self, mut callback: C) -> Result<bool, CE>
     where
         C: for<'alloc> FnMut(LazyNode<'alloc, 'static, ArchivedNode>, bool) -> Result<bool, CE>,
         CE: From<Error>,
     {
-        while let Some(KeyedDoc {
-            doc: HeapDoc { root, flags },
-            ..
-        }) = self.it.next()
-        {
-            if flags & REVALIDATE_FLAG != 0 {
-                // We've reduced multiple documents into this one.
-                // Ensure it remains valid to its schema.
-                Validation::validate(validator, &self.schema, &root)
-                    .map_err(Error::SchemaError)?
-                    .ok()
-                    .map_err(Error::PostReduceValidation)?;
-            }
+        // Incrementally merge the ordered sequence of documents from `it1` and `it2`.
+        loop {
+            let doc = match (self.it1.peek(), self.it2.peek()) {
+                (None, None) => return Ok(false),
+                (Some(_), None) => self.it1.next().unwrap(),
+                (None, Some(_)) => self.it2.next().unwrap(),
+                (Some(l), Some(r)) => match Pointer::compare(&self.key, &l.root, &r.root) {
+                    cmp::Ordering::Less => self.it1.next().unwrap(),
+                    cmp::Ordering::Greater => self.it2.next().unwrap(),
+                    cmp::Ordering::Equal => {
+                        let l = self.it1.next().unwrap();
+                        let r = self.it2.next().unwrap();
 
-            if !callback(LazyNode::Heap(root), flags & REDUCED_FLAG != 0)? {
+                        super::smash(
+                            &self.zz_alloc,
+                            LazyNode::Heap(l.root),
+                            l.flags,
+                            LazyNode::Heap(r.root),
+                            r.flags,
+                            self.schema.as_ref(),
+                            &mut self.validator,
+                        )?
+                    }
+                },
+            };
+
+            self.validator
+                .validate(self.schema.as_ref(), &doc.root)
+                .map_err(Error::SchemaError)?
+                .ok()
+                .map_err(Error::FailedValidation)?;
+
+            if !callback(LazyNode::Heap(doc.root), doc.flags & FLAG_REDUCED != 0)? {
                 return Ok(true);
             }
         }
-
-        Ok(false)
     }
 
-    pub fn into_parts(self) -> (Rc<[Pointer]>, url::Url) {
+    pub fn into_parts(self) -> (Rc<[Pointer]>, Option<url::Url>, Validator) {
         let MemDrainer {
-            _alloc: _,
-            it: _,
+            it1,
+            it2,
             key,
             schema,
+            validator,
+            zz_alloc,
         } = self;
 
-        (key, schema)
+        // This is probably being pedantic, but:
+        // ensure that iterators are dropped before the Bump.
+        std::mem::drop(it1);
+        std::mem::drop(it2);
+        std::mem::drop(zz_alloc);
+
+        (key, schema, validator)
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use serde_json::json;
+    use serde_json::{json, Value};
 
-    use crate::{Schema, Validator};
-    use json::schema::{build::build_schema, index::IndexBuilder};
+    use crate::{AsNode, Validator};
+    use json::schema::build::build_schema;
 
     #[test]
     fn test_memtable_combine_reduce_sequence() {
-        let schema = json!({
-            "properties": {
-                "key": { "type": "string" },
-                "v": {
-                    "type": "array",
-                    "reduce": { "strategy": "append" }
-                }
-            },
-            "reduce": { "strategy": "merge" }
-        });
-        let key: Rc<[Pointer]> = vec![Pointer::from_str("/key")].into();
+        let schema = build_schema(
+            url::Url::parse("http://example/schema").unwrap(),
+            &json!({
+                "properties": {
+                    "key": { "type": "string" },
+                    "v": {
+                        "type": "array",
+                        "reduce": { "strategy": "append" }
+                    }
+                },
+                "reduce": { "strategy": "merge" }
+            }),
+        )
+        .unwrap();
 
-        let curi = url::Url::parse("http://example/schema").unwrap();
-        let schema: Schema = build_schema(curi.clone(), &schema).unwrap();
+        let memtable = MemTable::new(
+            vec![Pointer::from_str("/key")].into(),
+            None,
+            Validator::new(schema).unwrap(),
+        );
+        let add_and_compact = |docs: &[(bool, Value)]| {
+            for (full, doc) in docs {
+                let fixture = HeapNode::from_node(doc.as_node(), memtable.alloc());
+                memtable.add(fixture, *full).unwrap();
+            }
+            memtable.compact().unwrap();
+        };
 
-        let mut index = IndexBuilder::new();
-        index.add(&schema).unwrap();
-        index.verify_references().unwrap();
-        let index = index.into_index();
-
-        let mut validator = Validator::new(&index);
-        let memtable = MemTable::new(key, curi);
-
-        let fixtures = vec![
+        add_and_compact(&[
             (false, json!({"key": "aaa", "v": ["apple"]})),
             (false, json!({"key": "aaa", "v": ["banana"]})),
             (false, json!({"key": "bbb", "v": ["carrot"]})),
             (true, json!({"key": "ccc", "v": ["grape"]})),
+        ]);
+
+        add_and_compact(&[
             (true, json!({"key": "bbb", "v": ["avocado"]})),
             (false, json!({"key": "bbb", "v": ["raisin"]})),
             (false, json!({"key": "ccc", "v": ["tomato"]})),
-        ];
+            (false, json!({"key": "ccc", "v": ["broccoli"]})),
+        ]);
 
-        for (full, fixture) in &fixtures {
-            let fixture = HeapNode::from_node(fixture.as_node(), memtable.alloc());
+        add_and_compact(&[
+            (false, json!({"key": "a", "v": ["before all"]})),
+            (false, json!({"key": "ab", "v": ["first between"]})),
+            (false, json!({"key": "bc", "v": ["between"]})),
+            (false, json!({"key": "d", "v": ["after"]})),
+        ]);
 
-            if *full {
-                memtable.reduce_left(fixture, &mut validator).unwrap();
-            } else {
-                memtable.combine_right(fixture, &mut validator).unwrap();
-            }
-        }
+        add_and_compact(&[
+            (true, json!({"key": "bc", "v": ["second"]})),
+            (false, json!({"key": "d", "v": ["all"]})),
+        ]);
 
         let mut actual = Vec::new();
-        let mut drainer = memtable.into_drainer();
+        let mut drainer = memtable.try_into_drainer().unwrap();
 
         loop {
             if !drainer
-                .drain_while(&mut validator, |node, full| {
+                .drain_while(|node, full| {
                     let node = serde_json::to_value(&node).unwrap();
 
                     actual.push((node, full));
@@ -396,10 +464,28 @@ mod test {
         [
           [
             {
+              "key": "a",
+              "v": [
+                "before all"
+              ]
+            },
+            false
+          ],
+          [
+            {
               "key": "aaa",
               "v": [
                 "apple",
                 "banana"
+              ]
+            },
+            false
+          ],
+          [
+            {
+              "key": "ab",
+              "v": [
+                "first between"
               ]
             },
             false
@@ -417,13 +503,34 @@ mod test {
           ],
           [
             {
-              "key": "ccc",
+              "key": "bc",
               "v": [
-                "grape",
-                "tomato"
+                "second",
+                "between"
               ]
             },
             true
+          ],
+          [
+            {
+              "key": "ccc",
+              "v": [
+                "grape",
+                "tomato",
+                "broccoli"
+              ]
+            },
+            true
+          ],
+          [
+            {
+              "key": "d",
+              "v": [
+                "after",
+                "all"
+              ]
+            },
+            false
           ]
         ]
         "###);

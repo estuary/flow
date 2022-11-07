@@ -3,9 +3,8 @@ use super::{
     Result,
 };
 use crate::{
-    heap::BumpVec,
     lazy::{LazyArray, LazyDestructured, LazyObject},
-    AsNode, HeapNode, Node, Pointer,
+    AsNode, BumpVec, HeapNode, Node, Pointer,
 };
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -143,12 +142,12 @@ impl Strategy {
                 let mut arr = BumpVec::with_capacity_in(lhs.len() + rhs.len(), alloc);
 
                 for lhs in lhs.into_iter() {
-                    arr.0.push(lhs.into_heap_node(alloc));
+                    arr.push(lhs.into_heap_node(alloc), alloc);
                 }
                 for rhs in rhs.into_iter() {
                     let rhs = rhs.into_heap_node(alloc);
                     *tape = &tape[count_nodes_heap(&rhs)..];
-                    arr.0.push(rhs)
+                    arr.push(rhs, alloc)
                 }
 
                 Ok(HeapNode::Array(arr))
@@ -334,7 +333,7 @@ impl Strategy {
                     })
                     .map(|eob| reduce_prop(tape, loc, full, eob, alloc))
                 {
-                    fields.0.push(field?);
+                    fields.push(field?, alloc);
                 }
                 Ok(HeapNode::Object(fields))
             }
@@ -356,7 +355,7 @@ impl Strategy {
                 )
                 .map(|eob| reduce_item(tape, loc, full, eob, alloc))
                 {
-                    arr.0.push(item?);
+                    arr.push(item?, alloc);
                 }
                 Ok(HeapNode::Array(arr))
             }

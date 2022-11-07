@@ -1,6 +1,6 @@
 use super::{
-    heap, AsNode, FailedValidation, Field, Fields, HeapField, HeapNode, HeapString, Node, Pointer,
-    Valid, Validation, Validator,
+    AsNode, BumpStr, BumpVec, FailedValidation, Field, Fields, HeapField, HeapNode, Node, Pointer,
+    Valid, Validator,
 };
 
 /// LazyNode is either a HeapNode, or is an AsNode which may be promoted to a HeapNode.
@@ -12,13 +12,13 @@ pub enum LazyNode<'alloc, 'n, N: AsNode> {
 /// LazyArray is either a [AsNode] slice, or is a vec of HeapNode.
 pub enum LazyArray<'alloc, 'n, N: AsNode> {
     Node(&'n [N]),
-    Heap(heap::BumpVec<'alloc, HeapNode<'alloc>>),
+    Heap(BumpVec<'alloc, HeapNode<'alloc>>),
 }
 
 /// LazyObject is either an AsNode::Fields, or is a vec of HeapField.
 pub enum LazyObject<'alloc, 'n, N: AsNode + 'n> {
     Node(&'n N::Fields),
-    Heap(heap::BumpVec<'alloc, HeapField<'alloc>>),
+    Heap(BumpVec<'alloc, HeapField<'alloc>>),
 }
 
 /// LazyDestructured is an unpacked Node or HeapNode.
@@ -40,32 +40,32 @@ impl<'alloc> HeapNode<'alloc> {
     pub fn from_node<'n, N: AsNode>(node: Node<'n, N>, alloc: &'alloc bumpalo::Bump) -> Self {
         match node {
             Node::Array(arr) => {
-                let mut vec = bumpalo::collections::Vec::with_capacity_in(arr.len(), alloc);
+                let mut vec = BumpVec::with_capacity_in(arr.len(), alloc);
                 vec.extend(
                     arr.iter()
                         .map(|item| Self::from_node(item.as_node(), alloc)),
+                    alloc,
                 );
-                HeapNode::Array(heap::BumpVec(vec))
+                HeapNode::Array(vec)
             }
             Node::Bool(b) => HeapNode::Bool(b),
-            Node::Bytes(b) => {
-                let mut vec = bumpalo::collections::Vec::with_capacity_in(b.len(), alloc);
-                vec.extend_from_slice(b);
-                HeapNode::Bytes(heap::BumpVec(vec))
-            }
+            Node::Bytes(b) => HeapNode::Bytes(BumpVec::from_slice(b, alloc)),
             Node::Null => HeapNode::Null,
             Node::Number(json::Number::Float(n)) => HeapNode::Float(n),
             Node::Number(json::Number::Unsigned(n)) => HeapNode::PosInt(n),
             Node::Number(json::Number::Signed(n)) => HeapNode::NegInt(n),
             Node::Object(fields) => {
-                let mut vec = bumpalo::collections::Vec::with_capacity_in(fields.len(), alloc);
-                vec.extend(fields.iter().map(|field| HeapField {
-                    property: HeapString(alloc.alloc_str(field.property())),
-                    value: Self::from_node(field.value().as_node(), alloc),
-                }));
-                HeapNode::Object(heap::BumpVec(vec))
+                let mut vec = BumpVec::with_capacity_in(fields.len(), alloc);
+                vec.extend(
+                    fields.iter().map(|field| HeapField {
+                        property: BumpStr::from_str(field.property(), alloc),
+                        value: Self::from_node(field.value().as_node(), alloc),
+                    }),
+                    alloc,
+                );
+                HeapNode::Object(vec)
             }
-            Node::String(s) => HeapNode::String(HeapString(alloc.alloc_str(s))),
+            Node::String(s) => HeapNode::String(BumpStr::from_str(s, alloc)),
         }
     }
 }
@@ -124,14 +124,14 @@ impl<'alloc, 'n, N: AsNode> LazyNode<'alloc, 'n, N> {
     /// AsNode and then attempts to extract a Valid outcome. This is helpful
     /// because a Validation is generic over the AsNode type but Valid erases
     /// it, allowing for single-path handle for the Self::Heap and Self::Node cases.
-    pub fn validate_ok<'schema, 'doc, 'tmp>(
+    pub fn validate_ok<'doc, 'v>(
         &'doc self,
-        validator: &'tmp mut Validator<'schema>,
-        schema: &'tmp url::Url,
-    ) -> Result<Result<Valid<'schema, 'tmp>, FailedValidation>, json::schema::index::Error> {
+        validator: &'v mut Validator,
+        schema: Option<&'v url::Url>,
+    ) -> Result<Result<Valid<'static, 'v>, FailedValidation>, json::schema::index::Error> {
         match self {
-            Self::Heap(n) => Ok(Validation::validate(validator, schema, n)?.ok()),
-            Self::Node(n) => Ok(Validation::validate(validator, schema, *n)?.ok()),
+            Self::Heap(n) => Ok(validator.validate(schema, n)?.ok()),
+            Self::Node(n) => Ok(validator.validate(schema, *n)?.ok()),
         }
     }
 }
@@ -154,14 +154,14 @@ impl<'alloc, 'n, N: AsNode> LazyArray<'alloc, 'n, N> {
     pub fn len(&self) -> usize {
         match self {
             Self::Node(arr) => arr.len(),
-            Self::Heap(arr) => arr.0.len(),
+            Self::Heap(arr) => arr.len(),
         }
     }
 
     pub fn into_iter(self) -> impl Iterator<Item = LazyNode<'alloc, 'n, N>> {
         let (it1, it2) = match self {
             Self::Node(arr) => (Some(arr.iter().map(|d| LazyNode::Node(d))), None),
-            Self::Heap(arr) => (None, Some(arr.0.into_iter().map(LazyNode::Heap))),
+            Self::Heap(arr) => (None, Some(arr.into_iter().map(LazyNode::Heap))),
         };
         it1.into_iter().flatten().chain(it2.into_iter().flatten())
     }
@@ -171,14 +171,14 @@ impl<'alloc, 'n, N: AsNode> LazyObject<'alloc, 'n, N> {
     pub fn len(&self) -> usize {
         match self {
             Self::Node(fields) => fields.len(),
-            Self::Heap(fields) => fields.0.len(),
+            Self::Heap(fields) => fields.len(),
         }
     }
 
     pub fn into_iter(self) -> impl Iterator<Item = LazyField<'alloc, 'n, N>> {
         let (it1, it2) = match self {
             Self::Node(fields) => (Some(fields.iter().map(LazyField::Node)), None),
-            Self::Heap(fields) => (None, Some(fields.0.into_iter().map(LazyField::Heap))),
+            Self::Heap(fields) => (None, Some(fields.into_iter().map(LazyField::Heap))),
         };
         it1.into_iter().flatten().chain(it2.into_iter().flatten())
     }
@@ -195,7 +195,7 @@ impl<'alloc, 'n, N: AsNode> LazyField<'alloc, 'n, N> {
     pub fn into_heap_field(self, alloc: &'alloc bumpalo::Bump) -> HeapField<'alloc> {
         match self {
             Self::Node(field) => HeapField {
-                property: HeapString(alloc.alloc_str(field.property())),
+                property: BumpStr::from_str(field.property(), alloc),
                 value: HeapNode::from_node(field.value().as_node(), alloc),
             },
             Self::Heap(field) => field,
@@ -203,16 +203,11 @@ impl<'alloc, 'n, N: AsNode> LazyField<'alloc, 'n, N> {
     }
 
     /// into_parts returns the separate property and value components of the field.
-    /// The property must be returned as a Result because of the disparate lifetimes:
-    /// it's unknown by this function whether 'alloc outlives 'n or vice versa.
-    /// However, the caller can collapse this Result into a simple &str via:
-    ///
-    ///   let property = match property { Ok(p) | Err(p) => p };
-    ///
-    pub fn into_parts(self) -> (Result<&'n str, &'alloc str>, LazyNode<'alloc, 'n, N>) {
+    /// The property is returned as a Result to reflect its borrowed or owned nature.
+    pub fn into_parts(self) -> (Result<&'n str, BumpStr<'alloc>>, LazyNode<'alloc, 'n, N>) {
         match self {
             Self::Node(field) => (Ok(field.property()), LazyNode::Node(field.value())),
-            Self::Heap(field) => (Err(field.property.0), LazyNode::Heap(field.value)),
+            Self::Heap(field) => (Err(field.property), LazyNode::Heap(field.value)),
         }
     }
 }

@@ -4,13 +4,11 @@ extern crate quickcheck;
 #[macro_use(quickcheck)]
 extern crate quickcheck_macros;
 
-use doc::{combine, Annotation, HeapNode, Pointer};
-use json::schema::{build::build_schema, index::IndexBuilder};
-use json::validator::{SpanContext, Validator};
+use doc::{combine, HeapNode, Validator};
+use json::schema::build::build_schema;
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::io::Write;
-use std::rc::Rc;
 
 #[derive(thiserror::Error, Debug)]
 pub enum FuzzError {
@@ -25,11 +23,9 @@ pub enum FuzzError {
     Unexpected(serde_json::Value),
 }
 
-#[quickcheck]
-fn test_spill_and_merge_fuzzing(seq: Vec<(u8, u8)>) -> bool {
-    let url = url::Url::parse("http://schema").unwrap();
-    let schema = build_schema::<Annotation>(
-        url,
+fn run_sequence(seq: Vec<(u8, u8, bool)>) -> Result<(), FuzzError> {
+    let schema = build_schema(
+        url::Url::parse("http://schema").unwrap(),
         &json!({
             "type": "object",
             "properties": {
@@ -46,24 +42,23 @@ fn test_spill_and_merge_fuzzing(seq: Vec<(u8, u8)>) -> bool {
         }),
     )
     .unwrap();
-    let key: Rc<[Pointer]> = vec!["/key".into()].into();
-
-    let mut index = IndexBuilder::new();
-    index.add(&schema).unwrap();
-    index.verify_references().unwrap();
-    let index = index.into_index();
-    let mut val = Validator::<Annotation, SpanContext>::new(&index);
 
     let mut spill = combine::SpillWriter::new(std::io::Cursor::new(Vec::new())).unwrap();
-    let mut memtable = combine::MemTable::new(key.clone(), schema.curi.clone());
+    let chunk_target = (1 << 20)..(1 << 21);
+    let mut memtable = combine::MemTable::new(
+        vec!["/key".into()].into(),
+        None,
+        Validator::new(schema).unwrap(),
+    );
     let mut expect = BTreeMap::new();
 
     let mut buf = Vec::new();
-    for (seq_key, seq_value) in seq {
+    for (i, (seq_key, seq_value, mut is_reduce)) in seq.into_iter().enumerate() {
         // Produce an empirically reasonable number of spills, given quickcheck's defaults.
-        if memtable.len() > 15 {
-            memtable.spill(&mut spill).unwrap();
-            memtable = combine::MemTable::new(key.clone(), schema.curi.clone());
+        if i % 15 == 0 {
+            let (key, schema, validator) =
+                memtable.spill(&mut spill, chunk_target.clone()).unwrap();
+            memtable = combine::MemTable::new(key, schema, validator);
         }
 
         buf.clear();
@@ -75,53 +70,69 @@ fn test_spill_and_merge_fuzzing(seq: Vec<(u8, u8)>) -> bool {
         )
         .unwrap();
 
-        memtable.combine_right(doc, &mut val).unwrap();
-
         expect
             .entry(seq_key)
-            .and_modify(|a: &mut Vec<u8>| a.push(seq_value))
-            .or_insert_with(|| vec![seq_value]);
+            .and_modify(|(values, reduced): &mut (Vec<u8>, bool)| {
+                if !is_reduce || *reduced {
+                    // We can have only one reduced document for a key,
+                    // so if it's set already then alter this entry to be a combine.
+                    is_reduce = false;
+                    values.push(seq_value);
+                } else {
+                    values.insert(0, seq_value);
+                    *reduced = true;
+                }
+            })
+            .or_insert_with(|| (vec![seq_value], is_reduce));
+
+        memtable.add(doc, is_reduce).unwrap();
     }
 
     // Spill final MemTable and begin to drain.
-    memtable.spill(&mut spill).unwrap();
+    let (key, schema, validator) = memtable.spill(&mut spill, chunk_target.clone()).unwrap();
     let (spill, ranges) = spill.into_parts();
-    let mut drainer =
-        combine::SpillDrainer::new(key.clone(), schema.curi.clone(), spill, &ranges).unwrap();
+    let mut drainer = combine::SpillDrainer::new(key, schema, spill, &ranges, validator).unwrap();
 
     let mut count = 0;
     let mut expect_it = expect.into_iter();
 
-    loop {
-        let res = drainer.drain_while(&mut val, |node, _reduced| {
-            count += 1;
+    while drainer.drain_while(|node, reduced| {
+        count += 1;
 
-            let actual = serde_json::to_value(&node).unwrap();
+        let actual = json!([node, reduced]);
 
-            match expect_it.next() {
-                Some((key, values)) => {
-                    let expect = json!({"key": key, "arr": values});
-                    // eprintln!("key {key} values {values:?}");
+        match expect_it.next() {
+            Some((key, (values, reduced))) => {
+                let expect = json!([{"key": key, "arr": values}, reduced]);
+                // eprintln!("key {key} values {values:?}");
 
-                    if actual == expect {
-                        Ok(count % 27 == 0) // Restart drain_while() periodically.
-                    } else {
-                        Err(FuzzError::Mismatch { actual, expect })
-                    }
+                if actual == expect {
+                    Ok(count % 13 == 0) // Restart drain_while() periodically.
+                } else {
+                    Err(FuzzError::Mismatch { actual, expect })
                 }
-                None => Err(FuzzError::Unexpected(actual)),
             }
-        });
-
-        match res {
-            Err(err) => {
-                eprintln!("error: {err}");
-                return false;
-            }
-            Ok(true) => continue,
-            Ok(false) => break,
+            None => Err(FuzzError::Unexpected(actual)),
         }
-    }
+    })? {}
 
-    true
+    Ok(())
+}
+
+#[quickcheck]
+fn test_spill_and_merge_fuzzing(seq: Vec<(u8, u8, bool)>) -> bool {
+    match run_sequence(seq) {
+        Err(err) => {
+            eprintln!("error: {err}");
+            false
+        }
+        Ok(()) => true,
+    }
+}
+
+// If the above quickcheck test ever fails, it will produce a minimized
+// reproduction case that can be put here for debugging.
+#[test]
+fn test_spill_and_merge_repro() {
+    run_sequence(vec![(0, 0, false), (0, 0, true)]).unwrap()
 }

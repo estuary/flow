@@ -1,4 +1,4 @@
-use super::{compare, heap::BumpVec, AsNode, Field, Fields, HeapNode, HeapString, Node};
+use super::{compare, AsNode, BumpVec, Field, Fields, HeapNode, Node};
 use std::str::FromStr;
 
 /// Token is a parsed token of a JSON pointer.
@@ -256,10 +256,10 @@ impl Pointer {
             if let HeapNode::Null = v {
                 match token {
                     Token::Property(_) => {
-                        *v = HeapNode::Object(BumpVec(bumpalo::collections::Vec::new_in(alloc)));
+                        *v = HeapNode::Object(BumpVec::new());
                     }
                     Token::Index(_) | Token::NextIndex => {
-                        *v = HeapNode::Array(BumpVec(bumpalo::collections::Vec::new_in(alloc)));
+                        *v = HeapNode::Array(BumpVec::new());
                     }
                 };
             }
@@ -267,18 +267,17 @@ impl Pointer {
             v = match v {
                 HeapNode::Object(fields) => match token {
                     // Create or modify existing entry.
-                    Token::Index(ind) => {
-                        fields.insert_mut(HeapString(alloc.alloc_str(&ind.to_string())))
-                    }
-                    Token::Property(prop) => fields.insert_mut(HeapString(alloc.alloc_str(prop))),
-                    Token::NextIndex => fields.insert_mut(HeapString(alloc.alloc_str("-"))),
+                    Token::Index(ind) => fields.insert_property(&ind.to_string(), alloc),
+                    Token::Property(property) => fields.insert_property(property, alloc),
+                    Token::NextIndex => fields.insert_property("-", alloc),
                 },
-                HeapNode::Array(BumpVec(arr)) => match token {
+                HeapNode::Array(arr) => match token {
                     Token::Index(ind) => {
                         // Create any required indices [0..ind) as Null.
                         if *ind >= arr.len() {
                             arr.extend(
                                 std::iter::repeat_with(|| HeapNode::Null).take(1 + ind - arr.len()),
+                                alloc,
                             );
                         }
                         // Create or modify |ind| entry.
@@ -286,7 +285,7 @@ impl Pointer {
                     }
                     Token::NextIndex => {
                         // Append and return a Null.
-                        arr.push(HeapNode::Null);
+                        arr.push(HeapNode::Null, alloc);
                         arr.last_mut().unwrap()
                     }
                     // Cannot match (attempt to query property of an array).
