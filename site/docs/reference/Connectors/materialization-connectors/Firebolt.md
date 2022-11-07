@@ -103,7 +103,8 @@ materializations:
 
 ## Delta updates
 
-The Firebolt connector operates only in [delta updates](../../../concepts/materialization.md#delta-updates) mode.
+Firebolt is an insert-only system; it doesn't support updates or deletes.
+Because of this, the Firebolt connector operates only in [delta updates](../../../concepts/materialization.md#delta-updates) mode.
 Firebolt stores all deltas — the unmerged collection documents — directly.
 
 In some cases, this will affect how materialized views look in Firebolt compared to other systems that use standard updates.
