@@ -41,7 +41,7 @@ Kick off streamed capture:
 
 ```console
 # Start a local development instance, and leave it running:
-$ flowctl-admin develop --port 8080
+$ flowctl-go develop --port 8080
 
 # In another terminal:
 $ examples/net-trace/load-traces.sh
