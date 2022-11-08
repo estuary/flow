@@ -144,10 +144,11 @@ impl TagHandler {
 
         if let Some(oauth2_spec) = oauth2_spec {
             agent_sql::connector_tags::update_oauth2_spec(
-                row.connector_id,
-                oauth2_spec,
-                txn,
-            ).await?;
+                row.connector_id, 
+                oauth2_spec, 
+                txn
+            )
+            .await?;
         }
 
         return Ok((row.tag_id, JobStatus::Success));
