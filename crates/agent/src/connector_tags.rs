@@ -1,3 +1,5 @@
+use crate::HandlerStatus;
+
 use super::{jobs, logs, Handler, Id};
 
 use agent_sql::connector_tags::Row;
@@ -36,11 +38,11 @@ impl TagHandler {
 
 #[async_trait::async_trait]
 impl Handler for TagHandler {
-    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<std::time::Duration> {
+    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<HandlerStatus> {
         let mut txn = pg_pool.begin().await?;
 
         let row: Row = match agent_sql::connector_tags::dequeue(&mut txn).await? {
-            None => return Ok(std::time::Duration::from_secs(5)),
+            None => return Ok(HandlerStatus::Idle),
             Some(row) => row,
         };
 
@@ -50,7 +52,11 @@ impl Handler for TagHandler {
         agent_sql::connector_tags::resolve(id, status, &mut txn).await?;
         txn.commit().await?;
 
-        Ok(std::time::Duration::ZERO)
+        Ok(HandlerStatus::Active)
+    }
+
+    fn table_name(&self) -> &'static str {
+        "connector_tags"
     }
 }
 
@@ -143,12 +149,8 @@ impl TagHandler {
         .await?;
 
         if let Some(oauth2_spec) = oauth2_spec {
-            agent_sql::connector_tags::update_oauth2_spec(
-                row.connector_id, 
-                oauth2_spec, 
-                txn
-            )
-            .await?;
+            agent_sql::connector_tags::update_oauth2_spec(row.connector_id, oauth2_spec, txn)
+                .await?;
         }
 
         return Ok((row.tag_id, JobStatus::Success));

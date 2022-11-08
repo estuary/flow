@@ -13,6 +13,9 @@ create table publications (
 alter table publications enable row level security;
 alter publication supabase_realtime add table publications;
 
+create trigger "Notify agent about changes to publication" after insert or update on publications
+for each statement execute procedure internal.notify_agent();
+
 -- We don't impose a foreign key on drafts, because a publication
 -- operation audit log may stick around much longer than the draft does.
 create policy "Users can access only their initiated publish operations"
