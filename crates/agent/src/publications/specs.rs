@@ -1155,7 +1155,11 @@ mod test {
               p8 as (
                 insert into user_grants (user_id, object_role, capability) values
                 ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'usageC/', 'admin')
-              )
+              ),
+              p9 as (
+                insert into connectors (external_url, image_name, title, short_description, logo_url) values
+                    ('http://example.com', 'foo', '{"en-US": "foo"}'::json, '{"en-US": "foo"}'::json, '{"en-US": "foo"}'::json)
+            )
               select 1;
               "#).execute(&mut txn).await.unwrap();
 
