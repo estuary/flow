@@ -42,3 +42,4 @@ validator = { workspace = true }
 [dev-dependencies]
 insta = { workspace = true }
 tokio = { workspace = true }
+serial_test = { workspace = true }
