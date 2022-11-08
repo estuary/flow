@@ -199,10 +199,67 @@ pub async fn resolve_spec_rows(
         join live_specs
             on draft_specs.catalog_name = live_specs.catalog_name
         where draft_specs.draft_id = $1
+        order by draft_specs.catalog_name asc
         for update of draft_specs, live_specs;
         "#,
         draft_id as Id,
         user_id,
+    )
+    .fetch_all(txn)
+    .await
+}
+
+#[derive(Debug, Serialize)]
+pub struct Tenant {
+    pub name: String,
+    pub tasks_quota: i32,
+    pub collections_quota: i32,
+    pub tasks_used: i32,
+    pub collections_used: i32,
+}
+
+pub async fn find_tenant_quotas(
+    live_spec_ids: Vec<Id>,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<Vec<Tenant>> {
+    sqlx::query_as!(
+        Tenant,
+        r#"
+        with tenant_names as (
+            select tenants.tenant as tenant_name
+            from tenants
+            join live_specs on starts_with(live_specs.catalog_name, tenants.tenant)
+            where live_specs.id = ANY($1::flowid[])
+            group by tenants.tenant
+        ),
+        tenant_usages as (
+            select
+                tenant_names.tenant_name,
+                (count(live_specs.catalog_name) filter (
+                    where
+                        live_specs.spec_type = 'capture' or
+                        live_specs.spec_type = 'materialization' or
+                        live_specs.spec_type = 'collection' and live_specs.spec->'derivation' is not null
+                ))::integer as tasks_used,
+                (count(live_specs.catalog_name) filter (
+                    where live_specs.spec_type = 'collection'
+                ))::integer as collections_used
+            from tenant_names
+            join live_specs on
+                starts_with(live_specs.catalog_name, tenant_names.tenant_name) and
+                (live_specs.spec->'shards'->>'disable')::boolean is not true
+            group by tenant_names.tenant_name
+        )
+        select
+            tenants.tenant as name,
+            tenants.tasks_quota::integer as "tasks_quota!: i32",
+            tenants.collections_quota::integer as "collections_quota!: i32",
+            tenant_usages.tasks_used as "tasks_used!: i32",
+            tenant_usages.collections_used as "collections_used!: i32"
+        from tenant_usages
+        join tenants on tenants.tenant = tenant_usages.tenant_name
+        order by tenants.tenant;"#,
+        live_spec_ids as Vec<Id>
     )
     .fetch_all(txn)
     .await
