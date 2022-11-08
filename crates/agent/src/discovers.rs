@@ -1,6 +1,6 @@
 use super::{jobs, logs, upsert_draft_specs, Handler, Id};
 
-use crate::connector_tags::LOCAL_IMAGE_TAG;
+use crate::{connector_tags::LOCAL_IMAGE_TAG, HandlerStatus};
 use agent_sql::discover::Row;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -40,11 +40,11 @@ impl DiscoverHandler {
 
 #[async_trait::async_trait]
 impl Handler for DiscoverHandler {
-    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<std::time::Duration> {
+    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<HandlerStatus> {
         let mut txn = pg_pool.begin().await?;
 
         let row: Row = match agent_sql::discover::dequeue(&mut txn).await? {
-            None => return Ok(std::time::Duration::from_secs(5)),
+            None => return Ok(HandlerStatus::Idle),
             Some(row) => row,
         };
 
@@ -54,7 +54,11 @@ impl Handler for DiscoverHandler {
         agent_sql::discover::resolve(id, status, &mut txn).await?;
         txn.commit().await?;
 
-        Ok(std::time::Duration::ZERO)
+        Ok(HandlerStatus::Active)
+    }
+
+    fn table_name(&self) -> &'static str {
+        "discovers"
     }
 }
 

@@ -51,3 +51,16 @@ Enumeration of Flow catalog specification types:
 "capture", "collection", "materialization", or "test"
 ';
 
+create function internal.notify_agent() returns trigger as $trigger$
+declare
+  payload text;
+begin
+  -- Build the payload
+  payload := json_build_object('timestamp',CURRENT_TIMESTAMP,'table',TG_TABLE_NAME);
+
+  -- Notify the channel
+  perform pg_notify('agent_notifications', payload);
+
+  return null;
+END;
+$trigger$ LANGUAGE plpgsql;

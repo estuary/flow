@@ -1,3 +1,5 @@
+use crate::HandlerStatus;
+
 use super::{Handler, Id};
 
 use agent_sql::directives::Row;
@@ -57,11 +59,11 @@ impl DirectiveHandler {
 
 #[async_trait::async_trait]
 impl Handler for DirectiveHandler {
-    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<std::time::Duration> {
+    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<HandlerStatus> {
         let mut txn = pg_pool.begin().await?;
 
         let row: Row = match agent_sql::directives::dequeue(&mut txn).await? {
-            None => return Ok(std::time::Duration::from_secs(5)),
+            None => return Ok(HandlerStatus::Idle),
             Some(row) => row,
         };
 
@@ -71,7 +73,11 @@ impl Handler for DirectiveHandler {
         agent_sql::directives::resolve(id, status, &mut txn).await?;
         txn.commit().await?;
 
-        Ok(std::time::Duration::ZERO)
+        Ok(HandlerStatus::Active)
+    }
+
+    fn table_name(&self) -> &'static str {
+        "applied_directives"
     }
 }
 

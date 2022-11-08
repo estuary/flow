@@ -1,3 +1,5 @@
+use crate::HandlerStatus;
+
 use super::{logs, Handler, Id};
 
 use agent_sql::{connector_tags::UnknownConnector, publications::Row};
@@ -59,11 +61,11 @@ impl PublishHandler {
 
 #[async_trait::async_trait]
 impl Handler for PublishHandler {
-    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<std::time::Duration> {
+    async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<HandlerStatus> {
         let mut txn = pg_pool.begin().await?;
 
         let row: Row = match agent_sql::publications::dequeue(&mut txn).await? {
-            None => return Ok(std::time::Duration::from_secs(5)),
+            None => return Ok(HandlerStatus::Idle),
             Some(row) => row,
         };
 
@@ -85,7 +87,11 @@ impl Handler for PublishHandler {
             agent_sql::publications::delete_draft(delete_draft_id, pg_pool).await?;
         }
 
-        Ok(std::time::Duration::ZERO)
+        Ok(HandlerStatus::Active)
+    }
+
+    fn table_name(&self) -> &'static str {
+        "publications"
     }
 }
 
