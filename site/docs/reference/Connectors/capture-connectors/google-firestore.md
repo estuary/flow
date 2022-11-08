@@ -116,16 +116,19 @@ There are three options:
 
 * `none`: Skip preexisting data in the Firestore collection. Capture only new documents and changes to existing documents that occur after the capture is published.
 
-* `sync`: Request that Firestore stream all changes to the collection since its creation, in order.
-
-   This mode provides the strongest guarantee against duplicated data, but can cause errors for large datasets as Firestore may terminate the process after about ten minutes.
-
 * `async`: Use two threads to capture data. The first captures new documents, as with `none`.
-The second progressively ingests historical data in chunks.
-
-   This mode is most reliable for Firestore collections of all sizes but provides slightly weaker guarantees against data duplication.
+The second progressively ingests historical data in chunks. This mode is most reliable for Firestore collections of all sizes but provides slightly weaker guarantees against data duplication.
 
    The connector uses a [reduction](../../../concepts/schemas.md#reductions) to reconcile changes to the same document found on the parallel threads.
    The version with the most recent timestamp the document metadata will be preserved (`{"strategy": "maximize", "key": "/_meta/mtime"}`). For most collections, this produces an accurate copy of your Firestore collections in Flow.
+
+* `sync`: Request that Firestore stream all changes to the collection since its creation, in order.
+
+   This mode provides the strongest guarantee against duplicated data, but can cause errors for large datasets.
+   Firestore may terminate the process if the backfill of historical data has not completed within about ten minutes, forcing the capture to restart from the beginning.
+   If this happens once it is likely to recur continuously. If left unattended for an extended time this can result in a massive number of read operations and a correspondingly large bill from Firestore.
+
+   This mode should only be used when somebody can keep an eye on the backfill and shut it down if it has not completed within half an hour at most, and on relatively small collections.
+   100,000 documents or fewer should generally be safe, although this can vary depending on the average document size in the collection.
 
 If you're unsure which backfill mode to use, choose `async`.
