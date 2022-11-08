@@ -28,11 +28,6 @@ export const compileTemplate = (template: string, data: any, connector_id: strin
     const handlebarsOutput = compiledTemplate(data);
 
     try {
-        // Override escaping globally for mustache
-        (Mustache.escape as any) = function (text: any) {
-            return text;
-        };
-
         //Duplicate for testing Mustache
         const mustacheOutput = Mustache.render(template, {
             ...data,
