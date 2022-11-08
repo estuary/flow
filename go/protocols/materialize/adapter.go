@@ -197,8 +197,16 @@ func (a *adapterStreamServer) Send(m *TransactionResponse) error {
 	// Under the gRPC model, the server controls RPC termination. The client cannot
 	// revoke the server's ability to send (in the absence of a broken transport,
 	// which we don't model here).
-	a.tx <- TransactionResponseError{TransactionResponse: m}
-	return nil
+	//
+	// However here in the real we must ensure that Send doesn't block indefinitely
+	// if the context is cancelled, because the connector's stdout may be stuffed
+	// and prevent docker's internal communication over its unix domain socket.
+	select {
+	case <-a.ctx.Done():
+		return a.ctx.Err()
+	case a.tx <- TransactionResponseError{TransactionResponse: m}:
+		return nil
+	}
 }
 
 func (a *adapterStreamServer) SendMsg(m interface{}) error { return a.Send(m.(*TransactionResponse)) }
