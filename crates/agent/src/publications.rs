@@ -1,6 +1,6 @@
 use super::{logs, Handler, Id};
 
-use agent_sql::publications::Row;
+use agent_sql::{connector_tags::UnknownConnector, publications::Row};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -179,6 +179,33 @@ impl PublishHandler {
         }
 
         let errors = specs::enforce_resource_quotas(&spec_rows, prev_quota_usage, txn).await?;
+        if !errors.is_empty() {
+            return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
+        }
+
+        let results = agent_sql::connector_tags::resolve_unknown_connectors(
+            spec_rows
+                .iter()
+                .map(|row| row.live_spec_id.clone())
+                .collect(),
+            txn,
+        )
+        .await?;
+
+        let errors: Vec<Error> = results
+            .iter()
+            .map(
+                |UnknownConnector {
+                     catalog_name,
+                     image_name,
+                 }| Error {
+                    catalog_name: catalog_name.clone(),
+                    detail: format!("Forbidden connector image '{}'", image_name),
+                    ..Default::default()
+                },
+            )
+            .collect();
+
         if !errors.is_empty() {
             return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
         }

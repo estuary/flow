@@ -3,7 +3,7 @@ use super::{Id, TextJson as Json};
 use chrono::prelude::*;
 use serde::Serialize;
 use serde_json::value::RawValue;
-use sqlx::types::Uuid;
+use sqlx::{types::Uuid, FromRow};
 
 // Row is the dequeued task shape of a tag connector operation.
 #[derive(Debug)]
@@ -40,6 +40,46 @@ pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::R
     )
     .fetch_optional(txn)
     .await
+}
+
+#[derive(Debug, FromRow, Serialize)]
+pub struct UnknownConnector {
+    pub catalog_name: String,
+    pub image_name: String,
+}
+
+pub async fn resolve_unknown_connectors(
+    live_spec_ids: Vec<Id>,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<Vec<UnknownConnector>> {
+    let res = sqlx::query_as::<_, UnknownConnector>(
+        r#"select
+            live_spec.connector_image_name as "image_name",
+            live_spec.catalog_name
+        from live_specs as live_spec
+        left join connectors as connector on connector.image_name = live_spec.connector_image_name
+        where live_spec.id = ANY($1) and live_spec.connector_image_name is not null and connector.image_name is null
+        order by live_spec.id asc;"#,
+    )
+    .bind(&live_spec_ids[..])
+    .fetch_all(txn)
+    .await;
+
+    res
+}
+
+pub async fn does_connector_exist(
+    connector_image: String,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<bool> {
+    sqlx::query!(
+        r#"select 1 as "exists: bool" from connectors
+        where connectors.image_name = $1;"#,
+        connector_image
+    )
+    .fetch_optional(txn)
+    .await
+    .map(|exists| exists.is_some())
 }
 
 pub async fn resolve<S>(

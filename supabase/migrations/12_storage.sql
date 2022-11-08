@@ -3,7 +3,7 @@
 create table storage_mappings (
   like internal._model including all,
 
-  catalog_prefix    catalog_prefix not null,
+  catalog_prefix    catalog_prefix unique not null,
   spec              json not null
 );
 alter table storage_mappings enable row level security;

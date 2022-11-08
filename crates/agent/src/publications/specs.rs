@@ -201,6 +201,7 @@ pub fn validate_transition(
         }
         // Check that the specification is authorized to its referants.
         let (reads_from, writes_to, _) = extract_spec_metadata(draft, spec_row);
+
         for source in reads_from.iter().flatten() {
             if !spec_capabilities.iter().any(|c| {
                 source.starts_with(&c.object_role)
@@ -816,6 +817,154 @@ mod test {
                         ),
                         spec_type: Some(
                             "collection",
+                        ),
+                    },
+                ],
+            },
+        ]
+        "#);
+    }
+
+    #[tokio::test]
+    async fn test_forbidden_connector() {
+        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+            .await
+            .unwrap();
+        let mut txn = conn.begin().await.unwrap();
+
+        sqlx::query(r#"
+            with p1 as (
+              insert into auth.users (id) values
+              ('43a18a3e-5a59-11ed-9b6a-0242ac120002')
+            ),
+            p2 as (
+              insert into drafts (id, user_id) values
+              ('1110000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120002')
+            ),
+            p3 as (
+              insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
+              ('1111000000000000', '1110000000000000', 'usageB/CaptureC', '{
+                  "bindings": [{"target": "usageB/CaptureC", "resource": {"binding": "foo", "syncMode": "incremental"}}],
+                  "endpoint": {"connector": {"image": "forbidden_connector", "config": {}}}
+              }'::json, 'capture')
+            ),
+            p4 as (
+              insert into publications (id, job_status, user_id, draft_id) values
+              ('1111100000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120002', '1110000000000000')
+            ),
+            p5 as (
+              insert into role_grants (subject_role, object_role, capability) values
+              ('usageB/', 'usageB/', 'admin')
+            ),
+            p6 as (
+              insert into user_grants (user_id, object_role, capability) values
+              ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'usageB/', 'admin')
+            )
+            select 1;
+        "#).execute(&mut txn).await.unwrap();
+
+        let results = execute_publications(&mut txn).await;
+
+        insta::assert_debug_snapshot!(results, @r#"
+        [
+            ScenarioResult {
+                draft_id: 1110000000000000,
+                status: BuildFailed,
+                errors: [
+                    "Forbidden connector image 'forbidden_connector'",
+                ],
+                live_specs: [],
+            },
+        ]
+        "#);
+    }
+
+    #[tokio::test]
+    async fn test_allowed_connector() {
+        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+            .await
+            .unwrap();
+        let mut txn = conn.begin().await.unwrap();
+
+        sqlx::query(r#"
+            with p1 as (
+              insert into auth.users (id) values
+              ('43a18a3e-5a59-11ed-9b6a-0242ac120002')
+            ),
+            p2 as (
+              insert into drafts (id, user_id) values
+              ('1110000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120002')
+            ),
+            p3 as (
+              insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
+              ('1111000000000000', '1110000000000000', 'usageB/CaptureC', '{
+                  "bindings": [{"target": "usageB/CaptureC", "resource": {"binding": "foo", "syncMode": "incremental"}}],
+                  "endpoint": {"connector": {"image": "allowed_connector", "config": {}}}
+              }'::json, 'capture')
+            ),
+            p4 as (
+              insert into publications (id, job_status, user_id, draft_id) values
+              ('1111100000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120002', '1110000000000000')
+            ),
+            p5 as (
+              insert into role_grants (subject_role, object_role, capability) values
+              ('usageB/', 'usageB/', 'admin')
+            ),
+            p6 as (
+              insert into user_grants (user_id, object_role, capability) values
+              ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'usageB/', 'admin')
+            ),
+            p7 as (
+                insert into connectors (external_url, image_name, title, short_description, logo_url) values
+                    ('http://example.com', 'allowed_connector', '{"en-US": "foo"}'::json, '{"en-US": "foo"}'::json, '{"en-US": "foo"}'::json)
+            )
+            select 1;
+            "#).execute(&mut txn).await.unwrap();
+
+        let results = execute_publications(&mut txn).await;
+
+        insta::assert_debug_snapshot!(results, @r#"
+        [
+            ScenarioResult {
+                draft_id: 1110000000000000,
+                status: Success,
+                errors: [],
+                live_specs: [
+                    LiveSpec {
+                        catalog_name: "usageB/CaptureC",
+                        connector_image_name: Some(
+                            "allowed_connector",
+                        ),
+                        connector_image_tag: Some(
+                            "",
+                        ),
+                        reads_from: None,
+                        writes_to: Some(
+                            [
+                                "usageB/CaptureC",
+                            ],
+                        ),
+                        spec: Some(
+                            Object {
+                                "bindings": Array [
+                                    Object {
+                                        "resource": Object {
+                                            "binding": String("foo"),
+                                            "syncMode": String("incremental"),
+                                        },
+                                        "target": String("usageB/CaptureC"),
+                                    },
+                                ],
+                                "endpoint": Object {
+                                    "connector": Object {
+                                        "config": Object {},
+                                        "image": String("allowed_connector"),
+                                    },
+                                },
+                            },
+                        ),
+                        spec_type: Some(
+                            "capture",
                         ),
                     },
                 ],
