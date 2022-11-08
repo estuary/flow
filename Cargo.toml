@@ -149,6 +149,7 @@ assert_cmd = "2.0"
 insta = { version = "1.20", features = ["redactions", "json", "yaml"] }
 criterion = "0.3"
 glob = "0.3"
+serial_test = "0.9"
 
 # Used exclusively as build-dependencies
 cbindgen = "0.23"

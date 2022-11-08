@@ -70,8 +70,6 @@ where
     // 2. It makes it easy to preemptively schedule at least one run of each handler on boot up to allow for handling requests
     //    that came in while we weren't running
     // NOTE: it is critical that we use an unbounded channel here, otherwise we would open ourselves up to a deadlock scenario
-    // Example deadlock when using a bounded channel:
-    // 1. A spike of work comes in
     let (task_tx, mut task_rx) = mpsc::unbounded_channel::<String>();
 
     // Each handler gets run at least once to check if there is any pending work
@@ -85,11 +83,13 @@ where
             let item = listener.recv().await.map_err(|e| anyhow::Error::from(e))?;
             let notification: AgentNotification = serde_json::from_str(item.payload())
                 .context("deserializing agent task notification")?;
-            let table: &str = &notification.table;
 
-            tracing::debug!(table = table, "Message received to invoke handler");
+            tracing::debug!(
+                table = &notification.table,
+                "Message received to invoke handler"
+            );
             task_tx_cloned
-                .send(table.to_string())
+                .send(notification.table)
                 .map_err(|e| anyhow::Error::from(e))?
         }
         // Need this here to indicate that this future returns an anyhow::Result<()>
@@ -102,7 +102,9 @@ where
     tokio::pin!(exit);
 
     loop {
-        tokio::select! {
+        // We use tokio::select! here to enforce the desired error handling behavior of
+        // only exiting after we have processed whatever task we were working on
+        let handler_table_name = tokio::select! {
             _ = &mut exit => {
                 tracing::debug!("caught signal; exiting...");
                 return Ok(()) // All done.
@@ -110,7 +112,7 @@ where
             listener_res = &mut listener_handler => {
                 match listener_res {
                     // It should be impossible to get here since `listen_to_datbase_notifications` loop has no `return`s or `break`s
-                    Ok(Ok(())) => return Err(anyhow::anyhow!("Unexpected notification listener exit")),
+                    Ok(Ok(())) => unreachable!("Unexpected notification listener exit"),
                     // If we get an error from inside `listen_to_datbase_notifications`,
                     // something went wrong when actually listening to the postgres channel
                     Ok(Err(e)) => return Err(e.into()),
@@ -119,41 +121,47 @@ where
                 }
             }
             maybe_handler_table = task_rx.recv() => {
-                match maybe_handler_table {
-                    Some(handler_table) => {
-                        let mut handler = match handlers_by_table.get(&handler_table as &str) {
-                            Some(handler) => handler.lock().await,
-                            None => {
-                                tracing::warn!(table = &handler_table, "Message received to handle unknown table");
-                                continue;
-                            },
-                        };
-
-                        let handle_result = handler.handle(&pg_pool).await;
-
-                        match handle_result {
-                            Ok(status) => {
-                                tracing::info!(handler = %handler.name(), table = %handler.table_name(), status = ?status, "invoked handler");
-                                match status {
-                                    HandlerStatus::Active => {
-                                        // Re-schedule another run to handle this MoreWork
-                                        task_tx.send(handler.table_name().to_string())?;
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            Err(err) => {
-                                // Do we actually just want to crash here?
-                                tracing::error!(handler = %handler.name(), table = %handler.table_name(), "Error invoking handler: {err}");
-                            }
-                        }
-                    },
-                    None => {
-                        // If `task_rx.recv()` returns None, the channel has been closed
-                        // This shouldn't happen, so if it does then something probably went wrong and we should exit
-                        return Ok(())
-                    },
+                if let Some(handler_table) = maybe_handler_table {
+                    handler_table
+                } else {
+                    // If `task_rx.recv()` returns None, the channel has been closed
+                    // This shouldn't happen (since task_tx/task_rx live until the end of `serve`),
+                    // so if it does then something probably went wrong and we should exit
+                    unreachable!("Agent task channel unexpectedly closed")
                 }
+            }
+        };
+
+        let mut handler = match handlers_by_table.get(&handler_table_name as &str) {
+            Some(handler) => handler.lock().await,
+            None => {
+                tracing::warn!(
+                    table = &handler_table_name,
+                    "Message received to handle unknown table"
+                );
+                continue;
+            }
+        };
+
+        let handle_result = handler.handle(&pg_pool).await;
+
+        match handle_result {
+            Ok(status) => {
+                tracing::info!(handler = %handler.name(), table = %handler.table_name(), status = ?status, "invoked handler");
+                match status {
+                    // Active indicates that there may be more work to perform,
+                    // so we should schedule another run of this handler
+                    HandlerStatus::Active => {
+                        task_tx.send(handler.table_name().to_string())?;
+                    }
+                    // Idle indicates that the handler checked and didn't find any work to do,
+                    // so let's wait until we get a message from the database before we wake again
+                    HandlerStatus::Idle => {}
+                }
+            }
+            Err(err) => {
+                // Do we actually just want to crash here?
+                tracing::error!(handler = %handler.name(), table = %handler.table_name(), "Error invoking handler: {err}");
             }
         }
     }
@@ -206,12 +214,13 @@ async fn upsert_draft_specs(
 
 #[cfg(test)]
 mod test {
-    use std::time::Duration;
+
+    use anyhow::Context;
+    use futures::{FutureExt, TryFutureExt};
+    use serial_test::serial;
+    use sqlx::{postgres::PgListener, PgPool};
 
     use crate::{serve, AgentNotification, Handler, HandlerStatus, AGENT_NOTIFICATION_CHANNEL};
-
-    use futures::{FutureExt, TryFutureExt};
-    use sqlx::{postgres::PgListener, PgPool};
 
     const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
@@ -268,7 +277,13 @@ mod test {
         }
     }
 
+    // We indicate that test_handlers_react_quickly and test_pg_notifications are to be run serially
+    // because in the middle of their execution, they commit a transaction that modifies the database
+    // even though they clean up those changes before exiting. The problem arrises when another test
+    // tries to make conflicting changes (even inside a transaction). Therefore, we also have to mark
+    // all other tests as #[parallel], so that they are not run at the same time as a #[serial] test
     #[tokio::test]
+    #[serial]
     async fn test_handlers_react_quickly() {
         let pg_pool = PgPool::connect(&FIXED_DATABASE_URL).await.unwrap();
 
@@ -307,12 +322,11 @@ mod test {
                     // We have to commit the transaction for the NOTIFY to get sent
                     txn.commit().await.unwrap();
 
-                    // Make sure that our mock publication handler was called within 25ms
-                    let res = tokio::time::timeout(Duration::from_millis(25), handler_notify_rx.recv().map(|_|()))
+                    // Make sure that our mock publication handler was called
+                    handler_notify_rx.recv()
                         .await
-                        .map_err(|_| anyhow::anyhow!("Timed out waiting for mock publication handler to get called"));
-
-                    res.unwrap();
+                        .context("receiving from mock task notification channel")
+                        .unwrap();
 
                     // We have to clean up because we commit the transaction above
                     // We can't use `txn` since `.commit()` consumes itself, so we have to
@@ -320,14 +334,17 @@ mod test {
                     let mut conn = pg_pool.acquire().await.unwrap();
                     sqlx::query(HAPPY_PATH_CLEANUP).execute(&mut conn).await.unwrap();
                 }
+
                 Ok(())
             } => {
                 res
             }
-        }.unwrap()
+        }
+        .unwrap();
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_pg_notifications() {
         let pg_pool = PgPool::connect(&FIXED_DATABASE_URL).await.unwrap();
         let mut txn = pg_pool.begin().await.unwrap();
@@ -346,15 +363,11 @@ mod test {
         // We have to commit the transaction for the NOTIFY to get sent
         txn.commit().await.unwrap();
 
-        let notification: AgentNotification = tokio::time::timeout(
-            Duration::from_millis(50),
-            listener
-                .recv()
-                .map_ok(|item| serde_json::from_str(item.payload()).unwrap()),
-        )
-        .await
-        .unwrap()
-        .unwrap();
+        let notification: AgentNotification = listener
+            .recv()
+            .map_ok(|item| serde_json::from_str(item.payload()).unwrap())
+            .await
+            .unwrap();
 
         // We can't use `txn` since `.commit()` consumes itself, so we have to
         // acquire another connection for a sec to do this cleanup

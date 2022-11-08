@@ -659,6 +659,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[serial_test::parallel]
     async fn test_happy_path() {
         let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
             .await
