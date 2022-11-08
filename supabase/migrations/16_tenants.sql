@@ -4,7 +4,10 @@ create table tenants (
 
   -- TODO(johnny): In the future, we expect to hang billing
   -- and data-plane assignment onto this record.
-  tenant      catalog_tenant unique not null
+  tenant                  catalog_tenant unique not null,
+
+  tasks_quota             integer        not null default 10,
+  collections_quota       integer        not null default 100
 );
 alter table tenants enable row level security;
 
