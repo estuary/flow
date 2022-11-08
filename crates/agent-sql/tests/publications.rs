@@ -4,6 +4,52 @@ use sqlx::{types::Uuid, Connection, Row};
 const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
 #[tokio::test]
+async fn test_finding_forbidden_connectors() {
+    let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+        .await
+        .expect("connect");
+
+    let mut txn = conn.begin().await.unwrap();
+
+    sqlx::query(
+        r#"
+        with p1 as (
+          insert into live_specs (id, catalog_name, spec, spec_type, connector_image_name, last_build_id, last_pub_id) values
+          ('aa00000000000000', 'testConnectors/Forbidden', '{}'::json, 'capture', 'forbidden_image', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+          ('bb00000000000000', 'testConnectors/Allowed', '{}'::json, 'capture', 'allowed_image', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
+        ),
+        p2 as (
+            insert into connectors (external_url, image_name, title, short_description, logo_url) values
+                ('http://example.com', 'allowed_image', '{"en-US": "foo"}'::json, '{"en-US": "foo"}'::json, '{"en-US": "foo"}'::json)
+        )
+        select 1;
+        "#,
+    )
+    .execute(&mut txn)
+    .await
+    .unwrap();
+
+    let res = agent_sql::connector_tags::resolve_unknown_connectors(
+        vec![
+            Id::from_hex("aa00000000000000").unwrap(),
+            Id::from_hex("bb00000000000000").unwrap(),
+        ],
+        &mut txn,
+    )
+    .await
+    .unwrap();
+
+    insta::assert_json_snapshot!(res, @r#"
+    [
+      {
+        "catalog_name": "testConnectors/Forbidden",
+        "image_name": "forbidden_image"
+      }
+    ]
+    "#);
+}
+
+#[tokio::test]
 async fn test_publication_data_operations() {
     let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
         .await

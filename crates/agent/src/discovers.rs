@@ -15,6 +15,7 @@ pub enum JobStatus {
     Queued,
     WrongProtocol { protocol: String },
     TagFailed,
+    ImageForbidden,
     PullFailed,
     DiscoverFailed,
     Success,
@@ -94,6 +95,10 @@ impl DiscoverHandler {
                     protocol: row.protocol,
                 },
             ));
+        }
+
+        if !agent_sql::connector_tags::does_connector_exist(row.image_name.clone(), txn).await? {
+            return Ok((row.id, JobStatus::ImageForbidden));
         }
 
         if row.image_tag != LOCAL_IMAGE_TAG {

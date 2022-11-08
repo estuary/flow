@@ -1,44 +1,64 @@
 -- This migration creates the tables needed for materialization
 -- of task stats into the control plane.
 
-create type task_type as enum ('capture', 'derivation', 'materialization');
+create type grain as enum ('monthly', 'daily', 'hourly');
 
--- The `task_stats` table is _not_ identical to what the connector would have created.
+-- The `catalog_stats` table is _not_ identical to what the connector would have created.
 -- They have slightly different column types to make things a little more ergonomic and consistent.
 
-create table task_stats (
-    flow_document   json         not null,
-    hourstamp       timestamptz  not null,
-    shard_split     macaddr8     not null,
-    task_name       catalog_name not null,
-    task_type       task_type    not null
-) partition by list (substring(task_name for position('/' in task_name)));
-alter table task_stats enable row level security;
+create table catalog_stats (
+    catalog_name        catalog_name not null,
+    grain               text         not null,
+    bytes_written_by_me bigint       not null,
+    docs_written_by_me  bigint       not null,
+    bytes_read_by_me    bigint       not null,
+    docs_read_by_me     bigint       not null,
+    bytes_written_to_me bigint       not null,
+    docs_written_to_me  bigint       not null,
+    bytes_read_from_me  bigint       not null,
+    docs_read_from_me   bigint       not null,
+    ts                  timestamptz  not null,
+    flow_document       json         not null
+) partition by list (substring(catalog_name for position('/' in catalog_name)));
+alter table catalog_stats enable row level security;
 
-create policy "Users must be authorized to the catalog task name"
-  on task_stats as permissive for select
-  using (auth_catalog(task_name, 'admin'));
-grant select on task_stats to authenticated;
+create policy "Users must be authorized to the catalog name"
+  on catalog_stats as permissive for select
+  using (auth_catalog(catalog_name, 'admin'));
+grant select on catalog_stats to authenticated;
 
-comment on table task_stats is
-    'Statistics for catalog tasks and their shards';
-comment on column task_stats.flow_document is
-    'Aggregated statistics document for the given shard split and hour';
-comment on column task_stats.hourstamp is
-    'The aggregated UTC hour of the stats';
-comment on column task_stats.shard_split is '
-Split of the catalog task shard.
+comment on table catalog_stats is
+    'Statistics for Flow catalogs';
+comment on column catalog_stats.grain is '
+Time grain that stats are summed over.
 
-Split values compose the beginning value of the shard''s key range
-with the beginning value of the shard''s rClock range.
+One of "monthly", "daily", or "hourly".
 ';
-comment on column task_stats.task_name is
-    'Name of the catalog task';
-comment on column task_stats.task_type is '
-The type of catalog task to which stats pertain.
+comment on column catalog_stats.bytes_written_by_me is
+    'Bytes written by this catalog, summed over the time grain.';
+comment on column catalog_stats.docs_written_by_me is
+    'Documents written by this catalog, summed over the time grain.';
+comment on column catalog_stats.bytes_read_by_me is
+    'Bytes read by this catalog, summed over the time grain.';
+comment on column catalog_stats.docs_read_by_me is
+    'Documents read by this catalog, summed over the time grain.';
+comment on column catalog_stats.bytes_written_to_me is
+    'Bytes written to this catalog, summed over the time grain.';
+comment on column catalog_stats.docs_written_to_me is
+    'Documents written to this catalog, summed over the time grain.';
+comment on column catalog_stats.bytes_read_from_me is
+    'Bytes read from this catalog, summed over the time grain.';
+comment on column catalog_stats.docs_read_from_me is
+    'Documents read from this catalog, summed over the time grain.';
+comment on column catalog_stats.ts is '
+Timestamp indicating the start time of the time grain.
 
-One of "capture", "derivation", or "materialization".
+Monthly grains start on day 1 of the month, at hour 0 and minute 0.
+Daily grains start on the day, at hour 0 and minute 0.
+Hourly grains start on the hour, at minute 0.
 ';
+comment on column catalog_stats.flow_document is
+    'Aggregated statistics document for the given catalog name and grain';
 
 do $$
 begin
@@ -48,8 +68,8 @@ begin
 end
 $$;
 
-create schema task_stat_partitions;
-comment on schema task_stat_partitions is
-    'Private schema which holds per-tenant partitions of task_stats.';
+create schema catalog_stat_partitions;
+comment on schema catalog_stat_partitions is
+    'Private schema which holds per-tenant partitions of catalog_stats.';
 
-grant create, usage on schema task_stat_partitions to stats_loader;
+grant create, usage on schema catalog_stat_partitions to stats_loader;

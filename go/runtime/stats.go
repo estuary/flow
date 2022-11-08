@@ -155,7 +155,9 @@ type InvokeStats struct {
 }
 
 type DeriveTransformStats struct {
-	Input DocsAndBytes `json:"input"`
+	// Source collection for this transform.
+	Source string       `json:"source"`
+	Input  DocsAndBytes `json:"input"`
 	// At least one of Update or Publish must be present in the output,
 	// but either one can be optional. This is to avoid outputting zeroed out invocation stats for
 	// lambdas that the user hasn't defined.
