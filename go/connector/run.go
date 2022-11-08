@@ -458,5 +458,5 @@ func copyToTempFile(r io.Reader, mode os.FileMode) (*os.File, error) {
 }
 
 const maxStderrBytes = 4096
-const maxMessageSize = 1 << 23 // 8 MB.
+const maxMessageSize = 1 << 24 // 16 MB.
 const flowConnectorProxy = "flow-connector-proxy"
