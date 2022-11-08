@@ -84,6 +84,13 @@ comment on view combined_grants_ext is
 
 -- Extended view of live catalog specifications.
 create view live_specs_ext as
+with user_read_access AS (
+    select
+        distinct role_prefix
+        from internal.user_roles(auth_uid())
+    where
+       capability >= 'read'
+)
 select
   l.*,
   c.external_url as connector_external_url,
@@ -100,13 +107,13 @@ select
   u.email as last_pub_user_email,
   u.full_name as last_pub_user_full_name
 from live_specs l
-left outer join (
-  select role_prefix, max(capability) as capability from internal.user_roles(auth_uid()) group by role_prefix
-) r on starts_with(l.catalog_name, r.role_prefix) and r.capability >= 'read'
 left outer join publication_specs p on l.id = p.live_spec_id and l.last_pub_id = p.pub_id
 left outer join connectors c on c.image_name = l.connector_image_name
 left outer join connector_tags t on c.id = t.connector_id and l.connector_image_tag = t.image_tag
 left outer join internal.user_profiles u on u.user_id = p.user_id
+where exists(
+  select 1 from user_read_access r where starts_with(l.catalog_name, r.role_prefix)
+)
 ;
 -- Using `grant select` is discouraged because it allows the view to query the
 -- table as the user 'postgres' which bypasses RLS policies. However in this
