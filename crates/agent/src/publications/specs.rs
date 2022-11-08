@@ -782,6 +782,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[serial_test::parallel]
     async fn test_forbidden_connector() {
         let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
             .await
@@ -836,6 +837,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[serial_test::parallel]
     async fn test_allowed_connector() {
         let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
             .await
@@ -930,6 +932,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[serial_test::parallel]
     async fn test_quota_single_task() {
         let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
             .await
@@ -996,6 +999,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[serial_test::parallel]
     async fn test_quota_derivations() {
         let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
             .await
@@ -1061,6 +1065,7 @@ mod test {
 
     // Testing that we can disable tasks to reduce usage when at quota
     #[tokio::test]
+    #[serial_test::parallel]
     async fn test_disable_when_over_quota() {
         let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
             .await
