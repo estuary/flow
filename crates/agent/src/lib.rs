@@ -17,7 +17,10 @@ use std::{
     },
     time::Duration,
 };
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{
+    mpsc::{self, UnboundedSender},
+    Mutex,
+};
 
 pub use agent_sql::{CatalogType, Id};
 pub use connector_tags::TagHandler;
@@ -50,6 +53,107 @@ pub trait Handler {
     }
 }
 
+#[derive(Debug)]
+struct HandlerInvocation {
+    table_name: String,
+    is_poll: bool,
+}
+
+async fn listen_for_tasks(
+    task_tx: UnboundedSender<HandlerInvocation>,
+    table_names: Vec<String>,
+    pg_pool: &sqlx::PgPool,
+) -> anyhow::Result<()> {
+    let mut listener = PgListener::connect_with(&pg_pool).await?;
+
+    listener.listen(AGENT_NOTIFICATION_CHANNEL).await?;
+
+    loop {
+        // try_recv returns None when the channel disconnects,
+        // which we want to have explicit handling for
+        let maybe_item = listener
+            .try_recv()
+            .await
+            .map_err(|e| anyhow::Error::from(e))?;
+
+        if let Some(item) = maybe_item {
+            let notification: AgentNotification = serde_json::from_str(item.payload())
+                .context("deserializing agent task notification")?;
+
+            tracing::debug!(
+                table = &notification.table,
+                "Message received to invoke handler"
+            );
+            task_tx
+                .send(HandlerInvocation {
+                    table_name: notification.table,
+                    is_poll: false,
+                })
+                .map_err(|e| anyhow::Error::from(e))?
+        } else {
+            tracing::warn!("LISTEN/NOTIFY stream from postgres lost, waking all handlers and attempting to reconnect");
+            table_names.iter().for_each(|table| {
+                task_tx
+                    .send(HandlerInvocation {
+                        table_name: table.clone(),
+                        is_poll: false,
+                    })
+                    .unwrap()
+            });
+        }
+    }
+}
+
+async fn handle_task(
+    handler: &mut Box<dyn Handler>,
+    handlers_active: Arc<HashMap<&str, Arc<AtomicBool>>>,
+    is_poll: bool,
+    task_tx: UnboundedSender<HandlerInvocation>,
+    pg_pool: &sqlx::PgPool,
+) -> anyhow::Result<()> {
+    // --- Remove me when we're confident that listen/notify won't miss anything ---
+    let active = handlers_active.get(&handler.table_name() as &str).unwrap();
+
+    active.store(true, Ordering::SeqCst);
+    // -----------------------------------------------------------------------------
+
+    let handle_result = handler.handle(&pg_pool).await;
+
+    match handle_result {
+        Ok(status) => {
+            tracing::info!(handler = %handler.name(), table = %handler.table_name(), status = ?status, "invoked handler");
+            match status {
+                // Active indicates that there may be more work to perform,
+                // so we should schedule another run of this handler
+                HandlerStatus::Active => {
+                    if is_poll {
+                        tracing::warn!(
+                            handler = %handler.name(),
+                            table = %handler.table_name(),
+                            "Polled handler actually had work to perform. This means LISTEN/NOTIFY missed something!"
+                        );
+                    }
+                    task_tx.send(HandlerInvocation {
+                        table_name: handler.table_name().to_string(),
+                        is_poll,
+                    })?;
+                }
+                // Idle indicates that the handler checked and didn't find any work to do,
+                // so let's wait until we get a message from the database before we wake again
+                HandlerStatus::Idle => {
+                    active.store(false, Ordering::SeqCst);
+                }
+            }
+        }
+        Err(err) => {
+            // Do we actually just want to crash here?
+            tracing::error!(handler = %handler.name(), table = %handler.table_name(), "Error invoking handler: {err}");
+            active.store(false, Ordering::SeqCst);
+        }
+    };
+    Ok(())
+}
+
 const AGENT_NOTIFICATION_CHANNEL: &str = "agent_notifications";
 
 // serve one or more Handlers until signaled by a ready |exit| future.
@@ -80,60 +184,30 @@ where
     );
     // -----------------------------------------------------------------------------
 
-    let mut listener = PgListener::connect_with(&pg_pool).await?;
-
-    listener.listen(AGENT_NOTIFICATION_CHANNEL).await?;
-
     // We use a channel here for two reasons:
     // 1. Because handlers run one task at a time, and can also indicate that they have more work to perform or not,
     //    we want to balance the time spent processing each type of handler so that no one handler can monopolize resources.
     // 2. It makes it easy to preemptively schedule at least one run of each handler on boot up to allow for handling requests
     //    that came in while we weren't running
     // NOTE: it is critical that we use an unbounded channel here, otherwise we would open ourselves up to a deadlock scenario
-    let (task_tx, mut task_rx) = mpsc::unbounded_channel::<(String, bool)>();
+    let (task_tx, mut task_rx) = mpsc::unbounded_channel::<HandlerInvocation>();
 
     // Each handler gets run at least once to check if there is any pending work
     let handler_table_names: Vec<String> = handlers_by_table
         .iter()
         .map(|(handler_table, _)| handler_table.to_string())
         .collect();
-    handler_table_names
-        .iter()
-        .for_each(|table| task_tx.send((table.clone(), false)).unwrap());
+    handler_table_names.iter().for_each(|table| {
+        task_tx
+            .send(HandlerInvocation {
+                table_name: table.clone(),
+                is_poll: false,
+            })
+            .unwrap()
+    });
 
-    let task_tx_cloned = task_tx.clone();
-    let cloned_handler_table_names = handler_table_names.clone();
-    let listen_to_datbase_notifications = async move {
-        loop {
-            // try_recv returns None when the channel disconnects,
-            // which we want to have explicit handling for
-            let maybe_item = listener
-                .try_recv()
-                .await
-                .map_err(|e| anyhow::Error::from(e))?;
-
-            if let Some(item) = maybe_item {
-                let notification: AgentNotification = serde_json::from_str(item.payload())
-                    .context("deserializing agent task notification")?;
-
-                tracing::debug!(
-                    table = &notification.table,
-                    "Message received to invoke handler"
-                );
-                task_tx_cloned
-                    .send((notification.table, false))
-                    .map_err(|e| anyhow::Error::from(e))?
-            } else {
-                tracing::warn!("LISTEN/NOTIFY stream from postgres lost, waking all handlers and attempting to reconnect");
-                cloned_handler_table_names
-                    .iter()
-                    .for_each(|table| task_tx_cloned.send((table.clone(), false)).unwrap());
-            }
-        }
-        // Need this here to indicate that this future returns an anyhow::Result<()>
-        #[allow(unreachable_code)]
-        Ok::<(), anyhow::Error>(())
-    };
+    let listen_to_datbase_notifications =
+        listen_for_tasks(task_tx.clone(), handler_table_names.clone(), &pg_pool);
 
     // --- Remove me when we're confident that listen/notify won't miss anything ---
     let task_tx_cloned = task_tx.clone();
@@ -158,37 +232,42 @@ where
                         table_name = table_name,
                         "Polling handler as it's currently idle"
                     );
-                    task_tx_cloned.send((table_name.clone(), true)).unwrap();
+                    task_tx_cloned
+                        .send(HandlerInvocation {
+                            table_name: table_name.clone(),
+                            is_poll: true,
+                        })
+                        .unwrap();
                 }
             }
         }
     };
-    let mut poll_handler = tokio::spawn(temporary_polling);
     // -----------------------------------------------------------------------------
 
-    let mut listener_handler = tokio::spawn(listen_to_datbase_notifications);
-
     tokio::pin!(exit);
+    tokio::pin!(temporary_polling);
+    tokio::pin!(listen_to_datbase_notifications);
 
     loop {
         // We use tokio::select! here to enforce the desired error handling behavior of
         // only exiting after we have processed whatever task we were working on
-        let (handler_table_name, is_polled) = tokio::select! {
+        let HandlerInvocation {
+            table_name: handler_table_name,
+            is_poll,
+        } = tokio::select! {
             _ = &mut exit => {
                 tracing::debug!("caught signal; exiting...");
                 return Ok(()) // All done.
             }
-            _ = &mut poll_handler => {
+            _ = &mut temporary_polling => {
                 unreachable!("Polling exited unexpectedly");
             }
-            listener_res = &mut listener_handler => {
+            listener_res = &mut listen_to_datbase_notifications => {
                 match listener_res {
                     // It should be impossible to get here since `listen_to_datbase_notifications` loop has no `return`s or `break`s
-                    Ok(Ok(())) => unreachable!("Unexpected notification listener exit"),
+                    Ok(_) => unreachable!("Unexpected notification listener exit"),
                     // If we get an error from inside `listen_to_datbase_notifications`,
                     // something went wrong when actually listening to the postgres channel
-                    Ok(Err(e)) => return Err(e.into()),
-                    // If we got a JoinError, the listener failed unexpectedly
                     Err(e) => return Err(e.into()),
                 }
             }
@@ -215,43 +294,14 @@ where
             }
         };
 
-        // --- Remove me when we're confident that listen/notify won't miss anything ---
-        let mut active = handlers_active.get(&handler_table_name as &str).unwrap();
-
-        active.store(true, Ordering::SeqCst);
-        // -----------------------------------------------------------------------------
-
-        let handle_result = handler.handle(&pg_pool).await;
-
-        match handle_result {
-            Ok(status) => {
-                tracing::info!(handler = %handler.name(), table = %handler.table_name(), status = ?status, "invoked handler");
-                match status {
-                    // Active indicates that there may be more work to perform,
-                    // so we should schedule another run of this handler
-                    HandlerStatus::Active => {
-                        if is_polled {
-                            tracing::warn!(
-                                handler = %handler.name(),
-                                table = %handler.table_name(),
-                                "Polled handler actually had work to perform. This means LISTEN/NOTIFY missed something!"
-                            );
-                        }
-                        task_tx.send((handler.table_name().to_string(), is_polled))?;
-                    }
-                    // Idle indicates that the handler checked and didn't find any work to do,
-                    // so let's wait until we get a message from the database before we wake again
-                    HandlerStatus::Idle => {
-                        active.store(false, Ordering::SeqCst);
-                    }
-                }
-            }
-            Err(err) => {
-                // Do we actually just want to crash here?
-                tracing::error!(handler = %handler.name(), table = %handler.table_name(), "Error invoking handler: {err}");
-                active.store(false, Ordering::SeqCst);
-            }
-        }
+        handle_task(
+            &mut handler,
+            handlers_active.clone(),
+            is_poll,
+            task_tx.clone(),
+            &pg_pool,
+        )
+        .await?;
     }
 }
 
