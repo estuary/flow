@@ -64,14 +64,54 @@ async fn listen_for_tasks(
     table_names: Vec<String>,
     pg_pool: &sqlx::PgPool,
 ) -> anyhow::Result<()> {
-    let mut listener = PgListener::connect_with(&pg_pool).await?;
+    let listener = Arc::new(Mutex::new(PgListener::connect_with(&pg_pool).await?));
 
-    listener.listen(AGENT_NOTIFICATION_CHANNEL).await?;
+    listener
+        .lock()
+        .await
+        .listen(AGENT_NOTIFICATION_CHANNEL)
+        .await?;
+
+    // Sqlx does not give us the option to set TCP keepalive on its connections,
+    // and this specifc scenario of keeping a long-running connection open to listen
+    // for notifications is especially prone to deadlocking
+    // due to mismatched connection timeouts on the client vs server.
+    //
+    // In order to ensure we actually find out about socket disconnects
+    // we do this hack that ensures that some traffic goes over the
+    // socket at least every 30s.
+    //
+    // In the case that the remote side thinks the connection is closed,
+    // we'll get a TCP reset, which will cause us to close the connection.
+    // This will then bubble through as a None return to PgListener:try_recv(),
+    // which we'll then attempt to reconnect, and trigger the task handlers
+    // to look and see if there's any work waiting for them.
+    let cloned_listener = listener.clone();
+    let handle = tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            cloned_listener
+                .lock()
+                .await
+                .listen("hacky_keepalive")
+                .await
+                .unwrap();
+
+            cloned_listener
+                .lock()
+                .await
+                .unlisten("hacky_keepalive")
+                .await
+                .unwrap();
+        }
+    });
 
     loop {
         // try_recv returns None when the channel disconnects,
         // which we want to have explicit handling for
         let maybe_item = listener
+            .lock()
+            .await
             .try_recv()
             .await
             .map_err(|e| anyhow::Error::from(e))?;
