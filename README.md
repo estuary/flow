@@ -25,7 +25,7 @@ With a Flow pipeline, you:
 -   🌊 **Derive** new collections by transforming from other collections, using
     the full gamut of stateful stream workflow, joins, and aggregations.
 
-❗️ **Our UI-based web application is coming in Q2 of 2022**. Learn about the beta program [here](https://go.estuary.dev/sign-up). In future releases, we'll combine the CLI and UI into a unified platform. Flow is a tool meant to allow *all* data stakeholders to meaningfully collaborate: engineers, analysts, and everyone in between.❗️
+❗️ **Our UI-based web application is available**. Sign up for a free account [here](https://go.estuary.dev/sign-up). All functionality can be accessed in both the UI and CLI as a unified platform. Flow is a tool meant to allow *all* data stakeholders to meaningfully collaborate: engineers, analysts, and everyone in between.❗️
 
 ![Workflow Overview](site/docs/concepts/at-a-glance.png)
 
