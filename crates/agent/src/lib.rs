@@ -73,24 +73,38 @@ where
     let (task_tx, mut task_rx) = mpsc::unbounded_channel::<String>();
 
     // Each handler gets run at least once to check if there is any pending work
-    for (handler_table, _) in handlers_by_table.iter() {
-        task_tx.send(handler_table.to_string())?;
-    }
+    let handler_table_names: Vec<String> = handlers_by_table
+        .iter()
+        .map(|(handler_table, _)| handler_table.to_string())
+        .collect();
+    handler_table_names
+        .iter()
+        .for_each(|table| task_tx.send(table.clone()).unwrap());
 
     let task_tx_cloned = task_tx.clone();
     let listen_to_datbase_notifications = async move {
         loop {
-            let item = listener.recv().await.map_err(|e| anyhow::Error::from(e))?;
-            let notification: AgentNotification = serde_json::from_str(item.payload())
-                .context("deserializing agent task notification")?;
+            let maybe_item = listener
+                .try_recv()
+                .await
+                .map_err(|e| anyhow::Error::from(e))?;
+            if let Some(item) = maybe_item {
+                let notification: AgentNotification = serde_json::from_str(item.payload())
+                    .context("deserializing agent task notification")?;
 
-            tracing::debug!(
-                table = &notification.table,
-                "Message received to invoke handler"
-            );
-            task_tx_cloned
-                .send(notification.table)
-                .map_err(|e| anyhow::Error::from(e))?
+                tracing::debug!(
+                    table = &notification.table,
+                    "Message received to invoke handler"
+                );
+                task_tx_cloned
+                    .send(notification.table)
+                    .map_err(|e| anyhow::Error::from(e))?
+            } else {
+                tracing::warn!("LISTEN/NOTIFY stream from postgres lost, waking all handlers and attempting to reconnect");
+                handler_table_names
+                    .iter()
+                    .for_each(|table| task_tx_cloned.send(table.clone()).unwrap());
+            }
         }
         // Need this here to indicate that this future returns an anyhow::Result<()>
         #[allow(unreachable_code)]
