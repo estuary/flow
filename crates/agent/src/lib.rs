@@ -9,7 +9,7 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgListener;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::{mpsc, Mutex};
 
 pub use agent_sql::{CatalogType, Id};
@@ -60,6 +60,15 @@ where
         .map(|h| (h.table_name(), Arc::new(Mutex::new(h))))
         .collect::<HashMap<_, _>>();
 
+    // --- Remove me when we're confident that listen/notify won't miss anything ---
+    let handlers_active = Arc::new(
+        handlers_by_table
+            .iter()
+            .map(|(table_name, _)| (*table_name, Arc::new(Mutex::new(false))))
+            .collect::<HashMap<_, _>>(),
+    );
+    // -----------------------------------------------------------------------------
+
     let mut listener = PgListener::connect_with(&pg_pool).await?;
 
     listener.listen(AGENT_NOTIFICATION_CHANNEL).await?;
@@ -70,7 +79,7 @@ where
     // 2. It makes it easy to preemptively schedule at least one run of each handler on boot up to allow for handling requests
     //    that came in while we weren't running
     // NOTE: it is critical that we use an unbounded channel here, otherwise we would open ourselves up to a deadlock scenario
-    let (task_tx, mut task_rx) = mpsc::unbounded_channel::<String>();
+    let (task_tx, mut task_rx) = mpsc::unbounded_channel::<(String, bool)>();
 
     // Each handler gets run at least once to check if there is any pending work
     let handler_table_names: Vec<String> = handlers_by_table
@@ -79,15 +88,19 @@ where
         .collect();
     handler_table_names
         .iter()
-        .for_each(|table| task_tx.send(table.clone()).unwrap());
+        .for_each(|table| task_tx.send((table.clone(), false)).unwrap());
 
     let task_tx_cloned = task_tx.clone();
+    let cloned_handler_table_names = handler_table_names.clone();
     let listen_to_datbase_notifications = async move {
         loop {
+            // try_recv returns None when the channel disconnects,
+            // which we want to have explicit handling for
             let maybe_item = listener
                 .try_recv()
                 .await
                 .map_err(|e| anyhow::Error::from(e))?;
+
             if let Some(item) = maybe_item {
                 let notification: AgentNotification = serde_json::from_str(item.payload())
                     .context("deserializing agent task notification")?;
@@ -97,19 +110,51 @@ where
                     "Message received to invoke handler"
                 );
                 task_tx_cloned
-                    .send(notification.table)
+                    .send((notification.table, false))
                     .map_err(|e| anyhow::Error::from(e))?
             } else {
                 tracing::warn!("LISTEN/NOTIFY stream from postgres lost, waking all handlers and attempting to reconnect");
-                handler_table_names
+                cloned_handler_table_names
                     .iter()
-                    .for_each(|table| task_tx_cloned.send(table.clone()).unwrap());
+                    .for_each(|table| task_tx_cloned.send((table.clone(), false)).unwrap());
             }
         }
         // Need this here to indicate that this future returns an anyhow::Result<()>
         #[allow(unreachable_code)]
         Ok::<(), anyhow::Error>(())
     };
+
+    // --- Remove me when we're confident that listen/notify won't miss anything ---
+    let task_tx_cloned = task_tx.clone();
+    let handlers_active_cloned = handlers_active.clone();
+    let temporary_polling = async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+
+            for table_name in &handler_table_names {
+                let active = handlers_active_cloned
+                    .get(&table_name as &str)
+                    .unwrap()
+                    .lock()
+                    .await;
+
+                if *active {
+                    tracing::debug!(
+                        table_name = table_name,
+                        "Not polling handler as it's currently active"
+                    );
+                } else {
+                    tracing::debug!(
+                        table_name = table_name,
+                        "Polling handler as it's currently idle"
+                    );
+                    task_tx_cloned.send((table_name.clone(), true)).unwrap();
+                }
+            }
+        }
+    };
+    let mut poll_handler = tokio::spawn(temporary_polling);
+    // -----------------------------------------------------------------------------
 
     let mut listener_handler = tokio::spawn(listen_to_datbase_notifications);
 
@@ -118,10 +163,13 @@ where
     loop {
         // We use tokio::select! here to enforce the desired error handling behavior of
         // only exiting after we have processed whatever task we were working on
-        let handler_table_name = tokio::select! {
+        let (handler_table_name, is_polled) = tokio::select! {
             _ = &mut exit => {
                 tracing::debug!("caught signal; exiting...");
                 return Ok(()) // All done.
+            }
+            _ = &mut poll_handler => {
+                unreachable!("Polling exited unexpectedly");
             }
             listener_res = &mut listener_handler => {
                 match listener_res {
@@ -157,6 +205,16 @@ where
             }
         };
 
+        // --- Remove me when we're confident that listen/notify won't miss anything ---
+        let mut active = handlers_active
+            .get(&handler_table_name as &str)
+            .unwrap()
+            .lock()
+            .await;
+
+        *active = true;
+        // -----------------------------------------------------------------------------
+
         let handle_result = handler.handle(&pg_pool).await;
 
         match handle_result {
@@ -166,11 +224,18 @@ where
                     // Active indicates that there may be more work to perform,
                     // so we should schedule another run of this handler
                     HandlerStatus::Active => {
-                        task_tx.send(handler.table_name().to_string())?;
+                        if is_polled {
+                            tracing::warn!(
+                                handler = %handler.name(),
+                                table = %handler.table_name(),
+                                "Polled handler actually had work to perform. This means LISTEN/NOTIFY missed something!"
+                            );
+                        }
+                        task_tx.send((handler.table_name().to_string(), is_polled))?;
                     }
                     // Idle indicates that the handler checked and didn't find any work to do,
                     // so let's wait until we get a message from the database before we wake again
-                    HandlerStatus::Idle => {}
+                    HandlerStatus::Idle => *active = false,
                 }
             }
             Err(err) => {
