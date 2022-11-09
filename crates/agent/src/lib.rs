@@ -9,7 +9,14 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgListener;
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 use tokio::sync::{mpsc, Mutex};
 
 pub use agent_sql::{CatalogType, Id};
@@ -61,10 +68,14 @@ where
         .collect::<HashMap<_, _>>();
 
     // --- Remove me when we're confident that listen/notify won't miss anything ---
+    // We need to keep track of which handlers are active so that
+    // the polling logic doesn't schedule a poll-tainted handle invocation
+    // while "legit" handle invocations are happening. This would look like
+    // scary logging about missed messages while in reality that's not the case.
     let handlers_active = Arc::new(
         handlers_by_table
             .iter()
-            .map(|(table_name, _)| (*table_name, Arc::new(Mutex::new(false))))
+            .map(|(table_name, _)| (*table_name, Arc::new(AtomicBool::new(false))))
             .collect::<HashMap<_, _>>(),
     );
     // -----------------------------------------------------------------------------
@@ -135,10 +146,9 @@ where
                 let active = handlers_active_cloned
                     .get(&table_name as &str)
                     .unwrap()
-                    .lock()
-                    .await;
+                    .load(Ordering::SeqCst);
 
-                if *active {
+                if active {
                     tracing::debug!(
                         table_name = table_name,
                         "Not polling handler as it's currently active"
@@ -206,13 +216,9 @@ where
         };
 
         // --- Remove me when we're confident that listen/notify won't miss anything ---
-        let mut active = handlers_active
-            .get(&handler_table_name as &str)
-            .unwrap()
-            .lock()
-            .await;
+        let mut active = handlers_active.get(&handler_table_name as &str).unwrap();
 
-        *active = true;
+        active.store(true, Ordering::SeqCst);
         // -----------------------------------------------------------------------------
 
         let handle_result = handler.handle(&pg_pool).await;
@@ -235,12 +241,15 @@ where
                     }
                     // Idle indicates that the handler checked and didn't find any work to do,
                     // so let's wait until we get a message from the database before we wake again
-                    HandlerStatus::Idle => *active = false,
+                    HandlerStatus::Idle => {
+                        active.store(false, Ordering::SeqCst);
+                    }
                 }
             }
             Err(err) => {
                 // Do we actually just want to crash here?
                 tracing::error!(handler = %handler.name(), table = %handler.table_name(), "Error invoking handler: {err}");
+                active.store(false, Ordering::SeqCst);
             }
         }
     }
