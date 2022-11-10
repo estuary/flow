@@ -57,11 +57,6 @@ where
         load_and_validate(root_url.clone(), root_spec, fetcher, drivers, &config).await;
     all_tables.meta.insert_row(config.clone());
 
-    // all_tables will tell us if we have any derivations/NPM modules
-    // places to look:
-    // Resources table: of type npm_module or npm_package for each build
-    // derivations that define a typescript module
-
     let has_typescript_derivations = all_tables
         .derivations
         .iter()
