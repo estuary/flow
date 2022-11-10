@@ -186,9 +186,9 @@ async fn handle_task(
             }
         }
         Err(err) => {
-            // Do we actually just want to crash here?
             tracing::error!(handler = %handler.name(), table = %handler.table_name(), "Error invoking handler: {err}");
             active.store(false, Ordering::SeqCst);
+            return Err(err);
         }
     };
     Ok(())
