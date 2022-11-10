@@ -79,9 +79,11 @@ credentials provided by your Estuary account manager.
 
 6. Click **Discover Endpoint**.
 
-  Flow uses the provided configuration to initiate a connection to S3. It generates a capture specification and details of the collection that it will create, once published.
+  Flow uses the provided configuration to initiate a connection to S3.
 
-  You'll be notified if there's an error. In that case, fix the configuration form or your S3 bucket setup as needed and click **Discover Endpoint** to try again.
+  It generates a capture specification and details of the collection that it will create, once published.
+
+  You can change the collection name in the **Collection Selector**, or edit the JSON in the **Specification Editor** directly.
 
   :::tip
   If you'd rather work on the specification files in their native YAML format, you can use the [flowctl](../../concepts/flowctl.md) CLI. flowctl provides a developer-focused path to build full Data Flows in your preferred development environment.
