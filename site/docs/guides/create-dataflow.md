@@ -7,8 +7,8 @@ This guide walks you through the process of creating an end-to-end Data Flow in 
 Flow web application.
 
 :::info Beta
-The Flow web application is currently available to users in the Estuary beta program. Sign up for a free [discovery call](https://go.estuary.dev/sign-up)
-or email support@estuary.dev for your free account.
+The Flow web application is currently available to users in the Estuary beta program. Sign up for a [free account](https://go.estuary.dev/sign-up)
+or email support@estuary.dev to get started.
 :::
 
 ## Prerequisites
@@ -56,34 +56,45 @@ credentials provided by your Estuary account manager.
 5. Fill out the required properties and click **Discover Endpoint**.
 
   Flow uses the provided information to initiate a connection to the source system.
-  It identifies one or more data **resources** — these may be tables, data streams, or something else, depending on the connector. Each resource is mapped to a collection through a **binding**.
+  It identifies one or more data **resources** — these may be tables, data streams, or something else, depending on the connector. These are each mapped to a **collection**.
 
-  If there's an error, you'll be prompted to fix and test your configuration.
+  The **Collection Selector** appears, showing this list of available collections.
+  You can decide which ones you want to capture.
 
-6. Look over the generated capture definition and the schema of the resulting Flow **collection(s)**.
+6. Look over the list of available collections. All area selected by default.
+You can remove collections you don't want to capture, change collection names, and for some connectors, modify other properties.
 
-  Flow generates these specifications as YAML files.
-  You can modify it by filling in new values in the form and clicking **Discover Endpoint**,
-  or by editing the YAML files directly in the web application.
+:::tip
+If you make any changes in the Collection Editor, click **Discover Endpoint** again.
+:::
+
+  If you're unsure which collections you want to keep or remove, you can look at their schemas.
+
+7. Scroll down to the **Specification Editor**
+
+  Here, you can view the generated capture definition and the schema for each collection.
+
+  Flow displays these specifications as JSON.
+  You can modify what you see by filling in new values in the form and clicking **Discover Endpoint**,
+  or by editing the JSON directly in the Specification Editor.
   (Those who prefer a [command-line interface](../concepts/flowctl.md) can manage and edit YAML in their preferred development environment).
 
-  It's not always necessary to review and edit the YAML — Flow will prevent the publication of invalid specifications.
+  It's not always necessary to review and edit the specifications — Flow will prevent the publication of invalid specifications.
 
-7. Once you're satisfied with the configuration, click **Save and publish**. You'll see a notification when the capture publishes successfully.
+8. Once you're satisfied with the configuration, click **Save and publish**. You'll see a notification when the capture publishes successfully.
 
-8. Click **Materialize collections** to continue.
+9. Click **Materialize collections** to continue.
 
 ## Create a materialization
 
 Now that you've captured data into one or more collections, you can materialize it to a destination.
-
 
 1. Select the **Connector** tile for your desired data destination.
 
   The page populates with the properties required for that connector.
   More details are on each connector are provided in the [connectors reference](../reference/Connectors/materialization-connectors/README.md).
 
-  Details of the collection you just created are already filled in.
+  Details of the collections you just created are already filled out in the **Collection Selector**.
 
 2.  Choose a unique name for your materialization like you did when naming your capture; for example, `acmeCo/myFirstMaterialization`.
 
