@@ -63,13 +63,15 @@ comment on column catalog_stats.flow_document is
 do $$
 begin
     if not exists (select from pg_catalog.pg_roles where rolname = 'stats_loader') then
-        create role stats_loader with login password 'stats_loader_password';
+        create role stats_loader with login password 'stats_loader_password' bypassrls;
    end if;
 end
 $$;
 
+-- stats_loader loads directly to the catalog_stats table. Postgres routes records to the correct
+-- partition based on the catalog name.
+alter table catalog_stats owner to stats_loader;
+
 create schema catalog_stat_partitions;
 comment on schema catalog_stat_partitions is
     'Private schema which holds per-tenant partitions of catalog_stats.';
-
-grant create, usage on schema catalog_stat_partitions to stats_loader;
