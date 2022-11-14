@@ -9,8 +9,9 @@ Materializations are a type of Flow **task**.
 They connect to an external destination system,
 or **endpoint**, and bind one or more Flow collections to resources at the endpoint, such as database tables.
 
-As data is added to the bound collections,
+As documents added to the bound collections,
 the materialization continuously pushes it to the destination resources, where it is reflected with very low latency.
+Materializations can process [documents](./collections.md#documents) up to 16 MB in size.
 
 Materializations are the conceptual inverse of [captures](captures.md).
 

@@ -15,16 +15,40 @@ you define one or more new collections as part of that process.
 Every collection has a key and an associated [schema](#schemas)
 that its documents must validate against.
 
-## Viewing collection data
+## Documents
+
+Flow processes and stores data in terms of documents: JSON files that consist of multiple key-value pair objects. Collections are comprised of documents; Flow tasks (captures, materializations, and derivations) process data in terms of documents.
+
+A Flow document corresponds to different units of data in different types of endpoint systems.
+For example, it might map to a table row, a pub/sub message, or an API response.
+The structure of a given collection’s documents is determined by that collection’s [schema](#schemas) and the way in which tasks handle documents is determined by the collection [key](#keys).
+
+The size of a document depends on the complexity of the source data.
+Flow allows documents up to 16 MB in size, but it's rare for documents to approach this limit.
+
+An example document for a collection with two fields, `name` and `count` is shown below.
+
+```json
+root:{
+  _meta:{
+    uuid:"xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  }
+  count:5954
+  message:"Hello #5954"
+```
+
+The `_meta` object is present in all Flow documents and is used for internal processing only.
+
+## Viewing collection documents
 
 In many cases, it's not necessary to view your collection data — you're able to materialize it directly to a destination in the correct shape using a [connector](../concepts/README.md#connectors).
 
-However, it can be helpful to view collection data to confirm the source data was captured as expected, or verify a schema change.
+However, it can be helpful to view collection documents to confirm the source data was captured as expected, or verify a schema change.
 
 #### In the web application
 
 Sign into the Flow web application and click the **Collections** tab. The collections to which you have access are listed.
-Click the **Details** drop down to show a sample of collection data as well as the collection [specification](#specification).
+Click the **Details** drop down to show a sample of collection documents as well as the collection [specification](#specification).
 
 The collection documents are displayed by key. Click the desired key to preview it in its native JSON format.
 
