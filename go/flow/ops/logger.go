@@ -34,6 +34,8 @@ func FlowToLogrusLevel(flowLevel pf.LogLevelFilter) log.Level {
 		return log.InfoLevel
 	case pf.LogLevelFilter_WARN:
 		return log.WarnLevel
+	case pf.LogLevelFilter_RAW:
+		return log.FatalLevel
 	default:
 		return log.ErrorLevel
 	}
@@ -49,6 +51,8 @@ func LogrusToFlowLevel(logrusLevel log.Level) pf.LogLevelFilter {
 		return pf.LogLevelFilter_INFO
 	case log.WarnLevel:
 		return pf.LogLevelFilter_WARN
+	case log.PanicLevel, log.FatalLevel:
+		return pf.LogLevelFilter_RAW
 	default:
 		return pf.LogLevelFilter_ERROR
 	}

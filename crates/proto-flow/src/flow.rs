@@ -1228,6 +1228,7 @@ pub enum LogLevelFilter {
     Info = 3,
     Debug = 4,
     Trace = 5,
+    Raw = 6,
 }
 impl LogLevelFilter {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -1242,6 +1243,7 @@ impl LogLevelFilter {
             LogLevelFilter::Info => "INFO",
             LogLevelFilter::Debug => "DEBUG",
             LogLevelFilter::Trace => "TRACE",
+            LogLevelFilter::Raw => "RAW",
         }
     }
 }

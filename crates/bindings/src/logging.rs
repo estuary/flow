@@ -151,6 +151,7 @@ fn level_filter(flow_level_filter: i32) -> tracing::level_filters::LevelFilter {
         FLevel::Info => TLevel::INFO,
         FLevel::Warn => TLevel::WARN,
         FLevel::Error => TLevel::ERROR,
+        FLevel::Raw => TLevel::ERROR,
     }
 }
 
