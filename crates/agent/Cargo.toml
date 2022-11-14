@@ -38,6 +38,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
 validator = { workspace = true }
+derivative = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
