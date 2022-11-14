@@ -69,7 +69,10 @@ end
 $$;
 
 -- stats_loader loads directly to the catalog_stats table. Postgres routes records to the correct
--- partition based on the catalog name.
+-- partition based on the catalog name. We make catalog_stats owned by stats_loader instead of
+-- postgres to allow for new materializations to be applied for each tenant with catalog_stats as
+-- the target table. Materialization application will attempt to add comments to the target table &
+-- columns, and this will fail unless the table is owned by the acting user.
 alter table catalog_stats owner to stats_loader;
 
 create schema catalog_stat_partitions;
