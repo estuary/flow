@@ -3,7 +3,7 @@ begin;
 insert into auth.users (id, email) values
   -- Root account which provisions other accounts.
   -- It must exist for the agent to function.
-  ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'accounts@estuary.dev'),
+  ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'support@estuary.dev'),
   -- Accounts which are commonly used in tests.
   ('11111111-1111-1111-1111-111111111111', 'alice@example.com'),
   ('22222222-2222-2222-2222-222222222222', 'bob@example.com'),
@@ -40,9 +40,9 @@ insert into directives (catalog_prefix, spec, token) values
   ('ops/', '{"type":"clickToAccept"}', 'd4a37dd7-1bf5-40e3-b715-60c4edd0f6dc'),
   ('ops/', '{"type":"betaOnboard"}', '453e00cd-e12a-4ce5-b12d-3837aa385751');
 
--- Provision the ops/ tenant owned by the accounts@estuary.dev user.
+-- Provision the ops/ tenant owned by the support@estuary.dev user.
 with accounts_root_user as (
-  select (select id from auth.users where email = 'accounts@estuary.dev' limit 1) as accounts_id
+  select (select id from auth.users where email = 'support@estuary.dev' limit 1) as accounts_id
 )
 insert into applied_directives (directive_id, user_id, user_claims)
   select d.id, a.accounts_id, '{"requestedTenant":"ops"}'
