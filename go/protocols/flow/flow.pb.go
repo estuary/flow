@@ -614,8 +614,9 @@ var xxx_messageInfo_LambdaSpec proto.InternalMessageInfo
 
 // Shuffle is a description of a document shuffle, where each document
 // is mapped into:
-//  * An extracted, packed composite key (a "shuffle key").
-//  * A rotated Clock value (an "r-clock").
+//   - An extracted, packed composite key (a "shuffle key").
+//   - A rotated Clock value (an "r-clock").
+//
 // The packed key and r-clock can then be compared to individual reader
 // RangeSpec's.
 //
