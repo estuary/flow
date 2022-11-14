@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
+	pf "github.com/estuary/flow/go/protocols/flow"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -31,10 +33,10 @@ const LogSourceField = "logSource"
 // `fields` of the event.
 // For an example of how to configure a `tracing_subscriber` in Rust so that
 // it's compatible with this format, check out: crates/bindings/src/logging.rs
-func ForwardLogs(sourceDesc string, fallbackLevel log.Level, logSource io.ReadCloser, publisher Logger) {
+func ForwardLogs(sourceDesc string, logSource io.ReadCloser, publisher Logger) {
 	var reader = bufio.NewScanner(logSource)
 	defer logSource.Close()
-	var forwarder = newLogForwarder(sourceDesc, fallbackLevel, publisher)
+	var forwarder = newLogForwarder(sourceDesc, publisher)
 	for reader.Scan() {
 		forwarder.forwardLine(reader.Bytes())
 	}
@@ -45,9 +47,9 @@ func ForwardLogs(sourceDesc string, fallbackLevel log.Level, logSource io.ReadCl
 // NewLogForwardWriter returns a new `io.WriteCloser` that forwards all data written to it as logs
 // to the given publisher. The data written will be treated in exactly the same way as it is for
 // `ForwardLogs`.
-func NewLogForwardWriter(sourceDesc string, fallbackLevel log.Level, publisher Logger) *LogForwardWriter {
+func NewLogForwardWriter(sourceDesc string, publisher Logger) *LogForwardWriter {
 	return &LogForwardWriter{
-		logForwarder: newLogForwarder(sourceDesc, fallbackLevel, publisher),
+		logForwarder: newLogForwarder(sourceDesc, publisher),
 	}
 }
 
@@ -120,8 +122,6 @@ func (f *LogForwardWriter) Close() (err error) {
 // logForwarder is an internal implementation for log forwarding, which is used by both `ForwardLogs`
 // and by `LogForwardWriter`.
 type logForwarder struct {
-	// If the level cannot be determined from the log event, then this level is used.
-	fallbackLevel log.Level
 	// Running counters of the number of lines processed for each type.
 	jsonLines int
 	textLines int
@@ -132,13 +132,12 @@ type logForwarder struct {
 	publisher            Logger
 }
 
-func newLogForwarder(sourceDesc string, fallbackLevel log.Level, publisher Logger) logForwarder {
+func newLogForwarder(sourceDesc string, publisher Logger) logForwarder {
 	var sourceDescJsonString, err = json.Marshal(sourceDesc)
 	if err != nil {
 		panic(fmt.Sprintf("serializing sourceDesc: %v", err))
 	}
 	return logForwarder{
-		fallbackLevel:        fallbackLevel,
 		sourceDesc:           sourceDesc,
 		sourceDescJsonString: json.RawMessage(sourceDescJsonString),
 		publisher:            publisher,
@@ -162,18 +161,22 @@ func (f *logForwarder) forwardLine(line []byte) error {
 		if event.Timestamp.IsZero() {
 			event.Timestamp = time.Now().UTC()
 		}
-		var level = f.fallbackLevel
-		if event.Level >= log.ErrorLevel {
+
+		var level = pf.LogLevelFilter_RAW
+		if event.Level >= pf.LogLevelFilter_ERROR {
 			level = event.Level
 		}
-		return f.publisher.LogForwarded(event.Timestamp, level, event.Fields, event.Message)
+		return f.publisher.LogForwarded(event.Timestamp, FlowToLogrusLevel(level), event.Fields, event.Message)
 	} else {
 		// fallback to logging the raw text of each line, along with the
 		f.textLines++
+		var jsonLevel, _ = json.Marshal(strings.ToLower(pf.LogLevelFilter_RAW.String()))
 		var fields = map[string]json.RawMessage{
 			LogSourceField: f.sourceDescJsonString,
+			"level":        json.RawMessage(jsonLevel),
 		}
-		return f.publisher.LogForwarded(time.Now().UTC(), f.fallbackLevel, fields, string(line))
+		return f.publisher.LogForwarded(time.Now().UTC(), FlowToLogrusLevel(pf.LogLevelFilter_RAW), fields, string(line))
+		//return f.publisher.LogForwarded(time.Now().UTC(), log.Level(0), fields, string(line))
 	}
 }
 
@@ -241,7 +244,7 @@ func eqIgnoreAsciiCase(a string, b []byte) bool {
 }
 
 type logEvent struct {
-	Level     log.Level
+	Level     pf.LogLevelFilter
 	Timestamp time.Time
 	// Fields are kept as raw messages to avoid unnecessary parsing.
 	Fields  map[string]json.RawMessage
@@ -261,9 +264,9 @@ func (e *logEvent) UnmarshalJSON(b []byte) error {
 				e.Timestamp = t
 				delete(m, k)
 			}
-		} else if fieldMatches(k, "level", "lvl") && e.Level == log.PanicLevel {
+		} else if fieldMatches(k, "level", "lvl") && e.Level == pf.LogLevelFilter_OFF {
 			if lvl, ok := parseLogLevel([]byte(v)); ok {
-				e.Level = lvl
+				e.Level = LogrusToFlowLevel(lvl)
 				delete(m, k)
 			}
 		} else if fieldMatches(k, "message", "msg") && e.Message == "" {
