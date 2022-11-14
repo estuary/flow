@@ -28,14 +28,7 @@ begin
       0, 0,
       5, 1,
       0, 0
-    );
-  insert into catalog_stats (
-    catalog_name, grain, ts, flow_document,
-    bytes_written_by_me, docs_written_by_me,
-    bytes_read_by_me, docs_read_by_me,
-    bytes_written_to_me, docs_written_to_me,
-    bytes_read_from_me, docs_read_from_me
-  ) values
+    ),
     (
       'bobCo/world', 'daily', '2022-08-29T00:00:00Z', '{"bob":1}',
       0, 0,
