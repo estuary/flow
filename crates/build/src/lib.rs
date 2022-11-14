@@ -67,7 +67,7 @@ where
         .iter()
         .any(|resource| resource.content_type == protocol::flow::ContentType::TypescriptModule);
 
-    let typescript_enabled = has_typescript_derivations || has_npm_resources;
+    let has_typescript_resources = has_typescript_derivations || has_npm_resources;
 
     // Output database path is implied from the configured directory and ID.
     let output_path = directory.join(&config.build_id);
@@ -76,7 +76,7 @@ where
     // Generate TypeScript package? Generation should always succeed if the input catalog is valid.
     if all_tables.errors.is_empty()
         && (config.typescript_generate || config.typescript_compile || config.typescript_package)
-        && typescript_enabled
+        && has_typescript_resources
     {
         if let Err(err) = generate_npm_package(&all_tables, &directory)
             .context("failed to generate TypeScript package")
@@ -87,14 +87,14 @@ where
     // Compile TypeScript? This may fail due to a user-caused error.
     if all_tables.errors.is_empty()
         && (config.typescript_compile || config.typescript_package)
-        && typescript_enabled
+        && has_typescript_resources
     {
         if let Err(err) = compile_npm(&directory) {
             all_tables.errors.insert_row(&root_url, err);
         }
     }
     // Package TypeScript?
-    if all_tables.errors.is_empty() && config.typescript_package && typescript_enabled {
+    if all_tables.errors.is_empty() && config.typescript_package && has_typescript_resources {
         let npm_resources = pack_npm(&directory).context("failed to pack TypeScript package")?;
         tables::persist_tables(&db, &[&npm_resources]).context("failed to persist NPM package")?;
     }
