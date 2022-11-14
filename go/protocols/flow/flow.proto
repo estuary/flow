@@ -638,6 +638,7 @@ enum LogLevelFilter {
   INFO = 3;
   DEBUG = 4;
   TRACE = 5;
+  RAW = 6;
 };
 
 // DriverCheckpoint is a driver-originated checkpoint withn a capture or
