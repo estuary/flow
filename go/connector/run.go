@@ -161,8 +161,9 @@ func Run(
 		ops.LogSourceField: image,
 		"operation":        strings.Join(args, " "),
 	})
+	logPrefix := fmt.Sprintf("%s:stderr", image)
 
-	return runCommand(ctx, append(imageArgs, args...), writeLoop, output, logger)
+	return runCommand(ctx, append(imageArgs, args...), writeLoop, output, logger, logPrefix)
 }
 
 // runCommand is a lower-level API for running an executable with arguments,
@@ -178,6 +179,7 @@ func runCommand(
 	writeLoop func(io.Writer) error,
 	output io.WriteCloser,
 	logger ops.Logger,
+	logPrefix string,
 ) error {
 	// Don't undertake expensive operations if we're already shutting down.
 	if err := ctx.Err(); err != nil {
@@ -203,7 +205,7 @@ func runCommand(
 		fe.onError(writeLoop(wc))
 	}()
 
-	var stderrForwarder = ops.NewLogForwardWriter("connector stderr", logrus.InfoLevel, logger)
+	var stderrForwarder = ops.NewLogForwardWriter(logPrefix, logger)
 
 	// Decode and forward connector stdout to |output|, but intercept a
 	// returned error to cancel our context and report through |fe|.
