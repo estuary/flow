@@ -1,13 +1,16 @@
 use anyhow::Context;
 use clap::Parser;
+use derivative::Derivative;
 use futures::{FutureExt, TryFutureExt};
 use serde::Deserialize;
 
 /// Agent is a daemon which runs server-side tasks of the Flow control-plane.
-#[derive(Parser, Debug)]
+#[derive(Derivative, Parser)]
+#[derivative(Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
     /// URL of the postgres database.
+    #[derivative(Debug = "ignore")]
     #[clap(
         long = "database",
         env = "DATABASE_URL",
