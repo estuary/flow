@@ -38,7 +38,7 @@ struct Args {
     #[clap(long = "bin-dir", env = "BIN_DIR")]
     bindir: String,
     /// Email address of user which provisions and maintains tenant accounts.
-    #[clap(long = "accounts-email", default_value = "accounts@estuary.dev")]
+    #[clap(long = "accounts-email", default_value = "support@estuary.dev")]
     accounts_email: String,
     /// Path to the Flow specification template used to provision new tenant accounts.
     #[clap(long = "tenant-template")]
