@@ -147,7 +147,7 @@ async fn do_list(ctx: &mut crate::CliContext, List { flows }: &List) -> anyhow::
         }
     }
     let rows: Vec<Row> = api_exec(
-        ctx.client()?
+        ctx.client().await?
             .from("live_specs_ext")
             .select(columns.join(",")),
     )
@@ -201,7 +201,7 @@ async fn do_history(ctx: &mut crate::CliContext, History { name }: &History) -> 
         }
     }
     let rows: Vec<Row> = api_exec(
-        ctx.client()?
+        ctx.client().await?
             .from("publication_specs_ext")
             .like("catalog_name", format!("{name}%"))
             .select(
@@ -251,7 +251,7 @@ async fn do_draft(
         mut spec_type,
     } = if let Some(publication_id) = publication_id {
         api_exec(
-            ctx.client()?
+            ctx.client().await?
                 .from("publication_specs_ext")
                 .eq("catalog_name", name)
                 .eq("pub_id", publication_id)
@@ -261,7 +261,7 @@ async fn do_draft(
         .await?
     } else {
         api_exec(
-            ctx.client()?
+            ctx.client().await?
                 .from("live_specs")
                 .eq("catalog_name", name)
                 .select("catalog_name,last_pub_id,pub_id:last_pub_id,spec,spec_type")
@@ -295,7 +295,7 @@ async fn do_draft(
     tracing::debug!(?draft_spec, "inserting draft");
 
     let rows: Vec<SpecSummaryItem> = api_exec(
-        ctx.client()?
+        ctx.client().await?
             .from("draft_specs")
             .select("catalog_name,spec_type")
             .upsert(serde_json::to_string(&draft_spec).unwrap())

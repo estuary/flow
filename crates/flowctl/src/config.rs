@@ -11,9 +11,16 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn client(&self) -> anyhow::Result<postgrest::Postgrest> {
-        match &self.api {
+    pub async fn client(&mut self) -> anyhow::Result<postgrest::Postgrest> {
+        match self.api.as_mut() {
             Some(api) => {
+                if let Some(expires_at) = api.expires_at {
+                    // 10 minutes before expiry attempt a refresh
+                    if expires_at < (chrono::Utc::now() - chrono::Duration::minutes(10)).timestamp() {
+                        tracing::debug!("refreshing token");
+                        api.refresh().await?;
+                    }
+                }
                 let client = postgrest::Postgrest::new(api.endpoint.as_str());
                 let client = client.insert_header("apikey", &api.public_token);
                 let client =
@@ -107,6 +114,7 @@ impl API {
                     self.access_token = sess.access_token;
                     self.refresh_token = Some(sess.refresh_token);
                     self.expires_at = Some(chrono::Utc::now().timestamp() + sess.expires_in);
+                    Ok(())
                 }
                 Err(e) => {
                     tracing::error!("could not refresh token: {}, response {}", e, body);
@@ -114,8 +122,8 @@ impl API {
                 }
              }
 
+        } else {
+            Err(anyhow::anyhow!("flowctl has not been configured with a refreshable token"))
         }
-
-        Ok(())
     }
 }
