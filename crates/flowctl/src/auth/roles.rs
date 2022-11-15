@@ -138,7 +138,7 @@ pub async fn do_list(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         }
     }
     let rows: Vec<Row> = api_exec(
-        ctx.client()?
+        ctx.client().await?
             .from("combined_grants_ext")
             .select(
                 vec![
@@ -176,7 +176,7 @@ pub async fn do_grant(
     // Upsert user grants to `user_grants` and role grants to `role_grants`.
     let rows: Vec<GrantRevokeRow> = if let Some(subject_user_id) = subject_user_id {
         api_exec(
-            ctx.client()?
+            ctx.client().await?
                 .from("user_grants")
                 .select(grant_revoke_columns())
                 .upsert(
@@ -193,7 +193,7 @@ pub async fn do_grant(
         .await?
     } else if let Some(subject_role) = subject_role {
         api_exec(
-            ctx.client()?
+            ctx.client().await?
                 .from("role_grants")
                 .select(grant_revoke_columns())
                 .upsert(
@@ -228,7 +228,7 @@ pub async fn do_revoke(
     // Revoke user grants from `user_grants` and role grants from `role_grants`.
     let rows: Vec<GrantRevokeRow> = if let Some(subject_user_id) = subject_user_id {
         api_exec(
-            ctx.client()?
+            ctx.client().await?
                 .from("user_grants")
                 .select(grant_revoke_columns())
                 .eq("user_id", subject_user_id.to_string())
@@ -238,7 +238,7 @@ pub async fn do_revoke(
         .await?
     } else if let Some(subject_role) = subject_role {
         api_exec(
-            ctx.client()?
+            ctx.client().await?
                 .from("role_grants")
                 .select(grant_revoke_columns())
                 .eq("subject_role", subject_role)
