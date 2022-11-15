@@ -74,10 +74,10 @@ func NormalizeFields(fields interface{}) map[string]interface{} {
 type TestLogPublisher struct {
 	mutex  sync.Mutex
 	events []TestLogEvent
-	level  log.Level
+	level  pf.LogLevelFilter
 }
 
-func NewTestLogPublisher(level log.Level) *TestLogPublisher {
+func NewTestLogPublisher(level pf.LogLevelFilter) *TestLogPublisher {
 	return &TestLogPublisher{
 		level: level,
 	}
@@ -133,17 +133,17 @@ func (p *TestLogPublisher) TakeEvents() []TestLogEvent {
 	return events
 }
 
-func (p *TestLogPublisher) Level() log.Level {
+func (p *TestLogPublisher) Level() pf.LogLevelFilter {
 	return p.level
 }
 
-func (p *TestLogPublisher) Log(level log.Level, fields log.Fields, message string) error {
+func (p *TestLogPublisher) Log(level pf.LogLevelFilter, fields log.Fields, message string) error {
 	if level > p.level {
 		return nil
 	}
 	var event = TestLogEvent{
 		Timestamp: time.Now().UTC(),
-		Level:     pf.LogLevelFilter(level),
+		Level:     level,
 		Message:   message,
 		Fields:    NormalizeFields(fields),
 	}
@@ -155,13 +155,13 @@ func (p *TestLogPublisher) Log(level log.Level, fields log.Fields, message strin
 	return nil
 }
 
-func (p *TestLogPublisher) LogForwarded(ts time.Time, level log.Level, fields map[string]json.RawMessage, message string) error {
+func (p *TestLogPublisher) LogForwarded(ts time.Time, level pf.LogLevelFilter, fields map[string]json.RawMessage, message string) error {
 	if level > p.level {
 		return nil
 	}
 	var event = TestLogEvent{
 		Timestamp: ts,
-		Level:     pf.LogLevelFilter(level),
+		Level:     level,
 		Message:   message,
 		Fields:    NormalizeFields(fields),
 	}

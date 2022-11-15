@@ -10,41 +10,40 @@ import (
 
 	"github.com/estuary/flow/go/flow/ops/testutil"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
-//func TestLogLevelUnmarshaling(t *testing.T) {
-//	var testCases = []struct {
-//		input     string
-//		expect    pf.LogLevelFilter
-//		expectErr bool
-//	}{
-//		{input: `"inFormation"`, expect: pf.LogLevelFilter_RAW},
-//		{input: `"info"`, expect: pf.LogLevelFilter_INFO},
-//		{input: `"INFO"`, expect: pf.LogLevelFilter_INFO},
-//		{input: `"WARN"`, expect: pf.LogLevelFilter_WARN},
-//		{input: `"warning"`, expect: pf.LogLevelFilter_WARN},
-//		{input: `"Trace"`, expect: pf.LogLevelFilter_TRACE},
-//		// This is just documenting the weird edge case.
-//		{input: `"Trace a line in the sand"`, expect: pf.LogLevelFilter_TRACE},
-//		{input: `"FATAL"`, expect: pf.LogLevelFilter_RAW},
-//		{input: `"panic"`, expect: pf.LogLevelFilter_RAW},
-//		{input: `{ "level": "info" }`, expectErr: true},
-//		{input: `"not a real level"`, expectErr: true},
-//		{input: `4`, expectErr: true},
-//	}
-//
-//	for _, testCase := range testCases {
-//		var actual, ok = parseLogLevel([]byte(testCase.input))
-//		if testCase.expectErr {
-//			require.Falsef(t, ok, "case failed: %+v", testCase)
-//		} else {
-//			require.Truef(t, ok, "parsing level failed: %+v", testCase)
-//		}
-//		require.Equalf(t, testCase.expect, actual, "mismatched: %+v, actual: %v", testCase, actual)
-//	}
-//}
+func TestLogLevelUnmarshaling(t *testing.T) {
+	var testCases = []struct {
+		input     string
+		expect    pf.LogLevelFilter
+		expectErr bool
+	}{
+		//{input: `"inFormation"`, expect: InfoLevel},
+		{input: `"info"`, expect: InfoLevel},
+		{input: `"INFO"`, expect: InfoLevel},
+		{input: `"WARN"`, expect: WarnLevel},
+		{input: `"warning"`, expect: WarnLevel},
+		{input: `"Trace"`, expect: TraceLevel},
+		// This is just documenting the weird edge case.
+		{input: `"Trace a line in the sand"`, expect: TraceLevel},
+		{input: `"FATAL"`, expect: RawLevel},
+		{input: `"panic"`, expect: RawLevel},
+		{input: `{ "level": "info" }`, expect: RawLevel, expectErr: true},
+		{input: `"not a real level"`, expect: RawLevel, expectErr: true},
+		{input: `4`, expect: RawLevel, expectErr: true},
+	}
+
+	for _, testCase := range testCases {
+		var actual, ok = parseLogLevel([]byte(testCase.input))
+		if testCase.expectErr {
+			require.Falsef(t, ok, "case failed: %+v", testCase)
+		} else {
+			require.Truef(t, ok, "parsing level failed: %+v", testCase)
+		}
+		require.Equalf(t, testCase.expect, actual, "mismatched: %+v, actual: %v", testCase, actual)
+	}
+}
 
 func TestLogEventUnmarshaling(t *testing.T) {
 	var doTest = func(line string, expected testutil.TestLogEvent) {
@@ -112,7 +111,7 @@ func TestLogForwardWriterWhenDataHasNoNewlines(t *testing.T) {
 	// We'll write more than the max line length, and assert that the writer breaks it into chunks
 	// at the max line length. We'll then assert that the remaining 999 bytes get logged at the end.
 	var rawLogs = strings.Repeat("f", maxLogLine*2+999)
-	var publisher = testutil.NewTestLogPublisher(log.TraceLevel)
+	var publisher = testutil.NewTestLogPublisher(RawLevel)
 	var sourceDesc = "naughty stderr"
 	var fallbackLevel = pf.LogLevelFilter_RAW
 	var writer = NewLogForwardWriter(sourceDesc, publisher)
@@ -215,7 +214,7 @@ func TestLogForwarding(t *testing.T) {
 			Timestamp: timestamp("2021-09-10T12:01:08.01234567Z"),
 		},
 		{
-			Level:   pf.LogLevelFilter_INFO,
+			Level:   pf.LogLevelFilter_RAW,
 			Message: "2021-09-10T12:01:09.456Z INFO some text",
 			Fields: map[string]interface{}{
 				"logSource": sourceDesc,
@@ -245,7 +244,7 @@ func TestLogForwarding(t *testing.T) {
 			},
 		},
 		{
-			Level:   pf.LogLevelFilter_RAW,
+			Level:   pf.LogLevelFilter_TRACE,
 			Message: "finished forwarding logs",
 			Fields: map[string]interface{}{
 				"logSource": sourceDesc,
@@ -256,7 +255,7 @@ func TestLogForwarding(t *testing.T) {
 	}
 
 	t.Run("LogForwardWriter", func(t *testing.T) {
-		var publisher = testutil.NewTestLogPublisher(log.TraceLevel)
+		var publisher = testutil.NewTestLogPublisher(RawLevel)
 		var writer = NewLogForwardWriter(sourceDesc, publisher)
 
 		// Read from rawLogs in a bunch of random small chunks to ensure that the writer is piecing the
@@ -279,7 +278,7 @@ func TestLogForwarding(t *testing.T) {
 	})
 
 	t.Run("ForwardLogs", func(t *testing.T) {
-		var publisher = testutil.NewTestLogPublisher(log.TraceLevel)
+		var publisher = testutil.NewTestLogPublisher(RawLevel)
 		ForwardLogs(sourceDesc, io.NopCloser(strings.NewReader(rawLogs)), publisher)
 		publisher.RequireEventsMatching(t, expected)
 	})

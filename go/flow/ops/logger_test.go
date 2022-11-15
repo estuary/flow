@@ -11,24 +11,24 @@ import (
 )
 
 func TestAddFieldsToLogger(t *testing.T) {
-	var testLogger = testutil.NewTestLogPublisher(log.DebugLevel)
+	var testLogger = testutil.NewTestLogPublisher(DebugLevel)
 	var subject = NewLoggerWithFields(testLogger, log.Fields{
 		"coalMine": "canary",
 		"foo":      3,
 	})
 
-	subject.Log(log.DebugLevel, nil, "one")
-	subject.Log(log.TraceLevel, log.Fields{
+	subject.Log(DebugLevel, nil, "one")
+	subject.Log(TraceLevel, log.Fields{
 		"should not": "see this",
 	}, "not gonna loggit")
-	subject.Log(log.InfoLevel, log.Fields{
+	subject.Log(InfoLevel, log.Fields{
 		"foo": "not three",
 	}, "two")
 	var forwardTs = time.Now().UTC()
-	subject.LogForwarded(forwardTs, log.WarnLevel, map[string]json.RawMessage{
+	subject.LogForwarded(forwardTs, WarnLevel, map[string]json.RawMessage{
 		"bar": json.RawMessage(`"yarr!"`),
 	}, "three")
-	subject.LogForwarded(time.Now(), log.TraceLevel, nil, "not gonna log this either")
+	subject.LogForwarded(time.Now(), TraceLevel, nil, "not gonna log this either")
 
 	var expected = []testutil.TestLogEvent{
 		{
