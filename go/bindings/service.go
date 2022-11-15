@@ -52,7 +52,7 @@ func newService(
 	// we'll forward the text logs at the warning level so that someone notices, since it's likely
 	// that there's some problem.
 	go ops.ForwardLogs(typeName, logReader, logPublisher)
-	var ch = create(C.int32_t(ops.LogrusToFlowLevel(logPublisher.Level())), C.int32_t(wDescriptor))
+	var ch = create(C.int32_t(logPublisher.Level()), C.int32_t(wDescriptor))
 
 	serviceCreatedCounter.WithLabelValues(typeName).Inc()
 	var svc = &service{

@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -102,7 +103,7 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 		return err
 	}
 
-	t.Log(log.InfoLevel, log.Fields{
+	t.Log(ops.InfoLevel, log.Fields{
 		"labels":     t.labels,
 		"lastLabels": lastLabels,
 	}, "initialized catalog task term")

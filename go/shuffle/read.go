@@ -203,7 +203,7 @@ func (rb *ReadBuilder) buildReads(
 				if r.req.Shuffle.Equal(&journalShuffle) {
 					delete(drain, spec.Name)
 				} else {
-					rb.logger.Log(logrus.DebugLevel, logrus.Fields{
+					rb.logger.Log(ops.DebugLevel, logrus.Fields{
 						"build":       journalShuffle.BuildId,
 						"coordinator": journalShuffle.Coordinator,
 						"journal":     journalShuffle.Journal,
@@ -247,7 +247,7 @@ func (r *read) start(
 	case <-time.After(backoff(attempt)):
 	}
 
-	r.log(logrus.DebugLevel, "started shuffle read", "attempt", attempt)
+	r.log(ops.DebugLevel, "started shuffle read", "attempt", attempt)
 
 	ctx = pprof.WithLabels(ctx, pprof.Labels(
 		"build", r.req.Shuffle.BuildId,
@@ -325,13 +325,13 @@ func (r *read) start(
 // indefinitely as this can cause a distributed read deadlock. Consider
 // shard A & B, and journals X & Y:
 //
-//  - A's channel reading from X is stuffed
-//  - B's channel reading from Y is stuffed
-//  - A must read a next (non-tailing) Y to proceed.
-//  - B must read a next (non-tailing) X to proceed, BUT
-//  - X is blocked sending to the (stuffed) A, and
-//  - Y is blocked sending to the (stuffed) B.
-//  - Result: deadlock.
+//   - A's channel reading from X is stuffed
+//   - B's channel reading from Y is stuffed
+//   - A must read a next (non-tailing) Y to proceed.
+//   - B must read a next (non-tailing) X to proceed, BUT
+//   - X is blocked sending to the (stuffed) A, and
+//   - Y is blocked sending to the (stuffed) B.
+//   - Result: deadlock.
 //
 // The strategy we employ to avoid this is to use exponential time delays
 // as the channel becomes full, up to the channel capacity, after which we
@@ -353,7 +353,7 @@ func (r *read) sendReadResult(resp *pf.ShuffleResponse, err error, wakeCh chan<-
 
 	var queue, cap = len(r.ch), cap(r.ch)
 	if queue == cap {
-		r.log(logrus.WarnLevel,
+		r.log(ops.WarnLevel,
 			"cancelling shuffle read due to full channel timeout",
 			"queue", queue,
 			"cap", cap,
@@ -379,7 +379,7 @@ func (r *read) sendReadResult(resp *pf.ShuffleResponse, err error, wakeCh chan<-
 
 		case <-timer.C:
 			if queue > 13 { // Log values > 8s.
-				r.log(logrus.DebugLevel,
+				r.log(ops.DebugLevel,
 					"backpressure timer elapsed on a slow shuffle read",
 					"queue", queue,
 					"backoff", dur.Seconds(),
@@ -455,7 +455,7 @@ func (r *read) dequeue() message.Envelope {
 	return env
 }
 
-func (r *read) log(lvl logrus.Level, message string, extra ...interface{}) {
+func (r *read) log(lvl ops.Level, message string, extra ...interface{}) {
 	if lvl > r.logger.Level() {
 		return
 	}

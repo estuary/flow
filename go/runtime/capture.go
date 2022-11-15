@@ -12,6 +12,7 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/capture"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/flow/ops"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
@@ -68,14 +69,14 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	}
 	defer func() {
 		if err == nil {
-			c.Log(logrus.DebugLevel, logrus.Fields{
+			c.Log(ops.DebugLevel, logrus.Fields{
 				"capture":    c.labels.TaskName,
 				"shard":      c.shardSpec.Id,
 				"build":      c.labels.Build,
 				"checkpoint": cp,
 			}, "initialized processing term")
 		} else {
-			c.Log(logrus.ErrorLevel, logrus.Fields{
+			c.Log(ops.ErrorLevel, logrus.Fields{
 				"error": err,
 			}, "failed to initialize processing term")
 		}
@@ -91,7 +92,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	if err != nil {
 		return pf.Checkpoint{}, err
 	}
-	c.Log(logrus.DebugLevel, logrus.Fields{"spec": c.spec, "build": c.labels.Build},
+	c.Log(ops.DebugLevel, logrus.Fields{"spec": c.spec, "build": c.labels.Build},
 		"loaded specification")
 
 	// Stop a previous PullClient / PushServer delegate if it exists.
@@ -293,7 +294,7 @@ func (c *Capture) startReadingMessages(
 		}
 	}
 
-	c.Log(logrus.DebugLevel, logrus.Fields{
+	c.Log(ops.DebugLevel, logrus.Fields{
 		"capture":  c.labels.TaskName,
 		"shard":    c.shardSpec.Id,
 		"build":    c.labels.Build,
@@ -376,7 +377,7 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 			return fmt.Errorf("publishing stats document: %w", err)
 		}
 	} else {
-		c.Log(logrus.DebugLevel, nil, "capture transaction committing updating driver checkpoint only")
+		c.Log(ops.DebugLevel, nil, "capture transaction committing updating driver checkpoint only")
 	}
 
 	return nil
@@ -431,7 +432,7 @@ func (c *Capture) Coordinator() *shuffle.Coordinator {
 
 // StartCommit implements consumer.Store.StartCommit
 func (c *Capture) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
-	c.Log(logrus.DebugLevel, logrus.Fields{
+	c.Log(ops.DebugLevel, logrus.Fields{
 		"capture": c.labels.TaskName,
 		"shard":   c.shardSpec.Id,
 		"build":   c.labels.Build,

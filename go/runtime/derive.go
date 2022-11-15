@@ -7,6 +7,7 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -59,7 +60,7 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 
 	defer func() {
 		if err == nil {
-			d.Log(log.DebugLevel, log.Fields{
+			d.Log(ops.DebugLevel, log.Fields{
 				"derivation": d.labels.TaskName,
 				"shard":      d.shardSpec.Id,
 				"build":      d.labels.Build,
@@ -67,7 +68,7 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 			}, "initialized processing term")
 
 		} else {
-			d.Log(log.ErrorLevel, log.Fields{
+			d.Log(ops.ErrorLevel, log.Fields{
 				"error": err.Error(),
 			}, "failed to initialize processing term")
 		}
@@ -83,7 +84,7 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 	if err != nil {
 		return pf.Checkpoint{}, err
 	}
-	d.Log(log.DebugLevel, log.Fields{"spec": d.derivation, "build": d.labels.Build},
+	d.Log(ops.DebugLevel, log.Fields{"spec": d.derivation, "build": d.labels.Build},
 		"loaded specification")
 
 	if err = d.initReader(&d.taskTerm, shard, d.derivation.TaskShuffles(), d.host); err != nil {
@@ -233,7 +234,7 @@ func (d *Derive) deriveStats(txnStats *pf.DeriveAPI_Stats) StatsEvent {
 // StartCommit implements the Store interface, and writes the current transaction
 // as an atomic RocksDB WriteBatch, guarded by a write barrier.
 func (d *Derive) StartCommit(_ consumer.Shard, cp pf.Checkpoint, waitFor client.OpFutures) client.OpFuture {
-	d.Log(log.DebugLevel, log.Fields{
+	d.Log(ops.DebugLevel, log.Fields{
 		"derivation": d.labels.TaskName,
 		"shard":      d.shardSpec.Id,
 		"build":      d.labels.Build,

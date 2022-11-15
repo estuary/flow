@@ -8,6 +8,7 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/materialize"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -73,7 +74,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 	var checkpointSource = "n/a"
 	defer func() {
 		if err == nil {
-			m.Log(log.DebugLevel, log.Fields{
+			m.Log(ops.DebugLevel, log.Fields{
 				"materialization":  m.labels.TaskName,
 				"shard":            m.shardSpec.Id,
 				"build":            m.labels.Build,
@@ -81,7 +82,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 				"checkpointSource": checkpointSource,
 			}, "initialized processing term")
 		} else {
-			m.Log(log.ErrorLevel, log.Fields{
+			m.Log(ops.ErrorLevel, log.Fields{
 				"error": err.Error(),
 			}, "failed to initialize processing term")
 		}
@@ -96,7 +97,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 	if err != nil {
 		return pf.Checkpoint{}, err
 	}
-	m.Log(log.DebugLevel, log.Fields{"spec": m.spec, "build": m.labels.Build},
+	m.Log(ops.DebugLevel, log.Fields{"spec": m.spec, "build": m.labels.Build},
 		"loaded specification")
 
 	if m.client != nil {
@@ -173,7 +174,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 
 // StartCommit implements consumer.Store.StartCommit
 func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
-	m.Log(log.DebugLevel, log.Fields{
+	m.Log(ops.DebugLevel, log.Fields{
 		"materialization": m.labels.TaskName,
 		"shard":           m.shardSpec.Id,
 		"build":           m.labels.Build,

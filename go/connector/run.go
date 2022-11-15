@@ -154,7 +154,7 @@ func Run(
 		image,
 		// Arguments following `image` are arguments of the connector proxy and not of docker:
 		"--image-inspect-json-path=/image-inspect.json",
-		"--log.level", ops.LogrusToFlowLevel(logger.Level()).String(),
+		"--log.level", logger.Level().String(),
 		protocol.proxyCommand())
 
 	logger = ops.NewLoggerWithFields(logger, logrus.Fields{
@@ -220,7 +220,7 @@ func runCommand(
 	}
 	cmd.Stderr = &connectorStderr{delegate: stderrForwarder}
 
-	logger.Log(logrus.InfoLevel, logrus.Fields{"args": args}, "invoking connector")
+	logger.Log(ops.InfoLevel, logrus.Fields{"args": args}, "invoking connector")
 	if err := cmd.Start(); err != nil {
 		fe.onError(fmt.Errorf("go.estuary.dev/E105: starting connector: %w", err))
 	}
@@ -230,9 +230,9 @@ func runCommand(
 	// and wait for exit or for its shutdown timeout to elapse (10s default).
 	go func(signal func(os.Signal) error) {
 		<-ctx.Done()
-		logger.Log(logrus.DebugLevel, nil, "sending termination signal to connector")
+		logger.Log(ops.DebugLevel, nil, "sending termination signal to connector")
 		if sigErr := signal(syscall.SIGTERM); sigErr != nil && sigErr != os.ErrProcessDone {
-			logger.Log(logrus.WarnLevel, logrus.Fields{"error": sigErr},
+			logger.Log(ops.WarnLevel, logrus.Fields{"error": sigErr},
 				"go.estuary.dev/E106: failed to send signal to container process")
 		}
 	}(cmd.Process.Signal)
@@ -248,14 +248,14 @@ func runCommand(
 	} else if ctx.Err() == nil {
 		// Expect a clean exit if the context wasn't cancelled.
 		// Log the raw error, since we've already logged everything that was printed to stderr.
-		logger.Log(logrus.ErrorLevel, logrus.Fields{"error": err}, "connector failed")
+		logger.Log(ops.ErrorLevel, logrus.Fields{"error": err}, "connector failed")
 		fe.onError(fmt.Errorf("go.estuary.dev/E116: connector failed, with error: %w\nwith stderr:\n\n%s",
 			err, cmd.Stderr.(*connectorStderr).buffer.String()))
 	} else {
 		fe.onError(ctx.Err())
 	}
 
-	logger.Log(logrus.InfoLevel, logrus.Fields{
+	logger.Log(ops.InfoLevel, logrus.Fields{
 		"error":     fe.unwrap(),
 		"cancelled": ctx.Err() != nil,
 	}, "connector exited")

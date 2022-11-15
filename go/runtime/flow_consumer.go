@@ -9,6 +9,7 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -118,7 +119,7 @@ func logTxnFinished(logger *LogPublisher, op consumer.OpFuture) {
 	go func() {
 		if err := op.Err(); err != nil {
 			// TODO: log something different if err == context.Canceled
-			logger.Log(log.ErrorLevel, log.Fields{"error": err.Error()}, "shard failed")
+			logger.Log(ops.ErrorLevel, log.Fields{"error": err.Error()}, "shard failed")
 		}
 	}()
 }

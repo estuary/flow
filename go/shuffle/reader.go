@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/flow/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -145,7 +145,7 @@ func StartReplayRead(ctx context.Context, rb *ReadBuilder, journal pb.Journal, b
 			// Other errors indicate a broken stream, but may be retried.
 
 			// Stream is broken, but may be retried.
-			r.log(logrus.WarnLevel,
+			r.log(ops.WarnLevel,
 				"shuffled replay read failed (will retry)",
 				"error", err,
 				"attempt", attempt,
@@ -190,7 +190,7 @@ func (g *governor) next(ctx context.Context) (message.Envelope, error) {
 			g.gated = append(g.gated, r)
 			g.setPollState(r, pollStateGated)
 
-			r.log(logrus.DebugLevel, "gated documents of journal", "until", readTime)
+			r.log(ops.DebugLevel, "gated documents of journal", "until", readTime)
 			continue
 		}
 
@@ -271,9 +271,9 @@ func (g *governor) poll(ctx context.Context) error {
 			// shard assignments change and the read is restarted against
 			// an new coordinator. Other errors aren't as typical.
 			if err != context.Canceled {
-				r.log(logrus.WarnLevel, "shuffled read failed (will retry)", "error", err)
+				r.log(ops.WarnLevel, "shuffled read failed (will retry)", "error", err)
 			} else {
-				r.log(logrus.DebugLevel, "shuffled read has drained")
+				r.log(ops.DebugLevel, "shuffled read has drained")
 			}
 
 			// Clear tracking state for this drained read.
@@ -335,7 +335,7 @@ func (g *governor) onTick() error {
 	for _, r := range g.gated {
 		heap.Push(&g.queued, r)
 		g.setPollState(r, pollStateReady)
-		r.log(logrus.DebugLevel, "un-gated documents of journal", "now", g.wallTime)
+		r.log(ops.DebugLevel, "un-gated documents of journal", "now", g.wallTime)
 	}
 	g.gated = g.gated[:0]
 
@@ -366,7 +366,7 @@ func (g *governor) onConverge(ctx context.Context) error {
 	}
 
 	for _, r := range drain {
-		r.log(logrus.DebugLevel, "cancelled shuffled read marked for draining")
+		r.log(ops.DebugLevel, "cancelled shuffled read marked for draining")
 		r.cancel()
 	}
 

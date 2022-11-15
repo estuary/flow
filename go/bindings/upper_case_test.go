@@ -9,7 +9,6 @@ import (
 	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/flow/ops/testutil"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,7 +23,7 @@ func (m frameableString) MarshalToSizedBuffer(b []byte) (int, error) {
 }
 
 func TestLogsForwardedFromService(t *testing.T) {
-	var logPublisher = testutil.NewTestLogPublisher(log.TraceLevel)
+	var logPublisher = testutil.NewTestLogPublisher(ops.TraceLevel)
 	var svc = newUpperCase(logPublisher)
 
 	svc.sendBytes(1, []byte("hello"))
@@ -35,7 +34,7 @@ func TestLogsForwardedFromService(t *testing.T) {
 	logPublisher.WaitForLogs(t, time.Millisecond*500, 2)
 	logPublisher.RequireEventsMatching(t, []testutil.TestLogEvent{
 		{
-			Level:   pf.LogLevelFilter_DEBUG,
+			Level:   ops.DebugLevel,
 			Message: "making stuff uppercase",
 			Fields: map[string]interface{}{
 				"data_len": 5,
@@ -43,7 +42,7 @@ func TestLogsForwardedFromService(t *testing.T) {
 			},
 		},
 		{
-			Level:   pf.LogLevelFilter_DEBUG,
+			Level:   ops.DebugLevel,
 			Message: "making stuff uppercase",
 			Fields: map[string]interface{}{
 				"data_len": 5,
@@ -62,7 +61,7 @@ func TestLogsForwardedFromService(t *testing.T) {
 	logPublisher.WaitForLogs(t, time.Millisecond*500, 2)
 	logPublisher.RequireEventsMatching(t, []testutil.TestLogEvent{
 		{
-			Level:   pf.LogLevelFilter_ERROR,
+			Level:   ops.ErrorLevel,
 			Message: "whoops",
 			Fields: map[string]interface{}{
 				"error":     `{"code":2,"message":"whoops"}`,
@@ -70,7 +69,7 @@ func TestLogsForwardedFromService(t *testing.T) {
 			},
 		},
 		{
-			Level:   pf.LogLevelFilter_TRACE,
+			Level:   ops.TraceLevel,
 			Message: "finished forwarding logs",
 			Fields: map[string]interface{}{
 				"jsonLines": 3,
@@ -82,7 +81,7 @@ func TestLogsForwardedFromService(t *testing.T) {
 }
 
 func TestLotsOfLogs(t *testing.T) {
-	var logPublisher = testutil.NewTestLogPublisher(log.DebugLevel)
+	var logPublisher = testutil.NewTestLogPublisher(ops.DebugLevel)
 	var svc = newUpperCase(logPublisher)
 	defer svc.destroy()
 
@@ -93,7 +92,7 @@ func TestLotsOfLogs(t *testing.T) {
 			expectedSum++
 			svc.sendMessage(1, frameableString("f"))
 			expectedLogs = append(expectedLogs, testutil.TestLogEvent{
-				Level:   pf.LogLevelFilter_DEBUG,
+				Level:   ops.DebugLevel,
 				Message: "making stuff uppercase",
 				Fields: map[string]interface{}{
 					"data_len": 1,
@@ -109,7 +108,7 @@ func TestLotsOfLogs(t *testing.T) {
 }
 
 func TestUpperServiceFunctional(t *testing.T) {
-	var logPublisher = testutil.NewTestLogPublisher(log.DebugLevel)
+	var logPublisher = testutil.NewTestLogPublisher(ops.DebugLevel)
 	var svc = newUpperCase(logPublisher)
 	defer svc.destroy()
 

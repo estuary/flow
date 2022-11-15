@@ -14,7 +14,6 @@ import (
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,7 +40,7 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 		return nil
 	}))
 
-	var logPublisher = testutil.NewTestLogPublisher(log.WarnLevel)
+	var logPublisher = testutil.NewTestLogPublisher(ops.WarnLevel)
 	combiner, err := NewCombine(logPublisher)
 	require.NoError(t, err)
 	defer combiner.Destroy()
@@ -67,7 +66,7 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 	logPublisher.WaitForLogs(t, time.Millisecond*5000, 1)
 	logPublisher.RequireEventsMatching(t, []testutil.TestLogEvent{
 		{
-			Level: pf.LogLevelFilter_ERROR,
+			Level: ops.ErrorLevel,
 			Message: `document is invalid: {
   "basic_output": {
     "errors": [

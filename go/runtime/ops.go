@@ -79,7 +79,7 @@ func (e *LogEvent) NewAcknowledgement(pb.Journal) message.Message {
 // LogPublisher is an ops.Logger that is scoped to a particular task shard,
 // and publishes its logged events to a Flow collection.
 type LogPublisher struct {
-	level         logrus.Level
+	level         ops.Level
 	opsCollection *pf.CollectionSpec
 	shard         ShardRef
 	governerCh    chan<- *client.AsyncAppend
@@ -136,7 +136,7 @@ func NewLogPublisher(
 	go func(ch <-chan *client.AsyncAppend) {
 		for op := range ch {
 			if logErr := op.Err(); logErr != nil && logErr != context.Canceled {
-				ops.StdLogger().Log(logrus.ErrorLevel, logrus.Fields{
+				ops.StdLogger().Log(ops.ErrorLevel, logrus.Fields{
 					"shard": shard,
 					"error": logErr,
 				}, "failed to append to log collection")
@@ -152,7 +152,7 @@ func NewLogPublisher(
 	var out = &LogPublisher{
 		opsCollection: collection,
 		shard:         shard,
-		level:         level,
+		level:         ops.LogrusToFlowLevel(level),
 		governerCh:    governerCh,
 		mapper:        mapper,
 		publisher:     publisher,
@@ -173,13 +173,13 @@ func NewLogPublisher(
 }
 
 // Level implements the ops.Logger interface.
-func (p *LogPublisher) Level() logrus.Level {
+func (p *LogPublisher) Level() ops.Level {
 	return p.level
 }
 
 // Log implements the ops.Logger interface. It publishes log messages to the configured ops
 // collection, and also forwards them to the normal logger.
-func (p *LogPublisher) Log(level logrus.Level, fields logrus.Fields, message string) error {
+func (p *LogPublisher) Log(level ops.Level, fields logrus.Fields, message string) error {
 	if p.level < level {
 		return nil
 	}
@@ -194,10 +194,10 @@ func (p *LogPublisher) Log(level logrus.Level, fields logrus.Fields, message str
 
 // LogForwarded implements the ops.Logger interface. It publishes log messages to the
 // configured ops collection, and also forwards them to the normal logger.
-func (p *LogPublisher) LogForwarded(ts time.Time, level logrus.Level, fields map[string]json.RawMessage, message string) error {
-	//if p.level < level {
-	//	return nil
-	//}
+func (p *LogPublisher) LogForwarded(ts time.Time, level ops.Level, fields map[string]json.RawMessage, message string) error {
+	if p.level < level {
+		return nil
+	}
 	// It's common practice to treat `nil` and an empty map equivalently. But that doesn't work when
 	// you pass a `nil` of type `map[string]json.RawMessage` to `doLog`, which accepts `fields interface{}`.
 	// See: https://stackoverflow.com/questions/44320960/omitempty-doesnt-omit-interface-nil-values-in-json
@@ -207,16 +207,18 @@ func (p *LogPublisher) LogForwarded(ts time.Time, level logrus.Level, fields map
 	return p.doLog(level, time.Now().UTC(), fields, message)
 }
 
-func levelString(level logrus.Level) string {
+func levelString(level ops.Level) string {
 	switch level {
-	case logrus.TraceLevel:
+	case ops.TraceLevel:
 		return "trace"
-	case logrus.DebugLevel:
+	case ops.DebugLevel:
 		return "debug"
-	case logrus.InfoLevel:
+	case ops.InfoLevel:
 		return "info"
-	case logrus.WarnLevel:
+	case ops.WarnLevel:
 		return "warn"
+	case ops.RawLevel:
+		return "raw"
 	default:
 		return "error"
 	}
@@ -225,7 +227,7 @@ func levelString(level logrus.Level) string {
 // doLog publishes a log event, and returns an error if it fails. The `fields` here are an
 // `interface{}` so that this can accept either the `logrus.Fields` from a normal message or the
 // `map[string]json.RawMessage` from a forwarded log event.
-func (p *LogPublisher) doLog(level logrus.Level, ts time.Time, fields interface{}, message string) error {
+func (p *LogPublisher) doLog(level ops.Level, ts time.Time, fields interface{}, message string) error {
 	var err = p.tryLog(level, ts, fields, message)
 	if err != nil && !errors.Is(err, context.Canceled) {
 		logrus.WithFields(logrus.Fields{
@@ -237,7 +239,7 @@ func (p *LogPublisher) doLog(level logrus.Level, ts time.Time, fields interface{
 	return err
 }
 
-func (p *LogPublisher) tryLog(level logrus.Level, ts time.Time, fields interface{}, message string) error {
+func (p *LogPublisher) tryLog(level ops.Level, ts time.Time, fields interface{}, message string) error {
 	// Literalize `error` implementations, as they're otherwise ignored by `encoding/json`.
 	// See: https://github.com/sirupsen/logrus/issues/137
 	if m, ok := fields.(logrus.Fields); ok {
