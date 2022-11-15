@@ -31,7 +31,7 @@ pub async fn do_develop(
         spec_type: String,
     }
     let rows: Vec<Row> = api_exec(
-        ctx.client()?
+        ctx.client().await?
             .from("draft_specs")
             .select("catalog_name,spec,spec_type")
             .not("is", "spec_type", "null")

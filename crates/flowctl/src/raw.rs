@@ -108,7 +108,7 @@ impl Advanced {
 }
 
 async fn do_get(ctx: &mut crate::CliContext, Get { table, query }: &Get) -> anyhow::Result<()> {
-    let req = ctx.client()?.from(table).build().query(query);
+    let req = ctx.client().await?.from(table).build().query(query);
     tracing::debug!(?req, "built request to execute");
 
     println!("{}", req.send().await?.text().await?);
@@ -119,7 +119,7 @@ async fn do_update(
     ctx: &mut crate::CliContext,
     Update { table, query, body }: &Update,
 ) -> anyhow::Result<()> {
-    let req = ctx.client()?.from(table).update(body).build().query(query);
+    let req = ctx.client().await?.from(table).update(body).build().query(query);
     tracing::debug!(?req, "built request to execute");
 
     println!("{}", req.send().await?.text().await?);
@@ -134,7 +134,7 @@ async fn do_rpc(
         body,
     }: &Rpc,
 ) -> anyhow::Result<()> {
-    let req = ctx.client()?.rpc(function, body).build().query(query);
+    let req = ctx.client().await?.rpc(function, body).build().query(query);
     tracing::debug!(?req, "built request to execute");
 
     println!("{}", req.send().await?.text().await?);
