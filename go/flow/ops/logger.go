@@ -9,52 +9,65 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// Type alias for better readability.
+type Level = pf.LogLevelFilter
+
+const (
+	// Log level aliases in descending order.
+	ErrorLevel = Level(pf.LogLevelFilter_ERROR)
+	WarnLevel  = Level(pf.LogLevelFilter_WARN)
+	InfoLevel  = Level(pf.LogLevelFilter_INFO)
+	DebugLevel = Level(pf.LogLevelFilter_DEBUG)
+	TraceLevel = Level(pf.LogLevelFilter_TRACE)
+	RawLevel   = Level(pf.LogLevelFilter_RAW)
+)
+
 // Logger is an interface for publishing log messages that relate to a specific task.
 // This is used so that logs can be published to Flow ops collections at runtime, but can be
 // written to stderr at build/apply time.
 type Logger interface {
 	// Log writes a log event with the given parameters. The event may be filtered by a
 	// publisher (typically based on the |level|).
-	Log(level log.Level, fields log.Fields, message string) error
+	Log(level Level, fields log.Fields, message string) error
 	// LogForwarded writes a log event that is being forwarded from some other source. The |fields|
 	// passed to this function are different from the fields passed to Log. This is to allow log
 	// forwarding to avoid deserializing and re-serializing all the fields of a JSON log event.
-	LogForwarded(ts time.Time, level log.Level, fields map[string]json.RawMessage, message string) error
+	LogForwarded(ts time.Time, level Level, fields map[string]json.RawMessage, message string) error
 	// Level returns the current configured level filter of the Logger.
-	Level() log.Level
+	Level() Level
 }
 
-func FlowToLogrusLevel(flowLevel pf.LogLevelFilter) log.Level {
+func FlowToLogrusLevel(flowLevel Level) log.Level {
 	switch flowLevel {
-	case pf.LogLevelFilter_TRACE:
+	case TraceLevel:
 		return log.TraceLevel
-	case pf.LogLevelFilter_DEBUG:
+	case DebugLevel:
 		return log.DebugLevel
-	case pf.LogLevelFilter_INFO:
+	case InfoLevel:
 		return log.InfoLevel
-	case pf.LogLevelFilter_WARN:
+	case WarnLevel:
 		return log.WarnLevel
-	case pf.LogLevelFilter_RAW:
+	case RawLevel:
 		return log.FatalLevel
 	default:
 		return log.ErrorLevel
 	}
 }
 
-func LogrusToFlowLevel(logrusLevel log.Level) pf.LogLevelFilter {
+func LogrusToFlowLevel(logrusLevel log.Level) Level {
 	switch logrusLevel {
 	case log.TraceLevel:
-		return pf.LogLevelFilter_TRACE
+		return TraceLevel
 	case log.DebugLevel:
-		return pf.LogLevelFilter_DEBUG
+		return DebugLevel
 	case log.InfoLevel:
-		return pf.LogLevelFilter_INFO
+		return InfoLevel
 	case log.WarnLevel:
-		return pf.LogLevelFilter_WARN
-	case log.PanicLevel, log.FatalLevel:
-		return pf.LogLevelFilter_RAW
+		return WarnLevel
+	case log.ErrorLevel:
+		return ErrorLevel
 	default:
-		return pf.LogLevelFilter_ERROR
+		return RawLevel
 	}
 }
 
@@ -84,11 +97,11 @@ type withFieldsLogger struct {
 	addJson  map[string]json.RawMessage
 }
 
-func (l *withFieldsLogger) Level() log.Level {
+func (l *withFieldsLogger) Level() Level {
 	return l.delegate.Level()
 }
 
-func (l *withFieldsLogger) Log(level log.Level, fields log.Fields, message string) error {
+func (l *withFieldsLogger) Log(level Level, fields log.Fields, message string) error {
 	var finalFields log.Fields
 	if l.requiresMapCopy(level, len(fields)) {
 		finalFields = log.Fields{}
@@ -104,7 +117,7 @@ func (l *withFieldsLogger) Log(level log.Level, fields log.Fields, message strin
 	return l.delegate.Log(level, finalFields, message)
 }
 
-func (l *withFieldsLogger) LogForwarded(ts time.Time, level log.Level, fields map[string]json.RawMessage, message string) error {
+func (l *withFieldsLogger) LogForwarded(ts time.Time, level Level, fields map[string]json.RawMessage, message string) error {
 	var finalFields map[string]json.RawMessage
 	if l.requiresMapCopy(level, len(fields)) {
 		finalFields = make(map[string]json.RawMessage, len(fields)+len(l.addJson))
@@ -124,28 +137,28 @@ func (l *withFieldsLogger) LogForwarded(ts time.Time, level log.Level, fields ma
 // fields passed to `Log` or `LogForwarded` with the additional fields. The point is to avoid
 // copying the map if no additional fields were given, or if we're not going to log this event
 // anyway due to the verbosity.
-func (l *withFieldsLogger) requiresMapCopy(level log.Level, givenFieldsLen int) bool {
+func (l *withFieldsLogger) requiresMapCopy(level Level, givenFieldsLen int) bool {
 	return givenFieldsLen > 0 && level <= l.delegate.Level()
 }
 
 type stdLogAppender struct{}
 
 // Level implements ops.Logger for stdLogAppender
-func (stdLogAppender) Level() log.Level {
-	return log.GetLevel()
+func (stdLogAppender) Level() Level {
+	return LogrusToFlowLevel(log.GetLevel())
 }
 
 // Log implements ops.Logger for stdLogAppender
-func (l stdLogAppender) Log(level log.Level, fields log.Fields, message string) error {
+func (l stdLogAppender) Log(level Level, fields log.Fields, message string) error {
 	if level > l.Level() {
 		return nil
 	}
-	log.WithFields(fields).Log(level, message)
+	log.WithFields(fields).Log(FlowToLogrusLevel(level), message)
 	return nil
 }
 
 // LogForwarded implements ops.Logger for stdLogAppender
-func (l stdLogAppender) LogForwarded(ts time.Time, level log.Level, fields map[string]json.RawMessage, message string) error {
+func (l stdLogAppender) LogForwarded(ts time.Time, level Level, fields map[string]json.RawMessage, message string) error {
 	if level > l.Level() {
 		return nil
 	}
@@ -157,7 +170,7 @@ func (l stdLogAppender) LogForwarded(ts time.Time, level log.Level, fields map[s
 			entry.Data[key] = deser
 		}
 	}
-	entry.Log(level, message)
+	entry.Log(FlowToLogrusLevel(level), message)
 	return nil
 }
 

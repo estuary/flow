@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	pf "github.com/estuary/flow/go/protocols/flow"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -162,33 +161,32 @@ func (f *logForwarder) forwardLine(line []byte) error {
 			event.Timestamp = time.Now().UTC()
 		}
 
-		var level = pf.LogLevelFilter_RAW
-		if event.Level >= pf.LogLevelFilter_ERROR {
+		var level = RawLevel
+		if event.Level >= ErrorLevel {
 			level = event.Level
 		}
-		return f.publisher.LogForwarded(event.Timestamp, FlowToLogrusLevel(level), event.Fields, event.Message)
+		return f.publisher.LogForwarded(event.Timestamp, level, event.Fields, event.Message)
 	} else {
 		// fallback to logging the raw text of each line, along with the
 		f.textLines++
-		var jsonLevel, _ = json.Marshal(strings.ToLower(pf.LogLevelFilter_RAW.String()))
+		var jsonLevel, _ = json.Marshal(strings.ToLower(RawLevel.String()))
 		var fields = map[string]json.RawMessage{
 			LogSourceField: f.sourceDescJsonString,
 			"level":        json.RawMessage(jsonLevel),
 		}
-		return f.publisher.LogForwarded(time.Now().UTC(), FlowToLogrusLevel(pf.LogLevelFilter_RAW), fields, string(line))
-		//return f.publisher.LogForwarded(time.Now().UTC(), log.Level(0), fields, string(line))
+		return f.publisher.LogForwarded(time.Now().UTC(), RawLevel, fields, string(line))
 	}
 }
 
 func (f *logForwarder) logFinished(err error) error {
 	if err != nil {
-		f.publisher.Log(log.ErrorLevel, log.Fields{
+		f.publisher.Log(ErrorLevel, log.Fields{
 			"error":        err,
 			LogSourceField: f.sourceDesc,
 		}, "failed to read logs from source")
 		return err
 	} else {
-		return f.publisher.Log(log.TraceLevel, log.Fields{
+		return f.publisher.Log(TraceLevel, log.Fields{
 			"jsonLines":    f.jsonLines,
 			"textLines":    f.textLines,
 			LogSourceField: f.sourceDesc,
@@ -199,10 +197,10 @@ func (f *logForwarder) logFinished(err error) error {
 // parseLogLevel tries to match the given bytes to a log level string such as "info" or "DEBUG".
 // Flow logs don't use "fatal" or "panic" levels, so those will be parsed as ErrorLevel.
 // It returns the level and a boolean which indicates whether the parse was successful.
-func parseLogLevel(b []byte) (log.Level, bool) {
+func parseLogLevel(b []byte) (Level, bool) {
 	// 5 is the shortest valid length (3 for err + 2 for quotes)
 	if len(b) < 5 {
-		return log.PanicLevel, false
+		return RawLevel, false
 	}
 	// Strip the quotes. Even if they're not quotes, we don't care, since there's no possible
 	// non-string JSON token that would match any of these values.
@@ -210,21 +208,22 @@ func parseLogLevel(b []byte) (log.Level, bool) {
 
 	// Match against case-insensitive prefixes of common log levels. This is just an easy way to
 	// match multiple common spellings for things like "WARN" vs "warning".
-	for prefix, level := range map[string]log.Level{
-		"debug": log.DebugLevel,
-		"info":  log.InfoLevel,
-		"trace": log.TraceLevel,
-		"warn":  log.WarnLevel,
-		"err":   log.ErrorLevel,
-		"fatal": log.ErrorLevel,
-		"panic": log.ErrorLevel,
+	for prefix, level := range map[string]Level{
+		"debug": DebugLevel,
+		"info":  InfoLevel,
+		"trace": TraceLevel,
+		"warn":  WarnLevel,
+		"err":   ErrorLevel,
+		"fatal": RawLevel,
+		"panic": RawLevel,
+		"raw":   RawLevel,
 	} {
 		if len(b) >= len(prefix) && eqIgnoreAsciiCase(prefix, b[0:len(prefix)]) {
 			return level, true
 		}
 	}
 
-	return log.PanicLevel, false
+	return RawLevel, false
 }
 
 // eqIgnoreAsciiCase returns true if the given inputs are the same, ignoring only ascii case.
@@ -244,7 +243,7 @@ func eqIgnoreAsciiCase(a string, b []byte) bool {
 }
 
 type logEvent struct {
-	Level     pf.LogLevelFilter
+	Level     Level
 	Timestamp time.Time
 	// Fields are kept as raw messages to avoid unnecessary parsing.
 	Fields  map[string]json.RawMessage
@@ -264,9 +263,9 @@ func (e *logEvent) UnmarshalJSON(b []byte) error {
 				e.Timestamp = t
 				delete(m, k)
 			}
-		} else if fieldMatches(k, "level", "lvl") && e.Level == pf.LogLevelFilter_OFF {
+		} else if fieldMatches(k, "level", "lvl") && e.Level < ErrorLevel {
 			if lvl, ok := parseLogLevel([]byte(v)); ok {
-				e.Level = LogrusToFlowLevel(lvl)
+				e.Level = lvl
 				delete(m, k)
 			}
 		} else if fieldMatches(k, "message", "msg") && e.Message == "" {
