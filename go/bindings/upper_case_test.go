@@ -35,7 +35,7 @@ func TestLogsForwardedFromService(t *testing.T) {
 	logPublisher.WaitForLogs(t, time.Millisecond*500, 2)
 	logPublisher.RequireEventsMatching(t, []testutil.TestLogEvent{
 		{
-			Level:   log.DebugLevel,
+			Level:   pf.LogLevelFilter_DEBUG,
 			Message: "making stuff uppercase",
 			Fields: map[string]interface{}{
 				"data_len": 5,
@@ -43,7 +43,7 @@ func TestLogsForwardedFromService(t *testing.T) {
 			},
 		},
 		{
-			Level:   log.DebugLevel,
+			Level:   pf.LogLevelFilter_DEBUG,
 			Message: "making stuff uppercase",
 			Fields: map[string]interface{}{
 				"data_len": 5,
@@ -62,7 +62,7 @@ func TestLogsForwardedFromService(t *testing.T) {
 	logPublisher.WaitForLogs(t, time.Millisecond*500, 2)
 	logPublisher.RequireEventsMatching(t, []testutil.TestLogEvent{
 		{
-			Level:   log.ErrorLevel,
+			Level:   pf.LogLevelFilter_ERROR,
 			Message: "whoops",
 			Fields: map[string]interface{}{
 				"error":     `{"code":2,"message":"whoops"}`,
@@ -70,7 +70,7 @@ func TestLogsForwardedFromService(t *testing.T) {
 			},
 		},
 		{
-			Level:   log.TraceLevel,
+			Level:   pf.LogLevelFilter_TRACE,
 			Message: "finished forwarding logs",
 			Fields: map[string]interface{}{
 				"jsonLines": 3,
@@ -93,7 +93,7 @@ func TestLotsOfLogs(t *testing.T) {
 			expectedSum++
 			svc.sendMessage(1, frameableString("f"))
 			expectedLogs = append(expectedLogs, testutil.TestLogEvent{
-				Level:   log.DebugLevel,
+				Level:   pf.LogLevelFilter_DEBUG,
 				Message: "making stuff uppercase",
 				Fields: map[string]interface{}{
 					"data_len": 1,

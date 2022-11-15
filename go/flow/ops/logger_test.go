@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/flow/ops/testutil"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -31,7 +32,7 @@ func TestAddFieldsToLogger(t *testing.T) {
 
 	var expected = []testutil.TestLogEvent{
 		{
-			Level: log.DebugLevel,
+			Level: pf.LogLevelFilter_DEBUG,
 			Fields: log.Fields{
 				"foo":      3,
 				"coalMine": "canary",
@@ -39,7 +40,7 @@ func TestAddFieldsToLogger(t *testing.T) {
 			Message: "one",
 		},
 		{
-			Level: log.InfoLevel,
+			Level: pf.LogLevelFilter_INFO,
 			Fields: log.Fields{
 				"foo":      "not three",
 				"coalMine": "canary",
@@ -47,7 +48,7 @@ func TestAddFieldsToLogger(t *testing.T) {
 			Message: "two",
 		},
 		{
-			Level: log.WarnLevel,
+			Level: pf.LogLevelFilter_WARN,
 			Fields: log.Fields{
 				"foo":      3,
 				"coalMine": "canary",

@@ -8,6 +8,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	//"github.com/stretchr/testify/assert"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,7 +16,7 @@ import (
 // expected event to match against.
 type TestLogEvent struct {
 	Timestamp time.Time
-	Level     log.Level
+	Level     pf.LogLevelFilter
 	Message   string
 	Fields    map[string]interface{}
 }
@@ -142,7 +143,7 @@ func (p *TestLogPublisher) Log(level log.Level, fields log.Fields, message strin
 	}
 	var event = TestLogEvent{
 		Timestamp: time.Now().UTC(),
-		Level:     level,
+		Level:     pf.LogLevelFilter(level),
 		Message:   message,
 		Fields:    NormalizeFields(fields),
 	}
@@ -160,7 +161,7 @@ func (p *TestLogPublisher) LogForwarded(ts time.Time, level log.Level, fields ma
 	}
 	var event = TestLogEvent{
 		Timestamp: ts,
-		Level:     level,
+		Level:     pf.LogLevelFilter(level),
 		Message:   message,
 		Fields:    NormalizeFields(fields),
 	}

@@ -67,7 +67,7 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 	logPublisher.WaitForLogs(t, time.Millisecond*5000, 1)
 	logPublisher.RequireEventsMatching(t, []testutil.TestLogEvent{
 		{
-			Level: log.ErrorLevel,
+			Level: pf.LogLevelFilter_ERROR,
 			Message: `document is invalid: {
   "basic_output": {
     "errors": [
