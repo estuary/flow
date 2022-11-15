@@ -11,7 +11,7 @@ materializations:
     bindings:
       - source: ops/TENANT/catalog-stats
         resource:
-          table: TENANT_stats
+          table: catalog_stats
         fields:
           recommended: false
           include:
