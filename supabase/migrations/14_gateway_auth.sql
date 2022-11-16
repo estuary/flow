@@ -21,7 +21,7 @@ create table internal.gateway_endpoints (
 );
 
 insert into internal.gateway_endpoints (name, url, detail) values (
-  'local', 'http://localhost:28318/', 'Used for development only. This value will be changed manually when deployed to production.'
+  'local', 'http://localhost:28317/', 'Used for development only. This value will be changed manually when deployed to production.'
 );
 
 
