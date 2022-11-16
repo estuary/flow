@@ -46,9 +46,10 @@ You can switch seamlessly between them as you build and refine your pipelines, a
 
 -   🧐 **Examples and tutorials**
     - [Documentation tutorials](https://docs.estuary.dev/getting-started/tutorials/)
-    - Blog tutorials
+    - Blog & GitHub tutorials
        - [Continuous materialized view in Postgres](https://www.estuary.dev/how-to-create-a-real-time-materialized-view-in-postgresql/)
        - [Kafka to Hasura GraphQL pipeline](https://www.estuary.dev/how-to-connect-kafka-to-hasura-graphql/)
+       - [Flow transformations at http endpoints](https://github.com/estuary/flow-cf-workers-example)
     - Many [examples/](examples/) are available in this repo, covering a range of use cases and techniques.
 
 ## Support
