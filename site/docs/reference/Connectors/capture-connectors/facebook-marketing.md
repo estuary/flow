@@ -36,8 +36,7 @@ Follow the steps below to meet these requirements.
 
 ### Setup
 
-1. Find your Facebook Business [Ad Account ID](https://www.facebook.com/business/help/1492627900875762).
-You'll use this for the Business ID property.
+1. Find your Facebook [Ad Account ID](https://www.facebook.com/business/help/1492627900875762).
 
 2. In Meta for Developers, [create a new app](https://developers.facebook.com/docs/development/create-an-app/) of the type Business.
 
@@ -75,7 +74,7 @@ are a subset of breakdowns that must be specified separately.
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/access_token`** | Access Token | The value of the access token generated. | string | Required |
-| **`/business_id`** | Business ID | Your Facebook Business Ad Account ID. The connector will fetch all the Ad Accounts that this business has access to. | string | Required |
+| **`/account_id`** | Account ID | The Facebook Ad account ID to use when pulling data from the Facebook Marketing API. | string | Required |
 | `/custom_insights` | Custom Insights | A list which contains insights entries. Each entry must have a name and can contains fields, breakdowns or action&#x5F;breakdowns | array |  |
 | _`/custom_insights/-/action_breakdowns`_ | Action Breakdowns | A list of chosen action&#x5F;breakdowns to apply | array | `[]` |
 | _`/custom_insights/-/action_breakdowns/-`_ | ValidActionBreakdowns | Generic enumeration. Derive from this class to define new enumerations. | string |  |
@@ -90,6 +89,8 @@ are a subset of breakdowns that must be specified separately.
 | `/end_date` | End Date | The date until which you&#x27;d like to capture data, in the format YYYY-MM-DDT00:00:00Z. All data generated between start&#x5F;date and this date will be replicated. Not setting this option will result in always syncing the latest data. | string |  |
 | `/fetch_thumbnail_images` | Fetch Thumbnail Images | In each Ad Creative, fetch the thumbnail&#x5F;url and store the result in thumbnail&#x5F;data&#x5F;url | boolean | `false` |
 | `/include_deleted` | Include Deleted | Include data from deleted Campaigns, Ads, and AdSets | boolean | `false` |
+| `/insights_lookback_window` | Insights Lookback Window | The [attribution window](https://www.facebook.com/business/help/2198119873776795) | integer | `28` |
+| `/max_batch_size` | Maximum size of Batched Requests | Maximum batch size used when sending batch requests to Facebook API. Most users do not need to set this field unless they specifically need to tune the connector to address specific issues or use cases. | integer | `50` |
 | `/page_size` | Page Size of Requests | Page size used when sending requests to Facebook API to specify number of records per page when response has pagination. Most users do not need to set this field unless they specifically need to tune the connector to address specific issues or use cases. | integer | `25` |
 | **`/start_date`** | Start Date | The date from which you&#x27;d like to begin capturing data, in the format YYYY-MM-DDT00:00:00Z. All data generated after this date will be replicated. | string | Required |
 
@@ -110,7 +111,7 @@ captures:
         image: ghcr.io/estuary/source-facebook-marketing:dev
         config:
             access_token: <secret>
-            business_id: 000000000000000
+            account_id: 000000000000000
             start_date: 2022-03-01T00:00:00Z
             custom_insights:
               - name: my-custom-insight
