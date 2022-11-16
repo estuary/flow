@@ -1231,6 +1231,7 @@ dependencies = [
  "anyhow",
  "assemble",
  "assert_cmd",
+ "base64",
  "bytes",
  "chrono",
  "clap 3.2.22",

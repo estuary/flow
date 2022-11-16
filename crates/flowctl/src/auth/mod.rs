@@ -14,10 +14,10 @@ pub struct Auth {
 #[derive(Debug, clap::Subcommand)]
 #[clap(rename_all = "kebab-case")]
 pub enum Command {
-    /// Authenticate to Flow using a service account file.
+    /// Authenticate to Flow using a token.
     ///
-    /// You can find this service account within Flow UI dashboard under "Admin".
-    ServiceAccount(ServiceAccountArgs),
+    /// You can find this token within Flow UI dashboard under "Admin".
+    Token(TokenArgs),
     /// Authenticate to a local development instance of the Flow control plane.
     ///
     /// This is intended for developers who are running local instances
@@ -44,14 +44,14 @@ pub enum Command {
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
-pub struct ServiceAccountArgs {
-    /// Path to service account JSON file. Use `-` to read from stdin.
-    #[clap(value_parser)]
-    file: Option<String>,
+pub struct TokenArgs {
+    /// Your user token, which can be obtained from https://go.estuary.dev/2DgrAp
+    #[clap(long)]
+    token: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ServiceAccount {
+pub struct RefreshableToken {
     pub access_token: String,
     pub refresh_token: String,
     pub expires_at: i64,
@@ -67,19 +67,11 @@ pub struct Develop {
 impl Auth {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> Result<(), anyhow::Error> {
         match &self.cmd {
-            Command::ServiceAccount(ServiceAccountArgs { file }) => {
-                if let Some(file) = file {
-                    let (sa, msg): (ServiceAccount, &str) = if file == "-" {
-                        (serde_json::from_reader(std::io::stdin())?, "Configured service account.")
-                    } else {
-                        let sa_file = std::fs::File::open(file)?;
-                        (serde_json::from_reader(sa_file)?, "Configured service account. You may now delete the file.")
-                    };
-                    ctx.config_mut().api = Some(config::API::managed(sa));
-                    println!("{}", msg);
-                } else {
-                    println!("You can get your service-account from https://dashboard.estuary.dev/admin/api")
-                }
+            Command::Token(TokenArgs { token }) => {
+                let decoded = base64::decode(token)?;
+                let tk = serde_json::from_slice(&decoded)?;
+                ctx.config_mut().api = Some(config::API::managed(tk));
+                println!("Configured credentials.");
                 Ok(())
             }
             Command::Develop(Develop { token }) => {
