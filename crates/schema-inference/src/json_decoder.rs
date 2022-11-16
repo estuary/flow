@@ -34,9 +34,9 @@ where
 /// JSON Codec error enumeration
 #[derive(Debug, thiserror::Error)]
 pub enum JsonCodecError {
-    #[error("IO error")]
+    #[error("IO error: {:?}", .0)]
     Io(#[from] std::io::Error),
-    #[error("JSON error")]
+    #[error("JSON error: {:?}", .0)]
     Json(#[from] serde_json::Error),
 }
 
@@ -67,10 +67,22 @@ where
             }
             // We errored while parsing a document
             Some(Err(e)) if !e.is_eof() => return Err(e.into()),
-            // Either the buffer is empty or entirely whitespace (None),
-            // or it only contains a partial document (premature EOF). Either way,
+            // The buffer is empty or entirely whitespace (None)
+            None => {
+                assert!(
+                    buf.iter().all(u8::is_ascii_whitespace),
+                    "Got None from streaming JSON deserializer, but buffer contained non-whitespace characters!"
+                );
+
+                // Now that we know that the buffer contains nothing or only whitespace
+                // We need to actually consume that whitespace, otherwise `decode_eof` will
+                // complain that we returned Ok(None) with bytes still in the buffer
+                buf.advance(buf.len());
+                Ok(None)
+            }
+            // It only contains a partial document (premature EOF). Either way,
             // let's indicate to the Framed instance that it needs to read some more bytes before calling this method again.
-            None | Some(Err(_)) => {
+            Some(Err(_)) => {
                 // Theoretically we could grow the amount of additional bytes we ask for
                 // each time we fail to deserialize a record binary-search style
                 // but 1mb feels like a reasonable upper bound, and also not an unreasonable size for a buffer to grow by
