@@ -64,13 +64,9 @@ async fn listen_for_tasks(
     table_names: Vec<String>,
     pg_pool: &sqlx::PgPool,
 ) -> anyhow::Result<()> {
-    let listener = Arc::new(Mutex::new(PgListener::connect_with(&pg_pool).await?));
+    let mut listener = PgListener::connect_with(&pg_pool).await?;
 
-    listener
-        .lock()
-        .await
-        .listen(AGENT_NOTIFICATION_CHANNEL)
-        .await?;
+    listener.listen(AGENT_NOTIFICATION_CHANNEL).await?;
 
     // Sqlx does not give us the option to set TCP keepalive on its connections,
     // and this specifc scenario of keeping a long-running connection open to listen
@@ -86,50 +82,41 @@ async fn listen_for_tasks(
     // This will then bubble through as a None return to PgListener:try_recv(),
     // which we'll then attempt to reconnect, and trigger the task handlers
     // to look and see if there's any work waiting for them.
-    let cloned_listener = listener.clone();
-    let handle = tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(Duration::from_secs(30)).await;
-            cloned_listener
-                .lock()
-                .await
-                .listen("hacky_keepalive")
-                .await
-                .unwrap();
-
-            cloned_listener
-                .lock()
-                .await
-                .unlisten("hacky_keepalive")
-                .await
-                .unwrap();
-        }
-    });
-
+    let mut should_poke_connection = false;
     loop {
+        if should_poke_connection {
+            tracing::debug!("Poking listener to keep connection alive/figure out if it timed out");
+            should_poke_connection = false;
+
+            listener.listen("hacky_keepalive").await?;
+            listener.unlisten("hacky_keepalive").await?;
+        }
+
+        let recv_timeout = tokio::time::sleep(Duration::from_secs(30));
+
+        let maybe_notification = tokio::select! {
+           _ = recv_timeout => {
+               should_poke_connection = true;
+               continue;
+           },
+           notify = listener.try_recv() => notify
+        }
+        .context("listening for notifications from database")?;
+
         // try_recv returns None when the channel disconnects,
         // which we want to have explicit handling for
-        let maybe_item = listener
-            .lock()
-            .await
-            .try_recv()
-            .await
-            .map_err(|e| anyhow::Error::from(e))?;
-
-        if let Some(item) = maybe_item {
-            let notification: AgentNotification = serde_json::from_str(item.payload())
+        if let Some(notification) = maybe_notification {
+            let notification: AgentNotification = serde_json::from_str(notification.payload())
                 .context("deserializing agent task notification")?;
 
             tracing::debug!(
                 table = &notification.table,
                 "Message received to invoke handler"
             );
-            task_tx
-                .send(HandlerInvocation {
-                    table_name: notification.table,
-                    is_poll: false,
-                })
-                .map_err(|e| anyhow::Error::from(e))?
+            task_tx.send(HandlerInvocation {
+                table_name: notification.table,
+                is_poll: false,
+            })?
         } else {
             tracing::warn!("LISTEN/NOTIFY stream from postgres lost, waking all handlers and attempting to reconnect");
             table_names.iter().for_each(|table| {
