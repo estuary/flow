@@ -67,13 +67,9 @@ async fn listen_for_tasks(
     table_names: Vec<String>,
     pg_pool: &sqlx::PgPool,
 ) -> anyhow::Result<()> {
-    let listener = Arc::new(Mutex::new(PgListener::connect_with(&pg_pool).await?));
+    let mut listener = PgListener::connect_with(&pg_pool).await?;
 
-    listener
-        .lock()
-        .await
-        .listen(AGENT_NOTIFICATION_CHANNEL)
-        .await?;
+    listener.listen(AGENT_NOTIFICATION_CHANNEL).await?;
 
     // Sqlx does not give us the option to set TCP keepalive on its connections,
     // and this specifc scenario of keeping a long-running connection open to listen
@@ -89,46 +85,17 @@ async fn listen_for_tasks(
     // This will then bubble through as a None return to PgListener:try_recv(),
     // which we'll then attempt to reconnect, and trigger the task handlers
     // to look and see if there's any work waiting for them.
-    let cloned_listener = listener.clone();
-    let _handle = tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(Duration::from_secs(30)).await;
-            tracing::debug!("Poking listener to keep connection alive/figure out if it timed out");
-            cloned_listener
-                .lock()
-                .await
-                .listen("hacky_keepalive")
-                .await
-                .unwrap();
-
-            cloned_listener
-                .lock()
-                .await
-                .unlisten("hacky_keepalive")
-                .await
-                .unwrap();
-        }
-    });
-
     loop {
-        // We need to release the lock on listener every once in a while so that the
-        // keepalive loop above can do its thing, otherwise we'll hold the lock open
-        // waiting on try_recv, which may never complete because the connection is
-        // unknowningly disconnected, which is the whole point of the keepalive loop.
-        match tokio::time::timeout(Duration::from_secs(30), async {
-            // try_recv returns None when the channel disconnects,
-            // which we want to have explicit handling for
-            listener
-                .lock()
-                .await
-                .try_recv()
-                .await
-                .map_err(|e| anyhow::Error::from(e))
-        })
-        .await
-        {
-            Ok(maybe_item) => {
-                if let Some(item) = maybe_item? {
+        let should_poke_connection: Result<bool, anyhow::Error> = tokio::select! {
+            res = async {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                Ok(true)
+            } => {res},
+            res = async {
+                let maybe_item = listener.try_recv().await.map_err(|e| anyhow::Error::from(e))?;
+                // try_recv returns None when the channel disconnects,
+                // which we want to have explicit handling for
+                if let Some(item) = maybe_item {
                     let notification: AgentNotification = serde_json::from_str(item.payload())
                         .context("deserializing agent task notification")?;
 
@@ -153,11 +120,15 @@ async fn listen_for_tasks(
                             .unwrap()
                     });
                 }
-            }
-            // Timeout reached
-            Err(_) => {
-                continue;
-            }
+                Ok(false)
+            } => {res}
+        };
+
+        if should_poke_connection? {
+            tracing::debug!("Poking listener to keep connection alive/figure out if it timed out");
+
+            listener.listen("hacky_keepalive").await?;
+            listener.unlisten("hacky_keepalive").await?;
         }
     }
 }
