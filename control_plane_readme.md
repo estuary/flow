@@ -237,6 +237,147 @@ Your installation is seeded with three existing users:
 
 To login with a Magic Link you need to enter an email and then your local will "send" an email. To check this email you need to use Inbucket [http://localhost:5434/](http://localhost:5434/) and click on the link provided in the email.
 
+### Building on M1
+
+* To cross-compile `musl` binaries from a darwin arm64 (M1) machine, you need to install `musl-cross` and link it:
+  ```
+  brew install filosottile/musl-cross/musl-cross
+  sudo ln -s /opt/homebrew/opt/musl-cross/bin/x86_64-linux-musl-gcc /usr/local/bin/musl-gcc
+  ```
+
+* Install GNU `coreutils` which are used in the build process using:
+
+  ```
+  brew install coreutils
+  ```
+
+* If you encounter build errors complaining about missing symbols for x86_64 architecture, try setting the following environment variables:
+  ```
+  export GOARCH=arm64
+  export CGO_ENABLED=1
+  ```
+
+* If you encounter build errors related to openssl, you probably have openssl 3 installed, rather than openssl 1.1:
+  ```
+  $ brew uninstall openssl@3
+  $ brew install openssl@1.1
+  ```
+  Also make sure to follow homebrew's prompt about setting `LDFLAGS` and `CPPFLAGS`
+
+* If you encounter build errors complaining about `invalid linker name in argument '-fuse-ld=lld'`, you probably need to install llvm:
+  ```
+  $ brew install llvm
+  ```
+  Also make sure to follow homebrew's prompt about adding llvm to your PATH
+
+### Try Flow without dependencies
+
+This method is useful to quickly try Flow out.
+All you'll need is a local checkout of [github.com/estuary/flow](https://github.com/estuary/flow) upon which you've run `make package`. This creates a directory of binaries `${your_checkout}/.build/package/bin/`.
+
+Start a PostgreSQL server on your machine:
+```console
+$ docker run --rm -e POSTGRES_PASSWORD=password -p 5432:5432 postgres -c log_statement=all
+```
+
+Start a Flow data plane on your machine:
+```console
+$ flowctl-admin temp-data-plane
+export BROKER_ADDRESS=http://localhost:8080
+export CONSUMER_ADDRESS=http://localhost:9000
+```
+
+In another tab, apply the exported `BROKER_ADDRESS` and `CONSUMER_ADDRESS`,
+and save the following example to `flow.yaml`. Then apply it to the data plane:
+
+<details>
+<summary>flow.yaml</summary>
+
+```yaml
+captures:
+  # Capture Citi Bike's public system ride data.
+  examples/citi-bike/rides-from-s3:
+    endpoint:
+      connector:
+        # Docker image which implements a capture from S3.
+        image: ghcr.io/estuary/source-s3:dev
+        # Configuration for the S3 connector.
+        # This can alternatively be provided as a file, and Flow integrates with
+        # https://github.com/mozilla/sops for protecting credentials at rest.
+        config:
+          # The dataset is public and doesn't require credentials.
+          awsAccessKeyId: ""
+          awsSecretAccessKey: ""
+          region: "us-east-1"
+    bindings:
+      # Bind files starting with s3://tripdata/JC-201703 into a collection.
+      - resource:
+          stream: tripdata/JC-201703
+          syncMode: incremental
+        target: examples/citi-bike/rides
+
+collections:
+  # A collection of Citi Bike trips.
+  examples/citi-bike/rides:
+    key: [/bike_id, /begin/timestamp]
+    # JSON schema against which all trips must validate.
+    schema: https://raw.githubusercontent.com/estuary/flow/master/examples/citi-bike/ride.schema.yaml
+    # Projections relate a tabular structure (like SQL, or the CSV in the "tripdata" bucket)
+    # with a hierarchical document like JSON. Here we define projections for the various
+    # column headers that Citi Bike uses in their published CSV data. For example some
+    # files use "Start Time", and others "starttime": both map to /begin/timestamp
+    projections:
+      bikeid: /bike_id
+      birth year: /birth_year
+      end station id: /end/station/id
+      end station latitude: /end/station/geo/latitude
+      end station longitude: /end/station/geo/longitude
+      end station name: /end/station/name
+      start station id: /begin/station/id
+      start station latitude: /begin/station/geo/latitude
+      start station longitude: /begin/station/geo/longitude
+      start station name: /begin/station/name
+      start time: /begin/timestamp
+      starttime: /begin/timestamp
+      stop time: /end/timestamp
+      stoptime: /end/timestamp
+      tripduration: /duration_seconds
+      usertype: /user_type
+
+materializations:
+  # Materialize rides into a PostgreSQL database.
+  examples/citi-bike/to-postgres:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/materialize-postgres:dev
+        config:
+          # Try this by standing up a local PostgreSQL database.
+          # docker run --rm -e POSTGRES_PASSWORD=password -p 5432:5432 postgres -c log_statement=all
+          # (Use host: host.docker.internal when running Docker for Windows/Mac).
+          address: localhost:5432
+          password: password
+          database: postgres
+          user: postgres
+    bindings:
+      # Flow creates a 'citi_rides' table for us and keeps it up to date.
+      - source: examples/citi-bike/rides
+        resource:
+          table: citi_rides
+storageMappings:
+  # Flow builds out data lakes for your collections in your cloud storage buckets.
+  # A storage mapping relates a prefix, like examples/citi-bike/, to a storage location.
+  # Here we tell Flow to store everything in one bucket.
+  "": { stores: [{ provider: S3, bucket: my-storage-bucket }] }
+```
+
+</details>
+
+```console
+$ flowctl-admin deploy --source flow.yaml
+```
+
+You'll see a table created and loaded within your PostgreSQL server.
+
 ## Production Migrations
 
 This area is a work-in-progress -- it's Johnny's evolving opinion which we may disregard or change:
