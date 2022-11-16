@@ -9,7 +9,6 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-assemble = { path = "../assemble" }
 doc = { path = "../doc" }
 json = { path = "../json" }
 models = { path = "../models" }

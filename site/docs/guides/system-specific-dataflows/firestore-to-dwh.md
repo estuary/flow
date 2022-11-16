@@ -74,15 +74,21 @@ credentials provided by your Estuary account manager.
 
 6. Click **Discover Endpoint**.
 
-  Flow uses the provided configuration to initiate a connection with Firestore. It generates a capture specification and details of the collections that it will create, once published.
+  Flow uses the provided configuration to initiate a connection with Firestore.
 
-  You'll be notified if there's an error. In that case, fix the configuration form or your Google Service Account setup as needed and click **Discover Endpoint** to try again.
+  It maps each available Firestore collection to a possible Flow collection. It also generates a capture specification and schemas for each collection.
+
+  You can use the **Collection Selector** to remove or modify collections, or edit the JSON in the **Specification Editor** directly.
+
+  :::tip
+  If you make any changes in the collection editor, click **Discover endpoint** again.
+  :::
 
   :::tip
   If you'd rather work on the specification files in their native YAML format, you can use the [flowctl](../../concepts/flowctl.md) CLI. flowctl provides a developer-focused path to build full Data Flows in your preferred development environment.
   :::
 
-7. Click **Save and publish**.
+7. Once you're satisfied with the collections to be captured, click **Save and publish**.
 
   You'll see a notification when the capture publishes successfully.
 

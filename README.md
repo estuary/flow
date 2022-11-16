@@ -98,4 +98,3 @@ Flow mixes a variety of architectural techniques to achieve great throughput wit
 -   Vectorizing the work done in external Remote Procedure Calls (RPCs) and even process-internal operations.
 -   Marrying the development velocity of Go with the raw performance of Rust, using a zero-copy
     [CGO service channel](https://github.com/estuary/flow/commit/0fc0ff83fc5c58e01a09a053419f811d4460776e).
-

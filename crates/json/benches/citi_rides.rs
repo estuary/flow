@@ -9,7 +9,7 @@ const CITI_RIDES: &[u8] = include_bytes!("testdata/citi-rides1.json");
 
 pub fn citi_rides(c: &mut Criterion) {
     let schema: Value = serde_json::from_slice(CITI_RIDES_SCHEMA).unwrap();
-    let url = url::Url::parse("http://bench").unwrap();
+    let url = url::Url::parse("http://ignored").unwrap(); // Schema has $id.
     let schema = build_schema::<CoreAnnotation>(url, &schema).unwrap();
 
     let mut index = IndexBuilder::new();
@@ -27,7 +27,7 @@ pub fn citi_rides(c: &mut Criterion) {
 
     c.bench_function("rides1x", |b| {
         let mut val = Validator::<CoreAnnotation, SpanContext>::new(&index);
-        let curi = url::Url::parse("http://bench/#/$defs/ride").unwrap();
+        let curi = url::Url::parse("https://example/citi-rides.schema.json#/$defs/ride").unwrap();
 
         b.iter(|| {
             for (_n, doc) in rides.iter().enumerate() {
@@ -41,7 +41,8 @@ pub fn citi_rides(c: &mut Criterion) {
 
     c.bench_function("rides4x", |b| {
         let mut val = Validator::<CoreAnnotation, SpanContext>::new(&index);
-        let curi = url::Url::parse("http://bench/#/$defs/rideArray").unwrap();
+        let curi =
+            url::Url::parse("https://example/citi-rides.schema.json#/$defs/rideArray").unwrap();
 
         b.iter(|| {
             for (_n, doc) in rides4x.iter().enumerate() {

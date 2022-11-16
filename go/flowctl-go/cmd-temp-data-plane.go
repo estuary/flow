@@ -186,7 +186,7 @@ func (cmd cmdTempDataPlane) consumerCmd(ctx context.Context, tempdir, buildsRoot
 	}
 
 	var args = []string{
-		pkgbin.MustLocate("flowctl-admin"),
+		pkgbin.MustLocate("flowctl-go"),
 		"serve",
 		"consumer",
 		"--broker.address", gazetteAddr,

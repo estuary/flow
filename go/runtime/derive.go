@@ -113,11 +113,15 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 // Destroy releases the API binding delegate, which also cleans up the associated
 // Rust-held RocksDB and its files.
 func (d *Derive) Destroy() {
-	d.taskTerm.destroy()
-	// binding could be nil if there was a failure during initialization
+	// `binding` could be nil if there was a failure during initialization.
+	// binding.destroy() will also destroy its trampoline server and synchronously
+	// wait for its concurrent tasks to complete. We must do this before destroying
+	// the taskTerm -- which will also destroy the TypeScript server which the
+	// trampoline tasks are likely calling.
 	if d.binding != nil {
 		d.binding.Destroy()
 	}
+	d.taskTerm.destroy()
 }
 
 // BeginTxn begins a derive transaction.

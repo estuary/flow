@@ -1,5 +1,4 @@
-use super::ValidatorGuard;
-use crate::JsonError;
+use crate::{new_validator, JsonError};
 use prost::Message;
 use proto_flow::flow::{
     self,
@@ -35,7 +34,7 @@ pub enum Error {
 /// Extract a UUID at the given location within the document, returning its UuidParts,
 /// or None if the Pointer does not resolve to a valid v1 UUID.
 pub fn extract_uuid_parts(v: &serde_json::Value, ptr: &doc::Pointer) -> Option<flow::UuidParts> {
-    let v_uuid = ptr.query(&v).unwrap_or(&serde_json::Value::Null);
+    let v_uuid = ptr.query(v).unwrap_or(&serde_json::Value::Null);
     v_uuid
         .as_str()
         .and_then(|s| uuid::Uuid::parse_str(s).ok())
@@ -71,7 +70,7 @@ pub struct API {
 struct State {
     uuid_ptr: doc::Pointer,
     field_ptrs: Vec<doc::Pointer>,
-    schema_validator: Option<ValidatorGuard>,
+    validator: Option<doc::Validator>,
 }
 
 impl cgo::Service for API {
@@ -102,16 +101,16 @@ impl cgo::Service for API {
                     field_ptrs,
                 } = extract_api::Config::decode(data)?;
 
-                let schema_validator = if schema_json.is_empty() {
+                let validator = if schema_json.is_empty() {
                     None
                 } else {
-                    Some(ValidatorGuard::new(&schema_json)?)
+                    Some(new_validator(&schema_json)?)
                 };
 
                 self.state = Some(State {
                     uuid_ptr: doc::Pointer::from(&uuid_ptr),
                     field_ptrs: field_ptrs.iter().map(doc::Pointer::from).collect(),
-                    schema_validator,
+                    validator,
                 });
                 Ok(())
             }
@@ -125,19 +124,14 @@ impl cgo::Service for API {
                     }
                 })?;
 
-                let doc = match &mut state.schema_validator {
-                    Some(guard)
-                        // Transaction acknowledgements aren't expected to validate.
-                        if proto_gazette::message_flags::ACK_TXN & uuid.producer_and_flags == 0 =>
-                    {
-                        doc::Validation::validate(&mut guard.validator, &guard.schema.curi, doc)?
-                            .ok()
-                            .map_err(Error::FailedValidation)?
-                            .0
-                            .document
-                    }
-                    _ => doc,
-                };
+                if proto_gazette::message_flags::ACK_TXN & uuid.producer_and_flags != 0 {
+                    // Transaction acknowledgements aren't expected to validate.
+                } else if let Some(validator) = &mut state.validator {
+                    validator
+                        .validate(None, &doc)?
+                        .ok()
+                        .map_err(Error::FailedValidation)?;
+                }
 
                 // Send extracted UUID.
                 cgo::send_message(Code::ExtractedUuid as u32, &uuid, arena, out);

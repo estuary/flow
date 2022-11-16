@@ -6,7 +6,6 @@ pub mod combine_api;
 pub mod derive_api;
 pub mod extract_api;
 
-pub mod combiner;
 mod pipeline;
 mod registers;
 
@@ -95,49 +94,15 @@ where
     serializer.serialize_str(&s)
 }
 
-// ValidatorGuard encapsulates the compilation and indexing of a JSON schema,
-// tied to the lifetime of a Validator which references it. It allows the
-// Validator and Index to flexibly reference the built schema while making it
-// difficult to misuse, since the Validator lifetime is tied to the Index
-// and Schema.
-struct ValidatorGuard {
-    schema: Box<doc::Schema>,
-    _index: Box<doc::SchemaIndex<'static>>,
-    validator: doc::Validator<'static>,
-}
-
-impl ValidatorGuard {
-    fn new(schema: &str) -> Result<Self, anyhow::Error> {
+pub fn new_validator(schema: &str) -> Result<doc::Validator, anyhow::Error> {
+    let schema = json::schema::build::build_schema(
         // Bundled schemas carry their own $id so this isn't used in practice.
-        let curi = url::Url::parse("https://example").unwrap();
-        let schema: serde_json::Value =
-            serde_json::from_str(&schema).context("decoding JSON-schema")?;
-        let schema: doc::Schema =
-            json::schema::build::build_schema(curi, &schema).context("building schema")?;
+        url::Url::parse("https://example").unwrap(),
+        &serde_json::from_str(&schema).context("parsing bundled JSON schema")?,
+    )
+    .context("building bundled JSON schema")?;
 
-        let schema = Box::new(schema);
-        let schema_static =
-            unsafe { std::mem::transmute::<&'_ doc::Schema, &'static doc::Schema>(&schema) };
-
-        let mut index = doc::SchemaIndexBuilder::new();
-        index.add(schema_static).context("adding schema to index")?;
-        index
-            .verify_references()
-            .context("verifying schema index references")?;
-
-        let index = Box::new(index.into_index());
-        let index_static = unsafe {
-            std::mem::transmute::<&'_ doc::SchemaIndex, &'static doc::SchemaIndex>(&index)
-        };
-
-        let validator = doc::Validator::new(index_static);
-
-        Ok(Self {
-            schema,
-            _index: index,
-            validator,
-        })
-    }
+    Ok(doc::Validator::new(schema).context("preparing schema validator")?)
 }
 
 /// Common test utilities used by sub-modules.

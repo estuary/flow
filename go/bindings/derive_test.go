@@ -279,12 +279,11 @@ func TestDeriveWithIncResetPublish(t *testing.T) {
 	}
 
 	var drainError = func(t *testing.T, d *Derive) string {
-		var stats, err = d.Drain(func(_ bool, _ json.RawMessage, _, _ []byte) error {
+		var _, err = d.Drain(func(_ bool, _ json.RawMessage, _, _ []byte) error {
 			t.Error("not called")
 			return nil
 		})
 		require.Error(t, err)
-		require.Nil(t, stats)
 		return err.Error()
 	}
 

@@ -1,6 +1,9 @@
 ---
 sidebar_position: 2
 ---
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
 # Amazon S3
 
 This connector captures data from an Amazon S3 bucket.
@@ -9,12 +12,73 @@ It is available for use in the Flow web application. For local development or op
 
 ## Prerequisites
 
-To use this connector, either your S3 bucket must be public,
-or you must have access via a root or [IAM user](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users.html).
+You can use this connector to capture data from an entire S3 bucket or for a [prefix](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-prefixes.html) within a bucket.
+This bucket or prefix must be either be:
 
-* For public buckets, verify that the [access policy](https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-overview.html#access-control-resources-manage-permissions-basics) allows anonymous reads.
-* For buckets accessed by a user account, you'll need the AWS **access key** and **secret access key** for the user.
+* Publicly accessible and allowing anonymous reads.
+
+* Accessible via a root or [IAM user](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users.html).
+
+In either case, you'll need an [access policy](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_controlling.html).
+Policies in AWS are JSON objects that define permissions. You attach them to _resources_, which include both IAM users and S3 buckets.
+
+See the steps below to set up access.
+
+### Setup: Public buckets
+
+For a public buckets, the bucket access policy must allow anonymous reads on the whole bucket or a specific prefix.
+
+1. Create a bucket policy using the templates below.
+
+<Tabs>
+<TabItem value="Anonymous reads policy - Full bucket" default>
+
+```json file=./policies/public-full-bucket.json
+```
+
+</TabItem>
+<TabItem value="Anonymous reads policy - Specific prefix" default>
+
+```json file=./policies/public-prefix-only.json
+```
+
+</TabItem>
+</Tabs>
+
+2. [Add the policy to your bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/add-bucket-policy.html). Paste over the existing policy and resolve any errors or warnings before saving.
+
+3. Confirm that the **Block public access** setting on the bucket is [disabled](https://docs.aws.amazon.com/AmazonS3/latest/userguide/WebsiteAccessPermissionsReqd.html).
+
+### Setup: Accessing with a user account
+
+For buckets accessed by a user account, you'll need the AWS **access key** and **secret access key** for the user.
+You'll also need to apply an access policy to the user to grant access to the specific bucket or prefix.
+
+1. [Create an IAM user](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users_create.html) if you don't yet have one to use with Flow.
+
+2. Note the user's access key and secret access key.
 See the [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for help finding these credentials.
+
+3. Create an IAM policy using the templates below.
+
+<Tabs>
+<TabItem value="IAM user access policy - Full bucket" default>
+
+```json file=./policies/iam-user-full-bucket.json
+```
+
+</TabItem>
+<TabItem value="IAM user access policy - Specific prefix" default>
+
+```json file=./policies/iam-user-prefix-only.json
+```
+
+</TabItem>
+</Tabs>
+
+4. [Add the policy](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_create-console.html#access_policies_create-json-editor) to AWS.
+
+5. [Attach the policy to the IAM user](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_manage-attach-detach.html#add-policies-console).
 
 ## Configuration
 

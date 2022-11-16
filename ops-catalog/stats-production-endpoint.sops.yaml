@@ -3,7 +3,6 @@ address: db.eyrcnmuzzyriypdajwdk.supabase.co:6543
 database: postgres
 password_sops: ENC[AES256_GCM,data:X0aaH7/FlUVgMzqZxQXx2egsm2ShGTbAAJi9nLE28EJgnUJD,iv:aN4/LkzkSr5tAgn6IlylQ6kOlrU4zYC1DWx9lJnEIT4=,tag:T+I1C/4vwmT0X7ve4+bjvQ==,type:str]
 user: stats_loader
-schema: catalog_stat_partitions
 sops:
     kms: []
     gcp_kms:
@@ -13,8 +12,8 @@ sops:
     azure_kv: []
     hc_vault: []
     age: []
-    lastmodified: "2022-11-08T14:00:04Z"
-    mac: ENC[AES256_GCM,data:6yOxqfR0tc8NCBIH3rNmFwNRSCubFwZLScu0ZJGx0nSKKW4nva2zUHLrQcEg62TSXcdQaBvY2n4mB8mFYI9qYR4e1Ex/GXzQNT96I/d82bYAoOk0erdvU3JwCbLZPw//t6LgI2C+XWxpYTROs+xNY/HZk8/dPES7F5216kpvOfc=,iv:2/kwy6RrgqVJhItU6vNkGhp4woVK3KlCPJGY4LgyukE=,tag:XPegwhPG6hPmNRp40X8g9A==,type:str]
+    lastmodified: "2022-11-14T19:34:10Z"
+    mac: ENC[AES256_GCM,data:Lkunoq+grYLzDa3lOYrtdK5uHAa75JwcCCCqTzmODgFwEWPYfCLCQ5IItqCF9b76fvwVZ7TQRrn0oaJU9QZrn9TdFWR0NH8faYfH8OLW30q6XMOjcwwyKbALO7uzDzk4Zy3jG10jJCmunXt6t7zOZj6K4dSePjwGldkwNZt2e4c=,iv:mU6EY6NXCLp86hOkFjk7usyS5h+oXfcYPd+L8pJUsTE=,tag:v8+EXlOiYSsnaO5BCds0LA==,type:str]
     pgp: []
     encrypted_suffix: _sops
     version: 3.7.3

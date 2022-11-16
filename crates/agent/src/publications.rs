@@ -282,34 +282,36 @@ impl PublishHandler {
             return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
         }
 
-        let data_plane_job = builds::data_plane(
-            &self.connector_network,
-            &self.bindir,
-            row.logs_token,
-            &self.logs_tx,
-            tmpdir,
-        );
-        let test_jobs = builds::test_catalog(
-            &self.connector_network,
-            &self.bindir,
-            row.logs_token,
-            &self.logs_tx,
-            row.pub_id,
-            tmpdir,
-        );
+        if draft_catalog.tests.len() > 0 {
+            let data_plane_job = builds::data_plane(
+                &self.connector_network,
+                &self.bindir,
+                row.logs_token,
+                &self.logs_tx,
+                tmpdir,
+            );
+            let test_jobs = builds::test_catalog(
+                &self.connector_network,
+                &self.bindir,
+                row.logs_token,
+                &self.logs_tx,
+                row.pub_id,
+                tmpdir,
+            );
 
-        // Drive the data-plane and test jobs, until test jobs complete.
-        tokio::pin!(test_jobs);
-        let errors: Vec<Error> = tokio::select! {
-            r = data_plane_job => {
-                tracing::error!(?r, "test data-plane exited unexpectedly");
-                test_jobs.await // Wait for test jobs to finish.
+            // Drive the data-plane and test jobs, until test jobs complete.
+            tokio::pin!(test_jobs);
+            let errors: Vec<Error> = tokio::select! {
+                r = data_plane_job => {
+                    tracing::error!(?r, "test data-plane exited unexpectedly");
+                    test_jobs.await // Wait for test jobs to finish.
+                }
+                r = &mut test_jobs => r,
+            }?;
+
+            if !errors.is_empty() {
+                return stop_with_errors(errors, JobStatus::TestFailed, row, txn).await;
             }
-            r = &mut test_jobs => r,
-        }?;
-
-        if !errors.is_empty() {
-            return stop_with_errors(errors, JobStatus::TestFailed, row, txn).await;
         }
 
         if row.dry_run {

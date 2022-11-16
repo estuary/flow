@@ -2,5 +2,4 @@
 
 Schemalate is a collection of tools for generating various things from JSON schemas. It's useable
 both as a library and as a CLI. The CLI (`flow-schemalate`) is statically linked using MUSL, so it
-can easily be included in connectors' docker images. It can also be invoked from `flowctl-rs` as
-`flowctl-admin schemalate ...`.
+can easily be included in connectors' docker images.
