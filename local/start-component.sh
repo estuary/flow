@@ -78,9 +78,23 @@ function start_data_plane() {
 
 function start_data_plane_gateway() {
     cd "$(project_dir 'data-plane-gateway')"
+
+    command -v openssl || bail "This script requires the openssl binary, which was not found on the PATH"
+    local cert_path=local-tls-cert.pem
+    local key_path=local-tls-private-key.pem
+
+    if [[ ! -f "${cert_path}" ]] || [[ ! -f "${key_path}" ]]; then
+        # Just in case only one of the files got deleted
+        rm -rf "${cert_path}" "${key_path}"
+        openssl req -x509 -nodes -days 365 \
+            -subj  "/C=CA/ST=QC/O=Estuary/CN=localhost:28318" \
+            -newkey rsa:2048 -keyout "${key_path}" \
+            -out "${cert_path}"
+    fi
+
     wait_until_listening $BROKER_PORT 'Gazette broker'
     wait_until_listening $CONSUMER_PORT 'Flow reactor'
-    must_run go run .
+    must_run go run . --tls-certificate "${cert_path}" --tls-private-key "${key_path}" --log.level debug
 }
 
 function start_control_plane() {
