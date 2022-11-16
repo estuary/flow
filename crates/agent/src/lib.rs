@@ -17,12 +17,9 @@ use std::{
     },
     time::Duration,
 };
-use tokio::{
-    sync::{
-        mpsc::{self, UnboundedSender},
-        Mutex,
-    },
-    time::error::Elapsed,
+use tokio::sync::{
+    mpsc::{self, UnboundedSender},
+    Mutex,
 };
 
 pub use agent_sql::{CatalogType, Id};
@@ -85,50 +82,51 @@ async fn listen_for_tasks(
     // This will then bubble through as a None return to PgListener:try_recv(),
     // which we'll then attempt to reconnect, and trigger the task handlers
     // to look and see if there's any work waiting for them.
+    let mut should_poke_connection = false;
     loop {
-        let should_poke_connection: Result<bool, anyhow::Error> = tokio::select! {
-            res = async {
-                tokio::time::sleep(Duration::from_secs(30)).await;
-                Ok(true)
-            } => {res},
-            res = async {
-                let maybe_item = listener.try_recv().await.map_err(|e| anyhow::Error::from(e))?;
-                // try_recv returns None when the channel disconnects,
-                // which we want to have explicit handling for
-                if let Some(item) = maybe_item {
-                    let notification: AgentNotification = serde_json::from_str(item.payload())
-                        .context("deserializing agent task notification")?;
-
-                    tracing::debug!(
-                        table = &notification.table,
-                        "Message received to invoke handler"
-                    );
-                    task_tx
-                        .send(HandlerInvocation {
-                            table_name: notification.table,
-                            is_poll: false,
-                        })
-                        .map_err(|e| anyhow::Error::from(e))?
-                } else {
-                    tracing::warn!("LISTEN/NOTIFY stream from postgres lost, waking all handlers and attempting to reconnect");
-                    table_names.iter().for_each(|table| {
-                        task_tx
-                            .send(HandlerInvocation {
-                                table_name: table.clone(),
-                                is_poll: false,
-                            })
-                            .unwrap()
-                    });
-                }
-                Ok(false)
-            } => {res}
-        };
-
-        if should_poke_connection? {
+        if should_poke_connection {
             tracing::debug!("Poking listener to keep connection alive/figure out if it timed out");
+            should_poke_connection = false;
 
             listener.listen("hacky_keepalive").await?;
             listener.unlisten("hacky_keepalive").await?;
+        }
+
+        let recv_timeout = tokio::time::sleep(Duration::from_secs(30));
+
+        let maybe_notification = tokio::select! {
+           _ = recv_timeout => {
+               should_poke_connection = true;
+               continue;
+           },
+           notify = listener.try_recv() => notify
+        }
+        .context("listening for notifications from database")?;
+
+        // try_recv returns None when the channel disconnects,
+        // which we want to have explicit handling for
+        if let Some(notification) = maybe_notification {
+            let notification: AgentNotification = serde_json::from_str(notification.payload())
+                .context("deserializing agent task notification")?;
+
+            tracing::debug!(
+                table = &notification.table,
+                "Message received to invoke handler"
+            );
+            task_tx.send(HandlerInvocation {
+                table_name: notification.table,
+                is_poll: false,
+            })?
+        } else {
+            tracing::warn!("LISTEN/NOTIFY stream from postgres lost, waking all handlers and attempting to reconnect");
+            table_names.iter().for_each(|table| {
+                task_tx
+                    .send(HandlerInvocation {
+                        table_name: table.clone(),
+                        is_poll: false,
+                    })
+                    .unwrap()
+            });
         }
     }
 }
