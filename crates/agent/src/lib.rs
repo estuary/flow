@@ -17,9 +17,12 @@ use std::{
     },
     time::Duration,
 };
-use tokio::sync::{
-    mpsc::{self, UnboundedSender},
-    Mutex,
+use tokio::{
+    sync::{
+        mpsc::{self, UnboundedSender},
+        Mutex,
+    },
+    time::error::Elapsed,
 };
 
 pub use agent_sql::{CatalogType, Id};
@@ -87,9 +90,10 @@ async fn listen_for_tasks(
     // which we'll then attempt to reconnect, and trigger the task handlers
     // to look and see if there's any work waiting for them.
     let cloned_listener = listener.clone();
-    let handle = tokio::spawn(async move {
+    let _handle = tokio::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(30)).await;
+            tracing::debug!("Poking listener to keep connection alive/figure out if it timed out");
             cloned_listener
                 .lock()
                 .await
@@ -107,39 +111,53 @@ async fn listen_for_tasks(
     });
 
     loop {
-        // try_recv returns None when the channel disconnects,
-        // which we want to have explicit handling for
-        let maybe_item = listener
-            .lock()
-            .await
-            .try_recv()
-            .await
-            .map_err(|e| anyhow::Error::from(e))?;
+        // We need to release the lock on listener every once in a while so that the
+        // keepalive loop above can do its thing, otherwise we'll hold the lock open
+        // waiting on try_recv, which may never complete because the connection is
+        // unknowningly disconnected, which is the whole point of the keepalive loop.
+        match tokio::time::timeout(Duration::from_secs(30), async {
+            // try_recv returns None when the channel disconnects,
+            // which we want to have explicit handling for
+            listener
+                .lock()
+                .await
+                .try_recv()
+                .await
+                .map_err(|e| anyhow::Error::from(e))
+        })
+        .await
+        {
+            Ok(maybe_item) => {
+                if let Some(item) = maybe_item? {
+                    let notification: AgentNotification = serde_json::from_str(item.payload())
+                        .context("deserializing agent task notification")?;
 
-        if let Some(item) = maybe_item {
-            let notification: AgentNotification = serde_json::from_str(item.payload())
-                .context("deserializing agent task notification")?;
-
-            tracing::debug!(
-                table = &notification.table,
-                "Message received to invoke handler"
-            );
-            task_tx
-                .send(HandlerInvocation {
-                    table_name: notification.table,
-                    is_poll: false,
-                })
-                .map_err(|e| anyhow::Error::from(e))?
-        } else {
-            tracing::warn!("LISTEN/NOTIFY stream from postgres lost, waking all handlers and attempting to reconnect");
-            table_names.iter().for_each(|table| {
-                task_tx
-                    .send(HandlerInvocation {
-                        table_name: table.clone(),
-                        is_poll: false,
-                    })
-                    .unwrap()
-            });
+                    tracing::debug!(
+                        table = &notification.table,
+                        "Message received to invoke handler"
+                    );
+                    task_tx
+                        .send(HandlerInvocation {
+                            table_name: notification.table,
+                            is_poll: false,
+                        })
+                        .map_err(|e| anyhow::Error::from(e))?
+                } else {
+                    tracing::warn!("LISTEN/NOTIFY stream from postgres lost, waking all handlers and attempting to reconnect");
+                    table_names.iter().for_each(|table| {
+                        task_tx
+                            .send(HandlerInvocation {
+                                table_name: table.clone(),
+                                is_poll: false,
+                            })
+                            .unwrap()
+                    });
+                }
+            }
+            // Timeout reached
+            Err(_) => {
+                continue;
+            }
         }
     }
 }
