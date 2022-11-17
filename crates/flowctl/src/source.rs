@@ -1,7 +1,6 @@
 use anyhow::Context;
-use futures::future::LocalBoxFuture;
 use itertools::Itertools;
-use proto_flow::{capture, flow, materialize};
+use proto_flow::flow;
 use std::collections::BTreeMap;
 use superslice::Ext;
 
@@ -48,7 +47,7 @@ pub async fn bundle(source: &str) -> anyhow::Result<models::Catalog> {
             build_id: "a-build-id".to_string(),
             ..Default::default()
         },
-        &NoOpDrivers {},
+        &validation::NoOpDrivers {},
         &t.capture_bindings,
         &t.captures,
         &t.collections,
@@ -313,72 +312,4 @@ fn bundled_tests(t: &tables::Sources) -> BTreeMap<models::Test, Vec<models::Test
     }
 
     out
-}
-
-// NoOpDrivers are placeholders for interaction with connectors, which happen
-// only within the control-plane and not within the client `flowctl` cli.
-struct NoOpDrivers;
-
-impl validation::Drivers for NoOpDrivers {
-    fn validate_materialization<'a>(
-        &'a self,
-        request: materialize::ValidateRequest,
-    ) -> LocalBoxFuture<'a, Result<materialize::ValidateResponse, anyhow::Error>> {
-        use materialize::{
-            constraint::Type, validate_response::Binding, Constraint, ValidateResponse,
-        };
-        use std::collections::HashMap;
-
-        Box::pin(async move {
-            let response_bindings = request
-                .bindings
-                .into_iter()
-                .enumerate()
-                .map(|(i, b)| {
-                    let resource_path = vec![format!("binding-{}", i)];
-                    let constraints = b
-                        .collection
-                        .expect("collection must exist")
-                        .projections
-                        .into_iter()
-                        .map(|proj| {
-                            (
-                                proj.field,
-                                Constraint {
-                                    r#type: Type::FieldOptional as i32,
-                                    reason: "no-op validator allows everything".to_string(),
-                                },
-                            )
-                        })
-                        .collect::<HashMap<_, _>>();
-                    Binding {
-                        constraints,
-                        resource_path,
-                        delta_updates: true,
-                    }
-                })
-                .collect::<Vec<_>>();
-            Ok(ValidateResponse {
-                bindings: response_bindings,
-            })
-        })
-    }
-
-    fn validate_capture<'a>(
-        &'a self,
-        request: capture::ValidateRequest,
-    ) -> LocalBoxFuture<'a, Result<capture::ValidateResponse, anyhow::Error>> {
-        use capture::{validate_response::Binding, ValidateResponse};
-        Box::pin(async move {
-            let bindings = request
-                .bindings
-                .into_iter()
-                .enumerate()
-                .map(|(i, _)| Binding {
-                    resource_path: vec![format!("binding-{}", i)],
-                })
-                .collect::<Vec<_>>();
-            Ok(ValidateResponse { bindings })
-        })
-    }
 }
