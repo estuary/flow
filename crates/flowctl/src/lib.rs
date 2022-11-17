@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 
 use anyhow::Context as _;
+use clap::AppSettings;
 use clap::Parser;
 use proto_flow::flow;
 
@@ -22,7 +23,12 @@ use poll::poll_while_queued;
 
 /// A command-line tool for working with Estuary Flow.
 #[derive(Debug, Parser)]
-#[clap(author, about, version)]
+#[clap(
+    author,
+    about,
+    version,
+    global_setting = AppSettings::DeriveDisplayOrder
+)]
 pub struct Cli {
     /// Configuration profile to use.
     ///
@@ -32,11 +38,11 @@ pub struct Cli {
     #[clap(long, default_value = "default")]
     profile: String,
 
-    #[clap(flatten)]
-    output: Output,
-
     #[clap(subcommand)]
     cmd: Command,
+
+    #[clap(flatten)]
+    output: Output,
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -55,8 +61,16 @@ pub enum Command {
     /// Then when you're ready, publish your draft to make your changes live.
     Draft(draft::Draft),
     /// Prints the runtime logs of a task (capture, derivation, or materialization).
+    ///
+    /// Reads contents from the `ops/<tenant>/logs` collection, selecting the partition
+    /// that corresponds to the selected task. This command is essentially equivalent to the much longer:
+    /// `flowctl collections read --collection ops/<tenant>/logs --include-partition estuary.dev/field/name=<task> --uncommitted`
     Logs(ops::Logs),
     /// Prints the runtime stats of a task (capture, derivation, or materialization).
+    ///
+    /// Reads contents from the `ops/<tenant>/stats` collection, selecting the partition
+    /// that corresponds to the selected task. This command is essentially equivalent to the much longer:
+    /// `flowctl collections read --collection ops/<tenant>/stats --include-partition estuary.dev/field/name=<task>`
     Stats(ops::Stats),
     /// Develop TypeScript modules of your local Flow catalog source files.
     Typescript(typescript::TypeScript),
