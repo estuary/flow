@@ -28,6 +28,15 @@ pub async fn tenant_exists(
 ) -> sqlx::Result<bool> {
     let prefix = format!("{tenant}/");
 
+    let illegal = sqlx::query!(
+        r#"
+        select 1 as "exists" from internal.illegal_tenant_names
+        where lower(name) = lower($1::catalog_tenant)
+        "#,
+        prefix.clone() as String,
+    ).fetch_optional(&mut *txn)
+    .await?;
+
     let exists = sqlx::query!(
         r#"
         select 1 as "exists" from tenants
@@ -35,10 +44,10 @@ pub async fn tenant_exists(
         "#,
         prefix as String,
     )
-    .fetch_optional(txn)
+    .fetch_optional(&mut *txn)
     .await?;
 
-    Ok(exists.is_some())
+    Ok(illegal.is_some() || exists.is_some())
 }
 
 // ProvisionedTenant is the shape of a provisioned tenant.
