@@ -1,4 +1,4 @@
-use super::{collection, indexed, reference, storage_mapping, Drivers, Error};
+use super::{collection, indexed, reference, storage_mapping, Drivers, Error, NoOpDrivers};
 use futures::FutureExt;
 use itertools::{EitherOrBoth, Itertools};
 use proto_flow::{flow, materialize};
@@ -74,14 +74,12 @@ pub async fn walk_all_materializations<D: Drivers>(
                 // disable materializations in response to the target system being unreachable, and
                 // we wouldn't want a validation error for a disabled task to terminate the build.
                 if materialization.spec.shards.disable {
-                    let response = no_op_validation(&request);
-                    (materialization, binding_models, request, Ok(response))
+                    NoOpDrivers {}.validate_materialization(request.clone())
                 } else {
-                    drivers
-                        .validate_materialization(request.clone())
-                        .map(|response| (materialization, binding_models, request, response))
-                        .await
+                    drivers.validate_materialization(request.clone())
                 }
+                .map(|response| (materialization, binding_models, request, response))
+                .await
             });
 
     let validations: Vec<(
@@ -237,23 +235,6 @@ pub async fn walk_all_materializations<D: Drivers>(
     }
 
     built_materializations
-}
-
-// Performs a no-op validation. The result includes a mocked `resource_path` for each binding. This
-// is assumed to be valid because Flow treats resource paths as opaque, and because it never
-// compares two resource paths from different builds.
-fn no_op_validation(req: &materialize::ValidateRequest) -> materialize::ValidateResponse {
-    let bindings = req
-        .bindings
-        .iter()
-        .enumerate()
-        .map(|(i, _)| materialize::validate_response::Binding {
-            constraints: HashMap::new(),
-            resource_path: vec![format!("no-op-resource-path-{i}")],
-            delta_updates: false,
-        })
-        .collect();
-    materialize::ValidateResponse { bindings }
 }
 
 fn walk_materialization_request<'a>(
