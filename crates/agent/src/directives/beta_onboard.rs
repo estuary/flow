@@ -1,3 +1,5 @@
+use crate::directives::illegal_tenant_names;
+
 use super::{extract, JobStatus};
 
 use anyhow::Context;
@@ -34,6 +36,11 @@ pub async fn apply(
         return Ok(JobStatus::invalid_directive(anyhow::anyhow!(
             "BetaOnboard directive must have ops/ catalog prefix, not {}",
             row.catalog_prefix
+        )));
+    }
+    if let Some(reason) = illegal_tenant_names::ILLEGAL_TENANT_NAMES.get(&requested_tenant.as_str().to_lowercase()) {
+        return Ok(JobStatus::invalid_directive(anyhow::anyhow!(
+            "Cannot provision a new tenant with the requested name: {}.", reason
         )));
     }
     if agent_sql::directives::beta_onboard::is_user_provisioned(row.user_id, &mut *txn).await? {

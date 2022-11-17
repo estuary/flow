@@ -10,6 +10,7 @@ use validator::Validate;
 pub mod beta_onboard;
 pub mod click_to_accept;
 pub mod grant;
+pub mod illegal_tenant_names;
 
 /// JobStatus is the possible outcomes of a handled directive operation.
 #[derive(Debug, Deserialize, Serialize)]

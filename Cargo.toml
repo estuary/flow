@@ -84,7 +84,6 @@ protobuf = "3.1"
 protobuf-json-mapping = "3.1"
 protobuf-parse = "3.1"
 regex = "1.5"
-
 reqwest = { version = "0.11", default_features = false, features = [
     "json",
     "rustls-tls",
@@ -162,6 +161,7 @@ serial_test = "0.9"
 # Used exclusively as build-dependencies
 cbindgen = "0.23"
 pbjson-build = "0.5"
+phf = { version = "0.11.1", features = ["macros"] }
 prost-build = "0.11"
 tonic-build = "0.8"
 
