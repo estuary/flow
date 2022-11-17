@@ -70,19 +70,19 @@ fn read_args(
 /// Selects one or more Flow tasks within a single tenant.
 #[derive(clap::Args, Debug, Default, Clone)]
 pub struct TaskSelector {
-    /// Read the logs of the task with the given name
+    /// The name of the task
     #[clap(long)]
     pub task: String,
-    // Read the logs of all tasks with the given type
+    // Selects all tasks with the given type
     //
     // Requires the `--tenant <tenant>` argument
     //#[clap(long, arg_enum, requires("tenant"))]
     //pub task_type: Option<TaskType>,
 
-    // Read the logs of tasks within the given tenant
+    // Selects all tasks within the given tenant
     //
-    // The `--task-type` may also be specified to limit the selection to only tasks of the given
-    // type. Without a `--task-type`, it will return all logs from all tasks in the tenant.
+    // The `--task-type` may also be specified to further limit the selection to only tasks of the given
+    // type.
     //#[clap(long)]
     //pub tenant: Option<String>,
 }
