@@ -21,3 +21,11 @@ A tenant is the top-level unit of organization in the Flow catalog namespace.
 ';
 comment on column tenants.tenant is
   'Catalog tenant identified by this record';
+
+
+create table internal.illegal_tenant_names (
+  name catalog_tenant unique not null primary key
+);
+
+comment on table internal.illegal_tenant_names is
+  'Illegal tenant names which are not allowed to be provisioned by users';
