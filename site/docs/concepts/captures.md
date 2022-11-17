@@ -14,6 +14,7 @@ Each binding adds documents to a corresponding Flow **collection**.
 Captures run continuously:
 as soon as new documents are made available at the endpoint resources,
 Flow validates their schema and adds them to the appropriate collection.
+Captures can process [documents](./collections.md#documents) up to 16 MB in size.
 
 ![](<captures-new.svg>)
 
