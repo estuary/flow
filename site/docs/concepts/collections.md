@@ -29,15 +29,16 @@ Flow allows documents up to 16 MB in size, but it's rare for documents to approa
 An example document for a collection with two fields, `name` and `count` is shown below.
 
 ```json
-root:{
-  _meta:{
-    uuid:"xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-  }
-  count:5954
-  message:"Hello #5954"
+{
+  "_meta": {
+    "uuid": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  },
+  "count": 5954,
+  "message": "Hello #5954"
+}
 ```
 
-The `_meta` object is present in all Flow documents and is used for internal processing only.
+The `_meta` object is present in all Flow documents, and contains metadata added by Flow. Minimally, every document `_meta` always has a `uuid`, which is a globally unique id for each document. Some capture connectors may add additional `_meta` properties to tie each document to a specific record within the source system. Documents that were captured from cloud storage connectors, for example, will contain `/_meta/file` and `/_meta/offset` properties that tell you where the document came from within your cloud storage bucket.
 
 ## Viewing collection documents
 
