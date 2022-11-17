@@ -303,7 +303,10 @@ async fn handle_inference_api(
 
     match resp {
         Ok(success) => return success.into_response(),
-        Err(err) => return err.into_response(),
+        Err(err) => {
+            tracing::error!("{:?}", err);
+            return err.into_response();
+        }
     }
 }
 
