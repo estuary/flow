@@ -37,25 +37,23 @@ fn connector_validation_is_skipped_when_shards_are_disabled() {
         "expected no errors, got: {:?}",
         tables.errors
     );
-    assert!(tables.built_captures.len() == 1);
-    assert_eq!(
+    assert_eq!(tables.built_captures.len(), 1);
+    assert!(
         tables.built_captures[0]
             .spec
             .shard_template
             .as_ref()
             .unwrap()
             .disable,
-        true
     );
-    assert!(tables.built_materializations.len() == 1);
-    assert_eq!(
+    assert_eq!(tables.built_materializations.len(), 1);
+    assert!(
         tables.built_materializations[0]
             .spec
             .shard_template
             .as_ref()
             .unwrap()
             .disable,
-        true
     );
 }
 
