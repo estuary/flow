@@ -4,8 +4,8 @@ test://example/catalog.yaml:
       schema:
         type: object
         properties:
-          id: {type: integer}
-          val: {type: string}
+          id: { type: integer }
+          val: { type: string }
         required: [id, val]
       key: [/id]
   captures:
@@ -18,7 +18,7 @@ test://example/catalog.yaml:
           config:
             any: thing
       bindings:
-        - resource: { whatever: 'and ever' }
+        - resource: { whatever: "and ever" }
           target: acmeCo/foo
   materializations:
     acmeCo/testMaterialization:
@@ -30,8 +30,13 @@ test://example/catalog.yaml:
           config:
             any: thing
       bindings:
-        - resource: { whatever: 'and ever' }
+        - resource: { whatever: "and ever" }
           source: acmeCo/foo
+          fields:
+            include:
+              # Explicit, included fields must work with no-op constraint validation.
+              val: {}
+            recommended: true
   storageMappings:
     acmeCo/:
       stores: [{ provider: S3, bucket: data-bucket }]
@@ -39,26 +44,6 @@ test://example/catalog.yaml:
       stores: [{ provider: S3, bucket: data-bucket }]
 
 driver:
-  materializations:
-    acmeCo/testMaterialization:
-      endpoint: FLOW_SINK
-      spec:
-        image: someMaterializationImage
-        config: { any: thing }
-      deltaUpdates: true
-      error: Validate should never be called
-      bindings:
-        - constraints:
-            id: {type: 0, reason: 'field required'}
-            val: {type: 0, reason: 'field required'}
-          resourcePath: [mockPath]
-
-  captures:
-    acmeCo/testCapture:
-      endpoint: AIRBYTE_SOURCE
-      error: Validate should never be called
-      spec:
-        image: someCaptureImage
-        config: { any: thing }
-      bindings:
-        - resourcePath: [mockPath]
+  # Expect that no actual driver calls are made.
+  materializations: {}
+  captures: {}

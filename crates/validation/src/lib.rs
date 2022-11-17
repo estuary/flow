@@ -6,12 +6,15 @@ mod derivation;
 mod errors;
 mod indexed;
 mod materialization;
+mod noop;
 mod npm_dependency;
 mod reference;
 mod schema;
 mod storage_mapping;
 mod test_step;
+
 pub use errors::Error;
+pub use noop::NoOpDrivers;
 
 /// Drivers is a delegated trait -- provided to validate -- through which runtime
 /// driver validation RPCs are dispatched.
