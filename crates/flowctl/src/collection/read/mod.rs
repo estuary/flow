@@ -29,7 +29,7 @@ pub struct ReadArgs {
 /// Common definition for arguments specifying the begin and and bounds of a read command.
 #[derive(clap::Args, Debug, Default, Clone)]
 pub struct ReadBounds {
-    /// Whether to block waiting for new data. If provided, the read will continue indefinitely until interrupted or ending due to an error.
+    /// Continue reading indefinitely until interrupted or ending due to an error.
     #[clap(long)]
     pub follow: bool,
 
