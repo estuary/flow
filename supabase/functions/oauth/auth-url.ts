@@ -1,8 +1,9 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js';
 // import HandlebarsJS from 'https://dev.jspm.io/handlebars@4.7.6';
 import HandlebarsJS from 'https://esm.sh/handlebars';
+import Mustache from 'https://esm.sh/mustache';
 import { corsHeaders } from '../_shared/cors.ts';
-import { returnPostgresError, handlebarsHelpers } from '../_shared/helpers.ts';
+import { returnPostgresError, compileTemplate } from '../_shared/helpers.ts';
 import { supabaseClient } from '../_shared/supabaseClient.ts';
 
 const generateUniqueRandomKey = () => {
@@ -19,8 +20,6 @@ interface OauthSettings {
 }
 
 export async function authURL(req: { connector_id: string; config: object; redirect_uri?: string; state?: object }) {
-    (HandlebarsJS as any).registerHelper(handlebarsHelpers);
-
     const { connector_id, config, redirect_uri, state } = req;
 
     const { data, error }: { data: OauthSettings | null; error: any } = await supabaseClient
@@ -44,13 +43,16 @@ export async function authURL(req: { connector_id: string; config: object; redir
         }),
     );
 
-    const template = (HandlebarsJS as any).compile(oauth2_spec.authUrlTemplate);
-    const url = template({
-        state: finalState,
-        redirect_uri: redirect_uri ?? 'https://dashboard.estuary.dev/oauth',
-        client_id: oauth2_client_id,
-        config,
-    });
+    const url = compileTemplate(
+        oauth2_spec.authUrlTemplate,
+        {
+            state: finalState,
+            redirect_uri: redirect_uri ?? 'https://dashboard.estuary.dev/oauth',
+            client_id: oauth2_client_id,
+            config,
+        },
+        connector_id,
+    );
 
     return new Response(JSON.stringify({ url: url, state: finalState }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
