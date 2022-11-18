@@ -15,7 +15,6 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/sirupsen/logrus"
 )
 
 // service is a Go handle to an instantiated service binding.
@@ -52,8 +51,7 @@ func newService(
 	// We don't expect our rust services to ever log in a format other than JSON. If they do, then
 	// we'll forward the text logs at the warning level so that someone notices, since it's likely
 	// that there's some problem.
-	var textLogLevel = logrus.WarnLevel
-	go ops.ForwardLogs(typeName, textLogLevel, logReader, logPublisher)
+	go ops.ForwardLogs(typeName, logReader, logPublisher)
 	var ch = create(C.int32_t(ops.LogrusToFlowLevel(logPublisher.Level())), C.int32_t(wDescriptor))
 
 	serviceCreatedCounter.WithLabelValues(typeName).Inc()

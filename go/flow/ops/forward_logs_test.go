@@ -113,8 +113,7 @@ func TestLogForwardWriterWhenDataHasNoNewlines(t *testing.T) {
 	var rawLogs = strings.Repeat("f", maxLogLine*2+999)
 	var publisher = testutil.NewTestLogPublisher(log.TraceLevel)
 	var sourceDesc = "naughty stderr"
-	var fallbackLevel = log.InfoLevel
-	var writer = NewLogForwardWriter(sourceDesc, fallbackLevel, publisher)
+	var writer = NewLogForwardWriter(sourceDesc, publisher)
 
 	// Read from rawLogs in a bunch of random small chunks to ensure that the writer is piecing the
 	// lines together correctly.
@@ -135,21 +134,21 @@ func TestLogForwardWriterWhenDataHasNoNewlines(t *testing.T) {
 
 	var expected = []testutil.TestLogEvent{
 		{
-			Level:   fallbackLevel,
+			Level:   log.WarnLevel,
 			Message: strings.Repeat("f", maxLogLine),
 			Fields: map[string]interface{}{
 				"logSource": sourceDesc,
 			},
 		},
 		{
-			Level:   fallbackLevel,
+			Level:   log.WarnLevel,
 			Message: strings.Repeat("f", maxLogLine),
 			Fields: map[string]interface{}{
 				"logSource": sourceDesc,
 			},
 		},
 		{
-			Level:   fallbackLevel,
+			Level:   log.WarnLevel,
 			Message: strings.Repeat("f", 999),
 			Fields: map[string]interface{}{
 				"logSource": sourceDesc,
@@ -185,7 +184,6 @@ func TestLogForwarding(t *testing.T) {
  {"Lvl": "not even close to a real level"}`
 
 	var sourceDesc = "testSource"
-	var fallbackLevel = log.WarnLevel
 	var expected = []testutil.TestLogEvent{
 		{
 			Level:   log.TraceLevel,
@@ -257,7 +255,7 @@ func TestLogForwarding(t *testing.T) {
 
 	t.Run("LogForwardWriter", func(t *testing.T) {
 		var publisher = testutil.NewTestLogPublisher(log.TraceLevel)
-		var writer = NewLogForwardWriter(sourceDesc, fallbackLevel, publisher)
+		var writer = NewLogForwardWriter(sourceDesc, publisher)
 
 		// Read from rawLogs in a bunch of random small chunks to ensure that the writer is piecing the
 		// lines together correctly.
@@ -280,7 +278,7 @@ func TestLogForwarding(t *testing.T) {
 
 	t.Run("ForwardLogs", func(t *testing.T) {
 		var publisher = testutil.NewTestLogPublisher(log.TraceLevel)
-		ForwardLogs(sourceDesc, fallbackLevel, io.NopCloser(strings.NewReader(rawLogs)), publisher)
+		ForwardLogs(sourceDesc, io.NopCloser(strings.NewReader(rawLogs)), publisher)
 		publisher.RequireEventsMatching(t, expected)
 	})
 }

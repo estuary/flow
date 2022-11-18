@@ -203,7 +203,7 @@ func runCommand(
 		fe.onError(writeLoop(wc))
 	}()
 
-	var stderrForwarder = ops.NewLogForwardWriter("connector stderr", logrus.InfoLevel, logger)
+	var stderrForwarder = ops.NewLogForwardWriter("connector stderr", logger)
 
 	// Decode and forward connector stdout to |output|, but intercept a
 	// returned error to cancel our context and report through |fe|.

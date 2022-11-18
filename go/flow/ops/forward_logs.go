@@ -18,7 +18,7 @@ const LogSourceField = "logSource"
 // ForwardLogs reads lines from |logSource| and forwards them to the |publisher|. It attempts to
 // parse each line as a JSON-encoded structured log event, so that it will be logged at the level
 // indicated in the line. If it's unable to parse the line, then the whole line will be used as the
-// message of the log event, and it will be logged at the |fallbackLevel|. The |sourceDesc| will be
+// message of the log event, and it will be logged at the |WarnLevel|. The |sourceDesc| will be
 // added as the "logSource" field on every event, regardless of whether it parses. The |logSource|
 // will be closed automatically after the first error or EOF is encountered.
 //
@@ -31,10 +31,10 @@ const LogSourceField = "logSource"
 // `fields` of the event.
 // For an example of how to configure a `tracing_subscriber` in Rust so that
 // it's compatible with this format, check out: crates/bindings/src/logging.rs
-func ForwardLogs(sourceDesc string, fallbackLevel log.Level, logSource io.ReadCloser, publisher Logger) {
+func ForwardLogs(sourceDesc string, logSource io.ReadCloser, publisher Logger) {
 	var reader = bufio.NewScanner(logSource)
 	defer logSource.Close()
-	var forwarder = newLogForwarder(sourceDesc, fallbackLevel, publisher)
+	var forwarder = newLogForwarder(sourceDesc, publisher)
 	for reader.Scan() {
 		forwarder.forwardLine(reader.Bytes())
 	}
@@ -45,9 +45,9 @@ func ForwardLogs(sourceDesc string, fallbackLevel log.Level, logSource io.ReadCl
 // NewLogForwardWriter returns a new `io.WriteCloser` that forwards all data written to it as logs
 // to the given publisher. The data written will be treated in exactly the same way as it is for
 // `ForwardLogs`.
-func NewLogForwardWriter(sourceDesc string, fallbackLevel log.Level, publisher Logger) *LogForwardWriter {
+func NewLogForwardWriter(sourceDesc string, publisher Logger) *LogForwardWriter {
 	return &LogForwardWriter{
-		logForwarder: newLogForwarder(sourceDesc, fallbackLevel, publisher),
+		logForwarder: newLogForwarder(sourceDesc, publisher),
 	}
 }
 
@@ -120,8 +120,6 @@ func (f *LogForwardWriter) Close() (err error) {
 // logForwarder is an internal implementation for log forwarding, which is used by both `ForwardLogs`
 // and by `LogForwardWriter`.
 type logForwarder struct {
-	// If the level cannot be determined from the log event, then this level is used.
-	fallbackLevel log.Level
 	// Running counters of the number of lines processed for each type.
 	jsonLines int
 	textLines int
@@ -132,13 +130,12 @@ type logForwarder struct {
 	publisher            Logger
 }
 
-func newLogForwarder(sourceDesc string, fallbackLevel log.Level, publisher Logger) logForwarder {
+func newLogForwarder(sourceDesc string, publisher Logger) logForwarder {
 	var sourceDescJsonString, err = json.Marshal(sourceDesc)
 	if err != nil {
 		panic(fmt.Sprintf("serializing sourceDesc: %v", err))
 	}
 	return logForwarder{
-		fallbackLevel:        fallbackLevel,
 		sourceDesc:           sourceDesc,
 		sourceDescJsonString: json.RawMessage(sourceDescJsonString),
 		publisher:            publisher,
@@ -162,18 +159,18 @@ func (f *logForwarder) forwardLine(line []byte) error {
 		if event.Timestamp.IsZero() {
 			event.Timestamp = time.Now().UTC()
 		}
-		var level = f.fallbackLevel
+		var level = log.WarnLevel
 		if event.Level >= log.ErrorLevel {
 			level = event.Level
 		}
 		return f.publisher.LogForwarded(event.Timestamp, level, event.Fields, event.Message)
 	} else {
-		// fallback to logging the raw text of each line, along with the
+		// Logging the raw text of each line, along with the
 		f.textLines++
 		var fields = map[string]json.RawMessage{
 			LogSourceField: f.sourceDescJsonString,
 		}
-		return f.publisher.LogForwarded(time.Now().UTC(), f.fallbackLevel, fields, string(line))
+		return f.publisher.LogForwarded(time.Now().UTC(), log.WarnLevel, fields, string(line))
 	}
 }
 
