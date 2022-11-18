@@ -189,11 +189,7 @@ func (p *LogPublisher) Log(level logrus.Level, fields logrus.Fields, message str
 	if fields == nil {
 		fields = logrus.Fields{}
 	}
-	var err = p.doLog(level, time.Now().UTC(), fields, message)
-	if err == nil && logrus.IsLevelEnabled(level) {
-		ops.StdLogger().Log(level, fields, message)
-	}
-	return err
+	return p.doLog(level, time.Now().UTC(), fields, message)
 }
 
 // LogForwarded implements the ops.Logger interface. It publishes log messages to the
@@ -205,11 +201,7 @@ func (p *LogPublisher) LogForwarded(ts time.Time, level logrus.Level, fields map
 	if fields == nil {
 		fields = map[string]json.RawMessage{}
 	}
-	var err = p.doLog(level, time.Now().UTC(), fields, message)
-	if err == nil && logrus.IsLevelEnabled(level) {
-		ops.StdLogger().LogForwarded(ts, level, fields, message)
-	}
-	return err
+	return p.doLog(level, time.Now().UTC(), fields, message)
 }
 
 func levelString(level logrus.Level) string {
