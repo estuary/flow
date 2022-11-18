@@ -15,6 +15,7 @@ require (
 	github.com/jackc/pgx/v4 v4.10.1
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/jgraettinger/gorocksdb v0.0.0-20210726190246-aede64bf0e7b
+	github.com/kr/logfmt v0.0.0-20140226030751-b84e30acd515
 	github.com/mattn/go-sqlite3 v2.0.3+incompatible
 	github.com/minio/highwayhash v1.0.2
 	github.com/nsf/jsondiff v0.0.0-20210303162244-6ea32392771e
