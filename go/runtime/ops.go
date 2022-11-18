@@ -199,9 +199,6 @@ func (p *LogPublisher) Log(level logrus.Level, fields logrus.Fields, message str
 // LogForwarded implements the ops.Logger interface. It publishes log messages to the
 // configured ops collection, and also forwards them to the normal logger.
 func (p *LogPublisher) LogForwarded(ts time.Time, level logrus.Level, fields map[string]json.RawMessage, message string) error {
-	if p.level < level {
-		return nil
-	}
 	// It's common practice to treat `nil` and an empty map equivalently. But that doesn't work when
 	// you pass a `nil` of type `map[string]json.RawMessage` to `doLog`, which accepts `fields interface{}`.
 	// See: https://stackoverflow.com/questions/44320960/omitempty-doesnt-omit-interface-nil-values-in-json

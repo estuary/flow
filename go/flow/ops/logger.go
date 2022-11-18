@@ -142,9 +142,6 @@ func (l stdLogAppender) Log(level log.Level, fields log.Fields, message string) 
 
 // LogForwarded implements ops.Logger for stdLogAppender
 func (l stdLogAppender) LogForwarded(ts time.Time, level log.Level, fields map[string]json.RawMessage, message string) error {
-	if level > l.Level() {
-		return nil
-	}
 	var entry = log.NewEntry(log.StandardLogger())
 	entry.Time = ts
 	for key, val := range fields {
