@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kr/logfmt"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -153,6 +154,7 @@ func (f *logForwarder) forwardLine(line []byte) error {
 	// Try to parse the line as a structure json log event. If it parses, then we'll be able to
 	// pass through the properties and keep everything in a nice sensible shape.
 	var event = logEvent{}
+	var txtEvent = logfmtEvent{}
 	if err := json.Unmarshal(line, &event); err == nil {
 		f.jsonLines++
 		event.Fields[LogSourceField] = f.sourceDescJsonString
@@ -166,6 +168,18 @@ func (f *logForwarder) forwardLine(line []byte) error {
 			level = event.Level
 		}
 		return f.publisher.LogForwarded(event.Timestamp, level, event.Fields, event.Message)
+	} else if err := logfmt.Unmarshal(line, &txtEvent); err == nil {
+		// Try to log as logfmt text with original log level.
+		f.textLines++
+		var fields = map[string]json.RawMessage{
+			LogSourceField: f.sourceDescJsonString,
+		}
+		var level, _ = parseLogLevel([]byte(fmt.Sprintf("\"%s\"", string(txtEvent.Level))))
+		var t time.Time
+		if t, err = time.Parse(time.RFC3339, txtEvent.Time); err != nil {
+			t = time.Now()
+		}
+		return f.publisher.LogForwarded(t.UTC(), level, fields, string(line))
 	} else {
 		// fallback to logging the raw text of each line, along with the
 		f.textLines++
@@ -242,12 +256,19 @@ func eqIgnoreAsciiCase(a string, b []byte) bool {
 	return true
 }
 
+// Log event in json.
 type logEvent struct {
 	Level     Level
 	Timestamp time.Time
 	// Fields are kept as raw messages to avoid unnecessary parsing.
 	Fields  map[string]json.RawMessage
 	Message string
+}
+
+// Log event in logfmt format.
+type logfmtEvent struct {
+	Level []byte
+	Time  string
 }
 
 func (e *logEvent) UnmarshalJSON(b []byte) error {
