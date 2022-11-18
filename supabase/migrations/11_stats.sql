@@ -22,6 +22,8 @@ create table catalog_stats (
 ) partition by list (substring(catalog_name for position('/' in catalog_name)));
 alter table catalog_stats enable row level security;
 
+create index idx_catalog_stats_catalog_name_grain_ts on catalog_stats (catalog_name, grain, ts desc);
+
 create policy "Users must be authorized to the catalog name"
   on catalog_stats as permissive for select
   using (auth_catalog(catalog_name, 'admin'));
