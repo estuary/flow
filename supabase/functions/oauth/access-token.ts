@@ -3,7 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js';
 // import HandlebarsJS from 'https://dev.jspm.io/handlebars@4.7.6';
 import HandlebarsJS from 'https://esm.sh/handlebars';
 import jsonpointer from 'https://esm.sh/jsonpointer.js';
-import { returnPostgresError, handlebarsHelpers } from '../_shared/helpers.ts';
+import { returnPostgresError, compileTemplate } from '../_shared/helpers.ts';
 import { corsHeaders } from '../_shared/cors.ts';
 import { supabaseClient } from '../_shared/supabaseClient.ts';
 
@@ -16,7 +16,6 @@ interface OauthSettings {
 
 export async function accessToken(req: Record<string, any>) {
     const { state, config, redirect_uri, ...params } = req;
-    (HandlebarsJS as any).registerHelper(handlebarsHelpers);
 
     const decodedState = JSON.parse(atob(state));
     const { connector_id } = decodedState;
@@ -34,41 +33,50 @@ export async function accessToken(req: Record<string, any>) {
 
     const { oauth2_spec, oauth2_client_id, oauth2_injected_values, oauth2_client_secret } = data as OauthSettings;
 
-    const urlTemplate = (HandlebarsJS as any).compile(oauth2_spec.accessTokenUrlTemplate);
-    const url = urlTemplate({
-        redirect_uri: redirect_uri ?? 'https://dashboard.estuary.dev/oauth',
-        client_id: oauth2_client_id,
-        client_secret: oauth2_client_secret,
-        config,
-        ...oauth2_injected_values,
-        ...params,
-    });
-
-    let body = null;
-    if (oauth2_spec.accessTokenBody) {
-        const bodyTemplate = (HandlebarsJS as any).compile(oauth2_spec.accessTokenBody);
-        body = bodyTemplate({
-            redirect_uri,
+    const url = compileTemplate(
+        oauth2_spec.accessTokenUrlTemplate,
+        {
+            redirect_uri: redirect_uri ?? 'https://dashboard.estuary.dev/oauth',
             client_id: oauth2_client_id,
             client_secret: oauth2_client_secret,
             config,
             ...oauth2_injected_values,
             ...params,
-        });
-    }
+        },
+        connector_id,
+    );
 
-    let headers = {};
-    if (oauth2_spec.accessTokenHeaders) {
-        const headersTemplate = (HandlebarsJS as any).compile(JSON.stringify(oauth2_spec.accessTokenHeaders));
-        headers = JSON.parse(
-            headersTemplate({
+    let body = null;
+    if (oauth2_spec.accessTokenBody) {
+        body = compileTemplate(
+            oauth2_spec.accessTokenBody,
+            {
                 redirect_uri,
                 client_id: oauth2_client_id,
                 client_secret: oauth2_client_secret,
                 config,
                 ...oauth2_injected_values,
                 ...params,
-            }),
+            },
+            connector_id,
+        );
+    }
+
+    let headers = {};
+    if (oauth2_spec.accessTokenHeaders) {
+        headers = JSON.parse(
+            compileTemplate(
+                JSON.stringify(oauth2_spec.accessTokenHeaders),
+                {
+                    redirect_uri,
+                    client_id: oauth2_client_id,
+                    client_secret: oauth2_client_secret,
+                    config,
+                    ...oauth2_injected_values,
+                    ...params,
+                },
+                connector_id,
+            ),
         );
     }
 
