@@ -234,11 +234,9 @@ func (cmd cmdDiscover) writeConfigStub(ctx context.Context, w io.WriteCloser) er
 	defer func() { _ = os.Remove(buildConfig.OutputPath()) }()
 
 	if err = bindings.BuildCatalog(bindings.BuildArgs{
-		Context:             ctx,
-		BuildAPI_Config:     buildConfig,
-		FileRoot:            "/",
-		CaptureDriverFn:     nil, // Not used.
-		MaterializeDriverFn: nil, // Not used.
+		Context:         ctx,
+		BuildAPI_Config: buildConfig,
+		FileRoot:        "/",
 	}); err != nil {
 		return fmt.Errorf("building schema catalog: %w", err)
 	}

@@ -13,7 +13,6 @@ import (
 
 	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/bindings"
-	"github.com/estuary/flow/go/materialize"
 	"github.com/estuary/flow/go/materialize/driver/sqlite"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
@@ -34,7 +33,6 @@ func TestSQLGeneration(t *testing.T) {
 			Source:     "file:///sql-gen.yaml",
 			SourceType: pf.ContentType_CATALOG,
 		},
-		MaterializeDriverFn: materialize.NewDriver,
 	}
 	require.NoError(t, bindings.BuildCatalog(args))
 
@@ -100,7 +98,6 @@ func TestSQLiteDriver(t *testing.T) {
 			Source:     "file:///driver-steps.yaml",
 			SourceType: pf.ContentType_CATALOG,
 		},
-		MaterializeDriverFn: materialize.NewDriver,
 	}
 	require.NoError(t, bindings.BuildCatalog(args))
 
