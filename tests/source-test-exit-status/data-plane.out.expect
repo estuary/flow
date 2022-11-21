@@ -1,2 +1,1 @@
-level=error msg="connector failed" error="exit status 1" logSource="ghcr.io/estuary/source-test:dev" operation=pull
-level=info msg="connector exited" cancelled=false error="go.estuary.dev/E116: connector failed, with error: exit status 1\\nwith stderr:\\n\\na horrible, no good error!*
+level=error msg="shard failed" error="readMessage: connector failed \(exit status 1\) with stderr:\\na horrible, no good error!.*
