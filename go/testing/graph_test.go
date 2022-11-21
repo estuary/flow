@@ -8,6 +8,7 @@ import (
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
+	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 func transformFixture(source pf.Collection, transform pf.Transform,
@@ -33,8 +34,9 @@ func derivationsFixture(transforms ...pf.TransformSpec) []*pf.DerivationSpec {
 	var out []*pf.DerivationSpec
 	for _, group := range grouped {
 		out = append(out, &pf.DerivationSpec{
-			Collection: pf.CollectionSpec{Collection: group[0].Derivation},
-			Transforms: group,
+			Collection:    pf.CollectionSpec{Collection: group[0].Derivation},
+			Transforms:    group,
+			ShardTemplate: &pc.ShardSpec{Disable: false},
 		})
 	}
 	return out
@@ -256,6 +258,7 @@ func TestTaskIndexing(t *testing.T) {
 				{Collection: pf.CollectionSpec{Collection: "a/capture/one"}},
 				{Collection: pf.CollectionSpec{Collection: "a/capture/two"}},
 			},
+			ShardTemplate: &pc.ShardSpec{Disable: false},
 		},
 	}
 	var derivations = []*pf.DerivationSpec{
@@ -282,6 +285,7 @@ func TestTaskIndexing(t *testing.T) {
 					},
 				},
 			},
+			ShardTemplate: &pc.ShardSpec{Disable: false},
 		},
 	}
 	var materializations = []*pf.MaterializationSpec{
@@ -301,6 +305,7 @@ func TestTaskIndexing(t *testing.T) {
 					},
 				},
 			},
+			ShardTemplate: &pc.ShardSpec{Disable: false},
 		},
 	}
 	// Build a Graph from the task fixtures, and verify the expected indices.
