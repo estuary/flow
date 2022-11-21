@@ -1215,33 +1215,34 @@ impl EndpointType {
         }
     }
 }
-/// LogLevelFilter is a common representation of a simple logging filter, which
-/// is shared between Rust and Go code. This enum is not used directly within
-/// other messages here because logging is configured at the time that Rust
-/// Service instances are created, not when they're configured.
+/// LogLevel is a common representation of a ops log level, which
+/// is shared between Rust and Go code. Variants are ordered, making
+/// LogLevel comparable.
+/// It uses non-conventional lower-case variants so that its canonical
+/// JSON encoding also uses lower-case.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
-pub enum LogLevelFilter {
-    Off = 0,
+pub enum LogLevel {
+    Undefined = 0,
     Error = 1,
     Warn = 2,
     Info = 3,
     Debug = 4,
     Trace = 5,
 }
-impl LogLevelFilter {
+impl LogLevel {
     /// String value of the enum field names used in the ProtoBuf definition.
     ///
     /// The values are not transformed in any way and thus are considered stable
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            LogLevelFilter::Off => "OFF",
-            LogLevelFilter::Error => "ERROR",
-            LogLevelFilter::Warn => "WARN",
-            LogLevelFilter::Info => "INFO",
-            LogLevelFilter::Debug => "DEBUG",
-            LogLevelFilter::Trace => "TRACE",
+            LogLevel::Undefined => "undefined",
+            LogLevel::Error => "error",
+            LogLevel::Warn => "warn",
+            LogLevel::Info => "info",
+            LogLevel::Debug => "debug",
+            LogLevel::Trace => "trace",
         }
     }
 }

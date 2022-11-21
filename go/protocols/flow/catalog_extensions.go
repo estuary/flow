@@ -3,6 +3,7 @@ package flow
 import (
 	bytes "bytes"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 
 	pb "go.gazette.dev/core/broker/protocol"
@@ -118,6 +119,22 @@ func (m *BuildAPI_Config) Validate() error {
 // OutputPath returns the implied output database path of the build configuration.
 func (m *BuildAPI_Config) OutputPath() string {
 	return filepath.Join(m.Directory, m.BuildId)
+}
+
+func (m LogLevel) MarshalJSON() ([]byte, error) {
+	return []byte(fmt.Sprintf("%q", m.String())), nil
+}
+
+func (m *LogLevel) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	} else if v, ok := LogLevel_value[s]; !ok {
+		return fmt.Errorf("unrecognized LogLevel %q", s)
+	} else {
+		*m = LogLevel(v)
+	}
+	return nil
 }
 
 // UnmarshalStrict unmarshals |doc| into |m|, using a strict decoding
