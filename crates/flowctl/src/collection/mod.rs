@@ -9,7 +9,7 @@ use time::OffsetDateTime;
 use crate::dataplane::journal_client_for;
 use crate::output::{to_table_row, CliOutput, JsonCell};
 
-use self::read::ReadArgs;
+use self::read::{get_collection_inferred_schema, ReadArgs, SchemaInferenceArgs};
 
 /// Selector of collection journals, which is used for reads, journal and fragment listings, etc.
 #[derive(clap::Args, Debug, Clone)]
@@ -103,6 +103,8 @@ pub enum Command {
     ListJournals(CollectionJournalSelector),
     /// List the journal fragments of a flow collection
     ListFragments(ListFragmentsArgs),
+    /// Fetch the latest inferred schema for a collection
+    InferSchema(SchemaInferenceArgs),
 }
 
 impl Collections {
@@ -111,6 +113,7 @@ impl Collections {
             Command::Read(args) => do_read(ctx, args).await,
             Command::ListJournals(selector) => do_list_journals(ctx, selector).await,
             Command::ListFragments(args) => do_list_fragments(ctx, args).await,
+            Command::InferSchema(args) => get_collection_inferred_schema(ctx, args).await,
         }
     }
 }

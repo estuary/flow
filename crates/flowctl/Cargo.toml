@@ -15,6 +15,7 @@ assemble = { path = "../assemble" }
 doc = { path = "../doc" }
 labels = { path = "../labels" }
 journal-client = { path = "../journal-client" }
+schema-inference = { path = "../schema-inference" }
 models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
