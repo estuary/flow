@@ -10,4 +10,4 @@ examples/citi-bike/views,materialization,info,.*opening database.*
 examples/citi-bike/rides-from-s3,capture,info,"sweeping tripdata\/JC-201703 starting at .*
 examples/citi-bike/rides-from-s3,capture,info,"processing file ""tripdata/JC-201703-citibike-tripdata.csv.zip"" modified at 2017-04-06 21:01:44 +0000 UTC"
 examples/citi-bike/rides-from-s3,capture,info,completed sweep of tripdata/JC-201703 from 0001-01-01 00:00:00 +0000 UTC through .*
-examples/citi-bike/rides-from-s3,capture,info,connector exited
+examples/citi-bike/rides-from-s3,capture,warn,connector exited with unconsumed input stream remainder
