@@ -85,6 +85,10 @@ func NewGraph(
 
 // addTask to the Graph, tracking dataflow through the task.
 func (g *Graph) addTask(t pf.Task) {
+	if t.TaskShardTemplate().Disable {
+		// Ignore dataflows of disabled tasks.
+		return
+	}
 	var name = TaskName(t.TaskName())
 
 	// Index into |outputs|.
