@@ -17,11 +17,11 @@ the web application or your preferred local environment using the flowctl comman
 
 The Flow web application is where you'll most likely create, monitor, and update your Data Flows.
 You can find it at [dashboard.estuary.dev](https://dashboard.estuary.dev).
-
-The application is designed for intuitive use, and only requires a few [basic concepts](#essential-concepts) to get started.
-For a complete walk-through, see the [guide to create a dataflow](../guides/create-dataflow.md).
-
 The app is backed by secure, cloud-hosted infrastructure that Estuary manages.
+
+[Take a tour of the web app](web-app.md).
+
+[Create your first Data Flow with the web app](../guides/create-dataflow.md).
 
 ### flowctl
 
