@@ -1,0 +1,33 @@
+[package]
+name = "connector-init"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "flow-connector-init"
+path = "src/main.rs"
+
+[dependencies]
+ops = { path = "../ops" }
+proto-flow = { path = "../proto-flow" }
+proto-grpc = { path = "../proto-grpc", features = ["capture_server", "materialize_server"] }
+
+anyhow = { workspace = true }
+clap = { workspace = true }
+futures = { workspace = true }
+prost = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
