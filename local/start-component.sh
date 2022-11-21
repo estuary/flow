@@ -73,7 +73,7 @@ function start_ui() {
 function start_data_plane() {
     cd "$(project_dir 'flow')"
     must_run make package
-    must_run ./.build/package/bin/flowctl-go temp-data-plane --log.level=info --network=host
+    must_run ./.build/package/bin/flowctl-go temp-data-plane --log.level=info --network=supabase_network_flow
 }
 
 function start_data_plane_gateway() {
@@ -120,7 +120,7 @@ function start_control_plane_agent() {
     # the case if the temp-data-plane is running.
     export RUST_LOG=info
     must_run cargo run -p flowctl -- raw bundle --source ./ops-catalog/template-local.flow.yaml |
-        must_run cargo run -p agent -- --bin-dir "$flow_bin_dir" --tenant-template /dev/stdin --connector-network=host
+        must_run cargo run -p agent -- --bin-dir "$flow_bin_dir" --tenant-template /dev/stdin --connector-network=supabase_network_flow
 }
 
 function start_oauth_edge() {
