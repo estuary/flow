@@ -8,10 +8,13 @@ package materialize
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	status "google.golang.org/grpc/status"
 )
 
 // transactionRequestError is a channel-oriented wrapper of TransactionRequest.
@@ -49,6 +52,9 @@ func TransactionResponseChannel(stream Driver_TransactionsClient) <-chan Transac
 			}
 
 			if err != io.EOF {
+				if status, ok := status.FromError(err); ok && status.Code() == codes.Internal {
+					err = errors.New(status.Message())
+				}
 				ch <- TransactionResponseError{Error: err}
 			}
 			close(ch)

@@ -627,17 +627,18 @@ service Shuffler {
   rpc Shuffle(ShuffleRequest) returns (stream ShuffleResponse);
 }
 
-// LogLevelFilter is a common representation of a simple logging filter, which
-// is shared between Rust and Go code. This enum is not used directly within
-// other messages here because logging is configured at the time that Rust
-// Service instances are created, not when they're configured.
-enum LogLevelFilter {
-  OFF = 0;
-  ERROR = 1;
-  WARN = 2;
-  INFO = 3;
-  DEBUG = 4;
-  TRACE = 5;
+// LogLevel is a common representation of a ops log level, which
+// is shared between Rust and Go code. Variants are ordered, making
+// LogLevel comparable.
+// It uses non-conventional lower-case variants so that its canonical
+// JSON encoding also uses lower-case.
+enum LogLevel {
+  undefined = 0;
+  error = 1;
+  warn = 2;
+  info = 3;
+  debug = 4;
+  trace = 5;
 };
 
 // DriverCheckpoint is a driver-originated checkpoint withn a capture or
