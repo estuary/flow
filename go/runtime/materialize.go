@@ -7,8 +7,8 @@ import (
 	"fmt"
 
 	"github.com/estuary/flow/go/bindings"
+	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/materialize"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
@@ -22,6 +22,7 @@ import (
 
 // Materialize is a top-level Application which implements the materialization workflow.
 type Materialize struct {
+	driver *connector.Driver
 	// Client of the active driver transactions RPC.
 	client *pm.TxnClient
 	// FlowConsumer which owns this Materialize shard.
@@ -54,6 +55,7 @@ func NewMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recov
 	var out = &Materialize{
 		host:       host,
 		store:      store,
+		driver:     nil,                      // Initialized in RestoreCheckpoint.
 		client:     nil,                      // Initialized in RestoreCheckpoint.
 		spec:       pf.MaterializationSpec{}, // Initialized in RestoreCheckpoint.
 		taskReader: taskReader{},             // Initialized in RestoreCheckpoint.
@@ -86,6 +88,22 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 			}, "failed to initialize processing term")
 		}
 	}()
+
+	// Stop a previous Driver and Transactions client if it exists.
+	if m.client != nil {
+		if err = m.client.Close(); err != nil && !errors.Is(err, context.Canceled) {
+			return pf.Checkpoint{}, fmt.Errorf("closing previous connector client: %w", err)
+		}
+		m.client = nil
+	}
+	if m.driver != nil {
+		if err = m.driver.Close(); err != nil && !errors.Is(err, context.Canceled) {
+			return pf.Checkpoint{}, fmt.Errorf("closing previous connector driver: %w", err)
+		}
+		m.driver = nil
+	}
+
+	// Load the current term's MaterializationSpec.
 	err = m.build.Extract(func(db *sql.DB) error {
 		materializationSpec, err := catalog.LoadMaterialization(db, m.labels.TaskName)
 		if materializationSpec != nil {
@@ -99,29 +117,9 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 	m.Log(log.DebugLevel, log.Fields{"spec": m.spec, "build": m.labels.Build},
 		"loaded specification")
 
-	if m.client != nil {
-		err, m.client = m.client.Close(), nil
-		if err != nil && !errors.Is(err, context.Canceled) {
-			return pf.Checkpoint{}, fmt.Errorf("closing connector: %w", err)
-		}
-		err = nil // Clear context.Canceled.
-	}
-
+	// Initialize for reading shuffled source collection journals.
 	if err = m.initReader(&m.taskTerm, shard, m.spec.TaskShuffles(), m.host); err != nil {
 		return pf.Checkpoint{}, err
-	}
-
-	// Establish driver connection and start Transactions RPC.
-	conn, err := materialize.NewDriver(
-		shard.Context(),
-		m.spec.EndpointType,
-		m.spec.EndpointSpecJson,
-		m.host.Config.Flow.Network,
-		shard.Spec().Id.String(),
-		m.LogPublisher,
-	)
-	if err != nil {
-		return pf.Checkpoint{}, fmt.Errorf("building endpoint driver: %w", err)
 	}
 
 	// Closure which builds a Combiner for a specified binding.
@@ -140,15 +138,33 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		)
 	}
 
-	m.client, err = pm.OpenTransactions(
+	// Start driver and Transactions RPC client.
+	m.driver, err = connector.NewDriver(
 		shard.Context(),
-		conn,
-		loadDriverCheckpoint(m.store),
-		newCombinerFn,
-		m.labels.Range,
-		&m.spec,
-		m.labels.Build,
+		m.spec.EndpointSpecJson,
+		m.spec.EndpointType,
+		map[string]string{"shard": shard.Spec().Id.String()},
+		m.LogPublisher,
+		m.host.Config.Flow.Network,
 	)
+	if err != nil {
+		return pf.Checkpoint{}, fmt.Errorf("building endpoint driver: %w", err)
+	}
+
+	// Open a Transactions RPC stream for the materialization.
+	err = connector.WithUnsealed(m.driver, &m.spec, func(unsealed *pf.MaterializationSpec) error {
+		var err error
+		m.client, err = pm.OpenTransactions(
+			shard.Context(),
+			m.driver.MaterializeClient(),
+			loadDriverCheckpoint(m.store),
+			newCombinerFn,
+			m.labels.Range,
+			unsealed,
+			m.labels.Build,
+		)
+		return err
+	})
 	if err != nil {
 		return pf.Checkpoint{}, fmt.Errorf("opening transactions RPC: %w", err)
 	}
@@ -246,6 +262,9 @@ func (m *Materialize) materializationStats(statsPerBinding []*pf.CombineAPI_Stat
 
 // Destroy implements consumer.Store.Destroy
 func (m *Materialize) Destroy() {
+	if m.driver != nil {
+		_ = m.driver.Close()
+	}
 	if m.client != nil {
 		_ = m.client.Close()
 	}
