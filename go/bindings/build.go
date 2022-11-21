@@ -5,12 +5,12 @@ import "C"
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 
+	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow/ops"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -37,28 +37,6 @@ func CatalogJSONSchema() string {
 	return string(svc.arenaSlice(out[0]))
 }
 
-// CaptureDriverFn maps an endpoint type and config into a suitable DriverClient.
-// Typically this is capture.NewDriver.
-type CaptureDriverFn func(
-	ctx context.Context,
-	endpointType pf.EndpointType,
-	endpointSpec json.RawMessage,
-	connectorNetwork string,
-	containerName string,
-	logger ops.Logger,
-) (pc.DriverClient, error)
-
-// MaterializeDriverFn maps an endpoint type and config into a suitable DriverClient.
-// Typically this is materialize.NewDriver.
-type MaterializeDriverFn func(
-	ctx context.Context,
-	endpointType pf.EndpointType,
-	endpointSpec json.RawMessage,
-	connectorNetwork string,
-	containerName string,
-	logger ops.Logger,
-) (pm.DriverClient, error)
-
 // BuildArgs are arguments of the BuildCatalog function.
 type BuildArgs struct {
 	pf.BuildAPI_Config
@@ -67,10 +45,6 @@ type BuildArgs struct {
 	// Directory which roots fetched file:// resolutions.
 	// Or empty, if file:// resolutions are disallowed.
 	FileRoot string
-	// Builder of capture DriverClients
-	CaptureDriverFn CaptureDriverFn
-	// Builder of materialization DriverClients
-	MaterializeDriverFn MaterializeDriverFn
 }
 
 // BuildCatalog runs the configured build.
@@ -140,17 +114,18 @@ func BuildCatalog(args BuildArgs) error {
 				var request = i.(*pc.ValidateRequest)
 				log.WithField("request", request).Debug("capture validation requested")
 
-				var driver, err = args.CaptureDriverFn(ctx, request.EndpointType,
-					request.EndpointSpecJson, args.BuildAPI_Config.ConnectorNetwork, request.Capture.String(), ops.StdLogger())
+				var response, err = connector.Invoke(
+					ctx,
+					request,
+					map[string]string{"capture": request.Capture.String()},
+					ops.StdLogger(),
+					args.BuildAPI_Config.ConnectorNetwork,
+					func(driver *connector.Driver, request *pc.ValidateRequest) (*pc.ValidateResponse, error) {
+						return driver.CaptureClient().Validate(ctx, request)
+					},
+				)
 				if err != nil {
-					return nil, fmt.Errorf("driver.NewDriver: %w", err)
-				}
-
-				response, err := driver.Validate(ctx, request)
-				if err != nil {
-					return nil, fmt.Errorf("driver.Validate: %w", err)
-				} else if err = response.Validate(); err != nil {
-					return nil, fmt.Errorf("driver.Validate implementation error: %w", err)
+					return nil, err
 				}
 				log.WithField("response", response).Debug("capture validation response")
 
@@ -173,17 +148,18 @@ func BuildCatalog(args BuildArgs) error {
 				var request = i.(*pm.ValidateRequest)
 				log.WithField("request", request).Debug("materialize validation requested")
 
-				var driver, err = args.MaterializeDriverFn(ctx, request.EndpointType,
-					request.EndpointSpecJson, args.BuildAPI_Config.ConnectorNetwork, request.Materialization.String(), ops.StdLogger())
+				var response, err = connector.Invoke(
+					ctx,
+					request,
+					map[string]string{"materialization": request.Materialization.String()},
+					ops.StdLogger(),
+					args.BuildAPI_Config.ConnectorNetwork,
+					func(driver *connector.Driver, request *pm.ValidateRequest) (*pm.ValidateResponse, error) {
+						return driver.MaterializeClient().Validate(ctx, request)
+					},
+				)
 				if err != nil {
-					return nil, fmt.Errorf("driver.NewDriver: %w", err)
-				}
-
-				response, err := driver.Validate(ctx, request)
-				if err != nil {
-					return nil, fmt.Errorf("driver.Validate: %w", err)
-				} else if err = response.Validate(); err != nil {
-					return nil, fmt.Errorf("driver.Validate implementation error: %w", err)
+					return nil, err
 				}
 				log.WithField("response", response).Debug("materialize validation response")
 

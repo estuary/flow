@@ -11,11 +11,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/estuary/flow/go/capture"
+	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/materialize"
 	pfc "github.com/estuary/flow/go/protocols/capture"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -90,17 +89,21 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 			continue
 		}
 
-		driver, err := capture.NewDriver(ctx,
-			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), cmd.Network, spec.ShardTemplate.Id.String(), ops.StdLogger())
-		if err != nil {
-			return fmt.Errorf("building driver for capture %q: %w", spec.Capture, err)
-		}
-
-		response, err := driver.ApplyUpsert(ctx, &pfc.ApplyRequest{
+		var request = &pfc.ApplyRequest{
 			Capture: spec,
 			Version: spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
 			DryRun:  cmd.DryRun,
-		})
+		}
+		var response, err = connector.Invoke(
+			ctx,
+			request,
+			map[string]string{"task": t.TaskName()},
+			ops.StdLogger(),
+			cmd.Network,
+			func(driver *connector.Driver, request *pfc.ApplyRequest) (*pfc.ApplyResponse, error) {
+				return driver.CaptureClient().ApplyUpsert(ctx, request)
+			},
+		)
 		if err != nil {
 			return fmt.Errorf("applying capture %q: %w", spec.Capture, err)
 		}
@@ -126,17 +129,21 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 			continue
 		}
 
-		driver, err := materialize.NewDriver(ctx,
-			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), cmd.Network, spec.ShardTemplate.Id.String(), ops.StdLogger())
-		if err != nil {
-			return fmt.Errorf("building driver for materialization %q: %w", spec.Materialization, err)
-		}
-
-		response, err := driver.ApplyUpsert(ctx, &pm.ApplyRequest{
+		var request = &pm.ApplyRequest{
 			Materialization: spec,
 			Version:         spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
 			DryRun:          cmd.DryRun,
-		})
+		}
+		var response, err = connector.Invoke(
+			ctx,
+			request,
+			map[string]string{"task": t.TaskName()},
+			ops.StdLogger(),
+			cmd.Network,
+			func(driver *connector.Driver, request *pm.ApplyRequest) (*pm.ApplyResponse, error) {
+				return driver.MaterializeClient().ApplyUpsert(ctx, request)
+			},
+		)
 		if err != nil {
 			return fmt.Errorf("applying materialization %q: %w", spec.Materialization, err)
 		}

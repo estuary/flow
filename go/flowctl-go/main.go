@@ -39,14 +39,6 @@ update, refactor, and otherwise incorporate the generated entities
 into their broader Flow catalog.
 `, &cmdDiscover{})
 
-	// The combine subcommand is hidden from help messages and such because we're uncertain of its
-	// value, so don't want to expose it to users. We might just want to delete this, but leaving it
-	// hidden for now. This was added to aid in debugging:
-	// https://github.com/estuary/flow/issues/238
-	addCmd(parser, "combine", "Combine documents from stdin", `
-Read documents from stdin, validate and combine them on the collection's key, and print the results to stdout. The input documents must be JSON encoded and given one per line, and the output documents will be printed in the same way.
-`, &cmdCombine{}).Hidden = true
-
 	addCmd(parser, "json-schema", "Print the catalog JSON schema", `
 Print the JSON schema specification of Flow catalogs, as understood by this
 specific build of Flow. This JSON schema can be used to enable IDE support
