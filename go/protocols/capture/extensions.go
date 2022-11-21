@@ -1,6 +1,8 @@
 package capture
 
 import (
+	"encoding/json"
+
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer/protocol"
@@ -15,6 +17,25 @@ func (m *SpecRequest) Validate() error {
 	return nil
 }
 
+func (m *SpecRequest) GetEndpointType() pf.EndpointType {
+	return m.EndpointType
+}
+func (m *SpecRequest) GetEndpointSpecPtr() *json.RawMessage {
+	return &m.EndpointSpecJson
+}
+
+// Validate returns an error if the SpecResponse isn't well-formed.
+func (m *SpecResponse) Validate() error {
+	if len(m.EndpointSpecSchemaJson) == 0 {
+		return pb.NewValidationError("missing EndpointSpecSchemaJson")
+	} else if len(m.ResourceSpecSchemaJson) == 0 {
+		return pb.NewValidationError("missing ResourceSpecSchemaJson")
+	} else if m.DocumentationUrl == "" {
+		return pb.NewValidationError("missing DocumentationUrl")
+	}
+	return nil
+}
+
 func (m *DiscoverRequest) Validate() error {
 	if _, ok := pf.EndpointType_name[int32(m.EndpointType)]; !ok {
 		return pb.NewValidationError("unknown EndpointType %v", m.EndpointType)
@@ -22,6 +43,13 @@ func (m *DiscoverRequest) Validate() error {
 		return pb.NewValidationError("missing EndpointSpecJson")
 	}
 	return nil
+}
+
+func (m *DiscoverRequest) GetEndpointType() pf.EndpointType {
+	return m.EndpointType
+}
+func (m *DiscoverRequest) GetEndpointSpecPtr() *json.RawMessage {
+	return &m.EndpointSpecJson
 }
 
 func (m *DiscoverResponse) Validate() error {
@@ -60,6 +88,13 @@ func (m *ValidateRequest) Validate() error {
 		}
 	}
 	return nil
+}
+
+func (m *ValidateRequest) GetEndpointType() pf.EndpointType {
+	return m.EndpointType
+}
+func (m *ValidateRequest) GetEndpointSpecPtr() *json.RawMessage {
+	return &m.EndpointSpecJson
 }
 
 // Validate returns an error if the ValidateRequest_Binding isn't well-formed.
@@ -103,6 +138,18 @@ func (m *ApplyRequest) Validate() error {
 	}
 
 	// DryRun cannot have a validation error.
+	return nil
+}
+
+func (m *ApplyRequest) GetEndpointType() pf.EndpointType {
+	return m.Capture.EndpointType
+}
+func (m *ApplyRequest) GetEndpointSpecPtr() *json.RawMessage {
+	return &m.Capture.EndpointSpecJson
+}
+
+func (m *ApplyResponse) Validate() error {
+	// No validations to do.
 	return nil
 }
 

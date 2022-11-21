@@ -1,12 +1,15 @@
 package capture
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"math"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"go.gazette.dev/core/broker/client"
+	"google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 )
 
 // coordinator encapsulates common coordination of PushServer and PullClient.
@@ -224,6 +227,9 @@ func (c *coordinator) loop(
 
 		var err error
 		if drained, err = nextFn(c.next.full); err != nil {
+			if status, ok := status.FromError(err); ok && status.Code() == codes.Internal {
+				err = errors.New(status.Message())
+			}
 			return err
 		}
 	}

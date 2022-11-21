@@ -21,7 +21,6 @@ type TxnClient struct {
 	// rx organizes receive state of the TxnClient.
 	// Fields are exclusively accessed from readLoop, with the exception of
 	// |loopOp| which is inspected for loop status.
-	// Fields are guarded by the common mutex, and are accessed
 	rx struct {
 		commitOps   CommitOps                       // CommitOps being evaluated.
 		commitOpsCh <-chan CommitOps                // Reads from StartCommit().
