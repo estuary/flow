@@ -713,6 +713,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "connector-init"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap 3.2.22",
+ "futures",
+ "insta",
+ "ops",
+ "prost",
+ "proto-flow",
+ "proto-grpc",
+ "serde",
+ "serde_json",
+ "time 0.3.14",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "connector_proxy"
 version = "0.0.0"
 dependencies = [
@@ -2394,6 +2415,21 @@ dependencies = [
  "openssl-src",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "ops"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "insta",
+ "lazy_static",
+ "regex",
+ "serde",
+ "serde_json",
+ "time 0.3.14",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

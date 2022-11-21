@@ -254,6 +254,22 @@ func (e *logEvent) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &m); err != nil {
 		return err
 	}
+
+	// TODO(johnny): Temporary kludge to avoid double-nesting a extant `fields` struct.
+	// This will be removed with all other complex parsing of logs from Go,
+	// as this is now done within Rust.
+	if innerRaw, ok := m["fields"]; ok {
+		delete(m, "fields")
+
+		var inner map[string]json.RawMessage
+		if err := json.Unmarshal(innerRaw, &inner); err != nil {
+			return err
+		}
+		for k, v := range inner {
+			m[k] = v
+		}
+	}
+
 	for k, v := range m {
 		if fieldMatches(k, "timestamp", "time", "ts") && e.Timestamp.IsZero() {
 			var t time.Time

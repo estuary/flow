@@ -164,9 +164,9 @@ ${RUSTBIN}/agent:
 
 # Statically linked binaries using MUSL:
 
-.PHONY: ${RUST_MUSL_BIN}/flow-connector-proxy
-${RUST_MUSL_BIN}/flow-connector-proxy:
-	cargo build --target x86_64-unknown-linux-musl --release --locked -p connector_proxy
+.PHONY: ${RUST_MUSL_BIN}/flow-connector-init
+${RUST_MUSL_BIN}/flow-connector-init:
+	cargo build --target x86_64-unknown-linux-musl --release --locked -p connector-init
 
 .PHONY: ${RUST_MUSL_BIN}/flow-network-tunnel
 ${RUST_MUSL_BIN}/flow-network-tunnel:
@@ -200,7 +200,7 @@ GNU_TARGETS = \
 
 MUSL_TARGETS = \
 	${PKGDIR}/bin/flowctl \
-	${PKGDIR}/bin/flow-connector-proxy \
+	${PKGDIR}/bin/flow-connector-init \
 	${PKGDIR}/bin/flow-network-tunnel \
 	${PKGDIR}/bin/flow-parser \
 	${PKGDIR}/bin/flow-schema-inference \
@@ -211,9 +211,9 @@ linux-gnu-binaries: $(GNU_TARGETS)
 
 .PHONY: linux-musl-binaries
 linux-musl-binaries: | ${PKGDIR}
-	cargo build --target x86_64-unknown-linux-musl --release --locked -p flowctl -p connector_proxy -p network-tunnel -p parser -p schema-inference -p schemalate
+	cargo build --target x86_64-unknown-linux-musl --release --locked -p flowctl -p connector-init -p network-tunnel -p parser -p schema-inference -p schemalate
 	cp -f target/x86_64-unknown-linux-musl/release/flowctl .build/package/bin/
-	cp -f target/x86_64-unknown-linux-musl/release/flow-connector-proxy .build/package/bin/
+	cp -f target/x86_64-unknown-linux-musl/release/flow-connector-init .build/package/bin/
 	cp -f target/x86_64-unknown-linux-musl/release/flow-network-tunnel .build/package/bin/
 	cp -f target/x86_64-unknown-linux-musl/release/flow-parser .build/package/bin/
 	cp -f target/x86_64-unknown-linux-musl/release/flow-schema-inference .build/package/bin/
@@ -234,8 +234,8 @@ ${PKGDIR}:
 	mkdir ${PKGDIR}/lib
 
 # The following binaries are statically linked, so come from a different subdirectory
-${PKGDIR}/bin/flow-connector-proxy: ${RUST_MUSL_BIN}/flow-connector-proxy | ${PKGDIR}
-	cp ${RUST_MUSL_BIN}/flow-connector-proxy $@
+${PKGDIR}/bin/flow-connector-init: ${RUST_MUSL_BIN}/flow-connector-init | ${PKGDIR}
+	cp ${RUST_MUSL_BIN}/flow-connector-init $@
 
 ${PKGDIR}/bin/flow-network-tunnel: ${RUST_MUSL_BIN}/flow-network-tunnel | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-network-tunnel $@
@@ -288,11 +288,11 @@ install-tools: ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 
 .PHONY: rust-gnu-test
 rust-gnu-test:
-	cargo test --release --locked --workspace --exclude parser --exclude network-tunnel --exclude schemalate --exclude connector_proxy --exclude flowctl
+	cargo test --release --locked --workspace --exclude parser --exclude network-tunnel --exclude schemalate --exclude connector-init --exclude flowctl
 
 .PHONY: rust-musl-test
 rust-musl-test:
-	cargo test --release --locked --target x86_64-unknown-linux-musl --package parser --package network-tunnel --package schemalate --package connector_proxy --package flowctl
+	cargo test --release --locked --target x86_64-unknown-linux-musl --package parser --package network-tunnel --package schemalate --package connector-init --package flowctl
 
 # `go` test targets must have PATH-based access to tools (etcd & sops),
 # because the `go` tool compiles tests as binaries within a temp directory,
@@ -318,7 +318,7 @@ data-plane-test-setup:
 	@ls -al ${PKGDIR}/bin/
 	${PKGDIR}/bin/flowctl-go json-schema > flow.schema.json
 else
-data-plane-test-setup: ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/flow-connector-proxy ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops flow.schema.json
+data-plane-test-setup: ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/flow-connector-init ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops flow.schema.json
 endif
 
 
