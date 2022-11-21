@@ -1,27 +1,27 @@
-package ingest
+package connector
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 
-	"github.com/estuary/flow/go/flow/ops"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/invopop/jsonschema"
+	"google.golang.org/grpc"
 )
 
-// EndpointSpec is the configuration for Ingestions.
+// ingestEndpointSpec is the configuration for Ingest captures.
 // It must match the one defined for the source specs (flow.yaml) in Rust.
-type EndpointSpec struct{}
+type ingestEndpointSpec struct{}
 
 // Validate the configuration.
-func (c EndpointSpec) Validate() error {
+func (c ingestEndpointSpec) Validate() error {
 	return nil
 }
 
-// ResourceSpec is the configuration for bound ingestion resources.
-type ResourceSpec struct {
+// ingestResourceSpec is the configuration for bound ingestion resources.
+type ingestResourceSpec struct {
 	// TODO(johnny): I'm not at all sure that "name" is what we want,
 	// but we require *something* to produce distinct resource paths,
 	// and ingest captures *should* have some means of naming bindings
@@ -30,31 +30,25 @@ type ResourceSpec struct {
 }
 
 // Validate the configuration.
-func (c ResourceSpec) Validate() error {
+func (c ingestResourceSpec) Validate() error {
 	if c.Name == "" {
 		return fmt.Errorf("missing name")
 	}
 	return nil
 }
 
-// driver implements the pc.DriverServer interface.
+// ingestClient implements the pc.DriverClient interface.
 // Though driver is a gRPC service stub, it's called in synchronous and
 // in-process contexts to minimize ser/de & memory copies. As such it
 // doesn't get to assume deep ownership of its requests, and must
 // proto.Clone() shared state before mutating it.
-type driver struct {
-	logger ops.Logger
-}
+type ingestClient struct{}
 
-func NewDriver(logger ops.Logger) pc.DriverServer {
-	return driver{
-		logger: logger,
-	}
-}
+var _ pc.DriverClient = new(ingestClient)
 
 // Spec returns the specification of the ingest driver.
-func (d driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse, error) {
-	var source = new(EndpointSpec)
+func (d *ingestClient) Spec(ctx context.Context, req *pc.SpecRequest, _ ...grpc.CallOption) (*pc.SpecResponse, error) {
+	var source = new(ingestEndpointSpec)
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("validating request: %w", err)
 	} else if err = pf.UnmarshalStrict(req.EndpointSpecJson, source); err != nil {
@@ -63,11 +57,11 @@ func (d driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse
 
 	var reflector = jsonschema.Reflector{ExpandedStruct: true}
 
-	endpointSchema, err := reflector.Reflect(new(EndpointSpec)).MarshalJSON()
+	endpointSchema, err := reflector.Reflect(new(ingestEndpointSpec)).MarshalJSON()
 	if err != nil {
 		return nil, fmt.Errorf("generating endpoint schema: %w", err)
 	}
-	resourceSchema, err := reflector.Reflect(new(ResourceSpec)).MarshalJSON()
+	resourceSchema, err := reflector.Reflect(new(ingestResourceSpec)).MarshalJSON()
 	if err != nil {
 		return nil, fmt.Errorf("generating resource schema: %w", err)
 	}
@@ -80,8 +74,8 @@ func (d driver) Spec(ctx context.Context, req *pc.SpecRequest) (*pc.SpecResponse
 }
 
 // Discover is a no-op.
-func (d driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.DiscoverResponse, error) {
-	var source = new(EndpointSpec)
+func (d *ingestClient) Discover(ctx context.Context, req *pc.DiscoverRequest, _ ...grpc.CallOption) (*pc.DiscoverResponse, error) {
+	var source = new(ingestEndpointSpec)
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("validating request: %w", err)
 	} else if err = pf.UnmarshalStrict(req.EndpointSpecJson, source); err != nil {
@@ -93,8 +87,8 @@ func (d driver) Discover(ctx context.Context, req *pc.DiscoverRequest) (*pc.Disc
 }
 
 // Validate is a no-op.
-func (d driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.ValidateResponse, error) {
-	var source = new(EndpointSpec)
+func (d *ingestClient) Validate(ctx context.Context, req *pc.ValidateRequest, _ ...grpc.CallOption) (*pc.ValidateResponse, error) {
+	var source = new(ingestEndpointSpec)
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("validating request: %w", err)
 	} else if err = pf.UnmarshalStrict(req.EndpointSpecJson, source); err != nil {
@@ -104,7 +98,7 @@ func (d driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.Vali
 	// Parse stream bindings and send back their resource paths.
 	var resp = new(pc.ValidateResponse)
 	for _, binding := range req.Bindings {
-		var resource = new(ResourceSpec)
+		var resource = new(ingestResourceSpec)
 		if err := pf.UnmarshalStrict(binding.ResourceSpecJson, resource); err != nil {
 			return nil, fmt.Errorf("parsing resource configuration: %w", err)
 		}
@@ -116,16 +110,16 @@ func (d driver) Validate(ctx context.Context, req *pc.ValidateRequest) (*pc.Vali
 }
 
 // ApplyUpsert is a no-op.
-func (d driver) ApplyUpsert(context.Context, *pc.ApplyRequest) (*pc.ApplyResponse, error) {
+func (d *ingestClient) ApplyUpsert(context.Context, *pc.ApplyRequest, ...grpc.CallOption) (*pc.ApplyResponse, error) {
 	return new(pc.ApplyResponse), nil
 }
 
 // ApplyDelete is a no-op.
-func (d driver) ApplyDelete(context.Context, *pc.ApplyRequest) (*pc.ApplyResponse, error) {
+func (d *ingestClient) ApplyDelete(context.Context, *pc.ApplyRequest, ...grpc.CallOption) (*pc.ApplyResponse, error) {
 	return new(pc.ApplyResponse), nil
 }
 
 // Pull is not implemented.
-func (d driver) Pull(stream pc.Driver_PullServer) error {
-	return fmt.Errorf("Ingest driver doesn't support Pull")
+func (d *ingestClient) Pull(context.Context, ...grpc.CallOption) (pc.Driver_PullClient, error) {
+	return nil, fmt.Errorf("ingest client doesn't support Pull (should be using Push instead)")
 }
