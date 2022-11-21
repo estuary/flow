@@ -21,3 +21,5 @@ type Offsets = pb.Offsets
 type Checkpoint = pc.Checkpoint
 type ShardID = pc.ShardID
 type ShardSpec = pc.ShardSpec
+
+var MustLabelSet = pb.MustLabelSet

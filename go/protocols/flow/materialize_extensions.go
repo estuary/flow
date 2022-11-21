@@ -2,6 +2,7 @@ package flow
 
 import (
 	"bytes"
+	"encoding/json"
 	"sort"
 
 	pb "go.gazette.dev/core/broker/protocol"
@@ -96,6 +97,13 @@ func (m *MaterializationSpec) Validate() error {
 		return pb.ExtendContext(err, "RecoveryLogTemplate")
 	}
 	return nil
+}
+
+func (m *MaterializationSpec) GetEndpointType() EndpointType {
+	return m.EndpointType
+}
+func (m *MaterializationSpec) GetEndpointSpecPtr() *json.RawMessage {
+	return &m.EndpointSpecJson
 }
 
 // Validate returns an error if the MaterializationSpec_Binding is malformed.
