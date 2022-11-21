@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/bindings"
-	"github.com/estuary/flow/go/capture"
+	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	"github.com/estuary/flow/go/protocols/catalog"
@@ -26,6 +26,7 @@ import (
 
 // Capture is a top-level Application which implements the capture workflow.
 type Capture struct {
+	driver *connector.Driver
 	// delegate is a pc.PullClient or a pc.PushServer
 	delegate delegate
 	// delegateEOF is set after reading a delegate EOF.
@@ -81,6 +82,21 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 		}
 	}()
 
+	// Stop a previous Driver and PullClient / PushServer delegate if it exists.
+	if c.delegate != nil {
+		if err = c.delegate.Close(); err != nil && !errors.Is(err, context.Canceled) {
+			return pf.Checkpoint{}, fmt.Errorf("closing previous connector client: %w", err)
+		}
+		c.delegate = nil
+	}
+	if c.driver != nil {
+		if err = c.driver.Close(); err != nil && !errors.Is(err, context.Canceled) {
+			return pf.Checkpoint{}, fmt.Errorf("closing previous connector driver: %w", err)
+		}
+		c.driver = nil
+	}
+
+	// Load the current term's CaptureSpec.
 	err = c.build.Extract(func(db *sql.DB) error {
 		captureSpec, err := catalog.LoadCapture(db, c.labels.TaskName)
 		if captureSpec != nil {
@@ -93,15 +109,6 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	}
 	c.Log(logrus.DebugLevel, logrus.Fields{"spec": c.spec, "build": c.labels.Build},
 		"loaded specification")
-
-	// Stop a previous PullClient / PushServer delegate if it exists.
-	if c.delegate != nil {
-		err, c.delegate = c.delegate.Close(), nil
-		if err != nil && !errors.Is(err, context.Canceled) {
-			return pf.Checkpoint{}, fmt.Errorf("closing connector: %w", err)
-		}
-		err = nil // Clear context.Canceled.
-	}
 
 	if cp, err = c.store.RestoreCheckpoint(shard); err != nil {
 		return pf.Checkpoint{}, err
@@ -261,35 +268,41 @@ func (c *Capture) startReadingMessages(
 		}
 	} else {
 		// Establish driver connection and start Pull RPC.
-		conn, err := capture.NewDriver(
+		var err error
+		c.driver, err = connector.NewDriver(
 			c.taskTerm.ctx,
-			c.spec.EndpointType,
 			c.spec.EndpointSpecJson,
-			c.host.Config.Flow.Network,
-			shard.Spec().Id.String(),
+			c.spec.EndpointType,
+			map[string]string{"shard": shard.Spec().Id.String()},
 			c.LogPublisher,
+			c.host.Config.Flow.Network,
 		)
 		if err != nil {
 			return fmt.Errorf("building endpoint driver: %w", err)
 		}
 
-		// Open a Pull RPC stream for the capture under this context.
-		// Careful! Don't assign directly to c.delegate because (*pc.PullClient)(nil) != nil
-		pullClient, err := pc.OpenPull(
-			c.taskTerm.ctx,
-			conn,
-			loadDriverCheckpoint(c.store),
-			newCombinerFn,
-			c.labels.Range,
-			&c.spec,
-			c.labels.Build,
-			!c.host.Config.Flow.Poll,
-			startCommitFn,
-		)
+		// Open a Pull RPC stream for the capture.
+		err = connector.WithUnsealed(c.driver, &c.spec, func(unsealed *pf.CaptureSpec) error {
+			// Careful! Don't assign directly to c.delegate because (*pc.PullClient)(nil) != nil
+			if pullClient, err := pc.OpenPull(
+				c.taskTerm.ctx,
+				c.driver.CaptureClient(),
+				loadDriverCheckpoint(c.store),
+				newCombinerFn,
+				c.labels.Range,
+				unsealed,
+				c.labels.Build,
+				!c.host.Config.Flow.Poll,
+				startCommitFn,
+			); err != nil {
+				return err
+			} else {
+				c.delegate = pullClient
+				return nil
+			}
+		})
 		if err != nil {
 			return fmt.Errorf("opening pull RPC: %w", err)
-		} else {
-			c.delegate = pullClient
 		}
 	}
 
@@ -456,6 +469,9 @@ func (c *Capture) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor co
 
 // Destroy implements consumer.Store.Destroy
 func (c *Capture) Destroy() {
+	if c.driver != nil {
+		_ = c.driver.Close()
+	}
 	if c.delegate != nil {
 		_ = c.delegate.Close()
 	}
