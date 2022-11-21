@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/estuary/flow/go/capture"
+	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow/ops"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -45,23 +45,20 @@ func (cmd apiDiscover) execute(ctx context.Context) (*pc.DiscoverResponse, error
 		return nil, err
 	}
 
-	client, err := capture.NewDriver(ctx, pf.EndpointType_AIRBYTE_SOURCE, spec, cmd.Network, cmd.Name, ops.StdLogger())
-	if err != nil {
-		return nil, fmt.Errorf("building client: %w", err)
+	var request = &pc.DiscoverRequest{
+		EndpointType:     pf.EndpointType_AIRBYTE_SOURCE,
+		EndpointSpecJson: spec,
 	}
-
-	resp, err := client.Discover(ctx,
-		&pc.DiscoverRequest{
-			EndpointType:     pf.EndpointType_AIRBYTE_SOURCE,
-			EndpointSpecJson: spec,
-		})
-	if err != nil {
-		return nil, err
-	} else if err = resp.Validate(); err != nil {
-		return nil, err
-	}
-
-	return resp, nil
+	return connector.Invoke(
+		ctx,
+		request,
+		map[string]string{"discover": cmd.Name},
+		ops.StdLogger(),
+		cmd.Network,
+		func(driver *connector.Driver, request *pc.DiscoverRequest) (*pc.DiscoverResponse, error) {
+			return driver.CaptureClient().Discover(ctx, request)
+		},
+	)
 }
 
 func (cmd apiDiscover) Execute(_ []string) error {

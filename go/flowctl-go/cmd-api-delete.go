@@ -3,15 +3,14 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 
-	"github.com/estuary/flow/go/capture"
+	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/materialize"
 	pc "github.com/estuary/flow/go/protocols/capture"
+	pfc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	log "github.com/sirupsen/logrus"
@@ -89,17 +88,21 @@ func (cmd apiDelete) execute(ctx context.Context) error {
 			continue
 		}
 
-		driver, err := capture.NewDriver(ctx,
-			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), cmd.Network, spec.ShardTemplate.Id.String(), ops.StdLogger())
-		if err != nil {
-			return fmt.Errorf("building driver for capture %q: %w", spec.Capture, err)
-		}
-
-		response, err := driver.ApplyDelete(ctx, &pc.ApplyRequest{
+		var request = &pc.ApplyRequest{
 			Capture: spec,
 			Version: spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
 			DryRun:  cmd.DryRun,
-		})
+		}
+		var response, err = connector.Invoke(
+			ctx,
+			request,
+			map[string]string{"task": t.TaskName()},
+			ops.StdLogger(),
+			cmd.Network,
+			func(driver *connector.Driver, request *pfc.ApplyRequest) (*pfc.ApplyResponse, error) {
+				return driver.CaptureClient().ApplyDelete(ctx, request)
+			},
+		)
 		if err != nil {
 			return fmt.Errorf("deleting capture %q: %w", spec.Capture, err)
 		}
@@ -126,17 +129,21 @@ func (cmd apiDelete) execute(ctx context.Context) error {
 			continue
 		}
 
-		driver, err := materialize.NewDriver(ctx,
-			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), cmd.Network, spec.ShardTemplate.Id.String(), ops.StdLogger())
-		if err != nil {
-			return fmt.Errorf("building driver for materialization %q: %w", spec.Materialization, err)
-		}
-
-		response, err := driver.ApplyDelete(ctx, &pm.ApplyRequest{
+		var request = &pm.ApplyRequest{
 			Materialization: spec,
 			Version:         spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
 			DryRun:          cmd.DryRun,
-		})
+		}
+		var response, err = connector.Invoke(
+			ctx,
+			request,
+			map[string]string{"task": t.TaskName()},
+			ops.StdLogger(),
+			cmd.Network,
+			func(driver *connector.Driver, request *pm.ApplyRequest) (*pm.ApplyResponse, error) {
+				return driver.MaterializeClient().ApplyDelete(ctx, request)
+			},
+		)
 		if err != nil {
 			return fmt.Errorf("deleting materialization %q: %w", spec.Materialization, err)
 		}
