@@ -58,7 +58,6 @@ You can use the different pages in the web app to monitor and manage your items 
 ## Captures page
 
 The **Captures** pages shows you a table of existing Flow [captures](./captures.md) to which you have [access](../reference/authentication.md).
-QUESTION>>>> IS THERE A WAY TO SEE THE ACCESS LEVEL I HAVE?
 The **New Capture** button is also visible.
 You use the table to monitor your captures.
 
@@ -106,13 +105,24 @@ When you click **Edit specification** for a capture, you're taken to the **Edit 
 
 This page is similar to the [**Create Capture**](#creating-a-capture) page as it was filled out just before the capture was published.
 
-You can modify the connection with with source system and the capture's collections using the **Endpoint Configuration**, **Collection Selector**, and **Specification Editor**.
-You cannot change the capture name or type.
+To edit a capture or its collections:
+
+1. Edit the connection to the source system, if desired. You can either update fields in the **Endpoint Configuration** section or manually update the JSON in the **Specification Editor**.
+
+2. Use the **Collection Selector** to add or remove collections from the capture, if desired.
+
+3. Click **Discover Endpoint.**
+
+   Collection specifications become editable.
+
+4. Use the **Specification Editor** to edit collection specifications, if desired.
+
+5. Click **Save and Publish**.
 
 Editing a capture only affects how it will work going forward.
 Data that was captured before editing will reflect the original configuration.
 
-It's important to be mindful of how your edits will effect downstream processes. For more information on the implications of editing, see the [reference documentation](LINKME).
+It's important to be mindful of how your edits will effect downstream processes. For more information on the implications of editing, see the [reference documentation](../reference/editing.md).
 
 ### Creating a capture
 
@@ -146,7 +156,6 @@ Documents are organized by their collection key value. Click a key from the list
 ## Materializations page
 
 The **Materializations** page shows you a table of existing Flow [materializations](./materialization.md) to which you have [access](../reference/authentication.md).
-QUESTION>>>> IS THERE A WAY TO SEE THE ACCESS LEVEL I HAVE?
 The **New Materialization** button is also visible.
 
 You use the table to monitor your materializations. It's nearly identical to the table on the [Captures page](#captures-page), with a few exceptions.
@@ -186,6 +195,27 @@ The **Status** window shows the full identifier of the shard that backs your mat
 In the **Specification** window, you can view the specification of the materialization itself, as well as each collection from which it reads.
 Select a specification from the **Files** list to view the JSON.
 
+### Editing materializations
+
+When you click **Edit specification** for a materialization, you're taken to the **Edit Materialization** page.
+
+This page is similar to the [**Create Materialization**](#creating-a-materialization) page as it was filled out just before the materialization was published.
+
+To edit a materialization:
+
+1. Edit the connection to the destination system, if desired. You can either update fields in the **Endpoint Configuration** section or manually update the JSON in the **Specification Editor**.
+
+2. Use the **Collection Selector** to add or remove collections from the materialization, if desired.
+
+3. Click **Discover Endpoint.**
+
+4. Click **Save and Publish**.
+
+Editing a materialization only affects how it will work going forward.
+Data that was materialized before editing will reflect the original configuration.
+
+It's important to be mindful of how your edits will effect downstream processes. For more information on the implications of editing, see the [reference documentation](../reference/editing.md).
+
 ### Creating a materialization
 
 There are three ways to begin creating a materialization:
@@ -207,9 +237,13 @@ For detailed steps to create a materialization, see the [guide](../guides/create
 
 On the **Admin** page, you can view users' capabilities, view a complete list of connectors, and obtain an access token to authenticate with flowctl.
 
-The **Users** tab shows all provisioned capabilities (IN YOUR ORG? GLOBALLY?).
+The **Users** tab shows you all provisioned capabilities on objects to which you also have access.
 Each capability has its own row, so a given user may have multiple rows.
-Use the search box to filter by username or prefix.
+
+For example, if you had read access to `foo/` and write access to `bar/`, you'd have a separate table row for each of these capabilities.
+If users Alice, Bob, and Carol each had write access on `foo/`, you'd see three more table rows representing these capabilities.
+
+Use the search box to filter by username or object.
 
 [Learn more about capabilities and access.](../reference/authentication.md)
 
