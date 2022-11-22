@@ -4,7 +4,7 @@ create table directives (
   like internal._model including all,
 
   catalog_prefix  catalog_prefix not null,
-  single_use      boolean not null default false,
+  uses_remaining bigint,
   spec            jsonb_obj not null,
   token           uuid unique default gen_random_uuid(),
 
@@ -47,8 +47,11 @@ Catalog prefix which contains the directive.
 Operations undertaken by a directive are scoped within the catalog prefix,
 and a user must admin the named prefix in order to admin its directives.
 ';
-comment on column directives.single_use is '
-Single-use directives have their token disabled after its first use.
+comment on column directives.uses_remaining is '
+The maximum number of times that this directive may be applied.
+This value gets decremented each time the directive is applied.
+Once it reaches 0, future attempts to apply the directive will fail.
+A null here means that there is no limit.
 ';
 comment on column directives.spec is '
 Specification of the directive.
@@ -161,23 +164,30 @@ declare
   applied_row applied_directives;
 begin
 
-  select * into directive_row
-  from directives d where d.token = bearer_token
-  for update of d;
+  -- Note that uses_remaining could be null, and in that case `uses_remaining - 1`
+  -- would also evaluate to null. This means that we don't actually update
+  -- uses_remaining here if the current value is null.
+  -- We also intentionally leave the bearer_token in place when uses_remaining
+  -- drops to 0, because it's possible that something may come along and
+  -- increase uses_remaining again.
+  update directives
+    set uses_remaining = uses_remaining - 1
+    where directives.token = bearer_token
+    returning * into directive_row;
 
   if not found then
     raise 'Bearer token % is not valid', bearer_token
       using errcode = 'check_violation';
   end if;
 
+  if directive_row.uses_remaining is not null and directive_row.uses_remaining < 0 then
+    raise 'System quota has been reached, please contact support@estuary.dev in order to proceed.'
+      using errcode = 'check_violation';
+  end if;
+
   insert into applied_directives (directive_id, user_id)
   values (directive_row.id, auth.uid())
   returning * into applied_row;
-
-  if directive_row.single_use then
-    update directives set token = null where id = directive_row.id
-    returning * into directive_row;
-  end if;
 
   return (directive_row, applied_row);
 end;
