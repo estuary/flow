@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# This script runs the examples catalog to completion using a temp-data-plane in --poll mode,
+# This script runs the examples catalog to completion using a temp-data-plane,
 # and outputs selected materializations.
 
 # -m turns on job management, required for our use of `fg` below.
@@ -78,14 +78,12 @@ export BROKER_ADDRESS=unix://localhost${TESTDIR}/gazette.sock
 export CONSUMER_ADDRESS=unix://localhost${TESTDIR}/consumer.sock
 
 # Start an empty local data plane within our TESTDIR as a background job.
-# --poll so that connectors are polled rather than continuously tailed.
 # --sigterm to verify we cleanly tear down the test catalog (otherwise it hangs).
 # --tempdir to use our known TESTDIR rather than creating a new temporary directory.
 # --unix-sockets to create UDS socket files in TESTDIR in well-known locations.
 ${FLOWCTL} temp-data-plane \
     --log.level info \
     --network flow-test-network \
-    --poll \
     --sigterm \
     --tempdir ${TESTDIR} \
     --unix-sockets \
