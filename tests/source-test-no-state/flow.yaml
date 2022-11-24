@@ -19,12 +19,13 @@ captures:
   examples/source-test-no-state:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-test:dev
+        image: ghcr.io/estuary/source-test:3e06f40
         config:
           # Number of greeting documents to produce
           # [integer] (required)
           greetings: 100
           skip_state: true
+          exit_after: 100
     bindings:
       - resource:
           stream: greetings
