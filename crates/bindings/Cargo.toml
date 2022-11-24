@@ -16,15 +16,15 @@ allocator = { path = "../allocator" }
 build = { path = "../build" }
 cgo = { path = "../cgo" }
 derive = { path = "../derive" }
-protocol = { path = "../protocol" }
+ops = { path = "../ops" }
 
 anyhow = { workspace = true }
 bytes = { workspace = true }
-chrono = { workspace = true }
 prost = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+time = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 

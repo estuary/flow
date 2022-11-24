@@ -1,13 +1,11 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
-assertion_line: 792
 expression: errors
 ---
 [
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derivation,
         error: derivation's initial register is invalid against its schema: {
-          "document": "should be an integer",
           "basic_output": {
             "errors": [
               {
@@ -18,7 +16,8 @@ expression: errors
               }
             ],
             "valid": false
-          }
+          },
+          "document": "should be an integer"
         },
     },
 ]

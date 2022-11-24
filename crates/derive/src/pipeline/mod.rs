@@ -15,11 +15,11 @@ mod invocation;
 #[cfg(test)]
 mod pipeline_test;
 
-#[derive(thiserror::Error, Debug, serde::Serialize)]
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error(transparent)]
     SchemaIndex(#[from] json::schema::index::Error),
-    #[error("register error")]
+    #[error(transparent)]
     RegisterErr(#[from] registers::Error),
     #[error("lambda returned fewer rows than expected")]
     TooFewRows,
@@ -28,19 +28,14 @@ pub enum Error {
     #[error("derived document reduction error")]
     Combiner(#[from] doc::combine::Error),
     #[error("failed to open registers RocksDB")]
-    #[serde(serialize_with = "crate::serialize_as_display")]
     Rocks(#[from] rocksdb::Error),
     #[error("failed to invoke update lambda")]
-    #[serde(serialize_with = "crate::serialize_as_display")]
     UpdateInvocationError(#[source] anyhow::Error),
     #[error("failed to invoke publish lambda")]
-    #[serde(serialize_with = "crate::serialize_as_display")]
     PublishInvocationError(#[source] anyhow::Error),
     #[error("failed to parse lambda invocation response")]
-    #[serde(serialize_with = "crate::serialize_as_display")]
     LambdaParseError(#[source] serde_json::Error),
     #[error(transparent)]
-    #[serde(serialize_with = "crate::serialize_as_display")]
     Anyhow(#[from] anyhow::Error),
 }
 
