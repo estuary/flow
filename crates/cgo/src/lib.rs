@@ -1,12 +1,11 @@
 use bytes::{Buf, BufMut};
 use prost::Message;
-use serde::Serialize;
 use std::{cell::RefCell, collections::HashMap};
 
 /// Service is a trait implemented by Rust services which may be called from Go.
 pub trait Service {
     /// Error type returned by Service invocations.
-    type Error: std::error::Error + Serialize + Send + Sync + 'static;
+    type Error: std::error::Error + Send + Sync + 'static;
 
     /// Create a new instance of the Service.
     fn create() -> Self;

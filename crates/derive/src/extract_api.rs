@@ -4,30 +4,26 @@ use proto_flow::flow::{
     self,
     extract_api::{self, Code},
 };
-use serde::Serialize;
 use serde_json::Value;
 use tuple::{TupleDepth, TuplePack};
 
-#[derive(thiserror::Error, Debug, Serialize)]
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("parsing URL: {0:?}")]
-    #[serde(serialize_with = "crate::serialize_as_display")]
+    #[error("failed to parse URL")]
     Url(#[from] url::ParseError),
-    #[error("schema index: {0}")]
+    #[error("schema index")]
     SchemaIndex(#[from] json::schema::index::Error),
     #[error(transparent)]
     Json(JsonError),
     #[error("invalid document UUID: {value:?}")]
     InvalidUuid { value: Option<serde_json::Value> },
     #[error("Protobuf decoding error")]
-    #[serde(serialize_with = "crate::serialize_as_display")]
     ProtoDecode(#[from] prost::DecodeError),
-    #[error("source document validation error: {0:#}")]
-    FailedValidation(doc::FailedValidation),
+    #[error("source document failed validation against its collection JSON")]
+    FailedValidation(#[source] doc::FailedValidation),
     #[error("protocol error (invalid state or invocation)")]
     InvalidState,
     #[error(transparent)]
-    #[serde(serialize_with = "crate::serialize_as_display")]
     Anyhow(#[from] anyhow::Error),
 }
 
