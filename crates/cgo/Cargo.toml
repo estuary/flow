@@ -16,7 +16,6 @@ proto-flow = { path = "../proto-flow" }
 anyhow = { workspace = true }
 bytes = { workspace = true }
 prost = { workspace = true }
-serde = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]

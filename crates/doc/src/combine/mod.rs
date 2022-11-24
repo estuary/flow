@@ -6,18 +6,17 @@ use crate::{
 use std::io::{self, Seek};
 use std::rc::Rc;
 
-#[derive(thiserror::Error, Debug, serde::Serialize)]
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("failed to combine documents having shared key")]
     Reduction(#[from] reduce::Error),
-    #[error("document is invalid: {0:#}")]
+    #[error("document failed validation against its collection JSON Schema")]
     FailedValidation(#[source] FailedValidation),
     #[error("asked to left-combine, but right-hand document is already fully reduced: {0}")]
     AlreadyFullyReduced(serde_json::Value),
     #[error(transparent)]
     SchemaError(#[from] json::schema::index::Error),
     #[error("spill file IO error")]
-    #[serde(serialize_with = "serialize_as_display")]
     SpillIO(#[from] io::Error),
 }
 
@@ -255,12 +254,3 @@ const SPILL_THRESHOLD: usize = 8 * (1 << 28) / 10; // 80% of 256MB.
 // hold many large chunks in memory, which could push us over our allocation.
 const CHUNK_TARGET_LEN: usize = 1 << 18; // 256KB.
 const CHUNK_MAX_LEN: usize = 1 << 20; // 1MB.
-
-fn serialize_as_display<T, S>(thing: T, serializer: S) -> Result<S::Ok, S::Error>
-where
-    T: std::fmt::Display,
-    S: serde::ser::Serializer,
-{
-    let s = thing.to_string();
-    serializer.serialize_str(&s)
-}

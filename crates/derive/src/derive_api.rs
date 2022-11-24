@@ -5,17 +5,15 @@ use bytes::Buf;
 use prost::Message;
 use proto_flow::flow::derive_api::{self, Code};
 
-#[derive(thiserror::Error, Debug, serde::Serialize)]
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("RocksDB error: {0}")]
-    #[serde(serialize_with = "crate::serialize_as_display")]
+    #[error("RocksDB error")]
     Rocks(#[from] rocksdb::Error),
     #[error("register database error")]
     RegisterErr(#[from] registers::Error),
     #[error(transparent)]
     PipelineErr(#[from] pipeline::Error),
     #[error("Protobuf decoding error")]
-    #[serde(serialize_with = "crate::serialize_as_display")]
     ProtoDecode(#[from] prost::DecodeError),
     #[error("protocol error (invalid state or invocation)")]
     InvalidState,

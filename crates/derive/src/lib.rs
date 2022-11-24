@@ -70,11 +70,11 @@ impl<S: Serialize> std::fmt::Debug for DebugJson<S> {
     }
 }
 
-#[derive(Debug, Serialize, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 #[error("JSON error in document: {doc}")]
 pub struct JsonError {
     pub doc: String,
-    #[serde(serialize_with = "crate::serialize_as_display")]
+    #[source]
     pub err: serde_json::Error,
 }
 
@@ -83,15 +83,6 @@ impl JsonError {
         let doc = String::from_utf8_lossy(data.as_ref()).into_owned();
         JsonError { doc, err }
     }
-}
-
-fn serialize_as_display<T, S>(thing: T, serializer: S) -> Result<S::Ok, S::Error>
-where
-    T: std::fmt::Display,
-    S: serde::ser::Serializer,
-{
-    let s = thing.to_string();
-    serializer.serialize_str(&s)
 }
 
 pub fn new_validator(schema: &str) -> Result<doc::Validator, anyhow::Error> {

@@ -43,7 +43,7 @@ typedef struct Channel {
   uint8_t *err_ptr;
   uintptr_t err_len;
   uintptr_t err_cap;
-  uint8_t *log_subscriber;
+  uint8_t *tracing_dispatch;
 } Channel;
 
 /**
