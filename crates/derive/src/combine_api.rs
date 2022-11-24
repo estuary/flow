@@ -7,30 +7,25 @@ use proto_flow::flow::combine_api::{self, Code};
 use std::rc::Rc;
 use tuple::{TupleDepth, TuplePack};
 
-#[derive(thiserror::Error, Debug, serde::Serialize)]
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("parsing URL")]
-    #[serde(serialize_with = "crate::serialize_as_display")]
     Url(#[from] url::ParseError),
     #[error("schema index")]
-    #[serde(serialize_with = "crate::serialize_as_display")]
     SchemaIndex(#[from] json::schema::index::Error),
     #[error(transparent)]
     Json(JsonError),
     #[error(transparent)]
     CombineError(#[from] doc::combine::Error),
     #[error("Protobuf decoding error")]
-    #[serde(serialize_with = "crate::serialize_as_display")]
     ProtoDecode(#[from] prost::DecodeError),
     #[error(transparent)]
-    #[serde(serialize_with = "crate::serialize_as_display")]
     UTF8Error(#[from] std::str::Utf8Error),
     #[error("combined key cannot be empty")]
     EmptyKey,
     #[error("protocol error (invalid state or invocation)")]
     InvalidState,
     #[error(transparent)]
-    #[serde(serialize_with = "crate::serialize_as_display")]
     Anyhow(#[from] anyhow::Error),
 }
 

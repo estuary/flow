@@ -173,17 +173,13 @@ impl<'schema, 'doc, 'tmp, N: AsNode> Validation<'schema, 'doc, 'tmp, N> {
 
 #[derive(Debug, serde::Serialize)]
 pub struct FailedValidation {
-    pub document: serde_json::Value,
     pub basic_output: serde_json::Value,
+    pub document: serde_json::Value,
 }
 
 impl std::fmt::Display for FailedValidation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        serde_json::json!({
-            "document": &self.document,
-            "basic_output": &self.basic_output,
-        })
-        .fmt(f)
+        serde_json::to_string_pretty(self).unwrap().fmt(f)
     }
 }
 impl std::error::Error for FailedValidation {}
