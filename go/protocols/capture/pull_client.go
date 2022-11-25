@@ -14,6 +14,8 @@ type PullClient struct {
 	coordinator
 	// rpc is the long-lived Pull RPC, and is accessed only from Serve.
 	rpc Driver_PullClient
+	// Should Acknowledgements be sent?
+	explicitAcks bool
 }
 
 // OpenPull opens a Pull RPC using the provided DriverClient and CaptureSpec.
@@ -65,9 +67,15 @@ func OpenPull(
 		return nil, fmt.Errorf("expected Opened, got %#v", opened.String())
 	}
 
+	// We will send no more input into the RPC.
+	if !opened.Opened.ExplicitAcknowledgements {
+		_ = rpc.CloseSend()
+	}
+
 	var out = &PullClient{
-		coordinator: coordinator,
-		rpc:         rpc,
+		coordinator:  coordinator,
+		rpc:          rpc,
+		explicitAcks: opened.Opened.ExplicitAcknowledgements,
 	}
 	go out.serve(ctx, startCommitFn)
 
@@ -91,7 +99,9 @@ func OpenPull(
 // serve will call into startCommitFn with a non-nil error exactly once,
 // as its very last invocation.
 func (c *PullClient) serve(ctx context.Context, startCommitFn func(error)) {
-	defer c.rpc.CloseSend()
+	if c.explicitAcks {
+		defer c.rpc.CloseSend()
+	}
 	var respCh = PullResponseChannel(c.rpc)
 
 	var onResp = func(rx PullResponseError, ok bool) (drained bool, err error) {
@@ -151,7 +161,9 @@ func (c *PullClient) serve(ctx context.Context, startCommitFn func(error)) {
 				if err = c.onLogCommitted(); err != nil {
 					return false, fmt.Errorf("onLogCommitted: %w", err)
 				}
-				c.sendAck()
+				if c.explicitAcks {
+					c.sendAck()
+				}
 
 			case op := <-c.logCommittedOpCh:
 				if err := c.onLogCommittedOpCh(op); err != nil {
