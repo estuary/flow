@@ -13,8 +13,8 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/flow/ops"
-	flowLabels "github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/nsf/jsondiff"
 	log "github.com/sirupsen/logrus"
@@ -73,7 +73,7 @@ func (c *ClusterDriver) Stat(ctx context.Context, stat PendingStat) (readThrough
 
 	shards, err := consumer.ListShards(ctx, c.sc, &pc.ListRequest{
 		Selector: pb.LabelSelector{
-			Include: pb.MustLabelSet(flowLabels.TaskName, string(stat.TaskName)),
+			Include: pb.MustLabelSet(labels.TaskName, string(stat.TaskName)),
 		},
 	})
 	if err != nil {
@@ -375,8 +375,10 @@ func CombineDocuments(
 	collection *pf.CollectionSpec,
 	documents [][]byte,
 ) ([]json.RawMessage, error) {
+	var publisher = ops.NewLocalPublisher(labels.ShardLabeling{})
+
 	// Feed documents into an extractor, to extract UUIDs.
-	var extractor, err = bindings.NewExtractor()
+	var extractor, err = bindings.NewExtractor(publisher)
 	if err != nil {
 		return nil, fmt.Errorf("creating extractor: %w", err)
 	} else if err = extractor.Configure(collection.UuidPtr, nil, nil); err != nil {
@@ -390,7 +392,7 @@ func CombineDocuments(
 		return nil, fmt.Errorf("extracting UUIDs: %w", err)
 	}
 
-	combiner, err := bindings.NewCombine(ops.StdLogger())
+	combiner, err := bindings.NewCombine(publisher)
 	if err != nil {
 		return nil, fmt.Errorf("creating combiner: %w", err)
 	} else if err = combiner.Configure(

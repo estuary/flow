@@ -8,6 +8,7 @@ import (
 
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/shuffle"
@@ -32,9 +33,9 @@ type taskTerm struct {
 	labels labels.ShardLabeling
 	// Resolved *Build of the task's build ID.
 	build *flow.Build
-	// Logger used to publish logs that are scoped to this task.
-	// It is embedded to allow directly calling .Log on a taskTerm.
-	*LogPublisher
+	// ops.Publisher of ops.Logs and (in the future) ops.Stats.
+	opsPublisher *flow.OpsPublisher
+	// TODO(johnny): Refactor into `ops` package.
 	*StatsFormatter
 }
 
@@ -56,7 +57,7 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 	}
 
 	if t.labels, err = labels.ParseShardLabels(t.shardSpec.LabelSet); err != nil {
-		return fmt.Errorf("parsing task shard: %w", err)
+		return fmt.Errorf("parsing task shard labels: %w", err)
 	}
 
 	if t.build != nil && t.build.BuildID() == t.labels.Build {
@@ -73,26 +74,25 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 	var statsCollectionSpec *pf.CollectionSpec
 	var logsCollectionSpec *pf.CollectionSpec
 	if err = t.build.Extract(func(db *sql.DB) error {
-		if logsCollectionSpec, err = catalog.LoadCollection(db, logCollection(t.labels.TaskName).String()); err != nil {
+		if logsCollectionSpec, err = catalog.LoadCollection(db, ops.LogCollection(t.labels.TaskName).String()); err != nil {
 			return fmt.Errorf("loading collection: %w", err)
 		}
-		if statsCollectionSpec, err = catalog.LoadCollection(db, statsCollection(t.labels.TaskName).String()); err != nil {
+		if statsCollectionSpec, err = catalog.LoadCollection(db, ops.StatsCollection(t.labels.TaskName).String()); err != nil {
 			return fmt.Errorf("loading stats collection: %w", err)
 		}
-
 		return nil
 	}); err != nil {
 		return err
 	}
 
-	// TODO(johnny): close old LogPublisher here, and in destroy() ?
-	if t.LogPublisher, err = NewLogPublisher(
-		t.labels,
-		logsCollectionSpec,
+	if t.opsPublisher, err = flow.NewOpsPublisher(
 		host.LogAppendService,
+		t.labels,
 		flow.NewMapper(shard.Context(), host.Service.Etcd, host.Journals, shard.FQN()),
+		logsCollectionSpec,
+		statsCollectionSpec,
 	); err != nil {
-		return fmt.Errorf("creating log publisher: %w", err)
+		return fmt.Errorf("creating ops publisher: %w", err)
 	}
 
 	if t.StatsFormatter, err = NewStatsFormatter(
@@ -102,11 +102,11 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 		return err
 	}
 
-	t.Log(log.InfoLevel, log.Fields{
-		"labels":     t.labels,
-		"lastLabels": lastLabels,
-	}, "initialized catalog task term")
-
+	ops.PublishLog(t.opsPublisher, pf.LogLevel_info,
+		"initialized catalog task term",
+		"labels", t.labels,
+		"lastLabels", lastLabels,
+	)
 	return nil
 }
 
@@ -143,7 +143,7 @@ func (r *taskReader) initReader(
 	r.coordinator = shuffle.NewCoordinator(
 		term.ctx,
 		host.Builds,
-		term.LogPublisher,
+		term.opsPublisher,
 		shard.JournalClient(),
 	)
 
@@ -156,7 +156,7 @@ func (r *taskReader) initReader(
 		term.labels.Build,
 		term.ctx.Done(),
 		host.Journals,
-		term.LogPublisher,
+		term.opsPublisher,
 		host.Service,
 		term.shardSpec.Id,
 		shuffles,

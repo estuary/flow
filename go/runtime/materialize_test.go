@@ -155,6 +155,7 @@ func newTestFormatter(name, kind string) *StatsFormatter {
 	var testStatsCollectionSpec = &pf.CollectionSpec{
 		Collection:      pf.Collection("ops/test/stats"),
 		PartitionFields: []string{"kind", "name"},
+		KeyPtrs:         []string{"/shard/name", "/shard/keyBegin", "/shard/rClockBegin", "/ts"},
 	}
 	var f, err = NewStatsFormatter(labeling, testStatsCollectionSpec)
 	if err != nil {

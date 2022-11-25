@@ -13,8 +13,8 @@ import (
 
 	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/ops"
 	pfc "github.com/estuary/flow/go/protocols/capture"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -83,6 +83,12 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 		if !ok {
 			continue
 		}
+		var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
+			Build:    spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
+			TaskName: spec.TaskName(),
+			TaskType: labels.TaskTypeCapture,
+		})
+
 		if spec.ShardTemplate.Disable {
 			log.WithField("capture", spec.Capture.String()).
 				Info("Will skip applying capture because it's shards are disabled")
@@ -91,15 +97,14 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 
 		var request = &pfc.ApplyRequest{
 			Capture: spec,
-			Version: spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
+			Version: publisher.Labels().Build,
 			DryRun:  cmd.DryRun,
 		}
 		var response, err = connector.Invoke(
 			ctx,
 			request,
-			map[string]string{"task": t.TaskName()},
-			ops.StdLogger(),
 			cmd.Network,
+			publisher,
 			func(driver *connector.Driver, request *pfc.ApplyRequest) (*pfc.ApplyResponse, error) {
 				return driver.CaptureClient().ApplyUpsert(ctx, request)
 			},
@@ -123,6 +128,12 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 		if !ok {
 			continue
 		}
+		var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
+			Build:    spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
+			TaskName: spec.TaskName(),
+			TaskType: labels.TaskTypeMaterialization,
+		})
+
 		if spec.ShardTemplate.Disable {
 			log.WithField("materialization", spec.Materialization.String()).
 				Info("Will skip applying materialization because it's shards are disabled")
@@ -131,15 +142,14 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 
 		var request = &pm.ApplyRequest{
 			Materialization: spec,
-			Version:         spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
+			Version:         publisher.Labels().Build,
 			DryRun:          cmd.DryRun,
 		}
 		var response, err = connector.Invoke(
 			ctx,
 			request,
-			map[string]string{"task": t.TaskName()},
-			ops.StdLogger(),
 			cmd.Network,
+			publisher,
 			func(driver *connector.Driver, request *pm.ApplyRequest) (*pm.ApplyResponse, error) {
 				return driver.MaterializeClient().ApplyUpsert(ctx, request)
 			},
