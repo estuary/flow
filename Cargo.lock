@@ -496,16 +496,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2c676a478f63e9fa2dd5368a42f28bba0d6c560b775f38583c8bbaa7fcd67c9c"
 
 [[package]]
-name = "bytelines"
-version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "784face321c535fcd9a1456632fa720aa53ea0640b57341d961c8c09de2da59f"
-dependencies = [
- "futures",
- "tokio",
-]
-
-[[package]]
 name = "byteorder"
 version = "1.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -730,39 +720,6 @@ dependencies = [
  "tonic",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "connector_proxy"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "bytelines",
- "byteorder",
- "bytes",
- "clap 3.2.22",
- "doc",
- "flow_cli_common",
- "futures",
- "futures-core",
- "futures-util",
- "insta",
- "libc",
- "network-tunnel",
- "prost",
- "proto-flow",
- "schemars",
- "serde",
- "serde_json",
- "strum 0.24.1",
- "strum_macros 0.24.3",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-util",
- "tracing",
- "validator",
 ]
 
 [[package]]
