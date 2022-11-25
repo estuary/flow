@@ -164,6 +164,7 @@ pub struct PullRequest {
     #[prost(message, optional, tag="1")]
     pub open: ::core::option::Option<pull_request::Open>,
     /// Tell the driver that its Checkpoint has committed to the Flow recovery log.
+    /// Acknowledgments are sent iff PullResponse.Opened.explicit_acknowledgements is true.
     #[prost(message, optional, tag="2")]
     pub acknowledge: ::core::option::Option<Acknowledge>,
 }
@@ -219,6 +220,11 @@ pub mod pull_response {
     /// and is sent exactly once as the first message of the stream.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Opened {
+        /// If true then the runtime will send one PullRequest.Acknowledge
+        /// for each PullResponse.DriverCheckpoint sent by the connector,
+        /// upon that DriverCheckpoint having fully committed.
+        #[prost(bool, tag="1")]
+        pub explicit_acknowledgements: bool,
     }
 }
 /// PushRequest is the request message of the Runtime.Push RPC.
@@ -254,6 +260,8 @@ pub struct PushResponse {
     #[prost(message, optional, tag="1")]
     pub opened: ::core::option::Option<push_response::Opened>,
     /// Tell the driver that its Checkpoint has committed to the Flow recovery log.
+    /// Unlike PullRequest.Acknowledge, which is only sent if explicitly opted into,
+    /// PushResponse.Acknowledge is always sent.
     #[prost(message, optional, tag="2")]
     pub acknowledge: ::core::option::Option<Acknowledge>,
 }
