@@ -12,7 +12,8 @@ import (
 	"github.com/gogo/protobuf/jsonpb"
 
 	"github.com/estuary/flow/go/connector"
-	"github.com/estuary/flow/go/flow/ops"
+	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/ops"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	"github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
@@ -80,6 +81,9 @@ func (cmd apiSpec) execute(ctx context.Context) (specResponse, error) {
 }
 
 func (cmd apiSpec) specCapture(ctx context.Context, spec json.RawMessage) (specResponse, error) {
+	var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
+		TaskName: cmd.Name,
+	})
 	var request = &pc.SpecRequest{
 		EndpointType:     flow.EndpointType_AIRBYTE_SOURCE,
 		EndpointSpecJson: spec,
@@ -87,9 +91,8 @@ func (cmd apiSpec) specCapture(ctx context.Context, spec json.RawMessage) (specR
 	var response, err = connector.Invoke(
 		ctx,
 		request,
-		map[string]string{"spec": cmd.Name},
-		ops.StdLogger(),
 		cmd.Network,
+		publisher,
 		func(driver *connector.Driver, request *pc.SpecRequest) (*pc.SpecResponse, error) {
 			return driver.CaptureClient().Spec(ctx, request)
 		},
@@ -117,6 +120,9 @@ func (cmd apiSpec) specCapture(ctx context.Context, spec json.RawMessage) (specR
 }
 
 func (cmd apiSpec) specMaterialization(ctx context.Context, spec json.RawMessage) (specResponse, error) {
+	var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
+		TaskName: cmd.Name,
+	})
 	var request = &pm.SpecRequest{
 		EndpointType:     flow.EndpointType_FLOW_SINK,
 		EndpointSpecJson: spec,
@@ -124,9 +130,8 @@ func (cmd apiSpec) specMaterialization(ctx context.Context, spec json.RawMessage
 	var response, err = connector.Invoke(
 		ctx,
 		request,
-		map[string]string{"spec": cmd.Name},
-		ops.StdLogger(),
 		cmd.Network,
+		publisher,
 		func(driver *connector.Driver, request *pm.SpecRequest) (*pm.SpecResponse, error) {
 			return driver.MaterializeClient().Spec(ctx, request)
 		},

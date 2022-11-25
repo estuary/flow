@@ -9,10 +9,9 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	"github.com/sirupsen/logrus"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -22,13 +21,13 @@ import (
 
 // ReadBuilder builds instances of shuffled reads.
 type ReadBuilder struct {
-	buildID  string
-	drainCh  <-chan struct{}
-	journals flow.Journals
-	logger   ops.Logger
-	service  *consumer.Service
-	shardID  pc.ShardID
-	shuffles []*pf.Shuffle
+	buildID   string
+	drainCh   <-chan struct{}
+	journals  flow.Journals
+	publisher ops.Publisher
+	service   *consumer.Service
+	shardID   pc.ShardID
+	shuffles  []*pf.Shuffle
 
 	// Members may change over the life of a ReadBuilder.
 	// We're careful not to assume that values are stable. If they change,
@@ -47,7 +46,7 @@ func NewReadBuilder(
 	buildID string,
 	drainCh <-chan struct{},
 	journals flow.Journals,
-	logger ops.Logger,
+	publisher ops.Publisher,
 	service *consumer.Service,
 	shardID pc.ShardID,
 	shuffles []*pf.Shuffle,
@@ -69,14 +68,14 @@ func NewReadBuilder(
 	}
 
 	return &ReadBuilder{
-		buildID:  buildID,
-		drainCh:  drainCh,
-		journals: journals,
-		logger:   logger,
-		members:  members,
-		service:  service,
-		shardID:  shardID,
-		shuffles: shuffles,
+		buildID:   buildID,
+		drainCh:   drainCh,
+		journals:  journals,
+		members:   members,
+		publisher: publisher,
+		service:   service,
+		shardID:   shardID,
+		shuffles:  shuffles,
 	}, nil
 }
 
@@ -99,7 +98,7 @@ func (rb *ReadBuilder) ReadThrough(offsets pb.Offsets) (pb.Offsets, error) {
 }
 
 type read struct {
-	logger    ops.Logger
+	publisher ops.Publisher
 	readDelay message.Clock
 	req       pf.ShuffleRequest
 	resp      pf.IndexedShuffleResponse
@@ -134,8 +133,8 @@ func (rb *ReadBuilder) buildReplayRead(journal pb.Journal, begin, end pb.Offset)
 				BuildId:     rb.buildID,
 			}
 			out = &read{
-				logger: rb.logger,
-				spec:   spec,
+				publisher: rb.publisher,
+				spec:      spec,
 				req: pf.ShuffleRequest{
 					Shuffle:   journalShuffle,
 					Range:     range_,
@@ -203,13 +202,15 @@ func (rb *ReadBuilder) buildReads(
 				if r.req.Shuffle.Equal(&journalShuffle) {
 					delete(drain, spec.Name)
 				} else {
-					rb.logger.Log(logrus.DebugLevel, logrus.Fields{
-						"build":       journalShuffle.BuildId,
-						"coordinator": journalShuffle.Coordinator,
-						"journal":     journalShuffle.Journal,
-						"range":       range_.String(),
-						"replay":      journalShuffle.Replay,
-					}, "shuffle read exists with different specification")
+					r.log(pf.LogLevel_debug,
+						"draining read because its shuffle has changed",
+						"next", map[string]interface{}{
+							"build":       journalShuffle.BuildId,
+							"coordinator": journalShuffle.Coordinator,
+							"journal":     journalShuffle.Journal,
+							"replay":      journalShuffle.Replay,
+						},
+					)
 				}
 				return
 			}
@@ -219,8 +220,8 @@ func (rb *ReadBuilder) buildReads(
 				message.NewClock(time.Unix(0, 0))
 
 			added[spec.Name] = &read{
-				logger: rb.logger,
-				spec:   spec,
+				publisher: rb.publisher,
+				spec:      spec,
 				req: pf.ShuffleRequest{
 					Shuffle: journalShuffle,
 					Range:   range_,
@@ -247,7 +248,7 @@ func (r *read) start(
 	case <-time.After(backoff(attempt)):
 	}
 
-	r.log(logrus.DebugLevel, "started shuffle read", "attempt", attempt)
+	r.log(pf.LogLevel_debug, "started shuffle read", "attempt", attempt)
 
 	ctx = pprof.WithLabels(ctx, pprof.Labels(
 		"build", r.req.Shuffle.BuildId,
@@ -353,7 +354,7 @@ func (r *read) sendReadResult(resp *pf.ShuffleResponse, err error, wakeCh chan<-
 
 	var queue, cap = len(r.ch), cap(r.ch)
 	if queue == cap {
-		r.log(logrus.WarnLevel,
+		r.log(pf.LogLevel_warn,
 			"cancelling shuffle read due to full channel timeout",
 			"queue", queue,
 			"cap", cap,
@@ -379,7 +380,7 @@ func (r *read) sendReadResult(resp *pf.ShuffleResponse, err error, wakeCh chan<-
 
 		case <-timer.C:
 			if queue > 13 { // Log values > 8s.
-				r.log(logrus.DebugLevel,
+				r.log(pf.LogLevel_debug,
 					"backpressure timer elapsed on a slow shuffle read",
 					"queue", queue,
 					"backoff", dur.Seconds(),
@@ -455,25 +456,22 @@ func (r *read) dequeue() message.Envelope {
 	return env
 }
 
-func (r *read) log(lvl logrus.Level, message string, extra ...interface{}) {
-	if lvl > r.logger.Level() {
+func (r *read) log(lvl pf.LogLevel, message string, fields ...interface{}) {
+	if lvl > r.publisher.Labels().LogLevel {
 		return
 	}
 
-	var fields = logrus.Fields{
-		"build":       r.req.Shuffle.BuildId,
-		"coordinator": r.req.Shuffle.Coordinator,
-		"endOffset":   r.req.EndOffset,
-		"journal":     r.req.Shuffle.Journal,
-		"offset":      r.req.Offset,
-		"range":       r.req.Range.String(),
-	}
-	for i := 0; i < len(extra); i += 2 {
-		fields[extra[i].(string)] = extra[i+1]
-	}
-
-	// Logging is best-effort.
-	_ = r.logger.Log(lvl, fields, message)
+	fields = append(fields,
+		"request", map[string]interface{}{
+			"build":       r.req.Shuffle.BuildId,
+			"coordinator": r.req.Shuffle.Coordinator,
+			"endOffset":   r.req.EndOffset,
+			"journal":     r.req.Shuffle.Journal,
+			"offset":      r.req.Offset,
+			"range":       r.req.Range.String(),
+		},
+	)
+	ops.PublishLog(r.publisher, lvl, message, fields...)
 }
 
 type readHeap []*read
