@@ -1,7 +1,0 @@
----
-source: crates/connector_proxy/src/libs/network_tunnel.rs
-expression: "NetworkTunnel::extend_endpoint_schema(schema).unwrap()"
----
-{
-  "$serde_json::private::RawValue": "{\n  \"$schema\": \"http://json-schema.org/draft-04/schema#\",\n  \"title\": \"Generic Database Connection Spec\",\n  \"type\": \"object\",\n  \"required\": [\n    \"credentials\",\n    \"hostname\"\n  ],\n  \"properties\": {\n    \"credentials\": {\n      \"description\": \"Some login credentials or something.\",\n      \"type\": \"string\",\n      \"secret\": true\n    },\n    \"hostname\": {\n      \"title\": \"Server Hostname\",\n      \"description\": \"The hostname at which the server can be reached.\",\n      \"type\": \"string\"\n    }\n  }\n}"
-}
