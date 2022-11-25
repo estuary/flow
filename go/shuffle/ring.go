@@ -11,10 +11,9 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/flow/ops"
+	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
@@ -23,27 +22,27 @@ import (
 // Coordinator collects a set of rings servicing ongoing shuffle reads,
 // and matches new ShuffleConfigs to a new or existing ring.
 type Coordinator struct {
-	builds *flow.BuildService
-	ctx    context.Context
-	logger ops.Logger
-	mu     sync.Mutex
-	rings  map[*ring]struct{}
-	rjc    pb.RoutedJournalClient
+	builds    *flow.BuildService
+	ctx       context.Context
+	publisher ops.Publisher
+	mu        sync.Mutex
+	rings     map[*ring]struct{}
+	rjc       pb.RoutedJournalClient
 }
 
 // NewCoordinator returns a new *Coordinator using the given clients.
 func NewCoordinator(
 	ctx context.Context,
 	builds *flow.BuildService,
-	logger ops.Logger,
+	publisher ops.Publisher,
 	rjc pb.RoutedJournalClient,
 ) *Coordinator {
 	return &Coordinator{
-		builds: builds,
-		ctx:    ctx,
-		logger: logger,
-		rings:  make(map[*ring]struct{}),
-		rjc:    rjc,
+		builds:    builds,
+		ctx:       ctx,
+		publisher: publisher,
+		rings:     make(map[*ring]struct{}),
+		rjc:       rjc,
 	}
 }
 
@@ -126,7 +125,7 @@ func (r *ring) onSubscribe(sub subscriber) {
 	r.subscribers.prune()
 	var rr = r.subscribers.add(sub)
 
-	r.log(logrus.DebugLevel,
+	r.log(pf.LogLevel_debug,
 		"added shuffle ring subscriber",
 		"endOffset", sub.EndOffset,
 		"offset", sub.Offset,
@@ -147,7 +146,7 @@ func (r *ring) onSubscribe(sub subscriber) {
 	go r.readDocuments(readCh, *rr)
 
 	if rr.EndOffset != 0 {
-		r.log(logrus.DebugLevel,
+		r.log(pf.LogLevel_debug,
 			"started a catch-up journal read for new subscriber",
 			"endOffset", rr.EndOffset,
 			"offset", rr.Offset,
@@ -163,7 +162,7 @@ func (r *ring) onRead(staged *pf.ShuffleResponse, ok bool, ex *bindings.Extracto
 		r.readChans = r.readChans[:len(r.readChans)-1]
 
 		if len(r.readChans) != 0 {
-			r.log(logrus.DebugLevel,
+			r.log(pf.LogLevel_debug,
 				"completed catch-up journal read",
 				"reads", len(r.readChans),
 			)
@@ -195,10 +194,9 @@ func (r *ring) onExtract(staged *pf.ShuffleResponse, uuids []pf.UUIDParts, packe
 		if staged.TerminalError == "" {
 			staged.TerminalError = err.Error()
 		}
-		r.log(logrus.ErrorLevel,
+		r.log(pf.LogLevel_error,
 			"failed to extract from documents",
 			"error", err,
-			"offset", staged.Offsets,
 			"readThrough", staged.ReadThrough,
 			"writeHead", staged.WriteHead,
 		)
@@ -215,7 +213,7 @@ func (r *ring) onExtract(staged *pf.ShuffleResponse, uuids []pf.UUIDParts, packe
 
 func (r *ring) serve() {
 	pprof.SetGoroutineLabels(r.ctx)
-	r.log(logrus.DebugLevel, "started shuffle ring")
+	r.log(pf.LogLevel_debug, "started shuffle ring")
 
 	var (
 		build     = r.coordinator.builds.Open(r.shuffle.BuildId)
@@ -225,7 +223,7 @@ func (r *ring) serve() {
 	defer build.Close()
 	// TODO(johnny): defer |extractor| cleanup (not yet implemented).
 
-	if extractor, initErr = bindings.NewExtractor(); initErr != nil {
+	if extractor, initErr = bindings.NewExtractor(r.coordinator.publisher); initErr != nil {
 		initErr = fmt.Errorf("building extractor: %w", initErr)
 	} else if initErr = extractor.Configure(
 		r.shuffle.SourceUuidPtr,
@@ -272,26 +270,22 @@ loop:
 		sub.callback(nil, r.ctx.Err())
 	}
 
-	r.log(logrus.DebugLevel, "stopped shuffle ring")
+	r.log(pf.LogLevel_debug, "stopped shuffle ring")
 }
 
-func (r *ring) log(lvl logrus.Level, message string, extra ...interface{}) {
-	if lvl > r.coordinator.logger.Level() {
+func (r *ring) log(lvl pf.LogLevel, message string, fields ...interface{}) {
+	if lvl > r.coordinator.publisher.Labels().LogLevel {
 		return
 	}
 
-	var fields = logrus.Fields{
-		"build":       r.shuffle.BuildId,
-		"coordinator": r.shuffle.Coordinator,
-		"journal":     r.shuffle.Journal,
-		"replay":      r.shuffle.Replay,
-	}
-	for i := 0; i < len(extra); i += 2 {
-		fields[extra[i].(string)] = extra[i+1]
-	}
+	fields = append(fields,
+		"build", r.shuffle.BuildId,
+		"coordinator", r.shuffle.Coordinator,
+		"journal", r.shuffle.Journal,
+		"replay", r.shuffle.Replay,
+	)
 
-	// Logging is best-effort.
-	_ = r.coordinator.logger.Log(lvl, fields, message)
+	ops.PublishLog(r.coordinator.publisher, lvl, message, fields...)
 }
 
 // readDocuments pumps reads from a journal into the provided channel,
@@ -306,7 +300,7 @@ func (r *ring) readDocuments(ch chan *pf.ShuffleResponse, req pb.ReadRequest) (_
 			"offset", fmt.Sprint(req.Offset),
 		)),
 	)
-	r.log(logrus.DebugLevel,
+	r.log(pf.LogLevel_debug,
 		"started reading journal documents",
 		"endOffset", req.EndOffset,
 		"offset", req.Offset,
@@ -327,7 +321,7 @@ func (r *ring) readDocuments(ch chan *pf.ShuffleResponse, req pb.ReadRequest) (_
 	var lastArena, lastDocs = 0, 0
 
 	defer func() {
-		r.log(logrus.DebugLevel,
+		r.log(pf.LogLevel_debug,
 			"finished reading journal documents",
 			"endOffset", req.EndOffset,
 			"error", __out,
@@ -350,7 +344,7 @@ func (r *ring) readDocuments(ch chan *pf.ShuffleResponse, req pb.ReadRequest) (_
 			// bufio.Reader generates these when a read is restarted multiple
 			// times with no actual bytes read (e.x. because the journal is idle).
 			// It's safe to ignore.
-			r.log(logrus.DebugLevel,
+			r.log(pf.LogLevel_debug,
 				"multiple journal reads occurred without any progress",
 				"endOffset", req.EndOffset,
 				"offset", offset,
@@ -359,7 +353,7 @@ func (r *ring) readDocuments(ch chan *pf.ShuffleResponse, req pb.ReadRequest) (_
 			line, err = nil, nil
 		case client.ErrOffsetJump:
 			// Offset jumps occur when fragments are removed from the middle of a journal.
-			r.log(logrus.WarnLevel,
+			r.log(pf.LogLevel_warn,
 				"source journal offset jump",
 				"from", offset,
 				"to", rr.AdjustedOffset(br),
@@ -371,7 +365,7 @@ func (r *ring) readDocuments(ch chan *pf.ShuffleResponse, req pb.ReadRequest) (_
 				// Continue reading, now with blocking reads.
 				line, err, rr.Reader.Request.Block = nil, nil, true
 
-				r.log(logrus.DebugLevel,
+				r.log(pf.LogLevel_debug,
 					"switched to blocking journal read",
 					"endOffset", req.EndOffset,
 					"offset", offset,

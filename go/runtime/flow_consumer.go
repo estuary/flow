@@ -10,10 +10,11 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/shuffle"
-	log "github.com/sirupsen/logrus"
+	"github.com/pkg/errors"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -114,11 +115,12 @@ func (f *FlowConsumer) FinishedTxn(shard consumer.Shard, store consumer.Store, f
 // logTxnFinished spawns a goroutine that waits for the given op to complete and logs the error if
 // it fails. All task types should delegate to this function so that the error logging is
 // consistent.
-func logTxnFinished(logger *LogPublisher, op consumer.OpFuture) {
+func logTxnFinished(publisher ops.Publisher, op consumer.OpFuture) {
 	go func() {
-		if err := op.Err(); err != nil {
-			// TODO: log something different if err == context.Canceled
-			logger.Log(log.ErrorLevel, log.Fields{"error": err.Error()}, "shard failed")
+		if err := op.Err(); err != nil && errors.Cause(err) != context.Canceled {
+			ops.PublishLog(publisher, pf.LogLevel_error,
+				"shard failed",
+				"error", err)
 		}
 	}()
 }

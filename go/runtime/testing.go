@@ -11,8 +11,8 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -116,8 +116,14 @@ func (f *FlowTesting) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.In
 		return nil, fmt.Errorf("loading collection: %w", err)
 	}
 
+	var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
+		Build:    req.BuildId,
+		TaskName: req.Collection.String(),
+		TaskType: labels.TaskTypeCapture,
+	})
+
 	// Build a combiner of documents for this collection.
-	combiner, err := bindings.NewCombine(ops.StdLogger())
+	combiner, err := bindings.NewCombine(publisher)
 	if err != nil {
 		return nil, fmt.Errorf("creating combiner: %w", err)
 	}
