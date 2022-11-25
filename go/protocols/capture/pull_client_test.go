@@ -24,7 +24,10 @@ func TestPullClientLifecycle(t *testing.T) {
 	require.NoError(t, spec.Unmarshal(specBytes))
 
 	var ctx = context.Background()
-	var server = &testServer{DoneOp: client.NewAsyncOperation()}
+	var server = &testServer{
+		DoneOp:   client.NewAsyncOperation(),
+		OpenedTx: PullResponse_Opened{ExplicitAcknowledgements: true},
+	}
 	var conn = AdaptServerToClient(server)
 	var captured []json.RawMessage
 	var reducedCheckpoint pf.DriverCheckpoint
@@ -205,6 +208,10 @@ func TestPullClientCancel(t *testing.T) {
 			func(err error) { startCommitCh <- err },
 		)
 		require.NoError(t, err)
+
+		// Expect the client sends an immediate EOF,
+		// because the server didn't elect for acknowledgements.
+		require.Equal(t, io.EOF, server.recvAck())
 
 		for i := 0; i != numDocs; i++ {
 			server.sendDocs(0, "one", "two")
