@@ -13,7 +13,7 @@ type ShardLabeling struct {
 	// Catalog build identifier which the task uses.
 	Build string
 	// Logging level of the task.
-	LogLevel string
+	LogLevel pf.LogLevel
 	// Key and R-Clock range of the shard.
 	Range pf.RangeSpec
 	// If non-empty, the shard which this task is splitting from.
@@ -32,8 +32,12 @@ func ParseShardLabels(set pf.LabelSet) (ShardLabeling, error) {
 	var out ShardLabeling
 	var err error
 
-	if out.LogLevel, err = ExpectOne(set, LogLevel); err != nil {
+	if levelStr, err := ExpectOne(set, LogLevel); err != nil {
 		return out, err
+	} else if mapped, ok := pf.LogLevel_value[levelStr]; !ok {
+		return out, fmt.Errorf("%q is not a valid log level", levelStr)
+	} else {
+		out.LogLevel = pf.LogLevel(mapped)
 	}
 	if out.Range, err = ParseRangeSpec(set); err != nil {
 		return out, err
