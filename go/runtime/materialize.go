@@ -9,6 +9,7 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
@@ -75,17 +76,19 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 	var checkpointSource = "n/a"
 	defer func() {
 		if err == nil {
-			m.Log(log.DebugLevel, log.Fields{
-				"materialization":  m.labels.TaskName,
-				"shard":            m.shardSpec.Id,
-				"build":            m.labels.Build,
-				"checkpoint":       cp,
-				"checkpointSource": checkpointSource,
-			}, "initialized processing term")
+			ops.PublishLog(m.opsPublisher, pf.LogLevel_debug,
+				"initialized processing term",
+				"materialization", m.labels.TaskName,
+				"shard", m.shardSpec.Id,
+				"build", m.labels.Build,
+				"checkpoint", cp,
+				"checkpointSource", checkpointSource,
+			)
 		} else {
-			m.Log(log.ErrorLevel, log.Fields{
-				"error": err.Error(),
-			}, "failed to initialize processing term")
+			ops.PublishLog(m.opsPublisher, pf.LogLevel_error,
+				"failed to initialize processing term",
+				"error", err,
+			)
 		}
 	}()
 
@@ -114,8 +117,9 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 	if err != nil {
 		return pf.Checkpoint{}, err
 	}
-	m.Log(log.DebugLevel, log.Fields{"spec": m.spec, "build": m.labels.Build},
-		"loaded specification")
+	ops.PublishLog(m.opsPublisher, pf.LogLevel_debug,
+		"loaded specification",
+		"spec", m.spec, "build", m.labels.Build)
 
 	// Initialize for reading shuffled source collection journals.
 	if err = m.initReader(&m.taskTerm, shard, m.spec.TaskShuffles(), m.host); err != nil {
@@ -124,7 +128,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 
 	// Closure which builds a Combiner for a specified binding.
 	var newCombinerFn = func(binding *pf.MaterializationSpec_Binding) (pf.Combiner, error) {
-		var combiner, err = bindings.NewCombine(m.LogPublisher)
+		var combiner, err = bindings.NewCombine(m.opsPublisher)
 		if err != nil {
 			return nil, err
 		}
@@ -143,8 +147,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		shard.Context(),
 		m.spec.EndpointSpecJson,
 		m.spec.EndpointType,
-		map[string]string{"shard": shard.Spec().Id.String()},
-		m.LogPublisher,
+		m.opsPublisher,
 		m.host.Config.Flow.Network,
 	)
 	if err != nil {
@@ -189,12 +192,13 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 
 // StartCommit implements consumer.Store.StartCommit
 func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
-	m.Log(log.DebugLevel, log.Fields{
-		"materialization": m.labels.TaskName,
-		"shard":           m.shardSpec.Id,
-		"build":           m.labels.Build,
-		"checkpoint":      cp,
-	}, "StartCommit")
+	ops.PublishLog(m.opsPublisher, pf.LogLevel_debug,
+		"StartCommit",
+		"materialization", m.labels.TaskName,
+		"shard", m.shardSpec.Id,
+		"build", m.labels.Build,
+		"checkpoint", cp,
+	)
 
 	if driverCP, err := m.client.Prepare(cp); err != nil {
 		return client.FinishedOperation(err)
@@ -323,5 +327,5 @@ func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) 
 
 // FinishedTxn implements Application.FinishedTxn.
 func (m *Materialize) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {
-	logTxnFinished(m.LogPublisher, op)
+	logTxnFinished(m.opsPublisher, op)
 }

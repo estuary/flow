@@ -10,7 +10,8 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/flow/ops"
+	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -21,7 +22,6 @@ import (
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/etcdtest"
-	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
@@ -98,7 +98,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	// Use a resolve() fixture which returns a mocked store with our |coordinator|.
 	var srv = server.MustLoopback()
 	var apiCtx, cancelAPICtx = context.WithCancel(backgroundCtx)
-	var coordinator = NewCoordinator(apiCtx, builds, ops.StdLogger(), bk.Client())
+	var coordinator = NewCoordinator(apiCtx, builds, localPublisher, bk.Client())
 
 	pf.RegisterShufflerServer(srv.GRPCServer, &API{
 		resolve: func(args consumer.ResolveArgs) (consumer.Resolution, error) {
@@ -148,8 +148,8 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 		}, nil
 	}
 	var replayRead = &read{
-		logger: ops.StdLogger(),
-		spec:   *journalSpec,
+		publisher: localPublisher,
+		spec:      *journalSpec,
 		req: pf.ShuffleRequest{
 			Shuffle:   shuffle,
 			Range:     range_,
@@ -199,8 +199,8 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	badShuffle.ValidateSchemaJson = `{"invalid":"keyword"}`
 
 	var badRead = &read{
-		logger: ops.StdLogger(),
-		spec:   *journalSpec,
+		publisher: localPublisher,
+		spec:      *journalSpec,
 		req: pf.ShuffleRequest{
 			Shuffle:   badShuffle,
 			Range:     range_,
@@ -241,3 +241,18 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 
 	require.NoError(t, tasks.Wait())
 }
+
+var localPublisher = ops.NewLocalPublisher(
+	labels.ShardLabeling{
+		Build:    "the-build",
+		LogLevel: pf.LogLevel_debug,
+		Range: pf.RangeSpec{
+			KeyBegin:    0x00001111,
+			KeyEnd:      0x11110000,
+			RClockBegin: 0x00002222,
+			RClockEnd:   0x22220000,
+		},
+		TaskName: "some-tenant/task/name",
+		TaskType: labels.TaskTypeDerivation,
+	},
+)
