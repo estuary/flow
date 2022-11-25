@@ -25,7 +25,7 @@ func TestParsingShardLabels(t *testing.T) {
 
 	require.Equal(t, ShardLabeling{
 		Build:    "a-build",
-		LogLevel: "debug",
+		LogLevel: pf.LogLevel_debug,
 		Range: pf.RangeSpec{
 			KeyBegin:    0xaaaaaaaa,
 			KeyEnd:      0xbbbbbbbb,
@@ -37,6 +37,12 @@ func TestParsingShardLabels(t *testing.T) {
 		TaskName:    "a-task",
 		TaskType:    TaskTypeCapture,
 	}, out)
+
+	// Case: invalid log-level.
+	set.SetValue(LogLevel, "whoops")
+	_, err = ParseShardLabels(set)
+	require.EqualError(t, err, "\"whoops\" is not a valid log level")
+	set.SetValue(LogLevel, "warn")
 
 	// Case: swap SplitSource/Target
 	set.Remove(SplitSource)
@@ -51,6 +57,7 @@ func TestParsingShardLabels(t *testing.T) {
 	_, err = ParseShardLabels(set)
 	require.EqualError(t, err,
 		"both split-source \"a-source\" and split-target \"a-target\" are set but shouldn't be")
+	set.Remove(SplitSource)
 
 	// Case: invalid task type
 	set.SetValue(TaskType, "whoops")
@@ -59,7 +66,6 @@ func TestParsingShardLabels(t *testing.T) {
 
 	// Case: empty label (expectOne).
 	set.SetValue(TaskType, "")
-
 	_, err = ParseShardLabels(set)
 	require.EqualError(t, err, "label \"estuary.dev/task-type\" value is empty but shouldn't be")
 
@@ -86,6 +92,7 @@ func TestParsingShardLabels(t *testing.T) {
 	set.AddValue(SplitSource, "source-2")
 	_, err = ParseShardLabels(set)
 	require.Regexp(t, "expected one label .* \\(got \\[a-source source-2\\]\\)", err.Error())
+	set.Remove(SplitSource)
 
 	// Case: range parse error is passed through.
 	set.SetValue(KeyBegin, "whoops")
