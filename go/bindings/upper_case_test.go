@@ -2,15 +2,13 @@ package bindings
 
 import (
 	"bytes"
+	"fmt"
 	"strconv"
 	"testing"
-	"time"
 
-	"github.com/estuary/flow/go/flow/ops"
-	"github.com/estuary/flow/go/flow/ops/testutil"
+	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	log "github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,93 +22,73 @@ func (m frameableString) MarshalToSizedBuffer(b []byte) (int, error) {
 }
 
 func TestLogsForwardedFromService(t *testing.T) {
-	var logPublisher = testutil.NewTestLogPublisher(log.TraceLevel)
-	var svc = newUpperCase(logPublisher)
+	var logs = make(chan ops.Log, 1)
+	var publisher = newChanPublisher(logs, pf.LogLevel_trace)
 
+	var svc = newUpperCase(publisher)
 	svc.sendBytes(1, []byte("hello"))
 	svc.sendMessage(2, frameableString("world"))
 	var _, _, err = svc.poll()
 	require.NoError(t, err)
 
-	logPublisher.WaitForLogs(t, time.Millisecond*500, 2)
-	logPublisher.RequireEventsMatching(t, []testutil.TestLogEvent{
-		{
-			Level:   log.DebugLevel,
-			Message: "making stuff uppercase",
-			Fields: map[string]interface{}{
-				"data_len": 5,
-				"sum_len":  5,
-			},
-		},
-		{
-			Level:   log.DebugLevel,
-			Message: "making stuff uppercase",
-			Fields: map[string]interface{}{
-				"data_len": 5,
-				"sum_len":  10,
-			},
-		},
-	})
+	var actual = <-logs
+	require.Equal(t, actual.Level, pf.LogLevel_debug)
+	require.Equal(t, actual.Message, "making stuff uppercase")
+	require.Equal(t, string(actual.Fields), `{"data_len":5,"module":"bindings::upper_case","sum_len":5}`)
+
+	actual = <-logs
+	require.Equal(t, string(actual.Fields), `{"data_len":5,"module":"bindings::upper_case","sum_len":10}`)
 
 	svc.sendMessage(2, frameableString("whoops"))
 	_, _, err = svc.poll()
-	// Destroying the service should cause the logging file to be closed, which will result in that
-	// last log event. We assert that we git the final log event because it means that destroying
+
+	require.EqualError(t, err, "whoops")
+
+	actual = <-logs
+	require.Equal(t, actual.Level, pf.LogLevel_error)
+	require.Equal(t, actual.Message, "whoops")
+	require.Equal(t, string(actual.Fields), `{"error":"whoops","module":"bindings::service"}`)
+
+	// Destroying the service should cause the logging file to be closed, which will result in this
+	// last log event. We assert that we get the final log event because it means that destroying
 	// the service caused the logging file descriptor to be closed, ending the log forwarding goroutine.
 	svc.destroy()
 
-	logPublisher.WaitForLogs(t, time.Millisecond*500, 2)
-	logPublisher.RequireEventsMatching(t, []testutil.TestLogEvent{
-		{
-			Level:   log.ErrorLevel,
-			Message: "whoops",
-			Fields: map[string]interface{}{
-				"error":     `{"code":2,"message":"whoops"}`,
-				"logSource": "uppercase",
-			},
-		},
-		{
-			Level:   log.TraceLevel,
-			Message: "finished forwarding logs",
-			Fields: map[string]interface{}{
-				"jsonLines": 3,
-				"textLines": 0,
-			},
-		},
-	})
-
+	actual = <-logs
+	require.Equal(t, actual.Level, pf.LogLevel_trace)
+	require.Equal(t, actual.Message, "dropped service")
+	require.Equal(t, string(actual.Fields), `{"module":"bindings::service"}`)
 }
 
 func TestLotsOfLogs(t *testing.T) {
-	var logPublisher = testutil.NewTestLogPublisher(log.DebugLevel)
-	var svc = newUpperCase(logPublisher)
-	defer svc.destroy()
+	var logs = make(chan ops.Log, 2048)
+	var publisher = newChanPublisher(logs, pf.LogLevel_trace)
+	var svc = newUpperCase(publisher)
 
 	var expectedSum = 0
 	for _, n := range []int{1, 3, 24, 256, 2048} {
-		var expectedLogs []testutil.TestLogEvent
-		for i := 0; i < n; i++ {
-			expectedSum++
+		for i := 0; i != n; i++ {
 			svc.sendMessage(1, frameableString("f"))
-			expectedLogs = append(expectedLogs, testutil.TestLogEvent{
-				Level:   log.DebugLevel,
-				Message: "making stuff uppercase",
-				Fields: map[string]interface{}{
-					"data_len": 1,
-					"sum_len":  expectedSum,
-				},
-			})
 		}
+
 		var _, _, err = svc.poll()
 		require.NoError(t, err)
-		logPublisher.WaitForLogs(t, time.Second, n)
-		logPublisher.RequireEventsMatching(t, expectedLogs)
+
+		for i := 0; i != n; i++ {
+			expectedSum++
+			var actual = <-logs
+			require.Equal(t, string(actual.Fields),
+				fmt.Sprintf(`{"data_len":1,"module":"bindings::upper_case","sum_len":%d}`, expectedSum))
+		}
 	}
+
+	svc.destroy()
+	var actual = <-logs
+	require.Equal(t, actual.Message, "dropped service")
 }
 
 func TestUpperServiceFunctional(t *testing.T) {
-	var logPublisher = testutil.NewTestLogPublisher(log.DebugLevel)
-	var svc = newUpperCase(logPublisher)
+	var svc = newUpperCase(localPublisher)
 	defer svc.destroy()
 
 	// Test growing |buf|.
@@ -120,51 +98,51 @@ func TestUpperServiceFunctional(t *testing.T) {
 	svc.sendMessage(2, frameableString("world"))
 	var arena, out, err = svc.poll()
 
-	assert.NoError(t, err)
-	assert.Len(t, out, 2)
-	assert.Equal(t, pf.Arena("HELLOWORLD"), arena)
-	assert.Equal(t, []byte("HELLO"), svc.arenaSlice(out[0]))
-	assert.Equal(t, []byte("WORLD"), svc.arenaSlice(out[1]))
-	assert.Equal(t, 5, int(out[0].code))
-	assert.Equal(t, 10, int(out[1].code))
+	require.NoError(t, err)
+	require.Len(t, out, 2)
+	require.Equal(t, pf.Arena("HELLOWORLD"), arena)
+	require.Equal(t, []byte("HELLO"), svc.arenaSlice(out[0]))
+	require.Equal(t, []byte("WORLD"), svc.arenaSlice(out[1]))
+	require.Equal(t, 5, int(out[0].code))
+	require.Equal(t, 10, int(out[1].code))
 
 	svc.sendMessage(3, frameableString("bye"))
 	arena, out, err = svc.poll()
 
-	assert.NoError(t, err)
-	assert.Len(t, out, 1)
-	assert.Equal(t, pf.Arena("BYE"), arena)
-	assert.Equal(t, []byte("BYE"), svc.arenaSlice(out[0]))
-	assert.Equal(t, 13, int(out[0].code))
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	require.Equal(t, pf.Arena("BYE"), arena)
+	require.Equal(t, []byte("BYE"), svc.arenaSlice(out[0]))
+	require.Equal(t, 13, int(out[0].code))
 
 	// Trigger an error, and expect it's plumbed through.
 	svc.sendBytes(6, []byte("whoops"))
 	_, _, err = svc.poll()
-	assert.EqualError(t, err, "whoops")
+	require.EqualError(t, err, "whoops")
 }
 
 func TestNoOpServiceFunctional(t *testing.T) {
-	var svc = newNoOpService()
+	var svc = newNoOpService(localPublisher)
 	defer svc.destroy()
 
 	svc.sendBytes(1, []byte("hello"))
 	svc.sendBytes(2, []byte("world"))
 
 	var arena, out, err = svc.poll()
-	assert.NoError(t, err)
-	assert.Len(t, out, 2)
-	assert.Empty(t, arena)
+	require.NoError(t, err)
+	require.Len(t, out, 2)
+	require.Empty(t, arena)
 
 	svc.sendBytes(3, []byte("bye"))
 
 	arena, out, err = svc.poll()
-	assert.NoError(t, err)
-	assert.Len(t, out, 1)
-	assert.Empty(t, arena)
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	require.Empty(t, arena)
 }
 
 func TestUpperServiceWithStrides(t *testing.T) {
-	var svc = newUpperCase(ops.StdLogger())
+	var svc = newUpperCase(localPublisher)
 	defer svc.destroy()
 
 	for i := 0; i != 4; i++ {
@@ -184,13 +162,13 @@ func TestUpperServiceWithStrides(t *testing.T) {
 
 		var got []byte
 		var _, out, err = svc.poll()
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		for _, o := range out {
 			got = append(got, svc.arenaSlice(o)...)
 		}
-		assert.Equal(t, expect, got)
-		assert.Equal(t, len(given)*2*(i+1), int(out[len(out)-1].code))
+		require.Equal(t, expect, got)
+		require.Equal(t, len(given)*2*(i+1), int(out[len(out)-1].code))
 	}
 }
 
@@ -198,40 +176,40 @@ func TestUpperServiceNaive(t *testing.T) {
 	var svc = newUpperCaseNaive()
 
 	var code, data, err = svc.invoke(123, []byte("hello"))
-	assert.NoError(t, err)
-	assert.Equal(t, 5, int(code))
-	assert.Equal(t, data, []byte("HELLO"))
+	require.NoError(t, err)
+	require.Equal(t, 5, int(code))
+	require.Equal(t, data, []byte("HELLO"))
 
 	var given = []byte("abcd0123efghijklm456nopqrstuvwxyz789")
 	var expect = []byte("ABCD0123EFGHIJKLM456NOPQRSTUVWXYZ789")
 
 	code, data, err = svc.invoke(456, given)
-	assert.NoError(t, err)
-	assert.Equal(t, 5+len(given), int(code))
-	assert.Equal(t, expect, data)
+	require.NoError(t, err)
+	require.Equal(t, 5+len(given), int(code))
+	require.Equal(t, expect, data)
 
 	_, _, err = svc.invoke(789, []byte("whoops"))
-	assert.EqualError(t, err, "Custom { kind: Other, error: \"whoops\" }")
+	require.EqualError(t, err, "Custom { kind: Other, error: \"whoops\" }")
 }
 
 func TestUpperServiceGo(t *testing.T) {
 	var svc = newUpperCaseGo()
 
 	var code, data, err = svc.invoke(123, []byte("hello"))
-	assert.NoError(t, err)
-	assert.Equal(t, 5, int(code))
-	assert.Equal(t, data, []byte("HELLO"))
+	require.NoError(t, err)
+	require.Equal(t, 5, int(code))
+	require.Equal(t, data, []byte("HELLO"))
 
 	var given = []byte("abcd0123efghijklm456nopqrstuvwxyz789")
 	var expect = []byte("ABCD0123EFGHIJKLM456NOPQRSTUVWXYZ789")
 
 	code, data, err = svc.invoke(456, given)
-	assert.NoError(t, err)
-	assert.Equal(t, 5+len(given), int(code))
-	assert.Equal(t, expect, data)
+	require.NoError(t, err)
+	require.Equal(t, 5+len(given), int(code))
+	require.Equal(t, expect, data)
 
 	_, _, err = svc.invoke(789, []byte("whoops"))
-	assert.EqualError(t, err, "whoops")
+	require.EqualError(t, err, "whoops")
 }
 
 func BenchmarkUpperService(b *testing.B) {
@@ -252,7 +230,7 @@ func BenchmarkUpperService(b *testing.B) {
 
 	for _, stride := range strides {
 		b.Run("cgo-"+strconv.Itoa(stride), func(b *testing.B) {
-			var svc = newUpperCase(ops.StdLogger())
+			var svc = newUpperCase(localPublisher)
 
 			for i := 0; i != b.N; i++ {
 				if i%stride == 0 && i > 0 {
@@ -268,7 +246,7 @@ func BenchmarkUpperService(b *testing.B) {
 		})
 
 		b.Run("noop-"+strconv.Itoa(stride), func(b *testing.B) {
-			var svc = newNoOpService()
+			var svc = newNoOpService(localPublisher)
 
 			for i := 0; i != b.N; i++ {
 				if i%stride == 0 && i > 0 {
@@ -302,3 +280,39 @@ func BenchmarkUpperServiceGo(b *testing.B) {
 		_, _, _ = svc.invoke(123, input)
 	}
 }
+
+var localPublisher = ops.NewLocalPublisher(
+	labels.ShardLabeling{
+		Build:    "the-build",
+		LogLevel: pf.LogLevel_debug,
+		Range: pf.RangeSpec{
+			KeyBegin:    0x00001111,
+			KeyEnd:      0x11110000,
+			RClockBegin: 0x00002222,
+			RClockEnd:   0x22220000,
+		},
+		TaskName: "some-tenant/task/name",
+		TaskType: labels.TaskTypeCapture,
+	},
+)
+
+// chanPublisher sends Log instances to a wrapped channel.
+type chanPublisher struct {
+	logs   chan<- ops.Log
+	labels labels.ShardLabeling
+}
+
+var _ ops.Publisher = &chanPublisher{}
+
+func newChanPublisher(ch chan<- ops.Log, level pf.LogLevel) *chanPublisher {
+	var labels = localPublisher.Labels()
+	labels.LogLevel = level
+
+	return &chanPublisher{
+		logs:   ch,
+		labels: labels,
+	}
+}
+
+func (c *chanPublisher) PublishLog(log ops.Log)       { c.logs <- log }
+func (c *chanPublisher) Labels() labels.ShardLabeling { return c.labels }
