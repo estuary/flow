@@ -8,10 +8,11 @@ import "C"
 import (
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"unsafe"
 
-	"github.com/estuary/flow/go/flow/ops"
+	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -42,19 +43,26 @@ func newService(
 	invoke4 func(*C.Channel, C.In4),
 	invoke16 func(*C.Channel, C.In16),
 	drop func(*C.Channel),
-	logPublisher ops.Logger,
+	publisher ops.Publisher,
 ) (*service, error) {
 	var logReader, wDescriptor, err = Pipe()
 	if err != nil {
-		return nil, fmt.Errorf("creating loging pipe: %w", err)
+		return nil, fmt.Errorf("creating logging pipe: %w", err)
 	}
 
-	// We don't expect our rust services to ever log in a format other than JSON. If they do, then
-	// we'll forward the text logs at the warning level so that someone notices, since it's likely
-	// that there's some problem.
-	var textLogLevel = logrus.WarnLevel
-	go ops.ForwardLogs(typeName, textLogLevel, logReader, logPublisher)
-	var ch = create(C.int32_t(ops.LogrusToFlowLevel(logPublisher.Level())), C.int32_t(wDescriptor))
+	var ch = create(C.int32_t(publisher.Labels().LogLevel), C.int32_t(wDescriptor))
+	// Rust services produce canonical JSON encodings of ops::Log into `wDescriptor`.
+	// Parse each and pass to our `publisher`.
+	go func() {
+		var _, err = io.Copy(ops.NewLogWriteAdapter(publisher), logReader)
+		if err != nil {
+			logrus.WithFields(logrus.Fields{
+				"error":   err,
+				"service": typeName,
+				"labels":  publisher.Labels(),
+			}).Error("failed to process cgo service channel logs")
+		}
+	}()
 
 	serviceCreatedCounter.WithLabelValues(typeName).Inc()
 	var svc = &service{

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
+	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -17,7 +18,7 @@ import (
 )
 
 func TestExtractorBasic(t *testing.T) {
-	var ex, err = NewExtractor()
+	var ex, err = NewExtractor(localPublisher)
 	require.NoError(t, err)
 	require.NoError(t, ex.Configure("/0", []string{"/1", "/2", "/3"}, nil))
 	ex.Document([]byte(`["9f2952f3-c6a3-11ea-8802-080607050309", 42, "a-string", [true, null]]`))
@@ -71,7 +72,8 @@ func TestExtractorValidation(t *testing.T) {
 		return nil
 	}))
 
-	var ex, err = NewExtractor()
+	var opsLogs = make(chan ops.Log)
+	var ex, err = NewExtractor(newChanPublisher(opsLogs, pf.LogLevel_warn))
 	require.NoError(t, err)
 	require.NoError(t, ex.Configure("/uuid", []string{"/s"}, collection.SchemaJson))
 
@@ -80,11 +82,13 @@ func TestExtractorValidation(t *testing.T) {
 	ex.Document([]byte(`{"uuid": "9f2952f3-c6a3-12fb-8801-080607050309", "i": "not a string and fails"}`)) // Invalid.
 
 	_, _, err = ex.Extract()
-	cupaloy.SnapshotT(t, err)
+
+	var opsLog = <-opsLogs
+	cupaloy.SnapshotT(t, err, opsLog.Level, opsLog.Message, string(opsLog.Fields))
 }
 
 func TestExtractorIntegerBoundaryCases(t *testing.T) {
-	var ex, err = NewExtractor()
+	var ex, err = NewExtractor(localPublisher)
 	require.NoError(t, err)
 	require.NoError(t, ex.Configure("/0", []string{"/1"}, nil))
 
@@ -116,7 +120,7 @@ func TestExtractorIntegerBoundaryCases(t *testing.T) {
 }
 
 func TestExtractorEmpty(t *testing.T) {
-	var ex, err = NewExtractor()
+	var ex, err = NewExtractor(localPublisher)
 	require.NoError(t, err)
 	require.NoError(t, ex.Configure("/0", []string{"/1"}, nil))
 
