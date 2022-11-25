@@ -3,15 +3,19 @@ package runtime
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pb "go.gazette.dev/core/broker/protocol"
 )
+
+// TODO(johnny): We should refactor this into the `ops` package,
+// along with corresponding mappings of protobuf stats into canonical
+// Stats document shapes, but I'm punting on this for now.
 
 // StatsFormatter creates stats documents for publishing into ops/<tenant>/stats collections.
 // This does not actually do the publishing, since that's better handled by the runtime
@@ -21,7 +25,7 @@ type StatsFormatter struct {
 	txnOpened       time.Time
 	partitions      tuple.Tuple
 	statsCollection *pf.CollectionSpec
-	shard           *ShardRef
+	shard           ops.ShardRef
 }
 
 // NewStatsFormatter returns a new StatsFormatter, which will create stats documents for the given
@@ -32,14 +36,13 @@ func NewStatsFormatter(
 	labeling labels.ShardLabeling,
 	statsCollection *pf.CollectionSpec,
 ) (*StatsFormatter, error) {
-	if err := validateOpsCollection(statsCollection); err != nil {
+	if err := ops.ValidateStatsCollection(statsCollection); err != nil {
 		return nil, err
 	}
-	var shard, partitions = shardAndPartitions(labeling)
 	return &StatsFormatter{
-		partitions:      partitions,
+		partitions:      tuple.Tuple{labeling.TaskType, labeling.TaskName},
 		statsCollection: statsCollection,
-		shard:           &shard,
+		shard:           ops.NewShardRef(labeling),
 	}, nil
 }
 
@@ -94,11 +97,6 @@ func (s *StatsFormatter) PrepareStatsJournal(mapper flow.Mapper) (journal pb.Jou
 	return
 }
 
-// statsCollection returns the collection to which stats for the given task name are written.
-func statsCollection(taskName string) pf.Collection {
-	return pf.Collection(fmt.Sprintf("ops/%s/stats", strings.Split(taskName, "/")[0]))
-}
-
 // StatsEvent is the Go struct corresponding to ops/<tenant>/stats collections. It must be
 // consistent with the JSON schema: crates/build/src/ops/ops-stats-schema.json
 // Many of the types within here closely resemble definitions from flow.proto,
@@ -106,13 +104,17 @@ func statsCollection(taskName string) pf.Collection {
 // representation, and to have more clarity and strictness about which fields are required.
 type StatsEvent struct {
 	Meta             Meta                               `json:"_meta"`
-	Shard            *ShardRef                          `json:"shard"`
+	Shard            ops.ShardRef                       `json:"shard"`
 	Timestamp        time.Time                          `json:"ts"`
 	TxnCount         uint64                             `json:"txnCount"`
 	OpenSecondsTotal float64                            `json:"openSecondsTotal"`
 	Capture          map[string]CaptureBindingStats     `json:"capture,omitempty"`
 	Materialize      map[string]MaterializeBindingStats `json:"materialize,omitempty"`
 	Derive           *DeriveStats                       `json:"derive,omitempty"`
+}
+
+type Meta struct {
+	UUID string `json:"uuid"`
 }
 
 type DocsAndBytes struct {

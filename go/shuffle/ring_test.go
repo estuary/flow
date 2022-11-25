@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
@@ -50,7 +49,7 @@ func TestReadingDocuments(t *testing.T) {
 		Arena:     make(pf.Arena, 1),
 	}
 
-	var coordinator = NewCoordinator(ctx, nil, ops.StdLogger(), bk.Client())
+	var coordinator = NewCoordinator(ctx, nil, localPublisher, bk.Client())
 	var ring = newRing(coordinator, pf.JournalShuffle{
 		Journal:     "a/journal",
 		BuildId:     "a-build",
@@ -134,7 +133,7 @@ func TestReadingDocuments(t *testing.T) {
 }
 
 func TestDocumentExtraction(t *testing.T) {
-	var coordinator = NewCoordinator(context.Background(), nil, ops.StdLogger(), nil)
+	var coordinator = NewCoordinator(context.Background(), nil, localPublisher, nil)
 	var r = newRing(coordinator, pf.JournalShuffle{
 		Journal:     "a/journal",
 		BuildId:     "a-build",

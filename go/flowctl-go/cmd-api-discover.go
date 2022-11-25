@@ -8,7 +8,8 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/connector"
-	"github.com/estuary/flow/go/flow/ops"
+	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/ops"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/gogo/protobuf/jsonpb"
@@ -44,6 +45,9 @@ func (cmd apiDiscover) execute(ctx context.Context) (*pc.DiscoverResponse, error
 	if err != nil {
 		return nil, err
 	}
+	var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
+		TaskName: cmd.Name,
+	})
 
 	var request = &pc.DiscoverRequest{
 		EndpointType:     pf.EndpointType_AIRBYTE_SOURCE,
@@ -52,9 +56,8 @@ func (cmd apiDiscover) execute(ctx context.Context) (*pc.DiscoverResponse, error
 	return connector.Invoke(
 		ctx,
 		request,
-		map[string]string{"discover": cmd.Name},
-		ops.StdLogger(),
 		cmd.Network,
+		publisher,
 		func(driver *connector.Driver, request *pc.DiscoverRequest) (*pc.DiscoverResponse, error) {
 			return driver.CaptureClient().Discover(ctx, request)
 		},

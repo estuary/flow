@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
@@ -31,7 +30,7 @@ func TestReadBuilding(t *testing.T) {
 			"build-id",
 			drainCh,
 			flow.Journals{KeySpace: &keyspace.KeySpace{Root: allJournals.Root}},
-			ops.StdLogger(),
+			localPublisher,
 			nil, // Service is not used.
 			allShards[0].Id,
 			shuffles,
@@ -66,7 +65,7 @@ func TestReadBuilding(t *testing.T) {
 	require.Empty(t, drain)
 	require.Equal(t, map[pb.Journal]*read{
 		aJournal: {
-			logger: rb.logger,
+			publisher: localPublisher,
 			spec: pb.JournalSpec{
 				Name:     aJournal,
 				LabelSet: allJournals.KeyValues[0].Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec).LabelSet,
@@ -98,7 +97,7 @@ func TestReadBuilding(t *testing.T) {
 	r, err := rb.buildReplayRead(aJournal, 1000, 2000)
 	require.NoError(t, err)
 	require.Equal(t, &read{
-		logger: rb.logger,
+		publisher: rb.publisher,
 		spec: pb.JournalSpec{
 			Name:     aJournal,
 			LabelSet: allJournals.KeyValues[0].Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec).LabelSet,
@@ -204,7 +203,7 @@ func TestReadBuilding(t *testing.T) {
 
 func TestReadIteration(t *testing.T) {
 	var r = &read{
-		logger: ops.StdLogger(),
+		publisher: localPublisher,
 		spec: pb.JournalSpec{
 			Name: "a/journal",
 		},
@@ -292,8 +291,8 @@ func TestReadHeaping(t *testing.T) {
 func TestReadSendBackoffAndCancel(t *testing.T) {
 	const capacity = 4
 	var r = &read{
-		logger: ops.StdLogger(),
-		ch:     make(chan *pf.ShuffleResponse, capacity),
+		publisher: localPublisher,
+		ch:        make(chan *pf.ShuffleResponse, capacity),
 	}
 	r.ctx, r.cancel = context.WithCancel(context.Background())
 	var wakeCh = make(chan struct{}, 1)

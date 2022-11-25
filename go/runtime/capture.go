@@ -12,12 +12,12 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/ops"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/shuffle"
-	"github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/recoverylog"
@@ -69,16 +69,18 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	}
 	defer func() {
 		if err == nil {
-			c.Log(logrus.DebugLevel, logrus.Fields{
-				"capture":    c.labels.TaskName,
-				"shard":      c.shardSpec.Id,
-				"build":      c.labels.Build,
-				"checkpoint": cp,
-			}, "initialized processing term")
+			ops.PublishLog(c.opsPublisher, pf.LogLevel_debug,
+				"initialized processing term",
+				"capture", c.labels.TaskName,
+				"shard", c.shardSpec.Id,
+				"build", c.labels.Build,
+				"checkpoint", cp,
+			)
 		} else {
-			c.Log(logrus.ErrorLevel, logrus.Fields{
-				"error": err,
-			}, "failed to initialize processing term")
+			ops.PublishLog(c.opsPublisher, pf.LogLevel_error,
+				"failed to initialize processing term",
+				"error", err,
+			)
 		}
 	}()
 
@@ -107,8 +109,9 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	if err != nil {
 		return pf.Checkpoint{}, err
 	}
-	c.Log(logrus.DebugLevel, logrus.Fields{"spec": c.spec, "build": c.labels.Build},
-		"loaded specification")
+	ops.PublishLog(c.opsPublisher, pf.LogLevel_debug,
+		"loaded specification",
+		"spec", c.spec, "build", c.labels.Build)
 
 	if cp, err = c.store.RestoreCheckpoint(shard); err != nil {
 		return pf.Checkpoint{}, err
@@ -236,7 +239,7 @@ func (c *Capture) startReadingMessages(
 
 	// Closure which builds a Combiner for a specified binding.
 	var newCombinerFn = func(binding *pf.CaptureSpec_Binding) (pf.Combiner, error) {
-		var combiner, err = bindings.NewCombine(c.LogPublisher)
+		var combiner, err = bindings.NewCombine(c.opsPublisher)
 		if err != nil {
 			return nil, err
 		}
@@ -273,8 +276,7 @@ func (c *Capture) startReadingMessages(
 			c.taskTerm.ctx,
 			c.spec.EndpointSpecJson,
 			c.spec.EndpointType,
-			map[string]string{"shard": shard.Spec().Id.String()},
-			c.LogPublisher,
+			c.opsPublisher,
 			c.host.Config.Flow.Network,
 		)
 		if err != nil {
@@ -306,13 +308,13 @@ func (c *Capture) startReadingMessages(
 		}
 	}
 
-	c.Log(logrus.DebugLevel, logrus.Fields{
-		"capture":  c.labels.TaskName,
-		"shard":    c.shardSpec.Id,
-		"build":    c.labels.Build,
-		"interval": minInterval,
-	}, "reading capture stream")
-
+	ops.PublishLog(c.opsPublisher, pf.LogLevel_debug,
+		"reading capture stream",
+		"capture", c.labels.TaskName,
+		"shard", c.shardSpec.Id,
+		"build", c.labels.Build,
+		"interval", minInterval,
+	)
 	return nil
 }
 
@@ -389,7 +391,8 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 			return fmt.Errorf("publishing stats document: %w", err)
 		}
 	} else {
-		c.Log(logrus.DebugLevel, nil, "capture transaction committing updating driver checkpoint only")
+		ops.PublishLog(c.opsPublisher, pf.LogLevel_debug,
+			"capture transaction committing updating driver checkpoint only")
 	}
 
 	return nil
@@ -434,7 +437,7 @@ func (c *Capture) FinalizeTxn(consumer.Shard, *message.Publisher) error { return
 
 // FinishedTxn logs if an error occurred.
 func (c *Capture) FinishedTxn(_ consumer.Shard, op consumer.OpFuture) {
-	logTxnFinished(c.LogPublisher, op)
+	logTxnFinished(c.opsPublisher, op)
 }
 
 // Coordinator panics if called.
@@ -444,11 +447,12 @@ func (c *Capture) Coordinator() *shuffle.Coordinator {
 
 // StartCommit implements consumer.Store.StartCommit
 func (c *Capture) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
-	c.Log(logrus.DebugLevel, logrus.Fields{
-		"capture": c.labels.TaskName,
-		"shard":   c.shardSpec.Id,
-		"build":   c.labels.Build,
-	}, "StartCommit")
+	ops.PublishLog(c.opsPublisher, pf.LogLevel_debug,
+		"StartCommit",
+		"capture", c.labels.TaskName,
+		"shard", c.shardSpec.Id,
+		"build", c.labels.Build,
+	)
 
 	var commitOp = c.store.StartCommit(shard, cp, waitFor)
 
