@@ -11,7 +11,8 @@ import (
 	"strings"
 
 	"github.com/estuary/flow/go/connector"
-	"github.com/estuary/flow/go/flow/ops"
+	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/ops"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
@@ -20,7 +21,8 @@ import (
 
 // CatalogJSONSchema returns the source catalog JSON schema understood by Flow.
 func CatalogJSONSchema() string {
-	var svc, err = newBuildSvc(ops.StdLogger())
+	var publisher = ops.NewLocalPublisher(labels.ShardLabeling{})
+	var svc, err = newBuildSvc(publisher)
 	if err != nil {
 		panic(err)
 	}
@@ -45,6 +47,9 @@ type BuildArgs struct {
 	// Directory which roots fetched file:// resolutions.
 	// Or empty, if file:// resolutions are disallowed.
 	FileRoot string
+	// Publisher of operation logs and stats to use.
+	// If not set, a publisher will be created that logs to stderr.
+	OpsPublisher ops.Publisher
 }
 
 // BuildCatalog runs the configured build.
@@ -59,8 +64,13 @@ func BuildCatalog(args BuildArgs) error {
 	if args.FileRoot != "" {
 		transport.RegisterProtocol("file", http.NewFileTransport(http.Dir(args.FileRoot)))
 	}
+	if args.OpsPublisher == nil {
+		args.OpsPublisher = ops.NewLocalPublisher(labels.ShardLabeling{
+			Build: args.BuildId,
+		})
+	}
 
-	var svc, err = newBuildSvc(ops.StdLogger())
+	var svc, err = newBuildSvc(args.OpsPublisher)
 	if err != nil {
 		return fmt.Errorf("creating build service: %w", err)
 	}
@@ -117,9 +127,8 @@ func BuildCatalog(args BuildArgs) error {
 				var response, err = connector.Invoke(
 					ctx,
 					request,
-					map[string]string{"capture": request.Capture.String()},
-					ops.StdLogger(),
 					args.BuildAPI_Config.ConnectorNetwork,
+					args.OpsPublisher,
 					func(driver *connector.Driver, request *pc.ValidateRequest) (*pc.ValidateResponse, error) {
 						return driver.CaptureClient().Validate(ctx, request)
 					},
@@ -151,9 +160,8 @@ func BuildCatalog(args BuildArgs) error {
 				var response, err = connector.Invoke(
 					ctx,
 					request,
-					map[string]string{"materialization": request.Materialization.String()},
-					ops.StdLogger(),
 					args.BuildAPI_Config.ConnectorNetwork,
+					args.OpsPublisher,
 					func(driver *connector.Driver, request *pm.ValidateRequest) (*pm.ValidateResponse, error) {
 						return driver.MaterializeClient().Validate(ctx, request)
 					},
@@ -220,7 +228,7 @@ func BuildCatalog(args BuildArgs) error {
 
 }
 
-func newBuildSvc(logger ops.Logger) (*service, error) {
+func newBuildSvc(publisher ops.Publisher) (*service, error) {
 	return newService(
 		"build",
 		func(logFilter, logDest C.int32_t) *C.Channel { return C.build_create(logFilter, logDest) },
@@ -228,6 +236,6 @@ func newBuildSvc(logger ops.Logger) (*service, error) {
 		func(ch *C.Channel, in C.In4) { C.build_invoke4(ch, in) },
 		func(ch *C.Channel, in C.In16) { C.build_invoke16(ch, in) },
 		func(ch *C.Channel) { C.build_drop(ch) },
-		logger,
+		publisher,
 	)
 }

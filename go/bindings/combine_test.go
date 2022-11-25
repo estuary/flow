@@ -6,15 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
-	"time"
 
-	"github.com/estuary/flow/go/flow/ops"
-	"github.com/estuary/flow/go/flow/ops/testutil"
+	"github.com/bradleyjkemp/cupaloy"
+	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,8 +39,9 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 		return nil
 	}))
 
-	var logPublisher = testutil.NewTestLogPublisher(log.WarnLevel)
-	combiner, err := NewCombine(logPublisher)
+	var opsLogs = make(chan ops.Log)
+
+	combiner, err := NewCombine(newChanPublisher(opsLogs, pf.LogLevel_warn))
 	require.NoError(t, err)
 	defer combiner.Destroy()
 
@@ -64,35 +63,8 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 	})
 	require.Error(t, err)
 
-	logPublisher.WaitForLogs(t, time.Millisecond*5000, 1)
-	logPublisher.RequireEventsMatching(t, []testutil.TestLogEvent{
-		{
-			Level: log.ErrorLevel,
-			Message: `document is invalid: {
-  "basic_output": {
-    "errors": [
-      {
-        "absoluteKeywordLocation": "file:///int-strings.flow.yaml?ptr=/collections/int-strings/schema#/properties/i",
-        "error": "Invalid: Must be of type \"integer\".",
-        "instanceLocation": "/i",
-        "keywordLocation": "#/properties/i"
-      }
-    ],
-    "valid": false
-  },
-  "document": {
-    "_meta": {
-      "uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef"
-    },
-    "i": "not an int"
-  }
-}`,
-			Fields: map[string]interface{}{
-				"error":     `{"CombineError":{"FailedValidation":{"document":{"_meta":{"uuid":"DocUUIDPlaceholder-329Bb50aa48EAa9ef"},"i":"not an int"},"basic_output":{"errors":[{"absoluteKeywordLocation":"file:///int-strings.flow.yaml?ptr=/collections/int-strings/schema#/properties/i","error":"Invalid: Must be of type \"integer\".","instanceLocation":"/i","keywordLocation":"#/properties/i"}],"valid":false}}}}`,
-				"logSource": "combine",
-			},
-		},
-	})
+	var opsLog = <-opsLogs
+	cupaloy.SnapshotT(t, err, opsLog.Level, opsLog.Message, string(opsLog.Fields))
 }
 
 func TestCombineBindings(t *testing.T) {
@@ -116,7 +88,7 @@ func TestCombineBindings(t *testing.T) {
 		return nil
 	}))
 
-	combiner, err := NewCombine(ops.StdLogger())
+	combiner, err := NewCombine(localPublisher)
 	require.NoError(t, err)
 
 	// Loop to exercise re-use of a Combiner.

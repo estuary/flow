@@ -1,0 +1,25 @@
+(*errors.errorString)(document failed validation against its collection JSON Schema
+
+Caused by:
+    {
+      "basic_output": {
+        "errors": [
+          {
+            "absoluteKeywordLocation": "file:///int-strings.flow.yaml?ptr=/collections/int-strings/schema#/properties/i",
+            "error": "Invalid: Must be of type \"integer\".",
+            "instanceLocation": "/i",
+            "keywordLocation": "#/properties/i"
+          }
+        ],
+        "valid": false
+      },
+      "document": {
+        "_meta": {
+          "uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef"
+        },
+        "i": "not an int"
+      }
+    })
+(flow.LogLevel) error
+document failed validation against its collection JSON Schema
+{"error":["document failed validation against its collection JSON Schema",{"basic_output":{"errors":[{"absoluteKeywordLocation":"file:///int-strings.flow.yaml?ptr=/collections/int-strings/schema#/properties/i","error":"Invalid: Must be of type \"integer\".","instanceLocation":"/i","keywordLocation":"#/properties/i"}],"valid":false},"document":{"_meta":{"uuid":"DocUUIDPlaceholder-329Bb50aa48EAa9ef"},"i":"not an int"}}],"module":"bindings::service"}

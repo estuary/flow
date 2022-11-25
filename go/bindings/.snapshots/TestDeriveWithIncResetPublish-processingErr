@@ -2,3 +2,6 @@ failed to invoke publish lambda
 
 Caused by:
     unexpected status 500 from https://localhost/derive/derivation/publish/Publish: a gnarly error occurred
+(flow.LogLevel) error
+failed to invoke publish lambda
+{"error":["failed to invoke publish lambda","unexpected status 500 from https://localhost/derive/derivation/publish/Publish: a gnarly error occurred"],"module":"bindings::service"}

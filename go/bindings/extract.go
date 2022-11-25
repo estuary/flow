@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/estuary/flow/go/flow/ops"
+	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
 )
 
@@ -20,8 +20,8 @@ type Extractor struct {
 }
 
 // NewExtractor returns an instance of the Extractor service.
-func NewExtractor() (*Extractor, error) {
-	var svc, err = newExtractSvc(ops.StdLogger())
+func NewExtractor(publisher ops.Publisher) (*Extractor, error) {
+	var svc, err = newExtractSvc(publisher)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func (e *Extractor) Extract() ([]pf.UUIDParts, [][]byte, error) {
 	return e.uuids, e.tuples, nil
 }
 
-func newExtractSvc(logger ops.Logger) (*service, error) {
+func newExtractSvc(publisher ops.Publisher) (*service, error) {
 	return newService(
 		"extract",
 		func(logFilter, logDest C.int32_t) *C.Channel { return C.extract_create(logFilter, logDest) },
@@ -103,6 +103,6 @@ func newExtractSvc(logger ops.Logger) (*service, error) {
 		func(ch *C.Channel, in C.In4) { C.extract_invoke4(ch, in) },
 		func(ch *C.Channel, in C.In16) { C.extract_invoke16(ch, in) },
 		func(ch *C.Channel) { C.extract_drop(ch) },
-		logger,
+		publisher,
 	)
 }
