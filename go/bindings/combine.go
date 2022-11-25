@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/estuary/flow/go/flow/ops"
+	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/golang/protobuf/proto"
 	"github.com/prometheus/client_golang/prometheus"
@@ -35,8 +35,8 @@ type Combine struct {
 }
 
 // NewCombiner builds and returns a new Combine.
-func NewCombine(logPublisher ops.Logger) (*Combine, error) {
-	var svc, err = newCombineSvc(logPublisher)
+func NewCombine(publisher ops.Publisher) (*Combine, error) {
+	var svc, err = newCombineSvc(publisher)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +165,7 @@ func drainCombineToCallback(
 	}
 }
 
-func newCombineSvc(logPublisher ops.Logger) (*service, error) {
+func newCombineSvc(publisher ops.Publisher) (*service, error) {
 	return newService(
 		"combine",
 		func(logFilter, logDest C.int32_t) *C.Channel { return C.combine_create(logFilter, logDest) },
@@ -173,7 +173,7 @@ func newCombineSvc(logPublisher ops.Logger) (*service, error) {
 		func(ch *C.Channel, in C.In4) { C.combine_invoke4(ch, in) },
 		func(ch *C.Channel, in C.In16) { C.combine_invoke16(ch, in) },
 		func(ch *C.Channel) { C.combine_drop(ch) },
-		logPublisher,
+		publisher,
 	)
 }
 
