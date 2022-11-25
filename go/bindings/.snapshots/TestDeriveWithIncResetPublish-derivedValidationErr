@@ -1,7 +1,8 @@
 derived document reduction error
 
 Caused by:
-    0: document is invalid: {
+    0: document failed validation against its collection JSON Schema
+    1: {
          "basic_output": {
            "errors": [
              {
@@ -25,4 +26,6 @@ Caused by:
            ]
          }
        }
-    1: {"basic_output":{"errors":[{"absoluteKeywordLocation":"file:///inc-reset-publish.schema.yaml#/$defs/derived/properties/invalid-property","error":"Invalid: false.","instanceLocation":"/invalid-property","keywordLocation":"#/$ref/properties/invalid-property"}],"valid":false},"document":{"_meta":{"uuid":"DocUUIDPlaceholder-329Bb50aa48EAa9ef"},"invalid-property":"not empty","key":"foobar","reset":0,"values":[1000]}}
+(flow.LogLevel) error
+derived document reduction error
+{"error":["derived document reduction error","document failed validation against its collection JSON Schema",{"basic_output":{"errors":[{"absoluteKeywordLocation":"file:///inc-reset-publish.schema.yaml#/$defs/derived/properties/invalid-property","error":"Invalid: false.","instanceLocation":"/invalid-property","keywordLocation":"#/$ref/properties/invalid-property"}],"valid":false},"document":{"_meta":{"uuid":"DocUUIDPlaceholder-329Bb50aa48EAa9ef"},"invalid-property":"not empty","key":"foobar","reset":0,"values":[1000]}}],"module":"bindings::service"}

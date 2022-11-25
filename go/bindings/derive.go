@@ -18,7 +18,7 @@ import (
 	"strings"
 	"unsafe"
 
-	"github.com/estuary/flow/go/flow/ops"
+	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/jgraettinger/gorocksdb"
 	"github.com/prometheus/client_golang/prometheus"
@@ -52,7 +52,7 @@ type Derive struct {
 }
 
 // NewDerive instantiates the derivation API using the RocksDB environment and local directory.
-func NewDerive(recorder *recoverylog.Recorder, localDir string, logPublisher ops.Logger) (*Derive, error) {
+func NewDerive(recorder *recoverylog.Recorder, localDir string, publisher ops.Publisher) (*Derive, error) {
 	var rocksEnv *gorocksdb.Env
 	if recorder != nil {
 		rocksEnv = store_rocksdb.NewHookedEnv(store_rocksdb.NewRecorder(recorder))
@@ -67,7 +67,7 @@ func NewDerive(recorder *recoverylog.Recorder, localDir string, logPublisher ops
 	}
 	var innerPtr = uintptr(unsafe.Pointer(((*gorocksdbEnv)(unsafe.Pointer(rocksEnv))).c))
 
-	var svc, err = newDeriveSvc(logPublisher)
+	var svc, err = newDeriveSvc(publisher)
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +314,7 @@ func (d *Derive) Destroy() {
 	}
 }
 
-func newDeriveSvc(logger ops.Logger) (*service, error) {
+func newDeriveSvc(publisher ops.Publisher) (*service, error) {
 	return newService(
 		"derive",
 		func(logFilter, logDest C.int32_t) *C.Channel { return C.derive_create(logFilter, logDest) },
@@ -322,7 +322,7 @@ func newDeriveSvc(logger ops.Logger) (*service, error) {
 		func(ch *C.Channel, in C.In4) { C.derive_invoke4(ch, in) },
 		func(ch *C.Channel, in C.In16) { C.derive_invoke16(ch, in) },
 		func(ch *C.Channel) { C.derive_drop(ch) },
-		logger,
+		publisher,
 	)
 }
 
