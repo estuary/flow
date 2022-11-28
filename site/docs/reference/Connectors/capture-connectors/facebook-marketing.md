@@ -26,6 +26,20 @@ By default, each resource associated with your Facebook Business account is mapp
 
 ## Prerequisites
 
+There are two ways to authenticate with Facebook when capturing data into Flow: signing in with OAuth2, and manually supplying an access token.
+Their prerequisites differ.
+
+OAuth is recommended for simplicity in the Flow web app;
+the manual method is the only supported method using the command line.
+
+### Signing in with OAuth2
+
+To use OAuth2 in the Flow web app, you'll need A Facebook Business account and its [Ad Account ID](https://www.facebook.com/business/help/1492627900875762).
+
+### Configuring manually with an access token
+
+To configure manually with an access token, you'll need:
+
 * A Facebook Business account, and its Ad Account ID.
 * A Facebook app with:
   * The [Marketing API](https://developers.facebook.com/products/marketing-api/) enabled.
@@ -34,7 +48,7 @@ By default, each resource associated with your Facebook Business account is mapp
 
 Follow the steps below to meet these requirements.
 
-### Setup
+#### Setup
 
 1. Find your Facebook [Ad Account ID](https://www.facebook.com/business/help/1492627900875762).
 
@@ -74,7 +88,7 @@ are a subset of breakdowns that must be specified separately.
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/access_token`** | Access Token | The value of the access token generated. | string | Required |
-| **`/account_id`** | Account ID | The Facebook Ad account ID to use when pulling data from the Facebook Marketing API. | string | Required |
+| **`/account_id`** | Account ID | The Facebook Ad account ID to use when pulling data from the Facebook Marketing API. | string | Required for [manual authentication](#configuring-manually-with-an-access-token) only |
 | `/custom_insights` | Custom Insights | A list which contains insights entries. Each entry must have a name and can contains fields, breakdowns or action&#x5F;breakdowns | array |  |
 | _`/custom_insights/-/action_breakdowns`_ | Action Breakdowns | A list of chosen action&#x5F;breakdowns to apply | array | `[]` |
 | _`/custom_insights/-/action_breakdowns/-`_ | ValidActionBreakdowns | Generic enumeration. Derive from this class to define new enumerations. | string |  |
@@ -102,6 +116,8 @@ are a subset of breakdowns that must be specified separately.
 | **`/syncMode`** | Sync mode | Connection method. | string | Required |
 
 ### Sample
+
+This sample specification reflects the manual authentication method.
 
 ```yaml
 captures:
