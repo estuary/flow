@@ -65,7 +65,7 @@ pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> an
     }
 
     let mut data_plane_client =
-        dataplane::journal_client_for(ctx.config_mut(), vec![args.selector.collection.clone()]).await?;
+        dataplane::journal_client_for(ctx, vec![args.selector.collection.clone()]).await?;
 
     let selector = args.selector.build_label_selector();
     tracing::debug!(?selector, "build label selector");

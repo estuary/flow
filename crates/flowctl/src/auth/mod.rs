@@ -1,6 +1,5 @@
-use serde::Deserialize;
-
-use super::config;
+use crate::controlplane;
+use anyhow::Context;
 
 mod roles;
 
@@ -14,15 +13,15 @@ pub struct Auth {
 #[derive(Debug, clap::Subcommand)]
 #[clap(rename_all = "kebab-case")]
 pub enum Command {
+    /// Authenticate to Flow
+    ///
+    /// Opens a web browser to the CLI login page and waits to read the auth token
+    /// from stdin.
+    Login,
     /// Authenticate to Flow using a token.
     ///
     /// You can find this token within Flow UI dashboard under "Admin".
     Token(TokenArgs),
-    /// Authenticate to a local development instance of the Flow control plane.
-    ///
-    /// This is intended for developers who are running local instances
-    /// of the Flow control and data-planes.
-    Develop(Develop),
     /// Work with authorization roles and grants.
     ///
     /// Roles are prefixes of the Flow catalog namespace.
@@ -50,36 +49,66 @@ pub struct TokenArgs {
     token: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct RefreshableToken {
-    pub access_token: String,
-    pub refresh_token: String,
-    pub expires_at: i64,
-}
-
-#[derive(Debug, clap::Args)]
-#[clap(rename_all = "kebab-case")]
-pub struct Develop {
-    #[clap(long)]
-    token: Option<String>,
-}
-
 impl Auth {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> Result<(), anyhow::Error> {
         match &self.cmd {
+            Command::Login => do_login(ctx).await,
             Command::Token(TokenArgs { token }) => {
-                let decoded = base64::decode(token)?;
-                let tk = serde_json::from_slice(&decoded)?;
-                ctx.config_mut().api = Some(config::API::managed(tk));
+                controlplane::configure_new_credential(ctx, token).await?;
                 println!("Configured credentials.");
                 Ok(())
             }
-            Command::Develop(Develop { token }) => {
-                ctx.config_mut().api = Some(config::API::development(token.clone()));
-                println!("Configured for local development.");
-                Ok(())
-            }
-            Command::Roles(roles) => roles.run(ctx).await
+            Command::Roles(roles) => roles.run(ctx).await,
         }
     }
+}
+
+async fn do_login(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
+    let url = ctx.config().dashboard_url("/cli-auth/login")?.to_string();
+
+    if let Err(err) = open::that(&url) {
+        tracing::error!(error = %err, url = %url, "failed to open url");
+        anyhow::bail!(
+            "failed to open browser. Please navigate to {} in order to complete the login process",
+            url
+        );
+    }
+
+    println!("\nOpened web browser to: {}", url);
+
+    let credential = try_read_credential().await.context("unable to read credential from stdin. \
+            If you have the credential, you may run `flowctl auth token --token <paste-credential-here>` \
+            in order to complete the login process.")?;
+    tracing::debug!(credential = %credential, "successfully read credential");
+    controlplane::configure_new_credential(ctx, credential.trim()).await?;
+    println!("Successfully authenticated. Flowctl is ready to go!");
+    Ok(())
+}
+
+async fn try_read_credential() -> anyhow::Result<String> {
+    use crossterm::tty::IsTty;
+
+    if !std::io::stdin().is_tty() {
+        anyhow::bail!("stdin is not a TTY");
+    }
+
+    println!("Please login via the browser tab that was just opened.");
+    println!(
+        "Once you have logged in, paste the credential here and hit Enter to complete the process."
+    );
+    println!("Waiting on credential...");
+    let handle: tokio::task::JoinHandle<std::io::Result<String>> =
+        tokio::task::spawn_blocking(|| {
+            let mut s = String::with_capacity(512);
+            std::io::stdin().read_line(&mut s)?;
+            Ok(s)
+        });
+    let line = handle
+        .await?
+        .context("failed to read credential from stdin")?;
+
+    if line.trim().is_empty() {
+        anyhow::bail!("credential was empty");
+    }
+    Ok(line)
 }

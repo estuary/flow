@@ -9,6 +9,7 @@ mod auth;
 mod catalog;
 mod collection;
 mod config;
+mod controlplane;
 mod dataplane;
 mod draft;
 mod ops;
@@ -20,7 +21,6 @@ mod typescript;
 
 use output::{Output, OutputType};
 use poll::poll_while_queued;
-use reqwest::StatusCode;
 
 /// A command-line tool for working with Estuary Flow.
 #[derive(Debug, Parser)]
@@ -88,7 +88,7 @@ pub struct CliContext {
 
 impl CliContext {
     pub async fn client(&mut self) -> anyhow::Result<postgrest::Postgrest> {
-        self.config.client().await
+        controlplane::new_authenticated_client(self).await
     }
 
     pub fn config_mut(&mut self) -> &mut config::Config {
@@ -133,20 +133,7 @@ impl CliContext {
 
 impl Cli {
     pub async fn run(&self) -> anyhow::Result<()> {
-        let config_dir = dirs::config_dir()
-            .context("couldn't determine user config directory")?
-            .join("flowctl");
-        std::fs::create_dir_all(&config_dir).context("couldn't create user config directory")?;
-
-        let config_file = config_dir.join(format!("{}.json", &self.profile));
-
-        let config = match std::fs::read(&config_file) {
-            Ok(v) => serde_json::from_slice(&v).context("parsing config")?,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => config::Config::default(),
-            Err(err) => {
-                return Err(err).context("opening config");
-            }
-        };
+        let config = config::Config::load(&self.profile)?;
         let output = self.output.clone();
         let mut context = CliContext {
             config,
@@ -166,11 +153,7 @@ impl Cli {
         }?;
 
         if context.config_dirty {
-            std::fs::write(
-                &config_file,
-                &serde_json::to_vec(&context.config()).unwrap(),
-            )
-            .context("writing config")?;
+            context.config().write(&self.profile)?;
         }
 
         Ok(())

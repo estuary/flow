@@ -1,36 +1,71 @@
-use std::collections::HashMap;
-
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Config {
+    /// URL of the Flow UI which will be used when `flowctl` opens up a browser tab.
+    pub dashboard_url: Option<url::Url>,
     /// ID of the current draft, or None if no draft is configured.
     pub draft: Option<String>,
-    // Current access token, or None if no token is set.
+    /// Configures how to communicate with the control plane API.
+    /// This section is typically populated by running `flowctl auth` subcommands.
     pub api: Option<API>,
 }
 
 impl Config {
-    pub async fn client(&mut self) -> anyhow::Result<postgrest::Postgrest> {
-        match self.api.as_mut() {
-            Some(api) => {
-                if let Some(expires_at) = api.expires_at {
-                    // 10 minutes before expiry attempt a refresh
-                    if expires_at < (chrono::Utc::now() - chrono::Duration::minutes(10)).timestamp() {
-                        tracing::debug!("refreshing token");
-                        api.refresh().await?;
-                    }
-                }
-                let client = postgrest::Postgrest::new(api.endpoint.as_str());
-                let client = client.insert_header("apikey", &api.public_token);
-                let client =
-                    client.insert_header("Authorization", format!("Bearer {}", &api.access_token));
-                Ok(client)
+    /// Loads the config for the given named profile, returning the default if no config
+    /// file exists for it. This expects to find the config directory at:
+    /// - `$HOME/.config/flowctl` on linux
+    /// - `$HOME/Library/Application Support/flowctl` on macos
+    /// Within that directory, config files are named as `${profile}.json`.
+    pub fn load(profile: &str) -> anyhow::Result<Config> {
+        let config_file = Config::file_path(profile)?;
+
+        match std::fs::read(&config_file) {
+            Ok(v) => {
+                let conf = serde_json::from_slice(&v).context("parsing config")?;
+                tracing::debug!(profile = %profile, path = %config_file.display(), "loaded config from file");
+                Ok(conf)
             }
-            None => {
-                anyhow::bail!("You must run `auth login` first")
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                tracing::debug!(profile = %profile, path = %config_file.display(), "config file not found, using default config");
+                Ok(Config::default())
             }
+            Err(err) => Err(err).context("opening config"),
         }
+    }
+
+    /// Writes the config to the file corresponding to the given profile. The file location is described
+    /// in `load`.
+    pub fn write(&self, profile: &str) -> anyhow::Result<()> {
+        let path = Config::file_path(profile)?;
+
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).context("couldn't create user config directory")?;
+        }
+
+        std::fs::write(&path, &serde_json::to_vec(self).unwrap()).context("writing config")?;
+        Ok(())
+    }
+
+    fn file_path(profile: &str) -> anyhow::Result<PathBuf> {
+        let config_dir = dirs::config_dir()
+            .context("couldn't determine user config directory")?
+            .join("flowctl");
+        Ok(config_dir.join(format!("{}.json", profile)))
+    }
+
+    /// Returns a dashboard URL for the given relative path. Resolves against the
+    /// dashboard_url from the config, if present, falling back to `dashboard.estuary.dev`.
+    pub fn dashboard_url(&self, path: &str) -> anyhow::Result<url::Url> {
+        let resolved = if let Some(url) = self.dashboard_url.as_ref() {
+            url.join(path)?
+        } else {
+            let default_url = url::Url::parse("https://dashboard.estuary.dev").unwrap();
+            default_url.join(path)?
+        };
+        Ok(resolved)
     }
 
     pub fn cur_draft(&self) -> anyhow::Result<String> {
@@ -43,88 +78,24 @@ impl Config {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct API {
     // URL endpoint of the Flow control-plane Rest API.
     pub endpoint: url::Url,
     // Public (shared) anonymous token of the control-plane API.
     pub public_token: String,
-    // Secret access token of the control-plane API.
-    pub access_token: String,
-    // Secret refresh token of the control-plane API.
-    pub refresh_token: Option<String>,
-    // Expiry of access_token
-    pub expires_at: Option<i64>,
-}
 
-#[derive(Debug, Deserialize)]
-struct APISessionResponse {
-    // Secret access token of the control-plane API.
-    pub access_token: String,
-    // Secret refresh token of the control-plane API.
-    pub refresh_token: String,
-    // Seconds to expiry of access_token
-    pub expires_in: i64,
+    /// The email address of the authenticated user. Will be `None` if
+    /// no authentication has been configured.
+    pub user_email: Option<String>,
 }
 
 impl API {
-    pub fn managed(token: crate::auth::RefreshableToken) -> Self {
+    pub fn production() -> Self {
         Self {
             endpoint: url::Url::parse("https://eyrcnmuzzyriypdajwdk.supabase.co/rest/v1").unwrap(),
             public_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco".to_string(),
-            access_token: token.access_token,
-            refresh_token: Some(token.refresh_token),
-            expires_at: Some(token.expires_at),
-        }
-    }
-    pub fn development(access_token: Option<String>) -> Self {
-        Self {
-            endpoint: url::Url::parse("http://localhost:5431/rest/v1").unwrap(),
-            public_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24ifQ.625_WdcF3KHqz5amU0x2X5WWHP-OEs_4qj0ssLNHzTs".to_string(),
-            // Access token for user "bob" in the development database, good for ten years.
-            access_token: access_token.unwrap_or(
-            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoyMjgwMDY3NTAwLCJzdWIiOiIyMjIyMjIyMi0yMjIyLTIyMjItMjIyMi0yMjIyMjIyMjIyMjIiLCJlbWFpbCI6ImJvYkBleGFtcGxlLmNvbSIsInJvbGUiOiJhdXRoZW50aWNhdGVkIn0.7BJJJI17d24Hb7ZImlGYDRBCMDHkqU1ppVTTfqD5l8I".to_string(),
-            ),
-            refresh_token: None,
-            expires_at: None,
-        }
-    }
-
-    // Attempt to refresh the token. This function is no-op if there is no refresh_token
-    pub async fn refresh(&mut self) -> anyhow::Result<()> {
-        let mut refresh_url = self.endpoint.clone();
-        refresh_url.set_path("/auth/v1/token");
-        refresh_url.set_query(Some("grant_type=refresh_token"));
-
-        if let Some(refresh_token) = &self.refresh_token {
-            let client = reqwest::Client::new();
-
-            let body = client.post(refresh_url)
-                .json(&HashMap::from([
-                    ("refresh_token", refresh_token)
-                ]))
-                .header("apikey", &self.public_token)
-                .send()
-                .await?
-                .text()
-                .await?;
-
-             match serde_json::from_str::<APISessionResponse>(&body) {
-                Ok(sess) => {
-                    self.access_token = sess.access_token;
-                    self.refresh_token = Some(sess.refresh_token);
-                    self.expires_at = Some(chrono::Utc::now().timestamp() + sess.expires_in);
-                    Ok(())
-                }
-                Err(e) => {
-                    tracing::error!("Could not refresh token: {}, response {}", e, body);
-                    tracing::error!("Try re-authenticating: https://go.estuary.dev/2DgrAp");
-                    Err(e)?
-                }
-             }
-
-        } else {
-            Err(anyhow::anyhow!("flowctl has not been configured with a refreshable token"))
+            user_email: None,
         }
     }
 }
