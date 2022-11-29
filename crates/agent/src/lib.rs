@@ -148,7 +148,7 @@ async fn handle_task(
 
     match handle_result {
         Ok(status) => {
-            tracing::info!(handler = %handler.name(), table = %handler.table_name(), status = ?status, "invoked handler");
+            tracing::debug!(handler = %handler.name(), table = %handler.table_name(), status = ?status, "invoked handler");
             match status {
                 // Active indicates that there may be more work to perform,
                 // so we should schedule another run of this handler

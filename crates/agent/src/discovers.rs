@@ -109,6 +109,7 @@ impl DiscoverHandler {
                 row.logs_token,
                 tokio::process::Command::new("docker")
                     .arg("pull")
+                    .arg("--quiet")
                     .arg(&image_composed),
             )
             .await?;
@@ -132,7 +133,9 @@ impl DiscoverHandler {
                 .arg(&image_composed)
                 .arg("--network")
                 .arg(&self.connector_network)
-                .arg("--output=json"),
+                .arg("--output=json")
+                .arg("--log.level=warn")
+                .arg("--log.format=color"),
         )
         .await?;
 
