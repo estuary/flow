@@ -3,9 +3,6 @@ use futures::{StreamExt, TryStreamExt};
 use prost::Message;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt};
 
-/// Code is an error code.
-type Code = tonic::Code;
-
 /// Status is an error representation that combines a well-known error
 /// code with a descriptive error message.
 type Status = tonic::Status;
@@ -60,13 +57,7 @@ where
         .args(args)
         .kill_on_drop(true)
         .spawn()
-        .map_err(|err| {
-            map_status(
-                Code::Unimplemented,
-                "could not start connector entrypoint",
-                err,
-            )
-        })?;
+        .map_err(|err| map_status("could not start connector entrypoint", err))?;
 
     // Map connector's stdout into a stream of output messages.
     let responses = reader_to_message_stream(connector.stdout.take().expect("stdout is piped"));
@@ -112,8 +103,7 @@ where
     // if it exited successfully or an error with embedded stderr content otherwise.
     let exit = async {
         let (wait, stderr) = futures::join!(connector.wait(), stderr);
-        let status =
-            wait.map_err(|err| map_status(Code::Internal, "failed to wait for connector", err))?;
+        let status = wait.map_err(|err| map_status("failed to wait for connector", err))?;
 
         if !status.success() {
             let code = status.code().unwrap_or_default();
@@ -156,9 +146,9 @@ where
     R: AsyncRead + Unpin,
 {
     futures::stream::try_unfold(reader, |mut reader| async move {
-        let next = decode_message::<M, _>(&mut reader).await.map_err(|err| {
-            map_status(Code::Internal, "failed to decode message from reader", err)
-        })?;
+        let next = decode_message::<M, _>(&mut reader)
+            .await
+            .map_err(|err| map_status("failed to decode message from reader", err))?;
 
         match next {
             Some(next) => Ok(Some((next, reader))),
@@ -220,8 +210,8 @@ where
     String::from_utf8_lossy(ring.make_contiguous()).to_string()
 }
 
-fn map_status<E: Into<anyhow::Error>>(code: tonic::Code, message: &str, err: E) -> Status {
-    Status::with_details(code, message, format!("{:#}", anyhow::anyhow!(err)).into())
+fn map_status<E: Into<anyhow::Error>>(message: &'static str, err: E) -> Status {
+    Status::internal(format!("{:#}", anyhow::anyhow!(err).context(message)))
 }
 
 /// Encode a message into a returned buffer.
@@ -330,7 +320,7 @@ mod test {
         );
         assert_eq!(
             &format!("{:?}", stream.next().await),
-            "Some(Err(Status { code: Internal, message: \"failed to decode message from reader\", details: b\"decoded message length 4008636142 is too large\", source: None }))",
+            "Some(Err(Status { code: Internal, message: \"failed to decode message from reader: decoded message length 4008636142 is too large\", source: None }))"
         );
     }
 
