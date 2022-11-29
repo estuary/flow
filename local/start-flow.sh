@@ -39,6 +39,19 @@ function bail() {
 # verify requirements here, before we get into the tmux session.
 command -v nc || bail "netcat must be installed (nc command was not found)"
 
+function copy_local_flowctl_config() {
+    local src="${SCRIPT_DIR}/local-flowctl-config.json"
+    local target="${HOME}/.config/flowctl/local.json"
+    if [[ "$(uname)" == 'Darwin' ]]; then
+        target="${HOME}/Library/Application Support/flowctl/local.json"
+    fi
+
+    if [[ ! -f "$target" ]]; then
+        log "copying local flowctl config from '${src}' to '${target}'"
+        cp "$src" "$target"
+    fi
+}
+
 function start_component() {
     local component="$1"
     tmux new-window -d -t "$SESSION" -n "$component"
@@ -60,6 +73,11 @@ if tmux has -t "$SESSION"; then
     exit 0
 fi
 
+copy_local_flowctl_config
+# Exporting this variable means that all `flowctl` invocations from inside the tmux
+# session will use the local config by default, so you don't need to pass `--profile local`
+# every time.
+export FLOWCTL_PROFILE=local
 tmux new-session -d -s "$SESSION" -n 'terminal'
 log "Created new tmux session called '$SESSION'"
 
