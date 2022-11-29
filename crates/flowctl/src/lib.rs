@@ -35,7 +35,7 @@ pub struct Cli {
     /// Profile are distinct configurations of the `flowctl` tool, and are
     /// completely optional. Use multiple profiles to track multiple accounts
     /// or development endpoints.
-    #[clap(long, default_value = "default")]
+    #[clap(long, default_value = "default", env = "FLOWCTL_PROFILE")]
     profile: String,
 
     #[clap(subcommand)]
