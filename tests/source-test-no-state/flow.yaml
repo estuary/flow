@@ -23,8 +23,10 @@ captures:
         config:
           # Number of greeting documents to produce
           # [integer] (required)
-          greetings: 100
+          exit_after: 100
           skip_state: true
+          # TODO(johnny): no longer used but still required by the source-test connector.
+          greetings: 1
     bindings:
       - resource:
           stream: greetings
