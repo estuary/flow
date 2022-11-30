@@ -13,10 +13,10 @@ collections:
     key: [/count]
 
 captures:
-  acmeCo/source-hello-world:
+  acmeCo/source-test:
     endpoint:
       airbyteSource:
-        image: ghcr.io/estuary/source-hello-world:dev
+        image: ghcr.io/estuary/source-test:dev
         config:
           greetings: 100
           # Number of greeting documents to produce when running in non-tailing mode

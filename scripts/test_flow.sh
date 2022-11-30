@@ -70,7 +70,7 @@ function test_discover_then_publish() {
 # Name of the capture to create.
 CAPTURE_NAME=acmeCo/nested/anvils
 # Test connector image and configuration to use for discovery.
-CONNECTOR=ghcr.io/estuary/source-hello-world
+CONNECTOR=ghcr.io/estuary/source-test
 # Configuration of the connector.
 CONNECTOR_CONFIG=$(jq -c '.' <<END
 {
@@ -96,7 +96,7 @@ DRAFT=$(curl "${args[@]}" \
     -d "{}" \
     | jq -r '.[0].id')
 
-# Fetch the most-recent connector image for soure-hello-world.
+# Fetch the most-recent connector image for soure-test.
 CONNECTOR_TAG=$(curl "${args[@]}" "${API}/connectors?select=connector_tags(id)&connector_tags.order=updated_at.asc&image_name=eq.${CONNECTOR}" | jq '.[0].connector_tags[0].id')
 echo "Tagged connector image: ${CONNECTOR_TAG}"
 

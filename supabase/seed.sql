@@ -57,7 +57,7 @@ declare
 begin
 
   insert into connectors (image_name, title, short_description, logo_url, external_url) values (
-    'ghcr.io/estuary/source-hello-world',
+    'ghcr.io/estuary/source-test',
     json_build_object('en-US','Hello World'),
     json_build_object('en-US','A flood of greetings'),
     json_build_object('en-US','https://www.estuary.dev/wp-content/uploads/2022/05/Group-4-300x300.png'),
