@@ -98,7 +98,10 @@ func (m *ValidateResponse) Validate() error {
 // Validate returns an error if the ValidateResponse_Binding isn't well-formed.
 func (m *ValidateResponse_Binding) Validate() error {
 	for field, constraint := range m.Constraints {
-		if _, ok := Constraint_Type_name[int32(constraint.Type)]; !ok {
+		if constraint == nil {
+			return pb.ExtendContext(
+				pb.NewValidationError("Constraint is missing"), "Constraints[%s]", field)
+		} else if _, ok := Constraint_Type_name[int32(constraint.Type)]; !ok {
 			return pb.ExtendContext(
 				pb.NewValidationError("unknown Constraint Type %v", constraint),
 				"Constraints[%s]", field)
