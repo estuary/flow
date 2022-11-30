@@ -1,4 +1,3 @@
-use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
 
 use crate::inference::infer_shape;
@@ -25,8 +24,8 @@ use schemars::schema::RootSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
-use tokio::sync::broadcast::Receiver;
-use tokio::time::sleep;
+use tokio::sync::watch::Receiver;
+use tokio::time::{sleep, Instant};
 use tokio_util::codec::FramedRead;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 use warp::hyper::StatusCode;
@@ -85,6 +84,16 @@ impl InferenceError {
     }
 }
 
+/// Used to roll up shapes inferred from collections,
+/// as well as metadata about the data that went into them
+struct ShapeAndMeta {
+    shape: Shape,
+    /// The number of documents that were read to infer this shape
+    docs: u64,
+    /// The number of bytes that composed the documents from which this shape was inferred
+    bytes: u64,
+}
+
 async fn healthz(broker_url: String) -> Response {
     match connect_journal_client(broker_url.clone(), None).await {
         Ok(_) => warp::reply::json(&json!({"status": "OK"})).into_response(),
@@ -112,15 +121,16 @@ async fn infer_schema(
 ) -> Result<InferenceResponse, InferenceError> {
     tracing::debug!("Starting inference");
 
-    let (abort_tx, abort_rx) = tokio::sync::broadcast::channel::<()>(1);
+    let (abort_tx, abort_rx) = tokio::sync::watch::channel::<bool>(false);
 
+    let start_instant = Instant::now();
     let max_duration = max_inference_duration.clone();
 
     // This seems to want to be set on a block, rather than a single expression :(
     #[allow(unused_must_use)]
     let handle = tokio::spawn(async move {
         sleep(max_duration).await;
-        abort_tx.send(());
+        abort_tx.send(true);
     });
 
     let mut client = connect_journal_client(broker_url.clone(), None)
@@ -129,23 +139,32 @@ async fn infer_schema(
 
     tracing::debug!("Got inference client");
 
-    let flow_collection = models::Collection::new(collection_name);
+    let flow_collection = models::Collection::new(collection_name.clone());
     let selector = journal_selector(&flow_collection, None);
     let journals = list_journals(&mut client, &selector).await?;
 
     tracing::debug!(num_journals = journals.len(), "Got journals");
 
     let buffered = futures::stream::iter(journals)
-        .map(|j| journal_to_shape(j.clone(), client.clone(), abort_rx.resubscribe()))
+        .map(|j| journal_to_shape(j.clone(), client.clone(), abort_rx.clone()))
         .buffer_unordered(3);
 
     let root_schema = match reduce_shape_stream(buffered).await? {
-        Some((shape, docs_count)) => {
+        Some(ShapeAndMeta { shape, docs, bytes }) => {
             let root_schema = SchemaBuilder::new(shape).root_schema();
+            let end_time = Instant::now().duration_since(start_instant);
+            tracing::info!(
+                collection=collection_name,
+                documents_read=docs,
+                bytes_read=bytes,
+                fully_read_collection=!*abort_rx.borrow(),
+                duration=?end_time,
+                "Finished schema inference"
+            );
             Ok(InferenceResponse {
                 schema: root_schema,
-                documents_read: docs_count,
-                exceeded_deadline: abort_rx.len() > 0,
+                documents_read: docs,
+                exceeded_deadline: *abort_rx.borrow(),
             })
         }
         None => Err(InferenceError::NoDocsFound),
@@ -158,8 +177,8 @@ async fn infer_schema(
 async fn journal_to_shape(
     journal: JournalSpec,
     client: journal_client::Client,
-    abort_signal: Receiver<()>,
-) -> Result<Option<(Shape, u64)>, InferenceError> {
+    abort_signal: Receiver<bool>,
+) -> Result<Option<ShapeAndMeta>, InferenceError> {
     let frag_iter = FragmentIter::new(
         client.clone(),
         FragmentsRequest {
@@ -171,7 +190,7 @@ async fn journal_to_shape(
     let frag_stream = frag_iter
         .into_stream()
         .map_err(InferenceError::from)
-        .map_ok(|frag| fragment_to_shape(client.clone(), frag, abort_signal.resubscribe()))
+        .map_ok(|frag| fragment_to_shape(client.clone(), frag, abort_signal.clone()))
         .try_buffer_unordered(5)
         .into_stream();
 
@@ -188,13 +207,22 @@ async fn journal_to_shape(
 async fn fragment_to_shape(
     client: journal_client::Client,
     fragment: fragments_response::Fragment,
-    abort_signal: Receiver<()>,
-) -> Result<Option<(Shape, u64)>, InferenceError> {
+    abort_signal: Receiver<bool>,
+) -> Result<Option<ShapeAndMeta>, InferenceError> {
+    tokio::pin!(abort_signal);
+    // Let's bail early if we're already aborted
+    if *abort_signal.borrow_and_update() {
+        return Ok(None);
+    }
+
     let fragment_spec = fragment.spec.ok_or(InferenceError::NoFragmentSpec())?;
 
     tracing::Span::current().record("journal_name", &fragment_spec.journal);
+    tracing::Span::current().record("fragment_name", &fragment_spec.path_postfix);
     tracing::Span::current().record("offset_start", &fragment_spec.begin);
     tracing::Span::current().record("offset_end", &fragment_spec.end);
+
+    tracing::debug!("Reading fragment");
 
     let reader = Reader::start_read(
         client.clone(),
@@ -204,8 +232,6 @@ async fn fragment_to_shape(
         ExponentialBackoff::new(3),
     );
 
-    let mut owned_abort_channel = abort_signal.resubscribe();
-
     let codec = JsonCodec::new(); // do we want to limit length here? LinesCodec::new_with_max_length(...) does this
     let mut doc_bytes_stream = FramedRead::new(FuturesAsyncReadCompatExt::compat(reader), codec);
 
@@ -214,9 +240,9 @@ async fn fragment_to_shape(
 
     loop {
         tokio::select! {
-            Some(maybe_doc_body) = doc_bytes_stream.next() => {
+            maybe_doc_body = doc_bytes_stream.next() => {
                 match maybe_doc_body {
-                    Ok(doc_val) => {
+                    Some(Ok(doc_val)) => {
                         let parsed: Value = doc_val;
                         // There should probably be a higher-level API for this in `journal-client`
 
@@ -231,38 +257,62 @@ async fn fragment_to_shape(
                             docs = docs + 1;
                         }
                     }
-                    Err(e) => return Err(InferenceError::from(e)),
+                    Some(Err(e)) => return Err(InferenceError::from(e)),
+                    None => break
                 }
             }
-            _ = owned_abort_channel.recv() => {
-                tracing::debug!(docs_processed = docs, "Aborting schma inference early!");
-                break
+            _ = abort_signal.changed() => {
+                if *abort_signal.borrow() {
+                    tracing::debug!("Aborting schma inference early!");
+                    break
+                }
             }
         }
     }
 
+    let bytes_read = doc_bytes_stream.decoder().bytes_read().try_into().unwrap();
+    tracing::debug!(bytes_read, docs_read = docs, "Done reading fragment");
+
     match accumulator {
-        Some(accum) => Ok(Some((accum, docs))),
+        Some(accum) => Ok(Some(ShapeAndMeta {
+            shape: accum,
+            docs,
+            bytes: bytes_read,
+        })),
         None => Ok(None),
     }
 }
 
 async fn reduce_shape_stream(
-    stream: impl Stream<Item = Result<Option<(Shape, u64)>, InferenceError>>,
-) -> Result<Option<(Shape, u64)>, InferenceError> {
-    let mut accumulator: Option<(Shape, u64)> = None;
+    stream: impl Stream<Item = Result<Option<ShapeAndMeta>, InferenceError>>,
+) -> Result<Option<ShapeAndMeta>, InferenceError> {
+    let mut accumulator: Option<ShapeAndMeta> = None;
     tokio::pin!(stream);
 
-    while let Some(shape) = stream.next().await {
-        match shape {
-            Ok(Some((inferred_shape, docs_read))) => {
-                if let Some((accumulated_shape, docs_count)) = accumulator {
-                    accumulator = Some((
-                        shape::merge(accumulated_shape, inferred_shape),
-                        docs_count + docs_read,
-                    ))
+    while let Some(item) = stream.next().await {
+        match item {
+            Ok(Some(ShapeAndMeta {
+                shape: item_shape,
+                docs: item_docs_count,
+                bytes: item_bytes,
+            })) => {
+                if let Some(ShapeAndMeta {
+                    shape: accum_shape,
+                    docs: accum_docs_count,
+                    bytes: accum_bytes,
+                }) = accumulator
+                {
+                    accumulator = Some(ShapeAndMeta {
+                        shape: shape::merge(accum_shape, item_shape),
+                        docs: accum_docs_count + item_docs_count,
+                        bytes: item_bytes + accum_bytes,
+                    });
                 } else {
-                    accumulator = Some((inferred_shape, docs_read))
+                    accumulator = Some(ShapeAndMeta {
+                        shape: item_shape,
+                        docs: item_docs_count,
+                        bytes: item_bytes,
+                    })
                 }
             }
             Ok(None) => {}
@@ -299,12 +349,12 @@ async fn handle_inference_api(
     max_inference_duration: std::time::Duration,
     collection_name: String,
 ) -> Response {
-    let resp = infer_schema(broker_url, max_inference_duration, collection_name).await;
+    let resp = infer_schema(broker_url, max_inference_duration, collection_name.clone()).await;
 
     match resp {
         Ok(success) => return success.into_response(),
         Err(err) => {
-            tracing::error!("{:?}", err);
+            tracing::error!(collection_name, "{:?}", err);
             return err.into_response();
         }
     }

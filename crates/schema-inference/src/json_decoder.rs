@@ -8,6 +8,7 @@ use tokio_util::codec::Decoder;
 
 #[derive(Default)]
 pub struct JsonCodec<Dec = Value> {
+    bytes: usize,
     _dec: PhantomData<Dec>,
 }
 
@@ -17,7 +18,14 @@ where
 {
     /// Creates a new `JsonCodec` with the associated types
     pub fn new() -> JsonCodec<Dec> {
-        JsonCodec { _dec: PhantomData }
+        JsonCodec {
+            bytes: 0,
+            _dec: PhantomData,
+        }
+    }
+
+    pub fn bytes_read(&self) -> usize {
+        self.bytes
     }
 }
 
@@ -48,6 +56,7 @@ where
     type Item = Dec;
     type Error = JsonCodecError;
 
+    #[tracing::instrument(skip_all)]
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         // Build streaming JSON iterator over data
         let de = serde_json::Deserializer::from_slice(&buf);
@@ -61,17 +70,26 @@ where
             Some(Ok(v)) => {
                 // How many bytes to "throw away", since they represented the document we just parsed
                 let offset = iter.byte_offset();
+                self.bytes += offset;
                 buf.advance(offset);
+                tracing::trace!(bytes_advance = offset, "Successfully read document");
 
                 Ok(Some(v))
             }
             // We errored while parsing a document
-            Some(Err(e)) if !e.is_eof() => return Err(e.into()),
+            Some(Err(e)) if !e.is_eof() => {
+                tracing::trace!("Error reading document: {e}");
+                return Err(e.into());
+            }
             // The buffer is empty or entirely whitespace (None)
             None => {
                 assert!(
                     buf.iter().all(u8::is_ascii_whitespace),
                     "Got None from streaming JSON deserializer, but buffer contained non-whitespace characters!"
+                );
+                tracing::trace!(
+                    whitespace_bytes = buf.len(),
+                    "Consuming irrelevant whitespace"
                 );
 
                 // Now that we know that the buffer contains nothing or only whitespace
@@ -87,6 +105,10 @@ where
                 // each time we fail to deserialize a record binary-search style
                 // but 1mb feels like a reasonable upper bound, and also not an unreasonable size for a buffer to grow by
                 // so let's go with this for now
+                tracing::trace!(
+                    bytes_addl = 1_000_000,
+                    "Partial read, reserving additional bytes"
+                );
                 buf.reserve(1_000_000);
                 Ok(None)
             }
