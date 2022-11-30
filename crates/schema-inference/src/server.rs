@@ -93,10 +93,10 @@ async fn healthz(broker_url: String) -> Response {
 }
 
 #[derive(Serialize, Deserialize)]
-struct InferenceResponse {
-    schema: RootSchema,
-    documents_read: u64,
-    exceeded_deadline: bool,
+pub struct InferenceResponse {
+    pub schema: RootSchema,
+    pub documents_read: u64,
+    pub exceeded_deadline: bool,
 }
 
 impl InferenceResponse {

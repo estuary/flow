@@ -1226,6 +1226,7 @@ dependencies = [
  "proto-flow",
  "proto-gazette",
  "reqwest",
+ "schema-inference",
  "serde",
  "serde-transcode",
  "serde_json",

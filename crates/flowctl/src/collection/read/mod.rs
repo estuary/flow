@@ -1,5 +1,6 @@
-use crate::dataplane;
+use crate::dataplane::{self, fetch_data_plane_access_token};
 use crate::{collection::CollectionJournalSelector, output::OutputType};
+use anyhow::Context;
 use journal_client::{
     broker,
     fragments::FragmentIter,
@@ -7,8 +8,55 @@ use journal_client::{
     read::uncommitted::{ExponentialBackoff, JournalRead, ReadStart, ReadUntil, Reader},
     Client,
 };
+use reqwest::header::{HeaderMap, HeaderValue};
+use reqwest::{StatusCode, Url};
 use time::OffsetDateTime;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct SchemaInferenceArgs {
+    #[clap(flatten)]
+    pub selector: CollectionJournalSelector,
+}
+
+pub async fn get_collection_inferred_schema(
+    ctx: &mut crate::CliContext,
+    args: &SchemaInferenceArgs,
+) -> anyhow::Result<()> {
+    if args.selector.exclude_partitions.len() > 0 || args.selector.include_partitions.len() > 0 {
+        anyhow::bail!("flowctl is not yet able to read from partitioned collections (coming soon)");
+    }
+
+    let token =
+        fetch_data_plane_access_token(ctx.config_mut(), vec![args.selector.collection.clone()])
+            .await
+            .context("fetching data plane access token")?;
+
+    let client = reqwest::Client::new();
+
+    let inference_response = client
+        .get(format!("{}/infer_schema", token.gateway_url))
+        .query(&[("collection", args.selector.collection.clone())])
+        .bearer_auth(token.auth_token.clone())
+        .send()
+        .await
+        .context("schema inference request")?;
+
+    match inference_response.status() {
+        StatusCode::OK => {
+            let response: schema_inference::server::InferenceResponse =
+                inference_response.json().await?;
+            let schema_json = serde_json::to_string(&response.schema)?;
+
+            println!("{}", schema_json);
+        }
+        err => {
+            anyhow::bail!("[{}]: {}", err, inference_response.text().await?);
+        }
+    }
+
+    Ok(())
+}
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct ReadArgs {
@@ -65,7 +113,8 @@ pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> an
     }
 
     let mut data_plane_client =
-        dataplane::journal_client_for(ctx.config_mut(), vec![args.selector.collection.clone()]).await?;
+        dataplane::journal_client_for(ctx.config_mut(), vec![args.selector.collection.clone()])
+            .await?;
 
     let selector = args.selector.build_label_selector();
     tracing::debug!(?selector, "build label selector");
