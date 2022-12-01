@@ -68,13 +68,13 @@ struct APISessionResponse {
 }
 
 impl API {
-    pub fn managed(token: crate::auth::RefreshableToken) -> Self {
+    pub fn managed(service_account: crate::auth::ServiceAccount) -> Self {
         Self {
             endpoint: url::Url::parse("https://eyrcnmuzzyriypdajwdk.supabase.co/rest/v1").unwrap(),
             public_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco".to_string(),
-            access_token: token.access_token,
-            refresh_token: Some(token.refresh_token),
-            expires_at: Some(token.expires_at),
+            access_token: service_account.access_token,
+            refresh_token: Some(service_account.refresh_token),
+            expires_at: Some(service_account.expires_at),
         }
     }
     pub fn development(access_token: Option<String>) -> Self {
