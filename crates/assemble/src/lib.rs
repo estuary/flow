@@ -489,7 +489,7 @@ pub fn transform_spec(
                 read_delay,
                 shuffle,
             },
-        source_schema,
+        source_schema: _,
     } = &transform;
 
     let (uses_source_key, shuffle_key_ptrs, shuffle_lambda) = match shuffle {
@@ -519,12 +519,6 @@ pub fn transform_spec(
         shuffle_key_ptrs,
         uses_source_key,
         shuffle_lambda,
-        source_schema_uri: source_schema
-            .as_ref()
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| source.write_schema_uri.clone()),
-        uses_source_schema: source_schema.is_none(),
-        deprecated_validate_schema_at_read: true,
         filter_r_clocks: update.is_none(),
         read_delay_seconds: read_delay.map(|d| d.as_secs() as u32).unwrap_or(0),
         priority: *priority,
@@ -665,9 +659,6 @@ pub fn materialization_shuffle(
         shuffle_key_ptrs: source.key_ptrs.clone(),
         uses_source_key: true,
         shuffle_lambda: None,
-        source_schema_uri: source.write_schema_uri.clone(),
-        uses_source_schema: true,
-        deprecated_validate_schema_at_read: false,
         // At all times, a given collection key must be exclusively owned by
         // a single materialization shard. Therefore we only subdivide
         // materialization shards on key, never on r-clock.

@@ -85,17 +85,6 @@ pub struct Shuffle {
     /// and uses_source_key MUST be false.
     #[prost(message, optional, tag="7")]
     pub shuffle_lambda: ::core::option::Option<LambdaSpec>,
-    /// Schema against which shuffled documents are to be validated.
-    #[prost(string, tag="8")]
-    pub source_schema_uri: ::prost::alloc::string::String,
-    /// uses_source_schema is true iff source_schema_uri is the source collection's
-    /// schema, and false if it's a source schema specific to this transform.
-    #[prost(bool, tag="9")]
-    pub uses_source_schema: bool,
-    /// Validate the schema of documents at time of shuffled read.
-    /// Deprecated. Will be removed when |validate_schema_json| is established.
-    #[prost(bool, tag="10")]
-    pub deprecated_validate_schema_at_read: bool,
     /// filter_r_clocks is true if the shuffle coordinator should filter documents
     /// sent to each subscriber based on its covered r-clock ranges and the
     /// individual document clocks. If false, the subscriber's r-clock range is
@@ -273,10 +262,6 @@ pub struct CollectionSpec {
     pub collection: ::prost::alloc::string::String,
     /// JSON-schema URI against which written collection documents are validated,
     /// and which provides write-time reduction annotations.
-    /// * If this collection is local to this build, then |schema_uri|
-    ///    is the resource URL and fragment pointer of its schema.
-    /// * If this is a foreign collection, then |schema_uri| is a synthetic
-    ///    and unique URL which stands in for the collection's schema.
     #[prost(string, tag="2")]
     pub write_schema_uri: ::prost::alloc::string::String,
     /// Bundled JSON-schema of the collection

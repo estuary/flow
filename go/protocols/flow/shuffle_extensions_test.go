@@ -27,8 +27,6 @@ func TestJournalShuffle(t *testing.T) {
 	m.SourceCollection = "source/collection"
 	require.EqualError(t, m.Validate(), "Shuffle: missing SourceUuidPtr")
 	m.SourceUuidPtr = "/uuid"
-	require.EqualError(t, m.Validate(), "Shuffle: missing SourceSchemaUri")
-	m.SourceSchemaUri = "test://schema"
 
 	require.EqualError(t, m.Validate(), "Shuffle: expected one of ShuffleKeyPtr or ShuffleLambda")
 	m.Shuffle.ShuffleKeyPtrs = []string{"/foo"}
@@ -50,7 +48,6 @@ func TestShuffleRequest(t *testing.T) {
 				ShuffleKeyPtrs:   []string{"/foo"},
 				SourceCollection: "source",
 				SourceUuidPtr:    "/uuid",
-				SourceSchemaUri:  "test://schema",
 			},
 			BuildId: "an-id",
 		},

@@ -107,9 +107,6 @@ func (m *Shuffle) Validate() error {
 	if m.SourceUuidPtr == "" {
 		return pb.NewValidationError("missing SourceUuidPtr")
 	}
-	if m.SourceSchemaUri == "" {
-		return pb.NewValidationError("missing SourceSchemaUri")
-	}
 	if (len(m.ShuffleKeyPtrs) == 0) == (m.ShuffleLambda == nil) {
 		return pb.NewValidationError("expected one of ShuffleKeyPtr or ShuffleLambda")
 	}
