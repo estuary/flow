@@ -87,8 +87,8 @@ pub struct CliContext {
 }
 
 impl CliContext {
-    pub async fn client(&mut self) -> anyhow::Result<postgrest::Postgrest> {
-        self.config.client().await
+    pub fn client(&self) -> anyhow::Result<postgrest::Postgrest> {
+        self.config.client()
     }
 
     pub fn config_mut(&mut self) -> &mut config::Config {
@@ -153,6 +153,20 @@ impl Cli {
             output,
             config_dirty: false,
         };
+
+        // Auth commands are exempt from refreshing auth token, this is to avoid a situation where
+        // an expired refresh_token prevents the user from setting a new service account
+        if !matches!(self.cmd, Command::Auth(_)) {
+            if let Some(api) = context.config.api.as_mut() {
+                if let Some(expires_at) = api.expires_at {
+                    // 10 minutes before expiry attempt a refresh
+                    if expires_at < (chrono::Utc::now() - chrono::Duration::minutes(10)).timestamp() {
+                        tracing::debug!("refreshing token");
+                        api.refresh().await?;
+                    }
+                }
+            }
+        }
 
         match &self.cmd {
             Command::Auth(auth) => auth.run(&mut context).await,

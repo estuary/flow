@@ -40,14 +40,16 @@ pub enum Command {
     /// Unlike 'read' or 'write', the subject of an 'admin' grant also inherits
     /// capabilities granted to the object role from still-other roles.
     Roles(roles::Roles),
+    /// Manually refresh tokens of service account
+    Refresh
 }
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct ServiceAccountArgs {
-    /// Path to service account JSON file. Use `-` to read from stdin.
-    #[clap(value_parser)]
-    file: String,
+    /// Path to service account JSON file
+    #[clap(long)]
+    path: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -67,15 +69,11 @@ pub struct Develop {
 impl Auth {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> Result<(), anyhow::Error> {
         match &self.cmd {
-            Command::ServiceAccount(ServiceAccountArgs { file }) => {
-                let (sa, msg): (ServiceAccount, &str) = if file == "-" {
-                    (serde_json::from_reader(std::io::stdin())?, "Configured service account.")
-                } else {
-                    let sa_file = std::fs::File::open(file)?;
-                    (serde_json::from_reader(sa_file)?, "Configured service account. You may now delete the file.")
-                };
+            Command::ServiceAccount(ServiceAccountArgs { path }) => {
+                let sa_file = std::fs::File::open(path)?;
+                let sa: ServiceAccount = serde_json::from_reader(sa_file)?;
                 ctx.config_mut().api = Some(config::API::managed(sa));
-                println!("{}", msg);
+                println!("Configured service account.");
                 Ok(())
             }
             Command::Develop(Develop { token }) => {
@@ -83,7 +81,14 @@ impl Auth {
                 println!("Configured for local development.");
                 Ok(())
             }
-            Command::Roles(roles) => roles.run(ctx).await
+            Command::Roles(roles) => roles.run(ctx).await,
+            Command::Refresh => {
+                if let Some(api) = ctx.config_mut().api.as_mut() {
+                    api.refresh().await?;
+                }
+                println!("Configured service account.");
+                Ok(())
+            }
         }
     }
 }
