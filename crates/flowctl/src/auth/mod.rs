@@ -1,5 +1,3 @@
-use serde::Deserialize;
-
 use super::config;
 
 mod roles;
@@ -14,10 +12,10 @@ pub struct Auth {
 #[derive(Debug, clap::Subcommand)]
 #[clap(rename_all = "kebab-case")]
 pub enum Command {
-    /// Authenticate to Flow using a service account file.
+    /// Authenticate to Flow using a secret access token.
     ///
-    /// You can find this service account within Flow UI dashboard under "Admin".
-    ServiceAccount(ServiceAccountArgs),
+    /// You can find this token within Flow UI dashboard under "Admin".
+    Token(Token),
     /// Authenticate to a local development instance of the Flow control plane.
     ///
     /// This is intended for developers who are running local instances
@@ -40,23 +38,13 @@ pub enum Command {
     /// Unlike 'read' or 'write', the subject of an 'admin' grant also inherits
     /// capabilities granted to the object role from still-other roles.
     Roles(roles::Roles),
-    /// Manually refresh tokens of service account
-    Refresh
 }
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
-pub struct ServiceAccountArgs {
-    /// Path to service account JSON file
+pub struct Token {
     #[clap(long)]
-    path: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ServiceAccount {
-    pub access_token: String,
-    pub refresh_token: String,
-    pub expires_at: i64,
+    token: String,
 }
 
 #[derive(Debug, clap::Args)]
@@ -69,11 +57,9 @@ pub struct Develop {
 impl Auth {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> Result<(), anyhow::Error> {
         match &self.cmd {
-            Command::ServiceAccount(ServiceAccountArgs { path }) => {
-                let sa_file = std::fs::File::open(path)?;
-                let sa: ServiceAccount = serde_json::from_reader(sa_file)?;
-                ctx.config_mut().api = Some(config::API::managed(sa));
-                println!("Configured service account.");
+            Command::Token(Token { token }) => {
+                ctx.config_mut().api = Some(config::API::managed(token.clone()));
+                println!("Configured access token.");
                 Ok(())
             }
             Command::Develop(Develop { token }) => {
@@ -82,13 +68,6 @@ impl Auth {
                 Ok(())
             }
             Command::Roles(roles) => roles.run(ctx).await,
-            Command::Refresh => {
-                if let Some(api) = ctx.config_mut().api.as_mut() {
-                    api.refresh().await?;
-                }
-                println!("Configured service account.");
-                Ok(())
-            }
         }
     }
 }
