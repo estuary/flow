@@ -5,7 +5,7 @@ materializations:
   ops/TENANT/catalog-stats-view:
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-postgres-rc:v1
+        image: ghcr.io/estuary/materialize-postgres:v4
         config: stats-production-endpoint.sops.yaml
 
     bindings:
