@@ -11,10 +11,10 @@ pub struct DataPlaneAccess {
 
 /// Fetches connection info for accessing a data plane for the given catalog namespace prefixes.
 pub async fn fetch_data_plane_access_token(
-    cfg: &mut Config,
+    cfg: &Config,
     prefixes: Vec<String>,
 ) -> anyhow::Result<DataPlaneAccess> {
-    let client = cfg.client().await?;
+    let client = cfg.client()?;
     tracing::debug!(?prefixes, "requesting data-plane access token for prefixes");
 
     let body = serde_json::to_string(&serde_json::json!({
@@ -47,7 +47,7 @@ pub async fn fetch_data_plane_access_token(
 
 /// Returns an authenticated journal client that's authorized to the given prefixes.
 pub async fn journal_client_for(
-    cfg: &mut Config,
+    cfg: &Config,
     prefixes: Vec<String>,
 ) -> anyhow::Result<journal_client::Client> {
     let DataPlaneAccess {

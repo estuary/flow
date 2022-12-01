@@ -99,7 +99,7 @@ pub async fn do_author(
     body.push(']' as u8);
 
     let rows: Vec<SpecSummaryItem> = api_exec(
-        ctx.client().await?
+        ctx.client()?
             .from("draft_specs")
             .select("catalog_name,spec_type")
             .upsert(String::from_utf8(body).expect("serialized JSON is always UTF-8"))
