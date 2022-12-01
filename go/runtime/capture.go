@@ -246,7 +246,7 @@ func (c *Capture) startReadingMessages(
 		return combiner, combiner.Configure(
 			shard.FQN(),
 			binding.Collection.Collection,
-			binding.Collection.SchemaJson,
+			binding.Collection.WriteSchemaJson,
 			binding.Collection.UuidPtr,
 			binding.Collection.KeyPtrs,
 			flow.PartitionPointers(&binding.Collection),

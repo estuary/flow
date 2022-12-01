@@ -48,7 +48,7 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 	err = combiner.Configure(
 		collection.Collection.String(),
 		collection.Collection,
-		collection.SchemaJson,
+		collection.WriteSchemaJson,
 		collection.UuidPtr,
 		collection.KeyPtrs,
 		nil,
@@ -99,7 +99,7 @@ func TestCombineBindings(t *testing.T) {
 			err := combiner.Configure(
 				collection.Collection.String(),
 				collection.Collection,
-				collection.SchemaJson,
+				collection.WriteSchemaJson,
 				collection.UuidPtr,
 				collection.KeyPtrs,
 				[]string{"/s/1", "/i"},
