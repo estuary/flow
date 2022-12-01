@@ -117,8 +117,7 @@ impl API {
                     Ok(())
                 }
                 Err(e) => {
-                    tracing::error!("Could not refresh token: {}, response {}", e, body);
-                    tracing::error!("Try re-authenticating: https://go.estuary.dev/2DgrAp");
+                    tracing::error!("could not refresh token: {}, response {}", e, body);
                     Err(e)?
                 }
              }
