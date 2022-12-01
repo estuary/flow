@@ -86,16 +86,6 @@ begin
   returning id strict into connector_id;
   insert into connector_tags (connector_id, image_tag) values (connector_id, ':dev');
 
-  insert into connectors (image_name, title, short_description, logo_url, external_url) values (
-    'ghcr.io/estuary/materialize-postgres-rc',
-    json_build_object('en-US','PostgreSQL'),
-    json_build_object('en-US','Materialize collections into PostgreSQL'),
-    json_build_object('en-US','https://www.postgresql.org/media/img/about/press/elephant.png'),
-    'https://postgresql.org'
-  )
-  returning id strict into connector_id;
-  insert into connector_tags (connector_id, image_tag) values (connector_id, ':dev');
-
 end;
 $$ language plpgsql;
 
