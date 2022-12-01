@@ -47,7 +47,7 @@ pub enum Command {
 pub struct ServiceAccountArgs {
     /// Path to service account JSON file. Use `-` to read from stdin.
     #[clap(value_parser)]
-    file: Option<String>,
+    file: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,18 +68,14 @@ impl Auth {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> Result<(), anyhow::Error> {
         match &self.cmd {
             Command::ServiceAccount(ServiceAccountArgs { file }) => {
-                if let Some(file) = file {
-                    let (sa, msg): (ServiceAccount, &str) = if file == "-" {
-                        (serde_json::from_reader(std::io::stdin())?, "Configured service account.")
-                    } else {
-                        let sa_file = std::fs::File::open(file)?;
-                        (serde_json::from_reader(sa_file)?, "Configured service account. You may now delete the file.")
-                    };
-                    ctx.config_mut().api = Some(config::API::managed(sa));
-                    println!("{}", msg);
+                let (sa, msg): (ServiceAccount, &str) = if file == "-" {
+                    (serde_json::from_reader(std::io::stdin())?, "Configured service account.")
                 } else {
-                    println!("You can get your service-account from https://dashboard.estuary.dev/admin/api")
-                }
+                    let sa_file = std::fs::File::open(file)?;
+                    (serde_json::from_reader(sa_file)?, "Configured service account. You may now delete the file.")
+                };
+                ctx.config_mut().api = Some(config::API::managed(sa));
+                println!("{}", msg);
                 Ok(())
             }
             Command::Develop(Develop { token }) => {
