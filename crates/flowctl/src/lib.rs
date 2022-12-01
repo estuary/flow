@@ -20,7 +20,6 @@ mod typescript;
 
 use output::{Output, OutputType};
 use poll::poll_while_queued;
-use reqwest::StatusCode;
 
 /// A command-line tool for working with Estuary Flow.
 #[derive(Debug, Parser)]
@@ -153,20 +152,6 @@ impl Cli {
             output,
             config_dirty: false,
         };
-
-        // Auth commands are exempt from refreshing auth token, this is to avoid a situation where
-        // an expired refresh_token prevents the user from setting a new service account
-        if !matches!(self.cmd, Command::Auth(_)) {
-            if let Some(api) = context.config.api.as_mut() {
-                if let Some(expires_at) = api.expires_at {
-                    // 10 minutes before expiry attempt a refresh
-                    if expires_at < (chrono::Utc::now() - chrono::Duration::minutes(10)).timestamp() {
-                        tracing::debug!("refreshing token");
-                        api.refresh().await?;
-                    }
-                }
-            }
-        }
 
         match &self.cmd {
             Command::Auth(auth) => auth.run(&mut context).await,
