@@ -106,7 +106,9 @@ pub fn walk_test_step(
     };
     // Pluck the collection schema Shape, which must exist but could be a placeholder.
     let shape = &schema_shapes[schema_shapes
-        .equal_range_by_key(&collection.spec.schema_uri.as_str(), |s| s.schema.as_str())][0];
+        .equal_range_by_key(&collection.spec.write_schema_uri.as_str(), |s| {
+            s.schema.as_str()
+        })][0];
 
     // Verify that any ingest documents conform to the collection schema.
     if shape.index.fetch(&shape.schema).is_none() {

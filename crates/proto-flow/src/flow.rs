@@ -271,17 +271,17 @@ pub struct CollectionSpec {
     /// Name of this collection.
     #[prost(string, tag="1")]
     pub collection: ::prost::alloc::string::String,
-    /// JSON-schema URI against which collection documents are validated,
-    /// and which provides reduction annotations.
+    /// JSON-schema URI against which written collection documents are validated,
+    /// and which provides write-time reduction annotations.
     /// * If this collection is local to this build, then |schema_uri|
     ///    is the resource URL and fragment pointer of its schema.
     /// * If this is a foreign collection, then |schema_uri| is a synthetic
     ///    and unique URL which stands in for the collection's schema.
     #[prost(string, tag="2")]
-    pub schema_uri: ::prost::alloc::string::String,
+    pub write_schema_uri: ::prost::alloc::string::String,
     /// Bundled JSON-schema of the collection
     #[prost(string, tag="8")]
-    pub schema_json: ::prost::alloc::string::String,
+    pub write_schema_json: ::prost::alloc::string::String,
     /// Composite key of the collection, as JSON-Pointers.
     #[prost(string, repeated, tag="3")]
     pub key_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,

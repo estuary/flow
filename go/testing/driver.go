@@ -193,7 +193,7 @@ func (c *ClusterDriver) Verify(ctx context.Context, test *pf.TestSpec, testStep 
 	if !ok {
 		return fmt.Errorf("unknown collection %s", step.Collection)
 	}
-	actual, err := CombineDocuments(collection, fetched)
+	actual, err := combineDocumentsForVerify(collection, fetched)
 	if err != nil {
 		return err
 	}
@@ -368,10 +368,11 @@ func FetchDocuments(ctx context.Context, rjc pb.RoutedJournalClient, selector pb
 	return documents, nil
 }
 
-// CombineDocuments input |documents| under the collection's key and schema,
-// and using the provided SchemaIndex. Non-content documents (ACKs) are filtered.
+// combineDocumentsForVerify combines input |documents| under the collection's
+// key and read schema, and using the provided SchemaIndex. Non-content documents
+// (ACKs) are filtered.
 // Combined documents, one per collection key, are returned.
-func CombineDocuments(
+func combineDocumentsForVerify(
 	collection *pf.CollectionSpec,
 	documents [][]byte,
 ) ([]json.RawMessage, error) {
@@ -398,7 +399,7 @@ func CombineDocuments(
 	} else if err = combiner.Configure(
 		collection.Collection.String(),
 		collection.Collection,
-		collection.SchemaJson,
+		collection.GetReadSchemaJson(),
 		collection.UuidPtr,
 		collection.KeyPtrs,
 		nil, // Don't extract additional fields.

@@ -57,7 +57,7 @@ fn build_shape_from_schema(schema_str: &str) -> Result<Shape, Error> {
 pub fn build_firebolt_schema(binding: &Binding) -> Result<TableSchema, Error> {
     let fs = binding.field_selection.as_ref().unwrap();
     let projections = &binding.collection.as_ref().unwrap().projections;
-    let schema_str = &binding.collection.as_ref().unwrap().schema_json;
+    let schema_str = &binding.collection.as_ref().unwrap().write_schema_json;
 
     let doc_field = if fs.document.len() > 0 {
         vec![fs.document.clone()]
@@ -204,7 +204,7 @@ mod tests {
                         ..Default::default()
                     }),
                     collection: Some(CollectionSpec {
-                        schema_json: json!({
+                        write_schema_json: json!({
                             "properties": {
                                 "test": {"type": "string"},
                             },
@@ -248,7 +248,7 @@ mod tests {
                     ..Default::default()
                 }),
                 collection: Some(CollectionSpec {
-                    schema_json: json!({
+                    write_schema_json: json!({
                         "properties": {
                             "test": {"type": "string"},
                         }
@@ -281,7 +281,7 @@ mod tests {
                     ..Default::default()
                 }),
                 collection: Some(CollectionSpec {
-                    schema_json: json!({
+                    write_schema_json: json!({
                         "properties": {
                             "test": {"type": "boolean"},
                         }
@@ -314,7 +314,7 @@ mod tests {
                     ..Default::default()
                 }),
                 collection: Some(CollectionSpec {
-                    schema_json: json!({
+                    write_schema_json: json!({
                         "properties": {
                             "test": {"type": "integer"},
                         }
@@ -347,7 +347,7 @@ mod tests {
                     ..Default::default()
                 }),
                 collection: Some(CollectionSpec {
-                    schema_json: json!({
+                    write_schema_json: json!({
                         "properties": {
                             "test": {"type": "number"},
                         }
@@ -380,7 +380,7 @@ mod tests {
                     ..Default::default()
                 }),
                 collection: Some(CollectionSpec {
-                    schema_json: json!({
+                    write_schema_json: json!({
                         "properties": {
                             "test": {"type": "string"},
                         },
@@ -415,7 +415,7 @@ mod tests {
                     ..Default::default()
                 }),
                 collection: Some(CollectionSpec {
-                    schema_json: json!({
+                    write_schema_json: json!({
                         "properties": {
                             "test": {
                                 "type": "array",
@@ -455,7 +455,7 @@ mod tests {
                     ..Default::default()
                 }),
                 collection: Some(CollectionSpec {
-                    schema_json: json!({
+                    write_schema_json: json!({
                         "properties": {
                             "obj": {
                                 "type": "object",

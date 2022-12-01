@@ -75,7 +75,7 @@ func TestExtractorValidation(t *testing.T) {
 	var opsLogs = make(chan ops.Log)
 	var ex, err = NewExtractor(newChanPublisher(opsLogs, pf.LogLevel_warn))
 	require.NoError(t, err)
-	require.NoError(t, ex.Configure("/uuid", []string{"/s"}, collection.SchemaJson))
+	require.NoError(t, ex.Configure("/uuid", []string{"/s"}, collection.WriteSchemaJson))
 
 	ex.Document([]byte(`{"uuid": "9f2952f3-c6a3-12fb-8801-080607050309", "i": 32, "s": "valid"}`))         // Valid.
 	ex.Document([]byte(`{"uuid": "9f2952f3-c6a3-11ea-8802-080607050309", "i": "not a string but ACK"}`))   // Invalid but ACK.
