@@ -147,6 +147,7 @@ You can enable delta updates on a per-binding basis:
         delta_updates: true
     source: ${PREFIX}/${source_collection}
 ```
+## Performance considerations
 
 ### Optimizing performance for standard updates
 
@@ -162,6 +163,59 @@ This is because most materializations tend to be roughly chronological over time
 
 This means that updates of keys `/date, /user_id` will need to physically read far fewer rows as compared to a key like `/user_id`,
 because those rows will tend to live in the same micro-partitions, and Snowflake is able to cheaply prune micro-partitions that aren't relevant to the transaction.
+
+### Reducing active warehouse time
+
+Snowflake compute is [priced](https://www.snowflake.com/pricing/) per second of activity, with a minimum of 60 seconds.
+Inactive warehouses don't incur charges.
+To keep costs down, you'll want to minimize your warehouse's active time.
+
+Like other Estuary connectors, this is a real-time connector that materializes documents using continuous [**transactions**](../../../concepts/advanced/shards.md#transactions).
+Every time a Flow materialization commits a transaction, your warehouse becomes active.
+
+If your source data collection or collections don't change much, this shouldn't cause an issue;
+Flow only commits transactions when data has changed.
+However, if your source data is frequently updated, your materialization may have frequent transactions that result in
+excessive active time in the warehouse, and thus a higher bill from Snowflake.
+
+To mitigate this, we recommend a two-pronged approach:
+
+* [Configure your Snowflake warehouse to auto-suspend](https://docs.snowflake.com/en/sql-reference/sql/create-warehouse.html#:~:text=Specifies%20the%20number%20of%20seconds%20of%20inactivity%20after%20which%20a%20warehouse%20is%20automatically%20suspended.) after 60 seconds.
+
+   This ensures that for each transaction, you'll only be charged for one minute of compute, Snowflake's smallest granularity.
+
+* Configure the materialization's **minimum transaction duration** to as long as 30 minutes.
+
+   This ensures that Flow will wait at least 30 minutes between new data commits to Snowflake.
+   If no new data appears within the 30-minute window, the interval will be longer.
+   You can change this setting in the materialization's [shard configuration](../../Configuring-task-shards.md#properties)
+   as described [below](#adding-the-shard-configuration).
+
+For example, if you set the warehouse to auto-suspend after 60 seconds and set the materialization's
+minimum transaction duration to 30 minutes, you'll never incur more than 48 minutes per day of active time in the warehouse.
+
+#### Adding the shard configuration
+
+:::info Beta
+UI controls for this workflow will be added to the Flow web app soon.
+For now, you must edit the materialization specification manually, either in the web app or using the CLI.
+:::
+
+1. Using the [Flow web application](../../../guides/create-dataflow.md#create-a-materialization) or the [flowctl CLI](../../../concepts/flowctl.md#working-with-drafts),
+create a draft materialization as you normally would.
+   1. If using the web app, input the required values and click **Discover Endpoint**.
+   2. If using the flowctl, create your materialization specification manually.
+
+2. Add the [`shards` configuration](../../Configuring-task-shards.md) to the materialization specification at the same indentation level as `endpoint` and `bindings`.
+Set the `minTxnDuration` property as high as `30m` (we recommend between `15m` and `30m` for significant cost savings).
+In the web app, you do this in the Catalog Editor.
+
+   ```yaml
+   shards:
+     minTxnDuration: 30m
+   ```
+
+3. Continue to test, save, and publish the materialization as usual.
 
 ## Reserved words
 

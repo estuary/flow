@@ -93,18 +93,20 @@ To learn more about project billing, [see the BigQuery docs](https://cloud.googl
 
 :::info Beta
 UI controls for this workflow will be added to the Flow web app soon.
-For now, you must edit the materialization config manually, either in the web app or using the CLI.
+For now, you must edit the materialization specification manually, either in the web app or using the CLI.
 :::
 
 To avoid exceeding your BigQuery tables' daily operation limits as discussed in [Performance considerations](#performance-considerations),
 complete the following steps when configuring your materialization:
 
-1. Using the [Flow web application](../../../guides/create-dataflow.md#create-a-materialization) or the flowctl CLI,
-create a draft materialization. Don't publish it yet.
+1. Using the [Flow web application](../../../guides/create-dataflow.md#create-a-materialization) or the [flowctl CLI](../../../concepts/flowctl.md#working-with-drafts),
+create a draft materialization as you normally would.
+   1. If using the web app, input the required values and click **Discover Endpoint**.
+   2. If using the flowctl, create your materialization specification manually.
 
-2. Add the [`shards` configuration](../../Configuring-task-shards.md) to the materialization at the same indentation level as `endpoint` and `resource`.
+2. Add the [`shards` configuration](../../Configuring-task-shards.md) to the materialization specification at the same indentation level as `endpoint` and `bindings`.
 Set the `minTxnDuration` property to at least `1m` (we recommend `2m`).
-In the web app, you do this in the catalog editor.
+In the web app, you do this in the Catalog Editor.
 
    ```yaml
    shards:
@@ -113,7 +115,7 @@ In the web app, you do this in the catalog editor.
 
    A full sample is included [below](#sample).
 
-3. Continue to test and publish the materialization.
+3. Continue to test, save, and publish the materialization as usual.
 
 ### Sample
 
