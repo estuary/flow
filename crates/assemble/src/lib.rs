@@ -359,8 +359,8 @@ pub fn collection_spec(
 
     flow::CollectionSpec {
         collection: name.to_string(),
-        schema_uri: schema.to_string(),
-        schema_json: schema_bundle.to_string(),
+        write_schema_uri: schema.to_string(),
+        write_schema_json: schema_bundle.to_string(),
         key_ptrs: key.iter().map(|p| p.to_string()).collect(),
         projections,
         partition_fields,
@@ -522,7 +522,7 @@ pub fn transform_spec(
         source_schema_uri: source_schema
             .as_ref()
             .map(|s| s.to_string())
-            .unwrap_or_else(|| source.schema_uri.clone()),
+            .unwrap_or_else(|| source.write_schema_uri.clone()),
         uses_source_schema: source_schema.is_none(),
         deprecated_validate_schema_at_read: true,
         filter_r_clocks: update.is_none(),
@@ -665,7 +665,7 @@ pub fn materialization_shuffle(
         shuffle_key_ptrs: source.key_ptrs.clone(),
         uses_source_key: true,
         shuffle_lambda: None,
-        source_schema_uri: source.schema_uri.clone(),
+        source_schema_uri: source.write_schema_uri.clone(),
         uses_source_schema: true,
         deprecated_validate_schema_at_read: false,
         // At all times, a given collection key must be exclusively owned by

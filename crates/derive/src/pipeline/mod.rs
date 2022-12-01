@@ -117,7 +117,7 @@ impl Pipeline {
         let flow::CollectionSpec {
             key_ptrs: document_key_ptrs,
             projections,
-            schema_json: document_schema_json,
+            write_schema_json: document_schema_json,
             uuid_ptr: document_uuid_ptr,
             ..
         } = collection.unwrap_or_default();

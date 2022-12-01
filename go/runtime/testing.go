@@ -132,7 +132,7 @@ func (f *FlowTesting) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.In
 	if err := combiner.Configure(
 		collection.Collection.String(),
 		collection.Collection,
-		collection.SchemaJson,
+		collection.WriteSchemaJson,
 		collection.UuidPtr,
 		collection.KeyPtrs,
 		flow.PartitionPointers(collection),

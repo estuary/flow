@@ -277,7 +277,7 @@ pub fn walk_transform(
     let source_schema = match source_schema {
         Some(url) => {
             // Was the collection defined using this same schema?
-            if url.as_str() == &source.spec.schema_uri {
+            if url.as_str() == &source.spec.write_schema_uri {
                 Error::SourceSchemaNotDifferent {
                     schema: url.clone(),
                     collection: source.collection.to_string(),
@@ -286,7 +286,7 @@ pub fn walk_transform(
             }
             url.as_str()
         }
-        None => &source.spec.schema_uri,
+        None => &source.spec.write_schema_uri,
     };
     let source_shape =
         &schema_shapes[schema_shapes.equal_range_by_key(&source_schema, |s| s.schema.as_str())][0];

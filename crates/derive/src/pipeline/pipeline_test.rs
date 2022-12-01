@@ -323,8 +323,8 @@ impl FixtureBuilder {
                 register_schema_json: register_schema.to_string(),
                 collection: Some(CollectionSpec {
                     collection: derivation.clone(),
-                    schema_uri: "http://example/collection.schema".to_string(),
-                    schema_json: collection_schema.to_string(),
+                    write_schema_uri: "http://example/collection.schema".to_string(),
+                    write_schema_json: collection_schema.to_string(),
                     key_ptrs,
                     uuid_ptr: String::from("/_meta/uuid"),
                     partition_fields: Vec::new(),
