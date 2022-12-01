@@ -226,7 +226,7 @@ async fn do_list_fragments(
     args: &ListFragmentsArgs,
 ) -> Result<(), anyhow::Error> {
     let mut client =
-        journal_client_for(ctx.config_mut(), vec![args.selector.collection.clone()]).await?;
+        journal_client_for(ctx.config(), vec![args.selector.collection.clone()]).await?;
 
     let journals = list::list_journals(&mut client, &args.selector.build_label_selector()).await?;
 
@@ -265,7 +265,7 @@ async fn do_list_journals(
     ctx: &mut crate::CliContext,
     args: &CollectionJournalSelector,
 ) -> Result<(), anyhow::Error> {
-    let mut client = journal_client_for(ctx.config_mut(), vec![args.collection.clone()]).await?;
+    let mut client = journal_client_for(ctx.config(), vec![args.collection.clone()]).await?;
 
     let journals = list::list_journals(&mut client, &args.build_label_selector()).await?;
 

@@ -110,7 +110,7 @@ async fn do_create(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         }
     }
     let row: Row = api_exec(
-        ctx.client().await?
+        ctx.client()?
             .from("drafts")
             .select("id, created_at")
             .insert(serde_json::json!({"detail": "Created by flowctl"}).to_string())
@@ -141,7 +141,7 @@ async fn do_delete(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         }
     }
     let row: Row = api_exec(
-        ctx.client().await?
+        ctx.client()?
             .from("drafts")
             .select("id,updated_at")
             .delete()
@@ -188,7 +188,7 @@ async fn do_describe(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         }
     }
     let rows: Vec<Row> = api_exec(
-        ctx.client().await?
+        ctx.client()?
             .from("draft_specs_ext")
             .select(
                 vec![
@@ -233,7 +233,7 @@ async fn do_list(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         }
     }
     let rows: Vec<Row> = api_exec(
-        ctx.client().await?
+        ctx.client()?
             .from("drafts_ext")
             .select("created_at,detail,id,num_specs,updated_at"),
     )
@@ -257,7 +257,7 @@ async fn do_select(
     Select { id: select_id }: &Select,
 ) -> anyhow::Result<()> {
     let matched: Vec<serde_json::Value> = api_exec(
-        ctx.client().await?
+        ctx.client()?
             .from("drafts")
             .eq("id", select_id)
             .select("id"),
@@ -274,7 +274,7 @@ async fn do_select(
 
 async fn do_publish(ctx: &mut crate::CliContext, dry_run: bool) -> anyhow::Result<()> {
     let cur_draft = ctx.config().cur_draft()?;
-    let client = ctx.client().await?;
+    let client = ctx.client()?;
 
     #[derive(Deserialize)]
     struct Row {
