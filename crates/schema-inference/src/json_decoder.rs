@@ -8,7 +8,12 @@ use tokio_util::codec::Decoder;
 
 #[derive(Default)]
 pub struct JsonCodec<Dec = Value> {
+    /// Number of bytes this decoder has successfully decoded into documents
     bytes: usize,
+    /// Rate at which we grow the buffer. Optimally, this will be the smallest
+    /// value that keps the buffer from getting emptied before we get a partial read
+    /// and grow it again.
+    buffer_grow_rate: usize,
     _dec: PhantomData<Dec>,
 }
 
@@ -20,12 +25,19 @@ where
     pub fn new() -> JsonCodec<Dec> {
         JsonCodec {
             bytes: 0,
+            buffer_grow_rate: 1_000_000,
             _dec: PhantomData,
         }
     }
 
     pub fn bytes_read(&self) -> usize {
         self.bytes
+    }
+
+    fn increase_buffer_grow_rate(&mut self) {
+        // We don't want this number to grow unbounded,
+        // otherwise we could end up reserving tons of memory
+        self.buffer_grow_rate = std::cmp::min(128_000_000, self.buffer_grow_rate * 2);
     }
 }
 
@@ -72,7 +84,7 @@ where
                 let offset = iter.byte_offset();
                 self.bytes += offset;
                 buf.advance(offset);
-                tracing::trace!(bytes_advance = offset, "Successfully read document");
+                // tracing::trace!(bytes_advance = offset, "Successfully read document");
 
                 Ok(Some(v))
             }
@@ -98,18 +110,32 @@ where
                 buf.advance(buf.len());
                 Ok(None)
             }
-            // It only contains a partial document (premature EOF). Either way,
+            // It only contains a partial document (premature EOF). In this case,
             // let's indicate to the Framed instance that it needs to read some more bytes before calling this method again.
             Some(Err(_)) => {
-                // Theoretically we could grow the amount of additional bytes we ask for
-                // each time we fail to deserialize a record binary-search style
-                // but 1mb feels like a reasonable upper bound, and also not an unreasonable size for a buffer to grow by
-                // so let's go with this for now
+                // Increase the buffer grow rate until we settle on a value that leaves us with some room in the buffer.
+                // So long as the buffer's capacity never reaches zero, we should be continuously streaming data from the network.
+                // note: it appears that BytesMut doesn't ever like to have actually 0 capacity, hence the lower bound of 1kb
+                if buf.capacity() < 1_000 {
+                    self.increase_buffer_grow_rate();
+                }
+
+                // Try and make sure the buffer has self.buffer_grow_rate of capacity.
+                let bytes_addl = std::cmp::min(
+                    std::cmp::max(0, self.buffer_grow_rate as isize - buf.capacity() as isize),
+                    self.buffer_grow_rate as isize,
+                ) as usize;
+
                 tracing::trace!(
-                    bytes_addl = 1_000_000,
+                    bytes_addl = format!("{:.1} MB", bytes_addl as f32 / 1_000_000f32),
+                    bytes_read = format!("{:.1} MB", self.bytes as f32 / 1_000_000f32),
+                    buf_capacity_remaining =
+                        format!("{:.1} MB", buf.capacity() as f32 / 1_000_000f32),
+                    buf_grow_rate =
+                        format!("{:.1} MB", self.buffer_grow_rate as f32 / 1_000_000f32),
                     "Partial read, reserving additional bytes"
                 );
-                buf.reserve(1_000_000);
+                buf.reserve(bytes_addl);
                 Ok(None)
             }
         }

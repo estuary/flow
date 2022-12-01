@@ -156,7 +156,7 @@ async fn infer_schema(
             tracing::info!(
                 collection=collection_name,
                 documents_read=docs,
-                bytes_read=bytes,
+                bytes_read=format!("{:.1} MB", bytes as f32/1_000_000f32),
                 fully_read_collection=!*abort_rx.borrow(),
                 duration=?end_time,
                 "Finished schema inference"
@@ -271,7 +271,11 @@ async fn fragment_to_shape(
     }
 
     let bytes_read = doc_bytes_stream.decoder().bytes_read().try_into().unwrap();
-    tracing::debug!(bytes_read, docs_read = docs, "Done reading fragment");
+    tracing::debug!(
+        bytes_read = format!("{:.1} MB", bytes_read as f32 / 1_000_000f32),
+        docs_read = docs,
+        "Done reading fragment"
+    );
 
     match accumulator {
         Some(accum) => Ok(Some(ShapeAndMeta {
