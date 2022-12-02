@@ -22,11 +22,9 @@ pub struct CollectionDef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<Schema>,
     /// # Schema against which collection documents are validated and reduced on write.
-    #[schemars(example = "Schema::example_relative")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub write_schema: Option<Schema>,
     /// # Schema against which collection documents are validated and reduced on read.
-    #[schemars(example = "Schema::example_relative")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub read_schema: Option<Schema>,
     /// # Composite key of this collection.

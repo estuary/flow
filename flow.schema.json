@@ -306,6 +306,26 @@
         }
       ],
       "type": "object",
+      "oneOf": [
+        {
+          "required": [
+            "schema"
+          ],
+          "properties": {
+            "readSchema": false,
+            "writeSchema": false
+          }
+        },
+        {
+          "required": [
+            "readSchema",
+            "writeSchema"
+          ],
+          "properties": {
+            "schema": false
+          }
+        }
+      ],
       "required": [
         "key"
       ],
@@ -350,9 +370,6 @@
         },
         "readSchema": {
           "title": "Schema against which collection documents are validated and reduced on read.",
-          "examples": [
-            "../path/to/schema#/$defs/subPath"
-          ],
           "anyOf": [
             {
               "$ref": "#/definitions/Schema"
@@ -378,9 +395,6 @@
         },
         "writeSchema": {
           "title": "Schema against which collection documents are validated and reduced on write.",
-          "examples": [
-            "../path/to/schema#/$defs/subPath"
-          ],
           "anyOf": [
             {
               "$ref": "#/definitions/Schema"
