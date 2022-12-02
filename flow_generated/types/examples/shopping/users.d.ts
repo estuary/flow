@@ -5,3 +5,7 @@ export type Document = /* A user who may buy things from our site */ {
     id: number;
     name: string;
 };
+
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;

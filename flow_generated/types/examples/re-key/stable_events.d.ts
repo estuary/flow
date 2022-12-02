@@ -6,6 +6,10 @@ export type Document = /* An event enriched with a stable ID */ {
     stable_id: string;
 };
 
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;
+
 // Generated from derivation register schema examples/re-key/schema.yaml#/$defs/join_register.
 // Referenced from examples/re-key/flow.yaml#/collections/examples~1re-key~1stable_events/derivation.
 export type Register = /* Register that's keyed on anonymous ID, which:
@@ -23,19 +27,23 @@ export type Register = /* Register that's keyed on anonymous ID, which:
 
 // Generated from transform fromAnonymousEvents as a re-export of collection examples/re-key/anonymous_events.
 // Referenced from examples/re-key/flow.yaml#/collections/examples~1re-key~1stable_events/derivation/transform/fromAnonymousEvents."
-import { Document as FromAnonymousEventsSource } from './anonymous_events';
-export { Document as FromAnonymousEventsSource } from './anonymous_events';
+import { SourceDocument as FromAnonymousEventsSource } from './anonymous_events';
+export { SourceDocument as FromAnonymousEventsSource } from './anonymous_events';
 
 // Generated from transform fromIdMappings as a re-export of collection examples/re-key/mappings.
 // Referenced from examples/re-key/flow.yaml#/collections/examples~1re-key~1stable_events/derivation/transform/fromIdMappings."
-import { Document as FromIdMappingsSource } from './mappings';
-export { Document as FromIdMappingsSource } from './mappings';
+import { SourceDocument as FromIdMappingsSource } from './mappings';
+export { SourceDocument as FromIdMappingsSource } from './mappings';
 
 // Generated from derivation examples/re-key/flow.yaml#/collections/examples~1re-key~1stable_events/derivation.
 // Required to be implemented by examples/re-key/flow.ts.
 export interface IDerivation {
     fromAnonymousEventsUpdate(source: FromAnonymousEventsSource): Register[];
-    fromAnonymousEventsPublish(source: FromAnonymousEventsSource, register: Register, previous: Register): Document[];
+    fromAnonymousEventsPublish(
+        source: FromAnonymousEventsSource,
+        register: Register,
+        previous: Register,
+    ): OutputDocument[];
     fromIdMappingsUpdate(source: FromIdMappingsSource): Register[];
-    fromIdMappingsPublish(source: FromIdMappingsSource, register: Register, previous: Register): Document[];
+    fromIdMappingsPublish(source: FromIdMappingsSource, register: Register, previous: Register): OutputDocument[];
 }

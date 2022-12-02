@@ -25,6 +25,10 @@ export type Document = /* Document for join examples */ {
     RHS?: string[];
 };
 
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;
+
 // Generated from derivation register schema examples/derive-patterns/schema.yaml#Join.
 // Referenced from examples/derive-patterns/join-inner.flow.yaml#/collections/patterns~1inner-join/derivation.
 export type Register = /* Document for join examples */ {
@@ -35,19 +39,19 @@ export type Register = /* Document for join examples */ {
 
 // Generated from transform fromInts as a re-export of collection patterns/ints.
 // Referenced from examples/derive-patterns/join-inner.flow.yaml#/collections/patterns~1inner-join/derivation/transform/fromInts."
-import { Document as FromIntsSource } from './ints';
-export { Document as FromIntsSource } from './ints';
+import { SourceDocument as FromIntsSource } from './ints';
+export { SourceDocument as FromIntsSource } from './ints';
 
 // Generated from transform fromStrings as a re-export of collection patterns/strings.
 // Referenced from examples/derive-patterns/join-inner.flow.yaml#/collections/patterns~1inner-join/derivation/transform/fromStrings."
-import { Document as FromStringsSource } from './strings';
-export { Document as FromStringsSource } from './strings';
+import { SourceDocument as FromStringsSource } from './strings';
+export { SourceDocument as FromStringsSource } from './strings';
 
 // Generated from derivation examples/derive-patterns/join-inner.flow.yaml#/collections/patterns~1inner-join/derivation.
 // Required to be implemented by examples/derive-patterns/join-inner.flow.ts.
 export interface IDerivation {
     fromIntsUpdate(source: FromIntsSource): Register[];
-    fromIntsPublish(source: FromIntsSource, register: Register, previous: Register): Document[];
+    fromIntsPublish(source: FromIntsSource, register: Register, previous: Register): OutputDocument[];
     fromStringsUpdate(source: FromStringsSource): Register[];
-    fromStringsPublish(source: FromStringsSource, register: Register, previous: Register): Document[];
+    fromStringsPublish(source: FromStringsSource, register: Register, previous: Register): OutputDocument[];
 }

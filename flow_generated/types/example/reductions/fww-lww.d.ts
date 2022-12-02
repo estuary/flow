@@ -5,3 +5,7 @@ export type Document = {
     key: string;
     lww?: unknown;
 };
+
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;

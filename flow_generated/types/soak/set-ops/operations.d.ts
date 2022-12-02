@@ -32,3 +32,7 @@ export type Document = /* Mutates a set and provides the values that are expecte
         [k: string]: number;
     };
 };
+
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;
