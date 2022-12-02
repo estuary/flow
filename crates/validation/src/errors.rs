@@ -118,10 +118,6 @@ pub enum Error {
     },
     #[error("{category} partition selector field {field} cannot be an empty string")]
     SelectorEmptyString { category: String, field: String },
-    #[error(
-        "source schema {schema} is already the schema of {collection} and should be omitted here"
-    )]
-    SourceSchemaNotDifferent { schema: Url, collection: String },
     #[error("transform {transform} shuffle key is already the key of {collection} and should be omitted here")]
     ShuffleKeyNotDifferent {
         transform: String,

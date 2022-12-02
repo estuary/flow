@@ -116,11 +116,11 @@ fn add_ops_collection(name: String, schema_url: Url, tables: &mut tables::Source
         scope.clone(),
         name.clone(),
         serde_json::from_value::<models::CollectionDef>(serde_json::json!({
-            "schema": false,
             "key": key,
         }))
         .unwrap(),
-        schema_url,
+        &schema_url,
+        &schema_url,
     );
 
     // Ops collections are partitioned by kind and name, to allow users to easily consume logs or
@@ -239,17 +239,20 @@ mod test {
         let dummy_url = Url::parse("test://foo.bar/collection").unwrap();
         let schema_url = Url::parse("test://foo.bar/schema").unwrap();
         let spec = models::CollectionDef {
-            schema: models::Schema::Bool(true),
+            schema: None,
+            write_schema: None,
+            read_schema: None,
             key: models::CompositeKey::new(vec![models::JsonPointer::new("/not/a/real/key")]),
-            derivation: None,
             projections: Default::default(),
+            derivation: None,
             journals: Default::default(),
         };
         tables.collections.insert_row(
             dummy_url,
             models::Collection::new("ops/acmeCo/logs"),
             spec,
-            schema_url,
+            &schema_url,
+            &schema_url,
         );
 
         generate_ops_collections(&mut tables);

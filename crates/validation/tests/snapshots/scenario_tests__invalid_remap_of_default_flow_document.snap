@@ -8,6 +8,10 @@ expression: errors
         error: projection flow_document is the canonical field name of location "/flow_document", and cannot re-map it to "",
     },
     Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw/projections/flow_document,
+        error: projection flow_document is the canonical field name of location "/flow_document", and cannot re-map it to "",
+    },
+    Error {
         scope: test://example/int-string#/collections/testing~1int-string.v2/projections/flow_document,
         error: projection flow_document is the canonical field name of location "/flow_document", and cannot re-map it to "",
     },

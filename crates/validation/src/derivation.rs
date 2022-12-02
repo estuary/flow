@@ -228,13 +228,11 @@ pub fn walk_transform(
                 source:
                     models::TransformSource {
                         name: source,
-                        schema: _,
                         partitions: source_partitions,
                     },
                 update,
                 ..
             },
-        source_schema,
     } = transform;
 
     indexed::walk_name(
@@ -268,28 +266,11 @@ pub fn walk_transform(
     };
 
     if let Some(selector) = source_partitions {
-        // Note that the selector is deliberately checked against the
-        // collection's schema shape, and not our own transform source schema.
         collection::walk_selector(scope, &source.spec, &selector, errors);
     }
 
-    // Map to an effective source schema & shape.
-    let source_schema = match source_schema {
-        Some(url) => {
-            // Was the collection defined using this same schema?
-            if url.as_str() == &source.spec.write_schema_uri {
-                Error::SourceSchemaNotDifferent {
-                    schema: url.clone(),
-                    collection: source.collection.to_string(),
-                }
-                .push(scope, errors);
-            }
-            url.as_str()
-        }
-        None => &source.spec.write_schema_uri,
-    };
-    let source_shape =
-        &schema_shapes[schema_shapes.equal_range_by_key(&source_schema, |s| s.schema.as_str())][0];
+    let source_shape = &schema_shapes[schema_shapes
+        .equal_range_by_key(&source.spec.read_schema_uri.as_str(), |s| s.schema.as_str())][0];
 
     // Project |source.spec.key| from Vec<String> => CompositeKey.
     let source_key = models::CompositeKey::new(

@@ -154,13 +154,14 @@ async fn do_combine(
     let collection = models::Collection::new(collection);
     let catalog = crate::source::bundle(source).await?;
 
-    let Some(models::CollectionDef{schema: models::Schema::Object(schema), key, .. }) = catalog.collections.get(&collection) else {
+    let Some(models::CollectionDef{schema, read_schema, key, .. }) = catalog.collections.get(&collection) else {
         anyhow::bail!("did not find collection {collection:?} in the source specification");
     };
+    let schema = schema.as_ref().or(read_schema.as_ref()).unwrap();
 
     let schema = doc::validation::build_schema(
         url::Url::parse("https://example/schema").unwrap(),
-        &serde_json::Value::Object(schema.clone()),
+        &serde_json::to_value(schema).unwrap(),
     )?;
 
     let mut accumulator = combine::Accumulator::new(

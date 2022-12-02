@@ -232,7 +232,9 @@ fn swizzle_response_to_catalog(
         collections.insert(
             collection,
             models::CollectionDef {
-                schema,
+                schema: Some(schema),
+                write_schema: None,
+                read_schema: None,
                 key: models::CompositeKey::new(key_ptrs),
                 projections: Default::default(),
                 derivation: None,

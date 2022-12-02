@@ -254,19 +254,28 @@ pub mod inference {
         }
     }
 }
-/// Next tag: 10.
+/// Next tag: 12.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CollectionSpec {
     /// Name of this collection.
     #[prost(string, tag="1")]
     pub collection: ::prost::alloc::string::String,
-    /// JSON-schema URI against which written collection documents are validated,
+    /// JSON Schema URI against which written collection documents are validated,
     /// and which provides write-time reduction annotations.
     #[prost(string, tag="2")]
     pub write_schema_uri: ::prost::alloc::string::String,
-    /// Bundled JSON-schema of the collection
+    /// Bundled write-time JSON Schema of the collection.
     #[prost(string, tag="8")]
     pub write_schema_json: ::prost::alloc::string::String,
+    /// JSON Schema URI against which read collection documents are validated,
+    /// and which provides read-time reduction annotations.
+    /// Optional. If not set then `write_schema_uri` should be used.
+    #[prost(string, tag="10")]
+    pub read_schema_uri: ::prost::alloc::string::String,
+    /// Bundled read-time JSON Schema of the collection.
+    /// Optional. If not set then `write_schema_json` should be used.
+    #[prost(string, tag="11")]
+    pub read_schema_json: ::prost::alloc::string::String,
     /// Composite key of the collection, as JSON-Pointers.
     #[prost(string, repeated, tag="3")]
     pub key_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
@@ -314,7 +323,7 @@ pub struct DerivationSpec {
     /// Derivations are collections.
     #[prost(message, optional, tag="1")]
     pub collection: ::core::option::Option<CollectionSpec>,
-    /// JSON-schema URI against which derivation registers are validated,
+    /// JSON Schema URI against which derivation registers are validated,
     /// and which provides reduction annotations. Register schemas are always
     /// local to this build, and are a resource URL and fragment pointer.
     #[prost(string, tag="2")]

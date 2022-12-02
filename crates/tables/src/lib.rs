@@ -60,9 +60,10 @@ tables!(
         collection: models::Collection,
         // Specification of this collection.
         spec: models::CollectionDef,
-        // JSON Schema against which all collection documents are validated,
-        // and which provides document annotations.
-        schema: url::Url,
+        // Schema against which collection documents are validated and reduced on write.
+        write_schema: url::Url,
+        // Schema against which collection documents are validated and reduced on read.
+        read_schema: url::Url,
     }
 
     table Projections (row Projection, order_by [collection field], sql "projections") {
@@ -96,10 +97,6 @@ tables!(
         transform: models::Transform,
         // Specification of this transform.
         spec: models::TransformDef,
-        // Optional alternative JSON schema against which source documents are
-        // validated prior to transformation. If None, the collection's schema
-        // is used instead.
-        source_schema: Option<url::Url>,
     }
 
     table Captures (row Capture, order_by [capture], sql "captures") {

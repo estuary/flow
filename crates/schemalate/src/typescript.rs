@@ -39,23 +39,23 @@ pub fn run(args: Args) -> anyhow::Result<()> {
     }
 
     let mut w = std::io::stdout();
-    let mapper = Mapper { index, top_level };
+    let mapper = Mapper {
+        schema: root.curi.clone(),
+        index,
+        top_level,
+    };
 
     // Write the root schema type.
     write!(w, "export type {} = ", args.name)?;
     let mut tmp = String::new();
-    mapper
-        .map(&root.curi)
-        .render(&mut Context::new_without_anchors(&mut tmp));
+    mapper.map(&root.curi).render(&mut Context::new(&mut tmp));
     write!(w, "{};\n\n", tmp)?;
 
     // Write other hoisted and top-level types.
     for (uri, name) in &mapper.top_level {
         write!(w, "export type {} = ", name)?;
         let mut tmp = String::new();
-        mapper
-            .map(uri)
-            .render(&mut Context::new_without_anchors(&mut tmp));
+        mapper.map(uri).render(&mut Context::new(&mut tmp));
         write!(w, "{};\n\n", tmp)?;
     }
 
