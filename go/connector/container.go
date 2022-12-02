@@ -118,7 +118,7 @@ func StartContainer(
 		"--mount", fmt.Sprintf("type=bind,source=%s,target=/flow-connector-init", tmpProxy.Name()),
 		"--mount", fmt.Sprintf("type=bind,source=%s,target=/image-inspect.json", tmpInspect.Name()),
 		// Publish the flow-connector-init port through to a mapped host port.
-		"--publish", fmt.Sprintf("127.0.0.1:%d:%d/tcp", portHost, portInit),
+		"--publish", fmt.Sprintf("%d:%d/tcp", portHost, portInit),
 		// Thread-through the logging configuration of the connector.
 		"--env", "LOG_FORMAT=json",
 		"--env", "LOG_LEVEL=" + labels.LogLevel.String(),
