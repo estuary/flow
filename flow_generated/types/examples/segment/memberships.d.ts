@@ -27,17 +27,21 @@ export type Document = /* A user and their status within a single segment. */ {
     value?: /* Most recent associated value. */ string;
 };
 
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;
+
 // Generated from derivation register schema examples/segment/flow.yaml?ptr=/collections/examples~1segment~1memberships/derivation/register/schema.
 // Referenced from examples/segment/flow.yaml#/collections/examples~1segment~1memberships/derivation.
 export type Register = unknown;
 
 // Generated from transform fromSegmentation as a re-export of collection examples/segment/events.
 // Referenced from examples/segment/flow.yaml#/collections/examples~1segment~1memberships/derivation/transform/fromSegmentation."
-import { Document as FromSegmentationSource } from './events';
-export { Document as FromSegmentationSource } from './events';
+import { SourceDocument as FromSegmentationSource } from './events';
+export { SourceDocument as FromSegmentationSource } from './events';
 
 // Generated from derivation examples/segment/flow.yaml#/collections/examples~1segment~1memberships/derivation.
 // Required to be implemented by examples/segment/memberships.ts.
 export interface IDerivation {
-    fromSegmentationPublish(source: FromSegmentationSource, register: Register, previous: Register): Document[];
+    fromSegmentationPublish(source: FromSegmentationSource, register: Register, previous: Register): OutputDocument[];
 }

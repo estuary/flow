@@ -31,6 +31,10 @@ export type Document = /* Ride within the Citi Bike system */ {
     user_type?: /* Subscriber, or pay-as-you-go Customer */ null | 'Customer' | 'Subscriber';
 };
 
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;
+
 // Generated from derivation register schema examples/citi-bike/ride.schema.yaml#/$defs/terminus.
 // Referenced from examples/citi-bike/rides-and-relocations.flow.yaml#/collections/examples~1citi-bike~1rides-and-relocations/derivation.
 export type Register = /* Station and time at which a trip began or ended */ {
@@ -47,12 +51,12 @@ export type Register = /* Station and time at which a trip began or ended */ {
 
 // Generated from transform fromRides as a re-export of collection examples/citi-bike/rides.
 // Referenced from examples/citi-bike/rides-and-relocations.flow.yaml#/collections/examples~1citi-bike~1rides-and-relocations/derivation/transform/fromRides."
-import { Document as FromRidesSource } from './rides';
-export { Document as FromRidesSource } from './rides';
+import { SourceDocument as FromRidesSource } from './rides';
+export { SourceDocument as FromRidesSource } from './rides';
 
 // Generated from derivation examples/citi-bike/rides-and-relocations.flow.yaml#/collections/examples~1citi-bike~1rides-and-relocations/derivation.
 // Required to be implemented by examples/citi-bike/rides-and-relocations.flow.ts.
 export interface IDerivation {
     fromRidesUpdate(source: FromRidesSource): Register[];
-    fromRidesPublish(source: FromRidesSource, register: Register, previous: Register): Document[];
+    fromRidesPublish(source: FromRidesSource, register: Register, previous: Register): OutputDocument[];
 }

@@ -29,6 +29,10 @@ export type Document = /* Purchase event joined with prior offer views and click
     }[];
 };
 
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;
+
 // Generated from derivation register schema examples/marketing/flow.yaml?ptr=/collections/marketing~1purchase-with-offers/derivation/register/schema.
 // Referenced from examples/marketing/flow.yaml#/collections/marketing~1purchase-with-offers/derivation.
 export type Register = {
@@ -65,18 +69,18 @@ export type Register = {
 
 // Generated from transform indexClicks as a re-export of collection marketing/clicks-with-views.
 // Referenced from examples/marketing/flow.yaml#/collections/marketing~1purchase-with-offers/derivation/transform/indexClicks."
-import { Document as IndexClicksSource } from './clicks-with-views';
-export { Document as IndexClicksSource } from './clicks-with-views';
+import { SourceDocument as IndexClicksSource } from './clicks-with-views';
+export { SourceDocument as IndexClicksSource } from './clicks-with-views';
 
 // Generated from transform indexViews as a re-export of collection marketing/views-with-campaign.
 // Referenced from examples/marketing/flow.yaml#/collections/marketing~1purchase-with-offers/derivation/transform/indexViews."
-import { Document as IndexViewsSource } from './views-with-campaign';
-export { Document as IndexViewsSource } from './views-with-campaign';
+import { SourceDocument as IndexViewsSource } from './views-with-campaign';
+export { SourceDocument as IndexViewsSource } from './views-with-campaign';
 
 // Generated from transform joinPurchaseWithViewsAndClicks as a re-export of collection marketing/purchases.
 // Referenced from examples/marketing/flow.yaml#/collections/marketing~1purchase-with-offers/derivation/transform/joinPurchaseWithViewsAndClicks."
-import { Document as JoinPurchaseWithViewsAndClicksSource } from './purchases';
-export { Document as JoinPurchaseWithViewsAndClicksSource } from './purchases';
+import { SourceDocument as JoinPurchaseWithViewsAndClicksSource } from './purchases';
+export { SourceDocument as JoinPurchaseWithViewsAndClicksSource } from './purchases';
 
 // Generated from derivation examples/marketing/flow.yaml#/collections/marketing~1purchase-with-offers/derivation.
 // Required to be implemented by examples/marketing/purchase-with-offers.ts.
@@ -87,5 +91,5 @@ export interface IDerivation {
         source: JoinPurchaseWithViewsAndClicksSource,
         register: Register,
         previous: Register,
-    ): Document[];
+    ): OutputDocument[];
 }

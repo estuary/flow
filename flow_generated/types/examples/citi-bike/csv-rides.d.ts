@@ -17,3 +17,7 @@ export type Document = {
     'Trip Duration': string;
     'User Type': string | null;
 };
+
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;

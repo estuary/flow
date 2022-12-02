@@ -15,3 +15,7 @@ export type Document =
         };
         ts: /* Timestamp corresponding to the start of the transaction */ string;
     };
+
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;

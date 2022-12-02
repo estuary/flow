@@ -5,3 +5,7 @@ export type Document = /* A reading of a temperature from a sensor */ {
     tempC: /* The temperature in degrees celsius */ number;
     timestamp: /* An RFC-3339 formatted string holding the time of the reading */ string;
 };
+
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;

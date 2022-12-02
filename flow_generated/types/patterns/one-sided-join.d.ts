@@ -25,6 +25,10 @@ export type Document = /* Document for join examples */ {
     RHS?: string[];
 };
 
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;
+
 // Generated from derivation register schema examples/derive-patterns/schema.yaml#Join.
 // Referenced from examples/derive-patterns/join-one-sided.flow.yaml#/collections/patterns~1one-sided-join/derivation.
 export type Register = /* Document for join examples */ {
@@ -35,17 +39,17 @@ export type Register = /* Document for join examples */ {
 
 // Generated from transform publishLHS as a re-export of collection patterns/ints.
 // Referenced from examples/derive-patterns/join-one-sided.flow.yaml#/collections/patterns~1one-sided-join/derivation/transform/publishLHS."
-import { Document as PublishLHSSource } from './ints';
-export { Document as PublishLHSSource } from './ints';
+import { SourceDocument as PublishLHSSource } from './ints';
+export { SourceDocument as PublishLHSSource } from './ints';
 
 // Generated from transform updateRHS as a re-export of collection patterns/strings.
 // Referenced from examples/derive-patterns/join-one-sided.flow.yaml#/collections/patterns~1one-sided-join/derivation/transform/updateRHS."
-import { Document as UpdateRHSSource } from './strings';
-export { Document as UpdateRHSSource } from './strings';
+import { SourceDocument as UpdateRHSSource } from './strings';
+export { SourceDocument as UpdateRHSSource } from './strings';
 
 // Generated from derivation examples/derive-patterns/join-one-sided.flow.yaml#/collections/patterns~1one-sided-join/derivation.
 // Required to be implemented by examples/derive-patterns/join-one-sided.flow.ts.
 export interface IDerivation {
-    publishLHSPublish(source: PublishLHSSource, register: Register, previous: Register): Document[];
+    publishLHSPublish(source: PublishLHSSource, register: Register, previous: Register): OutputDocument[];
     updateRHSUpdate(source: UpdateRHSSource): Register[];
 }

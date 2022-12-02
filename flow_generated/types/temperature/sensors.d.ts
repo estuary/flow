@@ -9,3 +9,7 @@ export type Document = /* A sensor that produces temperature readings */ {
     };
     locationName?: /* Human readable name of the sensor location */ string;
 };
+
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;
