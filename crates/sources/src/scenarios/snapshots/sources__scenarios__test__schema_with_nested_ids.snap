@@ -10,12 +10,12 @@ Sources {
             scope: test://example/catalog.yaml#/collections/a~1collection,
             collection: a/collection,
             spec: {
-              "schema": false,
               "key": [
                 "/key"
               ]
             },
-            schema: test://example/actual,
+            write_schema: test://example/actual,
+            read_schema: test://example/actual,
         },
     ],
     derivations: [],

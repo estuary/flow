@@ -5,7 +5,7 @@ expression: errors
 [
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
-        error: include projection Int of collection testing/int-string is not a partition,
+        error: include projection Int of collection testing/int-string-rw is not a partition,
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
@@ -13,7 +13,7 @@ expression: errors
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
-        error: include projection Unknown does not exist in collection testing/int-string,
+        error: include projection Unknown does not exist in collection testing/int-string-rw,
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
@@ -29,11 +29,11 @@ expression: errors
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
-        error: exclude projection AlsoUnknown does not exist in collection testing/int-string,
+        error: exclude projection AlsoUnknown does not exist in collection testing/int-string-rw,
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
-        error: exclude projection Int of collection testing/int-string is not a partition,
+        error: exclude projection Int of collection testing/int-string-rw is not a partition,
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,

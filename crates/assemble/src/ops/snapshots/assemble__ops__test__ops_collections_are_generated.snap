@@ -39,18 +39,17 @@ Sources {
             scope: test://foo.bar/collection,
             collection: ops/acmeCo/logs,
             spec: {
-              "schema": true,
               "key": [
                 "/not/a/real/key"
               ]
             },
-            schema: test://foo.bar/schema,
+            write_schema: test://foo.bar/schema,
+            read_schema: test://foo.bar/schema,
         },
         Collection {
             scope: builtin://flow/ops/generated/collections,
             collection: ops/acmeCo/stats,
             spec: {
-              "schema": false,
               "key": [
                 "/shard/name",
                 "/shard/keyBegin",
@@ -58,13 +57,13 @@ Sources {
                 "/ts"
               ]
             },
-            schema: builtin://flow/ops-stats-schema.json,
+            write_schema: builtin://flow/ops-stats-schema.json,
+            read_schema: builtin://flow/ops-stats-schema.json,
         },
         Collection {
             scope: builtin://flow/ops/generated/collections,
             collection: ops/gooble/logs,
             spec: {
-              "schema": false,
               "key": [
                 "/shard/name",
                 "/shard/keyBegin",
@@ -72,13 +71,13 @@ Sources {
                 "/ts"
               ]
             },
-            schema: builtin://flow/ops-log-schema.json,
+            write_schema: builtin://flow/ops-log-schema.json,
+            read_schema: builtin://flow/ops-log-schema.json,
         },
         Collection {
             scope: builtin://flow/ops/generated/collections,
             collection: ops/gooble/stats,
             spec: {
-              "schema": false,
               "key": [
                 "/shard/name",
                 "/shard/keyBegin",
@@ -86,13 +85,13 @@ Sources {
                 "/ts"
               ]
             },
-            schema: builtin://flow/ops-stats-schema.json,
+            write_schema: builtin://flow/ops-stats-schema.json,
+            read_schema: builtin://flow/ops-stats-schema.json,
         },
         Collection {
             scope: builtin://flow/ops/generated/collections,
             collection: ops/justme/logs,
             spec: {
-              "schema": false,
               "key": [
                 "/shard/name",
                 "/shard/keyBegin",
@@ -100,13 +99,13 @@ Sources {
                 "/ts"
               ]
             },
-            schema: builtin://flow/ops-log-schema.json,
+            write_schema: builtin://flow/ops-log-schema.json,
+            read_schema: builtin://flow/ops-log-schema.json,
         },
         Collection {
             scope: builtin://flow/ops/generated/collections,
             collection: ops/justme/stats,
             spec: {
-              "schema": false,
               "key": [
                 "/shard/name",
                 "/shard/keyBegin",
@@ -114,13 +113,13 @@ Sources {
                 "/ts"
               ]
             },
-            schema: builtin://flow/ops-stats-schema.json,
+            write_schema: builtin://flow/ops-stats-schema.json,
+            read_schema: builtin://flow/ops-stats-schema.json,
         },
         Collection {
             scope: builtin://flow/ops/generated/collections,
             collection: ops/shamazon/logs,
             spec: {
-              "schema": false,
               "key": [
                 "/shard/name",
                 "/shard/keyBegin",
@@ -128,13 +127,13 @@ Sources {
                 "/ts"
               ]
             },
-            schema: builtin://flow/ops-log-schema.json,
+            write_schema: builtin://flow/ops-log-schema.json,
+            read_schema: builtin://flow/ops-log-schema.json,
         },
         Collection {
             scope: builtin://flow/ops/generated/collections,
             collection: ops/shamazon/stats,
             spec: {
-              "schema": false,
               "key": [
                 "/shard/name",
                 "/shard/keyBegin",
@@ -142,7 +141,8 @@ Sources {
                 "/ts"
               ]
             },
-            schema: builtin://flow/ops-stats-schema.json,
+            write_schema: builtin://flow/ops-stats-schema.json,
+            read_schema: builtin://flow/ops-stats-schema.json,
         },
     ],
     derivations: [
