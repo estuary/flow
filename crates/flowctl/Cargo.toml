@@ -24,6 +24,7 @@ tables = { path = "../tables" }
 validation = { path = "../validation" }
 
 anyhow = { workspace = true }
+base64 = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
 comfy-table = { workspace = true }
@@ -32,14 +33,22 @@ dirs = { workspace = true }
 futures = { workspace = true }
 humantime = { workspace = true }
 itertools = { workspace = true }
+lazy_static = { workspace = true }
+
+# open is used for opening URLs in the user's browser
+open = { workspace = true }
 postgrest = { workspace = true }
 reqwest = { workspace = true }
+# rpassword is used for reading credentials from stdin
+rpassword = { workspace = true }
+
 serde = { workspace = true }
 serde-transcode = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 size = { workspace = true }
 superslice = { workspace = true }
+
 tempfile = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }

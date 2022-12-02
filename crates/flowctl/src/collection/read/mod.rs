@@ -8,8 +8,7 @@ use journal_client::{
     read::uncommitted::{ExponentialBackoff, JournalRead, ReadStart, ReadUntil, Reader},
     Client,
 };
-use reqwest::header::{HeaderMap, HeaderValue};
-use reqwest::{StatusCode, Url};
+use reqwest::StatusCode;
 use time::OffsetDateTime;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 
@@ -27,10 +26,10 @@ pub async fn get_collection_inferred_schema(
         anyhow::bail!("flowctl is not yet able to read from partitioned collections (coming soon)");
     }
 
-    let token =
-        fetch_data_plane_access_token(ctx.config_mut(), vec![args.selector.collection.clone()])
-            .await
-            .context("fetching data plane access token")?;
+    let cp_client = ctx.controlplane_client()?;
+    let token = fetch_data_plane_access_token(cp_client, vec![args.selector.collection.clone()])
+        .await
+        .context("fetching data plane access token")?;
 
     let client = reqwest::Client::new();
 
@@ -112,9 +111,9 @@ pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> an
         );
     }
 
+    let cp_client = ctx.controlplane_client()?;
     let mut data_plane_client =
-        dataplane::journal_client_for(ctx.config_mut(), vec![args.selector.collection.clone()])
-            .await?;
+        dataplane::journal_client_for(cp_client, vec![args.selector.collection.clone()]).await?;
 
     let selector = args.selector.build_label_selector();
     tracing::debug!(?selector, "build label selector");

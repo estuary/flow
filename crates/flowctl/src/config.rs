@@ -1,7 +1,14 @@
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
+
+lazy_static::lazy_static! {
+    static ref DEFAULT_DASHBOARD_URL: url::Url = url::Url::parse("https://dashboard.estuary.dev/").unwrap();
+}
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Config {
+    /// URL of the Flow UI, which will be used as a base when flowctl generates links to it.
+    pub dashboard_url: Option<url::Url>,
     /// ID of the current draft, or None if no draft is configured.
     pub draft: Option<String>,
     // Current access token, or None if no token is set.
@@ -9,21 +16,6 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn client(&self) -> anyhow::Result<postgrest::Postgrest> {
-        match &self.api {
-            Some(api) => {
-                let client = postgrest::Postgrest::new(api.endpoint.as_str());
-                let client = client.insert_header("apikey", &api.public_token);
-                let client =
-                    client.insert_header("Authorization", format!("Bearer {}", &api.access_token));
-                Ok(client)
-            }
-            None => {
-                anyhow::bail!("You must run `auth login` first")
-            }
-        }
-    }
-
     pub fn cur_draft(&self) -> anyhow::Result<String> {
         match &self.draft {
             Some(draft) => Ok(draft.clone()),
@@ -40,6 +32,17 @@ impl Config {
         } else {
             self.api = Some(API::managed(access_token));
         }
+    }
+
+    pub fn get_dashboard_url(&self, path: &str) -> anyhow::Result<url::Url> {
+        let base = self
+            .dashboard_url
+            .as_ref()
+            .unwrap_or(&*DEFAULT_DASHBOARD_URL);
+        let url = base.join(path).context(
+            "failed to join path to configured dashboard_url, the dashboard_url is likely invalid",
+        )?;
+        Ok(url)
     }
 }
 
