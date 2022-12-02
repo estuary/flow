@@ -99,6 +99,9 @@ message Shuffle {
   // Computed shuffle lambda. If non-nil, then shuffle_key_ptr MUST be empty
   // and uses_source_key MUST be false.
   LambdaSpec shuffle_lambda = 7;
+  // Schema against which shuffled documents are to be validated.
+  // This will be removed.
+  string deprecated_source_schema_uri = 8;
   // filter_r_clocks is true if the shuffle coordinator should filter documents
   // sent to each subscriber based on its covered r-clock ranges and the
   // individual document clocks. If false, the subscriber's r-clock range is
