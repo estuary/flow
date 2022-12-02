@@ -1,7 +1,6 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
-
 ---
 [
     Error {
@@ -14,6 +13,10 @@ expression: errors
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string,
+        error: collection references storageMapping testing/, defined at test://example/array-key#/storageMappings/testing~1, without importing it or being imported by it,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw,
         error: collection references storageMapping testing/, defined at test://example/array-key#/storageMappings/testing~1, without importing it or being imported by it,
     },
     Error {

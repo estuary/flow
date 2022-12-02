@@ -516,20 +516,15 @@ test://example/int-string:
     testing/int-string:
       schema: test://example/int-string.schema#/not/found
 
+    testing/int-string-rw:
+      writeSchema: test://example/int-string.schema#/also/not/found
+      readSchema: test://example/int-string-len.schema#DoesNotExist
+
 # Omit downstream errors.
 test://example/db-views:
   materializations: null
 test://example/webhook-deliveries:
   materializations: null
-
-test://example/int-halve:
-  collections:
-    testing/int-halve:
-      derivation:
-        transform:
-          halveIntString:
-            source:
-              schema: test://example/int-string-len.schema#/not/found
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -715,21 +710,32 @@ test://example/int-halve:
 }
 
 #[test]
-fn test_redundant_source_schema_and_shuffle() {
+fn test_partition_not_defined_in_write_schema() {
     let errors = run_test_errors(
         &GOLDEN,
         r#"
-test://example/int-reverse:
+test://example/int-string:
   collections:
-    testing/int-reverse:
-      derivation:
-        transform:
-          reverseIntString:
-            source:
-              name: testing/int-string
-              schema: test://example/int-string.schema
-            shuffle:
-              key: [/int]
+    testing/int-string-rw:
+      projections:
+        Len:
+          location: /len
+          partition: true
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_key_not_defined_in_write_schema() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/int-string:
+  collections:
+    testing/int-string-rw:
+      # /len is present in the read but not write schema.
+      key: [/int, /len, /missing-in-read-and-write-schemas]
 "#,
     );
     insta::assert_debug_snapshot!(errors);

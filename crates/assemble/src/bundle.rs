@@ -117,7 +117,7 @@ mod test {
 
         for c in collections.iter() {
             // Build the bundled schema DOM.
-            let bundle_dom = bundled_schema(&c.schema, &imports, &resources);
+            let bundle_dom = bundled_schema(&c.read_schema, &imports, &resources);
 
             // Compile the bundle DOM into a schema, and index it.
             // Note that no external schemas are added to the index, unlike |orig_index|.
@@ -134,7 +134,7 @@ mod test {
 
             // Infer the shape of the original (non-bundled) schema.
             let orig_shape =
-                inference::Shape::infer(orig_index.fetch(&c.schema).unwrap(), &orig_index);
+                inference::Shape::infer(orig_index.fetch(&c.read_schema).unwrap(), &orig_index);
 
             // Expect our inferences over the shape of the schema are identical.
             let bundle_shape = inference::Shape::infer(&bundle_schema, &bundle_index);

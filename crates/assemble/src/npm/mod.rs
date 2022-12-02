@@ -347,6 +347,7 @@ fn build_mapper<'a>(
     // elsewhere and this is a best-effort attempt.
 
     Mapper {
+        schema: schema.clone(),
         index: index.into_index(),
         top_level,
     }

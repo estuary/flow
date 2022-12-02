@@ -333,14 +333,16 @@ pub fn collection_spec(
     build_config: &flow::build_api::Config,
     collection: &tables::Collection,
     projections: Vec<flow::Projection>,
-    schema_bundle: &Value,
+    write_schema_bundle: &Value,
+    read_schema_bundle: &Value,
     stores: &[models::Store],
 ) -> flow::CollectionSpec {
     let tables::Collection {
-        collection: name,
         scope: _,
-        schema,
+        collection: name,
         spec: models::CollectionDef { key, journals, .. },
+        write_schema,
+        read_schema,
     } = collection;
 
     let partition_fields = projections
@@ -359,8 +361,15 @@ pub fn collection_spec(
 
     flow::CollectionSpec {
         collection: name.to_string(),
-        write_schema_uri: schema.to_string(),
-        write_schema_json: schema_bundle.to_string(),
+        write_schema_uri: write_schema.to_string(),
+        write_schema_json: write_schema_bundle.to_string(),
+        read_schema_uri: read_schema.to_string(),
+        // If read_schema_json is unset, then write_schema_json is to be implicitly used instead.
+        read_schema_json: if read_schema != write_schema {
+            read_schema_bundle.to_string()
+        } else {
+            String::new()
+        },
         key_ptrs: key.iter().map(|p| p.to_string()).collect(),
         projections,
         partition_fields,
@@ -482,14 +491,12 @@ pub fn transform_spec(
                     models::TransformSource {
                         name: source_collection,
                         partitions: source_partitions,
-                        schema: _,
                     },
                 publish,
                 update,
                 read_delay,
                 shuffle,
             },
-        source_schema: _,
     } = &transform;
 
     let (uses_source_key, shuffle_key_ptrs, shuffle_lambda) = match shuffle {

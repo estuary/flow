@@ -23,6 +23,9 @@ func (m *CollectionSpec) GetProjection(field string) *Projection {
 
 // GetReadSchemaJson returns the effective JSON schema for collection reads.
 func (m *CollectionSpec) GetReadSchemaJson() json.RawMessage {
+	if len(m.ReadSchemaJson) != 0 {
+		return m.ReadSchemaJson
+	}
 	return m.WriteSchemaJson
 }
 

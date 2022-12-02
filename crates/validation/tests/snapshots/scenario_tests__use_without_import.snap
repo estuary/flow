@@ -1,12 +1,11 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
-
 ---
 [
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
-        error: transform halveIntString references collection testing/int-string, defined at test://example/int-string#/collections/testing~1int-string, without importing it or being imported by it,
+        error: transform halveIntString references collection testing/int-string-rw, defined at test://example/int-string#/collections/testing~1int-string-rw, without importing it or being imported by it,
     },
     Error {
         scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/reverseIntString,

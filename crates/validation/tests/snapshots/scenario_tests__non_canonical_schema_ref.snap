@@ -9,11 +9,11 @@ expression: errors
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve,
-        error: location /int is unknown in schema test://example/int-halve?ptr=/collections/testing~1int-halve/schema (https://go.estuary.dev/rdCMNB),
+        error: collection testing/int-halve schema must be an object,
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve,
-        error: collection testing/int-halve schema must be an object,
+        error: location /int is unknown in schema test://example/int-halve?ptr=/collections/testing~1int-halve/schema (https://go.estuary.dev/rdCMNB),
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/projections/Extra,

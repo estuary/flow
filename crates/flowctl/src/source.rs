@@ -112,6 +112,20 @@ fn bundled_collection(
     t: &tables::Sources,
     collection: &tables::Collection,
 ) -> (models::Collection, models::CollectionDef) {
+    let (schema, write_schema, read_schema) = if collection.write_schema == collection.read_schema {
+        (
+            Some(bundled_schema(t, &collection.write_schema)),
+            None,
+            None,
+        )
+    } else {
+        (
+            None,
+            Some(bundled_schema(t, &collection.write_schema)),
+            Some(bundled_schema(t, &collection.read_schema)),
+        )
+    };
+
     let projections = &t.projections[t
         .projections
         .equal_range_by_key(&&collection.collection, |p| &p.collection)];
@@ -124,7 +138,9 @@ fn bundled_collection(
     (
         collection.collection.to_owned(),
         models::CollectionDef {
-            schema: bundled_schema(t, &collection.schema),
+            schema,
+            write_schema,
+            read_schema,
             key: collection.spec.key.clone(),
             projections,
             derivation: bundled_derivation(t, &collection.collection),
@@ -177,7 +193,7 @@ fn bundled_derivation(
 
     let transform = transforms
         .iter()
-        .map(|p| (p.transform.clone(), bundled_transform(t, p)))
+        .map(|p| (p.transform.clone(), p.spec.clone()))
         .collect();
 
     Some(models::Derivation {
@@ -189,15 +205,6 @@ fn bundled_derivation(
         typescript,
         shards: derivation.spec.shards.clone(),
     })
-}
-
-fn bundled_transform(t: &tables::Sources, transform: &tables::Transform) -> models::TransformDef {
-    let mut out = transform.spec.clone();
-    out.source.schema = match &transform.source_schema {
-        Some(m) => Some(bundled_schema(t, m)),
-        None => None,
-    };
-    out
 }
 
 fn bundled_schema(t: &tables::Sources, schema: &url::Url) -> models::Schema {

@@ -99,11 +99,27 @@ pub async fn do_develop(
                     let mut spec: models::CollectionDef =
                         serde_json::from_str(spec.get()).context("parsing collection")?;
 
-                    maybe_indirect_schema(
-                        &catalog_url,
-                        &catalog_url.join(&format!("{base}.schema.{ext}")).unwrap(),
-                        &mut spec.schema,
-                    )?;
+                    // Potentially write out separate schema files for the collection
+                    // schema / write_schema / read_schema.
+                    for (schema, filename) in [
+                        (spec.schema.as_mut(), format!("{base}.schema.{ext}")),
+                        (
+                            spec.write_schema.as_mut(),
+                            format!("{base}.write.schema.{ext}"),
+                        ),
+                        (
+                            spec.read_schema.as_mut(),
+                            format!("{base}.read.schema.{ext}"),
+                        ),
+                    ] {
+                        let Some(schema) = schema else { continue };
+
+                        maybe_indirect_schema(
+                            &catalog_url,
+                            &catalog_url.join(&filename).unwrap(),
+                            schema,
+                        )?;
+                    }
 
                     if let Some(derivation) = &mut spec.derivation {
                         maybe_indirect_schema(
@@ -114,19 +130,7 @@ pub async fn do_develop(
                             &mut derivation.register.schema,
                         )?;
 
-                        for (transform, transform_def) in derivation.transform.iter_mut() {
-                            if let Some(schema) = &mut transform_def.source.schema {
-                                maybe_indirect_schema(
-                                    &catalog_url,
-                                    &catalog_url
-                                        .join(&format!(
-                                            "{base}.source.{transform}.schema.{ext}",
-                                            transform = transform.as_str()
-                                        ))
-                                        .unwrap(),
-                                    schema,
-                                )?;
-                            }
+                        for (_transform, transform_def) in derivation.transform.iter_mut() {
                             seen_names.push(transform_def.source.name.clone());
                         }
 
