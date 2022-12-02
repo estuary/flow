@@ -9,6 +9,7 @@ mod auth;
 mod catalog;
 mod collection;
 mod config;
+mod controlplane;
 mod dataplane;
 mod draft;
 mod ops;
@@ -83,11 +84,24 @@ pub struct CliContext {
     config_dirty: bool,
     config: config::Config,
     output: output::Output,
+    controlplane_client: Option<controlplane::Client>,
 }
 
 impl CliContext {
-    pub fn client(&self) -> anyhow::Result<postgrest::Postgrest> {
-        self.config.client()
+    /// Returns a client to the controlplane, creating a new one if necessary.
+    /// This function will return an error if the authentication credentials
+    /// are missing, invalid, or expired.
+    pub fn controlplane_client(&mut self) -> anyhow::Result<controlplane::Client> {
+        let CliContext {
+            ref config,
+            ref mut controlplane_client,
+            ..
+        } = self;
+        if controlplane_client.is_none() {
+            let client = controlplane::new_client(config)?;
+            *controlplane_client = Some(client.clone())
+        }
+        Ok(controlplane_client.clone().unwrap())
     }
 
     pub fn config_mut(&mut self) -> &mut config::Config {
@@ -151,6 +165,7 @@ impl Cli {
             config,
             output,
             config_dirty: false,
+            controlplane_client: None,
         };
 
         match &self.cmd {
