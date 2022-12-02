@@ -32,8 +32,8 @@ file:///package/sub/module.yaml:
       schema:
         type: object
         properties:
-          hello: {type: integer}
-          world: {type: boolean}
+          hello: { type: integer }
+          world: { type: boolean }
         required: [hello]
       key: [/hello]
 
@@ -45,13 +45,22 @@ file:///package/sub/module.yaml:
             content();
         transform:
           widget:
-            source: { name: some/input }
+            source: { name: remote/derivation }
             publish: { lambda: typescript }
 
 test://example/external/module.yaml:
   collections:
     remote/derivation:
-      schema: test://example/int-string.schema
+      writeSchema:
+        type: object
+        title: This is probably an int-string.
+        description: But we're not too sure and are using a weaker write schema.
+        properties:
+          str:
+            description: "Definitely a string here, we think?"
+            type: string
+        required: [str]
+      readSchema: test://example/int-string.schema
       key: [/str]
 
       derivation:

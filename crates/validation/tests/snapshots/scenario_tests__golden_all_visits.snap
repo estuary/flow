@@ -23,6 +23,8 @@ All {
                                 collection: "testing/int-string",
                                 write_schema_uri: "test://example/int-string.schema",
                                 write_schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
+                                read_schema_uri: "test://example/int-string.schema",
+                                read_schema_json: "",
                                 key_ptrs: [
                                     "/int",
                                 ],
@@ -319,6 +321,8 @@ All {
                                 collection: "testing/int-string",
                                 write_schema_uri: "test://example/int-string.schema",
                                 write_schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
+                                read_schema_uri: "test://example/int-string.schema",
+                                read_schema_json: "",
                                 key_ptrs: [
                                     "/int",
                                 ],
@@ -498,6 +502,8 @@ All {
                                 collection: "testing/int-string.v2",
                                 write_schema_uri: "test://example/int-string?ptr=/collections/testing~1int-string.v2/schema",
                                 write_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}},\"$id\":\"test://inlined/canonical/id\",\"$ref\":\"test://example/int-string.schema\"}",
+                                read_schema_uri: "test://example/int-string?ptr=/collections/testing~1int-string.v2/schema",
+                                read_schema_json: "",
                                 key_ptrs: [
                                     "/int",
                                 ],
@@ -762,6 +768,8 @@ All {
                 collection: "testing/array-key",
                 write_schema_uri: "test://example/array-key.schema",
                 write_schema_json: "{\"$id\":\"test://example/array-key.schema\",\"properties\":{\"arr\":{\"items\":{\"properties\":{\"aKey\":{\"type\":\"integer\"}},\"required\":[\"aKey\"],\"type\":\"object\"},\"minItems\":5,\"type\":\"array\"}},\"required\":[\"arr\"],\"type\":\"object\"}",
+                read_schema_uri: "test://example/array-key.schema",
+                read_schema_json: "",
                 key_ptrs: [
                     "/arr/0/aKey",
                 ],
@@ -831,6 +839,26 @@ All {
                     Projection {
                         ptr: "/arr/1/aKey",
                         field: "arr/1/aKey",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "integer",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/arr/2/aKey",
+                        field: "arr/2/aKey",
                         explicit: false,
                         is_partition_key: false,
                         is_primary_key: false,
@@ -947,6 +975,8 @@ All {
                 collection: "testing/from-array-key",
                 write_schema_uri: "test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema",
                 write_schema_json: "{\"$id\":\"test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema\",\"properties\":{\"someKey\":{\"type\":\"integer\"}},\"required\":[\"someKey\"],\"type\":\"object\"}",
+                read_schema_uri: "test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema",
+                read_schema_json: "",
                 key_ptrs: [
                     "/someKey",
                 ],
@@ -1052,6 +1082,8 @@ All {
                 collection: "testing/int-halve",
                 write_schema_uri: "test://example/int-string-len.schema",
                 write_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                read_schema_uri: "test://example/int-string-len.schema",
+                read_schema_json: "",
                 key_ptrs: [
                     "/int",
                 ],
@@ -1312,6 +1344,8 @@ All {
                 collection: "testing/int-reverse",
                 write_schema_uri: "test://example/int-string.schema",
                 write_schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
+                read_schema_uri: "test://example/int-string.schema",
+                read_schema_json: "",
                 key_ptrs: [
                     "/int",
                 ],
@@ -1465,6 +1499,8 @@ All {
                 collection: "testing/int-string",
                 write_schema_uri: "test://example/int-string.schema",
                 write_schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
+                read_schema_uri: "test://example/int-string.schema",
+                read_schema_json: "",
                 key_ptrs: [
                     "/int",
                 ],
@@ -1634,12 +1670,299 @@ All {
             },
         },
         BuiltCollection {
+            scope: test://example/int-string#/collections/testing~1int-string-rw,
+            collection: testing/int-string-rw,
+            spec: CollectionSpec {
+                collection: "testing/int-string-rw",
+                write_schema_uri: "test://example/int-string.schema",
+                write_schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
+                read_schema_uri: "test://example/int-string-len.schema",
+                read_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                key_ptrs: [
+                    "/int",
+                ],
+                uuid_ptr: "/_meta/uuid",
+                partition_fields: [
+                    "bit",
+                ],
+                projections: [
+                    Projection {
+                        ptr: "/int",
+                        field: "Int",
+                        explicit: true,
+                        is_partition_key: false,
+                        is_primary_key: true,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "integer",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/len",
+                        field: "Len",
+                        explicit: true,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "integer",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/str",
+                        field: "Str",
+                        explicit: true,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        is_base64: false,
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/arr",
+                        field: "arr",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "array",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: May,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/bit",
+                        field: "bit",
+                        explicit: true,
+                        is_partition_key: true,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/extra",
+                        field: "extra",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: May,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "",
+                        field: "flow_document",
+                        explicit: true,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "object",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/int",
+                        field: "int",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: true,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "integer",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/len",
+                        field: "len",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "integer",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/str",
+                        field: "str",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        is_base64: false,
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                ],
+                ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                partition_template: Some(
+                    JournalSpec {
+                        name: "testing/int-string-rw",
+                        replication: 3,
+                        labels: Some(
+                            LabelSet {
+                                labels: [
+                                    Label {
+                                        name: "app.gazette.dev/managed-by",
+                                        value: "estuary.dev/flow",
+                                    },
+                                    Label {
+                                        name: "content-type",
+                                        value: "application/x-ndjson",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/build",
+                                        value: "a-build-id",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/collection",
+                                        value: "testing/int-string-rw",
+                                    },
+                                ],
+                            },
+                        ),
+                        fragment: Some(
+                            Fragment {
+                                length: 536870912,
+                                compression_codec: Gzip,
+                                stores: [
+                                    "s3://data-bucket/",
+                                ],
+                                refresh_interval: Some(
+                                    Duration {
+                                        seconds: 300,
+                                        nanos: 0,
+                                    },
+                                ),
+                                retention: None,
+                                flush_interval: None,
+                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                            },
+                        ),
+                        flags: 4,
+                        max_append_rate: 4194304,
+                    },
+                ),
+            },
+        },
+        BuiltCollection {
             scope: test://example/int-string#/collections/testing~1int-string.v2,
             collection: testing/int-string.v2,
             spec: CollectionSpec {
                 collection: "testing/int-string.v2",
                 write_schema_uri: "test://example/int-string?ptr=/collections/testing~1int-string.v2/schema",
                 write_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}},\"$id\":\"test://inlined/canonical/id\",\"$ref\":\"test://example/int-string.schema\"}",
+                read_schema_uri: "test://example/int-string?ptr=/collections/testing~1int-string.v2/schema",
+                read_schema_json: "",
                 key_ptrs: [
                     "/int",
                 ],
@@ -1797,6 +2120,8 @@ All {
                         collection: "testing/from-array-key",
                         write_schema_uri: "test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema",
                         write_schema_json: "{\"$id\":\"test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema\",\"properties\":{\"someKey\":{\"type\":\"integer\"}},\"required\":[\"someKey\"],\"type\":\"object\"}",
+                        read_schema_uri: "test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema",
+                        read_schema_json: "",
                         key_ptrs: [
                             "/someKey",
                         ],
@@ -1901,10 +2226,10 @@ All {
                 transforms: [
                     TransformSpec {
                         derivation: "testing/from-array-key",
-                        transform: "withSourceSchema",
+                        transform: "withBar",
                         shuffle: Some(
                             Shuffle {
-                                group_name: "derive/testing/from-array-key/withSourceSchema",
+                                group_name: "derive/testing/from-array-key/withBar",
                                 source_collection: "testing/array-key",
                                 source_partitions: Some(
                                     LabelSelector {
@@ -1934,7 +2259,7 @@ All {
                                 filter_r_clocks: true,
                                 read_delay_seconds: 0,
                                 priority: 0,
-                                validate_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$id\":\"test://example/array-key.schema\",\"properties\":{\"arr\":{\"items\":{\"properties\":{\"aKey\":{\"type\":\"integer\"}},\"required\":[\"aKey\"],\"type\":\"object\"},\"minItems\":5,\"type\":\"array\"}},\"required\":[\"arr\"],\"type\":\"object\"}},\"$id\":\"test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/transform/withSourceSchema/source/schema\",\"$ref\":\"test://example/array-key.schema\"}",
+                                validate_schema_json: "{\"$id\":\"test://example/array-key.schema\",\"properties\":{\"arr\":{\"items\":{\"properties\":{\"aKey\":{\"type\":\"integer\"}},\"required\":[\"aKey\"],\"type\":\"object\"},\"minItems\":5,\"type\":\"array\"}},\"required\":[\"arr\"],\"type\":\"object\"}",
                             },
                         ),
                         update_lambda: None,
@@ -1947,10 +2272,10 @@ All {
                     },
                     TransformSpec {
                         derivation: "testing/from-array-key",
-                        transform: "withoutSourceSchema",
+                        transform: "withFoo",
                         shuffle: Some(
                             Shuffle {
-                                group_name: "derive/testing/from-array-key/withoutSourceSchema",
+                                group_name: "derive/testing/from-array-key/withFoo",
                                 source_collection: "testing/array-key",
                                 source_partitions: Some(
                                     LabelSelector {
@@ -2107,6 +2432,8 @@ All {
                         collection: "testing/int-halve",
                         write_schema_uri: "test://example/int-string-len.schema",
                         write_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                        read_schema_uri: "test://example/int-string-len.schema",
+                        read_schema_json: "",
                         key_ptrs: [
                             "/int",
                         ],
@@ -2370,7 +2697,7 @@ All {
                         shuffle: Some(
                             Shuffle {
                                 group_name: "derive/testing/int-halve/halveIntString",
-                                source_collection: "testing/int-string",
+                                source_collection: "testing/int-string-rw",
                                 source_partitions: Some(
                                     LabelSelector {
                                         include: Some(
@@ -2378,7 +2705,7 @@ All {
                                                 labels: [
                                                     Label {
                                                         name: "estuary.dev/collection",
-                                                        value: "testing/int-string",
+                                                        value: "testing/int-string-rw",
                                                     },
                                                     Label {
                                                         name: "estuary.dev/field/bit",
@@ -2583,6 +2910,8 @@ All {
                         collection: "testing/int-reverse",
                         write_schema_uri: "test://example/int-string.schema",
                         write_schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
+                        read_schema_uri: "test://example/int-string.schema",
+                        read_schema_json: "",
                         key_ptrs: [
                             "/int",
                         ],
@@ -2906,6 +3235,8 @@ All {
                                 collection: "testing/int-string",
                                 write_schema_uri: "test://example/int-string.schema",
                                 write_schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
+                                read_schema_uri: "test://example/int-string.schema",
+                                read_schema_json: "",
                                 key_ptrs: [
                                     "/int",
                                 ],
@@ -3245,6 +3576,8 @@ All {
                                 collection: "testing/int-string",
                                 write_schema_uri: "test://example/int-string.schema",
                                 write_schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
+                                read_schema_uri: "test://example/int-string.schema",
+                                read_schema_json: "",
                                 key_ptrs: [
                                     "/int",
                                 ],
@@ -3479,6 +3812,8 @@ All {
                                 collection: "testing/int-halve",
                                 write_schema_uri: "test://example/int-string-len.schema",
                                 write_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                                read_schema_uri: "test://example/int-string-len.schema",
+                                read_schema_json: "",
                                 key_ptrs: [
                                     "/int",
                                 ],
@@ -4036,29 +4371,28 @@ All {
             scope: test://example/array-key#/collections/testing~1array-key,
             collection: testing/array-key,
             spec: {
-              "schema": false,
               "key": [
                 "/arr/0/aKey"
               ]
             },
-            schema: test://example/array-key.schema,
+            write_schema: test://example/array-key.schema,
+            read_schema: test://example/array-key.schema,
         },
         Collection {
             scope: test://example/from-array-key#/collections/testing~1from-array-key,
             collection: testing/from-array-key,
             spec: {
-              "schema": false,
               "key": [
                 "/someKey"
               ]
             },
-            schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema,
+            write_schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema,
+            read_schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema,
         },
         Collection {
             scope: test://example/int-halve#/collections/testing~1int-halve,
             collection: testing/int-halve,
             spec: {
-              "schema": false,
               "key": [
                 "/int"
               ],
@@ -4069,35 +4403,46 @@ All {
                 }
               }
             },
-            schema: test://example/int-string-len.schema,
+            write_schema: test://example/int-string-len.schema,
+            read_schema: test://example/int-string-len.schema,
         },
         Collection {
             scope: test://example/int-reverse#/collections/testing~1int-reverse,
             collection: testing/int-reverse,
             spec: {
-              "schema": false,
               "key": [
                 "/int"
               ]
             },
-            schema: test://example/int-string.schema,
+            write_schema: test://example/int-string.schema,
+            read_schema: test://example/int-string.schema,
         },
         Collection {
             scope: test://example/int-string#/collections/testing~1int-string,
             collection: testing/int-string,
             spec: {
-              "schema": false,
               "key": [
                 "/int"
               ]
             },
-            schema: test://example/int-string.schema,
+            write_schema: test://example/int-string.schema,
+            read_schema: test://example/int-string.schema,
+        },
+        Collection {
+            scope: test://example/int-string#/collections/testing~1int-string-rw,
+            collection: testing/int-string-rw,
+            spec: {
+              "key": [
+                "/int"
+              ]
+            },
+            write_schema: test://example/int-string.schema,
+            read_schema: test://example/int-string-len.schema,
         },
         Collection {
             scope: test://example/int-string#/collections/testing~1int-string.v2,
             collection: testing/int-string.v2,
             spec: {
-              "schema": false,
               "key": [
                 "/int"
               ],
@@ -4107,7 +4452,8 @@ All {
                 }
               }
             },
-            schema: test://example/int-string?ptr=/collections/testing~1int-string.v2/schema,
+            write_schema: test://example/int-string?ptr=/collections/testing~1int-string.v2/schema,
+            read_schema: test://example/int-string?ptr=/collections/testing~1int-string.v2/schema,
         },
     ],
     derivations: [
@@ -4303,19 +4649,9 @@ All {
             to_resource: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/register/schema,
         },
         Import {
-            scope: test://example/from-array-key#/collections/testing~1from-array-key/derivation/transform/withSourceSchema/source/schema,
-            from_resource: test://example/from-array-key,
-            to_resource: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/transform/withSourceSchema/source/schema,
-        },
-        Import {
             scope: test://example/from-array-key#/collections/testing~1from-array-key/schema,
             from_resource: test://example/from-array-key,
             to_resource: test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema,
-        },
-        Import {
-            scope: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/transform/withSourceSchema/source/schema#/$ref,
-            from_resource: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/transform/withSourceSchema/source/schema,
-            to_resource: test://example/array-key.schema,
         },
         Import {
             scope: test://example/int-halve#/collections/testing~1int-halve/derivation/typescript/module,
@@ -4326,11 +4662,6 @@ All {
             scope: test://example/int-halve#/collections/testing~1int-halve/derivation/register/schema,
             from_resource: test://example/int-halve,
             to_resource: test://example/int-halve?ptr=/collections/testing~1int-halve/derivation/register/schema,
-        },
-        Import {
-            scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString/source/schema,
-            from_resource: test://example/int-halve,
-            to_resource: test://example/int-string-len.schema,
         },
         Import {
             scope: test://example/int-halve#/collections/testing~1int-halve/schema,
@@ -4361,6 +4692,16 @@ All {
             scope: test://example/int-string#/import/0,
             from_resource: test://example/int-string,
             to_resource: test://example/int-halve,
+        },
+        Import {
+            scope: test://example/int-string#/collections/testing~1int-string-rw/readSchema,
+            from_resource: test://example/int-string,
+            to_resource: test://example/int-string-len.schema,
+        },
+        Import {
+            scope: test://example/int-string#/collections/testing~1int-string-rw/writeSchema,
+            from_resource: test://example/int-string,
+            to_resource: test://example/int-string.schema,
         },
         Import {
             scope: test://example/int-string#/collections/testing~1int-string/schema,
@@ -4496,6 +4837,21 @@ All {
         },
         Inference {
             schema: test://example/array-key.schema,
+            location: /arr/2/aKey,
+            spec: Inference {
+                types: [
+                    "integer",
+                ],
+                string: None,
+                title: "",
+                description: "",
+                default_json: "",
+                secret: false,
+                exists: Must,
+            },
+        },
+        Inference {
+            schema: test://example/array-key.schema,
             location: /arr/3/aKey,
             spec: Inference {
                 types: [
@@ -4530,51 +4886,6 @@ All {
                         max_length: 0,
                     },
                 ),
-                title: "",
-                description: "",
-                default_json: "",
-                secret: false,
-                exists: Must,
-            },
-        },
-        Inference {
-            schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/transform/withSourceSchema/source/schema,
-            location: ,
-            spec: Inference {
-                types: [
-                    "object",
-                ],
-                string: None,
-                title: "",
-                description: "",
-                default_json: "",
-                secret: false,
-                exists: Must,
-            },
-        },
-        Inference {
-            schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/transform/withSourceSchema/source/schema,
-            location: /arr,
-            spec: Inference {
-                types: [
-                    "array",
-                ],
-                string: None,
-                title: "",
-                description: "",
-                default_json: "",
-                secret: false,
-                exists: Must,
-            },
-        },
-        Inference {
-            schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/transform/withSourceSchema/source/schema,
-            location: /arr/2/aKey,
-            spec: Inference {
-                types: [
-                    "integer",
-                ],
-                string: None,
                 title: "",
                 description: "",
                 default_json: "",
@@ -5079,6 +5390,39 @@ All {
             spec: "",
         },
         Projection {
+            scope: test://example/int-string#/collections/testing~1int-string-rw/projections/Int,
+            collection: testing/int-string-rw,
+            field: Int,
+            spec: "/int",
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string-rw/projections/Len,
+            collection: testing/int-string-rw,
+            field: Len,
+            spec: "/len",
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string-rw/projections/Str,
+            collection: testing/int-string-rw,
+            field: Str,
+            spec: "/str",
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string-rw/projections/bit,
+            collection: testing/int-string-rw,
+            field: bit,
+            spec: {
+              "location": "/bit",
+              "partition": true
+            },
+        },
+        Projection {
+            scope: test://example/int-string#/collections/testing~1int-string-rw/projections/flow_document,
+            collection: testing/int-string-rw,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
             scope: test://example/int-string#/collections/testing~1int-string.v2/projections/flow_document,
             collection: testing/int-string.v2,
             field: flow_document,
@@ -5126,19 +5470,13 @@ All {
             resource: test://example/from-array-key,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"testing/from-array-key":{"derivation":{"transform":{"withSourceSchema":{"publish":{"lambda":{"remote":"https://an/api"}},"shuffle":{"key":["/arr/2/aKey"]},"source":{"name":"testing/array-key","schema":{"$ref":"test://example/array-key.schema"}}},"withoutSourceSchema":{"publish":{"lambda":{"remote":"https://an/api"}},"shuffle":{"key":["/arr/3/aKey"]},"source":{"name":"testing/array-key"}}}},"key":["/someKey"],"schema":{"properties":{"someKey":{"type":"integer"}},"required":["someKey"],"type":"object"}}},"import":["test://example/array-key"]},
+            content_dom: {"collections":{"testing/from-array-key":{"derivation":{"transform":{"withBar":{"publish":{"lambda":{"remote":"https://an/api"}},"shuffle":{"key":["/arr/2/aKey"]},"source":{"name":"testing/array-key"}},"withFoo":{"publish":{"lambda":{"remote":"https://an/api"}},"shuffle":{"key":["/arr/3/aKey"]},"source":{"name":"testing/array-key"}}}},"key":["/someKey"],"schema":{"properties":{"someKey":{"type":"integer"}},"required":["someKey"],"type":"object"}}},"import":["test://example/array-key"]},
         },
         Resource {
             resource: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/register/schema,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: true,
-        },
-        Resource {
-            resource: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/transform/withSourceSchema/source/schema,
-            content_type: "JSON_SCHEMA",
-            content: ".. binary ..",
-            content_dom: {"$ref":"test://example/array-key.schema"},
         },
         Resource {
             resource: test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema,
@@ -5150,7 +5488,7 @@ All {
             resource: test://example/int-halve,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"testing/int-halve":{"derivation":{"register":{"initial":42,"schema":{"type":"integer"}},"shards":{"disable":true},"transform":{"halveIntString":{"shuffle":{"key":["/len","/int"]},"source":{"name":"testing/int-string","partitions":{"exclude":{"bit":[false]},"include":{"bit":[true]}},"schema":"test://example/int-string-len.schema"},"update":{"lambda":{"remote":"https://an/api"}}},"halveSelf":{"publish":{"lambda":"typescript"},"shuffle":{"key":["/len","/int"]},"source":{"name":"testing/int-halve"}}},"typescript":{"module":"int-halve.ts"}},"journals":{"fragments":{"flushInterval":"15m","length":11223344}},"key":["/int"],"projections":{"Extra":"/extra","Len":{"location":"/len","partition":true},"Root":""},"schema":"test://example/int-string-len.schema"}}},
+            content_dom: {"collections":{"testing/int-halve":{"derivation":{"register":{"initial":42,"schema":{"type":"integer"}},"shards":{"disable":true},"transform":{"halveIntString":{"shuffle":{"key":["/len","/int"]},"source":{"name":"testing/int-string-rw","partitions":{"exclude":{"bit":[false]},"include":{"bit":[true]}}},"update":{"lambda":{"remote":"https://an/api"}}},"halveSelf":{"publish":{"lambda":"typescript"},"shuffle":{"key":["/len","/int"]},"source":{"name":"testing/int-halve"}}},"typescript":{"module":"int-halve.ts"}},"journals":{"fragments":{"flushInterval":"15m","length":11223344}},"key":["/int"],"projections":{"Extra":"/extra","Len":{"location":"/len","partition":true},"Root":""},"schema":"test://example/int-string-len.schema"}}},
         },
         Resource {
             resource: test://example/int-halve.ts,
@@ -5186,7 +5524,7 @@ All {
             resource: test://example/int-string,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"testing/int-string":{"key":["/int"],"projections":{"Int":"/int","bit":{"location":"/bit","partition":true}},"schema":"test://example/int-string.schema"},"testing/int-string.v2":{"journals":{"fragments":{"compressionCodec":"ZSTANDARD"}},"key":["/int"],"schema":{"$id":"test://inlined/canonical/id","$ref":"test://example/int-string.schema"}}},"import":["test://example/int-halve"]},
+            content_dom: {"collections":{"testing/int-string":{"key":["/int"],"projections":{"Int":"/int","bit":{"location":"/bit","partition":true}},"schema":"test://example/int-string.schema"},"testing/int-string-rw":{"key":["/int"],"projections":{"Int":"/int","Len":"/len","Str":"/str","bit":{"location":"/bit","partition":true}},"readSchema":"test://example/int-string-len.schema","writeSchema":"test://example/int-string.schema"},"testing/int-string.v2":{"journals":{"fragments":{"compressionCodec":"ZSTANDARD"}},"key":["/int"],"schema":{"$id":"test://inlined/canonical/id","$ref":"test://example/int-string.schema"}}},"import":["test://example/int-halve"]},
         },
         Resource {
             resource: test://example/int-string-captures,
@@ -5279,12 +5617,6 @@ All {
         SchemaDoc {
             schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/register/schema,
             dom: true,
-        },
-        SchemaDoc {
-            schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/transform/withSourceSchema/source/schema,
-            dom: {
-              "$ref": "test://example/array-key.schema"
-            },
         },
         SchemaDoc {
             schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema,
@@ -5462,9 +5794,9 @@ All {
     ],
     transforms: [
         Transform {
-            scope: test://example/from-array-key#/collections/testing~1from-array-key/derivation/transform/withSourceSchema,
+            scope: test://example/from-array-key#/collections/testing~1from-array-key/derivation/transform/withBar,
             derivation: testing/from-array-key,
-            transform: withSourceSchema,
+            transform: withBar,
             spec: {
               "source": {
                 "name": "testing/array-key"
@@ -5480,12 +5812,11 @@ All {
                 }
               }
             },
-            source_schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/transform/withSourceSchema/source/schema,
         },
         Transform {
-            scope: test://example/from-array-key#/collections/testing~1from-array-key/derivation/transform/withoutSourceSchema,
+            scope: test://example/from-array-key#/collections/testing~1from-array-key/derivation/transform/withFoo,
             derivation: testing/from-array-key,
-            transform: withoutSourceSchema,
+            transform: withFoo,
             spec: {
               "source": {
                 "name": "testing/array-key"
@@ -5501,7 +5832,6 @@ All {
                 }
               }
             },
-            source_schema: NULL,
         },
         Transform {
             scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
@@ -5509,7 +5839,7 @@ All {
             transform: halveIntString,
             spec: {
               "source": {
-                "name": "testing/int-string",
+                "name": "testing/int-string-rw",
                 "partitions": {
                   "include": {
                     "bit": [
@@ -5535,7 +5865,6 @@ All {
                 }
               }
             },
-            source_schema: test://example/int-string-len.schema,
         },
         Transform {
             scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveSelf,
@@ -5555,7 +5884,6 @@ All {
                 "lambda": "typescript"
               }
             },
-            source_schema: NULL,
         },
         Transform {
             scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/reverseIntString,
@@ -5569,7 +5897,6 @@ All {
                 "lambda": "typescript"
               }
             },
-            source_schema: NULL,
         },
     ],
 }

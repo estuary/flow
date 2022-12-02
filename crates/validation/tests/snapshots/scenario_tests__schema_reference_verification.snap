@@ -9,6 +9,10 @@ expression: errors
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve,
+        error: collection testing/int-halve schema must be an object,
+    },
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve,
         error: keyed location /int must be required to exist by schema test://example/int-string-len.schema (https://go.estuary.dev/KUYbal),
     },
     Error {
@@ -16,12 +20,28 @@ expression: errors
         error: location /int accepts "array", "boolean", "null", "number", "object", "string" in schema test://example/int-string-len.schema, but "array", "fractional", "null", "object" is disallowed in locations used as keys (https://go.estuary.dev/CigSvN),
     },
     Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve,
-        error: collection testing/int-halve schema must be an object,
-    },
-    Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/projections/Len,
         error: keyed location /len must be required to exist by schema test://example/int-string-len.schema (https://go.estuary.dev/KUYbal),
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw,
+        error: collection testing/int-string-rw schema must be an object,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw,
+        error: keyed location /int must be required to exist by schema test://example/int-string-len.schema (https://go.estuary.dev/KUYbal),
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw,
+        error: location /int accepts "array", "boolean", "null", "number", "object", "string" in schema test://example/int-string-len.schema, but "array", "fractional", "null", "object" is disallowed in locations used as keys (https://go.estuary.dev/CigSvN),
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw/projections/bit,
+        error: keyed location /bit must be required to exist by schema test://example/int-string-len.schema (https://go.estuary.dev/KUYbal),
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw/projections/bit,
+        error: location /bit accepts "array", "boolean", "null", "number", "object", "string" in schema test://example/int-string-len.schema, but "array", "fractional", "null", "object" is disallowed in locations used as keys (https://go.estuary.dev/CigSvN),
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,

@@ -36,7 +36,7 @@ impl MethodType {
             MethodType::Publish => {
                 lines.push(format!("    {underscore}register: Register,"));
                 lines.push(format!("    {underscore}previous: Register,"));
-                lines.push(format!("): Document[]"));
+                lines.push(format!("): OutputDocument[]"));
             }
         }
 

@@ -55,9 +55,15 @@ fn build_shape_from_schema(schema_str: &str) -> Result<Shape, Error> {
 }
 
 pub fn build_firebolt_schema(binding: &Binding) -> Result<TableSchema, Error> {
+    let collection = binding.collection.as_ref().unwrap();
+
     let fs = binding.field_selection.as_ref().unwrap();
-    let projections = &binding.collection.as_ref().unwrap().projections;
-    let schema_str = &binding.collection.as_ref().unwrap().write_schema_json;
+    let projections = &collection.projections;
+    let schema_json = if !collection.read_schema_json.is_empty() {
+        &collection.read_schema_json
+    } else {
+        &collection.write_schema_json
+    };
 
     let doc_field = if fs.document.len() > 0 {
         vec![fs.document.clone()]
@@ -67,7 +73,7 @@ pub fn build_firebolt_schema(binding: &Binding) -> Result<TableSchema, Error> {
     let fields: Vec<String> = vec![fs.keys.clone(), fs.values.clone(), doc_field].concat();
 
     let mut columns = Vec::new();
-    let schema_shape = build_shape_from_schema(schema_str)?;
+    let schema_shape = build_shape_from_schema(schema_json)?;
 
     fields.iter().try_for_each(|field| -> Result<(), Error> {
         let projection = projections.iter().find(|p| &p.field == field).unwrap();

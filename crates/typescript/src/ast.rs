@@ -34,31 +34,17 @@ pub struct ASTProperty {
 
 pub struct Context<'a> {
     pub into: &'a mut String,
-    pub anchors: &'a str,
     pub indent: usize,
 }
 
 impl<'a> Context<'a> {
     pub fn new(into: &'a mut String) -> Self {
-        Self {
-            into,
-            anchors: "anchors.",
-            indent: 0,
-        }
-    }
-
-    pub fn new_without_anchors(into: &'a mut String) -> Self {
-        Self {
-            into,
-            anchors: "",
-            indent: 0,
-        }
+        Self { into, indent: 0 }
     }
 
     fn push_inner(&self, into: &'a mut String) -> Self {
         Self {
             into,
-            anchors: self.anchors,
             indent: self.indent,
         }
     }
@@ -88,10 +74,7 @@ impl AST {
             }
             AST::Object { properties } => Self::render_object(ctx, properties),
             AST::Union { variants } => Self::render_disjunction(ctx, variants),
-            AST::Anchor(anchor) => {
-                ctx.into.push_str(ctx.anchors);
-                ctx.into.push_str(anchor);
-            }
+            AST::Anchor(anchor) => ctx.into.push_str(anchor),
         }
     }
 

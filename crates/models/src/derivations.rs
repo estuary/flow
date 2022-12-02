@@ -228,19 +228,6 @@ impl Publish {
 pub struct TransformSource {
     /// # Name of the collection to be read.
     pub name: Collection,
-    /// # Optional JSON-Schema to validate against the source collection.
-    /// All data in the source collection is already validated against the
-    /// schema of that collection, so providing a source schema is only used
-    /// for _additional_ validation beyond that.
-    ///
-    /// This is useful in building "Extract Load Transform" patterns,
-    /// where a collection is captured with minimal schema applied (perhaps
-    /// because it comes from an uncontrolled third party), and is then
-    /// progressively verified as collections are derived.
-    /// If None, the principal schema of the collection is used instead.
-    #[schemars(example = "Schema::example_relative")]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub schema: Option<Schema>,
     /// # Selector over partition of the source collection to read.
     #[schemars(example = "PartitionSelector::example")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -251,7 +238,6 @@ impl TransformSource {
     fn example() -> Self {
         Self {
             name: Collection::new("source/collection"),
-            schema: None,
             partitions: None,
         }
     }

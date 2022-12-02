@@ -17,6 +17,19 @@ test://example/catalog.yaml:
           flushInterval: 15m
           compressionCodec: GZIP_OFFLOAD_DECOMPRESSION
 
+    test/collection-with-write-and-read:
+      writeSchema: schema.json#foobar
+      readSchema: schema.json#/properties/a
+      key: [/key/1, /key/0]
+
+    test/collection-no-schema:
+      key: [/key]
+
+    test/collection-wrong-schemas:
+      schema: true
+      writeSchema: schema.json#foobar
+      key: [/key]
+
 test://example/schema.json:
   $anchor: foobar
   type: object

@@ -1,7 +1,6 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
-
 ---
 [
     Error {
@@ -23,6 +22,10 @@ expression: errors
     Error {
         scope: test://example/int-string#/collections/testing~1int-string,
         error: could not map collection testing/int-string into a storage mapping; did you mean TestinG/ defined at test://example/int-string#/storageMappings/TestinG~1?,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw,
+        error: could not map collection testing/int-string-rw into a storage mapping; did you mean TestinG/ defined at test://example/int-string#/storageMappings/TestinG~1?,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string.v2,

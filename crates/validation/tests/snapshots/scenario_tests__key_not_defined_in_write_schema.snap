@@ -1,0 +1,18 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw,
+        error: keyed location /missing-in-read-and-write-schemas must be required to exist by schema test://example/int-string-len.schema (https://go.estuary.dev/KUYbal),
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw,
+        error: location /len is unknown in schema test://example/int-string.schema (https://go.estuary.dev/rdCMNB),
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw,
+        error: location /missing-in-read-and-write-schemas is unknown in schema test://example/int-string.schema (https://go.estuary.dev/rdCMNB),
+    },
+]

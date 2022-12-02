@@ -1,0 +1,10 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw/projections/Len,
+        error: location /len is unknown in schema test://example/int-string.schema (https://go.estuary.dev/rdCMNB),
+    },
+]

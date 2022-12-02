@@ -10,34 +10,34 @@ Sources {
             scope: test://example/B.yaml#/collections/bar,
             collection: bar,
             spec: {
-              "schema": false,
               "key": [
                 "/ptr"
               ]
             },
-            schema: test://example/subpath/wrong-content-type.yaml,
+            write_schema: test://example/subpath/wrong-content-type.yaml,
+            read_schema: test://example/subpath/wrong-content-type.yaml,
         },
         Collection {
             scope: test://example/B.yaml#/collections/baz,
             collection: baz,
             spec: {
-              "schema": false,
               "key": [
                 "/ptr"
               ]
             },
-            schema: test://example/subpath/invalid-base64,
+            write_schema: test://example/subpath/invalid-base64,
+            read_schema: test://example/subpath/invalid-base64,
         },
         Collection {
             scope: test://example/B.yaml#/collections/foo,
             collection: foo,
             spec: {
-              "schema": false,
               "key": [
                 "/ptr"
               ]
             },
-            schema: test://example/subpath/json-schema.yaml,
+            write_schema: test://example/subpath/json-schema.yaml,
+            read_schema: test://example/subpath/json-schema.yaml,
         },
     ],
     derivations: [],

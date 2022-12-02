@@ -35,6 +35,8 @@ pub enum LoadError {
     SchemaIndex(#[from] json::schema::index::Error),
     #[error("resources cannot have fragments")]
     ResourceWithFragment,
+    #[error("either `schema` or both of `writeSchema` and `readSchema` must be configured")]
+    InvalidSchemaCombination,
 }
 
 // FetchResult is the result type of a fetch operation,
@@ -316,8 +318,10 @@ impl<F: Fetcher> Loader<F> {
     async fn load_schema_reference<'s>(
         &'s self,
         scope: Scope<'s>,
-        schema: models::Schema,
+        schema: Option<models::Schema>,
     ) -> Option<Url> {
+        let Some(schema) = schema else { return None; };
+
         // If schema is a relative URL, then import it.
         if let models::Schema::Url(import) = schema {
             let mut import = self.fallible(scope, scope.resource().join(&import))?;
@@ -516,7 +520,9 @@ impl<F: Fetcher> Loader<F> {
     ) {
         let derivation = std::mem::take(&mut spec.derivation);
         let projections = std::mem::take(&mut spec.projections);
-        let schema = std::mem::replace(&mut spec.schema, models::Schema::Bool(false));
+        let schema = std::mem::replace(&mut spec.schema, None);
+        let write_schema = std::mem::replace(&mut spec.write_schema, None);
+        let read_schema = std::mem::replace(&mut spec.read_schema, None);
 
         // Visit all collection projections.
         let mut saw_root = false;
@@ -547,33 +553,42 @@ impl<F: Fetcher> Loader<F> {
             );
         }
 
-        // Task which loads & maps collection schema => URL.
+        // Tasks which concurrently load & maps collection schemas => URLs.
         // Recoverable failures project to Ok(None).
         let schema = self.load_schema_reference(scope.push_prop("schema"), schema);
+        let write_schema = self.load_schema_reference(scope.push_prop("writeSchema"), write_schema);
+        let read_schema = self.load_schema_reference(scope.push_prop("readSchema"), read_schema);
 
-        // If this collection is a derivation, concurrently
-        // load the collection's schema and its derivation.
-        let schema = match derivation {
-            Some(derivation) => {
-                let derivation = self.load_derivation(
-                    scope.push_prop("derivation"),
-                    collection_name,
-                    derivation,
-                );
+        // If this collection is a derivation, then concurrently load it.
+        let derivation =
+            self.load_derivation(scope.push_prop("derivation"), collection_name, derivation);
 
-                let (schema, ()) = futures::join!(schema, derivation);
-                schema
-            }
-            None => schema.await,
-        };
+        let (schema, write_schema, read_schema, ()) =
+            futures::join!(schema, write_schema, read_schema, derivation);
 
-        if let Some(schema) = schema {
-            self.tables.borrow_mut().collections.insert_row(
+        match (schema, write_schema, read_schema) {
+            // One schema used for both writes and reads.
+            (Some(schema), None, None) => self.tables.borrow_mut().collections.insert_row(
                 scope.flatten(),
                 collection_name,
                 spec,
-                schema,
-            );
+                &schema,
+                &schema,
+            ),
+            // Separate schemas used for writes and reads.
+            (None, Some(write_schema), Some(read_schema)) => {
+                self.tables.borrow_mut().collections.insert_row(
+                    scope.flatten(),
+                    collection_name,
+                    spec,
+                    write_schema,
+                    read_schema,
+                )
+            }
+            _ => self.tables.borrow_mut().errors.insert_row(
+                &scope.flatten(),
+                anyhow::anyhow!(LoadError::InvalidSchemaCombination),
+            ),
         }
     }
 
@@ -581,8 +596,10 @@ impl<F: Fetcher> Loader<F> {
         &'s self,
         scope: Scope<'s>,
         derivation_name: &'s models::Collection,
-        mut spec: models::Derivation,
+        spec: Option<models::Derivation>,
     ) {
+        let Some(mut spec) = spec else { return };
+
         // Destructure |spec|, taking components which are loaded and normalized.
         let transforms = std::mem::take(&mut spec.transform);
         let register_schema =
@@ -602,7 +619,7 @@ impl<F: Fetcher> Loader<F> {
         let register_schema = async move {
             self.load_schema_reference(
                 scope.push_prop("register").push_prop("schema"),
-                register_schema,
+                Some(register_schema),
             )
             .await
         };
@@ -638,30 +655,19 @@ impl<F: Fetcher> Loader<F> {
             }
         };
 
-        // Tasks which load each derivation transform.
-        let transforms =
-            transforms
-                .into_iter()
-                .map(|(transform_name, transform_spec)| async move {
-                    self.load_transform(
-                        scope
-                            .push_prop("transform")
-                            .push_prop(transform_name.as_ref()),
-                        &transform_name,
-                        derivation_name,
-                        transform_spec,
-                    )
-                    .await
-                });
+        // Load each derivation transform.
+        for (transform_name, transform_spec) in transforms {
+            self.load_transform(
+                scope
+                    .push_prop("transform")
+                    .push_prop(transform_name.as_ref()),
+                &transform_name,
+                derivation_name,
+                transform_spec,
+            );
+        }
 
-        // Poll until register schema and all transforms are loaded.
-        let (register_schema, typescript_module, _): (_, _, Vec<()>) = futures::join!(
-            register_schema,
-            typescript_module,
-            futures::future::join_all(transforms)
-        );
-
-        // Load any NPM package depenencies of the derivation's TypeScript module (if present).
+        // Load any NPM package dependencies of the derivation's TypeScript module (if present).
         for (package, version) in npm_dependencies {
             let scope = scope
                 .push_prop("typescript")
@@ -677,6 +683,10 @@ impl<F: Fetcher> Loader<F> {
             );
         }
 
+        // Concurrently load register schema & optional typescript module.
+        let (register_schema, typescript_module) =
+            futures::join!(register_schema, typescript_module);
+
         if let Some(register_schema) = register_schema {
             self.tables.borrow_mut().derivations.insert_row(
                 scope.flatten(),
@@ -688,28 +698,18 @@ impl<F: Fetcher> Loader<F> {
         }
     }
 
-    async fn load_transform<'s>(
+    fn load_transform<'s>(
         &'s self,
         scope: Scope<'s>,
         transform_name: &'s models::Transform,
         derivation: &'s models::Collection,
-        mut spec: models::TransformDef,
+        spec: models::TransformDef,
     ) {
-        // Map optional source schema => URL.
-        let source_schema = match std::mem::take(&mut spec.source.schema) {
-            Some(url) => {
-                self.load_schema_reference(scope.push_prop("source").push_prop("schema"), url)
-                    .await
-            }
-            None => None,
-        };
-
         self.tables.borrow_mut().transforms.insert_row(
             scope.flatten(),
             derivation,
             transform_name,
             spec,
-            source_schema,
         );
     }
 
