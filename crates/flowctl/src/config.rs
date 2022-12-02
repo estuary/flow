@@ -32,6 +32,15 @@ impl Config {
             }
         }
     }
+
+    pub fn set_access_token(&mut self, access_token: String) {
+        // Don't overwrite the other fields of api if they are already present.
+        if let Some(api) = self.api.as_mut() {
+            api.access_token = access_token;
+        } else {
+            self.api = Some(API::managed(access_token));
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -45,21 +54,11 @@ pub struct API {
 }
 
 impl API {
-    pub fn managed(access_token: String) -> Self {
+    fn managed(access_token: String) -> Self {
         Self {
             endpoint: url::Url::parse("https://eyrcnmuzzyriypdajwdk.supabase.co/rest/v1").unwrap(),
             public_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco".to_string(),
             access_token,
-        }
-    }
-    pub fn development(access_token: Option<String>) -> Self {
-        Self {
-            endpoint: url::Url::parse("http://localhost:5431/rest/v1").unwrap(),
-            public_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24ifQ.625_WdcF3KHqz5amU0x2X5WWHP-OEs_4qj0ssLNHzTs".to_string(),
-            // Access token for user "bob" in the development database, good for ten years.
-            access_token: access_token.unwrap_or(
-            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoyMjgwMDY3NTAwLCJzdWIiOiIyMjIyMjIyMi0yMjIyLTIyMjItMjIyMi0yMjIyMjIyMjIyMjIiLCJlbWFpbCI6ImJvYkBleGFtcGxlLmNvbSIsInJvbGUiOiJhdXRoZW50aWNhdGVkIn0.7BJJJI17d24Hb7ZImlGYDRBCMDHkqU1ppVTTfqD5l8I".to_string(),
-            )
         }
     }
 }

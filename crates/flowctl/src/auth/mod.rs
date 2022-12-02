@@ -1,5 +1,3 @@
-use super::config;
-
 mod roles;
 
 #[derive(Debug, clap::Args)]
@@ -16,11 +14,6 @@ pub enum Command {
     ///
     /// You can find this token within Flow UI dashboard under "Admin".
     Token(Token),
-    /// Authenticate to a local development instance of the Flow control plane.
-    ///
-    /// This is intended for developers who are running local instances
-    /// of the Flow control and data-planes.
-    Develop(Develop),
     /// Work with authorization roles and grants.
     ///
     /// Roles are prefixes of the Flow catalog namespace.
@@ -47,24 +40,12 @@ pub struct Token {
     token: String,
 }
 
-#[derive(Debug, clap::Args)]
-#[clap(rename_all = "kebab-case")]
-pub struct Develop {
-    #[clap(long)]
-    token: Option<String>,
-}
-
 impl Auth {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> Result<(), anyhow::Error> {
         match &self.cmd {
             Command::Token(Token { token }) => {
-                ctx.config_mut().api = Some(config::API::managed(token.clone()));
+                ctx.config_mut().set_access_token(token.clone());
                 println!("Configured access token.");
-                Ok(())
-            }
-            Command::Develop(Develop { token }) => {
-                ctx.config_mut().api = Some(config::API::development(token.clone()));
-                println!("Configured for local development.");
                 Ok(())
             }
             Command::Roles(roles) => roles.run(ctx).await,
