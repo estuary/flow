@@ -1,6 +1,7 @@
 /// Largely copied from https://github.com/mxinden/asynchronous-codec/blob/master/src/codec/json.rs
 use std::marker::PhantomData;
 
+use anyhow::anyhow;
 use bytes::{Buf, BytesMut};
 use serde::Deserialize;
 use serde_json::Value;
@@ -13,7 +14,7 @@ pub struct JsonCodec<Dec = Value> {
     /// Rate at which we grow the buffer. Optimally, this will be the smallest
     /// value that keps the buffer from getting emptied before we get a partial read
     /// and grow it again.
-    buffer_grow_rate: usize,
+    buffer_target_capacity: usize,
     _dec: PhantomData<Dec>,
 }
 
@@ -25,7 +26,7 @@ where
     pub fn new() -> JsonCodec<Dec> {
         JsonCodec {
             bytes: 0,
-            buffer_grow_rate: 1_000_000,
+            buffer_target_capacity: 1_000_000,
             _dec: PhantomData,
         }
     }
@@ -34,10 +35,10 @@ where
         self.bytes
     }
 
-    fn increase_buffer_grow_rate(&mut self) {
+    fn increase_buffer_target_capacity(&mut self) {
         // We don't want this number to grow unbounded,
         // otherwise we could end up reserving tons of memory
-        self.buffer_grow_rate = std::cmp::min(128_000_000, self.buffer_grow_rate * 2);
+        self.buffer_target_capacity = std::cmp::min(16_000_000, self.buffer_target_capacity * 2);
     }
 }
 
@@ -117,25 +118,35 @@ where
                 // So long as the buffer's capacity never reaches zero, we should be continuously streaming data from the network.
                 // note: it appears that BytesMut doesn't ever like to have actually 0 capacity, hence the lower bound of 1kb
                 if buf.capacity() < 1_000 {
-                    self.increase_buffer_grow_rate();
+                    self.increase_buffer_target_capacity();
                 }
 
-                // Try and make sure the buffer has self.buffer_grow_rate of capacity.
-                let bytes_addl = std::cmp::min(
-                    std::cmp::max(0, self.buffer_grow_rate as isize - buf.capacity() as isize),
-                    self.buffer_grow_rate as isize,
-                ) as usize;
+                // Try and make sure the buffer has self.buffer_target_capacity of capacity.
+                let bytes_addl = match buf.capacity().cmp(&self.buffer_target_capacity) {
+                    // Buffer capacity is below target capacity, we need to grow by the difference
+                    std::cmp::Ordering::Less => self.buffer_target_capacity - buf.capacity(),
+                    // Buffer capacity is already at or above the target capacity.
+                    // This likely happened because we recently successfully parsed a document
+                    // greater than buffer_target_capacity in size, resulting in a large amount of
+                    // space freeing up in the buffer. In this case, we have no need to grow the buffer's capacity
+                    // and can safely just return Ok(None) to indicate that we need more data before we can try parsing again
+                    std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => 0,
+                };
 
-                tracing::trace!(
-                    bytes_addl = format!("{:.1} MB", bytes_addl as f32 / 1_000_000f32),
-                    bytes_read = format!("{:.1} MB", self.bytes as f32 / 1_000_000f32),
-                    buf_capacity_remaining =
-                        format!("{:.1} MB", buf.capacity() as f32 / 1_000_000f32),
-                    buf_grow_rate =
-                        format!("{:.1} MB", self.buffer_grow_rate as f32 / 1_000_000f32),
-                    "Partial read, reserving additional bytes"
-                );
-                buf.reserve(bytes_addl);
+                if bytes_addl > 0 {
+                    tracing::trace!(
+                        bytes_addl = format!("{:.1} MB", bytes_addl as f32 / 1_000_000f32),
+                        bytes_read = format!("{:.1} MB", self.bytes as f32 / 1_000_000f32),
+                        buf_capacity_remaining =
+                            format!("{:.1} MB", buf.capacity() as f32 / 1_000_000f32),
+                        buf_grow_rate = format!(
+                            "{:.1} MB",
+                            self.buffer_target_capacity as f32 / 1_000_000f32
+                        ),
+                        "Partial read, reserving additional bytes"
+                    );
+                    buf.reserve(bytes_addl);
+                }
                 Ok(None)
             }
         }
