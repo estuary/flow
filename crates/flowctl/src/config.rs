@@ -1,5 +1,6 @@
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 lazy_static::lazy_static! {
     static ref DEFAULT_DASHBOARD_URL: url::Url = url::Url::parse("https://dashboard.estuary.dev/").unwrap();
@@ -16,6 +17,53 @@ pub struct Config {
 }
 
 impl Config {
+    /// Loads the config corresponding to the given named `profile`.
+    /// This loads from:
+    /// - $HOME/.config/flowctl/${profile}.json on linux
+    /// - $HOME/Library/Application Support/flowctl/${profile}.json on macos
+    pub fn load(profile: &str) -> anyhow::Result<Config> {
+        let config_file = Config::file_path(profile)?;
+        let config = match std::fs::read(&config_file) {
+            Ok(v) => {
+                let cfg = serde_json::from_slice(&v).context("parsing config")?;
+                tracing::debug!(path = %config_file.display(), "loaded and used config");
+                cfg
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                // We don't use warn here, because it's likely that every new user
+                // would see that the very first time they run the CLI. But in other
+                // scenarios, this is likely to be very useful information.
+                tracing::info!(path = %config_file.display(), profile = %profile,
+                    "no config file found at path, using default");
+                Config::default()
+            }
+            Err(err) => {
+                return Err(err).context("opening config");
+            }
+        };
+        Ok(config)
+    }
+
+    /// Write the config to the file corresponding to the given named `profile`.
+    /// The file path is determined as documented in `load`.
+    pub fn write(&self, profile: &str) -> anyhow::Result<()> {
+        let config_file = Config::file_path(profile)?;
+        if let Some(parent) = config_file.parent() {
+            std::fs::create_dir_all(parent).context("couldn't create user config directory")?;
+        }
+        let ser = serde_json::to_vec_pretty(self)?;
+        std::fs::write(&config_file, &ser).context("writing config")?;
+        Ok(())
+    }
+
+    fn file_path(profile: &str) -> anyhow::Result<PathBuf> {
+        let path = dirs::config_dir()
+            .context("couldn't determine user config directory")?
+            .join("flowctl")
+            .join(format!("{profile}.json"));
+        Ok(path)
+    }
+
     pub fn cur_draft(&self) -> anyhow::Result<String> {
         match &self.draft {
             Some(draft) => Ok(draft.clone()),
