@@ -1,6 +1,7 @@
 collections:
   stock/ticks:
-    schema: schemas/L1-tick.schema.yaml
+    writeSchema: schemas/L1-tick.schema.yaml
+    readSchema: schemas/L1-tick.schema.yaml#/$defs/withRequired
     key: [/security, /time]
     projections:
       exchange:
@@ -22,7 +23,6 @@ collections:
         fromTicks:
           source:
             name: stock/ticks
-            schema: "schemas/L1-tick.schema.yaml#/$defs/withRequired"
             partitions: { include: { exchange: [NYSE, NASDAQ] } }
           publish: { lambda: typescript }
       typescript:

@@ -17,3 +17,7 @@ export type Document = /* A segment event adds or removes a user into a segment.
     user: /* User ID. */ string;
     value?: /* Associated value of the segmentation. */ string;
 };
+
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;

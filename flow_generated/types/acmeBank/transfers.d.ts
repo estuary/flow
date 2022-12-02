@@ -6,3 +6,7 @@ export type Document = {
     recipient: string;
     sender: string;
 };
+
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;

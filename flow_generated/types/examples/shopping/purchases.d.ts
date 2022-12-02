@@ -13,6 +13,10 @@ export type Document = /* A confirmed order for items that were in the users car
     userId: number;
 };
 
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;
+
 // Generated from derivation register schema examples/shopping/cart.schema.yaml.
 // Referenced from examples/shopping/purchases.flow.yaml#/collections/examples~1shopping~1purchases/derivation.
 export type Register = /* Roll up of all products that users have added to a pending purchase */ {
@@ -29,17 +33,17 @@ export type Register = /* Roll up of all products that users have added to a pen
 
 // Generated from transform carts as a re-export of collection examples/shopping/carts.
 // Referenced from examples/shopping/purchases.flow.yaml#/collections/examples~1shopping~1purchases/derivation/transform/carts."
-import { Document as CartsSource } from './carts';
-export { Document as CartsSource } from './carts';
+import { SourceDocument as CartsSource } from './carts';
+export { SourceDocument as CartsSource } from './carts';
 
 // Generated from transform purchaseActions as a re-export of collection examples/shopping/cartPurchaseRequests.
 // Referenced from examples/shopping/purchases.flow.yaml#/collections/examples~1shopping~1purchases/derivation/transform/purchaseActions."
-import { Document as PurchaseActionsSource } from './cartPurchaseRequests';
-export { Document as PurchaseActionsSource } from './cartPurchaseRequests';
+import { SourceDocument as PurchaseActionsSource } from './cartPurchaseRequests';
+export { SourceDocument as PurchaseActionsSource } from './cartPurchaseRequests';
 
 // Generated from derivation examples/shopping/purchases.flow.yaml#/collections/examples~1shopping~1purchases/derivation.
 // Required to be implemented by examples/shopping/purchases.flow.ts.
 export interface IDerivation {
     cartsUpdate(source: CartsSource): Register[];
-    purchaseActionsPublish(source: PurchaseActionsSource, register: Register, previous: Register): Document[];
+    purchaseActionsPublish(source: PurchaseActionsSource, register: Register, previous: Register): OutputDocument[];
 }

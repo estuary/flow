@@ -20,17 +20,21 @@ export type Document = /* A Citi Bike Station */ {
     };
 };
 
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;
+
 // Generated from derivation register schema examples/citi-bike/stations.flow.yaml?ptr=/collections/examples~1citi-bike~1stations/derivation/register/schema.
 // Referenced from examples/citi-bike/stations.flow.yaml#/collections/examples~1citi-bike~1stations/derivation.
 export type Register = unknown;
 
 // Generated from transform ridesAndMoves as a re-export of collection examples/citi-bike/rides-and-relocations.
 // Referenced from examples/citi-bike/stations.flow.yaml#/collections/examples~1citi-bike~1stations/derivation/transform/ridesAndMoves."
-import { Document as RidesAndMovesSource } from './rides-and-relocations';
-export { Document as RidesAndMovesSource } from './rides-and-relocations';
+import { SourceDocument as RidesAndMovesSource } from './rides-and-relocations';
+export { SourceDocument as RidesAndMovesSource } from './rides-and-relocations';
 
 // Generated from derivation examples/citi-bike/stations.flow.yaml#/collections/examples~1citi-bike~1stations/derivation.
 // Required to be implemented by examples/citi-bike/stations.flow.ts.
 export interface IDerivation {
-    ridesAndMovesPublish(source: RidesAndMovesSource, register: Register, previous: Register): Document[];
+    ridesAndMovesPublish(source: RidesAndMovesSource, register: Register, previous: Register): OutputDocument[];
 }

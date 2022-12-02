@@ -16,6 +16,10 @@ export type Document = /* Click event joined with it's view. */ {
     view_id: string;
 };
 
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;
+
 // Generated from derivation register schema examples/marketing/flow.yaml?ptr=/collections/marketing~1clicks-with-views/derivation/register/schema.
 // Referenced from examples/marketing/flow.yaml#/collections/marketing~1clicks-with-views/derivation.
 export type Register = {
@@ -30,13 +34,13 @@ export type Register = {
 
 // Generated from transform indexViews as a re-export of collection marketing/views-with-campaign.
 // Referenced from examples/marketing/flow.yaml#/collections/marketing~1clicks-with-views/derivation/transform/indexViews."
-import { Document as IndexViewsSource } from './views-with-campaign';
-export { Document as IndexViewsSource } from './views-with-campaign';
+import { SourceDocument as IndexViewsSource } from './views-with-campaign';
+export { SourceDocument as IndexViewsSource } from './views-with-campaign';
 
 // Generated from transform joinClickWithIndexedViews as a re-export of collection marketing/offer/clicks.
 // Referenced from examples/marketing/flow.yaml#/collections/marketing~1clicks-with-views/derivation/transform/joinClickWithIndexedViews."
-import { Document as JoinClickWithIndexedViewsSource } from './offer/clicks';
-export { Document as JoinClickWithIndexedViewsSource } from './offer/clicks';
+import { SourceDocument as JoinClickWithIndexedViewsSource } from './offer/clicks';
+export { SourceDocument as JoinClickWithIndexedViewsSource } from './offer/clicks';
 
 // Generated from derivation examples/marketing/flow.yaml#/collections/marketing~1clicks-with-views/derivation.
 // Required to be implemented by examples/marketing/clicks-with-views.ts.
@@ -46,5 +50,5 @@ export interface IDerivation {
         source: JoinClickWithIndexedViewsSource,
         register: Register,
         previous: Register,
-    ): Document[];
+    ): OutputDocument[];
 }
