@@ -109,6 +109,8 @@ pub struct Validation<'schema, 'doc, 'tmp, N: AsNode> {
 
 // Valid is a Validation known to have had a valid outcome.
 pub struct Valid<'schema, 'tmp> {
+    /// Schema which was validated.
+    pub schema: &'tmp url::Url,
     /// Validator which holds the validation outcome.
     pub validator: &'tmp mut RawValidator<'schema>,
     /// Walked document span.
@@ -140,6 +142,7 @@ impl<'schema, 'doc, 'tmp, N: AsNode> Validation<'schema, 'doc, 'tmp, N> {
     pub fn ok(self) -> Result<Valid<'schema, 'tmp>, FailedValidation> {
         if !self.validator.invalid() {
             return Ok(Valid {
+                schema: self.schema,
                 span: self.span,
                 validator: self.validator,
             });

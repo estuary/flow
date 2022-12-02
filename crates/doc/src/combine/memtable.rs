@@ -318,7 +318,11 @@ impl MemDrainer {
     /// remain to drain, and false only after all documents have been drained.
     pub fn drain_while<C, CE>(&mut self, mut callback: C) -> Result<bool, CE>
     where
-        C: for<'alloc> FnMut(LazyNode<'alloc, 'static, ArchivedNode>, bool) -> Result<bool, CE>,
+        C: for<'alloc> FnMut(
+            LazyNode<'alloc, 'static, ArchivedNode>,
+            bool,
+            crate::inference::Shape,
+        ) -> Result<bool, CE>,
         CE: From<Error>,
     {
         // Incrementally merge the ordered sequence of documents from `it1` and `it2`.
@@ -347,13 +351,18 @@ impl MemDrainer {
                 },
             };
 
-            self.validator
+            let valid = self
+                .validator
                 .validate(self.schema.as_ref(), &doc.root)
                 .map_err(Error::SchemaError)?
                 .ok()
                 .map_err(Error::FailedValidation)?;
 
-            if !callback(LazyNode::Heap(doc.root), doc.flags & FLAG_REDUCED != 0)? {
+            if !callback(
+                LazyNode::Heap(doc.root),
+                doc.flags & FLAG_REDUCED != 0,
+                super::shape_from_valid(valid),
+            )? {
                 return Ok(true);
             }
         }
@@ -448,7 +457,7 @@ mod test {
 
         loop {
             if !drainer
-                .drain_while(|node, full| {
+                .drain_while(|node, full, _| {
                     let node = serde_json::to_value(&node).unwrap();
 
                     actual.push((node, full));

@@ -165,7 +165,7 @@ pub fn combiner_perf() {
 
     let mut drainer = accum.into_drainer().unwrap();
     while drainer
-        .drain_while(|_entry, _reduce| {
+        .drain_while(|_entry, _reduce, _shape| {
             drained += 1;
             Ok::<_, doc::combine::Error>(true)
         })

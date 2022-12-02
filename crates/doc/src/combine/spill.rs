@@ -335,7 +335,11 @@ impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
     /// remain to drain, and false only after all documents have been drained.
     pub fn drain_while<C, CE>(&mut self, mut callback: C) -> Result<bool, CE>
     where
-        C: for<'alloc> FnMut(LazyNode<'alloc, 'static, ArchivedNode>, bool) -> Result<bool, CE>,
+        C: for<'alloc> FnMut(
+            LazyNode<'alloc, 'static, ArchivedNode>,
+            bool,
+            crate::inference::Shape,
+        ) -> Result<bool, CE>,
         CE: From<Error>,
     {
         while let Some(cmp::Reverse(cur)) = self.heap.pop() {
@@ -373,12 +377,16 @@ impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
                 }
             }
 
-            cur_root
+            let valid = cur_root
                 .validate_ok(&mut self.validator, self.schema.as_ref())
                 .map_err(Error::SchemaError)?
                 .map_err(Error::FailedValidation)?;
 
-            let done = !callback(cur_root, cur_flags & FLAG_REDUCED != 0)?;
+            let done = !callback(
+                cur_root,
+                cur_flags & FLAG_REDUCED != 0,
+                super::shape_from_valid(valid),
+            )?;
 
             if let Some(segment) = cur.next(&mut self.spill).map_err(Error::SpillIO)? {
                 self.heap.push(cmp::Reverse(segment));
@@ -537,7 +545,7 @@ mod test {
         let mut actual = Vec::new();
         loop {
             if !drainer
-                .drain_while(|node, full| {
+                .drain_while(|node, full, _| {
                     let node = serde_json::to_value(&node).unwrap();
 
                     actual.push((node, full));

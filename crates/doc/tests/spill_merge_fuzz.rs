@@ -96,7 +96,7 @@ fn run_sequence(seq: Vec<(u8, u8, bool)>) -> Result<(), FuzzError> {
     let mut count = 0;
     let mut expect_it = expect.into_iter();
 
-    while drainer.drain_while(|node, reduced| {
+    while drainer.drain_while(|node, reduced, _shape| {
         count += 1;
 
         let actual = json!([node, reduced]);

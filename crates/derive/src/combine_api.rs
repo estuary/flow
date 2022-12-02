@@ -229,7 +229,7 @@ pub fn drain_chunk(
     // Convert target from a delta to an absolute target length of the arena.
     let target_length = target_length + arena.len();
 
-    drainer.drain_while(|doc, fully_reduced| {
+    drainer.drain_while(|doc, fully_reduced, shape| {
         // Send serialized document.
         let begin = arena.len();
         let w: &mut Vec<u8> = &mut *arena;
@@ -250,18 +250,13 @@ pub fn drain_chunk(
             let begin = arena.len();
             for p in ptrs.iter() {
                 match &doc {
-                    doc::LazyNode::Heap(n) => p
-                        .query(n)
-                        .map(AsNode::as_node)
-                        .unwrap_or(doc::Node::Null)
-                        .pack(arena, TupleDepth::new().increment()),
-                    doc::LazyNode::Node(n) => p
-                        .query(*n)
-                        .map(AsNode::as_node)
-                        .unwrap_or(doc::Node::Null)
-                        .pack(arena, TupleDepth::new().increment()),
+                    doc::LazyNode::Heap(n) => {
+                        exists_or_default(p.query(n).map(AsNode::as_node), p, &shape, arena)
+                    }
+                    doc::LazyNode::Node(n) => {
+                        exists_or_default(p.query(*n).map(AsNode::as_node), p, &shape, arena)
+                    }
                 }
-                .expect("vec<u8> never fails to write");
             }
             cgo::send_bytes(code as u32, begin, arena, out);
         }
@@ -271,11 +266,36 @@ pub fn drain_chunk(
     })
 }
 
+fn exists_or_default<T>(
+    n: Option<doc::Node<T>>,
+    p: &doc::Pointer,
+    shape: &doc::inference::Shape,
+    arena: &mut Vec<u8>,
+) where
+    T: doc::AsNode,
+{
+    match n {
+        Some(val) => val.pack(arena, TupleDepth::new().increment()),
+        None => {
+            let (inner, _) = shape.locate(p);
+
+            match &inner.default {
+                Some(val) => val.pack(arena, TupleDepth::new().increment()),
+                None => {
+                    doc::Node::Null::<serde_json::Value>.pack(arena, TupleDepth::new().increment())
+                }
+            }
+        }
+    }
+    .expect("vec<u8> never fails to write");
+}
+
 #[cfg(test)]
 pub mod test {
     use super::super::test::build_min_max_sum_schema;
     use super::{Code, Error, API};
     use cgo::Service;
+    use itertools::Itertools;
     use prost::Message;
     use proto_flow::flow::{
         combine_api::{self, Stats},
@@ -394,6 +414,286 @@ pub mod test {
             ),
             Err(Error::EmptyKey)
         ));
+    }
+
+    #[test]
+    fn test_combine_with_defaults_simple() {
+        let schema_json = serde_json::json!({
+            "properties": {
+                "intProp": {
+                    "type": "integer",
+                    "default": 7,
+                    "reduce": {"strategy": "sum"}
+                },
+                "strProp": {
+                    "default": "defaultStringExtracted",
+                    "type": "string",
+                },
+                "strPropNotExtracted": {
+                    "default": "defaultStringNotExtracted",
+                    "type": "string",
+                },
+            },
+            "reduce": {"strategy": "merge"},
+        })
+        .to_string();
+
+        let key_ptrs = vec!["/aKey".to_owned()];
+
+        let field_ptrs = vec!["/intProp".to_owned(), "/strProp".to_owned()];
+
+        let docs = vec![
+            // If any of the combined documents have an actual value for a field, no default values
+            // apply. Default values are not reduced into other documents. In this case, intProp for
+            // the reduced document is 4 and the extracted field is also 4 due to the sum reduction
+            // of the two actually present values, and the default for intProp has no effect.
+            (true, json!({"aKey": "a", "intProp": 3})),
+            (false, json!({"aKey": "a", "intProp": 1})),
+            (false, json!({"aKey": "a", "strProp": "something"})),
+            // The default value applies exclusively to extracted fields when none of the combined
+            // documents have a value present for the field. Here the value for the extracted field
+            // intProp is equal to the default value, but not summed from each document with the
+            // value absent. The default value is not present in the reduced document.
+            (true, json!({"aKey": "b"})),
+            (false, json!({"aKey": "b"})),
+            (false, json!({"aKey": "b", "strProp": "something"})),
+            // A field with a default value that is not included in extracted fields will never be
+            // present in the extracted fields, and as before never be included in document
+            // reduction.
+            (true, json!({"aKey": "c", "strPropNotExtracted": "first"})),
+            (false, json!({"aKey": "c", "strPropNotExtracted": "second"})),
+            (false, json!({"aKey": "c"})),
+        ];
+
+        insta::assert_debug_snapshot!(run_simple_svc(schema_json, key_ptrs, field_ptrs, &docs));
+    }
+
+    #[test]
+    fn test_combine_with_defaults_different_types() {
+        let schema_json = serde_json::json!({
+            "properties": {
+                "intProp": {
+                    "type": "integer",
+                    "default": 7,
+                },
+                "numProp": {
+                    "default": 12.4,
+                    "type": "number",
+                },
+                "strProp": {
+                    "default": "defaultString",
+                    "type": "string",
+                },
+                "boolProp": {
+                    "default": true,
+                    "type": "boolean",
+                },
+                "objProp": {
+                    "default": { "prop": "val" },
+                    "type": "object",
+                },
+                "arrayProp": {
+                    "default": [1, "hello", null],
+                    "type": "array",
+                },
+            },
+            "reduce": {"strategy": "merge"},
+        })
+        .to_string();
+
+        let key_ptrs = vec!["/aKey".to_owned()];
+
+        let field_ptrs = vec![
+            "/intProp".to_owned(),
+            "/numProp".to_owned(), // TODO: Snapshot for this doesn't work very well.
+            "/strProp".to_owned(),
+            "/boolProp".to_owned(),
+            "/objProp".to_owned(),
+            "/arrayProp".to_owned(),
+        ];
+
+        let docs = vec![(true, json!({"aKey": "a"}))];
+
+        insta::assert_debug_snapshot!(run_simple_svc(schema_json, key_ptrs, field_ptrs, &docs));
+    }
+
+    #[test]
+    fn test_combine_with_defaults_nested() {
+        let schema_json = serde_json::json!({
+            "properties": {
+                "objPropNoDefaultParent": {
+                    "type": "object",
+                    "properties": {
+                        "nested": {
+                            "type": "object",
+                            "properties": {
+                                "val": {
+                                    "type": "string",
+                                    "default": "nestedValNoDefaultParent",
+                                },
+                            },
+                        },
+                    },
+                },
+                "objPropWithDefaultParent": {
+                    "type": "object",
+                    "default": { "other": "thing" },
+                    "properties": {
+                        "nested": {
+                            "type": "object",
+                            "properties": {
+                                "val": {
+                                    "type": "string",
+                                    "default": "nestedValWithDefaultParent",
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+        .to_string();
+
+        let key_ptrs = vec!["/aKey".to_owned()];
+
+        let field_ptrs = vec![
+            // Uses the default value of a located nested property, even though the parent object
+            // doesn't have a default value.
+            "/objPropNoDefaultParent/nested/val".to_owned(),
+            // But the default value of nested properties is not used if the parent property
+            // is omitted & does not have a default value.
+            "/objPropNoDefaultParent".to_owned(),
+            // A nested value can be extracted from a parent object even if the parent
+            // object is not present and has a default value that does not include the
+            // extracted field.
+            "/objPropWithDefaultParent/nested/val".to_owned(),
+            // The default value for an object that is not present overrides any default
+            // values from the object's properties.
+            "/objPropWithDefaultParent".to_owned(),
+        ];
+
+        let docs = vec![(true, json!({"aKey": "a", "intProp": 3}))];
+
+        insta::assert_debug_snapshot!(run_simple_svc(schema_json, key_ptrs, field_ptrs, &docs));
+    }
+
+    #[test]
+    fn test_combine_with_defaults_array() {
+        let schema_json = serde_json::json!({
+            "properties": {
+                "arrayItems": {
+                    "type": "array",
+                    "items": [
+                        {
+                            "type": "string",
+                            "default": "firstDefault",
+                        },
+                        {
+                            "type": "string",
+                            "default": "secondDefault",
+                        },
+                    ],
+                    "minItems": 1,
+                    "maxItems": 3,
+                },
+                "arrayContains": {
+                    "type": "array",
+                    "contains": {
+                        "type": "string",
+                        "default": "containsDefault",
+                    },
+                    "minContains": 1,
+                    "maxContains": 3,
+                },
+            },
+        })
+        .to_string();
+
+        let key_ptrs = vec!["/aKey".to_owned()];
+
+        let field_ptrs = vec![
+            // Defaults work positionally with items.
+            "/arrayItems/0".to_owned(), // Matches default at idx 0
+            "/arrayItems/1".to_owned(), // Matches default at idx 1
+            "/arrayItems/2".to_owned(), // Cannot be located -> null
+            // Defaults are not applied for contains.
+            "/arrayContains/0".to_owned(),
+        ];
+
+        let docs = vec![(true, json!({"aKey": "a"}))];
+
+        insta::assert_debug_snapshot!(run_simple_svc(schema_json, key_ptrs, field_ptrs, &docs));
+    }
+
+    // Runs a combine svc to completion for a set of inputs and return the results sans stats with
+    // some simple formatting applied.
+    fn run_simple_svc(
+        schema_json: String,
+        key_ptrs: Vec<String>,
+        field_ptrs: Vec<String>,
+        docs: &[(bool, serde_json::Value)],
+    ) -> Vec<Vec<String>> {
+        let mut svc = API::create();
+        let mut arena = Vec::new();
+        let mut out = Vec::new();
+
+        svc.invoke_message(
+            Code::Configure as u32,
+            combine_api::Config {
+                schema_json,
+                key_ptrs,
+                field_ptrs,
+                uuid_placeholder_ptr: String::new(),
+            },
+            &mut arena,
+            &mut out,
+        )
+        .unwrap();
+
+        for (left, doc) in docs {
+            svc.invoke(
+                if *left {
+                    Code::ReduceLeft
+                } else {
+                    Code::CombineRight
+                } as u32,
+                serde_json::to_vec(doc).unwrap().as_ref(),
+                &mut arena,
+                &mut out,
+            )
+            .unwrap();
+        }
+
+        svc.invoke(
+            Code::DrainChunk as u32,
+            &(1024 as u32).to_be_bytes(),
+            &mut arena,
+            &mut out,
+        )
+        .unwrap();
+
+        let stats_out = out.pop().expect("missing stats");
+        assert_eq!(Code::DrainedStats as u32, stats_out.code);
+
+        let code_seq = vec![
+            Code::DrainedReducedDocument,
+            Code::DrainedKey,
+            Code::DrainedFields,
+        ];
+
+        out.iter()
+            .chunks(3)
+            .into_iter()
+            .map(|i| {
+                i.enumerate()
+                    .map(|(idx, pos)| {
+                        assert_eq!(code_seq[idx] as u32, pos.code);
+                        String::from_utf8_lossy(&arena[pos.begin as usize..pos.end as usize])
+                            .to_string()
+                    })
+                    .collect()
+            })
+            .collect()
     }
 }
 

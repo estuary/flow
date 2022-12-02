@@ -195,7 +195,7 @@ async fn do_combine(
     let mut drainer = accumulator.into_drainer()?;
     assert_eq!(
         false,
-        drainer.drain_while(|node, _fully_reduced| {
+        drainer.drain_while(|node, _fully_reduced, _shape| {
             serde_json::to_writer(&mut out, &node).context("writing document to stdout")?;
             out.write(b"\n")?;
             out_docs += 1;

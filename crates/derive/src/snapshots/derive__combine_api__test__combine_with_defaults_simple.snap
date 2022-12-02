@@ -1,0 +1,21 @@
+---
+source: crates/derive/src/combine_api.rs
+expression: "run_simple_svc(schema_json, key_ptrs, field_ptrs, &docs)"
+---
+[
+    [
+        "{\"aKey\":\"a\",\"intProp\":4,\"strProp\":\"something\"}",
+        "\u{2}a\0",
+        "\u{15}\u{4}\u{2}something\0",
+    ],
+    [
+        "{\"aKey\":\"b\",\"strProp\":\"something\"}",
+        "\u{2}b\0",
+        "\u{15}\u{7}\u{2}something\0",
+    ],
+    [
+        "{\"aKey\":\"c\",\"strPropNotExtracted\":\"second\"}",
+        "\u{2}c\0",
+        "\u{15}\u{7}\u{2}defaultStringExtracted\0",
+    ],
+]

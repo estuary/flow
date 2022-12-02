@@ -124,7 +124,11 @@ impl Drainer {
     /// remain to drain, and false only after all documents have been drained.
     pub fn drain_while<C, CE>(&mut self, callback: C) -> Result<bool, CE>
     where
-        C: for<'alloc> FnMut(LazyNode<'alloc, 'static, ArchivedNode>, bool) -> Result<bool, CE>,
+        C: for<'alloc> FnMut(
+            LazyNode<'alloc, 'static, ArchivedNode>,
+            bool,
+            crate::inference::Shape,
+        ) -> Result<bool, CE>,
         CE: From<Error>,
     {
         match self {
@@ -254,3 +258,12 @@ const SPILL_THRESHOLD: usize = 8 * (1 << 28) / 10; // 80% of 256MB.
 // hold many large chunks in memory, which could push us over our allocation.
 const CHUNK_TARGET_LEN: usize = 1 << 18; // 256KB.
 const CHUNK_MAX_LEN: usize = 1 << 20; // 1MB.
+
+fn shape_from_valid(valid: super::Valid) -> super::inference::Shape {
+    let schema_idx = valid.validator.schema_index();
+    let actual_schema = schema_idx
+        .must_fetch(&valid.schema)
+        .expect("Could not fetch schema from a validated document result");
+
+    super::inference::Shape::infer(actual_schema, schema_idx)
+}
