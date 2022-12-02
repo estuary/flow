@@ -402,6 +402,7 @@ impl Pipeline {
             arena,
             out,
             &mut self.combiner_stats,
+            None,
         )?;
 
         if more {
