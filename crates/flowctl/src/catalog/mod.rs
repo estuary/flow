@@ -41,12 +41,143 @@ pub enum Command {
     Draft(Draft),
 }
 
+/// Common selection criteria based on a prefix of the item name.
+#[derive(Debug, clap::Args)]
+pub struct PrefixSelector {
+    /// Select catalog items under the given prefix
+    ///
+    /// Selects all items whose name begins with the prefix.
+    /// Can be provided multiple times to select items under multiple
+    /// prefixes.
+    #[clap(long)]
+    pub prefix: Vec<String>,
+}
+
+impl PrefixSelector {
+    pub fn add_live_specs_filters<'a>(
+        &self,
+        builder: postgrest::Builder<'a>,
+    ) -> postgrest::Builder<'a> {
+        if !self.prefix.is_empty() {
+            let conditions = self
+                .prefix
+                .iter()
+                .map(|prefix| format!("catalog_name.like.\"{prefix}%\""))
+                .join(",");
+            builder.or(conditions)
+        } else {
+            builder
+        }
+    }
+}
+
+/// Common selection criteria based on the type of catalog item.
+#[derive(Debug, clap::Args)]
+pub struct SpecTypeSelector {
+    /// Whether to include captures in the selection
+    ///
+    /// If true, or if no value was given, then captures will
+    /// be included. You can also use `--captures=false` to exclude
+    /// captures.
+    #[clap(long, default_missing_value = "true", value_name = "INCLUDE")]
+    pub captures: Option<bool>,
+    /// Whether to include collections in the selection
+    ///
+    /// If true, or if no value was given, then collections will
+    /// be included. You can also use `--collections=false` to exclude
+    /// collections.
+    #[clap(long, default_missing_value = "true", value_name = "INCLUDE")]
+    pub collections: Option<bool>,
+    /// Whether to include materializations in the selection
+    ///
+    /// If true, or if no value was given, then materializations will
+    /// be included. You can also use `--materializations=false` to exclude
+    /// materializations.
+    #[clap(long, default_missing_value = "true", value_name = "INCLUDE")]
+    pub materializations: Option<bool>,
+    /// Whether to include tests in the selection
+    ///
+    /// If true, or if no value was given, then tests will
+    /// be included. You can also use `--tests=false` to exclude
+    /// tests.
+    #[clap(long, default_missing_value = "true", value_name = "INCLUDE")]
+    pub tests: Option<bool>,
+}
+
+impl SpecTypeSelector {
+    pub fn add_live_specs_filters<'a>(
+        &self,
+        mut builder: postgrest::Builder<'a>,
+    ) -> postgrest::Builder<'a> {
+        let all = &[
+            (CatalogSpecType::Capture, self.captures),
+            (CatalogSpecType::Collection, self.collections),
+            (CatalogSpecType::Materialization, self.materializations),
+            (CatalogSpecType::Test, self.tests),
+        ];
+        // If any of the types were explicitly included, then we'll add
+        // an `or.` that only includes items for each explicitly included type.
+        if self.has_any_include_types() {
+            let expr = all
+                .iter()
+                .filter(|(_, inc)| inc.unwrap_or(false))
+                .map(|(ty, _)| format!("spec_type.eq.{ty}"))
+                .join(",");
+            builder = builder.or(expr);
+        } else {
+            // If no types were explicitly included, then we can just add
+            // an `neq.` for each explicitly excluded type, since postgrest
+            // implicitly applies AND logic there.
+            for (ty, _) in all.iter().filter(|(_, inc)| *inc == Some(false)) {
+                builder = builder.neq("spec_type", ty);
+            }
+        }
+        builder
+    }
+
+    pub fn has_any_include_types(&self) -> bool {
+        self.captures == Some(true)
+            || self.collections == Some(true)
+            || self.materializations == Some(true)
+            || self.tests == Some(true)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum CatalogSpecType {
+    Capture,
+    Collection,
+    Materialization,
+    Test,
+}
+
+impl std::fmt::Display for CatalogSpecType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(self.as_ref())
+    }
+}
+
+impl std::convert::AsRef<str> for CatalogSpecType {
+    fn as_ref(&self) -> &str {
+        match *self {
+            CatalogSpecType::Capture => "capture",
+            CatalogSpecType::Collection => "collection",
+            CatalogSpecType::Materialization => "materialization",
+            CatalogSpecType::Test => "test",
+        }
+    }
+}
+
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct List {
     /// Include "Reads From" / "Writes To" columns in the output.
     #[clap(short = 'f', long)]
     pub flows: bool,
+    #[clap(flatten)]
+    pub prefix_selector: PrefixSelector,
+    #[clap(flatten)]
+    pub type_selector: SpecTypeSelector,
 }
 
 #[derive(Debug, clap::Args)]
@@ -87,7 +218,14 @@ impl Catalog {
     }
 }
 
-async fn do_list(ctx: &mut crate::CliContext, List { flows }: &List) -> anyhow::Result<()> {
+async fn do_list(
+    ctx: &mut crate::CliContext,
+    List {
+        flows,
+        type_selector,
+        prefix_selector,
+    }: &List,
+) -> anyhow::Result<()> {
     let mut columns = vec![
         "catalog_name",
         "id",
@@ -146,12 +284,12 @@ async fn do_list(ctx: &mut crate::CliContext, List { flows }: &List) -> anyhow::
             out
         }
     }
-    let rows: Vec<Row> = api_exec(
-        ctx.controlplane_client()?
-            .from("live_specs_ext")
-            .select(columns.join(",")),
-    )
-    .await?;
+    let client = ctx.controlplane_client()?;
+    let builder = client.from("live_specs_ext").select(columns.join(","));
+    let builder = type_selector.add_live_specs_filters(builder);
+    let builder = prefix_selector.add_live_specs_filters(builder);
+
+    let rows: Vec<Row> = api_exec(builder).await?;
 
     ctx.write_all(rows, *flows)
 }
