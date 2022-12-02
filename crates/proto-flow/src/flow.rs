@@ -85,6 +85,10 @@ pub struct Shuffle {
     /// and uses_source_key MUST be false.
     #[prost(message, optional, tag="7")]
     pub shuffle_lambda: ::core::option::Option<LambdaSpec>,
+    /// Schema against which shuffled documents are to be validated.
+    /// This will be removed.
+    #[prost(string, tag="8")]
+    pub deprecated_source_schema_uri: ::prost::alloc::string::String,
     /// filter_r_clocks is true if the shuffle coordinator should filter documents
     /// sent to each subscriber based on its covered r-clock ranges and the
     /// individual document clocks. If false, the subscriber's r-clock range is
