@@ -39,34 +39,21 @@ export type Document = /* Daily statistics of a market security. */ {
     volume?: /* Total number of shares transacted. */ number;
 };
 
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;
+
 // Generated from derivation register schema examples/stock-stats/flow.yaml?ptr=/collections/stock~1daily-stats/derivation/register/schema.
 // Referenced from examples/stock-stats/flow.yaml#/collections/stock~1daily-stats/derivation.
 export type Register = unknown;
 
-// Generated from transform fromTicks source schema examples/stock-stats/schemas/L1-tick.schema.yaml#/$defs/withRequired.
-// Referenced from examples/stock-stats/flow.yaml#/collections/stock~1daily-stats/derivation/transform/fromTicks.
-export type FromTicksSource = /* Level-one market tick of a security. */ {
-    _meta?: Record<string, unknown>;
-    ask: /* Lowest current offer to sell security. */ {
-        price: /* Dollar price. */ number;
-        size: /* Number of shares. */ number;
-    };
-    bid: /* Highest current offer to buy security. */ {
-        price: /* Dollar price. */ number;
-        size: /* Number of shares. */ number;
-    };
-    exchange: /* Enum of market exchange codes. */ 'NASDAQ' | 'NYSE' | 'SEHK';
-    last: /* Completed transaction which generated this tick. */ {
-        price: /* Dollar price. */ number;
-        size: /* Number of shares. */ number;
-    };
-    security: /* Market security ticker name. */ string;
-    time: string;
-    [k: string]: Record<string, unknown> | boolean | string | null | undefined;
-};
+// Generated from transform fromTicks as a re-export of collection stock/ticks.
+// Referenced from examples/stock-stats/flow.yaml#/collections/stock~1daily-stats/derivation/transform/fromTicks."
+import { SourceDocument as FromTicksSource } from './ticks';
+export { SourceDocument as FromTicksSource } from './ticks';
 
 // Generated from derivation examples/stock-stats/flow.yaml#/collections/stock~1daily-stats/derivation.
 // Required to be implemented by examples/stock-stats/flow.ts.
 export interface IDerivation {
-    fromTicksPublish(source: FromTicksSource, register: Register, previous: Register): Document[];
+    fromTicksPublish(source: FromTicksSource, register: Register, previous: Register): OutputDocument[];
 }

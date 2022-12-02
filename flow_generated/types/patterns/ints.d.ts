@@ -23,3 +23,7 @@ export type Document = /* A document that holds an integer */ {
     Int: number;
     Key: string;
 };
+
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;

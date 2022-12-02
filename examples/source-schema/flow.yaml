@@ -1,11 +1,20 @@
 collections:
   examples/source-schema/permissive:
-    schema:
+    writeSchema:
       type: object
       description: "Allows any JSON object, as long as it has a string id field"
       properties:
         id: { type: string }
       required: [id]
+    readSchema:
+      type: object
+      description: "Require that documents all have these fields"
+      properties:
+        id: { type: string }
+        a: { type: integer }
+        b: { type: boolean }
+        c: { type: number }
+      required: [id, a, b, c]
     key: [/id]
 
   examples/source-schema/restrictive:
@@ -23,15 +32,6 @@ collections:
         fromPermissive:
           source:
             name: examples/source-schema/permissive
-            schema:
-              type: object
-              description: "Require that the documents from permissive all have these fields"
-              properties:
-                id: { type: string }
-                a: { type: integer }
-                b: { type: boolean }
-                c: { type: number }
-              required: [id, a, b, c]
           publish: { lambda: typescript }
       typescript:
         module: flow.ts
