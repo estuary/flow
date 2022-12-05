@@ -1,6 +1,7 @@
 package connector
 
 import (
+	"time"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/thanhpk/randstr"
 	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/pkgbin"
 	"github.com/sirupsen/logrus"
@@ -76,7 +78,7 @@ func StartContainer(
 	// Pull and inspect the image, saving its output for mounting within the container.
 	if err := PullImage(ctx, image); err != nil {
 		return nil, err
-	} else if out, err := InspectImage(ctx, image); err != nil {
+	} else if out, err := Inspect(ctx, image); err != nil {
 		return nil, err
 	} else if tmpInspect, err = copyToTempFile(bytes.NewReader(out), 0444); err != nil {
 		return nil, fmt.Errorf("writing image inspection output: %w", err)
@@ -97,11 +99,10 @@ func StartContainer(
 	// Port on which connector-init listens for requests.
 	// This is the default, made explicit here.
 	const portInit = 8080
-	// Mapped and published connector-init port accessible from the host.
-	var portHost, err = GetFreePort()
-	if err != nil {
-		return nil, fmt.Errorf("allocating connector host port: %w", err)
-	}
+
+	tempDir := os.TempDir()
+
+	var cidFileTemp = fmt.Sprintf("%sconnector%s-cidfile", tempDir, randstr.Hex(16))
 
 	var labels = publisher.Labels()
 	var args = []string{
@@ -117,9 +118,6 @@ func StartContainer(
 		// Mount the flow-connector-init binary and `docker inspect` output.
 		"--mount", fmt.Sprintf("type=bind,source=%s,target=/flow-connector-init", tmpProxy.Name()),
 		"--mount", fmt.Sprintf("type=bind,source=%s,target=/image-inspect.json", tmpInspect.Name()),
-		// Publish the flow-connector-init port through to a mapped host port.
-		// We use 0.0.0.0 instead of 127.0.0.1 for compatibility with GitHub CodeSpaces.
-		"--publish", fmt.Sprintf("0.0.0.0:%d:%d/tcp", portHost, portInit),
 		// Thread-through the logging configuration of the connector.
 		"--env", "LOG_FORMAT=json",
 		"--env", "LOG_LEVEL=" + labels.LogLevel.String(),
@@ -132,6 +130,9 @@ func StartContainer(
 		"--label", fmt.Sprintf("image=%s", image),
 		"--label", fmt.Sprintf("task-name=%s", labels.TaskName),
 		"--label", fmt.Sprintf("task-type=%s", labels.TaskType),
+		// Write the container ID to file so we can inspect it to find its IP
+		// afterwards
+		"--cidfile", cidFileTemp,
 		image,
 		// The following are arguments of connector-init, not docker.
 		"--image-inspect-json-path=/image-inspect.json",
@@ -184,9 +185,15 @@ func StartContainer(
 		}
 	}()
 
+	ip, err := GetContainerIP(ctx, cidFileTemp)
+	if err != nil {
+		return nil, fmt.Errorf("getting container ip: %w", err)
+	}
+	os.Stderr.WriteString(fmt.Sprintf("%s:%d\n", ip, portInit))
+
 	conn, err := grpc.DialContext(
 		cmdCtx,
-		fmt.Sprintf("127.0.0.1:%d", portHost),
+		fmt.Sprintf("%s:%d", ip, portInit),
 		grpc.WithBlock(),
 		grpc.WithInsecure(),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMessageSize), grpc.MaxCallSendMsgSize(maxMessageSize)),
@@ -198,7 +205,7 @@ func StartContainer(
 		return nil, fmt.Errorf("dialing container connector-init: %w", err)
 	}
 
-	logrus.WithFields(logrus.Fields{"image": image, "portHost": portHost}).Info("started connector")
+	logrus.WithFields(logrus.Fields{"image": image}).Info("started connector")
 
 	var out = &Container{
 		conn:       conn,
@@ -246,6 +253,45 @@ func (c *Container) Stop() error {
 	return nil
 }
 
+type ContainerInspect struct {
+	NetworkSettings struct {
+		Networks map[string]struct {
+			IPAddress string `json:"IPAddress"`
+		} `json:"Networks"`
+	} `json:"NetworkSettings"`
+}
+
+// Find the container's IP address given its cidFilePath
+func GetContainerIP(ctx context.Context, cidFilePath string) (string, error) {
+	var tries = 0
+	for {
+		var cid, err = os.ReadFile(cidFilePath)
+		if err != nil {
+			if tries < 5 {
+				time.Sleep(time.Second)
+				continue
+			}
+			return "", fmt.Errorf("reading cid file: %w", err)
+		}
+
+		containerInspectRaw, err := Inspect(ctx, string(cid));
+		if err != nil {
+			return "", fmt.Errorf("inspecting container: %w", err)
+		}
+
+		var containerInspects []ContainerInspect
+		if err = json.Unmarshal(containerInspectRaw, &containerInspects); err != nil {
+			return "", fmt.Errorf("parsing container inspect json: %w", err)
+		}
+
+		for _, network := range containerInspects[0].NetworkSettings.Networks {
+			return network.IPAddress, nil
+		}
+
+		return "", fmt.Errorf("container has no networks")
+	}
+}
+
 // PullImage to local cache unless the tag is `:local`, which is expected to be local.
 func PullImage(ctx context.Context, image string) error {
 	// Pull the image if it's not expected to be local.
@@ -257,10 +303,10 @@ func PullImage(ctx context.Context, image string) error {
 	return nil
 }
 
-// InspectImage and return its Docker-compatible metadata JSON encoding.
-func InspectImage(ctx context.Context, image string) (json.RawMessage, error) {
-	if o, err := exec.CommandContext(ctx, "docker", "inspect", image).Output(); err != nil {
-		return nil, fmt.Errorf("docker inspect of container image %q failed: %w", image, err)
+// Inspect and return its Docker-compatible metadata JSON encoding.
+func Inspect(ctx context.Context, name string) (json.RawMessage, error) {
+	if o, err := exec.CommandContext(ctx, "docker", "inspect", name).Output(); err != nil {
+		return nil, fmt.Errorf("docker inspect of %q failed: %w", name, err)
 	} else {
 		return o, nil
 	}

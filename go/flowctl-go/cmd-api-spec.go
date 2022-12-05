@@ -58,7 +58,7 @@ func (cmd apiSpec) execute(ctx context.Context) (specResponse, error) {
 
 	if err = connector.PullImage(ctx, cmd.Image); err != nil {
 		return specResponse{}, err
-	} else if o, err := connector.InspectImage(ctx, cmd.Image); err != nil {
+	} else if o, err := connector.Inspect(ctx, cmd.Image); err != nil {
 		return specResponse{}, err
 	} else if err = json.Unmarshal(o, &imageMeta); err != nil {
 		return specResponse{}, fmt.Errorf("parsing inspect image %w", err)
