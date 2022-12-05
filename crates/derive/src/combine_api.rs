@@ -118,9 +118,6 @@ impl cgo::Service for API {
                 };
 
                 let validator = new_validator(&schema_json)?;
-                if validator.schemas().len() != 1 as usize {
-                    panic!("Validator built from bundled JSON schema must have a single schema")
-                };
                 let shape =
                     doc::inference::Shape::infer(&validator.schemas()[0], validator.schema_index());
 
@@ -295,7 +292,7 @@ fn exists_or_default<T>(
             let (inner, _) = shape.locate(p);
 
             match &inner.default {
-                Some(val) => val.pack(arena, TupleDepth::new().increment()),
+                Some((val, _)) => val.pack(arena, TupleDepth::new().increment()),
                 None => {
                     doc::Node::Null::<serde_json::Value>.pack(arena, TupleDepth::new().increment())
                 }
@@ -520,7 +517,7 @@ pub mod test {
 
         let field_ptrs = vec![
             "/intProp".to_owned(),
-            "/numProp".to_owned(), // TODO: Snapshot for this doesn't work very well.
+            "/numProp".to_owned(),
             "/strProp".to_owned(),
             "/boolProp".to_owned(),
             "/objProp".to_owned(),

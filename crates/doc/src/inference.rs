@@ -23,8 +23,9 @@ pub struct Shape {
     pub reduction: Reduction,
     /// Does this location's schema flow from a `$ref`?
     pub provenance: Provenance,
-    /// Default value of this document location, if any.
-    pub default: Option<Value>,
+    /// Default value of this document location, if any. A validation error is recorded if the
+    /// default value specified does not validate against the location's schema.
+    pub default: Option<(Value, Option<super::FailedValidation>)>,
     /// Is this location sensitive? For example, a password or credential.
     pub secret: Option<bool>,
 
@@ -667,7 +668,18 @@ impl Shape {
                         shape.description = Some(d.clone());
                     }
                     Annotation::Core(CoreAnnotation::Default(value)) => {
-                        shape.default = Some(value.clone());
+                        let default_value = value.clone();
+
+                        let validation_err = super::Validation::validate(
+                            &mut super::RawValidator::new(index),
+                            &schema.curi,
+                            &default_value,
+                        )
+                        .unwrap()
+                        .ok()
+                        .err();
+
+                        shape.default = Some((default_value, validation_err));
                     }
 
                     // String constraints.
@@ -1325,6 +1337,8 @@ pub enum Error {
         "{0} location's parent has 'set' reduction strategy, restricted to 'add'/'remove'/'intersect' properties"
     )]
     SetInvalidProperty(String),
+    #[error("{0} default value is invalid: {1}")]
+    InvalidDefaultValue(String, super::FailedValidation),
 }
 
 impl Shape {
@@ -1371,6 +1385,15 @@ impl Shape {
         if self.type_ == types::INVALID && must_exist {
             out.push(Error::ImpossibleMustExist(loc.pointer_str().to_string()));
         }
+
+        // Invalid values for default values.
+        if let Some((_, Some(err))) = &self.default {
+            out.push(Error::InvalidDefaultValue(
+                loc.pointer_str().to_string(),
+                err.to_owned(),
+            ));
+        };
+
         if matches!(self.reduction, Reduction::Sum)
             && self.type_ - types::INT_OR_FRAC != types::INVALID
         {
@@ -1532,7 +1555,7 @@ mod test {
                 description: Some("a-description".to_owned()),
                 reduction: Reduction::FirstWriteWins,
                 provenance: Provenance::Inline,
-                default: Some(Value::String("john.doe@gmail.com".to_owned())),
+                default: Some((Value::String("john.doe@gmail.com".to_owned()), None)),
                 secret: Some(true),
                 string: StringShape {
                     content_encoding: Some("base64".to_owned()),
@@ -2394,6 +2417,47 @@ mod test {
     }
 
     #[test]
+    fn test_default_value_validation() {
+        let obj = shape_from(
+            r#"
+        type: object
+        properties:
+            scalar-type:
+                type: string
+                default: 1234
+
+            multi-type:
+                type: [string, array]
+                default: 1234
+
+            object-type-missing-prop:
+                type: object
+                properties:
+                    requiredProp:
+                        type: string
+                required: [requiredProp]
+                default: { otherProp: "stringValue" }
+
+            object-type-prop-wrong-type:
+                type: object
+                properties:
+                    requiredProp:
+                        type: string
+                required: [requiredProp]
+                default: { requiredProp: 1234 }
+
+            array-wrong-items:
+                type: array
+                items:
+                    type: integer
+                default: ["aString"]
+        "#,
+        );
+
+        insta::assert_debug_snapshot!(obj.inspect());
+    }
+
+    #[test]
     fn test_provenance_cases() {
         infer_test(
             &[r#"
@@ -2405,7 +2469,7 @@ mod test {
 
                 properties:
                     a-thing:
-                        oneOf:
+                        anyOf:
                             - $ref: '#/$defs/thing'
                             - $ref: '#/$defs/thing'
                         title: Just a thing.
@@ -2436,7 +2500,7 @@ mod test {
                                 provenance: Provenance::Reference(
                                     Url::parse("http://example/schema#/$defs/thing").unwrap(),
                                 ),
-                                default: Some(json!("a-default")),
+                                default: Some((json!("a-default"), None)),
                                 ..Shape::default()
                             },
                         },

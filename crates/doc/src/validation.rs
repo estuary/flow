@@ -171,7 +171,7 @@ impl<'schema, 'doc, 'tmp, N: AsNode> Validation<'schema, 'doc, 'tmp, N> {
     }
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct FailedValidation {
     pub basic_output: serde_json::Value,
     pub document: serde_json::Value,
