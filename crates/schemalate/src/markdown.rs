@@ -47,6 +47,7 @@ pub fn run(args: Args) -> anyhow::Result<()> {
         let title = shape.title.as_deref().unwrap_or("");
         let desc = shape.description.as_deref().unwrap_or("");
         let type_ = shape.type_.to_vec().join(", ");
+        let def = shape.default.as_ref().map(|(def, _)| def);
 
         println!(
             "| {} | {} | {} | {} | {} |",
@@ -54,7 +55,7 @@ pub fn run(args: Args) -> anyhow::Result<()> {
             md_escape(title),
             md_escape(desc),
             type_,
-            RequiredAndDefault(exists, shape.default.as_ref()),
+            RequiredAndDefault(exists, def),
         );
     }
 
