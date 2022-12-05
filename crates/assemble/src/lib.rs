@@ -19,7 +19,7 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
     let default_json = shape
         .default
         .as_ref()
-        .map(|v| v.to_string())
+        .map(|(v, _)| v.to_string())
         .unwrap_or_default();
 
     let is_base64 = shape
@@ -798,7 +798,7 @@ mod test {
     fn test_inference() {
         let mut shape = Shape {
             type_: types::STRING | types::BOOLEAN,
-            default: Some(json!({"hello": "world"})),
+            default: Some((json!({"hello": "world"}), None)),
             description: Some("the description".to_string()),
             title: Some("the title".to_owned()),
             secret: Some(true),
