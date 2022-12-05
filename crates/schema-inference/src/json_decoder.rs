@@ -1,8 +1,8 @@
 /// Largely copied from https://github.com/mxinden/asynchronous-codec/blob/master/src/codec/json.rs
 use std::marker::PhantomData;
 
-use anyhow::anyhow;
 use bytes::{Buf, BytesMut};
+use bytesize::ByteSize;
 use serde::Deserialize;
 use serde_json::Value;
 use tokio_util::codec::Decoder;
@@ -37,8 +37,11 @@ where
 
     fn increase_buffer_target_capacity(&mut self) {
         // We don't want this number to grow unbounded,
-        // otherwise we could end up reserving tons of memory
-        self.buffer_target_capacity = std::cmp::min(16_000_000, self.buffer_target_capacity * 2);
+        // otherwise we could end up reserving tons of memory.
+        // A single Flow document is limited to fitting within the max message size,
+        // which is 16 MiB. Since we're parsing messages here (which contain documents),
+        // a reasonable max buffer size is at least one message's worth, or 16 MiB.
+        self.buffer_target_capacity = std::cmp::min(16_777_216, self.buffer_target_capacity * 2);
     }
 }
 
@@ -135,14 +138,12 @@ where
 
                 if bytes_addl > 0 {
                     tracing::trace!(
-                        bytes_addl = format!("{:.1} MB", bytes_addl as f32 / 1_000_000f32),
-                        bytes_read = format!("{:.1} MB", self.bytes as f32 / 1_000_000f32),
+                        bytes_addl = display(ByteSize(bytes_addl.try_into().unwrap())),
+                        bytes_read = display(ByteSize(self.bytes.try_into().unwrap())),
                         buf_capacity_remaining =
-                            format!("{:.1} MB", buf.capacity() as f32 / 1_000_000f32),
-                        buf_grow_rate = format!(
-                            "{:.1} MB",
-                            self.buffer_target_capacity as f32 / 1_000_000f32
-                        ),
+                            display(ByteSize(buf.capacity().try_into().unwrap())),
+                        buf_grow_rate =
+                            display(ByteSize(self.buffer_target_capacity.try_into().unwrap())),
                         "Partial read, reserving additional bytes"
                     );
                     buf.reserve(bytes_addl);

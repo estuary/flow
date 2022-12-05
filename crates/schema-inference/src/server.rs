@@ -1,9 +1,11 @@
 use std::net::{IpAddr, SocketAddr};
+use std::time::Duration;
 
 use crate::inference::infer_shape;
 use crate::json_decoder::{JsonCodec, JsonCodecError};
 use crate::schema::SchemaBuilder;
 use crate::shape;
+use bytesize::ByteSize;
 use serde_json::json;
 
 use anyhow::Context;
@@ -86,6 +88,7 @@ impl InferenceError {
 
 /// Used to roll up shapes inferred from collections,
 /// as well as metadata about the data that went into them
+#[derive(Default, Debug)]
 struct ShapeAndMeta {
     shape: Shape,
     /// The number of documents that were read to infer this shape
@@ -156,7 +159,7 @@ async fn infer_schema(
             tracing::info!(
                 collection=collection_name,
                 documents_read=docs,
-                bytes_read=format!("{:.1} MB", bytes as f32/1_000_000f32),
+                bytes_read=display(ByteSize(bytes)),
                 fully_read_collection=!*abort_rx.borrow(),
                 duration=?end_time,
                 "Finished schema inference"
@@ -191,10 +194,14 @@ async fn journal_to_shape(
         .into_stream()
         .map_err(InferenceError::from)
         .map_ok(|frag| fragment_to_shape(client.clone(), frag, abort_signal.clone()))
-        .try_buffer_unordered(5)
+        .try_buffer_unordered(1)
         .into_stream();
 
     reduce_shape_stream(frag_stream).await
+}
+
+fn is_aborted(rx: &mut Receiver<bool>) -> bool {
+    *rx.borrow_and_update()
 }
 
 /// Read all documents in a particular fragment and return the most-strict [Shape]
@@ -207,11 +214,10 @@ async fn journal_to_shape(
 async fn fragment_to_shape(
     client: journal_client::Client,
     fragment: fragments_response::Fragment,
-    abort_signal: Receiver<bool>,
+    mut abort_signal: Receiver<bool>,
 ) -> Result<Option<ShapeAndMeta>, InferenceError> {
-    tokio::pin!(abort_signal);
     // Let's bail early if we're already aborted
-    if *abort_signal.borrow_and_update() {
+    if is_aborted(&mut abort_signal) {
         return Ok(None);
     }
 
@@ -238,6 +244,9 @@ async fn fragment_to_shape(
     let mut accumulator: Option<Shape> = None;
     let mut docs: u64 = 0;
 
+    let mut duration_total = Duration::default();
+    let mut duration_count: u64 = 0;
+
     loop {
         tokio::select! {
             maybe_doc_body = doc_bytes_stream.next() => {
@@ -246,6 +255,7 @@ async fn fragment_to_shape(
                         let parsed: Value = doc_val;
                         // There should probably be a higher-level API for this in `journal-client`
 
+                        let start = Instant::now();
                         if parsed.pointer("/_meta/ack").is_none() {
                             let inferred_shape = infer_shape(&parsed);
 
@@ -256,24 +266,31 @@ async fn fragment_to_shape(
                             }
                             docs = docs + 1;
                         }
+                        duration_total = duration_total + start.elapsed();
+                        duration_count += 1;
                     }
                     Some(Err(e)) => return Err(InferenceError::from(e)),
                     None => break
                 }
             }
             _ = abort_signal.changed() => {
-                if *abort_signal.borrow() {
+                if is_aborted(&mut abort_signal) {
                     tracing::debug!("Aborting schma inference early!");
                     break
                 }
             }
-        }
+        };
     }
+
+    let in_ms = duration_total.as_secs() * 1000 + duration_total.subsec_nanos() as u64 / 1_000_000;
+    let avg_ms = in_ms as f64 / duration_count as f64;
 
     let bytes_read = doc_bytes_stream.decoder().bytes_read().try_into().unwrap();
     tracing::debug!(
-        bytes_read = format!("{:.1} MB", bytes_read as f32 / 1_000_000f32),
+        bytes_read = display(ByteSize(bytes_read)),
         docs_read = docs,
+        avg_document_inference_ms = avg_ms,
+        total_document_inference_ms = in_ms,
         "Done reading fragment"
     );
 
@@ -290,41 +307,27 @@ async fn fragment_to_shape(
 async fn reduce_shape_stream(
     stream: impl Stream<Item = Result<Option<ShapeAndMeta>, InferenceError>>,
 ) -> Result<Option<ShapeAndMeta>, InferenceError> {
-    let mut accumulator: Option<ShapeAndMeta> = None;
-    tokio::pin!(stream);
-
-    while let Some(item) = stream.next().await {
-        match item {
-            Ok(Some(ShapeAndMeta {
-                shape: item_shape,
-                docs: item_docs_count,
-                bytes: item_bytes,
-            })) => {
-                if let Some(ShapeAndMeta {
-                    shape: accum_shape,
-                    docs: accum_docs_count,
-                    bytes: accum_bytes,
-                }) = accumulator
-                {
-                    accumulator = Some(ShapeAndMeta {
-                        shape: shape::merge(accum_shape, item_shape),
-                        docs: accum_docs_count + item_docs_count,
-                        bytes: item_bytes + accum_bytes,
-                    });
-                } else {
-                    accumulator = Some(ShapeAndMeta {
-                        shape: item_shape,
-                        docs: item_docs_count,
-                        bytes: item_bytes,
-                    })
+    stream
+        .try_fold(None, |mut maybe_accum: Option<ShapeAndMeta>, item| async {
+            if let Some(item) = item {
+                match maybe_accum {
+                    Some(ref mut accumulator) => {
+                        accumulator.shape = shape::merge(accumulator.shape.clone(), item.shape);
+                        accumulator.docs += item.docs;
+                        accumulator.bytes += item.bytes
+                    }
+                    None => {
+                        maybe_accum = Some(ShapeAndMeta {
+                            shape: item.shape,
+                            docs: item.docs,
+                            bytes: item.bytes,
+                        })
+                    }
                 }
             }
-            Ok(None) => {}
-            Err(e) => return Err(e),
-        }
-    }
-
-    Ok(accumulator)
+            Ok(maybe_accum)
+        })
+        .await
 }
 
 #[derive(Debug, clap::Args)]
