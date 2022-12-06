@@ -294,7 +294,6 @@ func (c *Capture) startReadingMessages(
 				c.labels.Range,
 				unsealed,
 				c.labels.Build,
-				!c.host.Config.Flow.Poll,
 				startCommitFn,
 			); err != nil {
 				return err

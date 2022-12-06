@@ -299,9 +299,6 @@ message PullRequest {
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "driverCheckpoint"
     ];
-    // If true, perform a blocking tail of the capture.
-    // If false, produce all ready output and then close the stream.
-    bool tail = 6;
   }
   Open open = 1;
 

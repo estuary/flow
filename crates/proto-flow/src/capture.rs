@@ -194,10 +194,6 @@ pub mod pull_request {
         /// Or empty, if the driver has cleared or never set its checkpoint.
         #[prost(bytes="vec", tag="5")]
         pub driver_checkpoint_json: ::prost::alloc::vec::Vec<u8>,
-        /// If true, perform a blocking tail of the capture.
-        /// If false, produce all ready output and then close the stream.
-        #[prost(bool, tag="6")]
-        pub tail: bool,
     }
 }
 /// PullResponse is the response type of a Driver.Pull RPC.
