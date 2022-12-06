@@ -68,6 +68,48 @@ pub struct Loader<F: Fetcher> {
     fetcher: F,
 }
 
+/// Parses a flow catalog specification **without** perfoming any sort of resolution of any other
+/// resources. This takes care of all the workarounds for dealing with `serde_json::RawValue`s, as
+/// well as resolving yaml merge keys.
+pub fn parse_catalog_spec(content: &[u8]) -> Result<models::Catalog, LoadError> {
+    let json = load_resource_content_dom(content, flow::ContentType::Catalog)?;
+    let catalog = serde_json::from_str(json.get())?;
+    Ok(catalog)
+}
+
+/// Parses `content` into a JSON DOM that can be further parsed into a Rust type.
+fn load_resource_content_dom(
+    content: &[u8],
+    content_type: flow::ContentType,
+) -> Result<Box<RawValue>, LoadError> {
+    use flow::ContentType as CT;
+
+    // These types are not documents and have a placeholder DOM.
+    if matches!(content_type, CT::NpmPackage | CT::TypescriptModule) {
+        return Ok(RawValue::from_string("null".to_string()).unwrap());
+    }
+
+    let mut dom: serde_yaml::Value = serde_yaml::from_slice(&content)?;
+
+    // We support YAML merge keys in catalog documents (only).
+    // We don't allow YAML aliases in schema documents as they're redundant
+    // with JSON Schema's $ref mechanism.
+    if let flow::ContentType::Catalog = content_type {
+        dom = yaml_merge_keys::merge_keys_serde(dom)?;
+    }
+
+    // Our models embed serde_json::RawValue, which cannot be directly
+    // deserialized from serde_yaml::Value. We cannot transmute to serde_json::Value
+    // because that could re-order elements along the way (Value is a BTreeMap),
+    // which could violate the message authentication code (MAC) of inlined and
+    // sops-encrypted documents. So, directly transcode into serialized JSON.
+    let mut buf = Vec::<u8>::new();
+    let mut serializer = serde_json::Serializer::new(&mut buf);
+    serde_transcode::transcode(dom, &mut serializer).expect("must transcode");
+
+    Ok(RawValue::from_string(String::from_utf8(buf).unwrap()).unwrap())
+}
+
 impl<F: Fetcher> Loader<F> {
     /// Build and return a new Loader.
     pub fn new(tables: tables::Sources, fetcher: F) -> Loader<F> {
@@ -202,32 +244,7 @@ impl<F: Fetcher> Loader<F> {
         content: &[u8],
         content_type: flow::ContentType,
     ) -> Option<Box<RawValue>> {
-        use flow::ContentType as CT;
-
-        // These types are not documents and have a placeholder DOM.
-        if matches!(content_type, CT::NpmPackage | CT::TypescriptModule) {
-            return Some(RawValue::from_string("null".to_string()).unwrap());
-        }
-
-        let mut dom: serde_yaml::Value = self.fallible(scope, serde_yaml::from_slice(&content))?;
-
-        // We support YAML merge keys in catalog documents (only).
-        // We don't allow YAML aliases in schema documents as they're redundant
-        // with JSON Schema's $ref mechanism.
-        if let flow::ContentType::Catalog = content_type {
-            dom = self.fallible(scope, yaml_merge_keys::merge_keys_serde(dom))?;
-        }
-
-        // Our models embed serde_json::RawValue, which cannot be directly
-        // deserialized from serde_yaml::Value. We cannot transmute to serde_json::Value
-        // because that could re-order elements along the way (Value is a BTreeMap),
-        // which could violate the message authentication code (MAC) of inlined and
-        // sops-encrypted documents. So, directly transcode into serialized JSON.
-        let mut buf = Vec::<u8>::new();
-        let mut serializer = serde_json::Serializer::new(&mut buf);
-        serde_transcode::transcode(dom, &mut serializer).expect("must transcode");
-
-        Some(RawValue::from_string(String::from_utf8(buf).unwrap()).unwrap())
+        self.fallible(scope, load_resource_content_dom(content, content_type))
     }
 
     async fn load_schema_document<'s>(
