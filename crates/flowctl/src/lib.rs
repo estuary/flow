@@ -252,7 +252,7 @@ async fn fetch_async(resource: url::Url) -> Result<bytes::Bytes, anyhow::Error> 
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug)]
-struct Timestamp(#[serde(with = "time::serde::rfc3339")] time::OffsetDateTime);
+pub struct Timestamp(#[serde(with = "time::serde::rfc3339")] time::OffsetDateTime);
 
 impl std::fmt::Display for Timestamp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

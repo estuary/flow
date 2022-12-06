@@ -3,6 +3,7 @@ use regex::Regex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};
+use std::fmt;
 use validator::{Validate, ValidationError, ValidationErrors};
 
 // This module contains types which are references to other entities
@@ -97,6 +98,13 @@ macro_rules! string_reference_types {
                 self.0
             }
         }
+
+        impl fmt::Display for $Wrapper {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str(self.as_ref())
+            }
+        }
+
 
         impl Validate for $Wrapper {
             fn validate(&self) -> Result<(), ValidationErrors> {

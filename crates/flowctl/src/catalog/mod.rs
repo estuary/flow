@@ -1,4 +1,7 @@
+mod pull_specs;
+
 use crate::api_exec;
+use crate::controlplane;
 use crate::output::{to_table_row, CliOutput, JsonCell};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -16,6 +19,16 @@ pub struct Catalog {
 pub enum Command {
     /// List catalog specifications.
     List(List),
+    /// Pull down catalog specifications into a local directory.
+    ///
+    /// Writes catalog specifications into a local directory so that
+    /// you can edit them locally. Accepts the same arguments as `flowctl catalog list`
+    /// for selecting specs from the catalog. By default, specs will be written to
+    /// nested subdirectories within the current directory, based on the catalog
+    /// name of each selected spec. You may instead pass `--no-expand-dirs` to
+    /// instead write the spec (and all associated endpoint config and schema resources)
+    /// directly to the current directory.
+    PullSpecs(pull_specs::PullSpecs),
     /// History of a catalog specification.
     ///
     /// Print all historical publications of catalog specifications.
@@ -41,22 +54,25 @@ pub enum Command {
     Draft(Draft),
 }
 
-/// Common selection criteria based on a prefix of the item name.
-#[derive(Debug, clap::Args)]
-pub struct PrefixSelector {
+/// Common selection criteria based on the spec name.
+#[derive(Debug, Clone, clap::Args)]
+pub struct NameSelector {
+    /// Select a spec by name. May be provided multiple times.
+    #[clap(long)]
+    pub name: Vec<String>,
     /// Select catalog items under the given prefix
     ///
     /// Selects all items whose name begins with the prefix.
     /// Can be provided multiple times to select items under multiple
     /// prefixes.
-    #[clap(long)]
+    #[clap(long, conflicts_with = "name")]
     pub prefix: Vec<String>,
 }
 
-impl PrefixSelector {
+impl NameSelector {
     pub fn add_live_specs_filters<'a>(
         &self,
-        builder: postgrest::Builder<'a>,
+        mut builder: postgrest::Builder<'a>,
     ) -> postgrest::Builder<'a> {
         if !self.prefix.is_empty() {
             let conditions = self
@@ -64,15 +80,23 @@ impl PrefixSelector {
                 .iter()
                 .map(|prefix| format!("catalog_name.like.\"{prefix}%\""))
                 .join(",");
-            builder.or(conditions)
-        } else {
-            builder
+            builder = builder.or(conditions);
         }
+
+        if !self.name.is_empty() {
+            let name_sel = self
+                .name
+                .iter()
+                .map(|name| format!("catalog_name.eq.\"{name}\""))
+                .join(",");
+            builder = builder.or(name_sel);
+        }
+        builder
     }
 }
 
 /// Common selection criteria based on the type of catalog item.
-#[derive(Debug, clap::Args)]
+#[derive(Debug, Clone, clap::Args)]
 pub struct SpecTypeSelector {
     /// Whether to include captures in the selection
     ///
@@ -143,8 +167,9 @@ impl SpecTypeSelector {
     }
 }
 
-#[derive(Clone, Copy)]
-enum CatalogSpecType {
+#[derive(Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CatalogSpecType {
     Capture,
     Collection,
     Materialization,
@@ -159,6 +184,7 @@ impl std::fmt::Display for CatalogSpecType {
 
 impl std::convert::AsRef<str> for CatalogSpecType {
     fn as_ref(&self) -> &str {
+        // These strings match what's used by serde, and also match the definitions in the database.
         match *self {
             CatalogSpecType::Capture => "capture",
             CatalogSpecType::Collection => "collection",
@@ -175,7 +201,7 @@ pub struct List {
     #[clap(short = 'f', long)]
     pub flows: bool,
     #[clap(flatten)]
-    pub prefix_selector: PrefixSelector,
+    pub prefix_selector: NameSelector,
     #[clap(flatten)]
     pub type_selector: SpecTypeSelector,
 }
@@ -212,20 +238,128 @@ impl Catalog {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> Result<(), anyhow::Error> {
         match &self.cmd {
             Command::List(list) => do_list(ctx, list).await,
+            Command::PullSpecs(pull) => pull_specs::do_pull_specs(ctx, pull).await,
             Command::History(history) => do_history(ctx, history).await,
             Command::Draft(draft) => do_draft(ctx, draft).await,
         }
     }
 }
 
-async fn do_list(
-    ctx: &mut crate::CliContext,
-    List {
-        flows,
-        type_selector,
-        prefix_selector,
-    }: &List,
-) -> anyhow::Result<()> {
+pub async fn fetch_live_specs(
+    cp_client: controlplane::Client,
+    list: &List,
+    columns: Vec<&'static str>,
+) -> anyhow::Result<Vec<LiveSpecRow>> {
+    let builder = cp_client.from("live_specs_ext").select(columns.join(","));
+    let builder = list.type_selector.add_live_specs_filters(builder);
+    let builder = list.prefix_selector.add_live_specs_filters(builder);
+
+    let rows = api_exec(builder).await?;
+    Ok(rows)
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct LiveSpecRow {
+    pub catalog_name: String,
+    pub id: String,
+    pub last_pub_user_email: Option<String>,
+    pub last_pub_user_full_name: Option<String>,
+    pub last_pub_user_id: Option<uuid::Uuid>,
+    pub spec_type: Option<CatalogSpecType>,
+    pub updated_at: crate::Timestamp,
+    pub reads_from: Option<Vec<String>>,
+    pub writes_to: Option<Vec<String>>,
+    pub spec: Option<Box<serde_json::value::RawValue>>,
+}
+
+impl LiveSpecRow {
+    fn parse_spec<T: serde::de::DeserializeOwned>(&self) -> anyhow::Result<T> {
+        let spec = self.spec.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("missing spec for catalog item: '{}'", self.catalog_name)
+        })?;
+        let parsed = serde_json::from_str::<T>(spec.get())?;
+        Ok(parsed)
+    }
+}
+impl crate::output::CliOutput for LiveSpecRow {
+    type TableAlt = bool;
+    type CellValue = String;
+
+    fn table_headers(flows: Self::TableAlt) -> Vec<&'static str> {
+        let mut headers = vec!["ID", "Name", "Type", "Updated", "Updated By"];
+        if flows {
+            headers.push("Reads From");
+            headers.push("Writes To");
+        }
+        headers
+    }
+
+    fn into_table_row(self, flows: Self::TableAlt) -> Vec<Self::CellValue> {
+        let mut out = vec![
+            self.id,
+            self.catalog_name,
+            self.spec_type
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| String::from("DELETED")),
+            self.updated_at.to_string(),
+            crate::format_user(
+                self.last_pub_user_email,
+                self.last_pub_user_full_name,
+                self.last_pub_user_id,
+            ),
+        ];
+        if flows {
+            out.push(self.reads_from.iter().flatten().join("\n"));
+            out.push(self.writes_to.iter().flatten().join("\n"));
+        }
+        out
+    }
+}
+
+/// Collects an iterator of `LiveSpecRow`s into a `models::Catalog`. The rows must
+/// all have a `spec` unless they are deleted (`spec_type = null`).
+pub fn collect_specs(
+    rows: impl IntoIterator<Item = LiveSpecRow>,
+) -> anyhow::Result<models::Catalog> {
+    let mut catalog = models::Catalog::default();
+
+    for row in rows {
+        match row.spec_type {
+            Some(CatalogSpecType::Capture) => {
+                let cap = row.parse_spec::<models::CaptureDef>()?;
+                catalog
+                    .captures
+                    .insert(models::Capture::new(row.catalog_name), cap);
+            }
+            Some(CatalogSpecType::Collection) => {
+                let collection = row.parse_spec::<models::CollectionDef>()?;
+                catalog
+                    .collections
+                    .insert(models::Collection::new(row.catalog_name), collection);
+            }
+            Some(CatalogSpecType::Materialization) => {
+                let materialization = row.parse_spec::<models::MaterializationDef>()?;
+                catalog.materializations.insert(
+                    models::Materialization::new(row.catalog_name),
+                    materialization,
+                );
+            }
+            Some(CatalogSpecType::Test) => {
+                let test = row.parse_spec::<Vec<models::TestStep>>()?;
+                catalog
+                    .tests
+                    .insert(models::Test::new(row.catalog_name), test);
+            }
+            None => {
+                tracing::debug!(catalog_name = %row.catalog_name, "ignoring deleted spec from list results");
+            }
+        }
+    }
+    Ok(catalog)
+}
+
+async fn do_list(ctx: &mut crate::CliContext, list_args: &List) -> anyhow::Result<()> {
     let mut columns = vec![
         "catalog_name",
         "id",
@@ -235,63 +369,14 @@ async fn do_list(
         "spec_type",
         "updated_at",
     ];
-    if *flows {
+    if list_args.flows {
         columns.push("reads_from");
         columns.push("writes_to");
     }
-
-    #[derive(Deserialize, Serialize)]
-    struct Row {
-        catalog_name: String,
-        id: String,
-        last_pub_user_email: Option<String>,
-        last_pub_user_full_name: Option<String>,
-        last_pub_user_id: Option<uuid::Uuid>,
-        spec_type: Option<String>,
-        updated_at: crate::Timestamp,
-        reads_from: Option<Vec<String>>,
-        writes_to: Option<Vec<String>>,
-    }
-    impl crate::output::CliOutput for Row {
-        type TableAlt = bool;
-        type CellValue = String;
-
-        fn table_headers(flows: Self::TableAlt) -> Vec<&'static str> {
-            let mut headers = vec!["ID", "Name", "Type", "Updated", "Updated By"];
-            if flows {
-                headers.push("Reads From");
-                headers.push("Writes To");
-            }
-            headers
-        }
-
-        fn into_table_row(self, flows: Self::TableAlt) -> Vec<Self::CellValue> {
-            let mut out = vec![
-                self.id,
-                self.catalog_name,
-                self.spec_type.unwrap_or_default(),
-                self.updated_at.to_string(),
-                crate::format_user(
-                    self.last_pub_user_email,
-                    self.last_pub_user_full_name,
-                    self.last_pub_user_id,
-                ),
-            ];
-            if flows {
-                out.push(self.reads_from.iter().flatten().join("\n"));
-                out.push(self.writes_to.iter().flatten().join("\n"));
-            }
-            out
-        }
-    }
     let client = ctx.controlplane_client()?;
-    let builder = client.from("live_specs_ext").select(columns.join(","));
-    let builder = type_selector.add_live_specs_filters(builder);
-    let builder = prefix_selector.add_live_specs_filters(builder);
+    let rows = fetch_live_specs(client, list_args, columns).await?;
 
-    let rows: Vec<Row> = api_exec(builder).await?;
-
-    ctx.write_all(rows, *flows)
+    ctx.write_all(rows, list_args.flows)
 }
 
 async fn do_history(ctx: &mut crate::CliContext, History { name }: &History) -> anyhow::Result<()> {
