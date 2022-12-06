@@ -27,7 +27,6 @@ func OpenPull(
 	range_ pf.RangeSpec,
 	spec *pf.CaptureSpec,
 	version string,
-	tail bool,
 	startCommitFn func(error),
 ) (*PullClient, error) {
 
@@ -54,7 +53,6 @@ func OpenPull(
 			KeyBegin:             range_.KeyBegin,
 			KeyEnd:               range_.KeyEnd,
 			DriverCheckpointJson: driverCheckpoint,
-			Tail:                 tail,
 		}}); err != nil {
 		return nil, fmt.Errorf("sending Open: %w", err)
 	}

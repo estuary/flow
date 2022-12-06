@@ -43,7 +43,6 @@ func TestPullClientLifecycle(t *testing.T) {
 		pf.NewFullRange(),
 		&spec,
 		"a-version",
-		true,
 		func(err error) { startCommitCh <- err },
 	)
 	require.NoError(t, err)
@@ -204,7 +203,6 @@ func TestPullClientCancel(t *testing.T) {
 			pf.NewFullRange(),
 			&spec,
 			"a-version",
-			true,
 			func(err error) { startCommitCh <- err },
 		)
 		require.NoError(t, err)

@@ -19,7 +19,6 @@ func TestConfiguredCatalogMarshaling(t *testing.T) {
                 "blazing": "/saddles"
             }
         }],
-        "tail": true,
         "range": {
             "begin": "00000000",
             "end": "FFFFFFFF"
@@ -32,7 +31,6 @@ func TestConfiguredCatalogMarshaling(t *testing.T) {
 	var serJson, err = json.Marshal(&resultOne)
 	require.NoError(t, err)
 	require.Contains(t, string(serJson), `"estuary.dev/projections":`)
-	require.Contains(t, string(serJson), `"estuary.dev/tail":`)
 	require.Contains(t, string(serJson), `"estuary.dev/range":`)
 
 	// Deserialize again and assert that we get the same struct value as the first result.
