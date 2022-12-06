@@ -13,11 +13,33 @@ export const returnPostgresError = (error: any) => {
 };
 
 export const handlebarsHelpers = {
-    urlencode: function (s: string) {
-        return encodeURIComponent(s);
+    urlencode: function (s: any) {
+        // Handlebars block helpers work this way
+        if (s) {
+          if (s.fn) {
+            return encodeURIComponent(s.fn(this));
+          } else {
+            return encodeURIComponent(s);
+          }
+        }
+
+        // Mustache works this way
+        return (s: string, render: any) => {
+          return encodeURIComponent(render(s));
+        }
     },
-    basicauth: function (user: string, password: string) {
-        return btoa(`${user}:${password}`);
+    basicauth: function (s: any, b: any) {
+      if (s) {
+        if (s.fn) {
+          return btoa(s.fn(this));
+        } else if (b) {
+          return btoa(`${s}:${b}`);
+        }
+      }
+
+      return (s: string, render: any) => {
+        return btoa(render(s));
+      }
     },
 };
 
