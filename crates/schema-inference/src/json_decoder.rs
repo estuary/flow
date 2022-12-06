@@ -88,7 +88,6 @@ where
                 let offset = iter.byte_offset();
                 self.bytes += offset;
                 buf.advance(offset);
-                // tracing::trace!(bytes_advance = offset, "Successfully read document");
 
                 Ok(Some(v))
             }
