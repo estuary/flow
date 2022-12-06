@@ -184,6 +184,12 @@ To mitigate this, we recommend a two-pronged approach:
 
    This ensures that for each transaction, you'll only be charged for one minute of compute, Snowflake's smallest granularity.
 
+   Use a query like the one shown below, being sure to substitute your warehouse name:
+
+   ```sql
+   ALTER WAREHOUSE ESTUARY_WH SET auto_suspend = 60;
+   ```
+
 * Configure the materialization's **minimum transaction duration** to as long as 30 minutes.
 
    This ensures that Flow will wait at least 30 minutes between new data commits to Snowflake.
