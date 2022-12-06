@@ -32,7 +32,6 @@ type FlowConsumerConfig struct {
 		BrokerRoot string `long:"broker-root" required:"true" env:"BROKER_ROOT" default:"/gazette/cluster" description:"Broker Etcd base prefix"`
 		Network    string `long:"network" description:"The Docker network that connector containers are given access to, defaults to the bridge network"`
 		TestAPIs   bool   `long:"test-apis" description:"Enable APIs exclusively used while running catalog tests"`
-		Poll       bool   `long:"poll" description:"Poll connectors, rather than running them continuously"`
 	} `group:"flow" namespace:"flow" env-namespace:"FLOW"`
 }
 
