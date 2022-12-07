@@ -22,11 +22,13 @@ Links here are to the MySQL documentation, but equivalent settings and features 
   - Permission to insert, update, and delete on the watermarks table.
   - Permission to read the tables being captured.
   - Permission to read from `information_schema` tables, if automatic discovery is used.
+* If the table(s) to be captured include columns of type `DATETIME`, the `time_zone` system variable
+  must be set to an IANA zone name or numerical offset.
 
 ### Setup
 To meet these requirements, do the following:
 
-1. Create the watermarks table. This table can have any name and be in any database, so long as `config.json` is modified accordingly.
+1. Create the watermarks table. This table can have any name and be in any database, so long as the capture's `config.json` file is modified accordingly.
 ```sql
 CREATE DATABASE IF NOT EXISTS flow;
 CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
@@ -47,6 +49,29 @@ GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```sql
 SET PERSIST binlog_expire_logs_seconds = 2592000;
 ```
+4. Configure the database's time zone. See [below](#setting-the-mysql-time-zone) for more information.
+```sql
+SET PERSIST time_zone = '-05:00'
+```
+
+### Setting the MySQL time zone
+
+MySQL's [`time_zone` server system variable](https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_time_zone) is set to `SYSTEM` by default.
+Flow is not able to detect your time zone when it's set this way, so you must explicitly set the variable for your database.
+
+You can:
+
+* Specify a numerical offset from UTC.
+   - For MySQL version 8.0.19 or higher, values from `-13:59` to `+14:00`, inclusive, are permitted.
+   - Prior to MySQL 8.0.19, values from `-12:59` to `+13:00`, inclusive, are permitted
+
+* Specify a named timezone in [IANA timezone format](https://www.iana.org/time-zones).
+
+For example, if you're located in New Jersey, USA, you could set `time_zone` to `-05:00` or `-04:00`, depending on the time of year.
+Because this region observes daylight savings time, you'd be responsible for changing the offset.
+Alternatively, you could set `time_zone` to `America/New_York`, and time changes would occur automatically.
+
+If using IANA time zones, your database must include time zone tables. [Learn more in the MySQL docs](https://dev.mysql.com/doc/refman/8.0/en/time-zone-support.html).
 
 ## Backfills and performance considerations
 
