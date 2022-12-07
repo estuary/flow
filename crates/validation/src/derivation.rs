@@ -8,7 +8,6 @@ pub fn walk_all_derivations(
     build_config: &flow::build_api::Config,
     built_collections: &[tables::BuiltCollection],
     derivations: &[tables::Derivation],
-    imports: &[tables::Import],
     schema_shapes: &[schema::Shape],
     storage_mappings: &[tables::StorageMapping],
     transforms: &[tables::Transform],
@@ -28,7 +27,6 @@ pub fn walk_all_derivations(
                 build_config,
                 built_collections,
                 derivation,
-                imports,
                 schema_shapes,
                 storage_mappings,
                 transforms,
@@ -68,7 +66,6 @@ fn walk_derivation(
     build_config: &flow::build_api::Config,
     built_collections: &[tables::BuiltCollection],
     derivation: &tables::Derivation,
-    imports: &[tables::Import],
     schema_shapes: &[schema::Shape],
     storage_mappings: &[tables::StorageMapping],
     transforms: &[tables::Transform],
@@ -126,7 +123,6 @@ fn walk_derivation(
     for transform in transforms {
         if let Some(type_set) = walk_transform(
             built_collections,
-            imports,
             schema_shapes,
             transform,
             &mut built_transforms,
@@ -193,7 +189,6 @@ fn walk_derivation(
     let recovery_stores = storage_mapping::mapped_stores(
         scope,
         "derivation",
-        imports,
         &format!("recovery/{}", collection.as_str()),
         storage_mappings,
         errors,
@@ -211,7 +206,6 @@ fn walk_derivation(
 
 pub fn walk_transform(
     built_collections: &[tables::BuiltCollection],
-    imports: &[tables::Import],
     schema_shapes: &[schema::Shape],
     transform: &tables::Transform,
     built_transforms: &mut Vec<flow::TransformSpec>,
@@ -258,7 +252,6 @@ pub fn walk_transform(
         source,
         built_collections,
         |c| (&c.collection, &c.scope),
-        imports,
         errors,
     ) {
         Some(s) => s,

@@ -99,7 +99,6 @@ pub async fn validate<D: Drivers>(
     let built_collections = collection::walk_all_collections(
         build_config,
         collections,
-        imports,
         projections,
         &schema_shapes,
         storage_mappings,
@@ -110,7 +109,6 @@ pub async fn validate<D: Drivers>(
         build_config,
         &built_collections,
         derivations,
-        imports,
         &schema_shapes,
         storage_mappings,
         transforms,
@@ -119,7 +117,6 @@ pub async fn validate<D: Drivers>(
 
     let built_tests = test_step::walk_all_test_steps(
         &built_collections,
-        imports,
         resources,
         &schema_shapes,
         test_steps,
@@ -157,7 +154,6 @@ pub async fn validate<D: Drivers>(
         &built_collections,
         capture_bindings,
         captures,
-        imports,
         resources,
         storage_mappings,
         &mut errors,
@@ -168,7 +164,6 @@ pub async fn validate<D: Drivers>(
         build_config,
         drivers,
         &built_collections,
-        imports,
         materialization_bindings,
         materializations,
         resources,

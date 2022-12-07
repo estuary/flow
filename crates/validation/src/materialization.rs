@@ -9,7 +9,6 @@ pub async fn walk_all_materializations<D: Drivers>(
     build_config: &flow::build_api::Config,
     drivers: &D,
     built_collections: &[tables::BuiltCollection],
-    imports: &[tables::Import],
     materialization_bindings: &[tables::MaterializationBinding],
     materializations: &[tables::Materialization],
     resources: &[tables::Resource],
@@ -50,7 +49,6 @@ pub async fn walk_all_materializations<D: Drivers>(
 
         let validation = walk_materialization_request(
             built_collections,
-            imports,
             materialization,
             bindings.into_iter().flatten().collect(),
             resources,
@@ -205,7 +203,6 @@ pub async fn walk_all_materializations<D: Drivers>(
         let recovery_stores = storage_mapping::mapped_stores(
             scope,
             "materialization",
-            imports,
             &format!("recovery/{}", name.as_str()),
             storage_mappings,
             errors,
@@ -239,7 +236,6 @@ pub async fn walk_all_materializations<D: Drivers>(
 
 fn walk_materialization_request<'a>(
     built_collections: &'a [tables::BuiltCollection],
-    imports: &[tables::Import],
     materialization: &'a tables::Materialization,
     materialization_bindings: Vec<&'a tables::MaterializationBinding>,
     resources: &[tables::Resource],
@@ -259,13 +255,8 @@ fn walk_materialization_request<'a>(
     let (binding_models, binding_requests): (Vec<_>, Vec<_>) = materialization_bindings
         .iter()
         .filter_map(|materialization_binding| {
-            walk_materialization_binding(
-                built_collections,
-                imports,
-                materialization_binding,
-                errors,
-            )
-            .map(|binding_request| (*materialization_binding, binding_request))
+            walk_materialization_binding(built_collections, materialization_binding, errors)
+                .map(|binding_request| (*materialization_binding, binding_request))
         })
         .unzip();
 
@@ -300,7 +291,6 @@ fn walk_materialization_request<'a>(
 
 fn walk_materialization_binding<'a>(
     built_collections: &'a [tables::BuiltCollection],
-    imports: &[tables::Import],
     materialization_binding: &'a tables::MaterializationBinding,
     errors: &mut tables::Errors,
 ) -> Option<materialize::validate_request::Binding> {
@@ -330,7 +320,6 @@ fn walk_materialization_binding<'a>(
         collection,
         built_collections,
         |c| (&c.collection, &c.scope),
-        imports,
         errors,
     )?;
 

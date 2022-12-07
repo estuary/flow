@@ -403,25 +403,6 @@ test://example/int-string-captures:
 }
 
 #[test]
-fn test_capture_target_is_missing_imports() {
-    let errors = run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/int-string-captures:
-  import: null
-  captures:
-    # testing/s3-source is unchanged but is now missing its import.
-
-    testing/db-cdc:
-      bindings:
-        - target: testing/int-reverse
-          resource: { }
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
 fn test_capture_duplicates() {
     let errors = run_test_errors(
         &GOLDEN,
@@ -483,24 +464,6 @@ driver:
           resourcePath: [target, one]
         - constraints: {}
           resourcePath: [target, two]
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
-fn test_use_without_import() {
-    let errors = run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/int-string:
-  import: [] # Clear.
-
-test://example/int-reverse:
-  import: [] # Clear.
-
-test://example/webhook-deliveries:
-  import: [] # Clear.
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -1144,25 +1107,6 @@ test://example/int-string:
     missingSlash: {stores: *stores}
     double//slash/: {stores: *stores}
     "/leading/Slash/": {stores: *stores}
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
-fn test_storage_mappings_not_imported() {
-    let errors = run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/catalog.yaml:
-  storageMappings: null
-
-test://example/array-key:
-  storageMappings:
-    testing/:
-      stores: [{provider: S3, bucket: data-bucket}]
-    recovery/testing/:
-      stores: [{provider: GCS, bucket: recovery-bucket, prefix: some/ }]
 "#,
     );
     insta::assert_debug_snapshot!(errors);
