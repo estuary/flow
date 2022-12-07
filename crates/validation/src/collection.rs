@@ -9,7 +9,6 @@ use url::Url;
 pub fn walk_all_collections(
     build_config: &flow::build_api::Config,
     collections: &[tables::Collection],
-    imports: &[tables::Import],
     projections: &[tables::Projection],
     schema_shapes: &[schema::Shape],
     storage_mappings: &[tables::StorageMapping],
@@ -27,7 +26,6 @@ pub fn walk_all_collections(
             walk_collection(
                 build_config,
                 collection,
-                imports,
                 projections,
                 schema_shapes,
                 storage_mappings,
@@ -42,7 +40,6 @@ pub fn walk_all_collections(
 fn walk_collection(
     build_config: &flow::build_api::Config,
     collection: &tables::Collection,
-    imports: &[tables::Import],
     projections: &[tables::Projection],
     schema_shapes: &[schema::Shape],
     storage_mappings: &[tables::StorageMapping],
@@ -105,7 +102,6 @@ fn walk_collection(
     let partition_stores = storage_mapping::mapped_stores(
         scope,
         "collection",
-        imports,
         name.as_str(),
         storage_mappings,
         errors,

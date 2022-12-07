@@ -5,7 +5,6 @@ use superslice::Ext;
 
 pub fn walk_all_test_steps(
     built_collections: &[tables::BuiltCollection],
-    imports: &[tables::Import],
     resources: &[tables::Resource],
     schema_shapes: &[schema::Shape],
     test_steps: &[tables::TestStep],
@@ -24,7 +23,6 @@ pub fn walk_all_test_steps(
             .map(|test_step| {
                 walk_test_step(
                     built_collections,
-                    imports,
                     resources,
                     schema_shapes,
                     test_step,
@@ -58,7 +56,6 @@ pub fn walk_all_test_steps(
 
 pub fn walk_test_step(
     built_collections: &[tables::BuiltCollection],
-    imports: &[tables::Import],
     resources: &[tables::Resource],
     schema_shapes: &[schema::Shape],
     test_step: &tables::TestStep,
@@ -98,7 +95,6 @@ pub fn walk_test_step(
         collection,
         built_collections,
         |c| (&c.collection, &c.scope),
-        imports,
         errors,
     ) {
         Some(s) => s,

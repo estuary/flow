@@ -8,24 +8,12 @@ pub fn walk_reference<'a, T, F>(
     ref_name: &str,
     entities: &'a [T],
     entity_fn: F,
-    imports: &'a [tables::Import],
     errors: &mut tables::Errors,
 ) -> Option<&'a T>
 where
     F: Fn(&'a T) -> (&'a str, &'a Url),
 {
     if let Some(entity) = entities.iter().find(|t| entity_fn(t).0 == ref_name) {
-        let ref_scope = entity_fn(entity).1;
-
-        if !tables::Import::path_exists(imports, this_scope, ref_scope) {
-            Error::MissingImport {
-                this_thing: this_thing.to_string(),
-                ref_entity,
-                ref_name: ref_name.to_string(),
-                ref_scope: ref_scope.clone(),
-            }
-            .push(this_scope, errors);
-        }
         return Some(entity);
     }
 

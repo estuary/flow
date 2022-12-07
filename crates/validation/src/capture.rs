@@ -9,7 +9,6 @@ pub async fn walk_all_captures<D: Drivers>(
     built_collections: &[tables::BuiltCollection],
     capture_bindings: &[tables::CaptureBinding],
     captures: &[tables::Capture],
-    imports: &[tables::Import],
     resources: &[tables::Resource],
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
@@ -44,7 +43,6 @@ pub async fn walk_all_captures<D: Drivers>(
             built_collections,
             capture,
             bindings.into_iter().flatten().collect_vec(),
-            imports,
             resources,
             &mut capture_errors,
         );
@@ -179,7 +177,6 @@ pub async fn walk_all_captures<D: Drivers>(
         let recovery_stores = storage_mapping::mapped_stores(
             scope,
             "capture",
-            imports,
             &format!("recovery/{}", name.as_str()),
             storage_mappings,
             errors,
@@ -215,7 +212,6 @@ fn walk_capture_request<'a>(
     built_collections: &'a [tables::BuiltCollection],
     capture: &'a tables::Capture,
     capture_bindings: Vec<&'a tables::CaptureBinding>,
-    imports: &[tables::Import],
     resources: &[tables::Resource],
     errors: &mut tables::Errors,
 ) -> Option<(
@@ -233,7 +229,7 @@ fn walk_capture_request<'a>(
     let (binding_models, binding_requests): (Vec<_>, Vec<_>) = capture_bindings
         .iter()
         .filter_map(|capture_binding| {
-            walk_capture_binding(built_collections, capture_binding, imports, errors)
+            walk_capture_binding(built_collections, capture_binding, errors)
                 .map(|binding_request| (*capture_binding, binding_request))
         })
         .unzip();
@@ -270,7 +266,6 @@ fn walk_capture_request<'a>(
 fn walk_capture_binding<'a>(
     built_collections: &'a [tables::BuiltCollection],
     capture_binding: &tables::CaptureBinding,
-    imports: &[tables::Import],
     errors: &mut tables::Errors,
 ) -> Option<capture::validate_request::Binding> {
     let tables::CaptureBinding {
@@ -292,7 +287,6 @@ fn walk_capture_binding<'a>(
         collection,
         built_collections,
         |c| (&c.collection, &c.scope),
-        imports,
         errors,
     )?;
 
