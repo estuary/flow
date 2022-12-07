@@ -30,7 +30,13 @@ flowctl binaries for MacOS and Linux are available.
    sudo curl -o /usr/local/bin/flowctl -L 'https://github.com/estuary/flow/releases/latest/download/flowctl-multiarch-macos' && sudo chmod +x /usr/local/bin/flowctl
    ```
 
-   Alternatively, you can find the source files on GitHub [here](https://go.estuary.dev/flowctl).
+   Alternatively, Mac users can install with Homebrew:
+   ```console
+   brew tap estuary/flowctl
+   brew install flowctl
+   ```
+
+   You can also find the source files on GitHub [here](https://go.estuary.dev/flowctl).
 
 2. To connect to your Flow account and start a session, [use an authentication token](../reference/authentication.md#authenticating-flow-using-the-cli) from the web app.
 
