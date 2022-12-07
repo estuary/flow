@@ -5,13 +5,101 @@ mod unbundle;
 pub use bundle::bundle;
 pub use unbundle::unbundle;
 
+use anyhow::Context;
 use std::collections::BTreeMap;
 use std::fmt::{self, Display};
 use std::path::PathBuf;
-use tokio::fs;
 
 pub const DEFAULT_SPEC_FILENAME: &str = "flow.yaml";
 
+/// Common arguments for naming a set of sources to be included in an operation such as
+/// `bundle` or `publish`.
+#[derive(Debug, clap::Args)]
+pub struct SourceArgs {
+    /// Path or URL to a Flow specificiation file, commonly 'flow.yaml'
+    #[clap(long, required_unless_present = "source-dir")]
+    pub source: Vec<String>,
+    /// Path to a local directory, which will be recursively searched for files ending with `flow.yaml`.
+    #[clap(long)]
+    pub source_dir: Vec<String>,
+
+    /// Maximum depth of a recursive directory search. Only used with `--source-dir`.
+    #[clap(long, default_value_t = 20u32, requires = "source-dir")]
+    pub max_depth: u32,
+
+    /// Follow symlinks when searching for Flow specs with `--source-dir`.
+    #[clap(long, requires = "source-dir")]
+    pub follow_symlinks: bool,
+}
+
+impl SourceArgs {
+    /// Attempts to resolve the provided source argument(s) into a list of all the spec paths/URLs
+    /// that should be loaded. This function does not check or guarantee that any of the returned
+    /// paths or URLs actually exist. It also does not attempt to resolve imports between specs
+    /// (this is left up to the `sources::Loader`). This function _will_ search the local filesystem
+    /// for Flow specs (any file having a name that ends with `flow.yaml`) if the `--source-dir`
+    /// argument was provided.
+    pub async fn resolve_sources(&self) -> anyhow::Result<Vec<String>> {
+        let mut sources = Vec::new();
+        sources.extend(self.source.iter().cloned());
+
+        for dir in self.source_dir.iter() {
+            let specs = find_all_sources(dir.clone(), self.max_depth, self.follow_symlinks)
+                .await
+                .context("finding sources")?;
+            sources.extend(specs);
+        }
+        anyhow::ensure!(
+            !sources.is_empty(),
+            "no source files were found in any of the given directories"
+        );
+        Ok(sources)
+    }
+}
+
+fn should_consider_entry(entry: &walkdir::DirEntry) -> bool {
+    entry
+        .file_name()
+        .to_str()
+        .map(|s| !s.starts_with("."))
+        .unwrap_or_else(|| {
+            tracing::error!(path = %entry.path().display(), "ignoring non-UTF-8 path");
+            false
+        })
+}
+
+async fn find_all_sources(
+    dir: String,
+    max_depth: u32,
+    follow_symlinks: bool,
+) -> anyhow::Result<Vec<String>> {
+    let results = tokio::task::spawn_blocking::<_, anyhow::Result<Vec<String>>>(move || {
+        let iter = walkdir::WalkDir::new(dir)
+            .max_depth(max_depth as usize)
+            .follow_links(follow_symlinks)
+            .same_file_system(true)
+            .into_iter()
+            .filter_entry(should_consider_entry);
+        let mut paths = Vec::new();
+        for result in iter {
+            let entry = result?;
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            // we check this in th
+            let name = entry.file_name().to_str().expect("filename must be UTF-8");
+            if name.ends_with(DEFAULT_SPEC_FILENAME) {
+                tracing::info!(path = %entry.path().display(), "found source file");
+                paths.push(entry.path().display().to_string());
+            }
+        }
+        Ok(paths)
+    })
+    .await??;
+    Ok(results)
+}
+
+/// Common arguments for writing catalog specs into a directory.
 #[derive(Debug, clap::Args)]
 pub struct LocalSpecsArgs {
     /// The directory to output specs into.
@@ -34,8 +122,16 @@ pub struct LocalSpecsArgs {
     /// Determines how to handle the case where a local file already exists
     /// when a new file would be written.
     ///
-    /// The default (`abort`) causes an error to be returned upon encountering
+    /// - The default (`abort`) causes an error to be returned upon encountering
     /// the first such file.
+    /// - `keep` will leave all existing files unchanged, and will only write new files.
+    /// - `overwrite` will replace existing files with the new ones.
+    /// - `merge-spec` is like `overwrite`, except that Flow catalog specifications will be
+    ///   merged instead of overwritten.
+    ///
+    /// Merging flow catalog specifications results in a superset of all the individual specs
+    /// (captures, collections, etc.) in the file, with new specs taking precedent over existing
+    /// ones. Individual specs are never merged.
     #[clap(long, value_enum, default_value_t = Existing::Abort)]
     pub existing: Existing,
 
@@ -74,12 +170,13 @@ impl Display for Existing {
     }
 }
 
+/// Writes a set of flow specs from a (typically, but not necessarily) bundled catalog into a directory.
+/// See `LocalSpecsArgs` for more info.
 pub async fn write_local_specs(
     new_catalog: models::Catalog,
     args: &LocalSpecsArgs,
 ) -> anyhow::Result<()> {
     let output_dir = args.output_dir.as_path();
-    fs::create_dir_all(output_dir).await?;
     if args.no_expand_dirs {
         // the user doesn't want us to expand the catalog into nested subdirectories.
         return unbundle(
@@ -99,7 +196,6 @@ pub async fn write_local_specs(
 
     for (prefix, catalog) in by_prefix {
         let path = output_dir.join(&prefix);
-        fs::create_dir_all(&path).await?;
         unbundle(
             catalog,
             &path,
@@ -129,6 +225,8 @@ struct OrganizedSpecs {
     root: models::Catalog,
 }
 
+/// Splits a single catalog into separate catalogs by prefix. There will always be a top-level
+/// catalog that imports the others. Any storage mappings will also only appear in the top-level.
 fn partition_by_prefix(catalog: models::Catalog, leaf_spec_filename: &str) -> OrganizedSpecs {
     let mut root = catalog;
 
@@ -136,22 +234,22 @@ fn partition_by_prefix(catalog: models::Catalog, leaf_spec_filename: &str) -> Or
 
     for (name, capture) in std::mem::take(&mut root.captures) {
         let prefix = prefix_path(&name);
-        let mut catalog = by_prefix.entry(prefix).or_default();
+        let catalog = by_prefix.entry(prefix).or_default();
         catalog.captures.insert(name, capture);
     }
     for (name, collection) in std::mem::take(&mut root.collections) {
         let prefix = prefix_path(&name);
-        let mut catalog = by_prefix.entry(prefix).or_default();
+        let catalog = by_prefix.entry(prefix).or_default();
         catalog.collections.insert(name, collection);
     }
     for (name, materialization) in std::mem::take(&mut root.materializations) {
         let prefix = prefix_path(&name);
-        let mut catalog = by_prefix.entry(prefix).or_default();
+        let catalog = by_prefix.entry(prefix).or_default();
         catalog.materializations.insert(name, materialization);
     }
     for (name, test) in std::mem::take(&mut root.tests) {
         let prefix = prefix_path(&name);
-        let mut catalog = by_prefix.entry(prefix).or_default();
+        let catalog = by_prefix.entry(prefix).or_default();
         catalog.tests.insert(name, test);
     }
 
