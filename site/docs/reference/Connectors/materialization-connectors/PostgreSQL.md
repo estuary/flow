@@ -25,12 +25,15 @@ Use the below properties to configure a Postgres materialization, which will dir
 | `/database`     | Database | Name of the logical database to materialize to. | string  |                  |
 | **`/address`**  | Address  | Host and port of the database                   | string  | Required         |
 | **`/password`** | Password | Password for the specified database user.       | string  | Required         |
+| `/schema` | Database Schema | Database [schema](https://www.postgresql.org/docs/current/ddl-schemas.html) to use for materialized tables (unless overridden within the binding resource configuration) as well as associated materialization metadata tables | string | `"public"` |
 | **`/user`**     | User     | Database user to connect as.                    | string  | Required         |
 
 #### Bindings
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
+| `/delta_updates` | Delta Update | Should updates to this table be done via delta updates. | boolean | `false` |
+| `/schema` | Alternative Schema | Alternative schema for this table (optional). Overrides schema set in endpoint configuration. | string |  |
 | **`/table`** | Table | Table name to materialize to. It will be created by the connector, unless the connector has previously created it. | string | Required |
 
 ### Sample
@@ -90,6 +93,11 @@ You can find the host and port in the following locations in each platform's con
 * Google Cloud SQL: host as Private IP Address; port is always `5432`. You may need to [configure private IP](https://cloud.google.com/sql/docs/postgres/configure-private-ip) on your database.
 * Azure Database: host as Server Name; port under Connection Strings (usually `5432`).
 :::
+
+## Delta updates
+
+This connector supports both standard (merge) and [delta updates](../../../concepts/materialization.md#delta-updates).
+The default is to use standard updates.
 
 ## Reserved words
 
@@ -194,3 +202,23 @@ These reserve words are listed in the table below. Flow automatically quotes fie
 |current_schema|	immediate|	open|	sql|	xmltext|
 |current_time|	import|	option|	sqlcode|	xmlvalidate|
 |current_timestamp|	in|	or|	sqlerror|	year|
+
+## Changelog
+
+The changelog includes a list of breaking changes made to this connector. Backwards-compatible changes are not listed.
+
+**Proceed with caution when editing materializations created with previous versions of this connector;
+editing always upgrades your materialization to the latest connector version.**
+
+#### V4: 2022-11-30
+
+This version includes breaking changes to materialized table columns.
+These  provide more consistent column names and types, but tables created from previous versions of the connector may
+not be compatible with this version.
+
+* Capitalization is now preserved when fields in Flow are converted to Postgres column names.
+  Previously, fields containing uppercase letters were converted to lowercase.
+
+* Field names and values of types `date`, `duration`, `ipv4`, `ipv6`, `macaddr`, `macaddr8`, and `time` are now converted into
+  their corresponding Postgres types.
+  Previously, only `date-time` was converted, and all others were materialized as strings.
