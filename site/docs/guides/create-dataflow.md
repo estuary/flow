@@ -53,7 +53,7 @@ credentials provided by your Estuary account manager.
     Click inside the **Name** field to generate a drop-down menu of available prefixes, and select your prefix.
     Append a unique capture name after the `/` to create the full name, for example `acmeCo/myFirstCapture`.
 
-5. Fill out the required properties and click **Discover Endpoint**.
+5. Fill out the required properties and click **Next**.
 
   Flow uses the provided information to initiate a connection to the source system.
   It identifies one or more data **resources** — these may be tables, data streams, or something else, depending on the connector. These are each mapped to a **collection**.
@@ -65,7 +65,11 @@ credentials provided by your Estuary account manager.
 You can remove collections you don't want to capture, change collection names, and for some connectors, modify other properties.
 
 :::tip
-If you make any changes in the Collection Editor, click **Discover Endpoint** again.
+Use a filter to narrow down a large list of available collections.
+Hover your cursor within the Collection Selector table header, next to the **Remove All** button, to reveal an expandable menu icon (three dots).
+Click the menu icon, and then choose **Filter**.
+
+**Note that the **Remove All** button will always remove all collections — even those that are hidden by a filter. Use this button with caution.**
 :::
 
   If you're unsure which collections you want to keep or remove, you can look at their schemas.
@@ -75,11 +79,13 @@ If you make any changes in the Collection Editor, click **Discover Endpoint** ag
   Here, you can view the generated capture definition and the schema for each collection.
 
   Flow displays these specifications as JSON.
-  You can modify what you see by filling in new values in the form and clicking **Discover Endpoint**,
+  You can modify what you see by filling in new values in the form and clicking **Next**,
   or by editing the JSON directly in the Specification Editor.
   (Those who prefer a [command-line interface](../concepts/flowctl.md) can manage and edit YAML in their preferred development environment).
 
   It's not always necessary to review and edit the specifications — Flow will prevent the publication of invalid specifications.
+
+8. If you made any changes in the Collection Editor, click **Next** again.
 
 8. Once you're satisfied with the configuration, click **Save and publish**. You'll see a notification when the capture publishes successfully.
 
@@ -94,19 +100,28 @@ Now that you've captured data into one or more collections, you can materialize 
   The page populates with the properties required for that connector.
   More details are on each connector are provided in the [connectors reference](../reference/Connectors/materialization-connectors/README.md).
 
-  Details of the collections you just created are already filled out in the **Collection Selector**.
+2. Choose a unique name for your materialization like you did when naming your capture; for example, `acmeCo/myFirstMaterialization`.
 
-2.  Choose a unique name for your materialization like you did when naming your capture; for example, `acmeCo/myFirstMaterialization`.
+3. Fill out the required properties in the **Endpoint Configuration**.
 
-3. Fill out the required properties and click **Discover Endpoint**.
+4. Details of the collections you just created are already filled out in the **Collection Selector**.
+If you'd like, you can remove some of these or add additional collections.
+
+   * To easily find collections, you can use a filter.
+   Hover your cursor within to the Collection Selector table header, next to the **Remove All** button, to reveal an expandable menu icon (three dots).
+   Click the menu icon, and then choose **Filter**.
+   * To remove a collection, click the **x** in its table row. You can also click the **Remove All** button, but keep in mind that this button always removes _all_
+   collections from the materialization, regardless of whether they're hidden by a filter.
+
+5. Click **Next**.
 
   Flow initiates a connection with the destination system, and creates a binding to map each collection from your capture to a **resource** in the destination.
   Again, these may be tables, data streams, or something else.
   When you publish the Data Flow, Flow will create these new resources in the destination.
 
-4. Look over the generated materialization definition and edit it, if you'd like.
+6. Look over the generated materialization definition and edit it, if you'd like.
 
-5. Click **Save and publish**. You'll see a notification when the full Data Flow publishes successfully.
+7. Click **Save and publish**. You'll see a notification when the full Data Flow publishes successfully.
 
 ## What's next?
 

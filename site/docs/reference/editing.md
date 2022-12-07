@@ -25,10 +25,8 @@ You do this by pulling the desired specification to a local **draft**, editing, 
 ## Endpoint configuration changes
 
 A common reason to edit a capture or materialization to fix a broken endpoint configuration:
-for example, if a database was moved to a different port.
+for example, if a database is now accessed through a different port.
 Changes that prevent Flow from finding the source system immediately cause the capture or materialization to fail.
-
-TODO FACT CHECK THIS:
 
 By contrast, certain credential changes might not cause issues *unless* you attempt to edit the capture or materialization.
 Because Flow tasks run continuously, the connector doesn't have to re-authenticate and an outdated credential won't cause failure.
@@ -39,11 +37,22 @@ Before editing, take note of any changed credentials, even if the task is still 
 
 Connectors are updated periodically. In some cases, required fields are added or removed.
 When you edit a capture or materialization, you'll need to update the configuration to comply with the current connector version.
+You may need to change a property's formatting or add a new field.
 
-To see check if a connector has been updated:
+Additionally, certain updates to capture connectors can affect the way available collections are named.
+After editing, the connector may map a data resource to new collection with a different name.
+
+For example, say you have capture that writes to a collection called `post/fruity_pebbles/nutritionFacts`.
+You begin to edit the capture using the latest version of the connector.
+The connector detects the same set of nutrition facts data,
+but maps it to a collection called `post/fruity_pebbles/nutrition-facts`.
+If you continue to publish the edited capture, both collections will persist,
+but new data will be written to the new collection.
+
+To check if a connector has been updated:
 
 * Go to the **Admin** tab and view the list of connectors. Each tile shows the date it was last updated.
-* Check the connector's [documentation](./Connectors/README.md). Pertinent updates, if any, are noted in the **Changelog**.
+* Check the connector's [documentation](./Connectors/README.md). Pertinent updates, if any, are noted in the **Changelog** section.
 
 ## Considerations for name changes
 

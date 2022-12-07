@@ -109,9 +109,13 @@ To edit a capture or its collections:
 
 1. Edit the connection to the source system, if desired. You can either update fields in the **Endpoint Configuration** section or manually update the JSON in the **Specification Editor**.
 
+:::caution
+You may have to re-authenticate with the source system. Be sure to have current credentials on hand before editing the endpoint configuration.
+:::
+
 2. Use the **Collection Selector** to add or remove collections from the capture, if desired.
 
-3. Click **Discover Endpoint.**
+3. Click **Next.**
 
    Collection specifications become editable.
 
@@ -205,9 +209,13 @@ To edit a materialization:
 
 1. Edit the connection to the destination system, if desired. You can either update fields in the **Endpoint Configuration** section or manually update the JSON in the **Specification Editor**.
 
+:::caution
+You may have to re-authenticate with the source system. Be sure to have current credentials on hand before editing the endpoint configuration.
+:::
+
 2. Use the **Collection Selector** to add or remove collections from the materialization, if desired.
 
-3. Click **Discover Endpoint.**
+3. Click **Next.**
 
 4. Click **Save and Publish**.
 
@@ -229,6 +237,13 @@ Select a connector to reveal the full form with configuration options specific t
 
 Fill out the **Endpoint Config** form and use the **Collection Selector** to map Flow collections to
 resources in the destination system.
+
+:::tip
+You can filter to quickly find the collections you want to include in your materialization.
+Hover your cursor within the Collection Selector table header, next to the **Remove All** button, to reveal an expandable menu icon (three dots).
+Click the menu icon, and then choose **Filter**.
+:::
+
 Note that if you entered the workflow from the Captures page or after publishing a capture, collections will be pre-populated for you.
 
 For detailed steps to create a materialization, see the [guide](../guides/create-dataflow.md#create-a-materialization).

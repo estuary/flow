@@ -8,12 +8,7 @@ The dataset you'll use is composed of zipped CSV files in an Amazon S3 cloud sto
 
 You'll need:
 
-* An Estuary Flow trial account (or a full account).
-
-:::info Beta
-Flow is in private beta. Sign up for a free [discovery call](https://go.estuary.dev/sign-up)
-or email support@estuary.dev for your free account.
-:::
+* An Estuary Flow trial account (or a full account). If you don't have one, visit the [Flow web app](https://dashboard.estuary.dev) to register for your free trial.
 
 * A [Snowflake free trial account](https://signup.snowflake.com/) (or a full account).
   Snowflake trials are valid for 30 days.
@@ -99,7 +94,7 @@ You'll start by creating your capture.
    (In a real-world use case, you'd likely reconcile the different schemas of the various data formats using a **derivation**.
    [Derivations](../../concepts/README.md#derivations) are a more advanced Flow skill.)
 
-7. Click **Discover Endpoint**.
+7. Click **Next**.
 
    Flow uses the configuration you provided to initiate a connection with S3. It generates a specification with details of the capture,
    and another that contains details and a schema for the **collection** that will store the captured data in Flow.
@@ -217,7 +212,7 @@ All of the available materialization connectors — representing the possible da
 
    The collection you just created was already selected, but you must provide a name for the table to which it'll be materialized in Snowflake.
 
-6. Click **Discover endpoint**.
+6. Click **Next**.
 
    Flow uses the configuration you provided to initiate a connection with Snowflake and generate a specification with details of the materialization.
 
