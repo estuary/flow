@@ -38,7 +38,13 @@ To install, copy and paste the appropriate script below into your terminal. This
    sudo curl -o /usr/local/bin/flowctl -L 'https://github.com/estuary/flow/releases/latest/download/flowctl-multiarch-macos' && sudo chmod +x /usr/local/bin/flowctl
    ```
 
-Alternatively, you can find the source files on GitHub [here](https://go.estuary.dev/flowctl).
+   Alternatively, Mac users can install with Homebrew:
+   ```console
+   brew tap estuary/flowctl
+   brew install flowctl
+   ```
+
+The flowctl source files are also on GitHub [here](https://go.estuary.dev/flowctl).
 
 Once you've installed flowctl and are ready to begin working, authenticate your session using an access token.
 
