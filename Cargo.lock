@@ -1251,6 +1251,7 @@ dependencies = [
  "url",
  "uuid 1.1.2",
  "validation",
+ "walkdir",
 ]
 
 [[package]]
