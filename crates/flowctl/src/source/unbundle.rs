@@ -22,6 +22,7 @@ pub async fn unbundle(
     json: bool,
     existing: Existing,
 ) -> anyhow::Result<()> {
+    fs::create_dir_all(dir_path).await?;
     let flow_yaml_path = dir_path.join(spec_filename);
 
     let maybe_catalog = resolve_catalog_to_write(&flow_yaml_path, new_catalog, existing).await?;
@@ -116,7 +117,8 @@ async fn resolve_catalog_to_write(
         (Ok(_), Existing::Abort) => {
             anyhow::bail!("path: '{}' already exists", flow_yaml_path.display());
         }
-        (Ok(meta), Existing::Keep) => {
+        (Ok(_), Existing::Keep) => {
+            tracing::info!(path = %flow_yaml_path.display(), "skipping file because it already exists and `--existing=keep`");
             return Ok(None);
         }
         (Ok(meta), other) if !meta.is_file() => {
@@ -129,12 +131,14 @@ async fn resolve_catalog_to_write(
         }
 
         (Ok(_), Existing::Overwrite) => {
+            tracing::info!(path = %flow_yaml_path.display(), "removing file because it already exists and `--existing=overwrite`");
             fs::remove_file(flow_yaml_path)
                 .await
                 .context(format!("failed to remove: {}", flow_yaml_path.display()))?;
             new_catalog
         }
         (Ok(_), Existing::MergeSpec) => {
+            tracing::info!(path = %flow_yaml_path.display(), "merging specs because it already exists and `--existing=merge-spec`");
             let mut existing = parse_catalog_spec(flow_yaml_path).await.context(format!(
                 "reading existing catalog file: {}",
                 flow_yaml_path.display()
@@ -329,99 +333,6 @@ fn merge_imports(
         }
     }
     Ok(())
-}
-
-// This is a verbatim copy of Url::make_relative, with one fix added from this still-open PR:
-// https://github.com/servo/rust-url/pull/754
-pub fn make_relative(self_: &url::Url, url: &url::Url) -> Option<String> {
-    if self_.cannot_be_a_base() {
-        return None;
-    }
-
-    // Scheme, host and port need to be the same
-    if self_.scheme() != url.scheme() || self_.host() != url.host() || self_.port() != url.port() {
-        return None;
-    }
-
-    // We ignore username/password at this point
-
-    // The path has to be transformed
-    let mut relative = String::new();
-
-    // Extract the filename of both URIs, these need to be handled separately
-    fn extract_path_filename(s: &str) -> (&str, &str) {
-        let last_slash_idx = s.rfind('/').unwrap_or(0);
-        let (path, filename) = s.split_at(last_slash_idx);
-        if filename.is_empty() {
-            (path, "")
-        } else {
-            (path, &filename[1..])
-        }
-    }
-
-    let (base_path, base_filename) = extract_path_filename(self_.path());
-    let (url_path, url_filename) = extract_path_filename(url.path());
-
-    let mut base_path = base_path.split('/').peekable();
-    let mut url_path = url_path.split('/').peekable();
-
-    // Skip over the common prefix
-    while base_path.peek().is_some() && base_path.peek() == url_path.peek() {
-        base_path.next();
-        url_path.next();
-    }
-
-    // Add `..` segments for the remainder of the base path
-    for base_path_segment in base_path {
-        // Skip empty last segments
-        if base_path_segment.is_empty() {
-            break;
-        }
-
-        if !relative.is_empty() {
-            relative.push('/');
-        }
-
-        relative.push_str("..");
-    }
-
-    // Append the remainder of the other URI
-    for url_path_segment in url_path {
-        if !relative.is_empty() {
-            relative.push('/');
-        }
-
-        relative.push_str(url_path_segment);
-    }
-
-    // Add the filename if they are not the same
-    if !relative.is_empty() || base_filename != url_filename {
-        // If the URIs filename is empty this means that it was a directory
-        // so we'll have to append a '/'.
-        //
-        // Otherwise append it directly as the new filename.
-        if url_filename.is_empty() {
-            relative.push('/');
-        } else {
-            if !relative.is_empty() {
-                relative.push('/');
-            }
-            relative.push_str(url_filename);
-        }
-    }
-
-    // Query and fragment are only taken from the other URI
-    if let Some(query) = url.query() {
-        relative.push('?');
-        relative.push_str(query);
-    }
-
-    if let Some(fragment) = url.fragment() {
-        relative.push('#');
-        relative.push_str(fragment);
-    }
-
-    Some(relative)
 }
 
 const MAX_INLINE_SIZE: usize = 512;

@@ -1,3 +1,4 @@
+use crate::source;
 use anyhow::Context;
 use doc::combine;
 use std::io::{self, Write};
@@ -32,7 +33,9 @@ pub enum Command {
     /// Issue a custom table update request to the API.
     Update(Update),
     /// Bundle catalog sources into a flattened and inlined catalog.
-    Bundle(Bundle),
+    Bundle(source::SourceArgs),
+    /// Unbundle a bundled catalog into files in a local directory.
+    Unbundle(Unbundle),
     /// Combine over an input stream of documents and write the output.
     Combine(Combine),
 }
@@ -78,21 +81,26 @@ pub struct Rpc {
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
-pub struct Bundle {
-    /// Path or URL to a Flow specification file to bundle.
-    #[clap(long)]
-    source: String,
-}
-
-#[derive(Debug, clap::Args)]
-#[clap(rename_all = "kebab-case")]
 pub struct Combine {
-    /// Path or URL to a Flow specification file to bundle.
-    #[clap(long)]
-    source: String,
     /// Name of a collection in the Flow specification file.
     #[clap(long)]
     collection: String,
+
+    #[clap(flatten)]
+    source_args: source::SourceArgs,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct Unbundle {
+    #[clap(flatten)]
+    local_specs: source::LocalSpecsArgs,
+
+    // Note: Given that this command accepts a _bundled_ catalog, it didn't seem necessary to support URLs, but there's definitely
+    // still some opportunity to leverage common code for reading this, which likely _would_ support URLs. Just didn't seem
+    // important enough to do that right now.
+    /// Source of the _bundled_ catalog. The default ("-") will read the catalog from stdin. URLs are not supported.
+    #[clap(long, default_value = "-")]
+    source: String,
 }
 
 impl Advanced {
@@ -102,6 +110,7 @@ impl Advanced {
             Command::Update(update) => do_update(ctx, update).await,
             Command::Rpc(rpc) => do_rpc(ctx, rpc).await,
             Command::Bundle(bundle) => do_bundle(ctx, bundle).await,
+            Command::Unbundle(unbundle) => do_unbundle(ctx, unbundle).await,
             Command::Combine(combine) => do_combine(ctx, combine).await,
         }
     }
@@ -150,18 +159,52 @@ async fn do_rpc(
     Ok(())
 }
 
-async fn do_bundle(_ctx: &mut crate::CliContext, Bundle { source }: &Bundle) -> anyhow::Result<()> {
-    let catalog = crate::source::bundle(source).await?;
+async fn do_bundle(
+    _ctx: &mut crate::CliContext,
+    sources: &source::SourceArgs,
+) -> anyhow::Result<()> {
+    let source_files = sources.resolve_sources().await?;
+    let catalog = crate::source::bundle(source_files.iter().map(String::as_str)).await?;
     serde_json::to_writer_pretty(io::stdout(), &catalog)?;
+    Ok(())
+}
+
+async fn do_unbundle(_ctx: &mut crate::CliContext, args: &Unbundle) -> anyhow::Result<()> {
+    use tokio::fs::File;
+    use tokio::io::AsyncReadExt;
+
+    let mut bundled_content = Vec::with_capacity(8 * 1024);
+    match args.source.as_str() {
+        "-" => {
+            tokio::io::stdin()
+                .read_to_end(&mut bundled_content)
+                .await
+                .context("reading stdin")?;
+        }
+        path => {
+            let mut file = File::open(path).await.context("opening source file")?;
+            file.read_to_end(&mut bundled_content)
+                .await
+                .context("reading source file")?;
+        }
+    }
+
+    let parsed = sources::parse_catalog_spec(&bundled_content)?;
+    source::write_local_specs(parsed, &args.local_specs).await?;
     Ok(())
 }
 
 async fn do_combine(
     _ctx: &mut crate::CliContext,
-    Combine { source, collection }: &Combine,
+    Combine {
+        source_args,
+        collection,
+    }: &Combine,
 ) -> anyhow::Result<()> {
     let collection = models::Collection::new(collection);
-    let catalog = crate::source::bundle(source).await?;
+
+    let sources = source_args.resolve_sources().await?;
+    let catalog = crate::source::bundle(sources).await?;
 
     let Some(models::CollectionDef{schema, read_schema, key, .. }) = catalog.collections.get(&collection) else {
         anyhow::bail!("did not find collection {collection:?} in the source specification");

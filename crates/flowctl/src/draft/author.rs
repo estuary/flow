@@ -1,28 +1,28 @@
 use crate::api_exec;
 use crate::catalog::SpecSummaryItem;
+use crate::source;
 use serde::Serialize;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct Author {
-    /// Path or URL to a Flow catalog file to author.
-    #[clap(long)]
-    source: String,
+    #[clap(flatten)]
+    source_args: source::SourceArgs,
 }
 
 pub async fn do_author(
     ctx: &mut crate::CliContext,
-    Author { source }: &Author,
+    Author { source_args }: &Author,
 ) -> anyhow::Result<()> {
     let cur_draft = ctx.config().cur_draft()?;
-
+    let specs = source_args.resolve_sources().await?;
     let models::Catalog {
         collections,
         captures,
         materializations,
         tests,
         ..
-    } = crate::source::bundle(source).await?;
+    } = crate::source::bundle(specs).await?;
 
     // Build up the array of `draft_specs` to upsert.
     #[derive(Serialize, Debug)]
