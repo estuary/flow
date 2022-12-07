@@ -57,14 +57,14 @@ declare
 begin
 
   insert into connectors (image_name, title, short_description, logo_url, external_url) values (
-    'ghcr.io/estuary/source-test',
+    'ghcr.io/estuary/source-hello-world',
     json_build_object('en-US','Hello World'),
     json_build_object('en-US','A flood of greetings'),
     json_build_object('en-US','https://www.estuary.dev/wp-content/uploads/2022/05/Group-4-300x300.png'),
     'https://estuary.dev'
   )
   returning id strict into connector_id;
-  insert into connector_tags (connector_id, image_tag) values (connector_id, ':v1');
+  insert into connector_tags (connector_id, image_tag) values (connector_id, ':dev');
 
   insert into connectors (image_name, title, short_description, logo_url, external_url) values (
     'ghcr.io/estuary/source-postgres',
@@ -74,7 +74,7 @@ begin
     'https://postgresql.org'
   )
   returning id strict into connector_id;
-  insert into connector_tags (connector_id, image_tag) values (connector_id, ':v1');
+  insert into connector_tags (connector_id, image_tag) values (connector_id, ':dev');
 
   insert into connectors (image_name, title, short_description, logo_url, external_url) values (
     'ghcr.io/estuary/materialize-postgres',
@@ -84,7 +84,7 @@ begin
     'https://postgresql.org'
   )
   returning id strict into connector_id;
-  insert into connector_tags (connector_id, image_tag) values (connector_id, ':v1');
+  insert into connector_tags (connector_id, image_tag) values (connector_id, ':dev');
 
   insert into connectors (image_name, title, short_description, logo_url, external_url) values (
     'ghcr.io/estuary/materialize-postgres-rc',
@@ -94,7 +94,7 @@ begin
     'https://postgresql.org'
   )
   returning id strict into connector_id;
-  insert into connector_tags (connector_id, image_tag) values (connector_id, ':v1');
+  insert into connector_tags (connector_id, image_tag) values (connector_id, ':dev');
 
 end;
 $$ language plpgsql;
