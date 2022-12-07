@@ -6,7 +6,8 @@ It is available for use in the Flow web application. For local development or op
 
 To use this connector, you'll need:
 
-* A Rockset account with an [API key generated](https://rockset.com/docs/rest-api/#createapikey) from the web UI
+* A Rockset account with an [API key generated](https://rockset.com/docs/rest-api/#createapikey)
+    * The API key must have the **Member** or **Admin** [role](https://rockset.com/docs/iam/#users-api-keys-and-roles).
 * A Rockset workspace
     * Optional; if none exist, one will be created by the connector.
 * A Rockset collection
@@ -28,7 +29,7 @@ Use the below properties to configure a Rockset materialization, which will dire
 
 | Property | Title | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| **`/api_key`** | API key | The key used to authenticate to the Rockset API. | String | Required |
+| **`/api_key`** | API key | The key used to authenticate to the Rockset API. Must have role of admin or member. | String | Required |
 
 
 #### Bindings

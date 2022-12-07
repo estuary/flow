@@ -39,7 +39,7 @@ By default, each resource is mapped to a Flow collection through a separate bind
 
 ## Prerequisites
 
-* [Account ID](https://stripe.com/docs/dashboard#find-account-id) of your Stripe account.
+* [Account ID](https://stripe.com/docs/dashboard/basics#find-account-id) of your Stripe account.
 * [Secret key](https://stripe.com/docs/keys#obtain-api-keys) for the Stripe API.
 
 ## Configuration
