@@ -45,7 +45,6 @@ pub fn walk_all_storage_mappings(
 pub fn mapped_stores<'a>(
     scope: &url::Url,
     entity: &'static str,
-    imports: &[tables::Import],
     name: &str,
     storage_mappings: &'a [tables::StorageMapping],
     errors: &mut tables::Errors,
@@ -60,7 +59,6 @@ pub fn mapped_stores<'a>(
                 &m.prefix,
                 storage_mappings,
                 |m| (&m.prefix, &m.scope),
-                imports,
                 errors,
             );
 
