@@ -1,8 +1,12 @@
+mod publish;
 mod pull_specs;
+mod test;
 
-use crate::api_exec;
-use crate::controlplane;
-use crate::output::{to_table_row, CliOutput, JsonCell};
+use crate::{
+    api_exec, controlplane,
+    output::{to_table_row, CliOutput, JsonCell},
+    source,
+};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -29,6 +33,16 @@ pub enum Command {
     /// instead write the spec (and all associated endpoint config and schema resources)
     /// directly to the current directory.
     PullSpecs(pull_specs::PullSpecs),
+    /// Publish catalog specifications
+    ///
+    /// Updates the running tasks, collections, and tests based on specifications in a
+    /// local directory or a remote URL.
+    Publish(publish::Publish),
+    /// Test catalog specifications
+    ///
+    /// Runs catalog tests based on specifications in a
+    /// local directory or a remote URL. This
+    Test(source::SourceArgs),
     /// History of a catalog specification.
     ///
     /// Print all historical publications of catalog specifications.
@@ -239,6 +253,8 @@ impl Catalog {
         match &self.cmd {
             Command::List(list) => do_list(ctx, list).await,
             Command::PullSpecs(pull) => pull_specs::do_pull_specs(ctx, pull).await,
+            Command::Publish(publish) => publish::do_publish(ctx, publish).await,
+            Command::Test(source) => test::do_test(ctx, source).await,
             Command::History(history) => do_history(ctx, history).await,
             Command::Draft(draft) => do_draft(ctx, draft).await,
         }

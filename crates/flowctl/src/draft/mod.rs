@@ -1,5 +1,8 @@
-use crate::api_exec;
-use crate::output::{to_table_row, CliOutput, JsonCell};
+use crate::{
+    api_exec,
+    controlplane::Client,
+    output::{to_table_row, CliOutput, JsonCell},
+};
 use serde::{Deserialize, Serialize};
 
 mod author;
@@ -7,6 +10,8 @@ use author::do_author;
 
 mod develop;
 use develop::do_develop;
+
+pub use author::upsert_draft_specs;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -91,32 +96,57 @@ impl Draft {
     }
 }
 
-async fn do_create(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-    #[derive(Deserialize, Serialize)]
-    struct Row {
-        id: String,
-        created_at: crate::Timestamp,
-    }
-    impl CliOutput for Row {
-        type TableAlt = ();
-        type CellValue = JsonCell;
+#[derive(Deserialize, Serialize)]
+pub struct DraftRow {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<crate::Timestamp>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<crate::Timestamp>,
+}
+impl CliOutput for DraftRow {
+    type TableAlt = ();
+    type CellValue = JsonCell;
 
-        fn table_headers(_alt: Self::TableAlt) -> Vec<&'static str> {
-            vec!["Created Draft ID", "Created"]
-        }
-
-        fn into_table_row(self, _alt: Self::TableAlt) -> Vec<Self::CellValue> {
-            to_table_row(self, &["/id", "/created_at"])
-        }
+    fn table_headers(_alt: Self::TableAlt) -> Vec<&'static str> {
+        vec!["Draft ID", "Created"]
     }
-    let row: Row = api_exec(
-        ctx.controlplane_client()?
+
+    fn into_table_row(self, _alt: Self::TableAlt) -> Vec<Self::CellValue> {
+        to_table_row(self, &["/id", "/created_at"])
+    }
+}
+
+pub async fn create_draft(client: Client) -> Result<DraftRow, anyhow::Error> {
+    let row: DraftRow = api_exec(
+        client
             .from("drafts")
             .select("id, created_at")
             .insert(serde_json::json!({"detail": "Created by flowctl"}).to_string())
             .single(),
     )
     .await?;
+    tracing::info!(draft_id = %row.id, "created draft");
+    Ok(row)
+}
+
+pub async fn delete_draft(client: Client, draft_id: &str) -> Result<DraftRow, anyhow::Error> {
+    let row: DraftRow = api_exec(
+        client
+            .from("drafts")
+            .select("id,created_at")
+            .delete()
+            .eq("id", draft_id)
+            .single(),
+    )
+    .await?;
+    tracing::info!(draft_id = %row.id, "deleted draft");
+    Ok(row)
+}
+
+async fn do_create(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
+    let client = ctx.controlplane_client()?;
+    let row = create_draft(client).await?;
 
     ctx.config_mut().draft = Some(row.id.clone());
     ctx.write_all(Some(row), ())
@@ -140,15 +170,9 @@ async fn do_delete(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
             to_table_row(self, &["/id", "/updated_at"])
         }
     }
-    let row: Row = api_exec(
-        ctx.controlplane_client()?
-            .from("drafts")
-            .select("id,updated_at")
-            .delete()
-            .eq("id", ctx.config().cur_draft()?)
-            .single(),
-    )
-    .await?;
+    let client = ctx.controlplane_client()?;
+    let draft_id = ctx.config().cur_draft()?;
+    let row = delete_draft(client, &draft_id).await?;
 
     ctx.config_mut().draft.take();
     ctx.write_all(Some(row), ())
@@ -273,9 +297,18 @@ async fn do_select(
 }
 
 async fn do_publish(ctx: &mut crate::CliContext, dry_run: bool) -> anyhow::Result<()> {
-    let cur_draft = ctx.config().cur_draft()?;
+    let draft_id = ctx.config().cur_draft()?;
     let client = ctx.controlplane_client()?;
 
+    publish(client, dry_run, &draft_id).await?;
+
+    if !dry_run {
+        ctx.config_mut().draft.take();
+    }
+    Ok(())
+}
+
+pub async fn publish(client: Client, dry_run: bool, draft_id: &str) -> Result<(), anyhow::Error> {
     #[derive(Deserialize)]
     struct Row {
         id: String,
@@ -288,7 +321,7 @@ async fn do_publish(ctx: &mut crate::CliContext, dry_run: bool) -> anyhow::Resul
             .insert(
                 serde_json::json!({
                     "detail": &format!("Published via flowctl"),
-                    "draft_id": cur_draft,
+                    "draft_id": draft_id,
                     "dry_run": dry_run,
                 })
                 .to_string(),
@@ -296,9 +329,7 @@ async fn do_publish(ctx: &mut crate::CliContext, dry_run: bool) -> anyhow::Resul
             .single(),
     )
     .await?;
-
     tracing::info!(%id, %logs_token, %dry_run, "created publication");
-
     let outcome = crate::poll_while_queued(&client, "publications", &id, &logs_token).await?;
 
     #[derive(Deserialize, Debug)]
@@ -310,21 +341,15 @@ async fn do_publish(ctx: &mut crate::CliContext, dry_run: bool) -> anyhow::Resul
         client
             .from("draft_errors")
             .select("scope,detail")
-            .eq("draft_id", cur_draft),
+            .eq("draft_id", draft_id),
     )
     .await?;
-
     for DraftError { scope, detail } in errors {
         tracing::error!(%scope, %detail);
     }
-
     if outcome != "success" {
         anyhow::bail!("failed with status: {outcome}");
     }
     tracing::info!(%id, %dry_run, "publication successful");
-
-    if !dry_run {
-        ctx.config_mut().draft.take();
-    }
     Ok(())
 }
