@@ -9,6 +9,7 @@ import (
 	"github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/sirupsen/logrus"
+	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/protocol"
@@ -87,7 +88,17 @@ func (f *FlowConsumer) Push(stream capture.Runtime_PushServer) error {
 		return fmt.Errorf("capture %s is not an ingestion", open.Capture)
 	}
 
-	var ackCh = make(chan struct{}, 128)
+	if err = stream.Send(&capture.PushResponse{
+		Opened: &capture.PushResponse_Opened{
+			Status:  res.Status,
+			Header:  res.Header,
+			Capture: &res.Store.(*Capture).spec,
+		},
+	}); err != nil {
+		return err
+	}
+
+	var ackErrs = make(chan error)
 	var readCh = make(chan error, 1)
 	var started, finished int
 
@@ -96,11 +107,18 @@ func (f *FlowConsumer) Push(stream capture.Runtime_PushServer) error {
 
 		for {
 			var docs, checkpoint, err = capture.ReadPushCheckpoint(stream, maxPushByteSize)
+			logrus.Info(fmt.Sprintf("Got %d docs, checkpoint: %v, error: %v", len(docs), checkpoint, err))
+			var ackCh = client.NewAsyncOperation()
 			if err != nil {
 				return fmt.Errorf("reading push checkpoint: %w", err)
 			} else if err = push.Push(docs, checkpoint, ackCh); err != nil {
 				return fmt.Errorf("staging push for capture: %w", err)
 			}
+			// ... Is this the right way to do this?
+			go func() {
+				var err = ackCh.Err()
+				ackErrs <- err
+			}()
 			started++
 		}
 	}()
@@ -116,7 +134,10 @@ func (f *FlowConsumer) Push(stream capture.Runtime_PushServer) error {
 			}
 			readCh = nil // Graceful drain. Don't select again.
 
-		case <-ackCh:
+		case ackErr := <-ackErrs:
+			if ackErr != nil {
+				return ackErr
+			}
 			if err = stream.Send(&capture.PushResponse{
 				Acknowledge: &capture.Acknowledge{},
 			}); err != nil {

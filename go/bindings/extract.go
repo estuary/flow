@@ -13,10 +13,11 @@ import (
 
 // Extractor extracts UUIDs and packed field tuples from Documents.
 type Extractor struct {
-	svc    *service
-	uuids  []pf.UUIDParts
-	tuples [][]byte
-	docs   int
+	svc          *service
+	uuids        []pf.UUIDParts
+	tuples       [][]byte
+	docs         int
+	expectsUuids bool
 }
 
 // NewExtractor returns an instance of the Extractor service.
@@ -56,6 +57,11 @@ func (e *Extractor) Configure(
 			FieldPtrs:  fieldPtrs,
 		})
 
+	if len(uuidPtr) < 1 {
+		e.expectsUuids = false
+	} else {
+		e.expectsUuids = true
+	}
 	return pollExpectNoOutput(e.svc)
 }
 
@@ -74,9 +80,16 @@ func (e *Extractor) Extract() ([]pf.UUIDParts, [][]byte, error) {
 		return nil, nil, err
 	}
 
-	// Sanity check we got two output frames per document, as we expect.
-	if len(out) != e.docs*2 {
-		panic(fmt.Sprintf("wrong number of output frames (%d != %d * 2)", len(out), e.docs))
+	if e.expectsUuids {
+		// Sanity check we got two output frames per document, as we expect.
+		if len(out) != e.docs*2 {
+			panic(fmt.Sprintf("wrong number of output frames (%d != %d * 2)", len(out), e.docs))
+		}
+	} else {
+		// Sanity check we got one output frames per document, as we expect.
+		if len(out) != e.docs {
+			panic(fmt.Sprintf("wrong number of output frames (%d != %d)", len(out), e.docs))
+		}
 	}
 
 	e.docs = 0

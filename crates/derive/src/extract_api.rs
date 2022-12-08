@@ -1,3 +1,5 @@
+use std::ops::Not;
+
 use crate::{new_validator, JsonError};
 use prost::Message;
 use proto_flow::flow::{
@@ -64,7 +66,7 @@ pub struct API {
 }
 
 struct State {
-    uuid_ptr: doc::Pointer,
+    uuid_ptr: Option<doc::Pointer>,
     field_ptrs: Vec<doc::Pointer>,
     validator: Option<doc::Validator>,
 }
@@ -104,7 +106,14 @@ impl cgo::Service for API {
                 };
 
                 self.state = Some(State {
-                    uuid_ptr: doc::Pointer::from(&uuid_ptr),
+                    // Treat empty strings as None in order to allow bypassing UUID
+                    // extraction, for example in the case where you want to
+                    // use the extractor for validation, and not actual extraction
+                    uuid_ptr: uuid_ptr
+                        .is_empty()
+                        .not()
+                        .then(|| uuid_ptr)
+                        .map(|ptr| doc::Pointer::from(&ptr)),
                     field_ptrs: field_ptrs.iter().map(doc::Pointer::from).collect(),
                     validator,
                 });
@@ -114,13 +123,20 @@ impl cgo::Service for API {
             (Code::Extract, Some(mut state)) => {
                 let doc: Value = serde_json::from_slice(data)
                     .map_err(|e| Error::Json(JsonError::new(data, e)))?;
-                let uuid = extract_uuid_parts(&doc, &state.uuid_ptr).ok_or_else(|| {
-                    Error::InvalidUuid {
-                        value: state.uuid_ptr.query(&doc).cloned(),
-                    }
-                })?;
+                let uuid = state
+                    .uuid_ptr
+                    .as_ref()
+                    .and_then(|uuid_ptr| {
+                        Some(extract_uuid_parts(&doc, &uuid_ptr).ok_or_else(|| {
+                            Error::InvalidUuid {
+                                value: uuid_ptr.query(&doc).cloned(),
+                            }
+                        }))
+                    })
+                    .transpose()?;
 
-                if proto_gazette::message_flags::ACK_TXN & uuid.producer_and_flags != 0 {
+                if matches!(uuid, Some(ref uuid_val) if proto_gazette::message_flags::ACK_TXN & uuid_val.producer_and_flags != 0)
+                {
                     // Transaction acknowledgements aren't expected to validate.
                 } else if let Some(validator) = &mut state.validator {
                     validator
@@ -129,8 +145,10 @@ impl cgo::Service for API {
                         .map_err(Error::FailedValidation)?;
                 }
 
-                // Send extracted UUID.
-                cgo::send_message(Code::ExtractedUuid as u32, &uuid, arena, out);
+                if let Some(uuid_val) = uuid {
+                    // Send extracted UUID.
+                    cgo::send_message(Code::ExtractedUuid as u32, &uuid_val, arena, out);
+                }
 
                 // Send extracted, packed field pointers.
                 let begin = arena.len();

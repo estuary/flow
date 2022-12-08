@@ -5,21 +5,24 @@ import (
 	fmt "fmt"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 )
 
 // PullServer is a server which aides implementations of the Runtime.Push RPC.
 type PushServer struct {
 	coordinator
-	ctx               context.Context   // Context of Serve's lifetime.
-	pushCh            chan readyPush    // Sent to from Push.
-	priorAck, nextAck []chan<- struct{} // Notifications for awaiting RPCs.
+	extractors        []pf.Extractor
+	ctx               context.Context         // Context of Serve's lifetime.
+	pushCh            chan readyPush          // Sent to from Push.
+	priorAck, nextAck []client.AsyncOperation // Notifications for awaiting RPCs.
 }
 
 // NewPushServer builds a new *PushServer using the provided CaptureSpec.
 func NewPushServer(
 	ctx context.Context,
 	newCombinerFn func(*pf.CaptureSpec_Binding) (pf.Combiner, error),
+	newExtractorFn func(*pf.CaptureSpec_Binding) (pf.Extractor, error),
 	range_ pf.RangeSpec,
 	spec *pf.CaptureSpec,
 	version string,
@@ -31,19 +34,19 @@ func NewPushServer(
 		return nil, err
 	}
 
-	var combiners [2][]pf.Combiner
-	for i := range combiners {
-		for _, b := range spec.Bindings {
-			var combiner, err = newCombinerFn(b)
-			if err != nil {
-				return nil, fmt.Errorf("creating %s combiner: %w", b.Collection.Collection, err)
-			}
-			combiners[i] = append(combiners[i], combiner)
+	var extractors []pf.Extractor
+	for _, b := range spec.Bindings {
+		var extractor, extractor_err = newExtractorFn(b)
+		if extractor_err != nil {
+			return nil, fmt.Errorf("creating %s extractor: %w", b.Collection.Collection, extractor_err)
 		}
+		// assuming that bindings are in order...
+		extractors = append(extractors, extractor)
 	}
 
 	var out = &PushServer{
 		coordinator: coordinator,
+		extractors:  extractors,
 		ctx:         ctx,
 		pushCh:      make(chan readyPush),
 	}
@@ -61,7 +64,7 @@ func NewPushServer(
 func (c *PushServer) Push(
 	docs []Documents,
 	checkpoint pf.DriverCheckpoint,
-	ackCh chan<- struct{},
+	ackCh *client.AsyncOperation,
 ) error {
 	select {
 	case c.pushCh <- readyPush{
@@ -85,7 +88,7 @@ func (c *PushServer) ServeOp() client.OpFuture { return c.loopOp }
 type readyPush struct {
 	docs       []Documents
 	checkpoint pf.DriverCheckpoint
-	ackCh      chan<- struct{}
+	ackCh      *client.AsyncOperation
 }
 
 // serve is a long-lived routine which processes Push transactions.
@@ -137,6 +140,17 @@ func (c *PushServer) serve(startCommitFn func(error)) {
 
 			case rx := <-maybePushCh:
 				for _, docs := range rx.docs {
+					for _, doc_slice := range docs.DocsJson {
+						var doc = docs.Arena.Bytes(doc_slice)
+						var extractor = c.extractors[docs.Binding]
+
+						extractor.Document(doc)
+						var _, _, validation_err = extractor.Extract()
+						if validation_err != nil {
+							return false, fmt.Errorf("document validation error: %w", validation_err)
+						}
+					}
+					logrus.Info(fmt.Sprintf("Successfully validated %d document", len(docs.DocsJson)))
 					if err := c.onDocuments(docs); err != nil {
 						return false, fmt.Errorf("onDocuments: %w", err)
 					}
@@ -144,7 +158,7 @@ func (c *PushServer) serve(startCommitFn func(error)) {
 				if err := c.onCheckpoint(rx.checkpoint); err != nil {
 					return false, fmt.Errorf("onCheckpoint: %w", err)
 				}
-				c.nextAck = append(c.nextAck, rx.ackCh)
+				c.nextAck = append(c.nextAck, *rx.ackCh)
 			}
 
 			return doneCh == nil, nil
@@ -153,7 +167,7 @@ func (c *PushServer) serve(startCommitFn func(error)) {
 
 func (c *PushServer) sendAck() {
 	for _, ch := range c.priorAck {
-		ch <- struct{}{}
+		ch.Resolve(nil)
 	}
 	c.priorAck = c.priorAck[:0]
 }

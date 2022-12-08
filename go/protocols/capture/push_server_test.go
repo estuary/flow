@@ -1,4 +1,4 @@
-package capture
+package capture_test
 
 import (
 	"context"
@@ -8,9 +8,28 @@ import (
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
+	"github.com/estuary/flow/go/bindings"
+	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/ops"
+	"github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
+)
+
+var localPublisher = ops.NewLocalPublisher(
+	labels.ShardLabeling{
+		Build:    "capture-test",
+		LogLevel: pf.LogLevel_debug,
+		Range: pf.RangeSpec{
+			KeyBegin:    0x00001111,
+			KeyEnd:      0x11110000,
+			RClockBegin: 0x00002222,
+			RClockEnd:   0x22220000,
+		},
+		TaskName: "capture-test/task/name",
+		TaskType: labels.TaskTypeCapture,
+	},
 )
 
 func TestPushServerLifecycle(t *testing.T) {
@@ -22,10 +41,13 @@ func TestPushServerLifecycle(t *testing.T) {
 	var startCommitCh = make(chan error)
 
 	var ctx, cancel = context.WithCancel(context.Background())
-	push, err := NewPushServer(
+	push, err := capture.NewPushServer(
 		ctx,
 		func(*pf.CaptureSpec_Binding) (pf.Combiner, error) {
 			return new(pf.MockCombiner), nil
+		},
+		func(*pf.CaptureSpec) (pf.Extractor, error) {
+			return bindings.NewExtractor(localPublisher)
 		},
 		pf.NewFullRange(),
 		&spec,
@@ -49,12 +71,12 @@ func TestPushServerLifecycle(t *testing.T) {
 		require.NoError(t, reducedCheckpoint.Reduce(checkpoint))
 	}
 
-	var acksCh = make(chan struct{})
+	var acksOp1 = client.NewAsyncOperation()
 
 	require.NoError(t, push.Push(
-		[]Documents{*makeDocs(0, "one"), *makeDocs(0, "two")},
+		[]capture.Documents{*makeDocs(0, "one"), *makeDocs(0, "two")},
 		*makeCheckpoint(map[string]int{"a": 1}),
-		acksCh,
+		acksOp1,
 	))
 
 	// Expect Serve notified our callback.
@@ -65,20 +87,23 @@ func TestPushServerLifecycle(t *testing.T) {
 	var commitOp = client.NewAsyncOperation()
 	require.NoError(t, push.SetLogCommitOp(commitOp))
 
+	var acksOp2 = client.NewAsyncOperation()
+	var acksOp3 = client.NewAsyncOperation()
+
 	// Two new Pushes arrive.
 	require.NoError(t, push.Push(
-		[]Documents{*makeDocs(0, "three")},
+		[]capture.Documents{*makeDocs(0, "three")},
 		*makeCheckpoint(map[string]int{"b": 1}),
-		acksCh,
+		acksOp2,
 	))
 	require.NoError(t, push.Push(
-		[]Documents{*makeDocs(0, "four", "five")},
+		[]capture.Documents{*makeDocs(0, "four", "five")},
 		*makeCheckpoint(map[string]int{"b": 2}),
-		acksCh,
+		acksOp3,
 	))
 
 	commitOp.Resolve(nil)
-	<-acksCh // Expect first Push is acknowledged.
+	<-acksOp1.Done() // Expect first Push is acknowledged.
 
 	// We were notified that the next commit is ready.
 	require.NoError(t, <-startCommitCh)
@@ -87,27 +112,30 @@ func TestPushServerLifecycle(t *testing.T) {
 	commitOp = client.NewAsyncOperation()
 	require.NoError(t, push.SetLogCommitOp(commitOp))
 	commitOp.Resolve(nil)
-	_, _ = <-acksCh, <-acksCh // Next two Pushes are acknowledged.
+	_, _ = <-acksOp2.Done(), <-acksOp2.Done() // Next two Pushes are acknowledged.
 
 	// Lower the target threshold for combining push checkpoints,
 	// so that the first and second pushes commit separately.
-	defer func(i int) { combinerByteThreshold = i }(combinerByteThreshold)
-	combinerByteThreshold = 1
+	defer func(i int) { capture.SetCombinerByteThreshold(i) }(capture.GetCombinerByteThreshold())
+	capture.SetCombinerByteThreshold(1)
+
+	var acksOp4 = client.NewAsyncOperation()
+	var acksOp5 = client.NewAsyncOperation()
 
 	// Next two pushes race our reads of the next ready commit.
 	// However, we set a low combiner byte threshold, so we're guaranteed
 	// that they commit separately (which would otherwise not be true).
 	go func() {
 		require.NoError(t, push.Push(
-			[]Documents{*makeDocs(0, "six", "seven")},
+			[]capture.Documents{*makeDocs(0, "six", "seven")},
 			*makeCheckpoint(map[string]int{"c": 1}),
-			acksCh,
+			acksOp4,
 		))
 		// A checkpoint without Documents is also valid.
 		require.NoError(t, push.Push(
 			nil,
 			*makeCheckpoint(map[string]int{"a": 2}),
-			acksCh,
+			acksOp5,
 		))
 
 		// Begin a graceful top of Serve.
@@ -115,15 +143,22 @@ func TestPushServerLifecycle(t *testing.T) {
 	}()
 
 	// We are notified that two commits are ready.
-	for i := 0; i != 2; i++ {
-		require.NoError(t, <-startCommitCh)
-		drain()
 
-		commitOp = client.NewAsyncOperation()
-		require.NoError(t, push.SetLogCommitOp(commitOp))
-		commitOp.Resolve(nil)
-		<-acksCh // Push is acknowledged.
-	}
+	require.NoError(t, <-startCommitCh)
+	drain()
+
+	commitOp = client.NewAsyncOperation()
+	require.NoError(t, push.SetLogCommitOp(commitOp))
+	commitOp.Resolve(nil)
+	<-acksOp4.Done() // Push is acknowledged.
+
+	require.NoError(t, <-startCommitCh)
+	drain()
+
+	commitOp = client.NewAsyncOperation()
+	require.NoError(t, push.SetLogCommitOp(commitOp))
+	commitOp.Resolve(nil)
+	<-acksOp5.Done() // Push is acknowledged.
 
 	// Serve has stopped running.
 	<-push.ServeOp().Done()
@@ -133,7 +168,7 @@ func TestPushServerLifecycle(t *testing.T) {
 	// The client closes gracefully.
 	require.NoError(t, push.Close())
 	// A further attempt to push errors, since Serve is no longer listening.
-	require.Equal(t, io.EOF, push.Push(nil, pf.DriverCheckpoint{}, acksCh))
+	require.Equal(t, io.EOF, push.Push(nil, pf.DriverCheckpoint{}, client.NewAsyncOperation()))
 	// A further attempt to set a LogCommitOp errors, since Serve is no longer listening.
 	require.Equal(t, io.EOF, push.SetLogCommitOp(client.NewAsyncOperation()))
 

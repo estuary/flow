@@ -18,6 +18,7 @@ import (
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/shuffle"
+	"github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/recoverylog"
@@ -253,12 +254,25 @@ func (c *Capture) startReadingMessages(
 		)
 	}
 
+	var newExtractorFn = func(binding *pf.CaptureSpec_Binding) (pf.Extractor, error) {
+		var extractor, err = bindings.NewExtractor(c.opsPublisher) // Is this the right publisher?
+		if err != nil {
+			return nil, err
+		}
+		logrus.Info(fmt.Sprintf("Configuring extractor with this schema: %s", string(binding.Collection.WriteSchemaJson)))
+
+		extractor.Configure("", []string{}, binding.Collection.WriteSchemaJson)
+
+		return extractor, nil
+	}
+
 	if c.spec.EndpointType == pf.EndpointType_INGEST {
 		// Create a PushServer for the specification.
 		// Careful! Don't assign directly to c.delegate because (*pc.PushServer)(nil) != nil
 		var pushServer, err = pc.NewPushServer(
 			c.taskTerm.ctx,
 			newCombinerFn,
+			newExtractorFn,
 			c.labels.Range,
 			&c.spec,
 			c.labels.Build,

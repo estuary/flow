@@ -6,6 +6,26 @@ import (
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 )
 
+// Extractor validates and extracts keys from documents
+type Extractor interface {
+	// Configure or re-configure the Extractor. If schemaURI is non-empty, it's
+	// validated during extraction and the SchemaIndex must be non-nil.
+	// Otherwise, both may be zero-valued.
+	Configure(
+		uuidPtr string,
+		fieldPtrs []string,
+		schemaJSON json.RawMessage,
+	) error
+
+	// Document queues a document for extraction.
+	Document(doc []byte)
+
+	// Extract UUIDs and field tuples from all documents queued since the last Extract.
+	// The returned UUIDParts and tuples are valid *only* until the next
+	// call to Extract -- you *must* copy out before calling Extract again.
+	Extract() ([]UUIDParts, [][]byte, error)
+}
+
 // Combiner combines and reduces keyed documents.
 type Combiner interface {
 	// ReduceLeft reduces the document on its key with a current right-hand side combined state.

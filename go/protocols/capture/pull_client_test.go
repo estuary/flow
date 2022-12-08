@@ -1,4 +1,4 @@
-package capture
+package capture_test
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
+	"github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
@@ -26,14 +27,14 @@ func TestPullClientLifecycle(t *testing.T) {
 	var ctx = context.Background()
 	var server = &testServer{
 		DoneOp:   client.NewAsyncOperation(),
-		OpenedTx: PullResponse_Opened{ExplicitAcknowledgements: true},
+		OpenedTx: capture.PullResponse_Opened{ExplicitAcknowledgements: true},
 	}
-	var conn = AdaptServerToClient(server)
+	var conn = capture.AdaptServerToClient(server)
 	var captured []json.RawMessage
 	var reducedCheckpoint pf.DriverCheckpoint
 	var startCommitCh = make(chan error)
 
-	rpc, err := OpenPull(
+	rpc, err := capture.OpenPull(
 		ctx,
 		conn,
 		json.RawMessage(`{"driver":"checkpoint"}`),
@@ -106,8 +107,8 @@ func TestPullClientLifecycle(t *testing.T) {
 	// Lower the threshold under which we'll combine multiple checkpoints of documents.
 	// Of the three following checkpoints, the first and second but not third will
 	// be combined into one commit.
-	defer func(i int) { combinerByteThreshold = i }(combinerByteThreshold)
-	combinerByteThreshold = 20 // Characters plus enclosing quotes.
+	defer func(i int) { capture.SetCombinerByteThreshold(i) }(capture.GetCombinerByteThreshold())
+	capture.SetCombinerByteThreshold(20) // Characters plus enclosing quotes.
 
 	// While this commit runs, the server sends more documents and checkpoints.
 	server.sendDocs(0, "six", "seven")
@@ -177,12 +178,12 @@ func TestPullClientCancel(t *testing.T) {
 	require.NoError(t, spec.Unmarshal(specBytes))
 
 	var server = &testServer{DoneOp: client.NewAsyncOperation()}
-	var conn = AdaptServerToClient(server)
+	var conn = capture.AdaptServerToClient(server)
 	var startCommitCh = make(chan error)
 
 	// Cause PullClient to consider a transaction "full" after one document.
-	defer func(i int) { combinerByteThreshold = i }(combinerByteThreshold)
-	combinerByteThreshold = 1
+	defer func(i int) { capture.SetCombinerByteThreshold(i) }(capture.GetCombinerByteThreshold())
+	capture.SetCombinerByteThreshold(1)
 
 	// Vary the test based on the number of checkpoints pulled before
 	// a cancellation is delivered:
@@ -194,7 +195,7 @@ func TestPullClientCancel(t *testing.T) {
 	for numDocs := 0; numDocs != 3; numDocs++ {
 		var ctx, cancelFn = context.WithCancel(context.Background())
 
-		rpc, err := OpenPull(
+		rpc, err := capture.OpenPull(
 			ctx,
 			conn,
 			json.RawMessage(`{"driver":"checkpoint"}`),
@@ -236,14 +237,14 @@ func TestPullClientCancel(t *testing.T) {
 }
 
 type testServer struct {
-	OpenRx   PullRequest_Open
-	OpenedTx PullResponse_Opened
-	Stream   Driver_PullServer
+	OpenRx   capture.PullRequest_Open
+	OpenedTx capture.PullResponse_Opened
+	Stream   capture.Driver_PullServer
 	DoneOp   *client.AsyncOperation
 }
 
-func makeDocs(binding uint32, docs ...interface{}) *Documents {
-	var m = &Documents{Binding: binding}
+func makeDocs(binding uint32, docs ...interface{}) *capture.Documents {
+	var m = &capture.Documents{Binding: binding}
 
 	for _, d := range docs {
 		var b, err = json.Marshal(d)
@@ -256,7 +257,7 @@ func makeDocs(binding uint32, docs ...interface{}) *Documents {
 }
 
 func (t *testServer) sendDocs(binding uint32, docs ...interface{}) error {
-	return t.Stream.Send(&PullResponse{Documents: makeDocs(binding, docs...)})
+	return t.Stream.Send(&capture.PullResponse{Documents: makeDocs(binding, docs...)})
 }
 
 func makeCheckpoint(body interface{}) *pf.DriverCheckpoint {
@@ -271,7 +272,7 @@ func makeCheckpoint(body interface{}) *pf.DriverCheckpoint {
 }
 
 func (t *testServer) sendCheckpoint(body interface{}) error {
-	return t.Stream.Send(&PullResponse{Checkpoint: makeCheckpoint(body)})
+	return t.Stream.Send(&capture.PullResponse{Checkpoint: makeCheckpoint(body)})
 }
 
 func (t *testServer) recvAck() error {
@@ -284,25 +285,25 @@ func (t *testServer) recvAck() error {
 	return nil
 }
 
-var _ DriverServer = &testServer{}
+var _ capture.DriverServer = &testServer{}
 
-func (t *testServer) Spec(context.Context, *SpecRequest) (*SpecResponse, error) {
+func (t *testServer) Spec(context.Context, *capture.SpecRequest) (*capture.SpecResponse, error) {
 	panic("not called")
 }
-func (t *testServer) Discover(context.Context, *DiscoverRequest) (*DiscoverResponse, error) {
+func (t *testServer) Discover(context.Context, *capture.DiscoverRequest) (*capture.DiscoverResponse, error) {
 	panic("not called")
 }
-func (t *testServer) Validate(context.Context, *ValidateRequest) (*ValidateResponse, error) {
+func (t *testServer) Validate(context.Context, *capture.ValidateRequest) (*capture.ValidateResponse, error) {
 	panic("not called")
 }
-func (t *testServer) ApplyUpsert(context.Context, *ApplyRequest) (*ApplyResponse, error) {
+func (t *testServer) ApplyUpsert(context.Context, *capture.ApplyRequest) (*capture.ApplyResponse, error) {
 	panic("not called")
 }
-func (t *testServer) ApplyDelete(context.Context, *ApplyRequest) (*ApplyResponse, error) {
+func (t *testServer) ApplyDelete(context.Context, *capture.ApplyRequest) (*capture.ApplyResponse, error) {
 	panic("not called")
 }
 
-func (t *testServer) Pull(stream Driver_PullServer) error {
+func (t *testServer) Pull(stream capture.Driver_PullServer) error {
 	t.Stream = stream
 
 	open, err := stream.Recv()
@@ -315,7 +316,7 @@ func (t *testServer) Pull(stream Driver_PullServer) error {
 	}
 
 	t.OpenRx = *open.Open
-	if err := stream.Send(&PullResponse{Opened: &t.OpenedTx}); err != nil {
+	if err := stream.Send(&capture.PullResponse{Opened: &t.OpenedTx}); err != nil {
 		return err
 	}
 

@@ -243,3 +243,11 @@ func (c *coordinator) loop(
 // further documents and checkpoints will not be folded into the
 // transaction.
 var combinerByteThreshold = (1 << 27) // 128MB.
+
+func GetCombinerByteThreshold() int {
+	return combinerByteThreshold
+}
+
+func SetCombinerByteThreshold(newThreshold int) {
+	combinerByteThreshold = newThreshold
+}
