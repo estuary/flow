@@ -61,7 +61,10 @@ fn should_consider_entry(entry: &walkdir::DirEntry) -> bool {
     entry
         .file_name()
         .to_str()
-        .map(|s| !s.starts_with("."))
+        // We filter out any hidden files or directories, but the case of "."
+        // handles the case where the user passes `--source-dir .`, which definitely
+        // shouldn't be filtered out.
+        .map(|s| !s.starts_with(".") || s == ".")
         .unwrap_or_else(|| {
             tracing::error!(path = %entry.path().display(), "ignoring non-UTF-8 path");
             false
