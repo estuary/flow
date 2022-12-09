@@ -6,7 +6,7 @@ sidebar_position: 6
 
 Flow's web application is at [dashboard.estuary.dev](https://dashboard.estuary.dev).
 
-It's the central, low-code environment for creating, managing, and monitoring Data Flows.
+The web app is the central, low-code environment for creating, managing, and monitoring Data Flows.
 
 ## When to use the web app
 
@@ -30,11 +30,10 @@ it provides a quicker and easier path to create captures and materializations. Y
 
 You use either a Google or GitHub account to sign into Flow.
 
-If you've never used Flow before, you'll be prompted to register before being issued a trial account.
-If you want to use Flow for production workflows or collaborate with team members, you'll need an organizational account.
-[Contact Estuary](mailto:support@estuary.dev) to create a new organizational account or join an existing organization.
+![](<./webapp-images/login-screen.png>)
 
-SCREENSHOTS AND UPDATES HERE
+If you've never used Flow before, you'll be prompted to register before being issued a trial account. If you want to use Flow for production workflows or collaborate with team members, you'll need an organizational account.
+[Contact Estuary](mailto:support@estuary.dev) to create a new organizational account or join an existing organization.
 
 ## Navigating the web app
 
@@ -61,18 +60,18 @@ The **Captures** pages shows you a table of existing Flow [captures](./captures.
 The **New Capture** button is also visible.
 You use the table to monitor your captures.
 
-SCREENSHOT HERE>>>> Show header and first two rows, one checkbox checked. Numbered as indicated in text.
+![](<./webapp-images/capture-page.png>)
 
-**A:** Select all or deselect all.
+**1:** Select all or deselect all.
 
-**B:** Enable, Disable, and Delete buttons. These actions will be applied to the selected table rows. Choose **Disable** to temporarily pause the flow of data, **Enable** to resume, and **Delete** to permanently remove the capture(s).
+**2:** Enable, Disable, and Delete buttons. These actions will be applied to the selected table rows. Choose **Disable** to temporarily pause the flow of data, **Enable** to resume, and **Delete** to permanently remove the capture(s).
 
-**C:** Materialize button. When you click this button, you're directed to the **Create materializations** page.
+**3:** Materialize button. When you click this button, you're directed to the **Create materializations** page.
 All the collections of the selected capture(s) will be added to the materialization.
 
-**D:** Filter captures by name.
+**4:** Filter captures by name.
 
-**E:** Shard status indicator. Shows the status of the task [shard](./advanced/shards.md) that backs this capture.
+**5:** Shard status indicator. Shows the status of the task [shard](./advanced/shards.md) that backs this capture.
 
 * **Primary (Green)**: Data is actively flowing through the capture.
 * **Pending (Yellow)**: The capture is attempting to re-connect. Often, you'll see this after you re-enable the capture as Flow backfills historical data.
@@ -80,15 +79,15 @@ All the collections of the selected capture(s) will be added to the materializat
 * **Disabled (White)**: The capture is disabled.
 * **Unknown (Black)**: The web app is unable to determine shard status. Usually, this is due to a temporary connection error.
 
-**F:** Capture name. The full name is shown, including all [prefixes](./catalogs.md#namespace).
+**6:** Capture name. The full name is shown, including all [prefixes](./catalogs.md#namespace).
 
-**G:** Capture type. The icon shows the type of source system data is captured from.
+**7:** Capture type. The icon shows the type of source system data is captured from.
 
-**H:** Associated collections. The **Writes to** column shows all the collections to which the capture writes data. For captures with a large number of collections, hover over this column and scroll to view the full list.
+**8:** Associated collections. The **Writes to** column shows all the collections to which the capture writes data. For captures with a large number of collections, hover over this column and scroll to view the full list.
 
-**I:** Publish time. Hover over this value to see the exact time the capture was first published.
+**9:** Publish time. Hover over this value to see the exact time the capture was first published.
 
-**J:** Options. Choose to **View Details** or **Edit Specification**.
+**10:** Options. Choose to **View Details** or **Edit Specification**.
 
 ### Detail view
 
@@ -105,7 +104,7 @@ When you click **Edit specification** for a capture, you're taken to the **Edit 
 
 This page is similar to the [**Create Capture**](#creating-a-capture) page as it was filled out just before the capture was published.
 
-To edit a capture or its collections:
+To edit a capture:
 
 1. Edit the connection to the source system, if desired. You can either update fields in the **Endpoint Configuration** section or manually update the JSON in the **Specification Editor**.
 
@@ -115,11 +114,14 @@ You may have to re-authenticate with the source system. Be sure to have current 
 
 2. Use the **Collection Selector** to add or remove collections from the capture, if desired.
 
-3. Click **Next.**
+   To refresh your connection with the source and see an updated list of possible collections, click the **Rediscover All** button,
+   but be aware that it will overwrite all existing collection selections.
+
+3. When you're done making changes, click **Next.**
 
    Collection specifications become editable.
 
-4. Use the **Specification Editor** to edit collection specifications, if desired.
+4. Use the **Specification Editor** to edit collection specifications, if desired. If you make any changes, click **Next** again.
 
 5. Click **Save and Publish**.
 
@@ -149,13 +151,15 @@ This can help you verify that collection data was captured as expected and that 
 
 To reveal the **Specification** and **Data Preview** sections, expand **Details** next to a collection name.
 
->>>>>>SCREEnshot
-
 The **Specification** section shows the collection specification as JSON in a read-only editor.
 (If you need to modify a collection, edit the [capture](#editing-captures) that it came from.)
 
+![](<./webapp-images/collections-view-schema.png>)
+
 The **Data Preview** section shows a sample of collection [documents](./collections.md#documents): the individual JSON files that comprise the collection.
 Documents are organized by their collection key value. Click a key from the list to view its document.
+
+![](<./webapp-images/collections-view-data.png>)
 
 ## Materializations page
 
@@ -164,15 +168,15 @@ The **New Materialization** button is also visible.
 
 You use the table to monitor your materializations. It's nearly identical to the table on the [Captures page](#captures-page), with a few exceptions.
 
-ANOTHER SCREENSHOT HERE
+![](<./webapp-images/materialization-page.png>)
 
-**A:** Select all or deselect all.
+**1:** Select all or deselect all.
 
-**B:** Enable, Disable, and Delete buttons. These actions will be applied to the selected table rows. Choose **Disable** to temporarily pause the flow of data, **Enable** to resume, and **Delete** to permanently remove the materialization(s).
+**2:** Enable, Disable, and Delete buttons. These actions will be applied to the selected table rows. Choose **Disable** to temporarily pause the flow of data, **Enable** to resume, and **Delete** to permanently remove the materialization(s).
 
-**C:** Filter materializations by name.
+**3:** Filter materializations by name.
 
-**D:** Shard status indicator. Shows the status of the task [shard](./advanced/shards.md) that backs this materialization.
+**4:** Shard status indicator. Shows the status of the task [shard](./advanced/shards.md) that backs this materialization.
 
 * **Primary (Green)**: Data is actively flowing through the materialization.
 * **Pending (Yellow)**: The materialization is attempting to re-connect. Often, you'll see this after you re-enable the materialization as Flow backfills historical data.
@@ -180,15 +184,15 @@ ANOTHER SCREENSHOT HERE
 * **Disabled (White)**: The materialization is disabled.
 * **Unknown (Black)**: The web app is unable to determine shard status. Usually, this is due to a temporary connection error.
 
-**E:** Materialization name. The full name is shown, including all [prefixes](./catalogs.md#namespace).
+**5:** Materialization name. The full name is shown, including all [prefixes](./catalogs.md#namespace).
 
-**F:** Materialization type. The icon shows the type of destination system data is materialized to.
+**6:** Materialization type. The icon shows the type of destination system data is materialized to.
 
-**G:** Associated collections. The **Reads from** column shows all the collections from which the materialization reads data. For materializations with a large number of collections, hover over this column and scroll to view the full list.
+**7:** Associated collections. The **Reads from** column shows all the collections from which the materialization reads data. For materializations with a large number of collections, hover over this column and scroll to view the full list.
 
-**H:** Publish time. Hover over this value to see the exact time the materialization was first published.
+**8:** Publish time. Hover over this value to see the exact time the materialization was first published.
 
-**I:** Options. Choose to **View Details** or **Edit Specification**
+**9:** Options. Choose to **View Details** or **Edit Specification**
 
 ### Detail view
 
@@ -215,7 +219,7 @@ You may have to re-authenticate with the source system. Be sure to have current 
 
 2. Use the **Collection Selector** to add or remove collections from the materialization, if desired.
 
-3. Click **Next.**
+3. When you're done making changes, click **Next.**
 
 4. Click **Save and Publish**.
 

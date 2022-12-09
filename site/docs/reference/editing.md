@@ -12,9 +12,9 @@ As you edit, you'll also have to account for any updates to the configuration fo
 
 ## How to edit Flow entities
 
-In the Flow web app, you can edit captures, captured collections, and materializations.
+In the Flow web app, you can edit captures and materializations.
 
-* [Editing captures and their collections](../concepts/web-app.md#editing-captures-and-collections)
+* [Editing captures and captured collections](../concepts/web-app.md#editing-captures-and-collections)
 * [Editing materializations](../concepts/web-app.md#editing-materializations)
 
 With flowctl, you can edit captures, materializations, collections, derivations, and tests.
@@ -49,7 +49,7 @@ but maps it to a collection called `post/fruity_pebbles/nutrition-facts`.
 If you continue to publish the edited capture, both collections will persist,
 but new data will be written to the new collection.
 
-To check if a connector has been updated:
+Before editing, check if a connector has been updated:
 
 * Go to the **Admin** tab and view the list of connectors. Each tile shows the date it was last updated.
 * Check the connector's [documentation](./Connectors/README.md). Pertinent updates, if any, are noted in the **Changelog** section.
@@ -57,15 +57,12 @@ To check if a connector has been updated:
 ## Considerations for name changes
 
 You're not able to change the name of a capture or materialization after you create it.
+You're also unable to manually change the names of collections;
+however, connector updates can cause collection names to change, as discussed above.
 
-THE FOLLOWING IS VERY SPECULATIVE; FACT CHECK/TEST
-
-It is possible to change collection names (by editing a capture) and destination resource names (by editing a materialization.
+It *is* possible to manually change the names of destination resources (tables or analogous data storage units to which collections are written) when editing a materialization.
 You should avoid doing so unless you want to route future data to a new location.
 
-* If you change a collection name while editing a capture, the original collection will continue to exist (???), but the new collection will be backfilled with historical data.
-  You'll need to edit any downstream derivations and materializations to reflect the new collection name.
-
-* If you change a destination resource name while editing a materialization (for instance, a database table), a new resource with that name will be created and the old resource will continue to exist.
-  Historical data will *not* be backfilled into the new resource.
+If you do this, a new resource with that name will be created and the old resource will continue to exist.
+Historical data will may not be backfilled into the new resource, depending on the connector used.
 
