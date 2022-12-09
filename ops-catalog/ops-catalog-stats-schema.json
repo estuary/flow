@@ -30,7 +30,6 @@
                 "writtenToMe": { "$ref": "ops-stats-schema.json#/$defs/docsAndBytes" }
             },
             "reduce": {"strategy": "merge"},
-            "required": ["readByMe", "readFromMe", "writtenByMe", "writtenToMe"]
         },
         "taskStats": {
             "type": "object",
