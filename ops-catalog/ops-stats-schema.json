@@ -84,11 +84,13 @@
                 "docsTotal": {
                     "description": "Total number of documents",
                     "type": "integer",
+                    "default": 0,
                     "reduce": {"strategy": "sum"}
                 },
                 "bytesTotal": {
                     "description": "Total number of bytes representing the JSON encoded documents",
                     "type": "integer",
+                    "default": 0,
                     "reduce": {"strategy": "sum"}
                 }
             },
