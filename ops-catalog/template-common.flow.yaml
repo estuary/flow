@@ -61,6 +61,10 @@ tests:
               tenant/test/collection:
                 right: { docsTotal: 1, bytesTotal: 15 }
                 out: { docsTotal: 2, bytesTotal: 20 }
+              # Capture task with multiple bound collections.
+              tenant/test/otherCaptureCollection:
+                right: { docsTotal: 5, bytesTotal: 55 }
+                out: { docsTotal: 6, bytesTotal: 65 }
             txnCount: 2
             openSecondsTotal: 0.012
           # Same capture at a different hour, but the same day & month.
@@ -89,6 +93,9 @@ tests:
             materialize:
               tenant/test/collection:
                 right: { docsTotal: 10, bytesTotal: 150 }
+              # Materialization task with multiple bound collections.
+              tenant/test/otherMaterializationCollection:
+                right: { docsTotal: 5, bytesTotal: 75 }
             txnCount: 2
             openSecondsTotal: 0.012
 
@@ -123,184 +130,161 @@ tests:
             txnCount: 2
             openSecondsTotal: 0.012
     - verify:
-        # Note: Spot checking docs counts in the monthly entry for tenant/test/collection.
         collection: ops/TENANT/catalog-stats
         documents:
-            # Capture task
+          # Capture task
           - catalogName: "tenant/test/cap"
             grain: "daily"
             ts: "2022-04-03T00:00:00.000Z"
             statsSummary:
-              readByMe:     { bytesTotal: 0 }
-              writtenByMe:  { bytesTotal: 65 }
-              readFromMe:   { bytesTotal: 0 }
-              writtenToMe:  { bytesTotal: 0 }
+              writtenByMe: { bytesTotal: 130, docsTotal: 12 }
           - catalogName: "tenant/test/cap"
             grain: "hourly"
             ts: "2022-04-03T02:00:00.000Z"
             statsSummary:
-              readByMe:     { bytesTotal: 0 }
-              writtenByMe:  { bytesTotal: 20 }
-              readFromMe:   { bytesTotal: 0 }
-              writtenToMe:  { bytesTotal: 0 }
+              writtenByMe: { bytesTotal: 85, docsTotal: 8 }
           - catalogName: "tenant/test/cap"
             grain: "hourly"
             ts: "2022-04-03T03:00:00.000Z"
             statsSummary:
-              readByMe:     { bytesTotal: 0 }
-              writtenByMe:  { bytesTotal: 45 }
-              readFromMe:   { bytesTotal: 0 }
-              writtenToMe:  { bytesTotal: 0 }
+              writtenByMe: { bytesTotal: 45, docsTotal: 4 }
           - catalogName: "tenant/test/cap"
             grain: "monthly"
             ts: "2022-04-01T00:00:00.000Z"
             statsSummary:
-              readByMe:     { bytesTotal: 0 }
-              writtenByMe:  { bytesTotal: 65 }
-              readFromMe:   { bytesTotal: 0 }
-              writtenToMe:  { bytesTotal: 0 }
+              writtenByMe: { bytesTotal: 130, docsTotal: 12 }
 
             # Collection & derivation combo entity
           - catalogName: "tenant/test/collection"
             grain: "daily"
             ts: "2022-04-03T00:00:00.000Z" # Capture day
             statsSummary:
-              readByMe:     { bytesTotal: 0 }
-              writtenByMe:  { bytesTotal: 0 }
-              readFromMe:   { bytesTotal: 0 }
-              writtenToMe:  { bytesTotal: 65 }
+              writtenToMe: { bytesTotal: 65, docsTotal: 6 }
           - catalogName: "tenant/test/collection"
             grain: "daily"
             ts: "2022-04-04T00:00:00.000Z" # Materialization day
             statsSummary:
-              readByMe:     { bytesTotal: 0 }
-              writtenByMe:  { bytesTotal: 0 }
-              readFromMe:   { bytesTotal: 150 }
-              writtenToMe:  { bytesTotal: 0 }
+              readFromMe: { bytesTotal: 150, docsTotal: 10 }
           - catalogName: "tenant/test/collection"
             grain: "daily"
             ts: "2022-04-05T00:00:00.000Z" # Derivation day
             statsSummary:
-              readByMe:     { bytesTotal: 90 }
-              writtenByMe:  { bytesTotal: 75 }
-              readFromMe:   { bytesTotal: 0 }
-              writtenToMe:  { bytesTotal: 75 }
+              readByMe: { bytesTotal: 90, docsTotal: 18 }
+              writtenByMe: { bytesTotal: 75, docsTotal: 7 }
+              writtenToMe: { bytesTotal: 75, docsTotal: 7 }
           - catalogName: "tenant/test/collection"
             grain: "hourly"
             ts: "2022-04-03T02:00:00.000Z" # Capture hour 1
             statsSummary:
-              readByMe:     { bytesTotal: 0 }
-              writtenByMe:  { bytesTotal: 0 }
-              readFromMe:   { bytesTotal: 0 }
-              writtenToMe:  { bytesTotal: 20 }
+              writtenToMe: { bytesTotal: 20, docsTotal: 2 }
           - catalogName: "tenant/test/collection"
             grain: "hourly"
             ts: "2022-04-03T03:00:00.000Z" # Capture hour 2
             statsSummary:
-              readByMe:     { bytesTotal: 0 }
-              writtenByMe:  { bytesTotal: 0 }
-              readFromMe:   { bytesTotal: 0 }
-              writtenToMe:  { bytesTotal: 45 }
+              writtenToMe: { bytesTotal: 45, docsTotal: 4 }
           - catalogName: "tenant/test/collection"
             grain: "hourly"
             ts: "2022-04-04T03:00:00.000Z" # Materialization hour
             statsSummary:
-              readByMe:     { bytesTotal: 0 }
-              writtenByMe:  { bytesTotal: 0 }
-              readFromMe:   { bytesTotal: 150 }
-              writtenToMe:  { bytesTotal: 0 }
+              readFromMe: { bytesTotal: 150, docsTotal: 10 }
           - catalogName: "tenant/test/collection"
             grain: "hourly"
             ts: "2022-04-05T05:00:00.000Z" # Derivation hour
             statsSummary:
-              readByMe:     { bytesTotal: 90 }
-              writtenByMe:  { bytesTotal: 75 }
-              readFromMe:   { bytesTotal: 0 }
-              writtenToMe:  { bytesTotal: 75 }
+              readByMe: { bytesTotal: 90, docsTotal: 18 }
+              writtenByMe: { bytesTotal: 75, docsTotal: 7 }
+              writtenToMe: { bytesTotal: 75, docsTotal: 7 }
           - catalogName: "tenant/test/collection"
             grain: "monthly"
             ts: "2022-04-01T00:00:00.000Z" # Same month for capture, materialization, and derivation.
             statsSummary:
-              readByMe:     { bytesTotal: 90,  docsTotal: 18 }
-              writtenByMe:  { bytesTotal: 75,  docsTotal: 7 }
-              readFromMe:   { bytesTotal: 150, docsTotal: 10 }
-              writtenToMe:  { bytesTotal: 140, docsTotal: 13 }
+              readByMe: { bytesTotal: 90, docsTotal: 18 }
+              writtenByMe: { bytesTotal: 75, docsTotal: 7 }
+              readFromMe: { bytesTotal: 150, docsTotal: 10 }
+              writtenToMe: { bytesTotal: 140, docsTotal: 13 }
 
             # The materializaton task.
           - catalogName: "tenant/test/mat"
             grain: "daily"
             ts: "2022-04-04T00:00:00.000Z"
             statsSummary:
-              readByMe:     { bytesTotal: 150 }
-              writtenByMe:  { bytesTotal: 0 }
-              readFromMe:   { bytesTotal: 0 }
-              writtenToMe:  { bytesTotal: 0 }
+              readByMe: { bytesTotal: 225, docsTotal: 15 }
           - catalogName: "tenant/test/mat"
             grain: "hourly"
             ts: "2022-04-04T03:00:00.000Z"
             statsSummary:
-              readByMe:     { bytesTotal: 150 }
-              writtenByMe:  { bytesTotal: 0 }
-              readFromMe:   { bytesTotal: 0 }
-              writtenToMe:  { bytesTotal: 0 }
+              readByMe: { bytesTotal: 225, docsTotal: 15 }
           - catalogName: "tenant/test/mat"
             grain: "monthly"
             ts: "2022-04-01T00:00:00.000Z"
             statsSummary:
-              readByMe:     { bytesTotal: 150 }
-              writtenByMe:  { bytesTotal: 0 }
-              readFromMe:   { bytesTotal: 0 }
-              writtenToMe:  { bytesTotal: 0 }
+              readByMe: { bytesTotal: 225, docsTotal: 15 }
+
+            # The "other" bound capture collection.
+          - catalogName: "tenant/test/otherCaptureCollection"
+            grain: "daily"
+            ts: "2022-04-03T00:00:00.000Z"
+            statsSummary:
+              writtenToMe: { bytesTotal: 65, docsTotal: 6 }
+          - catalogName: "tenant/test/otherCaptureCollection"
+            grain: "hourly"
+            ts: "2022-04-03T02:00:00.000Z"
+            statsSummary:
+              writtenToMe: { bytesTotal: 65, docsTotal: 6 }
+          - catalogName: "tenant/test/otherCaptureCollection"
+            grain: "monthly"
+            ts: "2022-04-01T00:00:00.000Z"
+            statsSummary:
+              writtenToMe: { bytesTotal: 65, docsTotal: 6 }
+
+            # The "other" bound materialization collection.
+          - catalogName: "tenant/test/otherMaterializationCollection"
+            grain: "daily"
+            ts: "2022-04-04T00:00:00.000Z"
+            statsSummary:
+              readFromMe: { bytesTotal: 75, docsTotal: 5 }
+          - catalogName: "tenant/test/otherMaterializationCollection"
+            grain: "hourly"
+            ts: "2022-04-04T03:00:00.000Z"
+            statsSummary:
+              readFromMe: { bytesTotal: 75, docsTotal: 5 }
+          - catalogName: "tenant/test/otherMaterializationCollection"
+            grain: "monthly"
+            ts: "2022-04-01T00:00:00.000Z"
+            statsSummary:
+              readFromMe: { bytesTotal: 75, docsTotal: 5 }
 
             # Source collections for the derivation.
           - catalogName: "tenant/test/source-collection1"
             grain: "daily"
             ts: "2022-04-05T00:00:00.000Z"
             statsSummary:
-              readByMe:     { bytesTotal: 0 }
-              writtenByMe:  { bytesTotal: 0 }
-              readFromMe:   { bytesTotal: 60 }
-              writtenToMe:  { bytesTotal: 0 }
+              readFromMe: { bytesTotal: 60, docsTotal: 12 }
           - catalogName: "tenant/test/source-collection1"
             grain: "hourly"
             ts: "2022-04-05T05:00:00.000Z"
             statsSummary:
-              readByMe:     { bytesTotal: 0 }
-              writtenByMe:  { bytesTotal: 0 }
-              readFromMe:   { bytesTotal: 60 }
-              writtenToMe:  { bytesTotal: 0 }
+              readFromMe: { bytesTotal: 60, docsTotal: 12 }
           - catalogName: "tenant/test/source-collection1"
             grain: "monthly"
             ts: "2022-04-01T00:00:00.000Z"
             statsSummary:
-              readByMe:     { bytesTotal: 0 }
-              writtenByMe:  { bytesTotal: 0 }
-              readFromMe:   { bytesTotal: 60 }
-              writtenToMe:  { bytesTotal: 0 }
+              readFromMe: { bytesTotal: 60, docsTotal: 12 }
           - catalogName: "tenant/test/source-collection2"
             grain: "daily"
             ts: "2022-04-05T00:00:00.000Z"
             statsSummary:
-              readByMe:     { bytesTotal: 0 }
-              writtenByMe:  { bytesTotal: 0 }
-              readFromMe:   { bytesTotal: 30 }
-              writtenToMe:  { bytesTotal: 0 }
+              readFromMe: { bytesTotal: 30, docsTotal: 6 }
           - catalogName: "tenant/test/source-collection2"
             grain: "hourly"
             ts: "2022-04-05T05:00:00.000Z"
             statsSummary:
-              readByMe:     { bytesTotal: 0 }
-              writtenByMe:  { bytesTotal: 0 }
-              readFromMe:   { bytesTotal: 30 }
-              writtenToMe:  { bytesTotal: 0 }
+              readFromMe: { bytesTotal: 30, docsTotal: 6 }
           - catalogName: "tenant/test/source-collection2"
             grain: "monthly"
             ts: "2022-04-01T00:00:00.000Z"
             statsSummary:
-              readByMe:     { bytesTotal: 0 }
-              writtenByMe:  { bytesTotal: 0 }
-              readFromMe:   { bytesTotal: 30 }
-              writtenToMe:  { bytesTotal: 0 }
+              readFromMe: { bytesTotal: 30, docsTotal: 6 }
 
 # TODO(johnny): this is used only for local testing with `flowctl-go` and can go away soon.
 storageMappings:
