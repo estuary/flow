@@ -26,6 +26,24 @@ type Extractor interface {
 	Extract() ([]UUIDParts, [][]byte, error)
 }
 
+// MockCombiner implements Extractor by doing nothing useful, always validating
+type MockExtractor struct {
+}
+
+func (c *MockExtractor) Configure(
+	uuidPtr string,
+	fieldPtrs []string,
+	schemaJSON json.RawMessage,
+) error {
+	return nil
+}
+
+func (c *MockExtractor) Document(doc []byte) {}
+
+func (c *MockExtractor) Extract() ([]UUIDParts, [][]byte, error) {
+	return nil, nil, nil
+}
+
 // Combiner combines and reduces keyed documents.
 type Combiner interface {
 	// ReduceLeft reduces the document on its key with a current right-hand side combined state.

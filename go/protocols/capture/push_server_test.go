@@ -3,19 +3,16 @@ package capture_test
 import (
 	"context"
 	"encoding/json"
-	fmt "fmt"
 	"io"
 	"io/ioutil"
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
-	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/capture"
 	"github.com/estuary/flow/go/protocols/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
 )
@@ -50,15 +47,7 @@ func TestPushServerLifecycle(t *testing.T) {
 			return new(pf.MockCombiner), nil
 		},
 		func(binding *flow.CaptureSpec_Binding) (pf.Extractor, error) {
-			var extractor, err = bindings.NewExtractor(localPublisher)
-			if err != nil {
-				return nil, err
-			}
-			logrus.Info(fmt.Sprintf("Configuring extractor with this schema: %s", string(binding.Collection.WriteSchemaJson)))
-
-			extractor.Configure("", []string{}, binding.Collection.WriteSchemaJson)
-
-			return extractor, nil
+			return new(pf.MockExtractor), nil
 		},
 		pf.NewFullRange(),
 		&spec,
