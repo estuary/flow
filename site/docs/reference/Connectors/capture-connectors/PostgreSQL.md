@@ -147,6 +147,7 @@ In addition to standard PostgreSQL, this connector supports cloud-based PostgreS
 ### Amazon RDS
 
 You can use this connector for PostgreSQL instances on Amazon RDS using the following setup instructions.
+For Amazon Aurora, see [below](#amazon-aurora).
 
 #### Setup
 
@@ -156,8 +157,7 @@ You can use this connector for PostgreSQL instances on Amazon RDS using the foll
 
    2. Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
       Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
-
-   3. Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
+      Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
 
    :::info
    Alternatively, you can allow secure connections via SSH tunneling. To do so:
@@ -180,6 +180,60 @@ You can use this connector for PostgreSQL instances on Amazon RDS using the foll
    3. [Associate the parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Associating) with the database.
 
    4. Reboot the database to allow the new parameter group to take effect.
+
+3. In the PostgreSQL client, connect to your instance and run the following commands to create a new user for the capture with appropriate permissions,
+and set up the watermarks table and publication.
+  ```sql
+  CREATE USER flow_capture WITH PASSWORD 'secret';
+  GRANT rds_replication TO flow_capture;
+  GRANT SELECT ON ALL TABLES IN SCHEMA public TO flow_capture;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO flow_capture;
+  CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
+  GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
+  CREATE PUBLICATION flow_publication FOR ALL TABLES;
+  ```
+
+6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
+
+### Amazon Aurora
+
+You can use this connector for PostgreSQL-compatible Amazon Aurora instances using the following setup instructions.
+
+You must apply some of the settings to the entire Aurora DB cluster, and others to a database instance within the cluster
+(typically, you'll want to use a [replica, or reader instance](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Overview.html)).
+For each step, take note of which entity you're working with.
+
+#### Setup
+
+1. Allow connections to the DB instance from the Estuary Flow IP address.
+
+   1. [Modify the instance](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Modifying.html#Aurora.Modifying.Instance), choosing **Publicly accessible** in the **Connectivity** settings.
+
+   2. Edit the VPC security group associated with your instance, or create a new VPC security group and associate it with the instance.
+      Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
+      Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
+
+   :::info
+   Alternatively, you can allow secure connections via SSH tunneling. To do so:
+     * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
+     * When you configure your connector as described in the [configuration](#configuration) section above,
+        including the additional `networkTunnel` configuration to enable the SSH tunnel.
+        See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+        for additional details and a sample.
+   :::
+
+2. Enable logical replication on your Aurora DB cluster.
+
+   1. Create a [parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.CreatingCluster).
+   Create a unique name and description and set the following properties:
+      * **Family**: aurora-postgresql13, or substitute the version of Aurora PostgreSQL used for your cluster.
+      * **Type**: DB Cluster Parameter group
+
+   2. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.ModifyingCluster) and set `rds.logical_replication=1`.
+
+   3. [Associate the parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.AssociatingCluster) with the DB cluster.
+
+   4. Reboot the cluster to allow the new parameter group to take effect.
 
 3. In the PostgreSQL client, connect to your instance and run the following commands to create a new user for the capture with appropriate permissions,
 and set up the watermarks table and publication.
@@ -297,6 +351,14 @@ CREATE PUBLICATION flow_publication FOR TABLE schema.table1, schema.table2;
 
    * Find the instance's host under Server Name, and the port under Connection Strings (usually `5432`). Together, you'll use the host:port as the `address` property when you configure the connector.
    * Format `user` as `username@databasename`; for example, `flow_capture@myazuredb`.
+
+### TimescaleDB
+
+You can use this connector for TimescaleDB instances using the following setup instructions.
+
+#### Setup
+
+
 
 ## TOASTed values
 

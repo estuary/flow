@@ -69,9 +69,11 @@ You may use other cloud platforms, but Estuary doesn't guarantee performance.
 You must configure your database to allow connections from Estuary.
 The recommended method is to whitelist Estuary Flow's IP address.
 
-* **Amazon RDS**: Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
- Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
- Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
+* **Amazon RDS and Amazon Aurora**: Edit the VPC security group associated with your database instance, or create a new VPC security group and associate it with the database instance.
+   * [Modify the instance](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), choosing **Publicly accessible** in the **Connectivity** settings.
+
+   * Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
+   Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
 
 * **Google Cloud SQL**: [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
 
@@ -89,9 +91,10 @@ for additional details and a sample.
 :::tip Configuration Tip
 To configure the connector, you must specify the database address in the format `host:port`.
 You can find the host and port in the following locations in each platform's console:
-* Amazon RDS: host as Endpoint; port as Port.
+* Amazon RDS and Amazon Aurora: host as Endpoint; port as Port.
 * Google Cloud SQL: host as Private IP Address; port is always `5432`. You may need to [configure private IP](https://cloud.google.com/sql/docs/postgres/configure-private-ip) on your database.
 * Azure Database: host as Server Name; port under Connection Strings (usually `5432`).
+* TimescaleDB: host as Host; port as Port.
 :::
 
 ## Delta updates
