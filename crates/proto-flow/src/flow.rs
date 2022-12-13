@@ -476,13 +476,13 @@ pub struct OAuth2Spec {
     /// style of buttons in the UI
     #[prost(string, tag="1")]
     pub provider: ::prost::alloc::string::String,
-    // The templates below are handlebars templates and have a set of variables
+    // The templates below are mustache templates and have a set of variables
     // available to them, the variables available everywhere are:
     // client_id: OAuth2 provider client id
     // redirect_uri: OAuth2 provider client registered redirect URI
     //
     // Variables available in Auth URL request:
-    // state: the state parameter: this parameter is used to prevent attacks
+    // state: the state parameter, this parameter is used to prevent attacks
     // against our users. the parameter must be generated randomly and not
     // guessable. It must be associated with a user session, and we must check in
     // our redirect URI that the state we receive from the OAuth provider is the
@@ -496,7 +496,8 @@ pub struct OAuth2Spec {
     //
     // Variables available in Access Token request:
     // code: the code resulting from the suthorization step used to fetch the
-    // token client_secret: OAuth2 provider client secret
+    // token
+    // client_secret: OAuth2 provider client secret
     //
     // Variables available on Refresh Token request:
     // refresh_token: the refresh token
