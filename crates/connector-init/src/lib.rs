@@ -49,6 +49,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
             _ = sigint.recv() => (),
             _ = sigterm.recv() => (),
         }
+        tracing::info!("caught signal to exit");
     };
 
     let () = tonic::transport::Server::builder()
