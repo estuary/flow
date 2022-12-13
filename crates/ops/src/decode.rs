@@ -52,9 +52,15 @@ enum FlexLevel {
     Debug,
     #[serde(alias = "INFO")]
     Info,
-    #[serde(alias = "WARN")]
+    #[serde(alias = "WARN", alias = "warning", alias = "WARNING")]
     Warn,
-    #[serde(alias = "ERROR")]
+    #[serde(
+        alias = "ERROR",
+        alias = "fatal",
+        alias = "FATAL",
+        alias = "panic",
+        alias = "PANIC"
+    )]
     Error,
 }
 
@@ -202,7 +208,7 @@ mod test {
     fn test_decode_log_fixtures() {
         let fixtures = [
             // Typical example produced by our Go connectors.
-            "{\"fence\":1,\"keyBegin\":0,\"keyEnd\":4294967295,\"level\":\"debug\",\"materialization\":\"examples/stats\",\"msg\":\"Acknowledge finished\",\"time\":\"2022-11-20T17:46:37Z\"}",
+            "{\"fence\":1,\"keyBegin\":0,\"keyEnd\":4294967295,\"level\":\"warning\",\"materialization\":\"examples/stats\",\"msg\":\"Acknowledge finished\",\"time\":\"2022-11-20T17:46:37Z\"}",
             // Structured log with extra gunk.
             r#"{"hello":"world"} !"#,
             // Example of a canonical ops Log that we expect to pass-through unmodified.
@@ -260,7 +266,7 @@ Final line without a newline, which is not grouped into previous lines"#,
         [
           {
             "ts": "2022-11-20T17:46:37Z",
-            "level": "debug",
+            "level": "warn",
             "message": "Acknowledge finished",
             "fields": {
               "fence": 1,
