@@ -11,7 +11,7 @@ fn main() -> anyhow::Result<()> {
     let log_level =
         std::env::var("LOG_LEVEL").context("missing expected environment variable LOG_LEVEL")?;
     let env_filter = tracing_subscriber::EnvFilter::try_from(format!(
-        "flow_connector_init,connector_init={log_level}"
+        "flow_connector_init={log_level},connector_init={log_level}"
     ))
     .context("parsing LOG_LEVEL environment filter failed")?;
 
@@ -31,6 +31,7 @@ fn main() -> anyhow::Result<()> {
         .context("building tokio runtime")?;
 
     // Run until signaled, then gracefully stop.
+    tracing::info!(%log_level, port=args.port, message = "connector-init started");
     let result = runtime.block_on(connector_init::run(args));
 
     // Explicitly call Runtime::shutdown_background as an alternative to calling Runtime::Drop.
@@ -41,6 +42,6 @@ fn main() -> anyhow::Result<()> {
     runtime.shutdown_background();
 
     let () = result?;
-    tracing::debug!(message = "connector-init exiting");
+    tracing::info!(message = "connector-init exiting");
     Ok(())
 }

@@ -106,12 +106,14 @@ where
         let status = wait.map_err(|err| map_status("failed to wait for connector", err))?;
 
         if !status.success() {
-            let code = status.code().unwrap_or_default();
-            return Err(Status::internal(format!(
-                "connector failed (exit status {code}) with stderr:\n{stderr}"
-            )));
+            tracing::error!(%status, "connector failed");
+            Err(Status::internal(format!(
+                "connector failed ({status}) with stderr:\n{stderr}"
+            )))
+        } else {
+            tracing::info!(%status, "connector exited");
+            Ok(())
         }
-        Ok(())
     };
 
     tokio::pin!(exit, stream);
@@ -127,14 +129,14 @@ where
 
         let Some(Ok(message)) = message else {
             if let Some(Err(error)) = message {
-                tracing::error!(%error, "error while reading next request");
+                tracing::error!(%error, "failed to read next runtime request");
             }
             std::mem::drop(stdin); // Forward EOF to connector.
             return exit.await;
         };
 
-        if let Err(err) = stdin.write_all(&encode_message(&message)).await {
-            tracing::warn!(%err, "i/o error writing to connector stdin");
+        if let Err(error) = stdin.write_all(&encode_message(&message)).await {
+            tracing::warn!(%error, "i/o error writing to connector stdin");
         }
     }
 }
@@ -146,13 +148,16 @@ where
     R: AsyncRead + Unpin,
 {
     futures::stream::try_unfold(reader, |mut reader| async move {
-        let next = decode_message::<M, _>(&mut reader)
-            .await
-            .map_err(|err| map_status("failed to decode message from reader", err))?;
-
-        match next {
-            Some(next) => Ok(Some((next, reader))),
-            None => Ok(None),
+        match decode_message::<M, _>(&mut reader).await {
+            Err(error) => {
+                tracing::error!(?error, "failed to process connector output");
+                Err(map_status("failed to process connector output", error))
+            }
+            Ok(None) => {
+                tracing::debug!("finished reading connector output");
+                Ok(None)
+            }
+            Ok(Some(next)) => Ok(Some((next, reader))),
         }
     })
 }
@@ -175,8 +180,8 @@ where
         line.clear();
 
         match reader.read_line(&mut line).await {
-            Err(err) => {
-                tracing::error!(%err, "failed to read from connector stderr");
+            Err(error) => {
+                tracing::error!(%error, "failed to read from connector stderr");
                 break;
             }
             Ok(0) => break, // Clean EOF.
@@ -241,12 +246,17 @@ where
             std::io::ErrorKind::UnexpectedEof => return Ok(None),
             _ => return Err(err).context("decoding message header"),
         },
-        Ok(l) if l > 1 << 27 => anyhow::bail!("decoded message length {l} is too large"),
+        Ok(l) if l > 1 << 27 => {
+            anyhow::bail!("refusing to decode message with length greater than 128MB")
+        }
         Ok(l) => l,
     };
 
     let mut buf: Vec<u8> = vec![0; length as usize];
-    reader.read_exact(&mut buf).await?;
+    reader
+        .read_exact(&mut buf)
+        .await
+        .context("reading message body")?;
 
     Ok(Some(
         T::decode(buf.as_slice()).context("decoding message body")?,
@@ -283,16 +293,29 @@ mod test {
 
         // Malformed input (ends prematurely given header).
         let buf = vec![1, 2, 3, 4, 5, 6];
-        assert_eq!(
-            format!("{:?}", decode_message::<TestSpec, _>(buf.as_slice()).await),
-            "Err(early eof)",
-        );
+        insta::assert_debug_snapshot!(
+            decode_message::<TestSpec, _>(buf.as_slice()).await,
+            @r###"
+        Err(
+            Error {
+                context: "reading message body",
+                source: Custom {
+                    kind: UnexpectedEof,
+                    error: "early eof",
+                },
+            },
+        )
+        "###);
+
         // Malformed input (length is longer than our allowed maximum).
         let buf = vec![0xee, 0xee, 0xee, 0xee, 1];
-        assert_eq!(
-            format!("{:?}", decode_message::<TestSpec, _>(buf.as_slice()).await),
-            "Err(decoded message length 4008636142 is too large)",
-        );
+        insta::assert_debug_snapshot!(
+            decode_message::<TestSpec, _>(buf.as_slice()).await,
+            @r###"
+        Err(
+            "refusing to decode message with length greater than 128MB",
+        )
+        "###);
     }
 
     #[tokio::test]
@@ -314,14 +337,27 @@ mod test {
         let stream = reader_to_message_stream::<TestSpec, _>(buf.as_slice());
         tokio::pin!(stream);
 
-        assert_eq!(
-            &format!("{:?}", stream.next().await),
-            "Some(Ok(TestSpec { test: \"hello world\", steps: [] }))"
-        );
-        assert_eq!(
-            &format!("{:?}", stream.next().await),
-            "Some(Err(Status { code: Internal, message: \"failed to decode message from reader: decoded message length 4008636142 is too large\", source: None }))"
-        );
+        insta::assert_debug_snapshot!(stream.next().await, @r###"
+        Some(
+            Ok(
+                TestSpec {
+                    test: "hello world",
+                    steps: [],
+                },
+            ),
+        )
+        "###);
+        insta::assert_debug_snapshot!(stream.next().await, @r###"
+        Some(
+            Err(
+                Status {
+                    code: Internal,
+                    message: "failed to process connector output: refusing to decode message with length greater than 128MB",
+                    source: None,
+                },
+            ),
+        )
+        "###);
     }
 
     #[tokio::test]
@@ -472,7 +508,51 @@ mod test {
             Err(
                 Status {
                     code: Internal,
-                    message: "connector failed (exit status 1) with stderr:\ncat: /this/path/does/not/exist: No such file or directory\n",
+                    message: "connector failed (exit status: 1) with stderr:\ncat: /this/path/does/not/exist: No such file or directory\n",
+                    source: None,
+                },
+            ),
+        ]
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_bidi_cat_bad_output_and_error() {
+        let requests = futures::stream::repeat_with(|| {
+            Ok(TestSpec {
+                test: "hello world".to_string(),
+                ..Default::default()
+            })
+        }); // Unbounded stream.
+
+        // Model a connector that both writes bad output, and also fails with an error.
+        // We'll map this into two errors of the response stream, though tonic is only
+        // able to log the first of these. We additionally have tracing::error logging
+        // which ensures both make it to the ops log collection. Unfortunately there's
+        // no reliable way to conjoin these errors, as a connector can write bad output
+        // or even close its stdout without actually exiting.
+        let responses: Vec<Result<TestSpec, _>> = bidi(
+            &["cat".to_string(), "/etc/hosts".to_string()],
+            "/this/path/does/not/exist",
+            requests,
+        )
+        .unwrap()
+        .collect()
+        .await;
+
+        insta::assert_debug_snapshot!(responses, @r###"
+        [
+            Err(
+                Status {
+                    code: Internal,
+                    message: "failed to process connector output: refusing to decode message with length greater than 128MB",
+                    source: None,
+                },
+            ),
+            Err(
+                Status {
+                    code: Internal,
+                    message: "connector failed (exit status: 1) with stderr:\ncat: /this/path/does/not/exist: No such file or directory\n",
                     source: None,
                 },
             ),

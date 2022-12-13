@@ -13,6 +13,7 @@
         },
         "level": {
             "enum": [
+                "trace",
                 "debug",
                 "info",
                 "warn",
