@@ -76,7 +76,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 				"build", c.labels.Build,
 				"checkpoint", cp,
 			)
-		} else {
+		} else if !errors.Is(err, context.Canceled) {
 			ops.PublishLog(c.opsPublisher, pf.LogLevel_error,
 				"failed to initialize processing term",
 				"error", err,

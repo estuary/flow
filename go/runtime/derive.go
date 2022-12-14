@@ -1,8 +1,10 @@
 package runtime
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/estuary/flow/go/bindings"
@@ -66,7 +68,7 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 				"build", d.labels.Build,
 				"checkpoint", cp,
 			)
-		} else {
+		} else if !errors.Is(err, context.Canceled) {
 			ops.PublishLog(d.opsPublisher, pf.LogLevel_error,
 				"failed to initialize processing term",
 				"error", err,
