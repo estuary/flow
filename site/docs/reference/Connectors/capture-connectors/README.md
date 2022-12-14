@@ -66,6 +66,9 @@ The versions made available in Flow have been adapted for compatibility.
 * Facebook Marketing
   * [Configuration](./facebook-marketing.md)
   * Package - ghcr.io/estuary/source-facebook-marketing:dev
+* Freshdesk
+  * [Configuration](./freshdesk.md)
+  * Package - ghcr.io/estuary/source-freshdesk:dev
 * GitHub
   * [Configuration](./github.md)
   * Package - ghcr.io/estuary/source-github:dev
