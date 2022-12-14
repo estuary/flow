@@ -43,7 +43,6 @@ dependencies = [
  "reqwest",
  "rusqlite",
  "schemars",
- "scopeguard",
  "serde",
  "serde_json",
  "serial_test",
