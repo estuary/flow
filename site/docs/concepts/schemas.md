@@ -219,9 +219,36 @@ but you can also use absolute URLs to a third-party schema like
 In some cases, you may want to impose different constraints to data that is entering (_written to_) the collection
 and data that is exiting (_read from_) the collection.
 
-To achieve this, you can replace the collection's standard `schema` with a `writeSchema` and `readSchema`.
+For example, you may need to start capturing data _now_ from a source system; say, a pub-sub system with short-lived
+historical data support or an HTTP endpoint, but don't have time to construct the ideal schema you'll need later.
+You can capture the data with a permissive write schema, and impose a stricter read schema on the data
+as you need to perform a derivation or materialization.
+You can safely experiment with the read schema at your convenience, knowing the data has already been captured.
 
-MORE INFO AND EXAMPLE HERE
+To achieve this, edit the collection, re-naming the standard `schema` to `writeSchema` and adding a `readSchema`.
+You can also supply a `writeSchema` in place of `schema` at capture time; it will be used for both writes and reads until a `readSchema` is added.
+
+Here's a simple example in which you don't know how purchase prices are formatted when capturing them,
+but find out later that `number` is the appropriate data type:
+
+```yaml
+collections:
+  purchases:
+    writeSchema:
+      type: object
+      title: Store price as strings
+      description: Not sure if prices contain characters such as $, so capturing them as strings.
+      properties:
+        id: { type: integer}
+        price: {type: string}
+    readSchema:
+      type: object
+      title: Prices as numbers
+      properties:
+        id: { type: integer}
+        price: {type: number}
+    key: [/id]
+```
 
 ## Reductions
 
@@ -324,7 +351,7 @@ oneOf:
 # [1, 2], [3, 4, 5], [] => []
 ```
 
-Combining schema conditionals with annotations can be used to build
+You can combine schema conditionals with annotations to build
 [rich behaviors](../reference/reduction-strategies/composing-with-conditionals.md).
 
 ## `default` annotations
