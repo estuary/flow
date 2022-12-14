@@ -6,6 +6,7 @@ sidebar_position: 7
 Flow documents and [collections](collections.md) always have an associated schema
 that defines the structure, representation, and constraints
 of your documents.
+Collections must have one schema, but [may have two](#write-and-read-schemas) for different types of Flow tasks.
 
 Schemas are a powerful tool for data quality.
 Flow verifies every document against its schema whenever it's read or written,
@@ -80,6 +81,8 @@ properties:
 
 Flow extends JSON Schema with additional annotation keywords,
 which provide Flow with further instruction for how documents should be processed.
+In particular, the [`reduce`](#reduce-annotations) and [`default`](#default-annotations) keywords
+help you define merge behaviors and avoid null values at your destination systems, respectively.
 
 What’s especially powerful about annotations is that they respond to
 **conditionals** within the schema.
@@ -211,6 +214,15 @@ but you can also use absolute URLs to a third-party schema like
 [schemastore.org](https://www.schemastore.org).
 :::
 
+## Write and read schemas
+
+In some cases, you may want to impose different constraints to data that is entering (_written to_) the collection
+and data that is exiting (_read from_) the collection.
+
+To achieve this, you can replace the collection's standard `schema` with a `writeSchema` and `readSchema`.
+
+MORE INFO AND EXAMPLE HERE
+
 ## Reductions
 
 Flow collections have keys, and multiple documents
@@ -315,3 +327,26 @@ oneOf:
 Combining schema conditionals with annotations can be used to build
 [rich behaviors](../reference/reduction-strategies/composing-with-conditionals.md).
 
+## `default` annotations
+
+You can use `default` annotations to prevent null values from being materialized to your endpoint system.
+
+When this annotation is absent for a non-required field, missing values in that field are materialized as `null`.
+When the annotation is present, missing values are materialized with the field's `default` value:
+
+```yaml
+collections:
+  acmeCo/coyotes:
+    schema:
+      type: object
+      required: [id]
+      properties:
+        id: {type: integer}
+        anvils_dropped: {type: integer}
+          reduce: {strategy: sum }
+          default: 0
+    key: [/id]
+```
+
+`default` annotations are only used for materializations; they're ignored by captures in derivations.
+If your collection has both a [write and read schema](#write-and-read-schemas), make sure you add this annotation to the read schema.
