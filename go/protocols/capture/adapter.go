@@ -8,10 +8,13 @@ package capture
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	status "google.golang.org/grpc/status"
 )
 
 // pullRequestError is a channel-oriented wrapper of pc.PullRequest
@@ -49,6 +52,11 @@ func PullResponseChannel(stream Driver_PullClient) <-chan PullResponseError {
 			}
 
 			if err != io.EOF {
+				if status, ok := status.FromError(err); ok && status.Code() == codes.Internal {
+					err = errors.New(status.Message())
+				} else if ok && status.Code() == codes.Canceled {
+					err = context.Canceled
+				}
 				ch <- PullResponseError{Error: err}
 			}
 			close(ch)

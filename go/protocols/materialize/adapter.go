@@ -54,6 +54,8 @@ func TransactionResponseChannel(stream Driver_TransactionsClient) <-chan Transac
 			if err != io.EOF {
 				if status, ok := status.FromError(err); ok && status.Code() == codes.Internal {
 					err = errors.New(status.Message())
+				} else if ok && status.Code() == codes.Canceled {
+					err = context.Canceled
 				}
 				ch <- TransactionResponseError{Error: err}
 			}
