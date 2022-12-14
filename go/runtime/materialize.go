@@ -84,7 +84,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 				"checkpoint", cp,
 				"checkpointSource", checkpointSource,
 			)
-		} else {
+		} else if !errors.Is(err, context.Canceled) {
 			ops.PublishLog(m.opsPublisher, pf.LogLevel_error,
 				"failed to initialize processing term",
 				"error", err,
