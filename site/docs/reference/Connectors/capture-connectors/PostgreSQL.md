@@ -100,10 +100,12 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | **`/database`** | Database | Logical database name to capture from. | string | Required, `"postgres"` |
 | **`/user`** | User | The database user to authenticate as. | string | Required, `"flow_capture"` |
 | **`/password`** | Password | Password for the specified database user. | string | Required |
-| `/advanced/publicationName` | Publication name | The name of the PostgreSQL publication to replicate from. | string | `"flow_publication"` |
+| `/advanced` | Advanced Options | Options for advanced users. You should not typically need to modify these. | object |  |
+| `/advanced/backfill_chunk_size` | Backfill Chunk Size | The number of rows which should be fetched from the database in a single backfill query. | integer | `4096` |
+| `/advanced/publicationName` | Publication Name | The name of the PostgreSQL publication to replicate from. | string | `"flow_publication"` |
 | `/advanced/skip_backfills` | Skip Backfills | A comma-separated list of fully-qualified table names which should not be backfilled. | string |  |
-| `/advanced/slotName` | Slot name | The name of the PostgreSQL replication slot to replicate from. A slot can only support one capture at a time. | string | `"flow_slot"` |
-| `/advanced/watermarksTable` | Watermarks table | The name of the table used for watermark writes during backfills. Must be fully-qualified in `<schema>.<table>` form. | string | `"public.flow_watermarks"` |
+| `/advanced/slotName` | Slot Name | The name of the PostgreSQL replication slot to replicate from. | string | `"flow_slot"` |
+| `/advanced/watermarksTable` | Watermarks Table | The name of the table used for watermark writes during backfills. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form. | string | `"public.flow_watermarks"` |
 
 
 #### Bindings
