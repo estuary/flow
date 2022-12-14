@@ -34,7 +34,7 @@ pub async fn unbundle(
     let ext = if json { "json" } else { "yaml" };
 
     for (name, collection) in new_catalog.collections.iter_mut() {
-        let base = base_name(name);
+        let base = base_name(name)?;
 
         // Potentially write out separate schema files for the collection
         // schema / write_schema / read_schema.
@@ -76,7 +76,7 @@ pub async fn unbundle(
     }
 
     for (name, capture) in new_catalog.captures.iter_mut() {
-        let base = base_name(name);
+        let base = base_name(name)?;
 
         if let models::CaptureEndpoint::Connector(connector) = &mut capture.endpoint {
             // Indirect the connector config to a file, and track its reference.
@@ -85,7 +85,7 @@ pub async fn unbundle(
         }
     }
     for (name, materialization) in new_catalog.materializations.iter_mut() {
-        let base = base_name(name);
+        let base = base_name(name)?;
 
         if let models::MaterializationEndpoint::Connector(connector) = &mut materialization.endpoint
         {
@@ -231,14 +231,20 @@ async fn parse_catalog_spec(flow_yaml_path: &Path) -> Result<models::Catalog, an
 }
 
 /// Returns the last path component for a given catalog name, which must be a valid catalog name.
-fn base_name(catalog_name: &impl AsRef<str>) -> &str {
+fn base_name(catalog_name: &impl AsRef<str>) -> anyhow::Result<&str> {
     catalog_name
         .as_ref()
         .rsplit_once("/")
-        .expect("catalog names have at least one '/'")
-        .1
+        .map(|(_, base)| base)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "invalid catalog name: '{}', does not contain at least one '/'",
+                catalog_name.as_ref()
+            )
+        })
 }
 
+/// Writes the endpoint config to a file and replaces it with a relative URL pointing to the file.
 async fn indirect_endpoint_config(
     config: &mut models::ConnectorConfig,
     dir: &Path,
@@ -254,6 +260,8 @@ async fn indirect_endpoint_config(
     Ok(())
 }
 
+/// If the size of the schema is over the inlining threshold, the inlined schema will be written to a file and
+/// replaced with a relative URL pointing to the file.
 async fn maybe_indirect_schema(
     dir: &Path,
     filename: &str,
