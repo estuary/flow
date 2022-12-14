@@ -63,6 +63,8 @@ where
     let responses = reader_to_message_stream(connector.stdout.take().expect("stdout is piped"));
     // Spawn a concurrent task that services the connector and forwards to its stdin.
     let connector = tokio::spawn(service_connector(connector, requests));
+    // Ensure `connector` is aborted (and the process killed) if our response stream is dropped.
+    let connector = AutoAbortHandle(connector);
     // Map to a Stream that awaits `connector` and returns EOF, or returns its error.
     let connector = futures::stream::try_unfold(connector, |connector| async move {
         let () = connector.await.expect("service_connector finishes")?;
@@ -590,5 +592,24 @@ mod test {
             },
         )
         "###);
+    }
+}
+
+struct AutoAbortHandle<T>(tokio::task::JoinHandle<T>);
+
+impl<T> std::future::Future for AutoAbortHandle<T> {
+    type Output = Result<T, tokio::task::JoinError>;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        unsafe { std::pin::Pin::new_unchecked(&mut self.0) }.poll(cx)
+    }
+}
+
+impl<T> Drop for AutoAbortHandle<T> {
+    fn drop(&mut self) {
+        self.0.abort()
     }
 }
