@@ -49,16 +49,11 @@ pub enum Error {
     FormatErr(#[from] serde_json::Error),
 
     #[error("at schema '{curi}': {detail}")]
-    AtSchema {
-        #[source]
-        detail: Box<Error>,
-        curi: url::Url,
-    },
+    AtSchema { curi: url::Url, detail: Box<Error> },
     #[error("at keyword '{keyword}' of schema '{curi}': {detail}")]
     AtKeyword {
-        #[source]
-        detail: Box<Error>,
         curi: url::Url,
+        detail: Box<Error>,
         keyword: String,
     },
 }
