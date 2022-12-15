@@ -17,6 +17,9 @@ create table catalog_stats (
     docs_written_to_me  bigint       not null,
     bytes_read_from_me  bigint       not null,
     docs_read_from_me   bigint       not null,
+    warnings            integer      not null default 0,
+    errors              integer      not null default 0,
+    failures            integer      not null default 0,
     ts                  timestamptz  not null,
     flow_document       json         not null
 ) partition by list (substring(catalog_name for position('/' in catalog_name)));
