@@ -4,7 +4,7 @@ create table directives (
   like internal._model including all,
 
   catalog_prefix  catalog_prefix not null,
-  uses_remaining bigint,
+  uses_remaining  bigint,
   spec            jsonb_obj not null,
   token           uuid unique default gen_random_uuid(),
 
