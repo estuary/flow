@@ -2,13 +2,12 @@ use crate::read::Error;
 use futures::future::BoxFuture;
 use futures::{io::AsyncRead, ready};
 use proto_gazette::broker;
-use std::pin::Pin;
-use std::task::Poll;
 use std::{
     fmt::{self, Debug},
-    future::Future,
     io,
     marker::Unpin,
+    pin::Pin,
+    task::Poll,
 };
 
 lazy_static::lazy_static! {
