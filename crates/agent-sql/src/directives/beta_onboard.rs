@@ -93,7 +93,7 @@ pub async fn provision_tenant(
         ),
         create_storage_mappings as (
             insert into storage_mappings (catalog_prefix, spec, detail) values
-                ($2, '{"stores": [{"provider": "GCS", "bucket": "estuary-trial"}]}', $3),
+                ($2, '{"stores": [{"provider": "GCS", "bucket": "estuary-trial", "prefix": "collection-data/"}]}', $3),
                 ('recovery/' || $2, '{"stores": [{"provider": "GCS", "bucket": "estuary-trial"}]}', $3)
             on conflict do nothing
         ),
