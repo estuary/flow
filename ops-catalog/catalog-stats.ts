@@ -1,8 +1,25 @@
-import { IDerivation, Document, Register, ByGrainSource } from 'flow/ops/TENANT/catalog-stats';
+import { IDerivation, Document, Register, LogsSource, StatsSource } from 'flow/ops/TENANT/catalog-stats';
 
 // Implementation for derivation template-common.flow.yaml#/collections/ops~1TENANT~1catalog-stats/derivation.
 export class Derivation implements IDerivation {
-    byGrainPublish(source: ByGrainSource, _register: Register, _previous: Register): Document[] {
+    logsPublish(source: LogsSource, _register: Register, _previous: Register): Document[] {
+        let stats: Document['statsSummary'] = {};
+
+        if (source.level == 'error' && source.message == 'shard failed') {
+            stats = { failures: 1 };
+        } else if (source.level == 'error') {
+            stats = { errors: 1 };
+        } else if (source.level == 'warn') {
+            stats = { warnings: 1 };
+        } else {
+            return [];
+        }
+
+        const grains = grainsFromTS(new Date(source.ts));
+        return mapStatsToDocsByGrain(grains, { [source.shard.name]: stats });
+    }
+
+    statsPublish(source: StatsSource, _register: Register, _previous: Register): Document[] {
         const ts = new Date(source.ts);
         const grains = grainsFromTS(ts);
 
@@ -71,7 +88,7 @@ const mapStatsToDocsByGrain = (grains: TimeGrain[], stats: StatsData): Document[
         })),
     );
 
-const taskStats = (source: ByGrainSource): StatsData => {
+const taskStats = (source: StatsSource): StatsData => {
     const stats: Document['statsSummary'] = {};
 
     switch (source.shard.kind) {
@@ -102,7 +119,7 @@ const taskStats = (source: ByGrainSource): StatsData => {
     return output;
 };
 
-const collectionStats = (source: ByGrainSource): StatsData => {
+const collectionStats = (source: StatsSource): StatsData => {
     const output: StatsData = {};
 
     switch (true) {
@@ -160,7 +177,7 @@ const collectionStats = (source: ByGrainSource): StatsData => {
     return output;
 };
 
-// accumulateStats will reduce stats into the accumlator via addition with special handling to
+// accumulateStats will reduce stats into the accumulator via addition with special handling to
 // return "undefined" rather than an explicit zero value if the stats are zero.
 const accumulateStats = (
     accumulator: { bytesTotal: number; docsTotal: number } | undefined,
