@@ -315,6 +315,7 @@ mod test {
               "stores": [
                 {
                   "bucket": "estuary-trial",
+                  "prefix": "collection-data/",
                   "provider": "GCS"
                 }
               ]
