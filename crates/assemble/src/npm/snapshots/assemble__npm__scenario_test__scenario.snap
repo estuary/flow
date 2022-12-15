@@ -434,7 +434,7 @@ expression: intents
     }
     ,
     "sub/module.ts": IfNotExists:
-    import { IDerivation, Document, Register, ThereItIsSource, WhootSource } from 'flow/local/derivation';
+    import { IDerivation, OutputDocument, Register, ThereItIsSource, WhootSource } from 'flow/local/derivation';
     
     // Implementation for derivation sub/module.yaml#/collections/local~1derivation/derivation.
     export class Derivation implements IDerivation {
