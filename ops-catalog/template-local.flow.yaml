@@ -26,4 +26,7 @@ materializations:
             docs_written_to_me: {}
             bytes_read_from_me: {}
             docs_read_from_me: {}
+            warnings: {}
+            errors: {}
+            failures: {}
             flow_document: {}
