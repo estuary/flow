@@ -285,7 +285,7 @@ pub fn stubs_ts<'a>(
 
         writeln!(
             w,
-            "import {{ IDerivation, Document, Register, {transform_sources} }} from 'flow/{derivation}';",
+            "import {{ IDerivation, OutputDocument, Register, {transform_sources} }} from 'flow/{derivation}';",
             derivation = derivation.derivation.as_str(),
         )
         .unwrap();
