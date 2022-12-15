@@ -1,5 +1,4 @@
 use anyhow::Context;
-use models::ContentType;
 use protocol::flow;
 use serde_json::value::RawValue;
 use std::{

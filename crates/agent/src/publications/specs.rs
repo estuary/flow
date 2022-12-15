@@ -617,7 +617,7 @@ mod test {
     use crate::publications::JobStatus;
 
     use super::super::PublishHandler;
-    use agent_sql::{publications::find_tenant_quotas, Id};
+    use agent_sql::Id;
     use reqwest::Url;
     use serde::Deserialize;
     use serde_json::Value;
