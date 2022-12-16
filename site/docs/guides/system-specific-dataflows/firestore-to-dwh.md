@@ -10,11 +10,7 @@ You'll need:
 * (Recommended) understanding of the [basic Flow concepts](../../concepts/README.md#essential-concepts).
 
 * Access to the [**Flow web application**](http://dashboard.estuary.dev) through an Estuary account.
-
-:::info Beta
-Flow is in private beta. Sign up for a free [discovery call](https://go.estuary.dev/sign-up)
-or email support@estuary.dev for your free account.
-:::
+If you don't have one, visit the web app to register for your free trial.
 
 * A **Firestore database** that contains the data you'd like to move to Snowflake. You [create this as part of a Google Firebase project](https://cloud.google.com/firestore/docs/create-database-web-mobile-client-library).
 
@@ -72,7 +68,7 @@ credentials provided by your Estuary account manager.
 
    * **Credentials**: The JSON service account key created per the [prerequisites](#prerequisites).
 
-6. Click **Discover Endpoint**.
+6. Click **Next**.
 
   Flow uses the provided configuration to initiate a connection with Firestore.
 
@@ -81,7 +77,7 @@ credentials provided by your Estuary account manager.
   You can use the **Collection Selector** to remove or modify collections, or edit the JSON in the **Specification Editor** directly.
 
   :::tip
-  If you make any changes in the collection editor, click **Discover endpoint** again.
+  If you make any changes in the collection editor, click **Next** again.
   :::
 
   :::tip
@@ -123,11 +119,11 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 
 5. For each table, choose whether to [enable delta updates](../../reference/Connectors/materialization-connectors/Snowflake.md#delta-updates).
 
-6. Click **Discover endpoint**.
+6. Click **Next**.
 
   Flow uses the provided configuration to initiate a connection to Snowflake. It generates a materialization specification.
 
-  You'll be notified if there's an error. In that case, fix the configuration form or Snowflake setup as needed and click **Discover Endpoint** to try again.
+  You'll be notified if there's an error. In that case, fix the configuration form or Snowflake setup as needed and click **Next** to try again.
 
 7. Click **Save and Publish**. You'll see a notification when the full Data Flow publishes successfully.
 

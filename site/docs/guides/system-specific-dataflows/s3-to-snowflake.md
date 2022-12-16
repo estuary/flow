@@ -11,11 +11,7 @@ You'll need:
 * (Recommended) understanding of the [basic Flow concepts](../../concepts/README.md#essential-concepts).
 
 * Access to the [**Flow web application**](http://dashboard.estuary.dev) through an Estuary account.
-
-:::info Beta
-Flow is in private beta. Sign up for a free [discovery call](https://go.estuary.dev/sign-up)
-or email support@estuary.dev for your free account.
-:::
+If you don't have one, visit the web app to register for your free trial.
 
 * An **S3 bucket** that contains the data you'd like to move to Snowflake.
 
@@ -77,7 +73,7 @@ credentials provided by your Estuary account manager.
 
    See the S3 connector documentation for information on [advanced fields](../../reference/Connectors/capture-connectors/amazon-s3.md#endpoint) and [parser settings](../../reference/Connectors/capture-connectors/amazon-s3.md#advanced-parsing-cloud-storage-data). (You're unlikely to need these for most use cases.)
 
-6. Click **Discover Endpoint**.
+6. Click **Next**.
 
   Flow uses the provided configuration to initiate a connection to S3.
 
@@ -126,11 +122,11 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 
 5. Choose whether to [enable delta updates](../../reference/Connectors/materialization-connectors/Snowflake.md#delta-updates).
 
-6. Click **Discover endpoint**.
+6. Click **Next**.
 
   Flow uses the provided configuration to initiate a connection to Snowflake. It generates a materialization specification.
 
-  You'll be notified if there's an error. In that case, fix the configuration form or Snowflake setup as needed and click **Discover Endpoint** to try again.
+  You'll be notified if there's an error. In that case, fix the configuration form or Snowflake setup as needed and click **Next** to try again.
 
 7. Click **Save and Publish**. You'll see a notification when the full Data Flow publishes successfully.
 
