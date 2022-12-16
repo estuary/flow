@@ -1,0 +1,20 @@
+{
+    "sops": {
+        "kms": null,
+        "gcp_kms": [
+            {
+                "resource_id": "projects/estuary-control/locations/us-central1/keyRings/sops/cryptoKeys/cd-github-control",
+                "created_at": "2022-12-16T19:09:47Z",
+                "enc": "CiQAVMVLq0wjC58aNBBAEUOpQJfviH72mSKOZJqeEOZLbcN3Y8kSSQDX5veFA/xU1uud9/kREt6c3dQayXmeC5918Lgwtb0QraiYuGlMJaHoIjSi6MWX05ieZwRtEpTqmSs5S4h0HRCaWoXDDiL5W9U="
+            }
+        ],
+        "azure_kv": null,
+        "hc_vault": null,
+        "age": null,
+        "lastmodified": "2022-12-16T19:09:48Z",
+        "mac": "ENC[AES256_GCM,data:oLRCgqRwgbdrqgTfsU54yDpjuybjMJlI6BMCYfCWYPhcgtTBMt44KkHkpncSpIc3uLyMRvzSN0Rjarc+3ViI5kxukBl/MRg72JsIXmC7UgTiHHLLE6BvVyWFCUdlSbPz7IxtOraaWwvNbsCCgJk3uSPoH/L3j46pafl4UQAtSoI=,iv:IQQ5O0gkkHeYry8ZPtILUYvMHIZxiMjS4PaYByxoFOM=,tag:PEDr4gSELfeo6NlFtPyhZw==,type:str]",
+        "pgp": null,
+        "encrypted_suffix": "_sops",
+        "version": "3.7.3"
+    }
+}

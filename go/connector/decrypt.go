@@ -55,7 +55,9 @@ func DecryptConfig(ctx context.Context, config json.RawMessage) (json.RawMessage
 	// values in our own heap, and is also succinct.
 	// See: https://jqplay.org/s/sQunN3Qc4s
 	stripped, err := decryptCmd(ctx, decrypted, "jq",
-		"-c",
+		// -j puts jq into raw output mode, and additionally stops it from writing newlines
+		// at the end of its output, which were causing buffer overflow issues
+		"-j",
 		"walk(if type == \"object\" then with_entries(. + {key: .key | "+
 			"rtrimstr(\""+envelope.Sops.EncryptedSuffix+"\")}) else . end)",
 	)
