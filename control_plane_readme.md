@@ -151,6 +151,16 @@ cd [flow dir]/supabase
 psql -U postgres -w -d postgres -f seed.sql
 ```
 
+### Seed oauth2 connectors
+
+We have connectors with their dev-specific oauth2 configuration available in an
+encrypted file in `supabase/oauth_seed.sql`. You can use this seed by
+unencrypting the file and feeding it to your postgres instance:
+
+```console
+sops --decrypt supabase/oauth_seed.sql | psql -U postgres -h localhost -d postgres
+```
+
 ### Start `temp-data-plane`:
 
 Suppose that `${BIN_DIR}` is the `make package` binaries under `.build/package/bin` of your Flow checkout.
