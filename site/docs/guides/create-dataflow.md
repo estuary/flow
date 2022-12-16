@@ -66,7 +66,7 @@ You can remove collections you don't want to capture, change collection names, a
 
 :::tip
 Use a filter to narrow down a large list of available collections.
-Hover your cursor within the Collection Selector table header, next to the **Remove All** button, to reveal an expandable menu icon (three dots).
+Hover your cursor within the Collection Selector table header, beneath the **Remove All** button, to reveal an expandable menu icon (three dots).
 Click the menu icon, and then choose **Filter**.
 
 **Note that the **Remove All** button will always remove all collections — even those that are hidden by a filter. Use this button with caution.**
