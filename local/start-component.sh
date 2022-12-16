@@ -10,8 +10,10 @@ set -e
 
 BROKER_PORT=8080
 CONSUMER_PORT=9000
+INFERENCE_PORT=9090
 export BROKER_ADDRESS=http://localhost:$BROKER_PORT
 export CONSUMER_ADDRESS=http://localhost:$CONSUMER_PORT
+export INFERENCE_ADDRESS=http://localhost:$INFERENCE_PORT
 
 # The kms key used by the local config-encryption. All of estuary engineering should have access to this key.
 TEST_KMS_KEY=projects/helpful-kingdom-273219/locations/us-central1/keyRings/dev/cryptoKeys/testing
@@ -26,8 +28,8 @@ function bail() {
 }
 
 function must_run() {
-    log "Running: " $@
-    "$@" || bail "Command failed: '$@', exit code $?"
+    log "Running: " "$@"
+    "$@" || bail "Command failed: '$*', exit code $?"
 }
 
 function wait_until_listening() {
@@ -94,7 +96,8 @@ function start_data_plane_gateway() {
 
     wait_until_listening $BROKER_PORT 'Gazette broker'
     wait_until_listening $CONSUMER_PORT 'Flow reactor'
-    must_run go run . --tls-certificate "${cert_path}" --tls-private-key "${key_path}" --log.level debug
+    wait_until_listening $INFERENCE_PORT 'Schema inference'
+    must_run go run . --tls-certificate "${cert_path}" --tls-private-key "${key_path}" --log.level debug --inference-address "${INFERENCE_ADDRESS}"
 }
 
 function start_control_plane() {
@@ -128,6 +131,15 @@ function start_oauth_edge() {
     must_run supabase functions serve oauth
 }
 
+function start_schema_inference() {
+    cd "$(project_dir 'flow')"
+    # Start building immediately, since it could take a while
+    must_run cargo build -p schema-inference
+
+    wait_until_listening $BROKER_PORT 'Gazette broker'
+    must_run cargo run -p schema-inference -- serve --broker-url=$BROKER_ADDRESS --port=$INFERENCE_PORT
+}
+
 case "$1" in
     ui)
         start_ui
@@ -149,6 +161,9 @@ case "$1" in
         ;;
     oauth-edge)
         start_oauth_edge
+        ;;
+    schema-inference)
+        start_schema_inference
         ;;
     *)
         bail "Invalid argument: '$1'"
