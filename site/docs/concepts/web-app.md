@@ -98,7 +98,7 @@ you can find it by filtering for `acmeCo*source-postgres`.
 
 When you click **View Details** for a capture, the **Status** and **Specification** viewers are revealed.
 
-The **Status** window shows the full identifier of the shard(s) that back your capture. If there's an error, you'll see an alert next to the shard identifier. Use the drop-down to open an expanded view of the failed shard's logs.
+The **Status** section shows the full identifier of the shard(s) that back your capture. If there's an error, you'll see an alert identifying the failing shard(s). Use the drop-down to open an expanded view of the failed shard's logs.
 
 In the **Specification** section, you can view the specification of the capture itself, as well as each collection to which it writes.
 Select a specification from the **Files** list to view the JSON.
@@ -183,12 +183,14 @@ You use the table to monitor your materializations. It's nearly identical to the
 
 **2:** Enable, Disable, and Delete buttons. These actions will be applied to the selected table rows. Choose **Disable** to temporarily pause the flow of data, **Enable** to resume, and **Delete** to permanently remove the materialization(s).
 
-**3:** Filter materializations by name. Type a catalog prefix or unique materialization name to return materializations that match your query.
+**3:** Filter materializations by name. Type a catalog prefix, unique materialization name, or connector name to return materializations that match your query.
 
 Materialization names follow the pattern `prefix/unique-identifier`, with `prefix` supporting multiple layers of nesting.
 You can search for any part of this full materialization name. You can also use the `*` wildcard.
 For example, if you have a materialization called `acmeCo/logistics/anvil-locations`,
 you can find it by filtering for `acmeCo*locations`.
+
+Unlike capture names, materialization names don't contain the connector name, but you can still filter them by connector.
 
 **4:** Shard status indicator. Shows the status of the primary task [shard](./advanced/shards.md) that backs this materialization.
 
@@ -212,8 +214,8 @@ you can find it by filtering for `acmeCo*locations`.
 
 When you click **View Details** for a materialization, the **Status** and **Specification** viewers are revealed.
 
-The **Status** window shows the full identifier of the shard(s) that backs your materialization.
-If there's an error, you'll see an alert next to the shard identifier. Use the drop-down to open an expanded view of the failed shard's logs.
+The **Status** section shows the full identifier of the shard(s) that backs your materialization.
+If there's an error, you'll see an alert identifying the failing shard(s). Use the drop-down to open an expanded view of the failed shard's logs.
 
 In the **Specification** window, you can view the specification of the materialization itself, as well as each collection from which it reads.
 Select a specification from the **Files** list to view the JSON.
