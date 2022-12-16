@@ -69,15 +69,20 @@ You use the table to monitor your captures.
 **3:** Materialize button. When you click this button, you're directed to the **Create materializations** page.
 All the collections of the selected capture(s) will be added to the materialization.
 
-**4:** Filter captures by name.
+**4:** Filter captures. Type a catalog prefix, unique capture name, or connector name to return captures that match your query.
 
-**5:** Shard status indicator. Shows the status of the task [shard](./advanced/shards.md) that backs this capture.
+Capture names follow the pattern `prefix/unique-identifier/connector-name`, with `prefix` supporting multiple layers of nesting.
+You can search for any part of this full capture name. You can also use the `*` wildcard.
+For example, if you have a capture called `acmeCo/logistics/anvil-locations/source-postgres`,
+you can find it by filtering for `acmeCo*source-postgres`.
+
+**5:** Shard status indicator. Shows the status of the primary task [shard](./advanced/shards.md) that backs this capture.
 
 * **Primary (Green)**: Data is actively flowing through the capture.
 * **Pending (Yellow)**: The capture is attempting to re-connect. Often, you'll see this after you re-enable the capture as Flow backfills historical data.
 * **Failed (Red)**: The capture has failed with an unrecoverable error.
-* **Disabled (White)**: The capture is disabled.
-* **Unknown (Black)**: The web app is unable to determine shard status. Usually, this is due to a temporary connection error.
+* **Disabled (Hollow circle)**: The capture is disabled.
+* **Unknown (Black when app is in light mode; white when app is in dark mode)**: The web app is unable to determine shard status. Usually, this is due to a temporary connection error.
 
 **6:** Capture name. The full name is shown, including all [prefixes](./catalogs.md#namespace).
 
@@ -93,10 +98,14 @@ All the collections of the selected capture(s) will be added to the materializat
 
 When you click **View Details** for a capture, the **Status** and **Specification** viewers are revealed.
 
-The **Status** window shows the full identifier of the shard that backs your capture. If there's an error, you can view its logs.
+The **Status** window shows the full identifier of the shard(s) that back your capture. If there's an error, you'll see an alert next to the shard identifier. Use the drop-down to open an expanded view of the failed shard's logs.
 
-In the **Specification** window, you can view the specification of the capture itself, as well as each collection to which it writes.
+In the **Specification** section, you can view the specification of the capture itself, as well as each collection to which it writes.
 Select a specification from the **Files** list to view the JSON.
+
+:::tip
+To change the size of each side of the **Specification** section, click and drag the center divider.
+:::
 
 ### Editing captures and collections
 
@@ -114,7 +123,7 @@ You may have to re-authenticate with the source system. Be sure to have current 
 
 2. Use the **Collection Selector** to add or remove collections from the capture, if desired.
 
-   To refresh your connection with the source and see an updated list of possible collections, click the **Rediscover All** button,
+   To refresh your connection with the source and see an updated list of possible collections, click the **Refresh** button,
    but be aware that it will overwrite all existing collection selections.
 
 3. When you're done making changes, click **Next.**
@@ -174,15 +183,20 @@ You use the table to monitor your materializations. It's nearly identical to the
 
 **2:** Enable, Disable, and Delete buttons. These actions will be applied to the selected table rows. Choose **Disable** to temporarily pause the flow of data, **Enable** to resume, and **Delete** to permanently remove the materialization(s).
 
-**3:** Filter materializations by name.
+**3:** Filter materializations by name. Type a catalog prefix or unique materialization name to return materializations that match your query.
 
-**4:** Shard status indicator. Shows the status of the task [shard](./advanced/shards.md) that backs this materialization.
+Materialization names follow the pattern `prefix/unique-identifier`, with `prefix` supporting multiple layers of nesting.
+You can search for any part of this full materialization name. You can also use the `*` wildcard.
+For example, if you have a materialization called `acmeCo/logistics/anvil-locations`,
+you can find it by filtering for `acmeCo*locations`.
+
+**4:** Shard status indicator. Shows the status of the primary task [shard](./advanced/shards.md) that backs this materialization.
 
 * **Primary (Green)**: Data is actively flowing through the materialization.
 * **Pending (Yellow)**: The materialization is attempting to re-connect. Often, you'll see this after you re-enable the materialization as Flow backfills historical data.
 * **Failed (Red)**: The materialization has failed with an unrecoverable error.
-* **Disabled (White)**: The materialization is disabled.
-* **Unknown (Black)**: The web app is unable to determine shard status. Usually, this is due to a temporary connection error.
+* **Disabled (Hollow circle)**: The materialization is disabled.
+* **Unknown (Black when app is in light mode; white when app is in dark mode)**: The web app is unable to determine shard status. Usually, this is due to a temporary connection error.
 
 **5:** Materialization name. The full name is shown, including all [prefixes](./catalogs.md#namespace).
 
@@ -198,7 +212,8 @@ You use the table to monitor your materializations. It's nearly identical to the
 
 When you click **View Details** for a materialization, the **Status** and **Specification** viewers are revealed.
 
-The **Status** window shows the full identifier of the shard that backs your materialization. If there's an error, you can view its logs.
+The **Status** window shows the full identifier of the shard(s) that backs your materialization.
+If there's an error, you'll see an alert next to the shard identifier. Use the drop-down to open an expanded view of the failed shard's logs.
 
 In the **Specification** window, you can view the specification of the materialization itself, as well as each collection from which it reads.
 Select a specification from the **Files** list to view the JSON.
