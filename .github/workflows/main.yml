@@ -50,6 +50,8 @@ jobs:
 
       - uses: supabase/setup-cli@v1
       - run: supabase start
+      - name: SQL tests
+        run: ./supabase/run_sql_tests.sh
 
       - run: make extra-ci-runner-setup
       - run: make print-versions
