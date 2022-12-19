@@ -22,7 +22,6 @@ pub async fn apply(
     directive: Directive,
     row: agent_sql::directives::Row,
     accounts_user_email: &str,
-    tenant_template: &models::Catalog,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<JobStatus> {
     let (Directive {}, Claims { requested_tenant }) = match extract(directive, &row.user_claims) {
@@ -48,7 +47,7 @@ pub async fn apply(
         )));
     }
 
-    let provisioned_user = agent_sql::directives::beta_onboard::provision_tenant(
+    let provisioned_tenant = agent_sql::directives::beta_onboard::provision_tenant(
         accounts_user_email,
         Some("applied via directive".to_string()),
         &requested_tenant,
@@ -58,16 +57,7 @@ pub async fn apply(
     .await
     .context("provision_tenant")?;
 
-    // Fill out the tenant file spec template with the actual tenant name,
-    // and upsert it into provisioned draft.
-    let tenant_template = serde_json::to_string(tenant_template).unwrap();
-    let tenant_template = tenant_template.replace("TENANT", requested_tenant.as_str());
-    let tenant_template: models::Catalog = serde_json::from_str(&tenant_template).unwrap();
-    crate::upsert_draft_specs(provisioned_user.draft_id, tenant_template, txn)
-        .await
-        .context("upsert_draft_specs")?;
-
-    info!(%row.user_id, requested_tenant=%requested_tenant.as_str(), "beta onboard");
+    info!(%row.user_id, requested_tenant=%requested_tenant.as_str(), ops_publication_id=%provisioned_tenant.publication_id, "beta onboard");
     Ok(JobStatus::Success)
 }
 
@@ -127,6 +117,23 @@ mod test {
           ('cc00000000000000', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"requestedTenant":"TakenTeNaNt"}'),
           -- Success: creates AcmeTenant.
           ('cc00000000000000', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"requestedTenant":"AcmeTenant"}')
+        ),
+        p7 as (
+          insert into ops_catalog_template (id, bundled_catalog) values
+            ('0000000000000000', '{
+              "collections": {
+                "ops/TENANT/fixture":{
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "k": {"type": "integer"}
+                    },
+                    "required": ["k"]
+                  },
+                  "key": ["/k"]
+                }
+              }
+            }')
         )
         select 1;
         "#,
@@ -135,24 +142,7 @@ mod test {
         .await
         .unwrap();
 
-        let tenant_template: models::Catalog = serde_json::from_value(json!({
-          "collections": {
-            "ops/TENANT/fixture":{
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "k": {"type": "integer"}
-                },
-                "required": ["k"]
-              },
-              "key": ["/k"]
-            }
-          }
-        }))
-        .unwrap();
-
         let mut handler = DirectiveHandler {
-            tenant_template,
             accounts_user_email: "accounts@example.com".to_string(),
         };
         while let Some(row) = agent_sql::directives::dequeue(&mut txn).await.unwrap() {

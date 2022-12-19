@@ -43,9 +43,6 @@ struct Args {
     /// Email address of user which provisions and maintains tenant accounts.
     #[clap(long = "accounts-email", default_value = "support@estuary.dev")]
     accounts_email: String,
-    /// Path to the Flow specification template used to provision new tenant accounts.
-    #[clap(long = "tenant-template")]
-    tenant_template: String,
 }
 
 #[tokio::main]
@@ -64,11 +61,6 @@ async fn main() -> Result<(), anyhow::Error> {
         .into_os_string()
         .into_string()
         .expect("os path must be utf8");
-
-    let tenant_template =
-        std::fs::File::open(&args.tenant_template).context("opening tenant template")?;
-    let tenant_template: models::Catalog =
-        serde_json::from_reader(tenant_template).context("parsing tenant template")?;
 
     let mut pg_options = args
         .database_url
@@ -120,10 +112,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 &bindir,
                 &logs_tx,
             )),
-            Box::new(agent::DirectiveHandler::new(
-                tenant_template,
-                args.accounts_email,
-            )),
+            Box::new(agent::DirectiveHandler::new(args.accounts_email)),
         ],
         pg_pool.clone(),
         tokio::signal::ctrl_c().map(|_| ()),
