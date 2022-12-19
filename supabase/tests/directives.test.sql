@@ -14,9 +14,9 @@ begin
     ('aliceCo/', 'otherCo/', 'write'),
     ('aliceCo/','bobCo/',  'read');
 
-  insert into directives (catalog_prefix, spec, token, single_use) values
-    ('aliceCo/', '{"type": "alice"}', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', true),
-    ('bobCo/', '{"type": "bob"}',   'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', false);
+  insert into directives (catalog_prefix, spec, token, uses_remaining) values
+    ('aliceCo/', '{"type": "alice"}', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 1),
+    ('bobCo/', '{"type": "bob"}',   'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', null);
 
   -- We're authorized as Alice.
   set role authenticated;
@@ -38,8 +38,8 @@ begin
     from directives d join applied_directives a on a.directive_id = d.id
     order by d.catalog_prefix;
     $i$,
-    $i$ values ('aliceCo/', null, auth.uid(), null) $i$,
-    'alice directive is applied and its token is reset'
+    $i$ values ('aliceCo/', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', auth.uid(), null) $i$,
+    'alice directive is applied'
   );
 
   -- Turn in the Bob bearer token to apply it.
@@ -58,10 +58,10 @@ begin
     order by d.catalog_prefix;
     $i$,
     $i$
-    values ('aliceCo/', null, auth.uid(), null),
+    values ('aliceCo/', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', auth.uid(), null),
       ('bobCo/', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', auth.uid(), null);
     $i$,
-    'bob token was not reset (unlike alice it is not single use)'
+    'neither directive token has been reset'
   );
 
   -- Switch to the Bob user, and also turn a token on their behalf.
@@ -111,7 +111,7 @@ begin
     order by d.catalog_prefix;
     $i$,
     $i$
-    values ('aliceCo/dir/', null, auth.uid(), '{"hello":"alice"}'),
+    values ('aliceCo/dir/', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', auth.uid(), '{"hello":"alice"}'),
       ('bobCo/', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', auth.uid(), '{"hello":"alice"}');
     $i$,
     'alice user claims are updated but not bob'
@@ -128,7 +128,7 @@ begin
     order by d.catalog_prefix;
     $i$,
     $i$
-    values ('aliceCo/dir/', null, auth.uid(), '{"hello":"alice"}', 'queued');
+    values ('aliceCo/dir/', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', auth.uid(), '{"hello":"alice"}', 'queued');
     $i$,
     'alice deletes an applied directive'
   );
@@ -148,7 +148,7 @@ begin
     order by d.catalog_prefix;
     $i$,
     $i$
-    values ('aliceCo/dir/', null, auth.uid(), '{"try":"again"}', 'queued');
+    values ('aliceCo/dir/', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', auth.uid(), '{"try":"again"}', 'queued');
     $i$,
     'alice updates claims to try again and the job is re-queued'
   );
