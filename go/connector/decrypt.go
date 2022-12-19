@@ -58,7 +58,7 @@ func DecryptConfig(ctx context.Context, config json.RawMessage) (json.RawMessage
 		// -j puts jq into raw output mode, and additionally stops it from writing newlines
 		// at the end of its output, which can otherwise cause the output to be longer
 		// than the input, prohibited by decryptCmd
-		"-join-output",
+		"--join-output",
 		"walk(if type == \"object\" then with_entries(. + {key: .key | "+
 			"rtrimstr(\""+envelope.Sops.EncryptedSuffix+"\")}) else . end)",
 	)
