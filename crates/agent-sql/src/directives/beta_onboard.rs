@@ -34,7 +34,8 @@ pub async fn tenant_exists(
         where lower(name) = lower($1::catalog_tenant)
         "#,
         prefix.clone() as String,
-    ).fetch_optional(&mut *txn)
+    )
+    .fetch_optional(&mut *txn)
     .await?;
 
     let exists = sqlx::query!(
@@ -53,9 +54,8 @@ pub async fn tenant_exists(
 // ProvisionedTenant is the shape of a provisioned tenant.
 #[derive(Debug)]
 pub struct ProvisionedTenant {
-    // Draft into which provisioned catalog specs should be placed.
-    // It will be queued for publication upon the commit of this transaction.
-    pub draft_id: Id,
+    /// The id of the publication that will create the ops catalog for this tenant.
+    pub publication_id: Id,
 }
 
 pub async fn provision_tenant(
@@ -96,20 +96,8 @@ pub async fn provision_tenant(
                 ($2, '{"stores": [{"provider": "GCS", "bucket": "estuary-trial", "prefix": "collection-data/"}]}', $3),
                 ('recovery/' || $2, '{"stores": [{"provider": "GCS", "bucket": "estuary-trial"}]}', $3)
             on conflict do nothing
-        ),
-        -- Create a draft for provisioned catalog specifications owned by the accounts root user.
-        -- It will be filled out later but within this same transaction.
-        -- Then queue a publication of that draft, also owned by the accounts root user.
-        create_draft as (
-            insert into drafts (user_id)
-                select accounts_id from accounts_root_user
-                returning drafts.id as draft_id
-        ),
-        create_publication as (
-            insert into publications (user_id, draft_id)
-                select accounts_id, draft_id from create_draft, accounts_root_user
         )
-        select draft_id as "draft_id: Id" from create_draft;
+        select internal.create_ops_publication($2, accounts_id) as "publication_id!: Id" from accounts_root_user;
         "#,
         tenant_user_id as Uuid,
         &prefix as &str,

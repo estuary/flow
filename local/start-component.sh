@@ -7,6 +7,8 @@
 # setting an environment varaible named like "$component_repo", where $component is one of the
 # components listed above, but with any dashes replaced with underscores.
 set -e
+set -E
+set -o pipefail
 
 BROKER_PORT=8080
 CONSUMER_PORT=9000
@@ -111,6 +113,9 @@ function start_control_plane_agent() {
     cd "$(project_dir 'flow')"
     # Start building immediately, since it could take a while
     must_run cargo build -p agent
+        
+    # Add the ops catalog template to the local database.
+    must_run ./ops-catalog/generate-migration.sh local | must_run psql 'postgresql://postgres:postgres@localhost:5432/postgres'
 
     # Now wait until the temp-data-plane is running. We need this in order to determine the builds
     # root when the agent starts. If it's not running, the agent will fail immediately.
@@ -122,8 +127,7 @@ function start_control_plane_agent() {
     # We're counting on `make package` to have completed successfully at this point, which should be
     # the case if the temp-data-plane is running.
     export RUST_LOG=info
-    must_run cargo run -p flowctl -- raw bundle --source ./ops-catalog/template-local.flow.yaml |
-        must_run cargo run -p agent -- --bin-dir "$flow_bin_dir" --tenant-template /dev/stdin --connector-network=supabase_network_flow
+    must_run cargo run -p agent -- --bin-dir "$flow_bin_dir" --connector-network=supabase_network_flow
 }
 
 function start_oauth_edge() {
