@@ -53,21 +53,55 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-      # This one mac build should hopefully run on intel or m1 macs
+
+      - name: Setup mac signing certificate
+        if: matrix.config.os == 'macos-latest'
+        env:
+          MAC_SIGNING_CERTIFICATE_BASE64: ${{ secrets.MAC_SIGNING_CERTIFICATE_BASE64 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          #BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |-
+          # create variables
+          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          # import certificate from secrets
+          echo -n "$MAC_SIGNING_CERTIFICATE_BASE64" | base64 --decode --output "$CERTIFICATE_PATH"
+
+          # create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # import certificate to keychain
+          security import "$CERTIFICATE_PATH" -P "$MAC_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security find-identity -v
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          
+          # allow the codesign utility to use this keychain without triggering a prompt. Taken from:
+          # https://localazy.com/blog/how-to-automatically-sign-macos-apps-using-github-actions
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      
+      # This one mac build runs on both intel and m1 macs
       - name: Build Mac
         if: matrix.config.os == 'macos-latest'
+        env:
+          MAC_CERTIFICATE_IDENTITY: ${{ secrets.MAC_CERTIFICATE_IDENTITY }}
         # The toolchain action always gives you the default target, but we always need both
         # the x86_64 and aarch64 targets. I couldn't find anything in github's docs that actually
         # says that macos runners are on intel cpus, so we just always add both targets since it's a
         # fast no-op if it's already installed.
         # Also note that the Apple docs say that it doesn't matter which architecture we build on,
         # as we can cross compile either direction.
-        run: |-
-          rustup target add aarch64-apple-darwin && \
-          rustup target add x86_64-apple-darwin && \
-          cargo build -p flowctl --release --target x86_64-apple-darwin && \
-          cargo build -p flowctl --release --target aarch64-apple-darwin && \
+        run: |
+          rustup target add aarch64-apple-darwin
+          rustup target add x86_64-apple-darwin
+          cargo build -p flowctl --release --target x86_64-apple-darwin
+          cargo build -p flowctl --release --target aarch64-apple-darwin
           lipo -create -output ${ASSET_NAME} target/x86_64-apple-darwin/release/flowctl target/aarch64-apple-darwin/release/flowctl
+          /usr/bin/codesign --force -s "$MAC_CERTIFICATE_IDENTITY" "$ASSET_NAME" -v
 
       # This step applies to all platforms
       - name: Upload release asset
