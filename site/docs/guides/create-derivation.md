@@ -18,6 +18,9 @@ Support for derivations in the Flow web application will be added in the future.
 
 ## Prerequisites
 
+* A Flow account and access to the web app.
+If you don't have an account yet, [go to the web app](https://dashboard.estuary.dev) to register for a free trial.
+
 * An existing Flow **collection**. Typically, you create this through a **capture** in the Flow web application.
 If you need help, see the [guide to create a Data Flow](./create-dataflow.md).
 
@@ -28,17 +31,15 @@ If you need help, see the [guide to create a Data Flow](./create-dataflow.md).
 To begin working in your local environment, you must authenticate Flow from the command line.
 Then, you'll need to add your source collection's specification files to a **draft** and bring the draft into your local environment for editing.
 
-1. Go to the [Flow web application](https://dashboard.estuary.dev). On the **Admin** page, click the **CLI-API** tab and copy the access token.
-
-2. In your local environment, authenticate with the token:
+1. In your local environment, authenticate flowctl:
 
    ```console
-   flowctl auth token --token ${your-token-here}
+   flowctl auth login
    ```
 
-   The output message `Configured access token` indicates that you can now work with your Flow account in your local environment,
-   using the capabilities you've been provisioned.
-   To learn more about capabilities and permissions, see the [authorization documentation](../reference/authentication.md).
+   A browser window opens to the CLI-API tab of the Flow web app.
+
+2. Copy the access token and paste it in the Auth Token prompt in your terminal. Press Enter.
 
 3. Begin by creating a fresh draft. This is where you'll add the specification files you need from the catalog.
 

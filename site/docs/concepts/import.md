@@ -5,7 +5,10 @@ sidebar_position: 7
 
 When you work on a draft Data Flow [using use `flowctl draft`](../concepts/flowctl.md#working-with-drafts),
 your Flow specifications may be spread across multiple files.
-The `import` section allows you to interlink these files and define a complete Data Flow.
+Flow automatically resolves references to specifications in different files within the working directory (OR GLOBALLY? OLIVIA FACT CHECK THIS).
+
+To explicitly add other resources to the Data Flow's build process, you can add an `import` section to a Flow specification file.
+This is not required, but you may find it helpful to mentally model the entities that comprise your Data Flow (FACT CHECK THIS ALSO.)
 
 A common convention for a given draft is to have a single top-level specification
 file which imports all the others.
@@ -37,6 +40,8 @@ $ flowctl draft test --source https://raw.githubusercontent.com/estuary/flow-tem
 ```
 
 ## Fetch behavior
+
+THIS MAY OR MAY NOT STILL BE TRUE
 
 Flow resolves, fetches, and validates all imports in your local environment during the catalog build process,
 and then includes their fetched contents within the published catalog on the Estuary servers.
@@ -104,6 +109,9 @@ If a catalog source file `foo.flow.yaml` references a collection in `bar.flow.ya
 for example as a target of a capture,
 there must be an _import path_ where either `foo.flow.yaml`
 imports `bar.flow.yaml` or vice versa.
+
+WHen you omit the `import` section, Flow chooses an import path for you.
+When you explicitly include the `import` section, you have more control over the import path.
 
 Import paths can be direct:
 
