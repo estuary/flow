@@ -6,7 +6,7 @@ sidebar_position: 7
 Flow documents and [collections](collections.md) always have an associated schema
 that defines the structure, representation, and constraints
 of your documents.
-Collections must have one schema, but [may have two](#write-and-read-schemas) for different types of Flow tasks.
+Collections must have one schema, but [may have two distinct schemas](#write-and-read-schemas): one for when documents are added to the collection, and one for when documents are read from that collection.
 
 Schemas are a powerful tool for data quality.
 Flow verifies every document against its schema whenever it's read or written,
@@ -216,17 +216,22 @@ but you can also use absolute URLs to a third-party schema like
 
 ## Write and read schemas
 
-In some cases, you may want to impose different constraints to data that is entering (_written to_) the collection
+In some cases, you may want to impose different constraints to data that is being added (_written_) to the collection
 and data that is exiting (_read from_) the collection.
 
 For example, you may need to start capturing data _now_ from a source system; say, a pub-sub system with short-lived
-historical data support or an HTTP endpoint, but don't have time to construct the ideal schema you'll need later.
+historical data support or an HTTP endpoint, but don't know or don't control the endpoint's schema.
 You can capture the data with a permissive write schema, and impose a stricter read schema on the data
 as you need to perform a derivation or materialization.
 You can safely experiment with the read schema at your convenience, knowing the data has already been captured.
 
 To achieve this, edit the collection, re-naming the standard `schema` to `writeSchema` and adding a `readSchema`.
-You can also supply a `writeSchema` in place of `schema` at capture time; it will be used for both writes and reads until a `readSchema` is added.
+Make sure that the field used as the collection key is defined in both schemas.
+
+:::caution
+If you're using standard [projections](./advanced/projections.md), you must only define them in the read schema.
+However, if your projections are [logical partitions](./advanced/projections.md#logical-partitions), you must define them in both schemas.
+:::
 
 Here's a simple example in which you don't know how purchase prices are formatted when capturing them,
 but find out later that `number` is the appropriate data type:
@@ -237,10 +242,10 @@ collections:
     writeSchema:
       type: object
       title: Store price as strings
-      description: Not sure if prices contain characters such as $, so capturing them as strings.
+      description: Not sure if prices are formatted as numbers or strings.
       properties:
         id: { type: integer}
-        price: {type: string}
+        price: {type: [string, number]}
     readSchema:
       type: object
       title: Prices as numbers
@@ -375,5 +380,5 @@ collections:
     key: [/id]
 ```
 
-`default` annotations are only used for materializations; they're ignored by captures in derivations.
+`default` annotations are only used for materializations; they're ignored by captures and derivations.
 If your collection has both a [write and read schema](#write-and-read-schemas), make sure you add this annotation to the read schema.
