@@ -6,6 +6,7 @@ sidebar_position: 7
 Flow documents and [collections](collections.md) always have an associated schema
 that defines the structure, representation, and constraints
 of your documents.
+Collections must have one schema, but [may have two distinct schemas](#write-and-read-schemas): one for when documents are added to the collection, and one for when documents are read from that collection.
 
 Schemas are a powerful tool for data quality.
 Flow verifies every document against its schema whenever it's read or written,
@@ -80,6 +81,8 @@ properties:
 
 Flow extends JSON Schema with additional annotation keywords,
 which provide Flow with further instruction for how documents should be processed.
+In particular, the [`reduce`](#reduce-annotations) and [`default`](#default-annotations) keywords
+help you define merge behaviors and avoid null values at your destination systems, respectively.
 
 What’s especially powerful about annotations is that they respond to
 **conditionals** within the schema.
@@ -211,6 +214,47 @@ but you can also use absolute URLs to a third-party schema like
 [schemastore.org](https://www.schemastore.org).
 :::
 
+## Write and read schemas
+
+In some cases, you may want to impose different constraints to data that is being added (_written_) to the collection
+and data that is exiting (_read from_) the collection.
+
+For example, you may need to start capturing data _now_ from a source system; say, a pub-sub system with short-lived
+historical data support or an HTTP endpoint, but don't know or don't control the endpoint's schema.
+You can capture the data with a permissive write schema, and impose a stricter read schema on the data
+as you need to perform a derivation or materialization.
+You can safely experiment with the read schema at your convenience, knowing the data has already been captured.
+
+To achieve this, edit the collection, re-naming the standard `schema` to `writeSchema` and adding a `readSchema`.
+Make sure that the field used as the collection key is defined in both schemas.
+
+:::caution
+If you're using standard [projections](./advanced/projections.md), you must only define them in the read schema.
+However, if your projections are [logical partitions](./advanced/projections.md#logical-partitions), you must define them in both schemas.
+:::
+
+Here's a simple example in which you don't know how purchase prices are formatted when capturing them,
+but find out later that `number` is the appropriate data type:
+
+```yaml
+collections:
+  purchases:
+    writeSchema:
+      type: object
+      title: Store price as strings
+      description: Not sure if prices are formatted as numbers or strings.
+      properties:
+        id: { type: integer}
+        price: {type: [string, number]}
+    readSchema:
+      type: object
+      title: Prices as numbers
+      properties:
+        id: { type: integer}
+        price: {type: number}
+    key: [/id]
+```
+
 ## Reductions
 
 Flow collections have keys, and multiple documents
@@ -312,6 +356,29 @@ oneOf:
 # [1, 2], [3, 4, 5], [] => []
 ```
 
-Combining schema conditionals with annotations can be used to build
+You can combine schema conditionals with annotations to build
 [rich behaviors](../reference/reduction-strategies/composing-with-conditionals.md).
 
+## `default` annotations
+
+You can use `default` annotations to prevent null values from being materialized to your endpoint system.
+
+When this annotation is absent for a non-required field, missing values in that field are materialized as `null`.
+When the annotation is present, missing values are materialized with the field's `default` value:
+
+```yaml
+collections:
+  acmeCo/coyotes:
+    schema:
+      type: object
+      required: [id]
+      properties:
+        id: {type: integer}
+        anvils_dropped: {type: integer}
+          reduce: {strategy: sum }
+          default: 0
+    key: [/id]
+```
+
+`default` annotations are only used for materializations; they're ignored by captures and derivations.
+If your collection has both a [write and read schema](#write-and-read-schemas), make sure you add this annotation to the read schema.
