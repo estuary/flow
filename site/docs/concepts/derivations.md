@@ -96,10 +96,6 @@ collections:
             # Name of the collection to be read.
             # Required.
             name: acmeCo/my/source/collection
-            # JSON Schema to validate against the source collection.
-            # If not set, the schema of the source collection is used.
-            # Optional, type: string (relative URL form) or object (inline form)
-            schema: {}
             # Partition selector of the source collection.
             # Optional. Default is to read all partitions.
             partitions: {}
