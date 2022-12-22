@@ -61,7 +61,7 @@ You can access full documentation of all flowctl subcommands from the command li
 
 * `flowctl catalog --help` lists subcommands of `catalog`.
 
-## Working with catalog drafts
+## Working with drafts
 
 Most of the commands you'll use to create, modify, and deploy Data Flows locally are found under the `flowctl draft`
 and `flowctl catalog` subcommands.
