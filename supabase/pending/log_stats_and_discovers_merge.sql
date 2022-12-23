@@ -4,6 +4,8 @@ ALTER TABLE IF EXISTS public.catalog_stats
     ADD COLUMN failures integer NOT NULL DEFAULT 0,
     ADD COLUMN warnings integer NOT NULL DEFAULT 0;
 
+DELETE FROM flow_materializations_v2;
+
 ALTER TABLE IF EXISTS public.discovers
     ADD COLUMN update_only boolean NOT NULL DEFAULT false;
 
