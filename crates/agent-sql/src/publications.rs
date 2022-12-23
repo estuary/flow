@@ -78,20 +78,6 @@ pub async fn delete_draft(delete_draft_id: Id, pg_pool: &sqlx::PgPool) -> sqlx::
     Ok(())
 }
 
-pub async fn delete_draft_errors(
-    draft_id: Id,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<()> {
-    sqlx::query!(
-        "delete from draft_errors where draft_id = $1",
-        draft_id as Id
-    )
-    .execute(txn)
-    .await?;
-
-    Ok(())
-}
-
 pub async fn savepoint_noop(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::Result<()> {
     sqlx::query!("savepoint noop;").execute(txn).await?;
     Ok(())
@@ -360,43 +346,6 @@ pub async fn resolve_expanded_rows(
     )
     .fetch_all(&mut *txn)
     .await
-}
-
-pub async fn insert_error(
-    draft_id: Id,
-    scope: String,
-    detail: String,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<()> {
-    sqlx::query!(
-        r#"insert into draft_errors (
-            draft_id,
-            scope,
-            detail
-        ) values ($1, $2, $3)
-        "#,
-        draft_id as Id,
-        scope,
-        detail,
-    )
-    .execute(&mut *txn)
-    .await?;
-
-    Ok(())
-}
-
-pub async fn delete_draft_spec(
-    draft_spec_id: Id,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<()> {
-    sqlx::query!(
-        r#"delete from draft_specs where id = $1 returning 1 as "must_exist";"#,
-        draft_spec_id as Id,
-    )
-    .fetch_one(txn)
-    .await?;
-
-    Ok(())
 }
 
 pub async fn delete_stale_flow(

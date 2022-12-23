@@ -69,7 +69,7 @@ pub async fn resolve_unknown_connectors(
 }
 
 pub async fn does_connector_exist(
-    connector_image: String,
+    connector_image: &str,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<bool> {
     sqlx::query!(
