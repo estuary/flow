@@ -104,6 +104,10 @@ pub mod tuple_pack;
 
 pub mod inference;
 
+// Fancy diff support for documents.
+pub mod diff;
+pub use diff::diff;
+
 #[cfg(test)]
 mod test {
 
