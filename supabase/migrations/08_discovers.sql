@@ -6,7 +6,8 @@ create table discovers (
   capture_name      catalog_name not null,
   connector_tag_id  flowid   not null references connector_tags(id),
   draft_id          flowid   not null references drafts(id) on delete cascade,
-  endpoint_config   json_obj not null
+  endpoint_config   json_obj not null,
+  update_only       boolean  not null default false
 );
 alter table discovers enable row level security;
 alter publication supabase_realtime add table discovers;
@@ -32,4 +33,6 @@ comment on column discovers.draft_id is
   'Draft to be populated by this discovery operation';
 comment on column discovers.endpoint_config is
   'Endpoint configuration of the connector. May be protected by sops';
-
+comment on column discovers.update_only is '
+If true, this operation will draft updates to existing bindings and their
+target collections but will not add new bindings or collections.';
