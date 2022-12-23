@@ -56,7 +56,7 @@ Then, you'll need to add your source collection's specification files to a **dra
    ```
 
    :::tip
-   If you're unsure of the name the collection, check **Collections** page in the web application.
+   If you're unsure of the name of the collection, check **Collections** page in the web application.
    You can also use `flowctl draft list` locally
    to begin exploring the catalog items available to you.
 
