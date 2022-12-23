@@ -26,6 +26,7 @@ pub async fn build_catalog(
     // build database in-place.
     let builds_dir = tmpdir.join("builds");
     std::fs::create_dir(&builds_dir).context("creating builds directory")?;
+    tracing::debug!(?builds_dir, "using build directory");
 
     // Write our catalog source file within the build directory.
     std::fs::File::create(&builds_dir.join("flow.json"))
