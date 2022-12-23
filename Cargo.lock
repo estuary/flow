@@ -36,6 +36,7 @@ dependencies = [
  "chrono",
  "clap 3.2.22",
  "derivative",
+ "doc",
  "futures",
  "insta",
  "itertools 0.10.5",

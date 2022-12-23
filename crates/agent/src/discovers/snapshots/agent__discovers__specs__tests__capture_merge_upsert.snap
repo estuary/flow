@@ -1,0 +1,70 @@
+---
+source: crates/agent/src/discovers/specs.rs
+expression: json!(out)
+---
+[
+  {
+    "bindings": [
+      {
+        "resource": {
+          "modified": 1,
+          "stream": "foo"
+        },
+        "target": "acmeCo/renamed"
+      },
+      {
+        "resource": {
+          "modified": 2,
+          "stream": "bar"
+        },
+        "target": "acmeCo/bar"
+      },
+      {
+        "resource": {
+          "stream": "baz"
+        },
+        "target": "acmeCo/baz"
+      }
+    ],
+    "endpoint": {
+      "connector": {
+        "config": {
+          "discovered": 1
+        },
+        "image": "new/image"
+      }
+    }
+  },
+  [
+    {
+      "documentSchema": {
+        "const": 1
+      },
+      "keyPtrs": [],
+      "recommendedName": "foo",
+      "resourceSpec": {
+        "stream": "foo"
+      }
+    },
+    {
+      "documentSchema": {
+        "const": 2
+      },
+      "keyPtrs": [],
+      "recommendedName": "bar",
+      "resourceSpec": {
+        "stream": "bar"
+      }
+    },
+    {
+      "documentSchema": {
+        "const": 3
+      },
+      "keyPtrs": [],
+      "recommendedName": "baz",
+      "resourceSpec": {
+        "stream": "baz"
+      }
+    }
+  ]
+]

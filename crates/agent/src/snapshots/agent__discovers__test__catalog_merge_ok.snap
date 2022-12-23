@@ -1,0 +1,72 @@
+---
+source: crates/agent/src/discovers.rs
+expression: json!(catalog)
+---
+{
+  "captures": {
+    "aliceCo/dir/source-thingy": {
+      "bindings": [
+        {
+          "resource": {
+            "table": "bar"
+          },
+          "target": "aliceCo/dir/bar"
+        },
+        {
+          "resource": {
+            "modified": 1,
+            "table": "foo"
+          },
+          "target": "aliceCo/existing-collection"
+        },
+        {
+          "resource": {
+            "table": "quz"
+          },
+          "target": "aliceCo/dir/quz"
+        }
+      ],
+      "endpoint": {
+        "connector": {
+          "config": {
+            "some": "endpoint-config"
+          },
+          "image": "ghcr.io/estuary/source-thingy:v1"
+        }
+      },
+      "interval": "10m"
+    }
+  },
+  "collections": {
+    "aliceCo/dir/bar": {
+      "key": [
+        "/bar"
+      ],
+      "schema": {
+        "const": "bar"
+      }
+    },
+    "aliceCo/dir/quz": {
+      "key": [
+        "/quz"
+      ],
+      "projections": {
+        "a-field": "/some/ptr"
+      },
+      "schema": {
+        "const": "quz"
+      }
+    },
+    "aliceCo/existing-collection": {
+      "key": [
+        "/foo"
+      ],
+      "readSchema": {
+        "const": "read!"
+      },
+      "writeSchema": {
+        "const": "write!"
+      }
+    }
+  }
+}
