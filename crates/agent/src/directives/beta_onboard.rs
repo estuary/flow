@@ -1,5 +1,4 @@
 use super::{extract, JobStatus};
-
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -65,7 +64,6 @@ pub async fn apply(
 mod test {
 
     use super::super::DirectiveHandler;
-    use serde_json::json;
     use sqlx::{Connection, Row};
 
     const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
@@ -119,21 +117,20 @@ mod test {
           ('cc00000000000000', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"requestedTenant":"AcmeTenant"}')
         ),
         p7 as (
-          insert into ops_catalog_template (id, bundled_catalog) values
-            ('0000000000000000', '{
-              "collections": {
-                "ops/TENANT/fixture":{
-                  "schema": {
-                    "type": "object",
-                    "properties": {
-                      "k": {"type": "integer"}
-                    },
-                    "required": ["k"]
+          update ops_catalog_template set bundled_catalog = '{
+            "collections": {
+              "ops/TENANT/fixture":{
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "k": {"type": "integer"}
                   },
-                  "key": ["/k"]
-                }
+                  "required": ["k"]
+                },
+                "key": ["/k"]
               }
-            }')
+            }
+          }'
         )
         select 1;
         "#,
