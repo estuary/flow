@@ -220,7 +220,7 @@ async fn test_publication_data_operations() {
         .await
         .unwrap();
 
-        agent_sql::publications::delete_draft_spec(row.draft_spec_id, &mut txn)
+        agent_sql::drafts::delete_spec(row.draft_spec_id, &mut txn)
             .await
             .unwrap();
     }
