@@ -1,23 +1,24 @@
-use super::{jobs, logs, upsert_draft_specs, Handler, Id};
-
-use crate::{connector_tags::LOCAL_IMAGE_TAG, HandlerStatus};
-use agent_sql::discover::Row;
+use super::{
+    connector_tags::LOCAL_IMAGE_TAG, draft, jobs, logs, CatalogType, Handler, HandlerStatus, Id,
+};
+use agent_sql::discovers::Row;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
-use std::collections::BTreeMap;
-use tracing::{debug, info};
+use sqlx::types::Uuid;
+
+mod specs;
 
 /// JobStatus is the possible outcomes of a handled discover operation.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum JobStatus {
     Queued,
-    WrongProtocol { protocol: String },
+    WrongProtocol,
     TagFailed,
     ImageForbidden,
     PullFailed,
     DiscoverFailed,
+    MergeFailed,
     Success,
 }
 
@@ -43,15 +44,15 @@ impl Handler for DiscoverHandler {
     async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<HandlerStatus> {
         let mut txn = pg_pool.begin().await?;
 
-        let row: Row = match agent_sql::discover::dequeue(&mut txn).await? {
+        let row: Row = match agent_sql::discovers::dequeue(&mut txn).await? {
             None => return Ok(HandlerStatus::Idle),
             Some(row) => row,
         };
 
         let (id, status) = self.process(row, &mut txn).await?;
-        info!(%id, ?status, "finished");
+        tracing::info!(%id, ?status, "finished");
 
-        agent_sql::discover::resolve(id, status, &mut txn).await?;
+        agent_sql::discovers::resolve(id, status, &mut txn).await?;
         txn.commit().await?;
 
         Ok(HandlerStatus::Active)
@@ -69,7 +70,7 @@ impl DiscoverHandler {
         row: Row,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> anyhow::Result<(Id, JobStatus)> {
-        info!(
+        tracing::info!(
             %row.capture_name,
             %row.connector_tag_id,
             %row.connector_tag_job_success,
@@ -83,23 +84,17 @@ impl DiscoverHandler {
             %row.user_id,
             "processing discover",
         );
-        let image_composed = format!("{}{}", row.image_name, row.image_tag);
 
+        // Various pre-flight checks.
         if !row.connector_tag_job_success {
             return Ok((row.id, JobStatus::TagFailed));
-        }
-        if row.protocol != "capture" {
-            return Ok((
-                row.id,
-                JobStatus::WrongProtocol {
-                    protocol: row.protocol,
-                },
-            ));
-        }
-
-        if !agent_sql::connector_tags::does_connector_exist(row.image_name.clone(), txn).await? {
+        } else if row.protocol != "capture" {
+            return Ok((row.id, JobStatus::WrongProtocol));
+        } else if !agent_sql::connector_tags::does_connector_exist(&row.image_name, txn).await? {
             return Ok((row.id, JobStatus::ImageForbidden));
         }
+
+        let image_composed = format!("{}{}", row.image_name, row.image_tag);
 
         if row.image_tag != LOCAL_IMAGE_TAG {
             // Pull the image.
@@ -119,8 +114,7 @@ impl DiscoverHandler {
             }
         }
 
-        // Fetch its discover output.
-        let discover = jobs::run_with_input_output(
+        let (discover, discover_output) = jobs::run_with_input_output(
             "discover",
             &self.logs_tx,
             row.logs_token,
@@ -139,179 +133,275 @@ impl DiscoverHandler {
         )
         .await?;
 
-        if !discover.0.success() {
+        if !discover.success() {
             return Ok((row.id, JobStatus::DiscoverFailed));
         }
 
-        let catalog = swizzle_response_to_catalog(
+        let result = Self::build_merged_catalog(
             &row.capture_name,
+            &discover_output,
+            row.draft_id,
             &row.endpoint_config.0,
             &row.image_name,
             &row.image_tag,
-            &discover.1,
+            row.update_only,
+            row.user_id,
+            txn,
         )
-        .context("converting discovery response into a catalog")?;
+        .await?;
 
-        upsert_draft_specs(row.draft_id, catalog, txn)
-            .await
-            .context("inserting draft specs")?;
+        match result {
+            Ok(catalog) => {
+                draft::upsert_specs(row.draft_id, catalog, txn)
+                    .await
+                    .context("inserting draft specs")?;
 
-        Ok((row.id, JobStatus::Success))
+                Ok((row.id, JobStatus::Success))
+            }
+            Err(errors) => {
+                draft::insert_errors(row.draft_id, errors, txn).await?;
+
+                Ok((row.id, JobStatus::MergeFailed))
+            }
+        }
     }
-}
 
-// swizzle_response_to_catalog accepts a raw discover response (as bytes),
-// along with the raw endpoint configuration and connector image,
-// and returns a models::Catalog.
-fn swizzle_response_to_catalog(
-    capture_name: &str,
-    endpoint_config: &RawValue,
-    image_name: &str,
-    image_tag: &str,
-    response: &[u8],
-) -> Result<models::Catalog, serde_json::Error> {
-    // Prefix under which all specifications of the capture will live.
-    // Formally a catalog name must end without "/", but leave this flexible
-    // as we may want to migrate it to a catalog prefix.
-    let capture_prefix = if capture_name.ends_with("/") {
-        capture_name.to_string()
-    } else {
-        format!("{capture_name}/")
-    };
+    async fn build_merged_catalog(
+        capture_name: &str,
+        discover_output: &[u8],
+        draft_id: Id,
+        endpoint_config: &serde_json::value::RawValue,
+        image_name: &str,
+        image_tag: &str,
+        update_only: bool,
+        user_id: Uuid,
+        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> anyhow::Result<Result<models::Catalog, Vec<draft::Error>>> {
+        let (endpoint, discovered_bindings) =
+            specs::parse_response(endpoint_config, image_name, image_tag, discover_output)
+                .context("converting discovery response into specs")?;
 
-    // Extract the docker image suffix after the final '/', or the image if there is no '/'.
-    // The image suffix is used to name the capture.
-    let image_suffix = match image_name.rsplit_once("/") {
-        Some((_, s)) => s,
-        None => &image_name,
-    };
-    let image_composed = format!("{image_name}{image_tag}");
+        // Catalog we'll build up with the merged capture and collections.
+        let mut catalog = models::Catalog::default();
 
-    let response: serde_json::Value = serde_json::from_slice(response)?;
-    debug!(%capture_prefix, %image_composed, %image_suffix, %response, "converting response");
+        // Resolve the current capture, if one exists.
+        let resolved = agent_sql::discovers::resolve_merge_target_specs(
+            &[capture_name],
+            CatalogType::Capture,
+            draft_id,
+            user_id,
+            txn,
+        )
+        .await
+        .context("resolving the current capture")?;
 
-    // Response is the expected shape of a discover response.
-    #[derive(Deserialize)]
-    struct Response {
-        #[serde(default)]
-        bindings: Vec<Binding>,
-    }
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Binding {
-        /// A recommended display name for this discovered binding.
-        recommended_name: String,
-        /// JSON-encoded object which specifies the endpoint resource to be captured.
-        resource_spec: models::Object,
-        /// JSON schema of documents produced by this binding.
-        document_schema: models::Schema,
-        /// Composite key of documents (if known), as JSON-Pointers.
-        #[serde(default)]
-        key_ptrs: Vec<models::JsonPointer>,
-    }
-    let response: Response = serde_json::from_value(response)?;
-
-    // Break apart each response.binding into constituent
-    // collection and capture binding models.
-    let mut bindings = Vec::new();
-    let mut collections = BTreeMap::new();
-
-    for Binding {
-        recommended_name,
-        resource_spec: resource,
-        document_schema: schema,
-        key_ptrs,
-    } in response.bindings
-    {
-        let collection = models::Collection::new(format!("{capture_prefix}{recommended_name}"));
-
-        bindings.push(models::CaptureBinding {
-            resource,
-            target: collection.clone(),
-        });
-        collections.insert(
-            collection,
-            models::CollectionDef {
-                schema: Some(schema),
-                write_schema: None,
-                read_schema: None,
-                key: models::CompositeKey::new(key_ptrs),
-                projections: Default::default(),
-                derivation: None,
-                journals: Default::default(),
-            },
+        let errors = draft::extend_catalog(
+            &mut catalog,
+            resolved
+                .iter()
+                .map(|r| (CatalogType::Capture, capture_name, r.spec.0.as_ref())),
         );
-    }
+        if !errors.is_empty() {
+            return Ok(Err(errors));
+        }
 
-    let mut catalog = models::Catalog::default();
-    catalog.collections = collections;
-    catalog.captures.insert(
-        models::Capture::new(format!("{capture_prefix}{image_suffix}")),
-        models::CaptureDef {
-            bindings,
-            endpoint: models::CaptureEndpoint::Connector(models::ConnectorConfig {
-                image: image_composed,
-                config: endpoint_config.to_owned(),
+        // Deeply merge the capture and its bindings.
+        let capture_name = models::Capture::new(capture_name);
+        let (capture, discovered_bindings) = specs::merge_capture(
+            &capture_name,
+            endpoint,
+            discovered_bindings,
+            catalog.captures.remove(&capture_name),
+            update_only,
+        );
+        let targets = capture
+            .bindings
+            .iter()
+            .map(|models::CaptureBinding { target, .. }| target.clone())
+            .collect::<Vec<_>>();
+
+        catalog.captures.insert(capture_name, capture); // Replace merged capture.
+
+        // Now resolve all targeted collections, if they exist.
+        let resolved = agent_sql::discovers::resolve_merge_target_specs(
+            &targets
+                .iter()
+                .map(models::Collection::as_str)
+                .collect::<Vec<_>>(),
+            CatalogType::Collection,
+            draft_id,
+            user_id,
+            txn,
+        )
+        .await
+        .context("resolving the current capture")?;
+
+        let errors = draft::extend_catalog(
+            &mut catalog,
+            resolved.iter().map(|r| {
+                (
+                    CatalogType::Collection,
+                    r.catalog_name.as_str(),
+                    r.spec.0.as_ref(),
+                )
             }),
-            interval: models::CaptureDef::default_interval(),
-            shards: Default::default(),
-        },
-    );
+        );
+        if !errors.is_empty() {
+            return Ok(Err(errors));
+        }
 
-    Ok(catalog)
+        // Now deeply merge all captured collections.
+        // Post-condition: `catalog` reflects the final outcome of our operation.
+        catalog.collections =
+            specs::merge_collections(discovered_bindings, catalog.collections, targets);
+
+        Ok(Ok(catalog))
+    }
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
 
-    #[test]
-    fn test_response_swizzling() {
-        let response = serde_json::json!({
-            "bindings": [
-                {
-                    "recommendedName": "greetings",
-                    "resourceSpec": {
-                        "stream": "greetings",
-                        "syncMode": "incremental"
-                    },
-                    "documentSchema": {
-                        "type": "object",
-                        "properties": {
-                            "count": { "type": "integer" },
-                            "message": { "type": "string" }
-                        },
-                        "required": [ "count", "message" ]
-                    },
-                    "keyPtrs": [ "/count" ]
-                },
-                {
-                    "recommendedName": "frogs",
-                    "resourceSpec": {
-                        "stream": "greetings",
-                        "syncMode": "incremental"
-                    },
-                    "documentSchema": {
-                        "type": "object",
-                        "properties": {
-                            "croak": { "type": "string" }
-                        },
-                        "required": [ "croak" ]
-                    },
-                    "keyPtrs": [ "/croak" ]
-                }
-            ]
-        })
-        .to_string();
+    use super::{Id, Uuid};
+    use serde_json::json;
+    use sqlx::Connection;
+    use std::str::FromStr;
 
-        let catalog = super::swizzle_response_to_catalog(
-            "path/to/capture",
-            &serde_json::value::RawValue::from_string("{\"some\":\"config\"}".to_string()).unwrap(),
-            "ghcr.io/foo/bar/source-potato",
-            ":v1.2.3",
-            response.as_bytes(),
+    const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
+
+    #[tokio::test]
+    async fn test_catalog_merge_ok() {
+        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+            .await
+            .unwrap();
+        let mut txn = conn.begin().await.unwrap();
+
+        sqlx::query(
+            r#"
+            with
+            p1 as (
+                insert into user_grants(user_id, object_role, capability) values
+                ('11111111-1111-1111-1111-111111111111', 'aliceCo/', 'admin')
+            ),
+            p2 as (
+                insert into drafts (id, user_id) values
+                ('dddddddddddddddd', '11111111-1111-1111-1111-111111111111')
+            ),
+            p3 as (
+                insert into live_specs (catalog_name, spec_type, spec) values
+                -- Existing collection which is deeply merged.
+                ('aliceCo/existing-collection', 'collection', '{
+                    "key": ["/old/key"],
+                    "writeSchema": false,
+                    "readSchema": {"const": "read!"}
+                }')
+            ),
+            p4 as (
+                insert into draft_specs (draft_id, catalog_name, spec_type, spec) values
+                -- Capture which is deeply merged (modified resource config and `interval` are preserved).
+                ('dddddddddddddddd', 'aliceCo/dir/source-thingy', 'capture', '{
+                    "bindings": [
+                        { "resource": { "table": "foo", "modified": 1 }, "target": "aliceCo/existing-collection" }
+                    ],
+                    "endpoint": { "connector": { "config": { "fetched": 1 }, "image": "old/image" } },
+                    "interval": "10m"
+                }'),
+                -- Drafted collection which isn't (yet) linked to the capture, but collides
+                -- with a binding being added. Expect `projections` are preserved in the merge.
+                ('dddddddddddddddd', 'aliceCo/dir/quz', 'collection', '{
+                    "key": ["/old/key"],
+                    "schema": false,
+                    "projections": {"a-field": "/some/ptr"}
+                }')
+            )
+            select 1;
+            "#,
         )
+        .execute(&mut txn)
+        .await
         .unwrap();
 
-        insta::assert_json_snapshot!(catalog);
+        let discover_output = json!({
+            "bindings": [
+                {"documentSchema": {"const": "write!"}, "keyPtrs": ["/foo"], "recommendedName": "foo", "resourceSpec": {"table": "foo"}},
+                {"documentSchema": {"const": "bar"}, "keyPtrs": ["/bar"], "recommendedName": "bar", "resourceSpec": {"table": "bar"}},
+                {"documentSchema": {"const": "quz"}, "keyPtrs": ["/quz"], "recommendedName": "quz", "resourceSpec": {"table": "quz"}},
+            ],
+        }).to_string();
+
+        let endpoint_config =
+            serde_json::value::to_raw_value(&json!({"some": "endpoint-config"})).unwrap();
+
+        let result = super::DiscoverHandler::build_merged_catalog(
+            "aliceCo/dir/source-thingy",
+            discover_output.as_bytes(),
+            Id::from_hex("dddddddddddddddd").unwrap(),
+            &endpoint_config,
+            "ghcr.io/estuary/source-thingy",
+            ":v1",
+            false,
+            Uuid::from_str("11111111-1111-1111-1111-111111111111").unwrap(),
+            &mut txn,
+        )
+        .await;
+
+        let catalog = result.unwrap().unwrap();
+        insta::assert_json_snapshot!(json!(catalog));
+    }
+
+    #[tokio::test]
+    async fn test_catalog_merge_bad_spec() {
+        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+            .await
+            .unwrap();
+        let mut txn = conn.begin().await.unwrap();
+
+        sqlx::query(
+            r#"
+            with
+            p1 as (
+                insert into drafts (id, user_id) values
+                ('dddddddddddddddd', '11111111-1111-1111-1111-111111111111')
+            ),
+            p2 as (
+                insert into draft_specs (draft_id, catalog_name, spec_type, spec) values
+                ('dddddddddddddddd', 'aliceCo/bad', 'collection', '{"key": "invalid"}')
+            )
+            select 1;
+            "#,
+        )
+        .execute(&mut txn)
+        .await
+        .unwrap();
+
+        let discover_output = json!({
+            "bindings": [
+                {"documentSchema": {"const": 42}, "keyPtrs": ["/key"], "recommendedName": "bad", "resourceSpec": {"table": "bad"}},
+            ],
+        }).to_string();
+
+        let result = super::DiscoverHandler::build_merged_catalog(
+            "aliceCo/source-thingy",
+            discover_output.as_bytes(),
+            Id::from_hex("dddddddddddddddd").unwrap(),
+            &serde_json::value::to_raw_value(&json!({"some": "endpoint-config"})).unwrap(),
+            "ghcr.io/estuary/source-thingy",
+            ":v1",
+            false,
+            Uuid::from_str("11111111-1111-1111-1111-111111111111").unwrap(),
+            &mut txn,
+        )
+        .await;
+
+        let errors = result.unwrap().unwrap_err();
+        insta::assert_debug_snapshot!(errors, @r###"
+        [
+            Error {
+                catalog_name: "aliceCo/bad",
+                scope: None,
+                detail: "parsing collection aliceCo/bad: invalid type: string \"invalid\", expected a sequence at line 1 column 17",
+            },
+        ]
+        "###);
     }
 }

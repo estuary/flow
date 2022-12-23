@@ -1,0 +1,38 @@
+---
+source: crates/agent/src/discovers/specs.rs
+expression: json!(out)
+---
+[
+  {
+    "bindings": [
+      {
+        "resource": {
+          "stream": "foo"
+        },
+        "target": "acmeCo/my/foo"
+      }
+    ],
+    "endpoint": {
+      "connector": {
+        "config": {
+          "discovered": 1
+        },
+        "image": "new/image"
+      }
+    }
+  },
+  [
+    {
+      "documentSchema": {
+        "const": "foo"
+      },
+      "keyPtrs": [
+        "/foo-key"
+      ],
+      "recommendedName": "foo",
+      "resourceSpec": {
+        "stream": "foo"
+      }
+    }
+  ]
+]

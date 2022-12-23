@@ -1,0 +1,56 @@
+---
+source: crates/agent/src/discovers/specs.rs
+expression: out
+---
+{
+  "case/1": {
+    "schema": {
+      "const": 42
+    },
+    "key": [
+      "/foo",
+      "/bar"
+    ]
+  },
+  "case/2": {
+    "schema": {
+      "const": 42
+    },
+    "key": [
+      "/foo",
+      "/bar"
+    ],
+    "projections": {
+      "field": "/ptr"
+    },
+    "derivation": {
+      "transform": {}
+    },
+    "journals": {
+      "fragments": {
+        "length": 1234
+      }
+    }
+  },
+  "case/3": {
+    "schema": {
+      "const": 42
+    },
+    "key": [
+      "/one",
+      "/two"
+    ]
+  },
+  "case/4": {
+    "writeSchema": {
+      "const": "write!"
+    },
+    "readSchema": {
+      "const": "read!"
+    },
+    "key": [
+      "/foo",
+      "/bar"
+    ]
+  }
+}

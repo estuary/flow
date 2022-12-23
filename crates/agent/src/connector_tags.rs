@@ -1,7 +1,4 @@
-use crate::HandlerStatus;
-
-use super::{jobs, logs, Handler, Id};
-
+use super::{jobs, logs, Handler, HandlerStatus, Id};
 use agent_sql::connector_tags::Row;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};

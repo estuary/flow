@@ -1,6 +1,4 @@
-use super::Error;
-use crate::{jobs, logs, Id};
-
+use crate::{draft::Error, jobs, logs, Id};
 use agent_sql::publications::{ExpandedRow, SpecRow};
 use agent_sql::CatalogType;
 use anyhow::Context;

@@ -1,7 +1,7 @@
-use crate::HandlerStatus;
-
-use super::{logs, Handler, Id};
-
+use super::{
+    draft::{self, Error},
+    logs, Handler, HandlerStatus, Id,
+};
 use agent_sql::{connector_tags::UnknownConnector, publications::Row};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -10,13 +10,6 @@ use tracing::info;
 mod builds;
 mod specs;
 mod storage;
-
-#[derive(Debug, Default)]
-pub struct Error {
-    catalog_name: String,
-    scope: Option<String>,
-    detail: String,
-}
 
 /// JobStatus is the possible outcomes of a handled draft submission.
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
@@ -114,7 +107,7 @@ impl PublishHandler {
         );
 
         // Remove draft errors from a previous publication attempt.
-        agent_sql::publications::delete_draft_errors(row.draft_id, txn)
+        agent_sql::drafts::delete_errors(row.draft_id, txn)
             .await
             .context("clearing old errors")?;
 
@@ -130,7 +123,7 @@ impl PublishHandler {
         let mut draft_catalog = models::Catalog::default();
         let mut live_catalog = models::Catalog::default();
 
-        let errors = specs::extend_catalog(
+        let errors = draft::extend_catalog(
             &mut live_catalog,
             spec_rows.iter().filter_map(|r| {
                 r.live_type.map(|t| {
@@ -146,7 +139,7 @@ impl PublishHandler {
             anyhow::bail!("unexpected errors from live specs: {errors:?}");
         }
 
-        let errors = specs::extend_catalog(
+        let errors = draft::extend_catalog(
             &mut draft_catalog,
             spec_rows.iter().filter_map(|r| {
                 r.draft_type.map(|t| {
@@ -168,8 +161,9 @@ impl PublishHandler {
             return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
         }
 
-        let task_ids = spec_rows.iter().map(|row| row.live_spec_id).collect();
-        let prev_quota_usage = agent_sql::publications::find_tenant_quotas(task_ids, txn).await?;
+        let live_spec_ids: Vec<_> = spec_rows.iter().map(|row| row.live_spec_id).collect();
+        let prev_quota_usage =
+            agent_sql::publications::find_tenant_quotas(live_spec_ids.clone(), txn).await?;
 
         for spec_row in &spec_rows {
             specs::apply_updates_for_row(
@@ -189,23 +183,17 @@ impl PublishHandler {
             return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
         }
 
-        let results = agent_sql::connector_tags::resolve_unknown_connectors(
-            spec_rows
-                .iter()
-                .map(|row| row.live_spec_id.clone())
-                .collect(),
-            txn,
-        )
-        .await?;
+        let unknown_connectors =
+            agent_sql::connector_tags::resolve_unknown_connectors(live_spec_ids, txn).await?;
 
-        let errors: Vec<Error> = results
-            .iter()
+        let errors: Vec<Error> = unknown_connectors
+            .into_iter()
             .map(
                 |UnknownConnector {
                      catalog_name,
                      image_name,
                  }| Error {
-                    catalog_name: catalog_name.clone(),
+                    catalog_name,
                     detail: format!("Forbidden connector image '{}'", image_name),
                     ..Default::default()
                 },
@@ -237,7 +225,7 @@ impl PublishHandler {
         .await
         .context("updating build_id of expanded specifications")?;
 
-        let errors = specs::extend_catalog(
+        let errors = draft::extend_catalog(
             &mut draft_catalog,
             expanded_rows
                 .iter()
@@ -354,7 +342,7 @@ async fn stop_with_errors(
         .await
         .context("rolling back to savepoint")?;
 
-    specs::insert_errors(row.draft_id, errors, txn).await?;
+    draft::insert_errors(row.draft_id, errors, txn).await?;
 
     Ok((row.pub_id, job_status))
 }
