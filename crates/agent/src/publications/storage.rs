@@ -1,5 +1,4 @@
-use super::Error;
-
+use super::draft::Error;
 use agent_sql::publications::StorageRow;
 use anyhow::Context;
 

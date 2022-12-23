@@ -1,10 +1,8 @@
-use super::Error;
-
+use super::draft::Error;
 use agent_sql::publications::{ExpandedRow, SpecRow, Tenant};
 use agent_sql::{Capability, CatalogType, Id};
 use anyhow::Context;
 use itertools::Itertools;
-use serde_json::value::RawValue;
 use sqlx::types::Uuid;
 use std::collections::{BTreeMap, HashMap};
 
@@ -93,76 +91,6 @@ pub async fn expanded_specifications(
         .context("selecting expanded specs")?;
 
     Ok(expanded_rows)
-}
-
-pub async fn insert_errors(
-    draft_id: Id,
-    errors: Vec<Error>,
-    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> anyhow::Result<()> {
-    for err in errors {
-        agent_sql::publications::insert_error(
-            draft_id,
-            err.scope.unwrap_or(err.catalog_name),
-            err.detail,
-            txn,
-        )
-        .await
-        .context("inserting error")?;
-    }
-    Ok(())
-}
-
-pub fn extend_catalog<'a>(
-    catalog: &mut models::Catalog,
-    it: impl Iterator<Item = (CatalogType, &'a str, &'a RawValue)>,
-) -> Vec<Error> {
-    let mut errors = Vec::new();
-
-    for (catalog_type, catalog_name, spec) in it {
-        let mut on_err = |detail| {
-            errors.push(Error {
-                catalog_name: catalog_name.to_string(),
-                detail,
-                ..Error::default()
-            });
-        };
-
-        match catalog_type {
-            CatalogType::Collection => match serde_json::from_str(spec.get()) {
-                Ok(spec) => {
-                    catalog
-                        .collections
-                        .insert(models::Collection::new(catalog_name), spec);
-                }
-                Err(err) => on_err(format!("invalid collection {catalog_name}: {err:?}")),
-            },
-            CatalogType::Capture => match serde_json::from_str(spec.get()) {
-                Ok(spec) => {
-                    catalog
-                        .captures
-                        .insert(models::Capture::new(catalog_name), spec);
-                }
-                Err(err) => on_err(format!("invalid capture {catalog_name}: {err:?}")),
-            },
-            CatalogType::Materialization => match serde_json::from_str(spec.get()) {
-                Ok(spec) => {
-                    catalog
-                        .materializations
-                        .insert(models::Materialization::new(catalog_name), spec);
-                }
-                Err(err) => on_err(format!("invalid materialization {catalog_name}: {err:?}")),
-            },
-            CatalogType::Test => match serde_json::from_str(spec.get()) {
-                Ok(spec) => {
-                    catalog.tests.insert(models::Test::new(catalog_name), spec);
-                }
-                Err(err) => on_err(format!("invalid test {catalog_name}: {err:?}")),
-            },
-        }
-    }
-
-    errors
 }
 
 pub fn validate_transition(
@@ -439,7 +367,7 @@ pub async fn apply_updates_for_row(
 
     assert!(matches!(user_capability, Some(Capability::Admin)));
 
-    agent_sql::publications::delete_draft_spec(*draft_spec_id, txn)
+    agent_sql::drafts::delete_spec(*draft_spec_id, txn)
         .await
         .context("delete from draft_specs")?;
 
