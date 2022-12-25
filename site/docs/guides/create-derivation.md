@@ -140,8 +140,8 @@ Then, you'll need to add your source collection's specification files to a **dra
 
 3. Add a new collection below the first one.
 
-   * The collection will must have a schema that reflects your desired transformation output.
-     They can be whatever you want, so long as they follow Flow's standard formatting.
+   * The collection must have a schema that reflects your desired transformation output.
+     They can be whatever you want, as long as they follow Flow's standard formatting.
      For help, see the [schemas](../concepts/schemas.md) and [collection key](../concepts/collections.md#keys) documentation.
    * Add the `derivation` stanza. The TypeScript module you name will be generated next, and you'll define the transformation's function there.
 
