@@ -96,7 +96,9 @@ pub use validation::{
 pub mod reduce;
 
 // Documents may be combined.
+#[cfg(feature = "combine")]
 pub mod combine;
+#[cfg(feature = "combine")]
 pub use combine::Combiner;
 
 // Nodes may be packed as FoundationDB tuples.
