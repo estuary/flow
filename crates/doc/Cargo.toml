@@ -18,7 +18,7 @@ fancy-regex = { workspace = true }
 futures = { workspace = true }
 fxhash = { workspace = true }
 itertools = { workspace = true }
-lz4 = { workspace = true }
+lz4 = { workspace = true, optional = true }
 rkyv = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -40,3 +40,8 @@ rand_distr = { workspace = true }
 serde-transcode = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
+
+[features]
+default = ["combine"]
+
+combine = ["lz4"]
