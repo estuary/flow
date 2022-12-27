@@ -1,0 +1,60 @@
+[package]
+name = "flow-web"
+
+# wasm-pack isn't yet fully compatible with workspace inheritance, so we can't use that for these fields
+version = "0.1.0"
+authors = ["Estuary developers  <engineering@estuary.dev>"]
+edition = "2021"
+license = "BSL"
+rust-version = "1.65"
+
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+# Tell `rustc` to optimize for small code size.
+opt-level = "s"
+
+# Also optimize for small code size when building dev/test code. This
+# regretably slows things down, but it works around some potential pitfalls
+# with the default `opt-level = 0`, which can produce WASM functions with more
+# than 50k local variables, which seems to be a common limit. We could probably
+# get away with using `opt-level = 1`, if this is too slow, but I kept it
+# consistent with the release profile for now.
+[profile.dev]
+opt-level = "s"
+
+[features]
+default = ["console_error_panic_hook"]
+
+[dependencies]
+json = { path = "../json" }
+# Disable default-featrues of doc to exclude `combine`, which requires `lz4`, which doesn't currently compile to WASM.
+doc = { path = "../doc", default-features = false }
+
+url = { workspace = true }
+thiserror = { workspace = true }
+wasm-bindgen = { workspace = true }
+js-sys = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde-wasm-bindgen = { workspace = true }
+
+
+# These are optional, since they both have significant impact on the size of the module.
+# `console_error_panic_hook` pulls in the Rust panic machinery to cause any panics to get
+# logged using `console.error`. It is enabled by default.
+console_error_panic_hook = { workspace = true, optional = true }
+# This is a smaller (in terms of compiled code size) allocator that we _might_
+# try to use to keep the WASM module small. It is disabled by default.
+wee_alloc = { workspace = true, optional = true }
+
+# this is not a workspace dependency because it's only a transitive dependency, and it's only included here
+# because we need to enable the "js" feature when building for wasm
+[target.wasm32-unknown-unknown.dependencies]
+getrandom = { version = "0.2", features = ["js"]}
+
+[dev-dependencies]
+wasm-bindgen-test = { workspace = true }
+
