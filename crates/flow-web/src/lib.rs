@@ -1,6 +1,6 @@
 mod utils;
 
-use doc::inference::{Reduction, Shape};
+use doc::inference::{Exists, Reduction, Shape};
 use doc::{Annotation, Schema, SchemaIndexBuilder};
 use json::schema;
 use serde::{Deserialize, Serialize};
@@ -19,7 +19,9 @@ extern "C" {
 
 #[derive(Serialize, Deserialize)]
 pub struct Property {
-    pub name: String,
+    pub name: Option<String>,
+    pub is_pattern_property: bool,
+    pub exists: &'static str,
     pub title: Option<String>,
     pub description: Option<String>,
     pub reduction: &'static str,
@@ -82,7 +84,11 @@ pub fn infer(schema: JsValue) -> Result<JsValue, JsValue> {
         .into_iter()
         .skip(1)
         .map(|(ptr, is_pattern, prop_shape, exists)| {
-            let name = (&ptr[1..]).to_string();
+            let name = if ptr.is_empty() || is_pattern {
+                None
+            } else {
+                Some((&ptr[1..]).to_string())
+            };
             let types = prop_shape.type_.iter().map(|ty| ty.to_string()).collect();
 
             let enum_vals = prop_shape
@@ -93,8 +99,16 @@ pub fn infer(schema: JsValue) -> Result<JsValue, JsValue> {
                 .map(|val| val.clone())
                 .collect();
             let string_format = prop_shape.string.format.as_ref().map(|f| f.to_string());
+            let ex = match exists {
+                Exists::May => "may",
+                Exists::Cannot => "cannot",
+                Exists::Implicit => "implicit",
+                Exists::Must => "must",
+            };
             Property {
                 name,
+                exists: ex,
+                is_pattern_property: is_pattern,
                 title: prop_shape.title.clone(),
                 description: prop_shape.description.clone(),
                 reduction: reduce_description(prop_shape.reduction.clone()),
