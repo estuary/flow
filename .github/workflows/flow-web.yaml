@@ -1,0 +1,50 @@
+name: Flow-web CI
+
+# Controls when the action will run. Triggers the workflow on push
+# or pull request events, but only for the primary branch.
+on:
+  push:
+    branches: [master]
+    paths:
+      - "crates/flow-web/**"
+      - "Cargo.lock"
+  pull_request:
+    branches: [master]
+    paths:
+      - "crates/flow-web/**"
+      - "Cargo.lock"
+
+jobs:
+  buildAndPublish:
+    runs-on: ubuntu-20.04
+    permissions: 
+      contents: read
+      packages: write 
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+
+      - name: Install wasm-bindgen
+        run: |
+          curl -sSL https://github.com/rustwasm/wasm-bindgen/releases/download/0.2.83/wasm-bindgen-0.2.83-x86_64-unknown-linux-musl.tar.gz | tar -zxv
+          mv wasm-bindgen-0.2.83-x86_64-unknown-linux-musl/wasm* ~/.cargo/bin/
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build flow-web
+        run: wasm-pack build --scope estuary crates/flow-web
+
+      - name: Publish flow-web
+        if: ${{ github.ref == 'refs/heads/master' }}
+        run: |
+          cd crates/flow-web/pkg
+          echo '@estuary:registry=https://npm.pkg.github.com' > .npmrc
+          wasm-pack publish --access=public --tag=dev
+
+

@@ -39,6 +39,9 @@ chardetng = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "3.2", features = ["derive", "env"] }
 comfy-table = "6.1"
+# The `console_error_panic_hook` crate causes panics in a Rust WASM module to be logged
+# with `console.error`.
+console_error_panic_hook = { version = "0.1.6" }
 crossterm = "0.25"
 csv = "1.1"
 dirs = "4.0"
@@ -60,6 +63,7 @@ iri-string = "0.6.0"
 jemallocator = "0.3"
 jemalloc-ctl = "0.3"
 json-patch = "0.2"
+js-sys = "0.3.60"
 lazy_static = "1.4"
 libc = "0.2"
 librocksdb-sys = { version = "6.20", default-features = false, features = [
@@ -103,6 +107,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0.85", features = ["raw_value"] }
 serde_yaml = "0.8"
 serde-transcode = "1.1"
+serde-wasm-bindgen = "0.4"
 size = "0.4"
 strsim = "0.10"
 strum = { version = "0.24", features = ["derive"] }
@@ -147,6 +152,11 @@ validator = { version = "0.15", features = ["derive"] }
 quickcheck = "1.0"
 quickcheck_macros = "1.0"
 walkdir = "2"
+wasm-bindgen = "0.2.62"
+# `wee_alloc` is a tiny allocator for wasm that is only ~1K in code size
+# compared to the default allocator's ~10K. It is slower than the default
+# allocator, however. It is an optional dependency for WASM modules.
+wee_alloc = { version = "0.4" }
 yaml-merge-keys = { version = "0.5", features = ["serde_yaml"] }
 zip = "0.5"
 zstd = "0.11.2"
@@ -160,6 +170,7 @@ insta = { version = "1.20", features = ["redactions", "json", "yaml"] }
 rand = { version = "0.8", features = ["small_rng"] }
 rand_distr = { version = "0.4" }
 serial_test = "0.9"
+wasm-bindgen-test = "0.3.13"
 
 # Used exclusively as build-dependencies
 cbindgen = "0.23"
