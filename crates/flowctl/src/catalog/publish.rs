@@ -24,8 +24,7 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
 
     anyhow::ensure!(args.auto_approve || std::io::stdin().is_tty(), "The publish command must be run interactively unless the `--auto-approve` flag is provided");
 
-    let sources = args.source_args.resolve_sources().await?;
-    let catalog = crate::source::bundle(sources).await?;
+    let catalog = crate::source::bundle(&args.source_args).await?;
 
     let draft = draft::create_draft(client.clone()).await?;
     println!("Created draft: {}", &draft.id);

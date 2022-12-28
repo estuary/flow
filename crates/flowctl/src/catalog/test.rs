@@ -8,8 +8,7 @@ use anyhow::Context;
 pub async fn do_test(ctx: &mut CliContext, args: &source::SourceArgs) -> anyhow::Result<()> {
     let client = ctx.controlplane_client()?;
 
-    let sources = args.resolve_sources().await?;
-    let catalog = crate::source::bundle(sources).await?;
+    let catalog = crate::source::bundle(args).await?;
 
     let draft = draft::create_draft(client.clone()).await?;
     println!("Created draft: {}", &draft.id);
