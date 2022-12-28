@@ -1,43 +1,12 @@
-use anyhow::Context;
+use crate::source::SourceArgs;
 use itertools::Itertools;
 use proto_flow::flow;
 use std::collections::BTreeMap;
 use superslice::Ext;
 
-// Bundle a source, given as a local filesystem path or a URL, into a fully inline Catalog.
-pub async fn bundle(
-    sources: impl IntoIterator<Item = impl AsRef<str>>,
-) -> anyhow::Result<models::Catalog> {
-    let loader = sources::Loader::new(tables::Sources::default(), crate::Fetcher {});
-    // Load all catalog sources.
-    for source in sources {
-        let source = source.as_ref();
-        // Resolve source to a canonicalized filesystem path or URL.
-        let source_url = match url::Url::parse(source) {
-            Ok(url) => url,
-            Err(err) => {
-                tracing::debug!(
-                    source = %source,
-                    ?err,
-                    "source is not a URL; assuming it's a filesystem path",
-                );
-                let source = std::fs::canonicalize(source)
-                    .context(format!("finding {source} in the local filesystem"))?;
-                // Safe unwrap since we've canonicalized the path.
-                url::Url::from_file_path(&source).unwrap()
-            }
-        };
-
-        loader
-            .load_resource(
-                sources::Scope::new(&source_url),
-                &source_url,
-                flow::ContentType::Catalog,
-            )
-            .await;
-    }
-
-    let t = loader.into_tables();
+// Bundle a set of sources, given as local filesystem paths or URLs, into a fully inline Catalog.
+pub async fn bundle(source_args: &SourceArgs) -> anyhow::Result<models::Catalog> {
+    let t = source_args.load().await?;
 
     // Bail if errors occurred while resolving sources.
     if !t.errors.is_empty() {

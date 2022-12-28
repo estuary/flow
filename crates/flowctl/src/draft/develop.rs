@@ -278,7 +278,11 @@ pub async fn do_develop(
     )?;
     tracing::info!(%root_catalog_url, "wrote root catalog");
 
-    crate::typescript::do_generate(ctx, &root_catalog_path)
+    let source_args = crate::source::SourceArgs {
+        source: vec![root_catalog_path.display().to_string()],
+        ..Default::default()
+    };
+    crate::typescript::do_generate(ctx, &source_args)
         .await
         .context("generating TypeScript project")?;
 

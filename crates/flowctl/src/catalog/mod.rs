@@ -69,7 +69,7 @@ pub enum Command {
 }
 
 /// Common selection criteria based on the spec name.
-#[derive(Debug, Clone, clap::Args)]
+#[derive(Default, Debug, Clone, clap::Args)]
 pub struct NameSelector {
     /// Select a spec by name. May be provided multiple times.
     #[clap(long)]
@@ -110,7 +110,7 @@ impl NameSelector {
 }
 
 /// Common selection criteria based on the type of catalog item.
-#[derive(Debug, Clone, clap::Args)]
+#[derive(Default, Debug, Clone, clap::Args)]
 pub struct SpecTypeSelector {
     /// Whether to include captures in the selection
     ///
@@ -181,7 +181,7 @@ impl SpecTypeSelector {
     }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CatalogSpecType {
     Capture,
@@ -208,16 +208,29 @@ impl std::convert::AsRef<str> for CatalogSpecType {
     }
 }
 
-#[derive(Debug, clap::Args)]
+#[derive(Default, Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct List {
     /// Include "Reads From" / "Writes To" columns in the output.
     #[clap(short = 'f', long)]
     pub flows: bool,
     #[clap(flatten)]
-    pub prefix_selector: NameSelector,
+    pub name_selector: NameSelector,
     #[clap(flatten)]
     pub type_selector: SpecTypeSelector,
+}
+
+impl List {
+    /// Helper to construct `List` args for a single named catalog entity.
+    pub fn single(name: impl Into<String>) -> List {
+        List {
+            name_selector: NameSelector {
+                name: vec![name.into()],
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
 }
 
 #[derive(Debug, clap::Args)]
@@ -268,7 +281,7 @@ pub async fn fetch_live_specs(
 ) -> anyhow::Result<Vec<LiveSpecRow>> {
     let builder = cp_client.from("live_specs_ext").select(columns.join(","));
     let builder = list.type_selector.add_live_specs_filters(builder);
-    let builder = list.prefix_selector.add_live_specs_filters(builder);
+    let builder = list.name_selector.add_live_specs_filters(builder);
 
     let rows = api_exec(builder).await?;
     Ok(rows)
@@ -289,7 +302,7 @@ pub struct LiveSpecRow {
 }
 
 impl LiveSpecRow {
-    fn parse_spec<T: serde::de::DeserializeOwned>(&self) -> anyhow::Result<T> {
+    pub fn parse_spec<T: serde::de::DeserializeOwned>(&self) -> anyhow::Result<T> {
         let spec = self.spec.as_ref().ok_or_else(|| {
             anyhow::anyhow!("missing spec for catalog item: '{}'", self.catalog_name)
         })?;
