@@ -6,6 +6,7 @@ pub use bundle::bundle;
 pub use unbundle::unbundle;
 
 use anyhow::Context;
+use proto_flow::flow;
 use std::collections::BTreeMap;
 use std::fmt::{self, Display};
 use std::path::PathBuf;
@@ -14,7 +15,7 @@ pub const DEFAULT_SPEC_FILENAME: &str = "flow.yaml";
 
 /// Common arguments for naming a set of sources to be included in an operation such as
 /// `bundle` or `publish`.
-#[derive(Debug, clap::Args)]
+#[derive(Debug, Default, clap::Args)]
 pub struct SourceArgs {
     /// Path or URL to a Flow specificiation file, commonly 'flow.yaml'
     #[clap(long, required_unless_present = "source-dir")]
@@ -54,6 +55,44 @@ impl SourceArgs {
             "no source files were found in any of the given directories"
         );
         Ok(sources)
+    }
+
+    /// Loads all resources identified by the arguments, returning the `tables::Sources`.
+    /// Errors from resolving the initial input sources will be returned directly, but all
+    /// other errors will _only_ be returned as part of the `errors` table. This allows for
+    /// fine grained error handling, or ignoring certain types of errors.
+    pub async fn load(&self) -> anyhow::Result<::tables::Sources> {
+        let sources = self.resolve_sources().await?;
+        let loader = sources::Loader::new(tables::Sources::default(), crate::Fetcher {});
+        // Load all catalog sources.
+        for source in sources {
+            let source = source.as_ref();
+            // Resolve source to a canonicalized filesystem path or URL.
+            let source_url = match url::Url::parse(source) {
+                Ok(url) => url,
+                Err(err) => {
+                    tracing::debug!(
+                        source = %source,
+                        ?err,
+                        "source is not a URL; assuming it's a filesystem path",
+                    );
+                    let source = std::fs::canonicalize(source)
+                        .context(format!("finding {source} in the local filesystem"))?;
+                    // Safe unwrap since we've canonicalized the path.
+                    url::Url::from_file_path(&source).unwrap()
+                }
+            };
+
+            loader
+                .load_resource(
+                    sources::Scope::new(&source_url),
+                    &source_url,
+                    flow::ContentType::Catalog,
+                )
+                .await;
+        }
+
+        Ok(loader.into_tables())
     }
 }
 

@@ -15,9 +15,10 @@ pub enum LoadError {
     URLParse(#[from] url::ParseError),
     #[error("failed to fetch resource {uri}")]
     Fetch {
-        uri: String,
+        uri: Url,
         #[source]
         detail: anyhow::Error,
+        content_type: flow::ContentType,
     },
     #[error("failed to parse configuration document (https://go.estuary.dev/qpSUoq)")]
     ConfigParseErr(#[source] serde_json::Error),
@@ -124,6 +125,23 @@ impl<F: Fetcher> Loader<F> {
         self.tables.into_inner()
     }
 
+    /// Loads a resource from bytes that have already been fetched.
+    pub async fn load_resource_from_bytes<'a>(
+        &'a self,
+        scope: Scope<'a>,
+        resource_url: &Url,
+        content: bytes::Bytes,
+        content_type: flow::ContentType,
+    ) {
+        self.tables
+            .borrow_mut()
+            .fetches
+            .insert_row(scope.resource_depth() as u32, resource_url);
+
+        self.load_resource_content(scope, resource_url, content, content_type)
+            .await;
+    }
+
     /// Load (or re-load) a resource of the given ContentType.
     pub async fn load_resource<'a>(
         &'a self,
@@ -135,8 +153,9 @@ impl<F: Fetcher> Loader<F> {
             self.tables.borrow_mut().errors.insert_row(
                 &scope.flatten(),
                 anyhow::anyhow!(LoadError::Fetch {
-                    uri: resource.to_string(),
+                    uri: resource.clone(),
                     detail: LoadError::ResourceWithFragment.into(),
+                    content_type,
                 }),
             );
             return;
@@ -176,8 +195,9 @@ impl<F: Fetcher> Loader<F> {
                 self.tables.borrow_mut().errors.insert_row(
                     &scope.flatten(),
                     anyhow::anyhow!(LoadError::Fetch {
-                        uri: resource.to_string(),
+                        uri: resource.clone(),
                         detail: err,
+                        content_type,
                     }),
                 );
             }
