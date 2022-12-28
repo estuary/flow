@@ -163,8 +163,7 @@ async fn do_bundle(
     _ctx: &mut crate::CliContext,
     sources: &source::SourceArgs,
 ) -> anyhow::Result<()> {
-    let source_files = sources.resolve_sources().await?;
-    let catalog = crate::source::bundle(source_files.iter().map(String::as_str)).await?;
+    let catalog = crate::source::bundle(sources).await?;
     serde_json::to_writer_pretty(io::stdout(), &catalog)?;
     Ok(())
 }
@@ -203,8 +202,7 @@ async fn do_combine(
 ) -> anyhow::Result<()> {
     let collection = models::Collection::new(collection);
 
-    let sources = source_args.resolve_sources().await?;
-    let catalog = crate::source::bundle(sources).await?;
+    let catalog = crate::source::bundle(source_args).await?;
 
     let Some(models::CollectionDef{schema, read_schema, key, .. }) = catalog.collections.get(&collection) else {
         anyhow::bail!("did not find collection {collection:?} in the source specification");

@@ -29,7 +29,7 @@ pub async fn do_pull_specs(ctx: &mut CliContext, args: &PullSpecs) -> anyhow::Re
 
     let list_args = List {
         flows: true,
-        prefix_selector: args.prefix_selector.clone(),
+        name_selector: args.prefix_selector.clone(),
         type_selector: args.type_selector.clone(),
     };
 
