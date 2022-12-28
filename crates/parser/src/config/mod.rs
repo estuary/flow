@@ -2,7 +2,11 @@ pub mod character_separated;
 pub mod protobuf;
 
 use encoding_rs::Encoding;
-use schemars::{gen, schema as schemagen, JsonSchema};
+use schemars::{
+    gen,
+    schema::{self as schemagen, InstanceType},
+    JsonSchema,
+};
 use serde::{
     de::{self, DeserializeOwned},
     Deserialize, Serialize,
@@ -355,26 +359,13 @@ impl Format {
     /// This function is used by setting `schema_with` on the property in ParseConfig.
     fn schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
         let mut schema = gen.subschema_for::<Format>().into_object();
-        // The UI doesn't handle the case where a schema specifies both `type` and `const`,
-        // and technically it's redundant to have both. So we remove the `type` property from the
-        // `type` of each variant.
-        for subschema in schema.subschemas().one_of.as_mut().unwrap().iter_mut() {
-            if let schemars::schema::Schema::Object(ref mut os) = subschema {
-                let name_schema = os
-                    .object()
-                    .properties
-                    .get_mut("type")
-                    .expect("subschema must have type property");
-                if let schemars::schema::Schema::Object(ref mut name_obj) = name_schema {
-                    name_obj.instance_type = None;
-                }
-            }
-        }
         schema.object().required.insert("type".to_string());
         schema.extensions.insert(
             "discriminator".to_string(),
             serde_json::json!({"propertyName": "type"}),
         );
+        schema.instance_type = Some(InstanceType::Object.into());
+
         schema.into()
     }
 }
