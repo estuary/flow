@@ -29,14 +29,18 @@ pub enum Command {
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct Generate {
+    /// Directory that serves as the root of the project. All relative paths will be resolved relative to this root.
+    /// And Typescript files will be written under the `flow_generated/` directory relative to it.
+    #[clap(long, default_value = ".")]
+    pub root_dir: std::path::PathBuf,
     #[clap(flatten)]
-    source: SourceArgs,
+    pub source: SourceArgs,
 }
 
 impl TypeScript {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> Result<(), anyhow::Error> {
         match &self.cmd {
-            Command::Generate(Generate { source }) => do_generate(ctx, &source).await,
+            Command::Generate(args) => do_generate(ctx, args).await,
         }
     }
 }
@@ -56,11 +60,13 @@ fn is_within_current_dir(cwd: &Path, resource_uri: &url::Url) -> bool {
 
 pub async fn do_generate(
     ctx: &mut crate::CliContext,
-    source_args: &SourceArgs,
+    Generate { root_dir, source }: &Generate,
 ) -> anyhow::Result<()> {
-    let source_tables = source_args.load().await?;
+    tracing::debug!(root_dir = %root_dir.display(), sources = ?source, "generating typescript");
+    let source_tables = source.load().await?;
+    std::fs::create_dir_all(root_dir).context("creating root-dir")?;
 
-    let cwd = std::env::current_dir().context("cannot determine current working directory")?;
+    let cwd = std::fs::canonicalize(root_dir).context("failed to canonicalize root_dir")?;
     // When generating TypeScript, users may reference TypeScript modules under
     // their current directory that don't (yet) exist. Squelch these errors.
     // generate_npm_package() will produce a stub implementation that we'll write out.
@@ -70,7 +76,7 @@ pub async fn do_generate(
     let errors = source_tables.errors
         .iter()
         .filter( |err| {
-            if let Some(sources::LoadError::Fetch { uri, content_type, .. }) = err.error.downcast_ref() {
+            if let Some(sources::LoadError::Fetch { ref uri, content_type, .. }) = err.error.downcast_ref() {
                 if *content_type == flow::ContentType::TypescriptModule && is_within_current_dir(&cwd, uri) {
                     println!("Generating implementation stub for {uri}");
                     false
