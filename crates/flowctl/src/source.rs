@@ -15,7 +15,7 @@ pub const DEFAULT_SPEC_FILENAME: &str = "flow.yaml";
 
 /// Common arguments for naming a set of sources to be included in an operation such as
 /// `bundle` or `publish`.
-#[derive(Debug, Default, clap::Args)]
+#[derive(Debug, clap::Args)]
 pub struct SourceArgs {
     /// Path or URL to a Flow specificiation file, commonly 'flow.yaml'
     #[clap(long, required_unless_present = "source-dir")]
@@ -31,6 +31,17 @@ pub struct SourceArgs {
     /// Follow symlinks when searching for Flow specs with `--source-dir`.
     #[clap(long, requires = "source-dir")]
     pub follow_symlinks: bool,
+}
+
+impl Default for SourceArgs {
+    fn default() -> Self {
+        SourceArgs {
+            source: Vec::new(),
+            source_dir: Vec::new(),
+            max_depth: 20,
+            follow_symlinks: false,
+        }
+    }
 }
 
 impl SourceArgs {

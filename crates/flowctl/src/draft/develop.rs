@@ -1,4 +1,4 @@
-use crate::api_exec;
+use crate::{api_exec, typescript};
 use anyhow::Context;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -279,12 +279,18 @@ pub async fn do_develop(
     tracing::info!(%root_catalog_url, "wrote root catalog");
 
     let source_args = crate::source::SourceArgs {
-        source: vec![root_catalog_path.display().to_string()],
+        source_dir: vec![root_dir.display().to_string()],
         ..Default::default()
     };
-    crate::typescript::do_generate(ctx, &source_args)
-        .await
-        .context("generating TypeScript project")?;
+    typescript::do_generate(
+        ctx,
+        &typescript::Generate {
+            root_dir: root_dir.clone(),
+            source: source_args,
+        },
+    )
+    .await
+    .context("generating TypeScript project")?;
 
     println!("Wrote {rows_len} specifications under {root_catalog_url}.");
     Ok(())
