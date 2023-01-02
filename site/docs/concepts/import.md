@@ -5,8 +5,8 @@ sidebar_position: 7
 
 When you work on a draft Data Flow [using `flowctl draft`](../concepts/flowctl.md#working-with-drafts),
 your Flow specifications may be spread across multiple files.
-For example, a collection **schema** could be stored separately from the **collection** definition,
-or a **derivation** could be stored separately from its **tests**.
+For example, you may have multiple **materializations** that read from collections defined in separate files,
+or you could store a **derivation** separately from its **tests**.
 You might also reference specifications that aren't in your local draft.
 For example, you might create a derivation with a source collection that is not in your local draft.
 
@@ -121,7 +121,7 @@ for example as a target of a capture,
 there must be an _import path_ where either `foo.flow.yaml`
 imports `bar.flow.yaml` or vice versa.
 
-WHen you omit the `import` section, Flow chooses an import path for you.
+When you omit the `import` section, Flow chooses an import path for you.
 When you explicitly include the `import` section, you have more control over the import path.
 
 Import paths can be direct:
