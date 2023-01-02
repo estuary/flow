@@ -517,9 +517,9 @@ var xxx_messageInfo_ApplyResponse proto.InternalMessageInfo
 type TransactionRequest struct {
 	Open                 *TransactionRequest_Open        `protobuf:"bytes,1,opt,name=open,proto3" json:"open,omitempty"`
 	Load                 *TransactionRequest_Load        `protobuf:"bytes,2,opt,name=load,proto3" json:"load,omitempty"`
-	Prepare              *TransactionRequest_Prepare     `protobuf:"bytes,3,opt,name=prepare,proto3" json:"prepare,omitempty"`
+	Flush                *TransactionRequest_Flush       `protobuf:"bytes,3,opt,name=flush,proto3" json:"flush,omitempty"`
 	Store                *TransactionRequest_Store       `protobuf:"bytes,4,opt,name=store,proto3" json:"store,omitempty"`
-	Commit               *TransactionRequest_Commit      `protobuf:"bytes,5,opt,name=commit,proto3" json:"commit,omitempty"`
+	StartCommit          *TransactionRequest_StartCommit `protobuf:"bytes,5,opt,name=start_commit,json=startCommit,proto3" json:"start_commit,omitempty"`
 	Acknowledge          *TransactionRequest_Acknowledge `protobuf:"bytes,6,opt,name=acknowledge,proto3" json:"acknowledge,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}                        `json:"-"`
 	XXX_unrecognized     []byte                          `json:"-"`
@@ -674,27 +674,31 @@ func (m *TransactionRequest_Load) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_TransactionRequest_Load proto.InternalMessageInfo
 
-// Prepare to commit. No further Loads will be sent in this transaction.
-type TransactionRequest_Prepare struct {
+// Flush loads. No further Loads will be sent in this transaction,
+// and the runtime will await the driver's remaining Loaded responses
+// followed by one Flushed response.
+type TransactionRequest_Flush struct {
 	// Flow checkpoint to commit with this transaction.
-	FlowCheckpoint       []byte   `protobuf:"bytes,1,opt,name=flow_checkpoint,json=flowCheckpoint,proto3" json:"flow_checkpoint,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
+	// This is being removed, in favor of instead sending
+	// StartCommit.runtime_checkpoint
+	DeprecatedRuntimeCheckpoint []byte   `protobuf:"bytes,1,opt,name=deprecated_runtime_checkpoint,json=deprecatedRuntimeCheckpoint,proto3" json:"deprecated_runtime_checkpoint,omitempty"`
+	XXX_NoUnkeyedLiteral        struct{} `json:"-"`
+	XXX_unrecognized            []byte   `json:"-"`
+	XXX_sizecache               int32    `json:"-"`
 }
 
-func (m *TransactionRequest_Prepare) Reset()         { *m = TransactionRequest_Prepare{} }
-func (m *TransactionRequest_Prepare) String() string { return proto.CompactTextString(m) }
-func (*TransactionRequest_Prepare) ProtoMessage()    {}
-func (*TransactionRequest_Prepare) Descriptor() ([]byte, []int) {
+func (m *TransactionRequest_Flush) Reset()         { *m = TransactionRequest_Flush{} }
+func (m *TransactionRequest_Flush) String() string { return proto.CompactTextString(m) }
+func (*TransactionRequest_Flush) ProtoMessage()    {}
+func (*TransactionRequest_Flush) Descriptor() ([]byte, []int) {
 	return fileDescriptor_3e8b62b327f34bc6, []int{7, 2}
 }
-func (m *TransactionRequest_Prepare) XXX_Unmarshal(b []byte) error {
+func (m *TransactionRequest_Flush) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *TransactionRequest_Prepare) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *TransactionRequest_Flush) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_TransactionRequest_Prepare.Marshal(b, m, deterministic)
+		return xxx_messageInfo_TransactionRequest_Flush.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -704,17 +708,17 @@ func (m *TransactionRequest_Prepare) XXX_Marshal(b []byte, deterministic bool) (
 		return b[:n], nil
 	}
 }
-func (m *TransactionRequest_Prepare) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TransactionRequest_Prepare.Merge(m, src)
+func (m *TransactionRequest_Flush) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TransactionRequest_Flush.Merge(m, src)
 }
-func (m *TransactionRequest_Prepare) XXX_Size() int {
+func (m *TransactionRequest_Flush) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *TransactionRequest_Prepare) XXX_DiscardUnknown() {
-	xxx_messageInfo_TransactionRequest_Prepare.DiscardUnknown(m)
+func (m *TransactionRequest_Flush) XXX_DiscardUnknown() {
+	xxx_messageInfo_TransactionRequest_Flush.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_TransactionRequest_Prepare proto.InternalMessageInfo
+var xxx_messageInfo_TransactionRequest_Flush proto.InternalMessageInfo
 
 // Store documents of this transaction commit.
 type TransactionRequest_Store struct {
@@ -769,25 +773,27 @@ func (m *TransactionRequest_Store) XXX_DiscardUnknown() {
 var xxx_messageInfo_TransactionRequest_Store proto.InternalMessageInfo
 
 // Mark the end of the Store phase, and if the remote store is authoritative,
-// instruct it to commit its transaction.
-type TransactionRequest_Commit struct {
+// instruct it to start committing its transaction.
+type TransactionRequest_StartCommit struct {
+	// Flow runtime checkpoint to commit with this transaction.
+	RuntimeCheckpoint    []byte   `protobuf:"bytes,1,opt,name=runtime_checkpoint,json=runtimeCheckpoint,proto3" json:"runtime_checkpoint,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *TransactionRequest_Commit) Reset()         { *m = TransactionRequest_Commit{} }
-func (m *TransactionRequest_Commit) String() string { return proto.CompactTextString(m) }
-func (*TransactionRequest_Commit) ProtoMessage()    {}
-func (*TransactionRequest_Commit) Descriptor() ([]byte, []int) {
+func (m *TransactionRequest_StartCommit) Reset()         { *m = TransactionRequest_StartCommit{} }
+func (m *TransactionRequest_StartCommit) String() string { return proto.CompactTextString(m) }
+func (*TransactionRequest_StartCommit) ProtoMessage()    {}
+func (*TransactionRequest_StartCommit) Descriptor() ([]byte, []int) {
 	return fileDescriptor_3e8b62b327f34bc6, []int{7, 4}
 }
-func (m *TransactionRequest_Commit) XXX_Unmarshal(b []byte) error {
+func (m *TransactionRequest_StartCommit) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *TransactionRequest_Commit) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *TransactionRequest_StartCommit) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_TransactionRequest_Commit.Marshal(b, m, deterministic)
+		return xxx_messageInfo_TransactionRequest_StartCommit.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -797,17 +803,17 @@ func (m *TransactionRequest_Commit) XXX_Marshal(b []byte, deterministic bool) ([
 		return b[:n], nil
 	}
 }
-func (m *TransactionRequest_Commit) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TransactionRequest_Commit.Merge(m, src)
+func (m *TransactionRequest_StartCommit) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TransactionRequest_StartCommit.Merge(m, src)
 }
-func (m *TransactionRequest_Commit) XXX_Size() int {
+func (m *TransactionRequest_StartCommit) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *TransactionRequest_Commit) XXX_DiscardUnknown() {
-	xxx_messageInfo_TransactionRequest_Commit.DiscardUnknown(m)
+func (m *TransactionRequest_StartCommit) XXX_DiscardUnknown() {
+	xxx_messageInfo_TransactionRequest_StartCommit.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_TransactionRequest_Commit proto.InternalMessageInfo
+var xxx_messageInfo_TransactionRequest_StartCommit proto.InternalMessageInfo
 
 // Notify the driver that the previous transaction has committed to the Flow
 // runtime's recovery log.
@@ -856,14 +862,16 @@ var xxx_messageInfo_TransactionRequest_Acknowledge proto.InternalMessageInfo
 type TransactionResponse struct {
 	Opened *TransactionResponse_Opened `protobuf:"bytes,1,opt,name=opened,proto3" json:"opened,omitempty"`
 	Loaded *TransactionResponse_Loaded `protobuf:"bytes,2,opt,name=loaded,proto3" json:"loaded,omitempty"`
-	// Prepared responds to a TransactionRequest.Prepare of the client.
-	// No further Loaded responses will be sent.
-	Prepared             *flow.DriverCheckpoint               `protobuf:"bytes,3,opt,name=prepared,proto3" json:"prepared,omitempty"`
-	DriverCommitted      *TransactionResponse_DriverCommitted `protobuf:"bytes,4,opt,name=driver_committed,json=driverCommitted,proto3" json:"driver_committed,omitempty"`
-	Acknowledged         *TransactionResponse_Acknowledged    `protobuf:"bytes,5,opt,name=acknowledged,proto3" json:"acknowledged,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}                             `json:"-"`
-	XXX_unrecognized     []byte                               `json:"-"`
-	XXX_sizecache        int32                                `json:"-"`
+	// Flushed responds to a TransactionRequest.Flush of the client.
+	// The driver will send no further Loaded responses.
+	// The DriverCheckpoint body is being deprecated and will be
+	// replaced with an empty message Flushed{}.
+	Flushed              *flow.DriverCheckpoint             `protobuf:"bytes,3,opt,name=flushed,proto3" json:"flushed,omitempty"`
+	StartedCommit        *TransactionResponse_StartedCommit `protobuf:"bytes,4,opt,name=started_commit,json=startedCommit,proto3" json:"started_commit,omitempty"`
+	Acknowledged         *TransactionResponse_Acknowledged  `protobuf:"bytes,5,opt,name=acknowledged,proto3" json:"acknowledged,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                           `json:"-"`
+	XXX_unrecognized     []byte                             `json:"-"`
+	XXX_sizecache        int32                              `json:"-"`
 }
 
 func (m *TransactionResponse) Reset()         { *m = TransactionResponse{} }
@@ -901,14 +909,14 @@ var xxx_messageInfo_TransactionResponse proto.InternalMessageInfo
 
 // Opened responds to TransactionRequest.Open of the client.
 type TransactionResponse_Opened struct {
-	// Flow checkpoint to begin processing from.
+	// Flow runtime checkpoint to begin processing from.
 	// If empty, the most recent checkpoint of the Flow recovery log is used.
 	//
 	// Or, a driver may send the value []byte{0xf8, 0xff, 0xff, 0xff, 0xf, 0x1}
 	// to explicitly begin processing from a zero-valued checkpoint, effectively
 	// rebuilding the materialization from scratch. This sentinel is a trivial
 	// encoding of the max-value 2^29-1 protobuf tag with boolean true.
-	FlowCheckpoint       []byte   `protobuf:"bytes,1,opt,name=flow_checkpoint,json=flowCheckpoint,proto3" json:"flow_checkpoint,omitempty"`
+	RuntimeCheckpoint    []byte   `protobuf:"bytes,1,opt,name=runtime_checkpoint,json=runtimeCheckpoint,proto3" json:"runtime_checkpoint,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
@@ -997,32 +1005,29 @@ func (m *TransactionResponse_Loaded) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_TransactionResponse_Loaded proto.InternalMessageInfo
 
-// Mark the end of the Store phase, indicating that all documents have been
-// fully stored.
-//
-// If the remote store is authoritative, tell the Flow runtime that it has
-// committed.
-//
-// If the recovery log is authoritative, DriverCommitted is sent but no actual
-// transactional driver commit is performed.
-type TransactionResponse_DriverCommitted struct {
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
+// StartedCommit responds to a TransactionRequest.StartCommit of the client.
+// The driver has processed all Store requests, it has started to commit its
+// transaction (if it has one), and it is now ready for the runtime to start
+// committing to its own recovery log.
+type TransactionResponse_StartedCommit struct {
+	DriverCheckpoint     *flow.DriverCheckpoint `protobuf:"bytes,1,opt,name=driver_checkpoint,json=driverCheckpoint,proto3" json:"driver_checkpoint,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}               `json:"-"`
+	XXX_unrecognized     []byte                 `json:"-"`
+	XXX_sizecache        int32                  `json:"-"`
 }
 
-func (m *TransactionResponse_DriverCommitted) Reset()         { *m = TransactionResponse_DriverCommitted{} }
-func (m *TransactionResponse_DriverCommitted) String() string { return proto.CompactTextString(m) }
-func (*TransactionResponse_DriverCommitted) ProtoMessage()    {}
-func (*TransactionResponse_DriverCommitted) Descriptor() ([]byte, []int) {
+func (m *TransactionResponse_StartedCommit) Reset()         { *m = TransactionResponse_StartedCommit{} }
+func (m *TransactionResponse_StartedCommit) String() string { return proto.CompactTextString(m) }
+func (*TransactionResponse_StartedCommit) ProtoMessage()    {}
+func (*TransactionResponse_StartedCommit) Descriptor() ([]byte, []int) {
 	return fileDescriptor_3e8b62b327f34bc6, []int{8, 2}
 }
-func (m *TransactionResponse_DriverCommitted) XXX_Unmarshal(b []byte) error {
+func (m *TransactionResponse_StartedCommit) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *TransactionResponse_DriverCommitted) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *TransactionResponse_StartedCommit) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_TransactionResponse_DriverCommitted.Marshal(b, m, deterministic)
+		return xxx_messageInfo_TransactionResponse_StartedCommit.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -1032,24 +1037,24 @@ func (m *TransactionResponse_DriverCommitted) XXX_Marshal(b []byte, deterministi
 		return b[:n], nil
 	}
 }
-func (m *TransactionResponse_DriverCommitted) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TransactionResponse_DriverCommitted.Merge(m, src)
+func (m *TransactionResponse_StartedCommit) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TransactionResponse_StartedCommit.Merge(m, src)
 }
-func (m *TransactionResponse_DriverCommitted) XXX_Size() int {
+func (m *TransactionResponse_StartedCommit) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *TransactionResponse_DriverCommitted) XXX_DiscardUnknown() {
-	xxx_messageInfo_TransactionResponse_DriverCommitted.DiscardUnknown(m)
+func (m *TransactionResponse_StartedCommit) XXX_DiscardUnknown() {
+	xxx_messageInfo_TransactionResponse_StartedCommit.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_TransactionResponse_DriverCommitted proto.InternalMessageInfo
+var xxx_messageInfo_TransactionResponse_StartedCommit proto.InternalMessageInfo
 
-// Notify the Flow runtime of receipt of it's confirmation that the
-// Flow recovery log has committed.
+// Notify the runtime that the previous driver transaction has committed
+// to the endpoint store (where applicable). On receipt, the runtime may
+// begin to flush, store, and commit a next (pipelined) transaction.
 //
-// If the driver utilizes staged data which is idempotently applied,
-// it must apply staged data of the commit at this time, and respond
-// with Acknowledged only once that's completed.
+// Acknowledged is _not_ a direct response to TransactionRequest.Acknowledge,
+// and Acknowledge vs Acknowledged may be written in either order.
 type TransactionResponse_Acknowledged struct {
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -1235,14 +1240,14 @@ func init() {
 	proto.RegisterType((*TransactionRequest)(nil), "materialize.TransactionRequest")
 	proto.RegisterType((*TransactionRequest_Open)(nil), "materialize.TransactionRequest.Open")
 	proto.RegisterType((*TransactionRequest_Load)(nil), "materialize.TransactionRequest.Load")
-	proto.RegisterType((*TransactionRequest_Prepare)(nil), "materialize.TransactionRequest.Prepare")
+	proto.RegisterType((*TransactionRequest_Flush)(nil), "materialize.TransactionRequest.Flush")
 	proto.RegisterType((*TransactionRequest_Store)(nil), "materialize.TransactionRequest.Store")
-	proto.RegisterType((*TransactionRequest_Commit)(nil), "materialize.TransactionRequest.Commit")
+	proto.RegisterType((*TransactionRequest_StartCommit)(nil), "materialize.TransactionRequest.StartCommit")
 	proto.RegisterType((*TransactionRequest_Acknowledge)(nil), "materialize.TransactionRequest.Acknowledge")
 	proto.RegisterType((*TransactionResponse)(nil), "materialize.TransactionResponse")
 	proto.RegisterType((*TransactionResponse_Opened)(nil), "materialize.TransactionResponse.Opened")
 	proto.RegisterType((*TransactionResponse_Loaded)(nil), "materialize.TransactionResponse.Loaded")
-	proto.RegisterType((*TransactionResponse_DriverCommitted)(nil), "materialize.TransactionResponse.DriverCommitted")
+	proto.RegisterType((*TransactionResponse_StartedCommit)(nil), "materialize.TransactionResponse.StartedCommit")
 	proto.RegisterType((*TransactionResponse_Acknowledged)(nil), "materialize.TransactionResponse.Acknowledged")
 	proto.RegisterType((*Extra)(nil), "materialize.Extra")
 	proto.RegisterType((*Extra_ValidateExistingProjectionRequest)(nil), "materialize.Extra.ValidateExistingProjectionRequest")
@@ -1255,106 +1260,109 @@ func init() {
 }
 
 var fileDescriptor_3e8b62b327f34bc6 = []byte{
-	// 1584 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xcc, 0x57, 0xcb, 0x73, 0xdb, 0x54,
-	0x17, 0xaf, 0xfc, 0x4a, 0x7c, 0xe4, 0xc4, 0xce, 0x6d, 0xbe, 0xd6, 0xd5, 0x97, 0x2f, 0x49, 0xfd,
-	0x51, 0x9a, 0xa1, 0x53, 0x27, 0x75, 0x67, 0x4a, 0x1f, 0x43, 0xc1, 0xaf, 0x30, 0x81, 0x24, 0x4e,
-	0xaf, 0x93, 0xc2, 0xc0, 0xc2, 0xa3, 0x48, 0x37, 0x8e, 0x6a, 0x45, 0x12, 0x92, 0xdc, 0xd6, 0x6c,
-	0xd8, 0x95, 0x19, 0x16, 0x2c, 0xd8, 0xc0, 0x86, 0xa1, 0xc3, 0x9f, 0xc2, 0xaa, 0x4b, 0x86, 0x3f,
-	0x20, 0x40, 0x59, 0xb2, 0xea, 0xb6, 0x2b, 0xe6, 0x3e, 0x64, 0x4b, 0x89, 0x13, 0x1b, 0x98, 0x32,
-	0x6c, 0x32, 0xbe, 0xe7, 0x9e, 0xdf, 0x4f, 0xf7, 0x3c, 0xee, 0xef, 0x9e, 0xc0, 0x1b, 0x6d, 0x7b,
-	0xd9, 0x71, 0x6d, 0xdf, 0xd6, 0x6c, 0xd3, 0x5b, 0x3e, 0x50, 0x7d, 0xe2, 0x1a, 0xaa, 0x69, 0x7c,
-	0x4a, 0xc2, 0xbf, 0x8b, 0xcc, 0x03, 0xc9, 0x21, 0x93, 0x32, 0x17, 0x01, 0xee, 0x99, 0xf6, 0x23,
-	0xf6, 0x87, 0xbb, 0x2a, 0xb3, 0x6d, 0xbb, 0x6d, 0xb3, 0x9f, 0xcb, 0xf4, 0x17, 0xb7, 0x16, 0x7e,
-	0x91, 0x00, 0xaa, 0xb6, 0xe5, 0xf9, 0xae, 0x6a, 0x58, 0x3e, 0x5a, 0x81, 0x84, 0xdf, 0x73, 0x48,
-	0x3e, 0xb6, 0x28, 0x2d, 0x4d, 0x97, 0xe6, 0x8a, 0xe1, 0x2f, 0x0e, 0xdc, 0x8a, 0xdb, 0x3d, 0x87,
-	0x60, 0xe6, 0x89, 0xce, 0x41, 0xca, 0x25, 0xaa, 0x67, 0x5b, 0xf9, 0xf8, 0xa2, 0xb4, 0x94, 0xc6,
-	0x62, 0x55, 0xf8, 0x5c, 0x82, 0x04, 0x75, 0x43, 0x08, 0xa6, 0x57, 0xd7, 0xea, 0xeb, 0xb5, 0x16,
-	0xae, 0xdf, 0xdb, 0x59, 0xc3, 0xf5, 0x5a, 0xee, 0x0c, 0xfa, 0x0f, 0xcc, 0xac, 0x37, 0xaa, 0xe5,
-	0xed, 0xb5, 0xc6, 0xe6, 0xc0, 0x2c, 0xa1, 0x3c, 0xcc, 0x86, 0xcc, 0xd5, 0xc6, 0xc6, 0x46, 0x7d,
-	0xb3, 0x56, 0xaf, 0xe5, 0x62, 0x03, 0x92, 0xc6, 0x16, 0xdd, 0x2d, 0xaf, 0xe7, 0xe2, 0xe8, 0x2c,
-	0x64, 0xb9, 0x6d, 0xb5, 0x81, 0x2b, 0x6b, 0xb5, 0x5a, 0x7d, 0x33, 0x97, 0x40, 0x33, 0x30, 0xb5,
-	0xb3, 0xd9, 0x2c, 0x6f, 0xaf, 0x35, 0x57, 0xd7, 0xca, 0x95, 0xf5, 0x7a, 0x2e, 0x59, 0xf8, 0x52,
-	0x02, 0xb9, 0xe9, 0x10, 0x0d, 0x93, 0x4f, 0xba, 0xc4, 0xf3, 0xd1, 0x9b, 0x30, 0x45, 0x2c, 0xdd,
-	0xb1, 0x0d, 0xcb, 0x6f, 0xb1, 0x60, 0x25, 0x16, 0x2c, 0x2a, 0xb2, 0x64, 0xd5, 0xc5, 0x16, 0x0b,
-	0x31, 0x43, 0x42, 0x2b, 0xb4, 0x0a, 0xa8, 0x0f, 0xf4, 0x1c, 0xa2, 0xb5, 0x1e, 0xd0, 0xb0, 0x69,
-	0xaa, 0xd2, 0x95, 0xb9, 0x97, 0x87, 0x0b, 0x79, 0x62, 0x69, 0xb6, 0x6e, 0x58, 0xed, 0x65, 0xba,
-	0x51, 0xc4, 0xea, 0xa3, 0x0d, 0xe2, 0x79, 0x6a, 0x3b, 0xc4, 0x43, 0xcf, 0x51, 0xf8, 0x26, 0x06,
-	0x19, 0x7e, 0x20, 0xcf, 0xb1, 0x2d, 0x8f, 0xa0, 0x26, 0x5c, 0x88, 0x12, 0x7b, 0xda, 0x3e, 0x39,
-	0x50, 0x39, 0xbf, 0x34, 0x06, 0x3f, 0x0a, 0xf3, 0x37, 0x19, 0x98, 0x92, 0xba, 0xc4, 0xb3, 0xbb,
-	0xae, 0x46, 0x8e, 0x93, 0x8e, 0x73, 0x68, 0x14, 0xc0, 0x43, 0xa4, 0x57, 0x60, 0x46, 0xb7, 0xb5,
-	0xee, 0x01, 0xb1, 0x7c, 0xd5, 0x37, 0x6c, 0xab, 0xd5, 0x75, 0x4d, 0x51, 0xf8, 0x5c, 0x64, 0x63,
-	0xc7, 0x35, 0xd1, 0x35, 0x90, 0x6d, 0xb5, 0xeb, 0xef, 0x97, 0xd8, 0xf7, 0xf3, 0x89, 0x45, 0x69,
-	0x49, 0x2e, 0xe5, 0x78, 0x9a, 0x1b, 0x65, 0xba, 0xc1, 0xb2, 0x00, 0xdc, 0x89, 0xa5, 0xe6, 0xab,
-	0x24, 0x64, 0xef, 0xab, 0xa6, 0xa1, 0xab, 0x3e, 0x09, 0xea, 0xd5, 0x86, 0xec, 0xa0, 0x0d, 0x19,
-	0xb9, 0xc8, 0xc9, 0x5b, 0x2f, 0x0f, 0x17, 0x6e, 0xb5, 0x0d, 0x7f, 0xbf, 0xbb, 0x5b, 0xd4, 0xec,
-	0x83, 0x65, 0xe2, 0xf9, 0x5d, 0xd5, 0xed, 0xf1, 0xce, 0x3f, 0x76, 0x17, 0x8a, 0x1b, 0x51, 0x12,
-	0x7c, 0x94, 0xf5, 0x78, 0x63, 0xc4, 0xfe, 0x56, 0x63, 0xc4, 0xff, 0x6c, 0x63, 0xa0, 0x77, 0x60,
-	0x72, 0xd7, 0xb0, 0xa8, 0xa3, 0x97, 0x4f, 0x2c, 0xc6, 0x97, 0xe4, 0xd2, 0x6b, 0x91, 0x1b, 0x78,
-	0x24, 0x33, 0xc5, 0x0a, 0x77, 0xc6, 0x7d, 0x94, 0xf2, 0x53, 0x0c, 0x26, 0x84, 0x95, 0x9e, 0x2a,
-	0xda, 0x00, 0x63, 0xb7, 0x53, 0x26, 0x5c, 0x79, 0x74, 0x1b, 0x40, 0xb3, 0x4d, 0x93, 0x68, 0x2c,
-	0xf5, 0x31, 0x56, 0xc5, 0x59, 0x9e, 0x93, 0x6a, 0xdf, 0x4e, 0x3d, 0x2b, 0x89, 0x67, 0x87, 0x0b,
-	0x67, 0x70, 0xc8, 0x1b, 0x7d, 0x06, 0x33, 0x7b, 0x06, 0x31, 0xf5, 0x96, 0x66, 0x5b, 0x7b, 0x46,
-	0x3b, 0x48, 0x0c, 0x0d, 0xed, 0xd6, 0x38, 0xa1, 0x15, 0x57, 0x29, 0xba, 0xca, 0xc0, 0xef, 0x79,
-	0xb6, 0x55, 0xb7, 0x7c, 0xb7, 0x57, 0x99, 0xfb, 0xe2, 0xe7, 0x53, 0x4e, 0x2f, 0xef, 0x0d, 0x30,
-	0x4a, 0x05, 0x66, 0x87, 0x51, 0xa0, 0x1c, 0xc4, 0x3b, 0xa4, 0xc7, 0xb3, 0x81, 0xe9, 0x4f, 0x34,
-	0x0b, 0xc9, 0x87, 0xaa, 0xd9, 0xe5, 0x55, 0x4f, 0x63, 0xbe, 0xb8, 0x1d, 0xbb, 0x29, 0x15, 0x0e,
-	0x63, 0x90, 0x1b, 0x9c, 0x4f, 0xdc, 0xd9, 0x72, 0xa8, 0x56, 0x12, 0x0b, 0xe8, 0xd2, 0x09, 0x01,
-	0x71, 0xc0, 0x90, 0x62, 0x3d, 0x09, 0x15, 0xeb, 0x43, 0x90, 0xb5, 0xbe, 0xbe, 0x06, 0x8c, 0x37,
-	0xc6, 0x62, 0x0c, 0x09, 0xb3, 0xc7, 0x82, 0xc3, 0x61, 0x2a, 0xf4, 0x7f, 0x98, 0xea, 0xb7, 0x81,
-	0xa3, 0xfa, 0xfb, 0xf9, 0xd8, 0x62, 0x7c, 0x29, 0x3d, 0xa8, 0xf1, 0x96, 0xea, 0xef, 0x53, 0x27,
-	0x9d, 0x98, 0xbe, 0xda, 0xea, 0x3a, 0xf4, 0x13, 0x1e, 0x6b, 0xde, 0x49, 0x9c, 0x61, 0xc6, 0x1d,
-	0x6e, 0x53, 0x3e, 0x80, 0xdc, 0xd1, 0x4f, 0x0d, 0xc9, 0xe3, 0xd5, 0x70, 0x1e, 0xe5, 0xd2, 0xf9,
-	0x13, 0xde, 0x90, 0x70, 0x82, 0x9f, 0x48, 0x90, 0x29, 0x3b, 0x8e, 0xd9, 0x0b, 0xae, 0x7c, 0x75,
-	0xf8, 0x95, 0x97, 0x4b, 0x17, 0x8a, 0xc3, 0xae, 0x32, 0x93, 0x91, 0x63, 0xd7, 0x39, 0x0f, 0x13,
-	0x0f, 0x89, 0xeb, 0x05, 0x4d, 0x9b, 0xc6, 0xc1, 0x12, 0x9d, 0x87, 0x09, 0xdd, 0xed, 0xb5, 0xdc,
-	0xae, 0x25, 0xe2, 0x4c, 0xe9, 0x6e, 0x0f, 0x77, 0xad, 0xc2, 0x5d, 0x98, 0x12, 0xe7, 0x10, 0x55,
-	0xbe, 0x0a, 0x48, 0x65, 0x9d, 0xdc, 0xd2, 0x89, 0xa7, 0xb9, 0x86, 0x33, 0x90, 0x1f, 0x3c, 0xc3,
-	0x77, 0x6a, 0x83, 0x8d, 0xc2, 0xd7, 0x69, 0x40, 0xdb, 0xae, 0x6a, 0x79, 0x7c, 0x2b, 0x08, 0xe7,
-	0x26, 0x24, 0x6c, 0x87, 0x04, 0x31, 0x44, 0xef, 0xf4, 0x71, 0xf7, 0x62, 0xc3, 0x21, 0x16, 0x66,
-	0x08, 0x8a, 0x34, 0x6d, 0x55, 0x17, 0xb9, 0x1c, 0x89, 0x5c, 0xb7, 0x55, 0x1d, 0x33, 0x04, 0x2a,
-	0xc3, 0x84, 0xe3, 0x12, 0x47, 0x75, 0x09, 0x8b, 0x51, 0x2e, 0x5d, 0x1e, 0x05, 0xde, 0xe2, 0xee,
-	0x38, 0xc0, 0xa1, 0x3b, 0x90, 0xf4, 0x7c, 0xdb, 0x25, 0x42, 0xb9, 0x2f, 0x8d, 0x22, 0x68, 0x52,
-	0x67, 0xcc, 0x31, 0xe8, 0x2e, 0xa4, 0x34, 0xfb, 0xe0, 0xc0, 0xf0, 0xf3, 0x49, 0x86, 0x7e, 0x7d,
-	0x14, 0xba, 0xca, 0xbc, 0xb1, 0x40, 0xa1, 0x0d, 0x90, 0x55, 0xad, 0x63, 0xd9, 0x8f, 0x4c, 0xa2,
-	0xb7, 0x49, 0x3e, 0xc5, 0x48, 0xae, 0x8c, 0x22, 0x29, 0x0f, 0x20, 0x38, 0x8c, 0x57, 0x7e, 0x97,
-	0x20, 0x41, 0xf3, 0xfa, 0xaa, 0x5b, 0xeb, 0xbf, 0x90, 0xee, 0x90, 0x5e, 0x6b, 0x97, 0xb4, 0x0d,
-	0xde, 0x5c, 0x13, 0x78, 0xb2, 0x43, 0x7a, 0x15, 0xba, 0xa6, 0x7d, 0x47, 0x37, 0x89, 0xa5, 0xb3,
-	0x94, 0x4e, 0xe0, 0x54, 0x87, 0xf4, 0xea, 0x96, 0x8e, 0x36, 0xe1, 0x9c, 0xee, 0x1a, 0x0f, 0x89,
-	0xdb, 0xd2, 0xf6, 0x89, 0xd6, 0xe1, 0x2f, 0x09, 0xd3, 0x4a, 0x9a, 0xbc, 0xcc, 0x08, 0xb9, 0xce,
-	0x71, 0x6c, 0xb5, 0x0f, 0x55, 0xbe, 0x93, 0x20, 0x41, 0x7b, 0x81, 0x1e, 0x54, 0xc8, 0x0d, 0x8b,
-	0x72, 0x0a, 0x07, 0x4b, 0xb4, 0x06, 0x49, 0xd5, 0x25, 0x96, 0xca, 0x02, 0xc8, 0x54, 0xae, 0xbf,
-	0x3c, 0x5c, 0x58, 0x1e, 0xff, 0x2d, 0x2d, 0x53, 0x28, 0xe6, 0x0c, 0xa8, 0x04, 0xb2, 0xa3, 0x6a,
-	0x1d, 0xa2, 0xb7, 0x3a, 0xa4, 0xe7, 0x09, 0x79, 0x97, 0x79, 0x3a, 0x9b, 0xa6, 0xa1, 0x91, 0xe0,
-	0x61, 0xe0, 0x5e, 0xef, 0x93, 0x9e, 0xa7, 0x94, 0x60, 0x42, 0xf4, 0x1b, 0xba, 0x0c, 0x59, 0xea,
-	0x1a, 0x0a, 0x9d, 0x9d, 0x35, 0x83, 0xa7, 0xa9, 0x39, 0x14, 0xd5, 0xd3, 0x18, 0x24, 0x59, 0x8f,
-	0xfd, 0x6b, 0xc3, 0x42, 0x37, 0x60, 0x4a, 0x60, 0x98, 0xba, 0x05, 0xcf, 0xf8, 0x10, 0x54, 0x86,
-	0xfb, 0xdd, 0x67, 0x6e, 0xa8, 0x08, 0x69, 0xdd, 0xd6, 0xbc, 0xa0, 0xe6, 0x27, 0x60, 0x26, 0xa9,
-	0x0f, 0x7d, 0xc3, 0xe8, 0xd4, 0x4d, 0x1e, 0x1b, 0x9e, 0xef, 0xe5, 0x53, 0x8b, 0x71, 0x2a, 0x60,
-	0x7c, 0xa5, 0x4c, 0x42, 0x8a, 0xdf, 0x23, 0x65, 0x0a, 0xe4, 0xd0, 0x65, 0x28, 0xbc, 0x48, 0xc0,
-	0xd9, 0xc8, 0x7d, 0x11, 0x02, 0xf7, 0x36, 0xa4, 0xa8, 0xd0, 0x10, 0x5d, 0xdc, 0x82, 0x53, 0x54,
-	0x42, 0xbc, 0x3a, 0x0d, 0xe6, 0x8e, 0x05, 0x8c, 0x12, 0x50, 0xbd, 0x21, 0x81, 0x46, 0x8d, 0x26,
-	0x58, 0x67, 0xee, 0x58, 0xc0, 0x50, 0x09, 0x26, 0x85, 0xe0, 0xe8, 0x42, 0xa9, 0xce, 0xf1, 0xc8,
-	0x6b, 0x47, 0xba, 0x1a, 0xf7, 0xfd, 0xd0, 0xc7, 0x90, 0x0b, 0xee, 0x0b, 0x8b, 0xd6, 0x27, 0xba,
-	0x10, 0xa9, 0x95, 0x91, 0x9f, 0x17, 0xb4, 0x01, 0x0e, 0x67, 0xf5, 0xa8, 0x01, 0xdd, 0x83, 0x4c,
-	0x48, 0x39, 0x74, 0xa1, 0x5f, 0x57, 0x47, 0x12, 0x87, 0xd2, 0xad, 0xe3, 0x08, 0x85, 0x72, 0x0d,
-	0x52, 0x3c, 0x6d, 0xe3, 0x37, 0xfb, 0xb7, 0x12, 0xa4, 0x78, 0xa6, 0xfe, 0x99, 0x6e, 0x8f, 0x74,
-	0x60, 0x7c, 0x64, 0x07, 0x2a, 0x33, 0x90, 0x3d, 0x92, 0x49, 0x65, 0x1a, 0x32, 0xe1, 0x1c, 0x14,
-	0x5e, 0xc4, 0x21, 0x59, 0x7f, 0xec, 0xbb, 0xaa, 0xf2, 0x83, 0x04, 0x17, 0x83, 0xf1, 0xa5, 0x4e,
-	0x3b, 0xd5, 0xb0, 0xda, 0x5b, 0xae, 0xfd, 0x80, 0x44, 0x9e, 0xc9, 0x75, 0xc8, 0x11, 0xb1, 0xd9,
-	0x0a, 0x07, 0x2c, 0x97, 0x2e, 0x9e, 0xa8, 0xcd, 0xfd, 0xb1, 0x2a, 0x1b, 0x40, 0x83, 0x89, 0xaa,
-	0x01, 0x39, 0xc7, 0xb5, 0x1d, 0xdb, 0x23, 0x7a, 0x9f, 0x6d, 0xd8, 0x33, 0x7a, 0xd2, 0x50, 0x9d,
-	0x0d, 0xd0, 0xc2, 0xa0, 0x7c, 0x1f, 0x1b, 0x04, 0x21, 0x6c, 0xe5, 0xb6, 0x6a, 0x58, 0x9e, 0x1f,
-	0x9a, 0x8a, 0xd0, 0x9d, 0x68, 0xb1, 0xc6, 0x3a, 0x7b, 0xbf, 0x9e, 0xed, 0xe8, 0x14, 0x18, 0x63,
-	0x65, 0xa8, 0x47, 0x8e, 0xcb, 0x12, 0x5a, 0x1c, 0x79, 0x8e, 0xd3, 0x87, 0xc2, 0x57, 0x36, 0xca,
-	0x95, 0x5e, 0xc4, 0x20, 0xc5, 0xfb, 0x02, 0xdd, 0x81, 0x04, 0xfb, 0xff, 0x21, 0x1f, 0x81, 0x85,
-	0xfe, 0x13, 0x57, 0x2e, 0x0c, 0xd9, 0x11, 0xba, 0xf4, 0x2e, 0x4c, 0x06, 0x31, 0xa2, 0xb9, 0xd3,
-	0xea, 0xa5, 0xfc, 0xef, 0xd4, 0x21, 0x19, 0xd5, 0x40, 0x66, 0x23, 0xdd, 0x8e, 0xe3, 0x11, 0xd7,
-	0x47, 0xd1, 0x4f, 0x86, 0x87, 0x4e, 0x45, 0x19, 0xb6, 0x75, 0x84, 0xa5, 0x46, 0x4c, 0xe2, 0x93,
-	0xbf, 0xca, 0xb2, 0x03, 0x99, 0x90, 0x70, 0x78, 0x68, 0x61, 0xc4, 0x38, 0xa3, 0x2c, 0x8e, 0x12,
-	0x9d, 0x25, 0x69, 0x45, 0xaa, 0x54, 0x9e, 0xfd, 0x3a, 0x7f, 0xe6, 0xd9, 0xf3, 0x79, 0xe9, 0xc7,
-	0xe7, 0xf3, 0xd2, 0xd3, 0xdf, 0xe6, 0xa5, 0x8f, 0x56, 0xc6, 0x12, 0x81, 0x10, 0xf7, 0x6e, 0x8a,
-	0x99, 0xaf, 0xff, 0x11, 0x00, 0x00, 0xff, 0xff, 0xaa, 0x64, 0x1a, 0x3c, 0x7d, 0x12, 0x00, 0x00,
+	// 1628 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xcc, 0x58, 0x4d, 0x6f, 0xdb, 0x46,
+	0x1a, 0x0e, 0xf5, 0x65, 0xeb, 0xa5, 0x64, 0xcb, 0x13, 0x6f, 0xa2, 0x30, 0x8e, 0xed, 0x68, 0x77,
+	0xb1, 0xc6, 0x06, 0x91, 0xbd, 0x0a, 0x90, 0xcf, 0xfd, 0xd2, 0x97, 0x17, 0xde, 0xd8, 0x56, 0x32,
+	0xb2, 0xb3, 0x8b, 0xbd, 0x08, 0x34, 0x39, 0x96, 0x19, 0xd1, 0x24, 0x97, 0x43, 0x25, 0x51, 0x2f,
+	0xbd, 0xa5, 0x40, 0x0f, 0x3d, 0xf4, 0xd4, 0x4b, 0xd1, 0xa0, 0x3f, 0xa1, 0x3f, 0xa1, 0xa7, 0x1c,
+	0x8b, 0xfe, 0x00, 0xb7, 0x4d, 0x8f, 0x05, 0x0a, 0xe4, 0x9a, 0x53, 0x31, 0x33, 0xa4, 0x44, 0x5a,
+	0x92, 0xa5, 0xb4, 0x48, 0xd1, 0x4b, 0xa0, 0x99, 0x79, 0x9f, 0x87, 0xf3, 0x3e, 0xf3, 0xbe, 0xcf,
+	0x4c, 0x0c, 0x7f, 0x6e, 0xdb, 0xeb, 0x8e, 0x6b, 0x7b, 0xb6, 0x66, 0x9b, 0x74, 0xfd, 0x58, 0xf5,
+	0x88, 0x6b, 0xa8, 0xa6, 0xf1, 0x1e, 0x09, 0xff, 0x2e, 0xf2, 0x08, 0x24, 0x87, 0xa6, 0x94, 0xa5,
+	0x08, 0xf0, 0xd0, 0xb4, 0x9f, 0xf2, 0x7f, 0x44, 0xa8, 0xb2, 0xd8, 0xb6, 0xdb, 0x36, 0xff, 0xb9,
+	0xce, 0x7e, 0x89, 0xd9, 0xc2, 0xb7, 0x12, 0x40, 0xd5, 0xb6, 0xa8, 0xe7, 0xaa, 0x86, 0xe5, 0xa1,
+	0x0d, 0x48, 0x78, 0x3d, 0x87, 0xe4, 0x63, 0xab, 0xd2, 0xda, 0x5c, 0x69, 0xa9, 0x18, 0xfe, 0xe2,
+	0x20, 0xac, 0xb8, 0xd7, 0x73, 0x08, 0xe6, 0x91, 0xe8, 0x02, 0xa4, 0x5c, 0xa2, 0x52, 0xdb, 0xca,
+	0xc7, 0x57, 0xa5, 0xb5, 0x34, 0xf6, 0x47, 0x85, 0x0f, 0x24, 0x48, 0xb0, 0x30, 0x84, 0x60, 0x6e,
+	0x73, 0xab, 0xbe, 0x5d, 0x6b, 0xe1, 0xfa, 0xc3, 0xfd, 0x2d, 0x5c, 0xaf, 0xe5, 0xce, 0xa1, 0xdf,
+	0xc1, 0xc2, 0x76, 0xa3, 0x5a, 0xde, 0xdb, 0x6a, 0xec, 0x0e, 0xa6, 0x25, 0x94, 0x87, 0xc5, 0xd0,
+	0x74, 0xb5, 0xb1, 0xb3, 0x53, 0xdf, 0xad, 0xd5, 0x6b, 0xb9, 0xd8, 0x80, 0xa4, 0xf1, 0x80, 0xad,
+	0x96, 0xb7, 0x73, 0x71, 0x74, 0x1e, 0xe6, 0xc5, 0xdc, 0x66, 0x03, 0x57, 0xb6, 0x6a, 0xb5, 0xfa,
+	0x6e, 0x2e, 0x81, 0x16, 0x20, 0xbb, 0xbf, 0xdb, 0x2c, 0xef, 0x6d, 0x35, 0x37, 0xb7, 0xca, 0x95,
+	0xed, 0x7a, 0x2e, 0x59, 0xf8, 0x48, 0x02, 0xb9, 0xe9, 0x10, 0x0d, 0x93, 0xff, 0x77, 0x09, 0xf5,
+	0xd0, 0x2d, 0xc8, 0x12, 0x4b, 0x77, 0x6c, 0xc3, 0xf2, 0x5a, 0x3c, 0x59, 0x89, 0x27, 0x8b, 0x8a,
+	0x5c, 0xac, 0xba, 0xbf, 0xc4, 0x53, 0xcc, 0x90, 0xd0, 0x08, 0x6d, 0x02, 0xea, 0x03, 0xa9, 0x43,
+	0xb4, 0xd6, 0x63, 0x96, 0x36, 0x93, 0x2a, 0x5d, 0x59, 0x7a, 0x73, 0xb2, 0x92, 0x27, 0x96, 0x66,
+	0xeb, 0x86, 0xd5, 0x5e, 0x67, 0x0b, 0x45, 0xac, 0x3e, 0xdd, 0x21, 0x94, 0xaa, 0xed, 0x10, 0x0f,
+	0xdb, 0x47, 0xe1, 0x93, 0x18, 0x64, 0xc4, 0x86, 0xa8, 0x63, 0x5b, 0x94, 0xa0, 0x26, 0x5c, 0x8a,
+	0x12, 0x53, 0xed, 0x88, 0x1c, 0xab, 0x82, 0x5f, 0x9a, 0x82, 0x1f, 0x85, 0xf9, 0x9b, 0x1c, 0xcc,
+	0x48, 0x5d, 0x42, 0xed, 0xae, 0xab, 0x91, 0x61, 0xd2, 0x69, 0x36, 0x8d, 0x02, 0x78, 0x88, 0xf4,
+	0x1a, 0x2c, 0xe8, 0xb6, 0xd6, 0x3d, 0x26, 0x96, 0xa7, 0x7a, 0x86, 0x6d, 0xb5, 0xba, 0xae, 0xe9,
+	0x1f, 0x7c, 0x2e, 0xb2, 0xb0, 0xef, 0x9a, 0xe8, 0x2f, 0x20, 0xdb, 0x6a, 0xd7, 0x3b, 0x2a, 0xf1,
+	0xef, 0xe7, 0x13, 0xab, 0xd2, 0x9a, 0x5c, 0xca, 0x09, 0x99, 0x1b, 0x65, 0xb6, 0xc0, 0x55, 0x00,
+	0x11, 0xc4, 0xa5, 0xf9, 0x38, 0x09, 0xf3, 0x8f, 0x54, 0xd3, 0xd0, 0x55, 0x8f, 0x04, 0xe7, 0xd5,
+	0x86, 0xf9, 0x41, 0x19, 0x72, 0x72, 0x5f, 0x93, 0xbf, 0xbd, 0x39, 0x59, 0xb9, 0xd3, 0x36, 0xbc,
+	0xa3, 0xee, 0x41, 0x51, 0xb3, 0x8f, 0xd7, 0x09, 0xf5, 0xba, 0xaa, 0xdb, 0x13, 0x95, 0x3f, 0xd4,
+	0x0b, 0xc5, 0x9d, 0x28, 0x09, 0x3e, 0xcd, 0x3a, 0x5c, 0x18, 0xb1, 0x5f, 0x54, 0x18, 0xf1, 0xb7,
+	0x2d, 0x0c, 0xf4, 0x4f, 0x98, 0x3d, 0x30, 0x2c, 0x16, 0x48, 0xf3, 0x89, 0xd5, 0xf8, 0x9a, 0x5c,
+	0xfa, 0x43, 0xa4, 0x03, 0x4f, 0x29, 0x53, 0xac, 0x88, 0x60, 0xdc, 0x47, 0x29, 0x5f, 0xc7, 0x60,
+	0xc6, 0x9f, 0x65, 0xbb, 0x8a, 0x16, 0xc0, 0xd4, 0xe5, 0x94, 0x09, 0x9f, 0x3c, 0xba, 0x0b, 0xa0,
+	0xd9, 0xa6, 0x49, 0x34, 0x2e, 0x7d, 0x8c, 0x9f, 0xe2, 0xa2, 0xd0, 0xa4, 0xda, 0x9f, 0x67, 0x91,
+	0x95, 0xc4, 0xcb, 0x93, 0x95, 0x73, 0x38, 0x14, 0x8d, 0xde, 0x87, 0x85, 0x43, 0x83, 0x98, 0x7a,
+	0x4b, 0xb3, 0xad, 0x43, 0xa3, 0x1d, 0x08, 0xc3, 0x52, 0xbb, 0x33, 0x4d, 0x6a, 0xc5, 0x4d, 0x86,
+	0xae, 0x72, 0xf0, 0xbf, 0xa9, 0x6d, 0xd5, 0x2d, 0xcf, 0xed, 0x55, 0x96, 0x3e, 0xfc, 0xe6, 0x8c,
+	0xdd, 0xcb, 0x87, 0x03, 0x8c, 0x52, 0x81, 0xc5, 0x51, 0x14, 0x28, 0x07, 0xf1, 0x0e, 0xe9, 0x09,
+	0x35, 0x30, 0xfb, 0x89, 0x16, 0x21, 0xf9, 0x44, 0x35, 0xbb, 0xe2, 0xd4, 0xd3, 0x58, 0x0c, 0xee,
+	0xc6, 0x6e, 0x4b, 0x85, 0x93, 0x18, 0xe4, 0x06, 0xfb, 0xf3, 0x7b, 0xb6, 0x1c, 0x3a, 0x2b, 0x89,
+	0x27, 0xf4, 0xc7, 0x31, 0x09, 0x09, 0xc0, 0x88, 0xc3, 0x7a, 0x1e, 0x3a, 0xac, 0xff, 0x82, 0xac,
+	0xf5, 0xfd, 0x35, 0x60, 0xbc, 0x39, 0x15, 0x63, 0xc8, 0x98, 0x29, 0x4f, 0x0e, 0x87, 0xa9, 0xd0,
+	0xef, 0x21, 0xdb, 0x2f, 0x03, 0x47, 0xf5, 0x8e, 0xf2, 0xb1, 0xd5, 0xf8, 0x5a, 0x7a, 0x70, 0xc6,
+	0x0f, 0x54, 0xef, 0x88, 0x05, 0xe9, 0xc4, 0xf4, 0xd4, 0x56, 0xd7, 0x61, 0x9f, 0xa0, 0xbc, 0x78,
+	0x67, 0x71, 0x86, 0x4f, 0xee, 0x8b, 0x39, 0xe5, 0x3f, 0x90, 0x3b, 0xfd, 0xa9, 0x11, 0x3a, 0x5e,
+	0x0f, 0xeb, 0x28, 0x97, 0x2e, 0x8e, 0xb9, 0x43, 0xc2, 0x02, 0x3f, 0x97, 0x20, 0x53, 0x76, 0x1c,
+	0xb3, 0x17, 0xb4, 0x7c, 0x75, 0x74, 0xcb, 0xcb, 0xa5, 0x4b, 0xc5, 0x51, 0xad, 0xcc, 0x6d, 0x64,
+	0xa8, 0x9d, 0xf3, 0x30, 0xf3, 0x84, 0xb8, 0x34, 0x28, 0xda, 0x34, 0x0e, 0x86, 0xe8, 0x22, 0xcc,
+	0xe8, 0x6e, 0xaf, 0xe5, 0x76, 0x2d, 0x3f, 0xcf, 0x94, 0xee, 0xf6, 0x70, 0xd7, 0x2a, 0xfc, 0x1d,
+	0xb2, 0xfe, 0x3e, 0xfc, 0x53, 0xbe, 0x0e, 0x48, 0xe5, 0x95, 0xdc, 0xd2, 0x09, 0xd5, 0x5c, 0xc3,
+	0x19, 0xd8, 0x0f, 0x5e, 0x10, 0x2b, 0xb5, 0xc1, 0x42, 0xe1, 0xc7, 0x34, 0xa0, 0x3d, 0x57, 0xb5,
+	0xa8, 0x58, 0x0a, 0xd2, 0xb9, 0x0d, 0x09, 0xdb, 0x21, 0x41, 0x0e, 0xd1, 0x9e, 0x1e, 0x0e, 0x2f,
+	0x36, 0x1c, 0x62, 0x61, 0x8e, 0x60, 0x48, 0xd3, 0x56, 0x75, 0x5f, 0xcb, 0x89, 0xc8, 0x6d, 0x5b,
+	0xd5, 0x31, 0x47, 0xa0, 0x7b, 0x90, 0x3c, 0x34, 0xbb, 0xf4, 0x88, 0x67, 0x78, 0xba, 0x38, 0x47,
+	0x40, 0x37, 0x59, 0x30, 0x16, 0x18, 0x06, 0xa6, 0x9e, 0xed, 0x12, 0xdf, 0xb3, 0x27, 0x82, 0x9b,
+	0x2c, 0x18, 0x0b, 0x0c, 0xda, 0x85, 0x0c, 0xf5, 0x54, 0xd7, 0x6b, 0x69, 0xf6, 0xf1, 0xb1, 0xe1,
+	0xe5, 0x93, 0x9c, 0xe3, 0xda, 0x64, 0x0e, 0xd5, 0xf5, 0xaa, 0x1c, 0x82, 0x65, 0x3a, 0x18, 0xa0,
+	0x1d, 0x90, 0x55, 0xad, 0x63, 0xd9, 0x4f, 0x4d, 0xa2, 0xb7, 0x49, 0x3e, 0x35, 0x1d, 0x5d, 0x79,
+	0x00, 0xc1, 0x61, 0xbc, 0xf2, 0x83, 0x04, 0x09, 0xa6, 0xf0, 0xbb, 0x2e, 0xb2, 0xcb, 0x90, 0xee,
+	0x90, 0x5e, 0xeb, 0x80, 0xb4, 0x0d, 0x51, 0x66, 0x33, 0x78, 0xb6, 0x43, 0x7a, 0x15, 0x36, 0x66,
+	0x15, 0xc8, 0x16, 0x89, 0xa5, 0x73, 0x89, 0x67, 0x70, 0xaa, 0x43, 0x7a, 0x75, 0x4b, 0x47, 0xbb,
+	0x70, 0x41, 0x77, 0x8d, 0x27, 0xc4, 0x6d, 0x69, 0x47, 0x44, 0xeb, 0x88, 0x3b, 0x85, 0xbb, 0x26,
+	0x93, 0x31, 0x33, 0xc1, 0xb8, 0x73, 0x02, 0x5b, 0xed, 0x43, 0x95, 0xcf, 0x24, 0x48, 0xb0, 0xaa,
+	0x60, 0x1b, 0xf5, 0x8d, 0x87, 0x67, 0x99, 0xc5, 0xc1, 0x10, 0x6d, 0x41, 0x52, 0x75, 0x89, 0xa5,
+	0xf2, 0x04, 0x32, 0x95, 0x1b, 0x6f, 0x4e, 0x56, 0xd6, 0xa7, 0xbf, 0x55, 0xcb, 0x0c, 0x8a, 0x05,
+	0x03, 0x2a, 0x81, 0xec, 0xa8, 0x5a, 0x87, 0xe8, 0xad, 0x0e, 0xe9, 0x51, 0xdf, 0xe8, 0x65, 0x21,
+	0x67, 0xd3, 0x34, 0x34, 0x12, 0x5c, 0x11, 0x22, 0xea, 0x3e, 0xe9, 0x51, 0xe5, 0x3e, 0x24, 0x79,
+	0xed, 0xa1, 0x0a, 0x5c, 0xd1, 0x89, 0xe3, 0x12, 0x4d, 0xf5, 0x88, 0xce, 0x9a, 0xd3, 0x33, 0x8e,
+	0x49, 0x48, 0x06, 0xbe, 0xef, 0x0c, 0xbe, 0x3c, 0x08, 0xc2, 0x22, 0x26, 0x94, 0xee, 0x8b, 0x18,
+	0x24, 0x79, 0x31, 0xfe, 0x66, 0xf3, 0x45, 0x37, 0x21, 0xeb, 0x63, 0xb8, 0x01, 0x06, 0x37, 0xfd,
+	0x08, 0x54, 0x46, 0xc4, 0x3d, 0xe2, 0x61, 0xa8, 0x08, 0x69, 0xdd, 0xd6, 0x68, 0x50, 0x0c, 0x63,
+	0x30, 0xb3, 0x2c, 0x86, 0x5d, 0x73, 0xec, 0x61, 0x4e, 0x9e, 0x19, 0xd4, 0xa3, 0xf9, 0xd4, 0x6a,
+	0x9c, 0x79, 0x9c, 0x18, 0x29, 0x7f, 0x05, 0x39, 0xd4, 0x6a, 0xcc, 0xe1, 0xc6, 0x4a, 0xbd, 0xe0,
+	0x0e, 0x09, 0x9c, 0x05, 0x39, 0xd4, 0x59, 0x85, 0x2f, 0x92, 0x70, 0x3e, 0xd2, 0x7c, 0xbe, 0x6f,
+	0xfe, 0x03, 0x52, 0xcc, 0xbf, 0x88, 0xee, 0xb7, 0xd4, 0x9f, 0xc6, 0xb7, 0xab, 0x7f, 0x99, 0x35,
+	0x78, 0x38, 0xf6, 0x61, 0x8c, 0x80, 0xd9, 0x18, 0x09, 0xac, 0x6f, 0x32, 0xc1, 0x36, 0x0f, 0xc7,
+	0x3e, 0x0c, 0x6d, 0xc0, 0x0c, 0xf7, 0x32, 0xa2, 0xfb, 0x0e, 0x78, 0x41, 0x88, 0x55, 0x3b, 0xd5,
+	0x21, 0x38, 0x08, 0x43, 0xfb, 0x30, 0xc7, 0x6d, 0x87, 0xe8, 0x81, 0x73, 0x09, 0xf7, 0x2b, 0x4e,
+	0xfc, 0x74, 0x53, 0xc0, 0x7c, 0xf3, 0xca, 0xd2, 0xf0, 0x10, 0x3d, 0x84, 0x4c, 0xc8, 0x7e, 0x74,
+	0xdf, 0x0e, 0xaf, 0x4f, 0x24, 0x0d, 0xc9, 0xac, 0xe3, 0x08, 0x85, 0x72, 0x0b, 0x52, 0x42, 0xae,
+	0xb7, 0x3d, 0xbd, 0x4f, 0x25, 0x48, 0x09, 0x9d, 0x7e, 0x9d, 0xfe, 0x88, 0xd4, 0x6c, 0x7c, 0x62,
+	0xcd, 0x2a, 0x7b, 0x90, 0x8d, 0x68, 0x89, 0xaa, 0xb0, 0x30, 0x64, 0x87, 0x7e, 0x49, 0x8d, 0x3b,
+	0xcf, 0x61, 0x0f, 0x9c, 0x83, 0x4c, 0x58, 0xcc, 0xc2, 0xeb, 0x38, 0x24, 0xeb, 0xcf, 0x3c, 0x57,
+	0x55, 0xbe, 0x94, 0xe0, 0x6a, 0xf0, 0xac, 0xaa, 0xb3, 0xf6, 0x30, 0xac, 0xf6, 0x03, 0xd7, 0x7e,
+	0x4c, 0x22, 0xd7, 0xf7, 0x36, 0xe4, 0x88, 0xbf, 0xd8, 0x0a, 0x6b, 0x26, 0x97, 0xae, 0x8e, 0xbd,
+	0x29, 0xfa, 0xcf, 0xbd, 0xf9, 0x00, 0x1a, 0xbc, 0xf4, 0x1a, 0x90, 0x73, 0x5c, 0xdb, 0xb1, 0x29,
+	0xd1, 0xfb, 0x6c, 0xa3, 0xae, 0xf7, 0x71, 0x8f, 0xfd, 0xf9, 0x00, 0xed, 0x4f, 0x28, 0x9f, 0xc7,
+	0x06, 0x49, 0xf8, 0x73, 0xe5, 0xb6, 0x6a, 0x58, 0xd4, 0x0b, 0xbd, 0xd6, 0xd0, 0xbd, 0xe8, 0x79,
+	0x4f, 0xb5, 0xf7, 0x7e, 0x49, 0xb4, 0xa3, 0xaf, 0xd3, 0x18, 0x3f, 0xc9, 0x7a, 0x64, 0xbb, 0x5c,
+	0xd0, 0xe2, 0xc4, 0x7d, 0x9c, 0xfd, 0x58, 0x7d, 0x67, 0x4f, 0xcc, 0xd2, 0xeb, 0x18, 0xa4, 0x44,
+	0xa9, 0xa0, 0x7b, 0x90, 0xe0, 0xff, 0xaf, 0xc9, 0x47, 0x60, 0xa1, 0xbf, 0x10, 0x28, 0x97, 0x46,
+	0xac, 0xf8, 0xc6, 0xf6, 0x2f, 0x98, 0x0d, 0x72, 0x44, 0x4b, 0x67, 0x9d, 0x97, 0x72, 0xe5, 0xcc,
+	0xc7, 0x3b, 0xaa, 0x81, 0xcc, 0x9f, 0x9a, 0xfb, 0x0e, 0x25, 0xae, 0x87, 0xa2, 0x9f, 0x0c, 0x3f,
+	0x86, 0x15, 0x65, 0xd4, 0xd2, 0x29, 0x96, 0x1a, 0x31, 0x89, 0x47, 0x7e, 0x2e, 0xcb, 0x3e, 0x64,
+	0x42, 0x0e, 0x44, 0xd1, 0xca, 0x84, 0xc7, 0x95, 0xb2, 0x3a, 0xc9, 0xbd, 0xd6, 0xa4, 0x0d, 0xa9,
+	0x52, 0x79, 0xf9, 0xdd, 0xf2, 0xb9, 0x97, 0xaf, 0x96, 0xa5, 0xaf, 0x5e, 0x2d, 0x4b, 0x2f, 0xbe,
+	0x5f, 0x96, 0xfe, 0xb7, 0x31, 0x95, 0x8f, 0x84, 0xb8, 0x0f, 0x52, 0x7c, 0xfa, 0xc6, 0x4f, 0x01,
+	0x00, 0x00, 0xff, 0xff, 0x32, 0xb2, 0x3a, 0xe7, 0x15, 0x13, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -1381,264 +1389,6 @@ type DriverClient interface {
 	ApplyDelete(ctx context.Context, in *ApplyRequest, opts ...grpc.CallOption) (*ApplyResponse, error)
 	// Transactions is a very long lived RPC through which the Flow runtime and a
 	// Driver cooperatively execute an unbounded number of transactions.
-	//
-	// This RPC workflow maintains a materialized view of a Flow collection
-	// in an external system. It has distinct load, prepare, store, and commit
-	// phases. The Flow runtime and driver cooperatively maintain a fully-reduced
-	// view of each document by loading current states from the store, reducing in
-	// a number of updates, and then transactionally storing updated documents and
-	// checkpoints.
-	//
-	// Push-only Endpoints & Delta Updates
-	// ===================================
-	//
-	// Some systems, such as APIs, Webhooks, and Pub/Sub, are push-only in nature.
-	// Flow materializations can run in a "delta updates" mode, where the load
-	// phase is always skipped and Flow does not attempt to store fully-reduced
-	// documents. Instead, during the store phase, the runtime sends delta
-	// updates which reflect the combined roll-up of collection documents
-	// processed only within this transaction.
-	//
-	// To illustrate the meaning of a delta update, consider documents which are
-	// simple counters, having a collection schema that uses a `sum` reduction
-	// strategy.
-	//
-	// Without delta updates, Flow would reduce documents -1, 3, and 2 by `sum`
-	// to arrive at document 4, which is stored. The next transaction,
-	// document 4 is loaded and reduced with 6, -7, and -1 to arrive at a new
-	// stored document 2. This document, 2, represents the full reduction of the
-	// collection documents materialized thus far.
-	//
-	// Compare to delta updates mode: collection documents -1, 3, and 2 are
-	// combined to store a delta-update document of 4. The next transaction starts
-	// anew, and 6, -7, and -1 combine to arrive at a delta-update document of -2.
-	// These delta updates are a windowed combine over documents seen in the
-	// current transaction only, and unlike before are not a full reduction of the
-	// document. If delta updates were written to pub/sub, note that a subscriber
-	// could further reduce over each delta update to recover the fully reduced
-	// document of 2.
-	//
-	// Note that many use cases require only `lastWriteWins` reduction behavior,
-	// and for these use cases delta updates does the "right thing" by trivially
-	// re-writing each document with its most recent version. This matches the
-	// behavior of Kafka Connect, for example.
-	//
-	// On Transactionality
-	// ===================
-	//
-	// The beating heart of transactionality in materializations is this:
-	// there is a consumption checkpoint, and there is a state of the view.
-	// As the materialization progresses, both the checkpoint and the view state
-	// will change. Updates to the checkpoint and to the view state MUST always
-	// commit together, in the exact same transaction.
-	//
-	// Flow transaction tasks have a backing transactional recovery log,
-	// which is capable of durable commits that update both the checkpoint
-	// and also a (reasonably small) driver-defined state. More on driver
-	// states later.
-	//
-	// Many interesting systems are also fully transactional in nature.
-	//
-	// When implementing a matherialization driver, the first question an
-	// implementor must answer is: whose commit is authoritative?
-	// Flow's recovery log, or the materialized system ?
-	// This protocol supports either.
-	//
-	// Implementation Pattern: Remote Store is Authoritative
-	// =====================================================
-	//
-	// In this pattern, the remote store persists view states and the Flow
-	// consumption checkpoints which those views reflect (there are many such
-	// checkpoints: one per task split). The Flow recovery log is not used.
-	//
-	// Typically this workflow runs in the context of a synchronous BEGIN/COMMIT
-	// transaction, which updates table states and a Flow checkpoint together.
-	// The transaction need be scoped only to the store phase of this workflow,
-	// as the Flow runtime assumes only read-committed loads.
-	//
-	// Flow is a distributed system, and an important consideration is the effect
-	// of a "zombie" assignment of a materialization task, which can race a
-	// newly-promoted assignment of that same task.
-	//
-	// Fencing is a technique which uses the transactional capabilities of a store
-	// to "fence off" an older zombie assignment, such that it's prevented from
-	// committing further transactions. This avoids a failure mode where:
-	//  - New assignment N recovers a checkpoint at Ti.
-	//  - Zombie assignment Z commits another transaction at Ti+1.
-	//  - N beings processing from Ti, inadvertently duplicating the effects of
-	//  Ti+1.
-	//
-	// When authoritative, the remote store must implement fencing behavior.
-	// As a sketch, the store can maintain a nonce value alongside the checkpoint
-	// of each task split. The nonce is updated on each open of this RPC,
-	// and each commit transaction then verifies that the nonce has not been
-	// changed.
-	//
-	// In the future, if another RPC opens and updates the nonce, it fences off
-	// this instance of the task split and prevents it from committing further
-	// transactions.
-	//
-	// Implementation Pattern: Recovery Log with Non-Transactional Store
-	// =================================================================
-	//
-	// In this pattern, the recovery log persists the Flow checkpoint and handles
-	// fencing semantics. During the load and store phases, the driver
-	// directly manipulates a non-transactional store or API.
-	//
-	// Note that this pattern is at-least-once. A transaction may fail part-way
-	// through and be restarted, causing its effects to be partially or fully
-	// replayed.
-	//
-	// Care must be taken if the collection's schema has reduction annotations
-	// such as `sum`, as those reductions may be applied more than once due to
-	// a partially completed, but ultimately failed transaction.
-	//
-	// If the collection's schema is last-write-wins, this mode still provides
-	// effectively-once behavior. Collections which aren't last-write-wins
-	// can be turned into last-write-wins through the use of derivation
-	// registers.
-	//
-	// Implementation Pattern: Recovery Log with Idempotent Apply
-	// ==========================================================
-	//
-	// In this pattern the recovery log is authoritative, but the driver uses
-	// external stable storage to stage the effects of a transaction -- rather
-	// than directly applying them to the store -- such that those effects can be
-	// idempotently applied after the transaction commits.
-	//
-	// This allows stores which feature a weaker transactionality guarantee to
-	// still be used in an exactly-once way, so long as they support an idempotent
-	// apply operation.
-	//
-	// Driver checkpoints can facilitate this pattern. For example, a driver might
-	// generate a unique filename in S3 and reference it in its prepared
-	// checkpoint, which is committed to the recovery log. During the "store"
-	// phase, it writes to this S3 file. After the transaction commits, it tells
-	// the store of the new file to incorporate. The store must handle
-	// idempotency, by applying the effects of the unique file just once, even if
-	// told of the file multiple times.
-	//
-	// A related extension of this pattern is for the driver to embed a Flow
-	// checkpoint into its driver checkpoint. Doing so allows the driver to
-	// express an intention to restart from an older alternative checkpoint, as
-	// compared to the most recent committed checkpoint of the recovery log.
-	//
-	// As mentioned above, it's crucial that store states and checkpoints commit
-	// together. While seemingly bending that rule, this pattern is consistent
-	// with it because, on commit, the semantic contents of the store include BOTH
-	// its base state, as well as the staged idempotent update. The store just may
-	// not know it yet, but eventually it must because of the retried idempotent
-	// apply.
-	//
-	// Note the driver must therefore ensure that staged updates are fully applied
-	// before returning an "load" responses, in order to provide the correct
-	// read-committed semantics required by the Flow runtime.
-	//
-	// RPC Lifecycle
-	// =============
-	//
-	// The RPC follows the following lifecycle:
-	//
-	// :TransactionRequest.Open:
-	//    - The Flow runtime opens the stream.
-	// :TransactionResponse.Opened:
-	//    - If the remote store is authoritative, it must fence off other RPCs
-	//      of this task split from committing further transactions,
-	//      and it retrieves a Flow checkpoint which is returned to the runtime.
-	//
-	// TransactionRequest.Open and TransactionResponse.Opened are sent only
-	// once, at the commencement of the stream. Thereafter the protocol loops:
-	//
-	// Load phase
-	// ==========
-	//
-	// The Load phases is Load requests *intermixed* with one
-	// Acknowledge/Acknowledged message flow. The driver must accomodate an
-	// Acknowledge that occurs before, during, or after a sequence of Load
-	// requests. It's guaranteed to see exactly one Acknowledge request during
-	// this phase.
-	//
-	// :TransactionRequest.Acknowledge:
-	//    - The runtime tells the driver that a commit to the recovery log has
-	//      completed.
-	//    - The driver applies a staged update to the base store, where
-	//      applicable.
-	//    - Note Acknowledge is sent in the very first iteration for consistency.
-	//      Semantically, it's an acknowledgement of the recovered checkpoint.
-	//      If a previous invocation failed after recovery log commit but before
-	//      applying the staged change, this is an opportunity to ensure that
-	//      apply occurs.
-	// :TransactionResponse.Acknowledged:
-	//    - The driver responds to the runtime only after applying a staged
-	//      update, where applicable.
-	//    - If there is no staged update, the driver immediately responds on
-	//      seeing Acknowledge.
-	//
-	// :TransactionRequest.Load:
-	//    - The runtime sends zero or more Load messages.
-	//    - The driver may send any number of TransactionResponse.Loaded in
-	//      response.
-	//    - If the driver will apply a staged update, it must await Acknowledge
-	//      and have applied the update to the store *before* evaluating any
-	//      Loads, to ensure correct read-committed behavior.
-	//    - The driver may defer responding with some or all loads until the
-	//      prepare phase.
-	// :TransactionResponse.Loaded:
-	//    - The driver sends zero or more Loaded messages, once for each loaded
-	//      document.
-	//    - Document keys not found in the store are omitted and not sent as
-	//      Loaded.
-	//
-	// Prepare phase
-	// =============
-	//
-	// The prepare phase begins only after the prior transaction has both
-	// committed and also been acknowledged. It marks the bounds of the present
-	// transaction.
-	//
-	// Upon entering this phase, the driver must immediately evaluate any deferred
-	// Load requests and send remaining Loaded responses.
-	//
-	// :TransactionRequest.Prepare:
-	//    - The runtime sends a Prepare message with its Flow checkpoint.
-	// :TransactionResponse.Prepared:
-	//    - The driver sends Prepared after having flushed all Loaded responses.
-	//    - The driver may include a driver checkpoint update which will be
-	//      committed to the recovery log with this transaction.
-	//
-	// Store phase
-	// ===========
-	//
-	// The store phase is when the runtime sends the driver materialized document
-	// updates, as well as an indication of whether the document is an insert,
-	// update, or delete (in other words, was it returned in a Loaded response?).
-	//
-	// :TransactionRequest.Store:
-	//    - The runtime sends zero or more Store messages.
-	//
-	// Commit phase
-	// ============
-	//
-	// The commit phase marks the end of the store phase, and tells the driver of
-	// the runtime's intent to commit to its recovery log. If the remote store is
-	// authoritative, the driver must commit its transaction at this time.
-	//
-	// :TransactionRequest.Commit:
-	//    - The runtime sends a Commit message, denoting its intention to commit.
-	//    - If the remote store is authoritative, the driver includes the Flow
-	//      checkpoint into its transaction and commits it along with view state
-	//      updates.
-	//    - Otherwise, the driver immediately responds with DriverCommitted.
-	// :TransactionResponse.DriverCommitted:
-	//    - The driver sends a DriverCommitted message.
-	//    - The runtime commits Flow and driver checkpoint to its recovery
-	//      log. The completion of this commit will be marked by an
-	//      Acknowledge during the next load phase.
-	//    - Runtime and driver begin a new, pipelined transaction by looping to
-	//      load while this transaction continues to commit.
-	//
-	// An error of any kind rolls back the transaction in progress and terminates
-	// the stream.
 	Transactions(ctx context.Context, opts ...grpc.CallOption) (Driver_TransactionsClient, error)
 }
 
@@ -1731,264 +1481,6 @@ type DriverServer interface {
 	ApplyDelete(context.Context, *ApplyRequest) (*ApplyResponse, error)
 	// Transactions is a very long lived RPC through which the Flow runtime and a
 	// Driver cooperatively execute an unbounded number of transactions.
-	//
-	// This RPC workflow maintains a materialized view of a Flow collection
-	// in an external system. It has distinct load, prepare, store, and commit
-	// phases. The Flow runtime and driver cooperatively maintain a fully-reduced
-	// view of each document by loading current states from the store, reducing in
-	// a number of updates, and then transactionally storing updated documents and
-	// checkpoints.
-	//
-	// Push-only Endpoints & Delta Updates
-	// ===================================
-	//
-	// Some systems, such as APIs, Webhooks, and Pub/Sub, are push-only in nature.
-	// Flow materializations can run in a "delta updates" mode, where the load
-	// phase is always skipped and Flow does not attempt to store fully-reduced
-	// documents. Instead, during the store phase, the runtime sends delta
-	// updates which reflect the combined roll-up of collection documents
-	// processed only within this transaction.
-	//
-	// To illustrate the meaning of a delta update, consider documents which are
-	// simple counters, having a collection schema that uses a `sum` reduction
-	// strategy.
-	//
-	// Without delta updates, Flow would reduce documents -1, 3, and 2 by `sum`
-	// to arrive at document 4, which is stored. The next transaction,
-	// document 4 is loaded and reduced with 6, -7, and -1 to arrive at a new
-	// stored document 2. This document, 2, represents the full reduction of the
-	// collection documents materialized thus far.
-	//
-	// Compare to delta updates mode: collection documents -1, 3, and 2 are
-	// combined to store a delta-update document of 4. The next transaction starts
-	// anew, and 6, -7, and -1 combine to arrive at a delta-update document of -2.
-	// These delta updates are a windowed combine over documents seen in the
-	// current transaction only, and unlike before are not a full reduction of the
-	// document. If delta updates were written to pub/sub, note that a subscriber
-	// could further reduce over each delta update to recover the fully reduced
-	// document of 2.
-	//
-	// Note that many use cases require only `lastWriteWins` reduction behavior,
-	// and for these use cases delta updates does the "right thing" by trivially
-	// re-writing each document with its most recent version. This matches the
-	// behavior of Kafka Connect, for example.
-	//
-	// On Transactionality
-	// ===================
-	//
-	// The beating heart of transactionality in materializations is this:
-	// there is a consumption checkpoint, and there is a state of the view.
-	// As the materialization progresses, both the checkpoint and the view state
-	// will change. Updates to the checkpoint and to the view state MUST always
-	// commit together, in the exact same transaction.
-	//
-	// Flow transaction tasks have a backing transactional recovery log,
-	// which is capable of durable commits that update both the checkpoint
-	// and also a (reasonably small) driver-defined state. More on driver
-	// states later.
-	//
-	// Many interesting systems are also fully transactional in nature.
-	//
-	// When implementing a matherialization driver, the first question an
-	// implementor must answer is: whose commit is authoritative?
-	// Flow's recovery log, or the materialized system ?
-	// This protocol supports either.
-	//
-	// Implementation Pattern: Remote Store is Authoritative
-	// =====================================================
-	//
-	// In this pattern, the remote store persists view states and the Flow
-	// consumption checkpoints which those views reflect (there are many such
-	// checkpoints: one per task split). The Flow recovery log is not used.
-	//
-	// Typically this workflow runs in the context of a synchronous BEGIN/COMMIT
-	// transaction, which updates table states and a Flow checkpoint together.
-	// The transaction need be scoped only to the store phase of this workflow,
-	// as the Flow runtime assumes only read-committed loads.
-	//
-	// Flow is a distributed system, and an important consideration is the effect
-	// of a "zombie" assignment of a materialization task, which can race a
-	// newly-promoted assignment of that same task.
-	//
-	// Fencing is a technique which uses the transactional capabilities of a store
-	// to "fence off" an older zombie assignment, such that it's prevented from
-	// committing further transactions. This avoids a failure mode where:
-	//  - New assignment N recovers a checkpoint at Ti.
-	//  - Zombie assignment Z commits another transaction at Ti+1.
-	//  - N beings processing from Ti, inadvertently duplicating the effects of
-	//  Ti+1.
-	//
-	// When authoritative, the remote store must implement fencing behavior.
-	// As a sketch, the store can maintain a nonce value alongside the checkpoint
-	// of each task split. The nonce is updated on each open of this RPC,
-	// and each commit transaction then verifies that the nonce has not been
-	// changed.
-	//
-	// In the future, if another RPC opens and updates the nonce, it fences off
-	// this instance of the task split and prevents it from committing further
-	// transactions.
-	//
-	// Implementation Pattern: Recovery Log with Non-Transactional Store
-	// =================================================================
-	//
-	// In this pattern, the recovery log persists the Flow checkpoint and handles
-	// fencing semantics. During the load and store phases, the driver
-	// directly manipulates a non-transactional store or API.
-	//
-	// Note that this pattern is at-least-once. A transaction may fail part-way
-	// through and be restarted, causing its effects to be partially or fully
-	// replayed.
-	//
-	// Care must be taken if the collection's schema has reduction annotations
-	// such as `sum`, as those reductions may be applied more than once due to
-	// a partially completed, but ultimately failed transaction.
-	//
-	// If the collection's schema is last-write-wins, this mode still provides
-	// effectively-once behavior. Collections which aren't last-write-wins
-	// can be turned into last-write-wins through the use of derivation
-	// registers.
-	//
-	// Implementation Pattern: Recovery Log with Idempotent Apply
-	// ==========================================================
-	//
-	// In this pattern the recovery log is authoritative, but the driver uses
-	// external stable storage to stage the effects of a transaction -- rather
-	// than directly applying them to the store -- such that those effects can be
-	// idempotently applied after the transaction commits.
-	//
-	// This allows stores which feature a weaker transactionality guarantee to
-	// still be used in an exactly-once way, so long as they support an idempotent
-	// apply operation.
-	//
-	// Driver checkpoints can facilitate this pattern. For example, a driver might
-	// generate a unique filename in S3 and reference it in its prepared
-	// checkpoint, which is committed to the recovery log. During the "store"
-	// phase, it writes to this S3 file. After the transaction commits, it tells
-	// the store of the new file to incorporate. The store must handle
-	// idempotency, by applying the effects of the unique file just once, even if
-	// told of the file multiple times.
-	//
-	// A related extension of this pattern is for the driver to embed a Flow
-	// checkpoint into its driver checkpoint. Doing so allows the driver to
-	// express an intention to restart from an older alternative checkpoint, as
-	// compared to the most recent committed checkpoint of the recovery log.
-	//
-	// As mentioned above, it's crucial that store states and checkpoints commit
-	// together. While seemingly bending that rule, this pattern is consistent
-	// with it because, on commit, the semantic contents of the store include BOTH
-	// its base state, as well as the staged idempotent update. The store just may
-	// not know it yet, but eventually it must because of the retried idempotent
-	// apply.
-	//
-	// Note the driver must therefore ensure that staged updates are fully applied
-	// before returning an "load" responses, in order to provide the correct
-	// read-committed semantics required by the Flow runtime.
-	//
-	// RPC Lifecycle
-	// =============
-	//
-	// The RPC follows the following lifecycle:
-	//
-	// :TransactionRequest.Open:
-	//    - The Flow runtime opens the stream.
-	// :TransactionResponse.Opened:
-	//    - If the remote store is authoritative, it must fence off other RPCs
-	//      of this task split from committing further transactions,
-	//      and it retrieves a Flow checkpoint which is returned to the runtime.
-	//
-	// TransactionRequest.Open and TransactionResponse.Opened are sent only
-	// once, at the commencement of the stream. Thereafter the protocol loops:
-	//
-	// Load phase
-	// ==========
-	//
-	// The Load phases is Load requests *intermixed* with one
-	// Acknowledge/Acknowledged message flow. The driver must accomodate an
-	// Acknowledge that occurs before, during, or after a sequence of Load
-	// requests. It's guaranteed to see exactly one Acknowledge request during
-	// this phase.
-	//
-	// :TransactionRequest.Acknowledge:
-	//    - The runtime tells the driver that a commit to the recovery log has
-	//      completed.
-	//    - The driver applies a staged update to the base store, where
-	//      applicable.
-	//    - Note Acknowledge is sent in the very first iteration for consistency.
-	//      Semantically, it's an acknowledgement of the recovered checkpoint.
-	//      If a previous invocation failed after recovery log commit but before
-	//      applying the staged change, this is an opportunity to ensure that
-	//      apply occurs.
-	// :TransactionResponse.Acknowledged:
-	//    - The driver responds to the runtime only after applying a staged
-	//      update, where applicable.
-	//    - If there is no staged update, the driver immediately responds on
-	//      seeing Acknowledge.
-	//
-	// :TransactionRequest.Load:
-	//    - The runtime sends zero or more Load messages.
-	//    - The driver may send any number of TransactionResponse.Loaded in
-	//      response.
-	//    - If the driver will apply a staged update, it must await Acknowledge
-	//      and have applied the update to the store *before* evaluating any
-	//      Loads, to ensure correct read-committed behavior.
-	//    - The driver may defer responding with some or all loads until the
-	//      prepare phase.
-	// :TransactionResponse.Loaded:
-	//    - The driver sends zero or more Loaded messages, once for each loaded
-	//      document.
-	//    - Document keys not found in the store are omitted and not sent as
-	//      Loaded.
-	//
-	// Prepare phase
-	// =============
-	//
-	// The prepare phase begins only after the prior transaction has both
-	// committed and also been acknowledged. It marks the bounds of the present
-	// transaction.
-	//
-	// Upon entering this phase, the driver must immediately evaluate any deferred
-	// Load requests and send remaining Loaded responses.
-	//
-	// :TransactionRequest.Prepare:
-	//    - The runtime sends a Prepare message with its Flow checkpoint.
-	// :TransactionResponse.Prepared:
-	//    - The driver sends Prepared after having flushed all Loaded responses.
-	//    - The driver may include a driver checkpoint update which will be
-	//      committed to the recovery log with this transaction.
-	//
-	// Store phase
-	// ===========
-	//
-	// The store phase is when the runtime sends the driver materialized document
-	// updates, as well as an indication of whether the document is an insert,
-	// update, or delete (in other words, was it returned in a Loaded response?).
-	//
-	// :TransactionRequest.Store:
-	//    - The runtime sends zero or more Store messages.
-	//
-	// Commit phase
-	// ============
-	//
-	// The commit phase marks the end of the store phase, and tells the driver of
-	// the runtime's intent to commit to its recovery log. If the remote store is
-	// authoritative, the driver must commit its transaction at this time.
-	//
-	// :TransactionRequest.Commit:
-	//    - The runtime sends a Commit message, denoting its intention to commit.
-	//    - If the remote store is authoritative, the driver includes the Flow
-	//      checkpoint into its transaction and commits it along with view state
-	//      updates.
-	//    - Otherwise, the driver immediately responds with DriverCommitted.
-	// :TransactionResponse.DriverCommitted:
-	//    - The driver sends a DriverCommitted message.
-	//    - The runtime commits Flow and driver checkpoint to its recovery
-	//      log. The completion of this commit will be marked by an
-	//      Acknowledge during the next load phase.
-	//    - Runtime and driver begin a new, pipelined transaction by looping to
-	//      load while this transaction continues to commit.
-	//
-	// An error of any kind rolls back the transaction in progress and terminates
-	// the stream.
 	Transactions(Driver_TransactionsServer) error
 }
 
@@ -2646,9 +2138,9 @@ func (m *TransactionRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x32
 	}
-	if m.Commit != nil {
+	if m.StartCommit != nil {
 		{
-			size, err := m.Commit.MarshalToSizedBuffer(dAtA[:i])
+			size, err := m.StartCommit.MarshalToSizedBuffer(dAtA[:i])
 			if err != nil {
 				return 0, err
 			}
@@ -2670,9 +2162,9 @@ func (m *TransactionRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x22
 	}
-	if m.Prepare != nil {
+	if m.Flush != nil {
 		{
-			size, err := m.Prepare.MarshalToSizedBuffer(dAtA[:i])
+			size, err := m.Flush.MarshalToSizedBuffer(dAtA[:i])
 			if err != nil {
 				return 0, err
 			}
@@ -2827,7 +2319,7 @@ func (m *TransactionRequest_Load) MarshalToSizedBuffer(dAtA []byte) (int, error)
 	return len(dAtA) - i, nil
 }
 
-func (m *TransactionRequest_Prepare) Marshal() (dAtA []byte, err error) {
+func (m *TransactionRequest_Flush) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -2837,12 +2329,12 @@ func (m *TransactionRequest_Prepare) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *TransactionRequest_Prepare) MarshalTo(dAtA []byte) (int, error) {
+func (m *TransactionRequest_Flush) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *TransactionRequest_Prepare) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *TransactionRequest_Flush) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -2851,10 +2343,10 @@ func (m *TransactionRequest_Prepare) MarshalToSizedBuffer(dAtA []byte) (int, err
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	if len(m.FlowCheckpoint) > 0 {
-		i -= len(m.FlowCheckpoint)
-		copy(dAtA[i:], m.FlowCheckpoint)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.FlowCheckpoint)))
+	if len(m.DeprecatedRuntimeCheckpoint) > 0 {
+		i -= len(m.DeprecatedRuntimeCheckpoint)
+		copy(dAtA[i:], m.DeprecatedRuntimeCheckpoint)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.DeprecatedRuntimeCheckpoint)))
 		i--
 		dAtA[i] = 0xa
 	}
@@ -2955,7 +2447,7 @@ func (m *TransactionRequest_Store) MarshalToSizedBuffer(dAtA []byte) (int, error
 	return len(dAtA) - i, nil
 }
 
-func (m *TransactionRequest_Commit) Marshal() (dAtA []byte, err error) {
+func (m *TransactionRequest_StartCommit) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -2965,12 +2457,12 @@ func (m *TransactionRequest_Commit) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *TransactionRequest_Commit) MarshalTo(dAtA []byte) (int, error) {
+func (m *TransactionRequest_StartCommit) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *TransactionRequest_Commit) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *TransactionRequest_StartCommit) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -2978,6 +2470,13 @@ func (m *TransactionRequest_Commit) MarshalToSizedBuffer(dAtA []byte) (int, erro
 	if m.XXX_unrecognized != nil {
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.RuntimeCheckpoint) > 0 {
+		i -= len(m.RuntimeCheckpoint)
+		copy(dAtA[i:], m.RuntimeCheckpoint)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.RuntimeCheckpoint)))
+		i--
+		dAtA[i] = 0xa
 	}
 	return len(dAtA) - i, nil
 }
@@ -3045,9 +2544,9 @@ func (m *TransactionResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x2a
 	}
-	if m.DriverCommitted != nil {
+	if m.StartedCommit != nil {
 		{
-			size, err := m.DriverCommitted.MarshalToSizedBuffer(dAtA[:i])
+			size, err := m.StartedCommit.MarshalToSizedBuffer(dAtA[:i])
 			if err != nil {
 				return 0, err
 			}
@@ -3057,9 +2556,9 @@ func (m *TransactionResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x22
 	}
-	if m.Prepared != nil {
+	if m.Flushed != nil {
 		{
-			size, err := m.Prepared.MarshalToSizedBuffer(dAtA[:i])
+			size, err := m.Flushed.MarshalToSizedBuffer(dAtA[:i])
 			if err != nil {
 				return 0, err
 			}
@@ -3120,10 +2619,10 @@ func (m *TransactionResponse_Opened) MarshalToSizedBuffer(dAtA []byte) (int, err
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	if len(m.FlowCheckpoint) > 0 {
-		i -= len(m.FlowCheckpoint)
-		copy(dAtA[i:], m.FlowCheckpoint)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.FlowCheckpoint)))
+	if len(m.RuntimeCheckpoint) > 0 {
+		i -= len(m.RuntimeCheckpoint)
+		copy(dAtA[i:], m.RuntimeCheckpoint)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.RuntimeCheckpoint)))
 		i--
 		dAtA[i] = 0xa
 	}
@@ -3183,7 +2682,7 @@ func (m *TransactionResponse_Loaded) MarshalToSizedBuffer(dAtA []byte) (int, err
 	return len(dAtA) - i, nil
 }
 
-func (m *TransactionResponse_DriverCommitted) Marshal() (dAtA []byte, err error) {
+func (m *TransactionResponse_StartedCommit) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -3193,12 +2692,12 @@ func (m *TransactionResponse_DriverCommitted) Marshal() (dAtA []byte, err error)
 	return dAtA[:n], nil
 }
 
-func (m *TransactionResponse_DriverCommitted) MarshalTo(dAtA []byte) (int, error) {
+func (m *TransactionResponse_StartedCommit) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *TransactionResponse_DriverCommitted) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *TransactionResponse_StartedCommit) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -3206,6 +2705,18 @@ func (m *TransactionResponse_DriverCommitted) MarshalToSizedBuffer(dAtA []byte) 
 	if m.XXX_unrecognized != nil {
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.DriverCheckpoint != nil {
+		{
+			size, err := m.DriverCheckpoint.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
 	}
 	return len(dAtA) - i, nil
 }
@@ -3617,16 +3128,16 @@ func (m *TransactionRequest) ProtoSize() (n int) {
 		l = m.Load.ProtoSize()
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
-	if m.Prepare != nil {
-		l = m.Prepare.ProtoSize()
+	if m.Flush != nil {
+		l = m.Flush.ProtoSize()
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
 	if m.Store != nil {
 		l = m.Store.ProtoSize()
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
-	if m.Commit != nil {
-		l = m.Commit.ProtoSize()
+	if m.StartCommit != nil {
+		l = m.StartCommit.ProtoSize()
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
 	if m.Acknowledge != nil {
@@ -3694,13 +3205,13 @@ func (m *TransactionRequest_Load) ProtoSize() (n int) {
 	return n
 }
 
-func (m *TransactionRequest_Prepare) ProtoSize() (n int) {
+func (m *TransactionRequest_Flush) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	l = len(m.FlowCheckpoint)
+	l = len(m.DeprecatedRuntimeCheckpoint)
 	if l > 0 {
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
@@ -3750,12 +3261,16 @@ func (m *TransactionRequest_Store) ProtoSize() (n int) {
 	return n
 }
 
-func (m *TransactionRequest_Commit) ProtoSize() (n int) {
+func (m *TransactionRequest_StartCommit) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
+	l = len(m.RuntimeCheckpoint)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
 	if m.XXX_unrecognized != nil {
 		n += len(m.XXX_unrecognized)
 	}
@@ -3788,12 +3303,12 @@ func (m *TransactionResponse) ProtoSize() (n int) {
 		l = m.Loaded.ProtoSize()
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
-	if m.Prepared != nil {
-		l = m.Prepared.ProtoSize()
+	if m.Flushed != nil {
+		l = m.Flushed.ProtoSize()
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
-	if m.DriverCommitted != nil {
-		l = m.DriverCommitted.ProtoSize()
+	if m.StartedCommit != nil {
+		l = m.StartedCommit.ProtoSize()
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
 	if m.Acknowledged != nil {
@@ -3812,7 +3327,7 @@ func (m *TransactionResponse_Opened) ProtoSize() (n int) {
 	}
 	var l int
 	_ = l
-	l = len(m.FlowCheckpoint)
+	l = len(m.RuntimeCheckpoint)
 	if l > 0 {
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
@@ -3847,12 +3362,16 @@ func (m *TransactionResponse_Loaded) ProtoSize() (n int) {
 	return n
 }
 
-func (m *TransactionResponse_DriverCommitted) ProtoSize() (n int) {
+func (m *TransactionResponse_StartedCommit) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
+	if m.DriverCheckpoint != nil {
+		l = m.DriverCheckpoint.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
 	if m.XXX_unrecognized != nil {
 		n += len(m.XXX_unrecognized)
 	}
@@ -5378,7 +4897,7 @@ func (m *TransactionRequest) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 3:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Prepare", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Flush", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -5405,10 +4924,10 @@ func (m *TransactionRequest) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.Prepare == nil {
-				m.Prepare = &TransactionRequest_Prepare{}
+			if m.Flush == nil {
+				m.Flush = &TransactionRequest_Flush{}
 			}
-			if err := m.Prepare.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.Flush.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -5450,7 +4969,7 @@ func (m *TransactionRequest) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 5:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Commit", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field StartCommit", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -5477,10 +4996,10 @@ func (m *TransactionRequest) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.Commit == nil {
-				m.Commit = &TransactionRequest_Commit{}
+			if m.StartCommit == nil {
+				m.StartCommit = &TransactionRequest_StartCommit{}
 			}
-			if err := m.Commit.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.StartCommit.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -5853,7 +5372,7 @@ func (m *TransactionRequest_Load) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *TransactionRequest_Prepare) Unmarshal(dAtA []byte) error {
+func (m *TransactionRequest_Flush) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -5876,15 +5395,15 @@ func (m *TransactionRequest_Prepare) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: Prepare: wiretype end group for non-group")
+			return fmt.Errorf("proto: Flush: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: Prepare: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: Flush: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field FlowCheckpoint", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field DeprecatedRuntimeCheckpoint", wireType)
 			}
 			var byteLen int
 			for shift := uint(0); ; shift += 7 {
@@ -5911,9 +5430,9 @@ func (m *TransactionRequest_Prepare) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.FlowCheckpoint = append(m.FlowCheckpoint[:0], dAtA[iNdEx:postIndex]...)
-			if m.FlowCheckpoint == nil {
-				m.FlowCheckpoint = []byte{}
+			m.DeprecatedRuntimeCheckpoint = append(m.DeprecatedRuntimeCheckpoint[:0], dAtA[iNdEx:postIndex]...)
+			if m.DeprecatedRuntimeCheckpoint == nil {
+				m.DeprecatedRuntimeCheckpoint = []byte{}
 			}
 			iNdEx = postIndex
 		default:
@@ -6214,7 +5733,7 @@ func (m *TransactionRequest_Store) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *TransactionRequest_Commit) Unmarshal(dAtA []byte) error {
+func (m *TransactionRequest_StartCommit) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -6237,12 +5756,46 @@ func (m *TransactionRequest_Commit) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: Commit: wiretype end group for non-group")
+			return fmt.Errorf("proto: StartCommit: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: Commit: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: StartCommit: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RuntimeCheckpoint", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.RuntimeCheckpoint = append(m.RuntimeCheckpoint[:0], dAtA[iNdEx:postIndex]...)
+			if m.RuntimeCheckpoint == nil {
+				m.RuntimeCheckpoint = []byte{}
+			}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipMaterialize(dAtA[iNdEx:])
@@ -6419,7 +5972,7 @@ func (m *TransactionResponse) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 3:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Prepared", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Flushed", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -6446,16 +5999,16 @@ func (m *TransactionResponse) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.Prepared == nil {
-				m.Prepared = &flow.DriverCheckpoint{}
+			if m.Flushed == nil {
+				m.Flushed = &flow.DriverCheckpoint{}
 			}
-			if err := m.Prepared.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.Flushed.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
 		case 4:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DriverCommitted", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field StartedCommit", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -6482,10 +6035,10 @@ func (m *TransactionResponse) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.DriverCommitted == nil {
-				m.DriverCommitted = &TransactionResponse_DriverCommitted{}
+			if m.StartedCommit == nil {
+				m.StartedCommit = &TransactionResponse_StartedCommit{}
 			}
-			if err := m.DriverCommitted.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.StartedCommit.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -6578,7 +6131,7 @@ func (m *TransactionResponse_Opened) Unmarshal(dAtA []byte) error {
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field FlowCheckpoint", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field RuntimeCheckpoint", wireType)
 			}
 			var byteLen int
 			for shift := uint(0); ; shift += 7 {
@@ -6605,9 +6158,9 @@ func (m *TransactionResponse_Opened) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.FlowCheckpoint = append(m.FlowCheckpoint[:0], dAtA[iNdEx:postIndex]...)
-			if m.FlowCheckpoint == nil {
-				m.FlowCheckpoint = []byte{}
+			m.RuntimeCheckpoint = append(m.RuntimeCheckpoint[:0], dAtA[iNdEx:postIndex]...)
+			if m.RuntimeCheckpoint == nil {
+				m.RuntimeCheckpoint = []byte{}
 			}
 			iNdEx = postIndex
 		default:
@@ -6770,7 +6323,7 @@ func (m *TransactionResponse_Loaded) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *TransactionResponse_DriverCommitted) Unmarshal(dAtA []byte) error {
+func (m *TransactionResponse_StartedCommit) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -6793,12 +6346,48 @@ func (m *TransactionResponse_DriverCommitted) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: DriverCommitted: wiretype end group for non-group")
+			return fmt.Errorf("proto: StartedCommit: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: DriverCommitted: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: StartedCommit: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DriverCheckpoint", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.DriverCheckpoint == nil {
+				m.DriverCheckpoint = &flow.DriverCheckpoint{}
+			}
+			if err := m.DriverCheckpoint.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipMaterialize(dAtA[iNdEx:])

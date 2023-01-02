@@ -40,6 +40,10 @@ COMBINER:
 TRANSACTOR:
 (*materialize.testTransactor)({
   loadNotExpected: (bool) true,
+  loadErr: (error) <nil>,
+  storeErr: (error) <nil>,
+  startCommitErr: (error) <nil>,
+  commitOp: (*client.AsyncOperation)(<nil>),
   LoadBindings: ([]int) (len=4) {
     (int) 0,
     (int) 0,
@@ -53,8 +57,8 @@ TRANSACTOR:
     (tuple.Tuple) (len=1) (4)
   },
   Loaded: (map[int][]interface {}) <nil>,
-  PrepareRx: (materialize.TransactionRequest_Prepare) flow_checkpoint:"\n\027\n\0203rd-flow-fixture\022\003\010\256," ,
-  PreparedTx: (flow.DriverCheckpoint) driver_checkpoint_json:"\"3rd-checkpoint\"" ,
+  RuntimeCheckpoint: (string) (len=25) "\n\x17\n\x103rd-flow-fixture\x12\x03\b\xae,",
+  StartedCommitTx: (flow.DriverCheckpoint) driver_checkpoint_json:"\"3rd-checkpoint\"" ,
   StoreBindings: ([]int) (len=6) {
     (int) 0,
     (int) 0,

@@ -3,26 +3,58 @@ package materialize
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/gogo/protobuf/proto"
 	pc "go.gazette.dev/core/consumer/protocol"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 )
 
-// StageLoad potentially sends a previously staged Load into the stream,
-// and then stages its arguments into request.Load.
-func StageLoad(
-	stream interface {
-		Send(*TransactionRequest) error
-	},
-	request **TransactionRequest,
+// Protocol routines for sending TransactionRequest follow:
+
+type TransactionRequestTx interface {
+	Send(*TransactionRequest) error
+}
+
+func WriteOpen(stream TransactionRequestTx, open *TransactionRequest_Open) (TransactionRequest, error) {
+	var request = TransactionRequest{Open: open}
+
+	if err := stream.Send(&request); err != nil {
+		return TransactionRequest{}, fmt.Errorf("sending Open: %w", err)
+	}
+	return request, nil
+}
+
+func WriteAcknowledge(stream TransactionRequestTx, request *TransactionRequest) error {
+	if request.Open == nil && request.StartCommit == nil {
+		panic(fmt.Sprintf("expected prior request is Open or StartCommit, got %#v", request))
+	}
+	*request = TransactionRequest{
+		Acknowledge: &TransactionRequest_Acknowledge{},
+	}
+	if err := stream.Send(request); err != nil {
+		return fmt.Errorf("sending Acknowledge request: %w", err)
+	}
+	return nil
+}
+
+func WriteLoad(
+	stream TransactionRequestTx,
+	request *TransactionRequest,
 	binding int,
 	packedKey []byte,
 ) error {
-	// Send current |request| if it uses a different binding or would re-allocate.
-	if *request != nil {
+	if request.Acknowledge == nil && request.Load == nil {
+		panic(fmt.Sprintf("expected prior request is Acknowledge or Load, got %#v", request))
+	}
+
+	// Send current `request` if it uses a different binding or would re-allocate.
+	if request.Load != nil {
 		var rem int
 		if l := (*request).Load; int(l.Binding) != binding {
 			rem = -1 // Must flush this request.
@@ -30,15 +62,15 @@ func StageLoad(
 			rem = cap(l.Arena) - len(l.Arena)
 		}
 		if rem < len(packedKey) {
-			if err := stream.Send(*request); err != nil {
+			if err := stream.Send(request); err != nil {
 				return fmt.Errorf("sending Load request: %w", err)
 			}
-			*request = nil
+			request.Load = nil
 		}
 	}
 
-	if *request == nil {
-		*request = &TransactionRequest{
+	if request.Load == nil {
+		*request = TransactionRequest{
 			Load: &TransactionRequest_Load{
 				Binding:    uint32(binding),
 				Arena:      make(pf.Arena, 0, arenaSize),
@@ -53,120 +85,52 @@ func StageLoad(
 	return nil
 }
 
-// StageLoaded potentially sends a previously staged Loaded into the stream,
-// and then stages its arguments into response.Loaded.
-func StageLoaded(
-	stream interface {
-		Send(*TransactionResponse) error
-	},
-	response **TransactionResponse,
-	binding int,
-	document json.RawMessage,
+func WriteFlush(
+	stream TransactionRequestTx,
+	request *TransactionRequest,
+	deprecatedCheckpoint pc.Checkpoint, // Will be removed.
 ) error {
-	// Send current |response| if we would re-allocate.
-	if *response != nil {
-		var rem int
-		if l := (*response).Loaded; int(l.Binding) != binding {
-			rem = -1 // Must flush this response.
-		} else if cap(l.DocsJson) != len(l.DocsJson) {
-			rem = cap(l.Arena) - len(l.Arena)
-		}
-		if rem < len(document) {
-			if err := stream.Send(*response); err != nil {
-				return fmt.Errorf("sending Loaded response: %w", err)
-			}
-			*response = nil
-		}
+	if request.Acknowledge == nil && request.Load == nil {
+		panic(fmt.Sprintf("expected prior request is Acknowledge or Load, got %#v", request))
 	}
-
-	if *response == nil {
-		*response = &TransactionResponse{
-			Loaded: &TransactionResponse_Loaded{
-				Binding:  uint32(binding),
-				Arena:    make(pf.Arena, 0, arenaSize),
-				DocsJson: make([]pf.Slice, 0, sliceSize),
-			},
-		}
-	}
-
-	var l = (*response).Loaded
-	l.DocsJson = append(l.DocsJson, l.Arena.Add(document))
-
-	return nil
-}
-
-// WritePrepare flushes a pending Load request, and sends a Prepare request
-// with the provided Flow checkpoint.
-func WritePrepare(
-	stream interface {
-		Send(*TransactionRequest) error
-	},
-	request **TransactionRequest,
-	checkpoint pc.Checkpoint,
-) error {
 	// Flush partial Load request, if required.
-	if *request != nil {
-		if err := stream.Send(*request); err != nil {
+	if request.Load != nil {
+		if err := stream.Send(request); err != nil {
 			return fmt.Errorf("flushing final Load request: %w", err)
 		}
-		*request = nil
+		*request = TransactionRequest{}
 	}
 
-	var checkpointBytes, err = checkpoint.Marshal()
+	var checkpointBytes, err = deprecatedCheckpoint.Marshal()
 	if err != nil {
 		panic(err) // Cannot fail.
 	}
-
-	if err := stream.Send(&TransactionRequest{
-		Prepare: &TransactionRequest_Prepare{
-			FlowCheckpoint: checkpointBytes,
+	*request = TransactionRequest{
+		Flush: &TransactionRequest_Flush{
+			DeprecatedRuntimeCheckpoint: checkpointBytes,
 		},
-	}); err != nil {
-		return fmt.Errorf("sending Prepare request: %w", err)
 	}
-
+	if err := stream.Send(request); err != nil {
+		return fmt.Errorf("sending Flush request: %w", err)
+	}
 	return nil
 }
 
-// WritePrepared flushes a pending Loaded response, and sends a Prepared response
-// with the provided driver checkpoint.
-func WritePrepared(
-	stream interface {
-		Send(*TransactionResponse) error
-	},
-	response **TransactionResponse,
-	checkpoint pf.DriverCheckpoint,
-) error {
-	// Flush partial Loaded response, if required.
-	if *response != nil {
-		if err := stream.Send(*response); err != nil {
-			return fmt.Errorf("flushing final Loaded response: %w", err)
-		}
-		*response = nil
-	}
-
-	if err := stream.Send(&TransactionResponse{Prepared: &checkpoint}); err != nil {
-		return fmt.Errorf("sending Prepared response: %w", err)
-	}
-
-	return nil
-}
-
-// StageStore potentially sends a previously staged Store into the stream,
-// and then stages its arguments into request.Store.
-func StageStore(
-	stream interface {
-		Send(*TransactionRequest) error
-	},
-	request **TransactionRequest,
+func WriteStore(
+	stream TransactionRequestTx,
+	request *TransactionRequest,
 	binding int,
 	packedKey []byte,
 	packedValues []byte,
 	doc json.RawMessage,
 	exists bool,
 ) error {
+	if request.Flush == nil && request.Store == nil {
+		panic(fmt.Sprintf("expected prior request is Flush or Store, got %#v", request))
+	}
+
 	// Send current |request| if we would re-allocate.
-	if *request != nil {
+	if request.Store != nil {
 		var rem int
 		if s := (*request).Store; int(s.Binding) != binding {
 			rem = -1 // Must flush this request.
@@ -174,15 +138,15 @@ func StageStore(
 			rem = cap(s.Arena) - len(s.Arena)
 		}
 		if need := len(packedKey) + len(packedValues) + len(doc); need > rem {
-			if err := stream.Send(*request); err != nil {
+			if err := stream.Send(request); err != nil {
 				return fmt.Errorf("sending Store request: %w", err)
 			}
-			*request = nil
+			*request = TransactionRequest{}
 		}
 	}
 
-	if *request == nil {
-		*request = &TransactionRequest{
+	if request.Store == nil {
+		*request = TransactionRequest{
 			Store: &TransactionRequest_Store{
 				Binding:      uint32(binding),
 				Arena:        make(pf.Arena, 0, arenaSize),
@@ -202,180 +166,119 @@ func StageStore(
 	return nil
 }
 
-// WriteCommit flushes a pending Store request, and sends a Commit request.
-func WriteCommit(
-	stream interface {
-		Send(*TransactionRequest) error
-	},
-	request **TransactionRequest,
+func WriteStartCommit(
+	stream TransactionRequestTx,
+	request *TransactionRequest,
+	checkpoint pc.Checkpoint,
 ) error {
+	if request.Flush == nil && request.Store == nil {
+		panic(fmt.Sprintf("expected prior request is Flush or Store, got %#v", request))
+	}
 	// Flush partial Store request, if required.
-	if *request != nil {
-		if err := stream.Send(*request); err != nil {
+	if request.Store != nil {
+		if err := stream.Send(request); err != nil {
 			return fmt.Errorf("flushing final Store request: %w", err)
 		}
-		*request = nil
+		*request = TransactionRequest{}
 	}
 
-	if err := stream.Send(&TransactionRequest{
-		Commit: &TransactionRequest_Commit{},
-	}); err != nil {
-		return fmt.Errorf("sending Commit request: %w", err)
+	var checkpointBytes, err = checkpoint.Marshal()
+	if err != nil {
+		panic(err) // Cannot fail.
 	}
-
+	*request = TransactionRequest{
+		StartCommit: &TransactionRequest_StartCommit{
+			RuntimeCheckpoint: checkpointBytes,
+		},
+	}
+	if err := stream.Send(request); err != nil {
+		return fmt.Errorf("sending StartCommit request: %w", err)
+	}
 	return nil
 }
 
-// WriteDriverCommitted writes a DriverCommitted response to the stream.
-func WriteDriverCommitted(
-	stream interface {
-		Send(*TransactionResponse) error
-	},
-	response **TransactionResponse,
-) error {
-	// We must have sent Prepared prior to DriverCommitted.
-	if *response != nil {
-		panic("expected nil response")
-	}
+// Protocol routines for receiving TransactionRequest follow:
 
-	if err := stream.Send(&TransactionResponse{
-		DriverCommitted: &TransactionResponse_DriverCommitted{},
-	}); err != nil {
-		return fmt.Errorf("sending DriverCommitted response: %w", err)
-	}
-
-	return nil
+type TransactionRequestRx interface {
+	Context() context.Context
+	RecvMsg(interface{}) error
 }
 
-// WriteAcknowledge writes an Acknowledge request into the stream.
-func WriteAcknowledge(
-	stream interface {
-		Send(*TransactionRequest) error
-	},
-	request **TransactionRequest,
-) error {
-	if *request != nil && (*request).Load == nil {
-		panic("expected nil or Load request")
-	}
+func ReadOpen(stream TransactionRequestRx) (TransactionRequest, error) {
+	var request TransactionRequest
 
-	if err := stream.Send(&TransactionRequest{
-		Acknowledge: &TransactionRequest_Acknowledge{},
-	}); err != nil {
-		return fmt.Errorf("sending Acknowledge request: %w", err)
+	if err := recv(stream, &request); err != nil {
+		return TransactionRequest{}, fmt.Errorf("reading Open: %w", err)
+	} else if request.Open == nil {
+		return TransactionRequest{}, fmt.Errorf("protocol error (expected Open, got %#v)", request)
+	} else if err = request.Validate(); err != nil {
+		return TransactionRequest{}, fmt.Errorf("validation failed: %w", err)
 	}
-
-	return nil
+	return request, nil
 }
 
-// WriteAcknowledged writes an Acknowledged response to the stream.
-func WriteAcknowledged(
-	stream interface {
-		Send(*TransactionResponse) error
-	},
-	response **TransactionResponse,
-) error {
-	// We must have sent DriverCommitted prior to Acknowledged.
-	// Acknowledged may be intermixed with Loaded.
-	if *response != nil && (*response).Loaded == nil {
-		panic("expected response to be nil or have staged Loaded responses")
+func ReadAcknowledge(stream TransactionRequestRx, request *TransactionRequest) error {
+	if request.Open == nil && request.StartCommit == nil {
+		panic(fmt.Sprintf("expected prior request is Open or StartCommit, got %#v", request))
+	} else if err := recv(stream, request); err != nil {
+		return fmt.Errorf("reading Acknowledge: %w", err)
+	} else if request.Acknowledge == nil {
+		return fmt.Errorf("protocol error (expected Acknowledge, got %#v)", request)
+	} else if err = request.Validate(); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
 	}
-
-	if err := stream.Send(&TransactionResponse{
-		Acknowledged: &TransactionResponse_Acknowledged{},
-	}); err != nil {
-		return fmt.Errorf("sending Acknowledged response: %w", err)
-	}
-
 	return nil
 }
 
 // LoadIterator is an iterator over Load requests.
 type LoadIterator struct {
-	Binding int         // Binding index of this document to load.
-	Key     tuple.Tuple // Key of the next document to load.
+	Binding   int         // Binding index of this document to load.
+	Key       tuple.Tuple // Key of the document to load.
+	PackedKey []byte      // PackedKey of the document to load.
 
-	stream interface {
-		Context() context.Context
-		RecvMsg(m interface{}) error // Receives Load, Acknowledge, and Prepare.
-	}
-	reqAckCh chan<- struct{}    // Closed and nil'd on reading Acknowledge.
-	req      TransactionRequest // Last read request.
-	index    int                // Last-returned document index within |req|.
-	total    int                // Total number of iterated keys.
-	err      error              // Final error.
-}
-
-// NewLoadIterator returns a *LoadIterator of the stream.
-func NewLoadIterator(stream Driver_TransactionsServer, reqAckCh chan<- struct{}) *LoadIterator {
-	return &LoadIterator{stream: stream, reqAckCh: reqAckCh}
-}
-
-// poll returns true if there is at least one LoadRequest message with at least one key
-// remaining to be read. This will read the next message from the stream if required. This will not
-// advance the iterator, so it can be used to check whether the LoadIterator contains at least one
-// key to load without actually consuming the next key. If false is returned, then there are no
-// remaining keys and poll must not be called again. Note that if poll returns
-// true, then Next may still return false if the LoadRequest message is malformed.
-func (it *LoadIterator) poll() bool {
-	if it.err != nil || it.req.Prepare != nil {
-		panic("Poll called again after having returned false")
-	}
-
-	// Must we read another request?
-	if it.req.Load == nil || it.index == len(it.req.Load.PackedKeys) {
-		// Use RecvMsg to re-use |it.req| without allocation.
-		// Safe because we fully process |it.req| between calls to RecvMsg.
-		if err := it.stream.RecvMsg(&it.req); err == io.EOF {
-			if it.total != 0 {
-				it.err = fmt.Errorf("unexpected EOF when there are loaded keys")
-			} else if it.reqAckCh != nil {
-				it.err = fmt.Errorf("unexpected EOF before receiving Acknowledge")
-			} else {
-				it.err = io.EOF // Clean shutdown
-			}
-			return false
-		} else if err != nil {
-			it.err = fmt.Errorf("reading Load: %w", err)
-			return false
-		}
-
-		if it.req.Acknowledge != nil {
-			if it.reqAckCh == nil {
-				it.err = fmt.Errorf("protocol error (Acknowledge seen twice during load phase)")
-				return false
-			}
-			close(it.reqAckCh) // Signal that Acknowledge should run.
-			it.reqAckCh = nil
-
-			return it.poll() // Tail-recurse to read the next message.
-		} else if it.req.Prepare != nil {
-			if it.reqAckCh != nil {
-				it.err = fmt.Errorf("protocol error (Prepare seen before Acknowledge)")
-			}
-			return false // Prepare ends the Load phase.
-		} else if it.req.Load == nil || len(it.req.Load.PackedKeys) == 0 {
-			it.err = fmt.Errorf("protocol error (expected non-empty Load, got %#v)", it.req)
-			return false
-		}
-		it.index = 0
-		it.Binding = int(it.req.Load.Binding)
-	}
-	return true
+	stream  TransactionRequestRx
+	request *TransactionRequest // Request read into.
+	index   int                 // Last-returned document index within `request`.
+	total   int                 // Total number of iterated keys.
+	err     error               // Terminal error.
 }
 
 // Context returns the Context of this LoadIterator.
 func (it *LoadIterator) Context() context.Context { return it.stream.Context() }
 
-// Next returns true if there is another Load and makes it available via Key.
-// When a Prepare is read, or if an error is encountered, it returns false
+// Next returns true if there is another Load and makes it available.
+// When no Loads remain, or if an error is encountered, it returns false
 // and must not be called again.
 func (it *LoadIterator) Next() bool {
-	if !it.poll() {
-		return false
+	if it.request.Acknowledge == nil && it.request.Load == nil {
+		panic(fmt.Sprintf("expected prior request is Acknowledge or Load, got %#v", it.request))
+	}
+	// Read next `Load` request from `stream`?
+	if it.request.Acknowledge != nil || it.index == len(it.request.Load.PackedKeys) {
+		if err := recv(it.stream, it.request); err == io.EOF {
+			if it.total != 0 {
+				it.err = fmt.Errorf("unexpected EOF when there are loaded keys")
+			} else {
+				it.err = io.EOF // Clean shutdown.
+			}
+			return false
+		} else if err != nil {
+			it.err = fmt.Errorf("reading Load: %w", err)
+			return false
+		} else if it.request.Load == nil {
+			return false // No loads remain.
+		} else if err = it.request.Validate(); err != nil {
+			it.err = fmt.Errorf("validation failed: %w", err)
+			return false
+		}
+		it.index = 0
+		it.Binding = int(it.request.Load.Binding)
 	}
 
-	var l = it.req.Load
-	it.Key, it.err = tuple.Unpack(it.req.Load.Arena.Bytes(l.PackedKeys[it.index]))
+	var l = it.request.Load
+
+	it.PackedKey = l.Arena.Bytes(l.PackedKeys[it.index])
+	it.Key, it.err = tuple.Unpack(it.PackedKey)
 
 	if it.err != nil {
 		it.err = fmt.Errorf("unpacking Load key: %w", it.err)
@@ -392,80 +295,59 @@ func (it *LoadIterator) Err() error {
 	return it.err
 }
 
-// Prepare returns a TransactionRequest_Prepare which caused this LoadIterator
-// to terminate. It's valid only after Next returns false and Err is nil.
-func (it *LoadIterator) Prepare() *TransactionRequest_Prepare {
-	return it.req.Prepare
+func ReadFlush(request *TransactionRequest) error {
+	if request.Flush == nil {
+		return fmt.Errorf("protocol error (expected Flush, got %#v)", request)
+	} else if err := request.Validate(); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+	return nil
 }
 
 // StoreIterator is an iterator over Store requests.
 type StoreIterator struct {
-	Binding int             // Binding index of this stored document.
-	Key     tuple.Tuple     // Key of the next document to store.
-	Values  tuple.Tuple     // Values of the next document to store.
-	RawJSON json.RawMessage // Document to store.
-	Exists  bool            // Does this document exist in the store already?
+	Binding   int             // Binding index of this stored document.
+	Exists    bool            // Does this document exist in the store already?
+	Key       tuple.Tuple     // Key of the document to store.
+	PackedKey []byte          // PackedKey of the document to store.
+	RawJSON   json.RawMessage // Document to store.
+	Values    tuple.Tuple     // Values of the document to store.
 
-	stream interface {
-		Context() context.Context
-		RecvMsg(m interface{}) error // Receives Store and Commit.
-	}
-	req   TransactionRequest
-	index int
-	total int
-	err   error
-}
-
-// NewStoreIterator returns a *StoreIterator of the stream.
-func NewStoreIterator(stream Driver_TransactionsServer) *StoreIterator {
-	return &StoreIterator{stream: stream}
-}
-
-// poll returns true if there is at least one StoreRequest message with at least one document
-// remaining to be read. This will read the next message from the stream if required. This will not
-// advance the iterator, so it can be used to check whether the StoreIterator contains at least one
-// document to store without actually consuming the next document. If false is returned, then there
-// are no remaining documents and poll must not be called again. Note that if poll returns true,
-// then Next may still return false if the StoreRequest message is malformed.
-func (it *StoreIterator) poll() bool {
-	if it.err != nil || it.req.Commit != nil {
-		panic("Poll called again after having returned false")
-	}
-	// Must we read another request?
-	if it.req.Store == nil || it.index == len(it.req.Store.PackedKeys) {
-		// Use RecvMsg to re-use |it.req| without allocation.
-		// Safe because we fully process |it.req| between calls to RecvMsg.
-		if err := it.stream.RecvMsg(&it.req); err != nil {
-			it.err = fmt.Errorf("reading Store: %w", err)
-			return false
-		}
-
-		if it.req.Commit != nil {
-			return false // Prepare ends the Store phase.
-		} else if it.req.Store == nil || len(it.req.Store.PackedKeys) == 0 {
-			it.err = fmt.Errorf("expected non-empty Store, got %#v", it.req)
-			return false
-		}
-		it.index = 0
-		it.Binding = int(it.req.Store.Binding)
-	}
-	return true
+	stream  TransactionRequestRx
+	request *TransactionRequest // Request read into.
+	index   int                 // Last-returned document index within `request`
+	total   int                 // Total number of iterated stores.
+	err     error               // Terminal error.
 }
 
 // Context returns the Context of this StoreIterator.
 func (it *StoreIterator) Context() context.Context { return it.stream.Context() }
 
 // Next returns true if there is another Store and makes it available.
-// When a Commit is read, or if an error is encountered, it returns false
+// When no Stores remain, or if an error is encountered, it returns false
 // and must not be called again.
 func (it *StoreIterator) Next() bool {
-	if !it.poll() {
-		return false
+	if it.request.Flush == nil && it.request.Store == nil {
+		panic(fmt.Sprintf("expected prior request is Flush or Store, got %#v", it.request))
+	}
+	// Read next `Store` request from `stream`?
+	if it.request.Flush != nil || it.index == len(it.request.Store.PackedKeys) {
+		if err := recv(it.stream, it.request); err != nil {
+			it.err = fmt.Errorf("reading Store: %w", err)
+			return false
+		} else if it.request.Store == nil {
+			return false // No stores remain.
+		} else if err = it.request.Validate(); err != nil {
+			it.err = fmt.Errorf("validation failed: %w", err)
+		}
+		it.index = 0
+		it.Binding = int(it.request.Store.Binding)
 	}
 
-	var s = it.req.Store
+	var s = it.request.Store
 
-	it.Key, it.err = tuple.Unpack(s.Arena.Bytes(s.PackedKeys[it.index]))
+	it.PackedKey = s.Arena.Bytes(s.PackedKeys[it.index])
+	it.Key, it.err = tuple.Unpack(it.PackedKey)
 	if it.err != nil {
 		it.err = fmt.Errorf("unpacking Store key: %w", it.err)
 		return false
@@ -488,10 +370,211 @@ func (it *StoreIterator) Err() error {
 	return it.err
 }
 
-// Commit returns a TransactionRequest_Commit which caused this StoreIterator
-// to terminate. It's valid only after Next returns false and Err is nil.
-func (it *StoreIterator) Commit() *TransactionRequest_Commit {
-	return it.req.Commit
+func ReadStartCommit(request *TransactionRequest) (runtimeCheckpoint []byte, _ error) {
+	if request.StartCommit == nil {
+		return nil, fmt.Errorf("protocol error (expected StartCommit, got %#v)", request)
+	} else if err := request.Validate(); err != nil {
+		return nil, fmt.Errorf("validation failed: %w", err)
+	}
+	return request.StartCommit.RuntimeCheckpoint, nil
+}
+
+// Protocol routines for sending TransactionResponse follow:
+
+type TransactionResponseTx interface {
+	Send(*TransactionResponse) error
+}
+
+func WriteOpened(stream TransactionResponseTx, opened *TransactionResponse_Opened) (TransactionResponse, error) {
+	var response = TransactionResponse{Opened: opened}
+
+	if err := stream.Send(&response); err != nil {
+		return TransactionResponse{}, fmt.Errorf("sending Opened: %w", err)
+	}
+	return response, nil
+}
+
+func WriteAcknowledged(stream TransactionResponseTx, response *TransactionResponse) error {
+	if response.Opened == nil && response.StartedCommit == nil {
+		panic(fmt.Sprintf("expected prior response is Opened or StartedCommit, got %#v", response))
+	}
+	*response = TransactionResponse{
+		Acknowledged: &TransactionResponse_Acknowledged{},
+	}
+	if err := stream.Send(response); err != nil {
+		return fmt.Errorf("sending Acknowledged response: %w", err)
+	}
+	return nil
+}
+
+func WriteLoaded(
+	stream TransactionResponseTx,
+	response *TransactionResponse,
+	binding int,
+	document json.RawMessage,
+) error {
+	if response.Acknowledged == nil && response.Loaded == nil {
+		panic(fmt.Sprintf("expected prior response is Acknowledged or Loaded, got %#v", response))
+	}
+
+	// Send current `response` if it uses a different binding or would re-allocate.
+	if response.Loaded != nil {
+		var rem int
+		if l := (*response).Loaded; int(l.Binding) != binding {
+			rem = -1 // Must flush this response.
+		} else if cap(l.DocsJson) != len(l.DocsJson) {
+			rem = cap(l.Arena) - len(l.Arena)
+		}
+		if rem < len(document) {
+			if err := stream.Send(response); err != nil {
+				return fmt.Errorf("sending Loaded response: %w", err)
+			}
+			response.Loaded = nil
+		}
+	}
+
+	if response.Loaded == nil {
+		*response = TransactionResponse{
+			Loaded: &TransactionResponse_Loaded{
+				Binding:  uint32(binding),
+				Arena:    make(pf.Arena, 0, arenaSize),
+				DocsJson: make([]pf.Slice, 0, sliceSize),
+			},
+		}
+	}
+
+	var l = (*response).Loaded
+	l.DocsJson = append(l.DocsJson, l.Arena.Add(document))
+
+	return nil
+}
+
+func WriteFlushed(stream TransactionResponseTx, response *TransactionResponse) error {
+	if response.Acknowledged == nil && response.Loaded == nil {
+		panic(fmt.Sprintf("expected prior response is Acknowledged or Loaded, got %#v", response))
+	}
+	// Flush partial Loaded response, if required.
+	if response.Loaded != nil {
+		if err := stream.Send(response); err != nil {
+			return fmt.Errorf("flushing final Loaded response: %w", err)
+		}
+		*response = TransactionResponse{}
+	}
+
+	*response = TransactionResponse{
+		// Flushed as-a DriverCheckpoint is deprecated and will be removed.
+		Flushed: &pf.DriverCheckpoint{
+			DriverCheckpointJson: []byte("{}"),
+			Rfc7396MergePatch:    true,
+		},
+	}
+	if err := stream.Send(response); err != nil {
+		return fmt.Errorf("sending Flushed response: %w", err)
+	}
+	return nil
+}
+
+func WriteStartedCommit(
+	stream TransactionResponseTx,
+	response *TransactionResponse,
+	checkpoint *pf.DriverCheckpoint,
+) error {
+	if response.Flushed == nil {
+		panic(fmt.Sprintf("expected prior response is Flushed, got %#v", response))
+	}
+	*response = TransactionResponse{
+		StartedCommit: &TransactionResponse_StartedCommit{
+			DriverCheckpoint: checkpoint,
+		},
+	}
+	if err := stream.Send(response); err != nil {
+		return fmt.Errorf("sending StartedCommit: %w", err)
+	}
+	return nil
+}
+
+// Protocol routines for reading TransactionResponse follow:
+
+type TransactionResponseRx interface {
+	RecvMsg(interface{}) error
+}
+
+func ReadOpened(stream TransactionResponseRx) (TransactionResponse, error) {
+	var response TransactionResponse
+
+	if err := recv(stream, &response); err != nil {
+		return TransactionResponse{}, fmt.Errorf("reading Opened: %w", err)
+	} else if response.Opened == nil {
+		return TransactionResponse{}, fmt.Errorf("protocol error (expected Opened, got %#v)", response)
+	} else if err = response.Validate(); err != nil {
+		return TransactionResponse{}, fmt.Errorf("validation failed: %w", err)
+	}
+	return response, nil
+}
+
+func ReadAcknowledged(stream TransactionResponseRx, response *TransactionResponse) error {
+	if response.Opened == nil && response.StartedCommit == nil {
+		panic(fmt.Sprintf("expected prior response is Opened or StartedCommit, got %#v", response))
+	} else if err := recv(stream, response); err != nil {
+		return fmt.Errorf("reading Acknowledged: %w", err)
+	} else if response.Acknowledged == nil {
+		return fmt.Errorf("protocol error (expected Acknowledged, got %#v)", response)
+	} else if err = response.Validate(); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+	return nil
+}
+
+func ReadLoaded(stream TransactionResponseRx, response *TransactionResponse) (*TransactionResponse_Loaded, error) {
+	if response.Acknowledged == nil && response.Loaded == nil {
+		panic(fmt.Sprintf("expected prior response is Acknowledged or Loaded, got %#v", response))
+	} else if err := recv(stream, response); err == io.EOF && response.Acknowledged != nil {
+		return nil, io.EOF // Clean EOF.
+	} else if err != nil {
+		return nil, fmt.Errorf("reading Loaded: %w", err)
+	} else if response.Loaded == nil {
+		return nil, nil // No loads remain.
+	} else if err = response.Validate(); err != nil {
+		return nil, fmt.Errorf("validation failed: %w", err)
+	}
+	return response.Loaded, nil
+}
+
+func ReadFlushed(response *TransactionResponse) (deprecatedDriverCP *pf.DriverCheckpoint, _ error) {
+	if response.Flushed == nil {
+		return nil, fmt.Errorf("protocol error (expected Flushed, got %#v)", response)
+	} else if err := response.Validate(); err != nil {
+		return nil, fmt.Errorf("validation failed: %w", err)
+	}
+	return response.Flushed, nil
+}
+
+func ReadStartedCommit(stream TransactionResponseRx, response *TransactionResponse) (*pf.DriverCheckpoint, error) {
+	if response.Flushed == nil {
+		panic(fmt.Sprintf("expected prior response is Flushed, got %#v", response))
+	} else if err := recv(stream, response); err != nil {
+		return nil, fmt.Errorf("reading StartedCommit: %w", err)
+	} else if response.StartedCommit == nil {
+		return nil, fmt.Errorf("protocol error (expected StartedCommit, got %#v)", response)
+	} else if err = response.Validate(); err != nil {
+		return nil, fmt.Errorf("validation failed: %w", err)
+	}
+	return response.StartedCommit.DriverCheckpoint, nil
+}
+
+func recv(
+	stream interface{ RecvMsg(interface{}) error },
+	message proto.Message,
+) error {
+	if err := stream.RecvMsg(message); err == nil {
+		return nil
+	} else if status, ok := status.FromError(err); ok && status.Code() == codes.Internal {
+		return errors.New(status.Message())
+	} else if status.Code() == codes.Canceled {
+		return context.Canceled
+	} else {
+		return err
+	}
 }
 
 const (
