@@ -23,3 +23,14 @@ type ShardID = pc.ShardID
 type ShardSpec = pc.ShardSpec
 
 var MustLabelSet = pb.MustLabelSet
+
+// OpFuture represents an operation which is executing in the background. The
+// operation has completed when Done selects. Err may be invoked to determine
+// whether the operation succeeded or failed.
+// This is copied from gazette's `client` package.
+type OpFuture interface {
+	// Done selects when operation background execution has finished.
+	Done() <-chan struct{}
+	// Err blocks until Done() and returns the final error of the OpFuture.
+	Err() error
+}

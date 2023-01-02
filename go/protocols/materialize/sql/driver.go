@@ -278,71 +278,59 @@ func (d *Driver) ApplyDelete(ctx context.Context, req *pm.ApplyRequest) (*pm.App
 	}, nil
 }
 
-// Transactions implements the DriverServer interface.
-func (d *Driver) Transactions(stream pm.Driver_TransactionsServer) error {
-	var open, err = stream.Recv()
+func (d *Driver) newTransactor(ctx context.Context, open pm.TransactionRequest_Open) (pm.Transactor, *pm.TransactionResponse_Opened, error) {
+	var endpoint, err = d.NewEndpoint(ctx, open.Materialization.EndpointSpecJson)
 	if err != nil {
-		return fmt.Errorf("read Open: %w", err)
-	} else if open.Open == nil {
-		return fmt.Errorf("expected Open, got %#v", open)
-	}
-
-	endpoint, err := d.NewEndpoint(
-		stream.Context(),
-		open.Open.Materialization.EndpointSpecJson,
-	)
-	if err != nil {
-		return fmt.Errorf("building endpoint: %w", err)
+		return nil, nil, fmt.Errorf("building endpoint: %w", err)
 	}
 
 	// Verify the opened materialization has been applied to the database,
 	// and that the versions match.
-	if version, spec, err := endpoint.LoadSpec(stream.Context(), open.Open.Materialization.Materialization); err != nil {
-		return fmt.Errorf("loading materialization spec: %w", err)
+	if version, spec, err := endpoint.LoadSpec(ctx, open.Materialization.Materialization); err != nil {
+		return nil, nil, fmt.Errorf("loading materialization spec: %w", err)
 	} else if spec == nil {
-		return fmt.Errorf("materialization has not been applied")
-	} else if version != open.Open.Version {
-		return fmt.Errorf(
+		return nil, nil, fmt.Errorf("materialization has not been applied")
+	} else if version != open.Version {
+		return nil, nil, fmt.Errorf(
 			"applied and current materializations are different versions (applied: %s vs current: %s)",
-			version, open.Open.Version)
+			version, open.Version)
 	}
 
 	fence, err := endpoint.NewFence(
-		stream.Context(),
-		open.Open.Materialization.Materialization,
-		open.Open.KeyBegin,
-		open.Open.KeyEnd,
+		ctx,
+		open.Materialization.Materialization,
+		open.KeyBegin,
+		open.KeyEnd,
 	)
 	if err != nil {
-		return fmt.Errorf("installing fence: %w", err)
+		return nil, nil, fmt.Errorf("installing fence: %w", err)
 	}
 
 	// Parse resource specifications.
 	var resources []Resource
-	for _, spec := range open.Open.Materialization.Bindings {
+	for _, spec := range open.Materialization.Bindings {
 		if resource, err := parseResource(
 			d.NewResource(endpoint),
 			spec.ResourceSpecJson,
 			&spec.Collection,
 		); err != nil {
-			return err
+			return nil, nil, err
 		} else {
 			resources = append(resources, resource)
 		}
 	}
 
-	transactor, err := d.NewTransactor(
-		stream.Context(), endpoint, open.Open.Materialization, fence, resources)
+	transactor, err := d.NewTransactor(ctx, endpoint, open.Materialization, fence, resources)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	if err = stream.Send(&pm.TransactionResponse{
-		Opened: &pm.TransactionResponse_Opened{FlowCheckpoint: fence.Checkpoint()}}); err != nil {
-		return fmt.Errorf("sending Opened: %w", err)
-	}
+	return transactor, &pm.TransactionResponse_Opened{RuntimeCheckpoint: fence.Checkpoint()}, nil
+}
 
-	return pm.RunTransactions(stream, transactor, fence.LogEntry())
+// Transactions implements the DriverServer interface.
+func (d *Driver) Transactions(stream pm.Driver_TransactionsServer) error {
+	return pm.RunTransactions(stream, d.newTransactor)
 }
 
 // loadConstraints retrieves an existing binding spec under the given

@@ -156,9 +156,9 @@ func (m *TransactionRequest) Validate() error {
 		}
 		count += 1
 	}
-	if m.Prepare != nil {
-		if err := m.Prepare.Validate(); err != nil {
-			return pb.ExtendContext(err, "Prepare")
+	if m.Flush != nil {
+		if err := m.Flush.Validate(); err != nil {
+			return pb.ExtendContext(err, "Flush")
 		}
 		count += 1
 	}
@@ -168,9 +168,9 @@ func (m *TransactionRequest) Validate() error {
 		}
 		count += 1
 	}
-	if m.Commit != nil {
-		if err := m.Commit.Validate(); err != nil {
-			return pb.ExtendContext(err, "Commit")
+	if m.StartCommit != nil {
+		if err := m.StartCommit.Validate(); err != nil {
+			return pb.ExtendContext(err, "StartCommit")
 		}
 		count += 1
 	}
@@ -208,11 +208,8 @@ func (m *TransactionRequest_Load) Validate() error {
 	return nil
 }
 
-// Validate returns an error if the message is not well-formed.
-func (m *TransactionRequest_Prepare) Validate() error {
-	if len(m.FlowCheckpoint) == 0 {
-		return pb.NewValidationError("expected FlowCheckpoint")
-	}
+// Validate returns an error if the message is malformed.
+func (m *TransactionRequest_Flush) Validate() error {
 	return nil
 }
 
@@ -230,8 +227,11 @@ func (m *TransactionRequest_Store) Validate() error {
 	return nil
 }
 
-// Validate is a no-op.
-func (m *TransactionRequest_Commit) Validate() error {
+// Validate returns an error if the message is malformed.
+func (m *TransactionRequest_StartCommit) Validate() error {
+	if len(m.RuntimeCheckpoint) == 0 {
+		return pb.NewValidationError("expected RuntimeCheckpoint")
+	}
 	return nil
 }
 
@@ -255,15 +255,15 @@ func (m *TransactionResponse) Validate() error {
 		}
 		count += 1
 	}
-	if m.Prepared != nil {
-		if err := m.Prepared.Validate(); err != nil {
-			return pb.ExtendContext(err, "Prepared")
+	if m.Flushed != nil {
+		if err := m.Flushed.Validate(); err != nil {
+			return pb.ExtendContext(err, "Flushed")
 		}
 		count += 1
 	}
-	if m.DriverCommitted != nil {
-		if err := m.DriverCommitted.Validate(); err != nil {
-			return pb.ExtendContext(err, "DriverCommitted")
+	if m.StartedCommit != nil {
+		if err := m.StartedCommit.Validate(); err != nil {
+			return pb.ExtendContext(err, "StartedCommit")
 		}
 		count += 1
 	}
@@ -295,7 +295,7 @@ func (m *TransactionResponse_Loaded) Validate() error {
 }
 
 // Validate returns an error if the message is not well-formed.
-func (m *TransactionResponse_DriverCommitted) Validate() error {
+func (m *TransactionResponse_StartedCommit) Validate() error {
 	return nil
 }
 
