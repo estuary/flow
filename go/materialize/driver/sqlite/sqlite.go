@@ -14,6 +14,9 @@ import (
 	sqlDriver "github.com/estuary/flow/go/protocols/materialize/sql"
 	_ "github.com/mattn/go-sqlite3" // Import for register side-effects.
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/server"
+	"go.gazette.dev/core/task"
 )
 
 // config represents the endpoint configuration for sqlite.
@@ -152,6 +155,39 @@ func NewSQLiteDriver() *sqlDriver.Driver {
 	}
 }
 
+// InProcessServer is an in-process gRPC server of a SQLite materialization.
+// TODO(johnny): Replace with materialize-sqlite connector image and
+// the upcoming connector networking feature.
+type InProcessServer struct {
+	group  *task.Group
+	server *server.Server
+}
+
+func NewInProcessServer(ctx context.Context) (*InProcessServer, error) {
+	var group = task.NewGroup(pb.WithDispatchDefault(ctx))
+	var server = server.MustLoopback()
+
+	pm.RegisterDriverServer(server.GRPCServer, NewSQLiteDriver())
+	server.QueueTasks(group)
+
+	group.GoRun()
+
+	return &InProcessServer{
+		group:  group,
+		server: server,
+	}, nil
+}
+
+func (s *InProcessServer) Client() pm.DriverClient {
+	return pm.NewDriverClient(s.server.GRPCLoopback)
+}
+
+func (s *InProcessServer) Stop() error {
+	s.group.Cancel()
+	s.server.BoundedGracefulStop()
+	return s.group.Wait()
+}
+
 type transactor struct {
 	gen *sqlDriver.Generator
 
@@ -258,9 +294,6 @@ func (t *transactor) addBinding(ctx context.Context, targetName string, spec *pf
 
 func (d *transactor) Load(
 	it *pm.LoadIterator,
-	// We ignore priorCommitCh and priorAcknowledgedCh because we stage the
-	// contents of the iterator, evaluating loads after it's fully drained.
-	_, _ <-chan struct{},
 	loaded func(int, json.RawMessage) error,
 ) error {
 	// Remove rows left over from the last transaction.
@@ -308,11 +341,6 @@ func (d *transactor) Load(
 	return nil
 }
 
-func (d *transactor) Prepare(ctx context.Context, prepare pm.TransactionRequest_Prepare) (pf.DriverCheckpoint, error) {
-	d.store.fence.SetCheckpoint(prepare.FlowCheckpoint)
-	return pf.DriverCheckpoint{}, nil
-}
-
 func (d *transactor) Store(it *pm.StoreIterator) error {
 	var err error
 
@@ -354,17 +382,10 @@ func (d *transactor) Store(it *pm.StoreIterator) error {
 	return nil
 }
 
-func (d *transactor) Commit(ctx context.Context) error {
-	var err error
+func (d *transactor) StartCommit(ctx context.Context, runtimeCheckpoint []byte) (*pf.DriverCheckpoint, pf.OpFuture, error) {
+	d.store.fence.SetCheckpoint(runtimeCheckpoint)
 
-	if d.store.txn == nil {
-		// If Store was skipped, we won't have begun a DB transaction yet.
-		if d.store.txn, err = d.store.conn.BeginTx(ctx, nil); err != nil {
-			return fmt.Errorf("conn.BeginTx: %w", err)
-		}
-	}
-
-	if err = d.store.fence.Update(ctx,
+	if err := d.store.fence.Update(ctx,
 		func(ctx context.Context, sql string, arguments ...interface{}) (rowsAffected int64, _ error) {
 			if result, err := d.store.txn.ExecContext(ctx, sql, arguments...); err != nil {
 				return 0, fmt.Errorf("txn.Exec: %w", err)
@@ -374,19 +395,19 @@ func (d *transactor) Commit(ctx context.Context) error {
 			return
 		},
 	); err != nil {
-		return fmt.Errorf("fence.Update: %w", err)
+		return nil, nil, fmt.Errorf("fence.Update: %w", err)
 	}
 
 	if err := d.store.txn.Commit(); err != nil {
-		return fmt.Errorf("store.txn.Commit: %w", err)
+		return nil, nil, fmt.Errorf("store.txn.Commit: %w", err)
 	}
 	d.store.txn = nil
 
-	return nil
+	return nil, nil, nil
 }
 
-// Acknowledge is a no-op since the SQLite database is authoritative.
-func (d *transactor) Acknowledge(context.Context) error { return nil }
+// RuntimeCommitted is a no-op since the SQLite database is authoritative.
+func (d *transactor) RuntimeCommitted(context.Context) error { return nil }
 
 func (d *transactor) Destroy() {
 	if d.store.txn != nil {

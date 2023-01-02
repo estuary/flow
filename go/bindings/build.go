@@ -17,6 +17,7 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // CatalogJSONSchema returns the source catalog JSON schema understood by Flow.
@@ -163,6 +164,9 @@ func BuildCatalog(args BuildArgs) error {
 					args.BuildAPI_Config.ConnectorNetwork,
 					args.OpsPublisher,
 					func(driver *connector.Driver, request *pm.ValidateRequest) (*pm.ValidateResponse, error) {
+						// TODO(johnny): This is to make the gRPC loopback used by sqlite.InProcessServer
+						// work properly, and can be removed once that implementation is removed.
+						ctx = pb.WithDispatchDefault(ctx)
 						return driver.MaterializeClient().Validate(ctx, request)
 					},
 				)
