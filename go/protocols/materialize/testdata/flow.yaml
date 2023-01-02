@@ -1,5 +1,5 @@
 collections:
-  key/value:
+  keys/value:
     schema:
       type: object
       properties:
@@ -9,14 +9,24 @@ collections:
       required: [key1, key2]
     key: [/key1, /key2]
 
+  messages:
+    schema:
+      type: object
+      properties:
+        message: { type: string }
+      required: [message]
+    key: [/message]
+
 materializations:
   test/sqlite:
     endpoint:
       sqlite:
         path: ":memory:"
     bindings:
-      - source: key/value
-        resource: { table: key_value }
+      - source: keys/value
+        resource: { table: keys_value }
+      - source: messages
+        resource: { table: messages }
 
 storageMappings:
   "": { stores: [{ provider: S3, bucket: a-bucket }] }
