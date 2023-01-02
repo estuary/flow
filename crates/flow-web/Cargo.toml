@@ -1,7 +1,7 @@
 [package]
 name = "flow-web"
 version = "0.1.0"
-authors = ["phil <phil@estuary.dev>"]
+authors = ["Estuary developers  <engineering@estuary.dev>"]
 edition = "2021"
 
 # wasm-pack isn't yet fully compatible with workspace inheritance, so we can't use that for the above fields
@@ -20,12 +20,11 @@ default = ["console_error_panic_hook"]
 [dependencies]
 url = { workspace = true }
 thiserror = { workspace = true }
-wasm-bindgen = "0.2.62"
-js-sys = "*"
+wasm-bindgen = { workspace = true }
+js-sys = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde-wasm-bindgen = "0.4"
-getrandom = { version = "0.2", features = ["js"]}
+serde-wasm-bindgen = { workspace = true }
 
 # The `console_error_panic_hook` crate provides better debugging of panics by
 # logging them with `console.error`. This is great for development, but requires
@@ -40,6 +39,11 @@ wee_alloc = { version = "0.4.5", optional = true }
 
 json = { path = "../json" }
 doc = { path = "../doc", default-features = false }
+
+# this is not a workspace dependency because it's only a transitive dependency, and it's only included here
+# because we need to enable the "js" feature when building for wasm
+[target.wasm32-unknown-unknown.dependencies]
+getrandom = { version = "0.2", features = ["js"]}
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.13"
