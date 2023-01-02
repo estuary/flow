@@ -19,11 +19,13 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	sqlDriver "github.com/estuary/flow/go/protocols/materialize/sql"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	pb "go.gazette.dev/core/broker/protocol"
 )
 
 func TestSQLGeneration(t *testing.T) {
+	pb.RegisterGRPCDispatcher("local")
+
 	var args = bindings.BuildArgs{
 		Context:  context.Background(),
 		FileRoot: "./testdata",
@@ -84,13 +86,10 @@ func TestSpecification(t *testing.T) {
 }
 
 func TestSQLiteDriver(t *testing.T) {
-	log.SetLevel(log.DebugLevel)
-
-	var ctx = context.Background()
-	var driver = pm.AdaptServerToClient(sqlite.NewSQLiteDriver())
+	pb.RegisterGRPCDispatcher("local")
 
 	var args = bindings.BuildArgs{
-		Context:  ctx,
+		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			BuildId:    "fixture",
@@ -107,6 +106,12 @@ func TestSQLiteDriver(t *testing.T) {
 		model, err = catalog.LoadMaterialization(db, "a/materialization")
 		return err
 	}))
+
+	var server, err = sqlite.NewInProcessServer(context.Background())
+	require.NoError(t, err)
+
+	var driver = server.Client()
+	var ctx = pb.WithDispatchDefault(context.Background())
 
 	// Config fixture which matches schema of ParseConfig.
 	var endpointConfig = struct {
@@ -244,8 +249,16 @@ func TestSQLiteDriver(t *testing.T) {
 	opened, err := transaction.Recv()
 	require.NoError(t, err)
 	require.Equal(t, &pm.TransactionResponse_Opened{
-		FlowCheckpoint: []byte("initial checkpoint fixture"),
+		RuntimeCheckpoint: []byte("initial checkpoint fixture"),
 	}, opened.Opened)
+
+	// Send & receive Acknowledge.
+	require.NoError(t, transaction.Send(&pm.TransactionRequest{
+		Acknowledge: &pm.TransactionRequest_Acknowledge{},
+	}))
+	acknowledged, err := transaction.Recv()
+	require.NoError(t, err)
+	require.NotNil(t, acknowledged.Acknowledged, acknowledged)
 
 	// Test Load with keys that don't exist yet
 	var key1 = tuple.Tuple{"key1Value"}
@@ -260,28 +273,16 @@ func TestSQLiteDriver(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Send & receive Acknowledge.
-	require.NoError(t, transaction.Send(&pm.TransactionRequest{
-		Acknowledge: &pm.TransactionRequest_Acknowledge{},
-	}))
-	acknowledged, err := transaction.Recv()
-	require.NoError(t, err)
-	require.NotNil(t, acknowledged.Acknowledged, acknowledged)
-
-	// Send Prepare, which ends the Load phase.
-	var checkpoint1 = []byte("first checkpoint value")
+	// Send Flush, which ends the Load phase.
 	err = transaction.Send(&pm.TransactionRequest{
-		Prepare: &pm.TransactionRequest_Prepare{
-			FlowCheckpoint: checkpoint1,
-		},
+		Flush: &pm.TransactionRequest_Flush{},
 	})
 	require.NoError(t, err)
 
-	// Receive Prepared, which indicates that none of the documents exist
-	prepared, err := transaction.Recv()
+	// Receive Flushed, which indicates that none of the documents exist
+	flushed, err := transaction.Recv()
 	require.NoError(t, err)
-	require.NotNil(t, prepared.Prepared, "unexpected message: %v+", prepared)
-	require.Empty(t, prepared.Prepared.DriverCheckpointJson)
+	require.NotNil(t, flushed.Flushed, "unexpected message: %v+", flushed)
 
 	// Build and send Store requests with these documents.
 	var doc1 = `{ "theKey": "key1Value", "string": "foo", "bool": true, "int": 77, "number": 12.34 }`
@@ -313,21 +314,18 @@ func TestSQLiteDriver(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Send Commit and receive DriverCommitted.
+	// Send StartCommit and receive StartedCommit.
+	var checkpoint1 = []byte("first checkpoint value")
 	err = transaction.Send(&pm.TransactionRequest{
-		Commit: &pm.TransactionRequest_Commit{},
+		StartCommit: &pm.TransactionRequest_StartCommit{
+			RuntimeCheckpoint: checkpoint1,
+		},
 	})
 	require.NoError(t, err)
 
-	committed, err := transaction.Recv()
+	startedCommit, err := transaction.Recv()
 	require.NoError(t, err)
-	require.NotNil(t, committed.DriverCommitted)
-
-	// Next transaction. Send some loads.
-	err = transaction.Send(&pm.TransactionRequest{
-		Load: newLoadReq(key1.Pack(), key2.Pack(), key3.Pack()),
-	})
-	require.NoError(t, err)
+	require.NotNil(t, startedCommit.StartedCommit)
 
 	// Send & receive Acknowledge.
 	require.NoError(t, transaction.Send(&pm.TransactionRequest{
@@ -337,12 +335,15 @@ func TestSQLiteDriver(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, acknowledged.Acknowledged, acknowledged)
 
-	// Send Prepare to drain the load phase.
-	var checkpoint2 = []byte("second checkpoint value")
+	// Next transaction. Send some loads.
 	err = transaction.Send(&pm.TransactionRequest{
-		Prepare: &pm.TransactionRequest_Prepare{
-			FlowCheckpoint: checkpoint2,
-		},
+		Load: newLoadReq(key1.Pack(), key2.Pack(), key3.Pack()),
+	})
+	require.NoError(t, err)
+
+	// Send Flush to drain the load phase.
+	err = transaction.Send(&pm.TransactionRequest{
+		Flush: &pm.TransactionRequest_Flush{},
 	})
 	require.NoError(t, err)
 
@@ -357,10 +358,10 @@ func TestSQLiteDriver(t *testing.T) {
 		require.Equal(t, expected, string(actual))
 	}
 
-	// Receive Prepared
-	prepared, err = transaction.Recv()
+	// Receive Flushed
+	flushed, err = transaction.Recv()
 	require.NoError(t, err)
-	require.NotNil(t, prepared.Prepared, "unexpected message: %v+", prepared)
+	require.NotNil(t, flushed.Flushed, "unexpected message: %v+", flushed)
 
 	// This store will update one document and add a new one.
 	var newDoc1 = `{ "theKey": "key1Value", "string": "notthesame", "bool": false, "int": 33, "number": 2 }`
@@ -382,20 +383,17 @@ func TestSQLiteDriver(t *testing.T) {
 	require.NoError(t, err)
 
 	// Commit transaction and assert we get a Committed.
+	var checkpoint2 = []byte("second checkpoint value")
 	err = transaction.Send(&pm.TransactionRequest{
-		Commit: &pm.TransactionRequest_Commit{},
+		StartCommit: &pm.TransactionRequest_StartCommit{
+			RuntimeCheckpoint: checkpoint2,
+		},
 	})
 	require.NoError(t, err)
 
-	committed, err = transaction.Recv()
+	startedCommit, err = transaction.Recv()
 	require.NoError(t, err)
-	require.NotNil(t, committed.DriverCommitted)
-
-	// One more transaction just to verify the updated documents
-	err = transaction.Send(&pm.TransactionRequest{
-		Load: newLoadReq(key1.Pack(), key2.Pack(), key3.Pack(), key4.Pack()),
-	})
-	require.NoError(t, err)
+	require.NotNil(t, startedCommit.StartedCommit)
 
 	// Send & receive Acknowledge.
 	require.NoError(t, transaction.Send(&pm.TransactionRequest{
@@ -405,12 +403,15 @@ func TestSQLiteDriver(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, acknowledged.Acknowledged, acknowledged)
 
-	// Send Prepare.
-	var checkpoint3 = []byte("third checkpoint value")
+	// One more transaction just to verify the updated documents
 	err = transaction.Send(&pm.TransactionRequest{
-		Prepare: &pm.TransactionRequest_Prepare{
-			FlowCheckpoint: checkpoint3,
-		},
+		Load: newLoadReq(key1.Pack(), key2.Pack(), key3.Pack(), key4.Pack()),
+	})
+	require.NoError(t, err)
+
+	// Send Flush.
+	err = transaction.Send(&pm.TransactionRequest{
+		Flush: &pm.TransactionRequest_Flush{},
 	})
 	require.NoError(t, err)
 
@@ -425,18 +426,21 @@ func TestSQLiteDriver(t *testing.T) {
 		require.Equal(t, expected, string(actual))
 	}
 
-	// Receive Prepared
-	prepared, err = transaction.Recv()
+	// Receive Flushed
+	flushed, err = transaction.Recv()
 	require.NoError(t, err)
-	require.NotNil(t, prepared.Prepared, "unexpected message: %v+", prepared)
+	require.NotNil(t, flushed.Flushed, "unexpected message: %v+", flushed)
 
-	// Send and receive Commit / DriverCommitted.
+	// Send and receive StartCommit / StartedCommit.
+	var checkpoint3 = []byte("third checkpoint value")
 	require.NoError(t, transaction.Send(&pm.TransactionRequest{
-		Commit: &pm.TransactionRequest_Commit{},
+		StartCommit: &pm.TransactionRequest_StartCommit{
+			RuntimeCheckpoint: checkpoint3,
+		},
 	}))
-	committed, err = transaction.Recv()
+	startedCommit, err = transaction.Recv()
 	require.NoError(t, err)
-	require.NotNil(t, committed.DriverCommitted)
+	require.NotNil(t, startedCommit.StartedCommit)
 
 	// Send & receive a final Acknowledge.
 	require.NoError(t, transaction.Send(&pm.TransactionRequest{

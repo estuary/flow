@@ -9,9 +9,12 @@ import (
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
+	pb "go.gazette.dev/core/broker/protocol"
 )
 
 func TestBuildCatalog(t *testing.T) {
+	pb.RegisterGRPCDispatcher("local") // Required (only) by sqlite.InProcessServer.
+
 	var args = BuildArgs{
 		Context:  context.Background(),
 		FileRoot: "./testdata",
