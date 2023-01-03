@@ -20,6 +20,10 @@ serve(async (req) => {
 
   if (error != null) {
     console.error("error finding connector", error);
+    return new Response(
+      '{"error": "could not find connector"}',
+      { headers: { "Content-Type": "application/json" } },
+    );
   }
 
   const { data: connector_tag, error: err }: { data: object | null, error: any } = await supabaseClient
