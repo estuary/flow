@@ -3,17 +3,33 @@ sidebar_position: 7
 ---
 # Imports
 
-When you work on a draft Data Flow [using use `flowctl draft`](../concepts/flowctl.md#working-with-drafts),
+When you work on a draft Data Flow [using `flowctl draft`](../concepts/flowctl.md#working-with-drafts),
 your Flow specifications may be spread across multiple files.
-The `import` section allows you to interlink these files and define a complete Data Flow.
+For example, you may have multiple **materializations** that read from collections defined in separate files,
+or you could store a **derivation** separately from its **tests**.
+You might also reference specifications that aren't in your local draft.
+For example, you might create a derivation with a source collection that is not in your local draft.
 
-A common convention for a given draft is to have a single top-level specification
-file which imports all the others.
+When you publish your draft, Flow automatically resolves references to specifications across the entirety of the [catalog](./catalogs.md).
+This is possible because every entity in Flow has a globally unique name.
+
+Alternatively, you can explicitly add other local specification files to the Data Flow's build process by including an `import` section
+in the Flow specification file you'll publish.
+When the draft is published, the imported specifications are treated as part of the file
+into which they are imported.
+All entities in the draft will be used to overwrite any existing version of those entities in the global catalog.
+
+Explicit imports are useful when you need to update multiple components of a data flow at the same time,
+but they're in separate files.
+For example, when you update a derivation, you must also update its test(s) at the same time to prevent failures.
+You could import `test.yaml` into `my-derivation.yaml` and then publish `my-derivation.yaml` to update both entities in the catalog.
+
+A common pattern for a given draft is to have a single top-level specification
+file which explicitly imports all the others.
 Flow automatically generates such a top-level file for your draft when you begin a local work session
 using `flowctl draft develop`.
 
-When the draft is published, the imported resources are treated as part of the file
-into which they are imported.
+## Specification
 
 The `import` section is structured as a list of partial or absolute URIs,
 which Flow always evaluates relative to the base directory of the current source file.
@@ -89,10 +105,10 @@ with `JSON_SCHEMA` content type.
 ## Importing derivation resources
 
 In many cases, [derivations](./derivations.md) in your catalog will need to import resources.
-Usually, these are Typescript modules that define the lambda functions of a transformation,
-and, in certain cases, the NPM dependencies of that Typescript module.
+Usually, these are TypeScript modules that define the lambda functions of a transformation,
+and, in certain cases, the NPM dependencies of that TypeScript module.
 
-These imports are specified in the derivation specification, _not_ in the import section of the catalog spec.
+These imports are specified in the derivation specification, _not_ in the `import` section of the specification file.
 
 For more information, see [Derivation specification](./derivations.md#specification) and [creating TypeScript modules](./derivations.md#creating-typescript-modules).
 
@@ -104,6 +120,9 @@ If a catalog source file `foo.flow.yaml` references a collection in `bar.flow.ya
 for example as a target of a capture,
 there must be an _import path_ where either `foo.flow.yaml`
 imports `bar.flow.yaml` or vice versa.
+
+When you omit the `import` section, Flow chooses an import path for you.
+When you explicitly include the `import` section, you have more control over the import path.
 
 Import paths can be direct:
 

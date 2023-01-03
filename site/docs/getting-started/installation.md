@@ -48,18 +48,20 @@ The flowctl source files are also on GitHub [here](https://go.estuary.dev/flowct
 
 Once you've installed flowctl and are ready to begin working, authenticate your session using an access token.
 
-1. Sign into the Flow web application.
+1. Ensure that you have an Estuary account and have signed into the Flow web app before.
 
-2. Click the **Admin** tab.
-
-3. On the Admin page, click the **CLI-API** tab. Copy the token from the **Access Token** box.
-
-4. In the terminal of your local development environment, run:
+2. In the terminal of your local development environment, run:
    ``` console
-   flowctl auth token --token=<copied-token>
+   flowctl auth login
    ```
+   In a browser window, the web app opens to the CLI-API tab.
 
-The token will expire after a predetermined duration. Generate a new token using the web application and re-authenticate.
+3. Copy the access token.
+
+4. Return to the terminal, paste the access token, and press Enter.
+
+The token will expire after a predetermined duration. Repeat this process to re-authenticate.
+
 
 [Learn more about using flowctl.](../concepts/flowctl.md)
 
