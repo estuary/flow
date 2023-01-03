@@ -8,7 +8,6 @@ version = "0.15.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a93b8a41dbe230ad5087cc721f8d41611de654542180586b315d9f4cf6b72bef"
 dependencies = [
- "psl",
  "psl-types",
 ]
 
@@ -2960,15 +2959,6 @@ version = "0.0.0"
 dependencies = [
  "proto-flow",
  "proto-gazette",
-]
-
-[[package]]
-name = "psl"
-version = "2.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07242622d9f4b9c1a6fe9c2691cf18ee7d34400a5eed2e1668c756bfaea93fb3"
-dependencies = [
- "psl-types",
 ]
 
 [[package]]
