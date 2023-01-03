@@ -88,9 +88,9 @@ You'll start by creating your capture.
 
    * **Prefix**: The storage bucket isn't organized by prefixes, so leave this blank.
 
-   * **Match Keys**: `2022`
+   * **Match Keys**: `2023`
 
-   The Citi Bike storage bucket has been around for a while. Some of the older datasets have incorrect file extensions or contain data in different formats. By selecting files that contain `2022`, you'll restrict the data to this year only, making things easier to manage for the purposes of this tutorial.
+   The Citi Bike storage bucket has been around for a while. Some of the older datasets have incorrect file extensions or contain data in different formats. By selecting files that contain `2023`, you'll restrict the data to this year only, making things easier to manage for the purposes of this tutorial.
    (In a real-world use case, you'd likely reconcile the different schemas of the various data formats using a **derivation**.
    [Derivations](../../concepts/README.md#derivations) are a more advanced Flow skill.)
 
