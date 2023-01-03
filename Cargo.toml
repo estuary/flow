@@ -13,7 +13,7 @@ repository = "https://github.com/estuary/flow"
 license = "BSL"
 
 [workspace.dependencies]
-addr = { version = "0.15.4", features = ["idna", "std", "psl"] }
+addr = { version = "0.15.4", default-features = false, features = ["std"] }
 anyhow = "1.0"
 async-compression = { version = "0.3", features = [
     "futures-io",
