@@ -49,11 +49,12 @@ Important top-level flowctl subcommands are described below.
 It's also how you provision Flow roles and users. Learn more about [authentication](../reference/authentication.md).
 
 * `catalog` allows you to work with your organization's current active catalog entities. You can investigate the current Data Flows,
- or add their specification files to a **draft**, where you can develop them further.f
+pull specifications for local editing, and test and publish specifications that you wrote or edited locally.
 
 * `collections` allows you to work with your Flow collections. You can read the data from the collection and output it to stdout, or list the [journals](../concepts/advanced/journals.md) or journal fragments that comprise the collection. [Learn more about reading collections with flowctl](../concepts/collections.md#using-the-flowctl-cli).
 
-* `draft` allows you to work with drafts. You can create, test, develop locally, and then **publish**, or deploy, them to the catalog.
+* `draft` provides an alternative method for many of the actions you'd normally perform with `catalog`, but common workflows have more steps.
+`draft` also allows you to delete Flow entities.
 
 You can access full documentation of all flowctl subcommands from the command line by passing the `--help` or `-h` flag, for example:
 
@@ -61,31 +62,57 @@ You can access full documentation of all flowctl subcommands from the command li
 
 * `flowctl catalog --help` lists subcommands of `catalog`.
 
-## Working with drafts
+## Editing Data Flows with flowctl
 
-`flowctl draft` allows you to work with Flow specification files in the draft state and deploy changes to the catalog.
-`draft` is an essential flowctl subcommand that you'll use often.
+flowctl allows you to work locally on the specification files that define your Data Flows.
+You'll often need to move these specifications back and forth between your local **draft** — the files in your local environment — and the **catalog**
+of published entities.
 
-With `draft`, you:
+The basic steps of this workflow are listed below, along with a diagram of the subcommands you'd use to accomplish them.
+Keep in mind that there's no single, correct way to work with drafts — flowctl offers alternative ways accomplish the same goals —
+but we recommend this method to get started.
 
-* Create new drafts or convert active Data Flows into drafts.
-* Pull a draft created in the web app or on the command line into your current working directory.
-* Develop the draft locally.
-* Author your local changes to the draft. This is equivalent to syncing changes.
-* Test and publish the draft to publish to the catalog.
+* List all the active specifications in the catalog, which you can then pull into your local draft.
+You can filter the output by [prefix](../concepts/catalogs.md#namespace) or entity type.
+For example, `flowctl catalog list --prefix acmeCo/sales/ --collections` only lists collections under the
+`acmeCo/sales/` prefix.
+
+* Add a group of active specifications directly to your local draft. You can refine results by prefix or entity type as described above (1).
+
+  Note that if there are already files in your working directory, flowctl must reconcile them with the newly pulled specification.
+  [Learn more about your options](#reconciling-specifications-in-local-drafts).
+
+* Make edits locally.
+
+* Test local draft (2).
+
+* Publish a local draft to the catalog (3).
 
 <Mermaid chart={`
 	graph LR;
-    a((Start));
-    s[Selected, synced draft];
     d[Local draft];
     c[Active catalog];
-    s-- flowctl draft develop -->d;
-    d-- flowctl draft author -->s;
-    s-- flowctl draft publish -->c;
-    a-- flowctl draft select -->s;
-    d-- Work locally -->d;
+    d-- 2: flowctl catalog test -->d;
+    d-- 3: flowctl catalog publish -->c;
+    c-- 1: flowctl catalog pull-specs -->d;
 `}/>
+
+### Reconciling specifications in local drafts
+
+When you pull specifications to your working directory directly using `flowctl catalog pull-specs`,
+there may be conflicts between the existing files in that directory and the specifications you pull.
+
+By default, `flowctl catalog pull-specs` will abort if it detects an existing file with the same name as a specification
+it is attempting to pull. You can change this behavior with the `--existing` flag:
+
+* `--existing=overwrite` pulls the new versions of conflicting files in place of the old versions.
+
+* `--existing=keep` keeps the old versions of conflicting files.
+
+* `--existing=merge-specs` performs a simple merge of new and old versions of conflicting files.
+For example, if an existing `flow.yaml` file references collections a and b,
+and the new version of `flow.yaml` references collections a and c,
+the merged version will reference collections a, b, and c.
 
 ## Development directories
 
@@ -98,17 +125,24 @@ They typically include:
 
 * `flow.yaml`:
   The main specification file that imports all other Flow specification files in the current draft. As part of local development, you may add new specifications that you create as imports.
+
 * `flow_generated/`:
   Directory of generated files, including TypeScript classes and interfaces.
   See [TypeScript code generation](#typescript-code-generation).
+
 * `estuary/`:
   Directory of the draft's current specifications. Its contents will vary, but it may contain various YAML files and subdirectories.
+
 * `package.json` and `package-lock.json`:
   Files used by `npm` to manage dependencies and your Data Flow's associated JavaScript project.
   You may customize `package.json`,
   but its `dependencies` stanza will be overwritten by the
   [npmDependencies](derivations.md#npm-dependencies)
   of your Flow specification source files, if any exist.
+
+When you run commands like `flowctl catalog publish` or `flowctl draft author`, you can use the `--source-dir` flag
+to push specifications from a directory other than your current working directory,
+for example, `flowctl draft author --source-dir ../AcmeCoNew/marketing`.
 
 ### TypeScript code generation
 
