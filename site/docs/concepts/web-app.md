@@ -76,7 +76,7 @@ You can search for any part of this full capture name. You can also use the `*` 
 For example, if you have a capture called `acmeCo/logistics/anvil-locations/source-postgres`,
 you can find it by filtering for `acmeCo*source-postgres`.
 
-**5:** Shard status indicator. Shows the status of the primary task [shard](./advanced/shards.md) that backs this capture.
+**5:** Status indicator. Shows the status of the primary task [shard](./advanced/shards.md) that backs this capture.
 
 * **Primary (Green)**: Data is actively flowing through the capture.
 * **Pending (Yellow)**: The capture is attempting to re-connect. Often, you'll see this after you re-enable the capture as Flow backfills historical data.
@@ -168,7 +168,7 @@ This can help you verify that collection data was captured as expected and that 
 
 ![](<./webapp-images/collections-page.png>)
 
-**1:** Shard status indicator. If the collection does not contain a [derivation](./README.md#derivations), the indicator should always show green, and hover text will say "Collection."
+**1:** Status indicator. If the collection does not contain a [derivation](./README.md#derivations), the indicator should always show green, and hover text will say "Collection."
 In the event that the server cannot be reached, the indicator will show "Unknown" status (black in light mode and white in dark mode).
 
   If the collection contains a derivation, the status of the derivation's primary task [shard](./advanced/shards.md) will be indicated:
@@ -214,7 +214,7 @@ you can find it by filtering for `acmeCo*locations`.
 
 Unlike capture names, materialization names don't contain the connector name, but you can still filter them by connector.
 
-**4:** Shard status indicator. Shows the status of the primary task [shard](./advanced/shards.md) that backs this materialization.
+**4:** Status indicator. Shows the status of the primary task [shard](./advanced/shards.md) that backs this materialization.
 
 * **Primary (Green)**: Data is actively flowing through the materialization.
 * **Pending (Yellow)**: The materialization is attempting to re-connect. Often, you'll see this after you re-enable the materialization as Flow backfills historical data.
