@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
 )
 
@@ -28,6 +29,7 @@ func (cmd cmdCheck) Execute(_ []string) error {
 		"version":   mbp.Version,
 		"buildDate": mbp.BuildDate,
 	}).Info("flowctl configuration")
+	pb.RegisterGRPCDispatcher("local")
 
 	var buildID = newBuildID()
 	var err = apiBuild{

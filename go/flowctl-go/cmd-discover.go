@@ -19,6 +19,7 @@ import (
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
 	"gopkg.in/yaml.v3"
 )
@@ -41,6 +42,7 @@ func (cmd cmdDiscover) Execute(_ []string) error {
 		"version":   mbp.Version,
 		"buildDate": mbp.BuildDate,
 	}).Info("flowctl configuration")
+	pb.RegisterGRPCDispatcher("local")
 
 	var imageParts = strings.Split(cmd.Image, "/")
 	var connectorName = strings.Split(imageParts[len(imageParts)-1], ":")[0]
