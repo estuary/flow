@@ -33,45 +33,52 @@ type Transactor interface {
 	// updates of that prior transaction, and thus meet the formal "read-committed"
 	// guarantee required by the runtime.
 	Load(_ *LoadIterator, loaded func(binding int, doc json.RawMessage) error) error
-	// Store consumes Store requests from the StoreIterator.
-	Store(*StoreIterator) error
-	// StartCommit begins to commit the transaction. Upon its return a commit
-	// operation may still be running in the background, and the returned
-	// OpFuture must resolve with its completion.
-	// (Upon its resolution, Acknowledged will be sent to the Runtime).
-	//
-	// # When using the "Remote Store is Authoritative" pattern:
-	//
-	// StartCommit must include `runtimeCheckpoint` within its endpoint
-	// transaction and either immediately or asynchronously commit.
-	// If the Transactor commits synchronously, it may return a nil OpFuture.
-	//
-	// # When using the "Recovery Log is Authoritative with Idempotent Apply" pattern:
-	//
-	// StartCommit must return a DriverCheckpoint which encodes the staged
-	// application. It must begin an asynchronous application of this staged
-	// update, returning its OpFuture.
-	//
-	// That async application MUST await a future call to RuntimeCommitted before
-	// taking action, however, to ensure that the DriverCheckpoint returned by
-	// StartCommit has been durably committed to the runtime recovery log.
-	//
-	// Note it's possible that the DriverCheckpoint may commit to the log,
-	// but then the runtime or this Transactor may crash before the application
-	// is able to complete. For this reason, on initialization a Transactor must
-	// take care to (re-)apply a staged update in the opened DriverCheckpoint.
-	StartCommit(_ context.Context, runtimeCheckpoint []byte) (*pf.DriverCheckpoint, pf.OpFuture, error)
-	// RuntimeCommitted is called after StartCommit, upon the runtime completing
-	// its commit to its recovery log.
-	//
-	// Most Transactors can ignore this signal, but those using the
-	// "Recovery Log is Authoritative with Idempotent Apply" should use it
-	// to unblock an apply operation initiated by StartCommit,
-	// which may only now proceed.
-	RuntimeCommitted(context.Context) error
+	// Store consumes Store requests from the StoreIterator and returns
+	// a StartCommitFunc which is used to commit the stored transaction.
+	// StartCommitFunc may be nil, which indicate that commits are a
+	// no-op -- for example, as in an at-least-once materialization that
+	// doesn't use a DriverCheckpoint.
+	Store(*StoreIterator) (StartCommitFunc, error)
 	// Destroy the Transactor, releasing any held resources.
 	Destroy()
 }
+
+// StartCommitFunc begins to commit a stored transaction.
+// Upon its return a commit operation may still be running in the background,
+// and the returned OpFuture must resolve with its completion.
+// (Upon its resolution, Acknowledged will be sent to the Runtime).
+//
+// # When using the "Remote Store is Authoritative" pattern:
+//
+// StartCommitFunc must include `runtimeCheckpoint` within its endpoint
+// transaction and either immediately or asynchronously commit.
+// If the Transactor commits synchronously, it may return a nil OpFuture.
+//
+// # When using the "Recovery Log is Authoritative with Idempotent Apply" pattern:
+//
+// StartCommitFunc must return a DriverCheckpoint which encodes the staged
+// application. It must begin an asynchronous application of this staged
+// update, immediately returning its OpFuture.
+//
+// That async application MUST await a future signal of `runtimeAckCh`
+// before taking action, however, to ensure that the DriverCheckpoint returned
+// by StartCommit has been durably committed to the runtime recovery log.
+// `runtimeAckCh` is closed when an Acknowledge request is received from
+// the runtime, indicating that the transaction and its DriverCheckpoint
+// have been committed to the runtime recovery log.
+//
+// Note it's possible that the DriverCheckpoint may commit to the log,
+// but then the runtime or this Transactor may crash before the application
+// is able to complete. For this reason, on initialization a Transactor must
+// take care to (re-)apply a staged update in the opened DriverCheckpoint.
+//
+// If StartCommitFunc fails, it should return a pre-resolved OpFuture
+// which carries its error (for example, via FinishedOperation()).
+type StartCommitFunc = func(
+	_ context.Context,
+	runtimeCheckpoint []byte,
+	runtimeAckCh <-chan struct{},
+) (*pf.DriverCheckpoint, pf.OpFuture)
 
 // RunTransactions processes materialization protocol transactions
 // over the established stream against a Driver.
@@ -117,7 +124,7 @@ func RunTransactions(
 	// It has an exclusive ability to write to `stream` until it returns.
 	var await = func(
 		round int,
-		commitOp pf.OpFuture, // Resolves when the prior commit completes.
+		ourCommitOp pf.OpFuture, // Resolves when the prior commit completes.
 		awaitDoneCh chan<- struct{}, // To be closed upon return.
 		loadDoneCh <-chan struct{}, // Signaled when load() has completed.
 	) (__out error) {
@@ -134,8 +141,8 @@ func RunTransactions(
 
 		// Wait for commit to complete, with cancellation checks.
 		select {
-		case <-commitOp.Done():
-			if err := commitOp.Err(); err != nil {
+		case <-ourCommitOp.Done():
+			if err := ourCommitOp.Err(); err != nil {
 				return err
 			}
 		case <-loadDoneCh:
@@ -193,8 +200,10 @@ func RunTransactions(
 		return err
 	}
 
-	// commitOp is a future for the most-recent started commit.
-	var commitOp pf.OpFuture = client.FinishedOperation(nil)
+	// ourCommitOp is a future for the last async startCommit().
+	var ourCommitOp pf.OpFuture = client.FinishedOperation(nil)
+	// runtimeCommitCh is a future for the last async runtime commit.
+	var runtimeCommitCh = make(chan struct{})
 
 	for round := 0; true; round++ {
 		var (
@@ -205,19 +214,15 @@ func RunTransactions(
 
 		if err = ReadAcknowledge(stream, &rxRequest); err != nil {
 			return err
-		} else if round == 0 {
-			// Suppress explicit Acknowledge of the opened commit.
-			// newTransactor() is expected to have already taken any required
-			// action to apply this commit to the store (where applicable).
-		} else if err = transactor.RuntimeCommitted(stream.Context()); err != nil {
-			return fmt.Errorf("transactor.RuntimeCommitted: %w", err)
 		}
+		close(runtimeCommitCh)                // Notify prior startCommit() it may proceed.
+		runtimeCommitCh = make(chan struct{}) // For next startCommit().
 
 		// Await the commit of the prior transaction, then notify the runtime.
 		// On completion, Acknowledged has been written to the stream,
 		// and a concurrent load() phase may now begin to close.
 		// At exit, `awaitDoneCh` is closed and `awaitErr` is its status.
-		go await(round, commitOp, awaitDoneCh, loadDoneCh)
+		go await(round, ourCommitOp, awaitDoneCh, loadDoneCh)
 
 		// Begin an async load of the current transaction.
 		// At exit, `loadDoneCh` is closed and `loadErr` is its status.
@@ -252,7 +257,8 @@ func RunTransactions(
 
 		// Process all Store requests until StartCommit is read.
 		var storeIt = StoreIterator{stream: stream, request: &rxRequest}
-		if err = transactor.Store(&storeIt); storeIt.err != nil {
+		var startCommit, err = transactor.Store(&storeIt)
+		if storeIt.err != nil {
 			err = storeIt.err // Prefer an iterator error as it's more directly causal.
 		}
 		if err != nil {
@@ -261,20 +267,34 @@ func RunTransactions(
 		logrus.WithFields(logrus.Fields{"round": round, "stored": storeIt.total}).Debug("Store finished")
 
 		var runtimeCheckpoint []byte
-		var driverCheckpoint *pf.DriverCheckpoint
-
 		if runtimeCheckpoint, err = ReadStartCommit(&rxRequest); err != nil {
-			return err
-		} else if driverCheckpoint, commitOp, err = transactor.StartCommit(stream.Context(), runtimeCheckpoint); err != nil {
-			return fmt.Errorf("transactor.StartCommit: %w", err)
-		} else if err = WriteStartedCommit(stream, &txResponse, driverCheckpoint); err != nil {
 			return err
 		}
 
+		// `startCommit` may be nil to indicate a no-op commit.
+		var driverCheckpoint *pf.DriverCheckpoint
+		if startCommit != nil {
+			driverCheckpoint, ourCommitOp = startCommit(
+				stream.Context(), runtimeCheckpoint, runtimeCommitCh)
+		}
 		// As a convenience, map a nil OpFuture to a pre-resolved one so the
 		// rest of our handling can ignore the nil case.
-		if commitOp == nil {
-			commitOp = client.FinishedOperation(nil)
+		if ourCommitOp == nil {
+			ourCommitOp = client.FinishedOperation(nil)
+		}
+
+		// If startCommit returned a pre-resolved error, fail-fast and don't
+		// send StartedCommit to the runtime, as `driverCheckpoint` may be invalid.
+		select {
+		case <-ourCommitOp.Done():
+			if err = ourCommitOp.Err(); err != nil {
+				return fmt.Errorf("transactor.StartCommit: %w", err)
+			}
+		default:
+		}
+
+		if err = WriteStartedCommit(stream, &txResponse, driverCheckpoint); err != nil {
+			return err
 		}
 	}
 	panic("not reached")

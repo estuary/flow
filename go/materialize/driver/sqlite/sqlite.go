@@ -196,11 +196,10 @@ type transactor struct {
 		conn *sql.Conn
 		stmt *sql.Stmt
 	}
-	// Variables accessed by Prepare, Store, and Commit.
+	// Variables exclusively used by Store.
 	store struct {
 		conn  *sql.Conn
 		fence *sqlDriver.StdFence
-		txn   *sql.Tx
 	}
 	bindings []*binding
 }
@@ -341,19 +340,18 @@ func (d *transactor) Load(
 	return nil
 }
 
-func (d *transactor) Store(it *pm.StoreIterator) error {
-	var err error
-
-	if d.store.txn, err = d.store.conn.BeginTx(it.Context(), nil); err != nil {
-		return fmt.Errorf("conn.BeginTx: %w", err)
+func (d *transactor) Store(it *pm.StoreIterator) (pm.StartCommitFunc, error) {
+	var txn, err = d.store.conn.BeginTx(it.Context(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("conn.BeginTx: %w", err)
 	}
 
 	var insertStmts = make([]*sql.Stmt, len(d.bindings))
 	var updateStmts = make([]*sql.Stmt, len(d.bindings))
 
 	for i, b := range d.bindings {
-		insertStmts[i] = d.store.txn.Stmt(b.store.insert.stmt)
-		updateStmts[i] = d.store.txn.Stmt(b.store.update.stmt)
+		insertStmts[i] = txn.Stmt(b.store.insert.stmt)
+		updateStmts[i] = txn.Stmt(b.store.update.stmt)
 	}
 
 	for it.Next() {
@@ -363,31 +361,34 @@ func (d *transactor) Store(it *pm.StoreIterator) error {
 			converted, err := b.store.update.params.Convert(
 				append(append(it.Values, it.RawJSON), it.Key...))
 			if err != nil {
-				return fmt.Errorf("converting update parameters: %w", err)
+				return nil, fmt.Errorf("converting update parameters: %w", err)
 			}
 			if _, err = updateStmts[it.Binding].Exec(converted...); err != nil {
-				return fmt.Errorf("updating document: %w", err)
+				return nil, fmt.Errorf("updating document: %w", err)
 			}
 		} else {
 			converted, err := b.store.insert.params.Convert(
 				append(append(it.Key, it.Values...), it.RawJSON))
 			if err != nil {
-				return fmt.Errorf("converting insert parameters: %w", err)
+				return nil, fmt.Errorf("converting insert parameters: %w", err)
 			}
 			if _, err = insertStmts[it.Binding].Exec(converted...); err != nil {
-				return fmt.Errorf("inserting document: %w", err)
+				return nil, fmt.Errorf("inserting document: %w", err)
 			}
 		}
 	}
-	return nil
+
+	return func(ctx context.Context, runtimeCheckpoint []byte, _ <-chan struct{}) (*pf.DriverCheckpoint, pf.OpFuture) {
+		d.store.fence.SetCheckpoint(runtimeCheckpoint)
+		return nil, pf.RunAsyncOperation(func() error { return commitTxn(ctx, txn, d.store.fence) })
+	}, nil
 }
 
-func (d *transactor) StartCommit(ctx context.Context, runtimeCheckpoint []byte) (*pf.DriverCheckpoint, pf.OpFuture, error) {
-	d.store.fence.SetCheckpoint(runtimeCheckpoint)
+func commitTxn(ctx context.Context, txn *sql.Tx, fence *sqlDriver.StdFence) error {
 
-	if err := d.store.fence.Update(ctx,
+	if err := fence.Update(ctx,
 		func(ctx context.Context, sql string, arguments ...interface{}) (rowsAffected int64, _ error) {
-			if result, err := d.store.txn.ExecContext(ctx, sql, arguments...); err != nil {
+			if result, err := txn.ExecContext(ctx, sql, arguments...); err != nil {
 				return 0, fmt.Errorf("txn.Exec: %w", err)
 			} else if rowsAffected, err = result.RowsAffected(); err != nil {
 				return 0, fmt.Errorf("result.RowsAffected: %w", err)
@@ -395,24 +396,20 @@ func (d *transactor) StartCommit(ctx context.Context, runtimeCheckpoint []byte) 
 			return
 		},
 	); err != nil {
-		return nil, nil, fmt.Errorf("fence.Update: %w", err)
+		return fmt.Errorf("fence.Update: %w", err)
 	}
 
-	if err := d.store.txn.Commit(); err != nil {
-		return nil, nil, fmt.Errorf("store.txn.Commit: %w", err)
+	if err := txn.Commit(); err != nil {
+		return fmt.Errorf("store.txn.Commit: %w", err)
 	}
-	d.store.txn = nil
 
-	return nil, nil, nil
+	return nil
 }
 
 // RuntimeCommitted is a no-op since the SQLite database is authoritative.
 func (d *transactor) RuntimeCommitted(context.Context) error { return nil }
 
 func (d *transactor) Destroy() {
-	if d.store.txn != nil {
-		d.store.txn.Rollback()
-	}
 	if err := d.load.conn.Close(); err != nil {
 		log.WithField("err", err).Error("failed to close load connection")
 	}

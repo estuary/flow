@@ -351,25 +351,31 @@ func (t *testTransactor) Load(it *LoadIterator, loaded func(binding int, doc jso
 	return t.loadErr
 }
 
-func (t *testTransactor) Store(it *StoreIterator) error {
+func (t *testTransactor) Store(it *StoreIterator) (StartCommitFunc, error) {
 	for it.Next() {
 		t.StoreBindings = append(t.StoreBindings, it.Binding)
 		t.StoreKeys = append(t.StoreKeys, it.Key)
 		t.StoreValues = append(t.StoreValues, it.Values)
 		t.StoreDocs = append(t.StoreDocs, it.RawJSON)
 	}
-	return t.storeErr
+	return t.startCommit, t.storeErr
 }
 
-func (t *testTransactor) StartCommit(_ context.Context, runtimeCheckpoint []byte) (*pf.DriverCheckpoint, pf.OpFuture, error) {
+func (t *testTransactor) startCommit(
+	_ context.Context,
+	runtimeCheckpoint []byte,
+	runtimeAckCh <-chan struct{},
+) (*pf.DriverCheckpoint, pf.OpFuture) {
 	t.RuntimeCheckpoint = string(runtimeCheckpoint)
 
 	var commitOp pf.OpFuture
-	if t.commitOp != nil {
+
+	if t.startCommitErr != nil {
+		commitOp = pf.FinishedOperation(t.startCommitErr)
+	} else if t.commitOp != nil {
 		commitOp = t.commitOp // A nil *client.AsyncOperation is not a nil OpFuture.
 	}
-	return &t.StartedCommitTx, commitOp, t.startCommitErr
+	return &t.StartedCommitTx, commitOp
 }
 
-func (t *testTransactor) RuntimeCommitted(context.Context) error { return nil }
-func (t *testTransactor) Destroy()                               {}
+func (t *testTransactor) Destroy() {}
