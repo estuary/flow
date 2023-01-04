@@ -1,6 +1,9 @@
 package flow
 
 import (
+	"fmt"
+
+	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
 )
@@ -33,4 +36,32 @@ type OpFuture interface {
 	Done() <-chan struct{}
 	// Err blocks until Done() and returns the final error of the OpFuture.
 	Err() error
+}
+
+// AsyncOperation is a simple, minimal implementation of the OpFuture interface.
+type AsyncOperation = client.AsyncOperation
+
+// NewAsyncOperation returns a new AsyncOperation.
+var NewAsyncOperation = client.NewAsyncOperation
+
+// FinishedOperation is a convenience that returns an already-resolved AsyncOperation.
+var FinishedOperation = client.FinishedOperation
+
+// RunAsyncOperation invokes the given function asynchronously and returns
+// an OpFuture which will resolve with its completion or panic.
+func RunAsyncOperation(fn func() error) OpFuture {
+	var op = NewAsyncOperation()
+
+	go func(op *AsyncOperation) {
+		defer func() {
+			if op != nil {
+				op.Resolve(fmt.Errorf("operation had an internal panic"))
+			}
+		}()
+
+		op.Resolve(fn())
+		op = nil
+	}(op)
+
+	return op
 }
