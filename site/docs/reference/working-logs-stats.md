@@ -8,7 +8,38 @@ are useful for debugging and monitoring catalog tasks.
 
 ## Accessing logs and statistics
 
-You can access logs and statistics by materializing them to an external endpoint, or from the command line.
+You can access logs and statistics in the Flow web app, by materializing them to an external endpoint, or from the command line.
+
+### Logs and statistics in the Flow web app
+
+You can view a subset of logs and statistics for individual tasks in the Flow web app.
+
+#### Logs
+
+After you publish a new [capture](../guides/create-dataflow.md#create-a-capture) or [materialization](../guides/create-dataflow.md#create-a-materialization), a pop-up window appears that displays the task's logs.
+Once you close the window, you can't regain access to the full logs in the web app.
+For a complete view of logs, use [flowctl](#accessing-logs-and-statistics-from-the-command-line) or [materialize the logs collection](#accessing-logs-or-stats-by-materialization) to an outside system.
+
+However, if a task fails, you can view the logs associated with the error(s) that caused the failure.
+In the **Details** view of the published capture or materialization, click the name of its shard to display the logs.
+
+#### Statistics
+
+Two statistics are shown for each capture, collection, and materialization:
+
+* **Bytes Written or Read**.
+This corresponds to the `bytesTotal` [property of the stats collection](#transaction-information).
+* **Docs Written or Read**.
+This corresponds to the `docsTotal` [property of the stats collection](#transaction-information).
+
+These fields have slightly different meanings for each Flow entity type:
+
+* For captures, **Bytes Written** and **Docs Written** represent the total data written across all of the
+capture's associated collections.
+* For collections, **Bytes Written** and **Docs Written** represent the data written to the collection from
+its associated capture or derivation.
+* For materializations, **Bytes Read** and **Docs Read** represent the total data read from all of the
+materialization's associated collections.
 
 ### Accessing logs and statistics from the command line
 

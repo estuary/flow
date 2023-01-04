@@ -66,7 +66,7 @@ You use the table to monitor your captures.
 
 **2:** Enable, Disable, and Delete buttons. These actions will be applied to the selected table rows. Choose **Disable** to temporarily pause the flow of data, **Enable** to resume, and **Delete** to permanently remove the capture(s).
 
-**3:** Materialize button. When you click this button, you're directed to the **Create materializations** page.
+**3:** Materialize button. When you click this button, you're directed to the **Create Materializations** page.
 All the collections of the selected capture(s) will be added to the materialization.
 
 **4:** Filter captures. Type a catalog prefix, unique capture name, or connector name to return captures that match your query.
@@ -76,7 +76,7 @@ You can search for any part of this full capture name. You can also use the `*` 
 For example, if you have a capture called `acmeCo/logistics/anvil-locations/source-postgres`,
 you can find it by filtering for `acmeCo*source-postgres`.
 
-**5:** Shard status indicator. Shows the status of the primary task [shard](./advanced/shards.md) that backs this capture.
+**5:** Status indicator. Shows the status of the primary task [shard](./advanced/shards.md) that backs this capture.
 
 * **Primary (Green)**: Data is actively flowing through the capture.
 * **Pending (Yellow)**: The capture is attempting to re-connect. Often, you'll see this after you re-enable the capture as Flow backfills historical data.
@@ -88,11 +88,16 @@ you can find it by filtering for `acmeCo*source-postgres`.
 
 **7:** Capture type. The icon shows the type of source system data is captured from.
 
-**8:** Associated collections. The **Writes to** column shows all the collections to which the capture writes data. For captures with a large number of collections, hover over this column and scroll to view the full list.
+**8:** Capture [statistics](./advanced/logs-stats.md#statistics). The **Data Written** column shows the total amount of data, in bytes and in [documents](./collections.md#documents),
+that the capture has written to its associated collections within a configurable time interval.
+Click the time interval in the header to select from **Today**, **Yesterday**, **This Week**, **Last Week**, **This Month**,
+or **Last Month**.
 
-**9:** Publish time. Hover over this value to see the exact time the capture was first published.
+**9:** Associated collections. The **Writes to** column shows all the collections to which the capture writes data. For captures with a large number of collections, hover over this column and scroll to view the full list.
 
-**10:** Options. Choose to **View Details** or **Edit Specification**.
+**10:** Publish time. Hover over this value to see the exact time the capture was first published.
+
+**11:** Options. Choose to **View Details** or **Edit Specification**.
 
 ### Detail view
 
@@ -155,20 +160,37 @@ You can proceed to the materialization, or opt to exit to a different page of th
 ## Collections page
 
 The **Collections** page shows a read-only table of [collections](./collections.md) to which you have access.
-You can view each collection's specification and see a sample of its data.
+The table has many of the same features as the **Captures** table, with several important distinctions
+that are called out in the image below.
+
+You can use the table to view each collection's specification and see a sample of its data.
 This can help you verify that collection data was captured as expected and that you'll be able to materialize it how you want, and troubleshoot it necessary.
 
-To reveal the **Specification** and **Data Preview** sections, expand **Details** next to a collection name.
+![](<./webapp-images/collections-page.png>)
 
-The **Specification** section shows the collection specification as JSON in a read-only editor.
+**1:** Status indicator. If the collection does not contain a [derivation](./README.md#derivations), the indicator should always show green, and hover text will say "Collection."
+In the event that the server cannot be reached, the indicator will show "Unknown" status (black in light mode and white in dark mode).
+
+  If the collection contains a derivation, the status of the derivation's primary task [shard](./advanced/shards.md) will be indicated:
+
+  * **Primary (Green)**: Data is actively flowing through the derivation.
+  * **Pending (Yellow)**: The derivation is attempting to re-connect.
+  * **Failed (Red)**: The derivation has failed with an unrecoverable error.
+  * **Disabled (Hollow circle)**: The derivation is disabled.
+  * **Unknown (Black when app is in light mode; white when app is in dark mode)**: The web app is unable to determine shard status. Usually, this is due to a temporary connection error.
+
+**2:** Collection [statistics](./advanced/logs-stats.md#statistics). The **Data Written** column shows the total amount of data, in bytes and in [documents](./collections.md#documents),
+that has been written to each collection from its associated capture or derivation within a configurable time interval.
+Click the time interval in the header to select from **Today**, **Yesterday**, **This Week**, **Last Week**, **This Month**,
+or **Last Month**.
+
+**3:** To reveal the **Specification** and **Data Preview** sections, expand **Details** next to a collection name.
+
+**4:** The **Specification** section shows the collection specification as JSON in a read-only editor.
 (If you need to modify a collection, edit the [capture](#editing-captures) that it came from.)
 
-![](<./webapp-images/collections-view-schema.png>)
-
-The **Data Preview** section shows a sample of collection [documents](./collections.md#documents): the individual JSON files that comprise the collection.
+**5:** The **Data Preview** section shows a sample of collection [documents](./collections.md#documents): the individual JSON files that comprise the collection.
 Documents are organized by their collection key value. Click a key from the list to view its document.
-
-![](<./webapp-images/collections-view-data.png>)
 
 ## Materializations page
 
@@ -192,7 +214,7 @@ you can find it by filtering for `acmeCo*locations`.
 
 Unlike capture names, materialization names don't contain the connector name, but you can still filter them by connector.
 
-**4:** Shard status indicator. Shows the status of the primary task [shard](./advanced/shards.md) that backs this materialization.
+**4:** Status indicator. Shows the status of the primary task [shard](./advanced/shards.md) that backs this materialization.
 
 * **Primary (Green)**: Data is actively flowing through the materialization.
 * **Pending (Yellow)**: The materialization is attempting to re-connect. Often, you'll see this after you re-enable the materialization as Flow backfills historical data.
@@ -204,11 +226,16 @@ Unlike capture names, materialization names don't contain the connector name, bu
 
 **6:** Materialization type. The icon shows the type of destination system data is materialized to.
 
-**7:** Associated collections. The **Reads from** column shows all the collections from which the materialization reads data. For materializations with a large number of collections, hover over this column and scroll to view the full list.
+**7:** Materialization [statistics](./advanced/logs-stats.md#statistics). The **Data Read** column shows the total amount of data, in bytes and in [documents](./collections.md#documents),
+that the materialization has read from its associated collections within a configurable time interval.
+Click the time interval in the header to select from **Today**, **Yesterday**, **This Week**, **Last Week**, **This Month**,
+or **Last Month**.
 
-**8:** Publish time. Hover over this value to see the exact time the materialization was first published.
+**8:** Associated collections. The **Reads from** column shows all the collections from which the materialization reads data. For materializations with a large number of collections, hover over this column and scroll to view the full list.
 
-**9:** Options. Choose to **View Details** or **Edit Specification**
+**9:** Publish time. Hover over this value to see the exact time the materialization was first published.
+
+**10:** Options. Choose to **View Details** or **Edit Specification**.
 
 ### Detail view
 
