@@ -14,6 +14,7 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/fatih/color"
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
 )
 
@@ -101,6 +102,7 @@ func (cmd apiBuild) Execute(_ []string) error {
 		"version":   mbp.Version,
 		"buildDate": mbp.BuildDate,
 	}).Info("flowctl configuration")
+	pb.RegisterGRPCDispatcher("local")
 
 	return cmd.execute(ctx)
 }
