@@ -16,7 +16,12 @@ To use this connector, you'll need:
 
   If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md). You'll be referred back to this connector-specific documentation at the appropriate steps.
 
-* The Google spreadsheet URL.
+* The URL of a Google spreadsheet that *does not* contain the output of a prior Flow materialization.
+
+:::caution
+Materializing data to a spreadsheet that already contains the output of another Flow materialization can result in an error.
+Use a new spreadsheet for each materialization, or completely clear the output of prior materializations from the spreadsheet before you continue.
+:::
 
 There are two ways to authenticate with Google when using this connector:
 signing in with Google through OAuth in the web app, and configuring manually with a Google service account key.
