@@ -13,6 +13,7 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
+	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // TxnClient is a client of a driver's Transactions RPC.
@@ -66,6 +67,10 @@ func OpenTransactions(
 		combiners = append(combiners, combiner)
 		flighted = append(flighted, make(map[string]json.RawMessage))
 	}
+
+	// TODO(johnny): temporary support for in-process sqlite materialization.
+	// This can be removed with that implementation.
+	ctx = pb.WithDispatchDefault(ctx)
 
 	rpc, err := driver.Transactions(ctx)
 	if err != nil {
