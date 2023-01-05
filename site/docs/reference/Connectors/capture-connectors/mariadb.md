@@ -1,23 +1,28 @@
 ---
-sidebar_position: 7
+sidebar_position: 6
 ---
 
-This is a change data capture (CDC) connector that captures change events from a MySQL database via the [Binary Log](https://dev.mysql.com/doc/refman/8.0/en/binary-log.html).
+# MariaDB
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-mysql:dev`](https://github.com/estuary/connectors/pkgs/container/source-mysql) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+This is a change data capture (CDC) connector that captures change events from a MariaDB database via the [Binary Log](https://mariadb.com/kb/en/overview-of-the-binary-log/).
+It's derived from the [MySQL capture connector](./MySQL.md),
+so the same configuration applies, but the setup steps look somewhat different.
+
+This connector is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-mariadb:dev`](https://github.com/estuary/connectors/pkgs/container/source-mariadb) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
-To use this connector, you'll need a MySQL database setup with the following.
-* [`binlog_format`](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_format)
-  system variable set to `ROW` (the default value).
-* [Binary log expiration period](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_expire_logs_seconds) set to MySQL's default value of 30 days (2592000 seconds) if at all possible.
+To use this connector, you'll need a MariaDB database setup with the following.
+* [`binlog_format`](https://mariadb.com/kb/en/binary-log-formats/)
+  system variable set to `ROW`.
+* [Binary log expiration period](https://mariadb.com/kb/en/using-and-maintaining-the-binary-log/#purging-log-files) set to at least 30 days (2592000 seconds) if at all possible.
   - This value may be set lower if necessary, but we [strongly discourage](#insufficient-binlog-retention) going below 7 days as this may increase the likelihood of unrecoverable failures.
+  MariaDB's default value is 0 (no expiration).
 * A watermarks table. The watermarks table is a small "scratch space"
   to which the connector occasionally writes a small amount of data (a UUID,
   specifically) to ensure accuracy when backfilling preexisting table contents.
   - The default name is `"flow.watermarks"`, but this can be overridden in `config.json`.
 * A database user with appropriate permissions:
-  - `REPLICATION CLIENT` and `REPLICATION SLAVE` privileges.
+  - `REPLICATION CLIENT` and `REPLICATION SLAVE` [privileges](https://mariadb.com/docs/skysql/ref/es10.6/privileges/).
   - Permission to insert, update, and delete on the watermarks table.
   - Permission to read the tables being captured.
   - Permission to read from `information_schema` tables, if automatic discovery is used.
@@ -39,30 +44,28 @@ CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark 
 ```sql
 CREATE USER IF NOT EXISTS flow_capture
   IDENTIFIED BY 'secret'
-  COMMENT 'User account for Flow MySQL data capture';
+  COMMENT 'User account for Flow MariaDB data capture';
 GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```
-3. Configure the binary log to retain data for the default MySQL setting of 30 days, if previously set lower.
+3. Configure the binary log to retain data for 30 days, if previously set lower.
 ```sql
 SET PERSIST binlog_expire_logs_seconds = 2592000;
 ```
-4. Configure the database's time zone. See [below](#setting-the-mysql-time-zone) for more information.
+4. Configure the database's time zone. See [below](#setting-the-mariadb-time-zone) for more information.
 ```sql
 SET PERSIST time_zone = '-05:00'
 ```
 
-### Setting the MySQL time zone
+### Setting the MariaDB time zone
 
-MySQL's [`time_zone` server system variable](https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_time_zone) is set to `SYSTEM` by default.
+MariaDB's [`time_zone` server system variable](https://mariadb.com/kb/en/server-system-variables/#system_time_zone) is set to `SYSTEM` by default.
 Flow is not able to detect your time zone when it's set this way, so you must explicitly set the variable for your database.
 
 You can:
 
 * Specify a numerical offset from UTC.
-   - For MySQL version 8.0.19 or higher, values from `-13:59` to `+14:00`, inclusive, are permitted.
-   - Prior to MySQL 8.0.19, values from `-12:59` to `+13:00`, inclusive, are permitted
 
 * Specify a named timezone in [IANA timezone format](https://www.iana.org/time-zones).
 
@@ -70,11 +73,11 @@ For example, if you're located in New Jersey, USA, you could set `time_zone` to 
 Because this region observes daylight savings time, you'd be responsible for changing the offset.
 Alternatively, you could set `time_zone` to `America/New_York`, and time changes would occur automatically.
 
-If using IANA time zones, your database must include time zone tables. [Learn more in the MySQL docs](https://dev.mysql.com/doc/refman/8.0/en/time-zone-support.html).
+If using IANA time zones, your database must include time zone tables. [Learn more in the MariaDB docs](https://mariadb.com/kb/en/time-zones/).
 
 ## Backfills and performance considerations
 
-When the a MySQL capture is initiated, by default, the connector first *backfills*, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
+When the a MariaDB capture is initiated, by default, the connector first *backfills*, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
 
 This is desirable in most cases, as in ensures that a complete view of your tables is captured into Flow.
 However, you may find it appropriate to skip the backfill, especially for extremely large tables.
@@ -83,7 +86,7 @@ In this case, you may turn of backfilling on a per-table basis. See [properties]
 
 ## Configuration
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the MySQL source connector.
+See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the MariaDB source connector.
 
 ### Properties
 
@@ -105,14 +108,14 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 | Property | Title | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
-| **`/namespace`** | Namespace | The [database/schema](https://dev.mysql.com/doc/refman/8.0/en/show-databases.html) in which the table resides. | string | Required |
+| **`/namespace`** | Namespace | The [database](https://mariadb.com/kb/en/understanding-mariadb-architecture/#databases) in which the table resides. | string | Required |
 | **`/stream`** | Stream | Name of the table to be captured from the database. | string | Required |
 | **`/syncMode`** | Sync mode | Connection method. Always set to `incremental`. | string | Required |
 
 :::info
 When you configure this connector in the web application, the automatic **discovery** process sets up a binding for _most_ tables it finds in your database, but there are exceptions.
 
-Tables in the MySQL system schemas `information_schema`, `mysql`, `performance_schema`, and `sys` will not be discovered.
+Tables in the MariaDB system databases `information_schema`, `mysql`, and `performance_schema` will not be discovered.
 You can add bindings for such tables manually.
 :::
 
@@ -124,7 +127,7 @@ captures:
   ${PREFIX}/${CAPTURE_NAME}:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-mysql:dev
+        image: ghcr.io/estuary/source-mariadb:dev
         config:
           address: "127.0.0.1:3306"
           user: "flow_capture"
@@ -141,14 +144,13 @@ Your capture definition will likely be more complex, with additional bindings fo
 
 [Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
 
-## MySQL on managed cloud platforms
+## MariaDB on managed cloud platforms
 
-In addition to standard MySQL, this connector supports cloud-based MySQL instances on certain platforms.
+In addition to standard MariaDB, this connector supports cloud-based MariaDB instances on certain platforms.
 
 ### Amazon RDS
 
-You can use this connector for MySQL instances on Amazon RDS using the following setup instructions.
-For Amazon Aurora, see [below](#amazon-aurora).
+You can use this connector for MariaDB instances on Amazon RDS using the following setup instructions.
 
 Estuary recommends creating a [read replica](https://aws.amazon.com/rds/features/read-replicas/)
 in RDS for use with Flow; however, it's not required.
@@ -160,7 +162,7 @@ You're able to apply the connector directly to the primary instance if you'd lik
 
    1. [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
 
-   1. Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
+   2. Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
       Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
       Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
 
@@ -173,11 +175,11 @@ You're able to apply the connector directly to the primary instance if you'd lik
         for additional details and a sample.
    :::
 
-2. Create a RDS parameter group to enable replication in MySQL.
+2. Create a RDS parameter group to enable replication in MariaDB.
 
    1. [Create a parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Creating).
    Create a unique name and description and set the following properties:
-      * **Family**: mysql8.0
+      * **Family**: mariadb10.6
       * **Type**: DB Parameter group
 
    2. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Modifying) and update the following parameters:
@@ -192,7 +194,7 @@ You're able to apply the connector directly to the primary instance if you'd lik
 3. Create a read replica with the new parameter group applied (recommended).
 
    1. [Create a read replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html#USER_ReadRepl.Create)
-   of your MySQL database.
+   of your MariaDB database.
 
    2. [Modify the replica](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html)
    and set the following:
@@ -202,7 +204,7 @@ You're able to apply the connector directly to the primary instance if you'd lik
 
    3. Reboot the replica to allow the changes to take effect.
 
-4. Switch to your MySQL client. Run the following commands to create a new user for the capture with appropriate permissions,
+4. Switch to your MariaDB client. Run the following commands to create a new user for the capture with appropriate permissions,
 and set up the watermarks table:
 
 ```sql
@@ -210,138 +212,28 @@ CREATE DATABASE IF NOT EXISTS flow;
 CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
 CREATE USER IF NOT EXISTS flow_capture
   IDENTIFIED BY 'secret'
-  COMMENT 'User account for Flow MySQL data capture';
+  COMMENT 'User account for Flow MariaDB data capture';
 GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```
 
-5. Run the following command to set the binary log retention to 7 days, the maximum value which RDS MySQL permits:
+5. Run the following command to set the binary log retention to 7 days, the maximum value which RDS MariaDB permits:
 ```sql
 CALL mysql.rds_set_configuration('binlog retention hours', 168);
 ```
 
 6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
 
-### Amazon Aurora
+### Azure Database for MariaDB
 
-You can use this connector for MySQL-compatible Amazon Aurora instances using the following setup instructions.
-
-You must apply some of the settings to the entire Aurora DB cluster, and others to a database instance within the cluster
-(we recommend you use a [replica, or reader instance](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Overview.html) to connect with Flow).
-For each step, take note of which entity you're working with.
+You can use this connector for MariaDB instances on Azure Database for MariaDB using the following setup instructions.
 
 #### Setup
 
 1. Allow connections to the database from the Estuary Flow IP address.
 
-   1. [Modify the instance](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Modifying.html#Aurora.Modifying.Instance), choosing **Publicly accessible** in the **Connectivity** settings.
-
-   2. Edit the VPC security group associated with your instance, or create a new VPC security group and associate it with the instance.
-      Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
-      Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
-
-   :::info
-   Alternatively, you can allow secure connections via SSH tunneling. To do so:
-     * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
-     * When you configure your connector as described in the [configuration](#configuration) section above,
-        including the additional `networkTunnel` configuration to enable the SSH tunnel.
-        See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-        for additional details and a sample.
-   :::
-
-2. Create a RDS parameter group to enable replication on your Aurora DB cluster.
-
-   1. [Create a parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.CreatingCluster).
-   Create a unique name and description and set the following properties:
-      * **Family**: aurora-mysql8.0
-      * **Type**: DB ClusterParameter group
-
-   2. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.ModifyingCluster) and update the following parameters:
-      * binlog_format: ROW
-      * binlog_row_metadata: FULL
-      * read_only: 0
-
-   3. [Associate the  parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.AssociatingCluster)
-   with the DB cluster.
-   While you're modifying the cluster, also set [Backup Retention Period](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Managing.Backups.html) to 7 days.
-
-   4. Reboot the cluster to allow the changes to take effect.
-
-4. Switch to your MySQL client. Run the following commands to create a new user for the capture with appropriate permissions,
-and set up the watermarks table:
-
-```sql
-CREATE DATABASE IF NOT EXISTS flow;
-CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
-CREATE USER IF NOT EXISTS flow_capture
-  IDENTIFIED BY 'secret'
-  COMMENT 'User account for Flow MySQL data capture';
-GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
-GRANT SELECT ON *.* TO 'flow_capture';
-GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
-```
-
-5. Run the following command to set the binary log retention to 7 days, the maximum value Aurora permits:
-```sql
-CALL mysql.rds_set_configuration('binlog retention hours', 168);
-```
-
-6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
-
-### Google Cloud SQL
-
-You can use this connector for MySQL instances on Google Cloud SQL using the following setup instructions.
-
-#### Setup
-
-1. Allow connections to the DB instance from the Estuary Flow IP address.
-
-   1. [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add
-      `34.121.207.128` as an authorized IP address.
-
-   :::info
-   Alternatively, you can allow secure connections via SSH tunneling. To do so:
-     * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
-     * When you configure your connector as described in the [configuration](#configuration) section above,
-        including the additional `networkTunnel` configuration to enable the SSH tunnel.
-        See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-        for additional details and a sample.
-   :::
-
-2. Set the instance's `binlog_expire_logs_seconds` [flag](https://cloud.google.com/sql/docs/mysql/flags?_ga=2.8077298.-1359189752.1655241239&_gac=1.226418280.1655849730.Cj0KCQjw2MWVBhCQARIsAIjbwoOczKklaVaykkUiCMZ4n3_jVtsInpmlugWN92zx6rL5i7zTxm3AALIaAv6nEALw_wcB)
-to `2592000`.
-
-3. Using [Google Cloud Shell](https://cloud.google.com/sql/docs/mysql/connect-instance-cloud-shell) or your preferred client, create the watermarks table.
-```sql
-CREATE DATABASE IF NOT EXISTS flow;
-CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
-```
-
-4. Create the `flow_capture` user with replication permission, the ability to read all tables, and the ability to read and write the watermarks table.
-
-  The `SELECT` permission can be restricted to just the tables that need to be
-  captured, but automatic discovery requires `information_schema` access as well.
-```sql
-CREATE USER IF NOT EXISTS flow_capture
-  IDENTIFIED BY 'secret'
-  COMMENT 'User account for Flow MySQL data capture';
-GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
-GRANT SELECT ON *.* TO 'flow_capture';
-GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
-```
-5. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `3306`.
-Together, you'll use the host:port as the `address` property when you configure the connector.
-
-### Azure Database for MySQL
-
-You can use this connector for MySQL instances on Azure Database for MySQL using the following setup instructions.
-
-#### Setup
-
-1. Allow connections to the database from the Estuary Flow IP address.
-
-   1. Create a new [firewall rule](https://docs.microsoft.com/en-us/azure/mysql/flexible-server/how-to-manage-firewall-portal#create-a-firewall-rule-after-server-is-created)
+   1. Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/mariadb/howto-manage-firewall-portal)
    that grants access to the IP address `34.121.207.128`.
 
    :::info
@@ -353,10 +245,10 @@ You can use this connector for MySQL instances on Azure Database for MySQL using
         for additional details and a sample.
    :::
 
-2. Set the `binlog_expire_logs_seconds` [server perameter](https://docs.microsoft.com/en-us/azure/mysql/single-server/concepts-server-parameters#configurable-server-parameters)
+2. Set the `binlog_expire_logs_seconds` [server perameter](https://learn.microsoft.com/en-us/azure/mariadb/howto-server-parameters#configure-server-parameters)
 to `2592000`.
 
-3. Using [MySQL workbench](https://docs.microsoft.com/en-us/azure/mysql/single-server/connect-workbench) or your preferred client, create the watermarks table.
+3. Using your preferred MariaDB client, create the watermarks table.
 
 :::tip
 Your username must be specified in the format `username@servername`.
@@ -374,7 +266,7 @@ CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark 
 ```sql
 CREATE USER IF NOT EXISTS flow_capture
   IDENTIFIED BY 'secret'
-  COMMENT 'User account for Flow MySQL data capture';
+  COMMENT 'User account for Flow MariaDB data capture';
 GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
@@ -385,7 +277,7 @@ Together, you'll use the host:port as the `address` property when you configure 
 
 ## Troubleshooting Capture Errors
 
-The `source-mysql` connector is designed to halt immediately if something wrong or unexpected happens, instead of continuing on and potentially outputting incorrect data. What follows is a non-exhaustive list of some potential failure modes, and what action should be taken to fix these situations:
+The `source-mariadb` connector is designed to halt immediately if something wrong or unexpected happens, instead of continuing on and potentially outputting incorrect data. What follows is a non-exhaustive list of some potential failure modes, and what action should be taken to fix these situations:
 
 ### Unsupported Operations
 
@@ -393,11 +285,11 @@ If your capture is failing with an `"unsupported operation {ALTER,DROP,TRUNCATE,
 
 In the case of `DROP TABLE` and other destructive operations this is not supported, and can only be resolved by removing the offending table(s) from the capture bindings list, after which you may recreate the capture if desired (causing the latest state of the table to be recaptured in its entirety).
 
-In the case of `ALTER TABLE` query we intend to support a limited subset of table alterations in the future, however this error indicates that whatever alteration took place is not currently supported. Practically speaking the immediate resolution is the same as for a `DROP` or `TRUNCATE TABLE`, but if you frequently perform schema migrations it may be worth reaching out to see if we can add support for whatever table alteration you just did.
+In the case of `ALTER TABLE`, we intend to support a limited subset of table alterations in the future; however, this error indicates that whatever alteration took place is not currently supported. Practically speaking the immediate resolution is the same as for a `DROP` or `TRUNCATE TABLE`, but if you frequently perform schema migrations it may be worth reaching out to see if we can add support for whatever table alteration you just did.
 
 ### Data Manipulation Queries
 
-If your capture is failing with an `"unsupported DML query"` error, this means that an `INSERT`, `UPDATE`, `DELETE` or other data manipulation query is present in the MySQL binlog. This should generally not happen if `binlog_format = 'ROW'` as described in the [Prerequisites](#prerequisites) section.
+If your capture is failing with an `"unsupported DML query"` error, this means that an `INSERT`, `UPDATE`, `DELETE` or other data manipulation query is present in the binlog. This should generally not happen if `binlog_format = 'ROW'` as described in the [Prerequisites](#prerequisites) section.
 
 Resolving this error requires fixing the `binlog_format` system variable, and then either tearing down and recreating the entire capture so that it restarts at a later point in the binlog, or in the case of an `INSERT`/`DELETE` query it may suffice to remove the capture binding for the offending table and then re-add it.
 
@@ -411,11 +303,11 @@ In general, this error suggests that the connector should be modified to at leas
 
 If your capture is failing with a `"metadata error"` then something has gone badly wrong with the capture's tracking of table metadata, such as column names or datatypes.
 
-This should never happen, and most likely means that the MySQL binlog itself is corrupt in some way. If this occurs, it can be resolved by removing the offending table(s) from the capture bindings list and then recreating the capture (generally into a new collection, as this process will cause the table to be re-captured in its entirety).
+This should never happen, and most likely means that the binlog itself is corrupt in some way. If this occurs, it can be resolved by removing the offending table(s) from the capture bindings list and then recreating the capture (generally into a new collection, as this process will cause the table to be re-captured in its entirety).
 
 ### Insufficient Binlog Retention
 
-If your capture fails with a `"binlog retention period is too short"` error, it is informing you that the MySQL binlog retention period is set to a dangerously low value, and your capture would risk unrecoverable failure if it were paused or the server became unreachable for a nontrivial amount of time, such that the database expired a binlog segment that the capture was still reading from.
+If your capture fails with a `"binlog retention period is too short"` error, it is informing you that the MariaDB binlog retention period is set to a dangerously low value, and your capture would risk unrecoverable failure if it were paused or the server became unreachable for a nontrivial amount of time, such that the database expired a binlog segment that the capture was still reading from.
 
 (If this were to happen, then change events would be permanently lost and that particular capture would never be able to make progress without potentially producing incorrect data. Thus the capture would need to be torn down and recreated so that each table could be re-captured in its entirety, starting with a complete backfill of current contents.)
 

@@ -35,3 +35,6 @@ In the future, other open-source materialization connectors from third parties c
 * Snowflake
   * [Configuration](./Snowflake.md)
   * Package — ghcr.io/estuary/materialize-snowflake:dev
+* TimescaleDB
+  * [Configuration](./timescaledb.md)
+  * Package - ghcr.io/estuary/materialize-timescaledb:dev
