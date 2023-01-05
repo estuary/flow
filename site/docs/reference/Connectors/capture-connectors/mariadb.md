@@ -44,7 +44,6 @@ CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark 
 ```sql
 CREATE USER IF NOT EXISTS flow_capture
   IDENTIFIED BY 'secret'
-  COMMENT 'User account for Flow MariaDB data capture';
 GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
@@ -62,6 +61,11 @@ SET PERSIST time_zone = '-05:00'
 
 MariaDB's [`time_zone` server system variable](https://mariadb.com/kb/en/server-system-variables/#system_time_zone) is set to `SYSTEM` by default.
 Flow is not able to detect your time zone when it's set this way, so you must explicitly set the variable for your database.
+
+If you intend to capture tables including columns of the type `DATETIME`,
+and `time_zone` is set to `SYSTEM`,
+Flow won't be able to detect the time zone and convert the column to [RFC3339 format](https://www.rfc-editor.org/rfc/rfc3339).
+To avoid this, you must explicitly set the time zone for your database.
 
 You can:
 
@@ -212,7 +216,6 @@ CREATE DATABASE IF NOT EXISTS flow;
 CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
 CREATE USER IF NOT EXISTS flow_capture
   IDENTIFIED BY 'secret'
-  COMMENT 'User account for Flow MariaDB data capture';
 GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
@@ -266,7 +269,6 @@ CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark 
 ```sql
 CREATE USER IF NOT EXISTS flow_capture
   IDENTIFIED BY 'secret'
-  COMMENT 'User account for Flow MariaDB data capture';
 GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
 GRANT SELECT ON *.* TO 'flow_capture';
 GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';

@@ -56,7 +56,11 @@ SET PERSIST time_zone = '-05:00'
 ### Setting the MySQL time zone
 
 MySQL's [`time_zone` server system variable](https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_time_zone) is set to `SYSTEM` by default.
-Flow is not able to detect your time zone when it's set this way, so you must explicitly set the variable for your database.
+
+If you intend to capture tables including columns of the type `DATETIME`,
+and `time_zone` is set to `SYSTEM`,
+Flow won't be able to detect the time zone and convert the column to [RFC3339 format](https://www.rfc-editor.org/rfc/rfc3339).
+To avoid this, you must explicitly set the time zone for your database.
 
 You can:
 
