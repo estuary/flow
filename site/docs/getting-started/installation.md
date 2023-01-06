@@ -65,6 +65,26 @@ The token will expire after a predetermined duration. Repeat this process to re-
 
 [Learn more about using flowctl.](../concepts/flowctl.md)
 
+## Configuring your cloud storage bucket for use with Flow
+
+During your trial period, Flow uses Estuary's cloud storage to temporarily store your data.
+When you upgrade from a trial to an organizational account, you're provisioned a unique [prefix](../concepts/catalogs.md#namespace) in the Flow namespace,
+and transition to using your own cloud storage bucket to store your Flow data. This is called a [storage mapping](../concepts/storage-mappings.md).
+
+Flow supports Google Cloud Storage and Amazon S3 buckets.
+Before your account manager configures your bucket as your storage mapping, you must grant access to Estuary.
+
+#### Google Cloud Storage buckets
+
+Follow the steps to [add a principal to a bucket level policy](https://cloud.google.com/storage/docs/access-control/using-iam-permissions#bucket-add).
+
+* For the principal, enter `flow-258@helpful-kingdom-273219.iam.gserviceaccount.com`
+* Select the [`roles/storage.admin`](https://cloud.google.com/storage/docs/access-control/iam-roles) role.
+
+#### Amazon S3 buckets
+
+Contact your Estuary account manager for instructions.
+
 ## Self-hosting Flow
 
 The Flow runtime is available under the [Business Source License](https://github.com/estuary/flow/blob/master/LICENSE-BSL). It's possible to self-host Flow using a cloud provider of your choice.

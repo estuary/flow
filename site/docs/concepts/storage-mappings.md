@@ -3,64 +3,27 @@ sidebar_position: 8
 ---
 # Storage mappings
 
-A storage mapping defines how Flow should persist the documents of collections into cloud storage locations,
-such as your S3 bucket. When you first set up Flow, a default storage mapping is created for you,
-in which all collections will be stored by default.
-However, you can also override this default for one or more collections
-by specifying a storage mapping in specification files using the CLI.
+Flow stores the documents that comprise your collections in a cloud storage bucket.
+Your **storage mapping** tells Flow which bucket to use.
 
-:::info
-Storage mapping control is coming to the Flow web application soon.
-:::
+Every Flow organization (defined by its [catalog prefix](./catalogs.md#namespace)) has a storage mapping defined during setup.
+When you're provisioned a prefix, your Estuary account manager will help you [set up your storage mapping](../getting-started/installation.md#configuring-your-cloud-storage-bucket-for-use-with-flow).
+If you have a trial account, your storage mapping is Estuary's secure Google Cloud Storage bucket.
 
-Each storage mapping consists of a **catalog prefix** and a mapped storage location. For example:
-
-```yaml
-storageMappings:
-  acmeCo/:
-    stores:
-      - provider: S3
-        bucket: acmeco-bucket
-        prefix: my-prefix/
-```
-
-This mapping causes Flow to store the data of any collection having prefix `acmeCo/` into `s3://acmeco-bucket/my-prefix/`.
-A collection like the below would store all of its data files under path `s3://acmeco-bucket/my-prefix/acmeCo/anvils/`.
-
-```yaml
-collections:
-  acmeCo/anvils:
-    key: [/id]
-    schema: anvil-schema.yaml
-```
-
-Every Flow collection must have an associated storage mapping,
-and a catalog build will fail if multiple storage mappings have overlapping prefixes.
-
-[Learn more about logical partitions and storage](./advanced/projections.md#logical-partitions).
+You can set up a bucket lifecycle policy to manage data retention in your storage mapping;
+for example, to remove data after six months.
 
 ## Recovery logs
 
-Flow tasks — captures, derivations, and materializations — use recovery logs to durably store their processing context.
-Recovery logs are an opaque binary log, but may contain user data and are stored within the user’s buckets.
-They must have a defined storage mapping.
+In addition to collection data, Flow uses your storage mapping to temporarily store **recovery logs**.
+
+Flow tasks — captures, derivations, and materializations — use recovery logs to durably store their processing context as a backup.
+Recovery logs are an opaque binary log, but may contain user data.
 
 The recovery logs of a task are always prefixed by `recovery/`,
-and a task named `acmeCo/produce-TNT` would require a storage mapping like:
+so a task named `acmeCo/produce-TNT` would have a recovery log called `recovery/acmeCo/roduce-TNT`
 
-```yaml
-storageMappings:
-  recovery/acmeCo/:
-    stores:
-      - provider: S3
-        bucket: acmeco-recovery
-```
-
-You may wish to use a separate bucket for recovery logs, distinct from the bucket where collection data is stored.
-Buckets holding collection data are free to use a bucket lifecycle policy to manage data retention;
-for example, to remove data after six months.
-
-This is not true of buckets holding recovery logs. Flow prunes data from recovery logs once it is no longer required.
+Flow prunes data from recovery logs once it is no longer required.
 
 :::warning
 Deleting data from recovery logs while it is still in use can
