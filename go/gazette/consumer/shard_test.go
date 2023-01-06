@@ -217,7 +217,7 @@ func TestShardStoreStartCommitFails(t *testing.T) {
 
 	runTransaction(tf, res.Shard, map[string]string{"foo": "bar"})
 
-	require.Equal(t, "runTransactions: store.StartCommit: an error",
+	require.Equal(t, "runTransactions: txnStartCommit: store.StartCommit: an error",
 		expectStatusCode(t, tf.state, pc.ReplicaStatus_FAILED).Errors[0])
 
 	tf.allocateShard(spec) // Cleanup.

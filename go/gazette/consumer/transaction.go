@@ -443,7 +443,21 @@ func txnStartCommit(s *shard, txn *transaction) (pc.Checkpoint, error) {
 	var waitFor = s.ajc.PendingExcept(s.recovery.log)
 
 	trace.Log(s.ctx, "store.StartCommit", s.resolved.fqn)
-	txn.commitBarrier = s.store.StartCommit(s, txn.checkpoint, waitFor)
+	var barrier = s.store.StartCommit(s, txn.checkpoint, waitFor)
+
+	// If StartCommit returned an OpFuture which is a pre-resolved error,
+	// handle it as an immediate and synchronous error. This avoids raced
+	// calls to Application.ConsumeMessage when the Application has already
+	// failed.
+	select {
+	case <-barrier.Done():
+		if barrier.Err() != nil {
+			return pc.Checkpoint{}, fmt.Errorf("store.StartCommit: %w", barrier.Err())
+		}
+	default:
+	}
+
+	txn.commitBarrier = barrier
 	txn.prepareDoneAt = txn.timer.Now()
 
 	return txn.checkpoint, nil
