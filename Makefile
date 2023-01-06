@@ -186,7 +186,7 @@ ${RUST_MUSL_BIN}/flow-schemalate:
 
 .PHONY: ${RUST_MUSL_BIN}/flowctl
 ${RUST_MUSL_BIN}/flowctl:
-	cargo build --target x86_64-unknown-linux-musl --release --locked -p flowctl
+	cargo build --release --locked -p flowctl
 
 ########################################################################
 # Final output packaging:
@@ -196,10 +196,10 @@ GNU_TARGETS = \
 	${PKGDIR}/bin/etcd \
 	${PKGDIR}/bin/flowctl-go \
 	${PKGDIR}/bin/gazette \
-	${PKGDIR}/bin/sops
+	${PKGDIR}/bin/sops \
+	${PKGDIR}/bin/flowctl \
 
 MUSL_TARGETS = \
-	${PKGDIR}/bin/flowctl \
 	${PKGDIR}/bin/flow-connector-init \
 	${PKGDIR}/bin/flow-network-tunnel \
 	${PKGDIR}/bin/flow-parser \
@@ -211,8 +211,7 @@ linux-gnu-binaries: $(GNU_TARGETS)
 
 .PHONY: linux-musl-binaries
 linux-musl-binaries: | ${PKGDIR}
-	cargo build --target x86_64-unknown-linux-musl --release --locked -p flowctl -p connector-init -p network-tunnel -p parser -p schema-inference -p schemalate
-	cp -f target/x86_64-unknown-linux-musl/release/flowctl .build/package/bin/
+	cargo build --target x86_64-unknown-linux-musl --release --locked -p connector-init -p network-tunnel -p parser -p schema-inference -p schemalate
 	cp -f target/x86_64-unknown-linux-musl/release/flow-connector-init .build/package/bin/
 	cp -f target/x86_64-unknown-linux-musl/release/flow-network-tunnel .build/package/bin/
 	cp -f target/x86_64-unknown-linux-musl/release/flow-parser .build/package/bin/
@@ -249,8 +248,8 @@ ${PKGDIR}/bin/flow-schema-inference: ${RUST_MUSL_BIN}/flow-schema-inference | ${
 ${PKGDIR}/bin/flow-schemalate: ${RUST_MUSL_BIN}/flow-schemalate | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-schemalate $@
 
-${PKGDIR}/bin/flowctl: ${RUST_MUSL_BIN}/flowctl | ${PKGDIR}
-	cp ${RUST_MUSL_BIN}/flowctl $@
+${PKGDIR}/bin/flowctl: ${RUSTBIN}/flowctl | ${PKGDIR}
+	cp ${RUSTBIN}/flowctl $@
 
 # Control-plane binaries
 
