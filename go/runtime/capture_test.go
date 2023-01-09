@@ -3,6 +3,7 @@ package runtime
 import (
 	"testing"
 
+	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 )
@@ -45,13 +46,13 @@ func TestCaptureStats(t *testing.T) {
 	}
 	var actual = subject.captureStats(inputs)
 
-	var expect = map[string]CaptureBindingStats{
+	var expect = map[string]ops.CaptureBindingStats{
 		"test/collectionA": {
-			Right: DocsAndBytes{
+			Right: ops.DocsAndBytes{
 				Docs:  2,
 				Bytes: 2222,
 			},
-			Out: DocsAndBytes{
+			Out: ops.DocsAndBytes{
 				Docs:  5,
 				Bytes: 5555,
 			},
@@ -86,13 +87,13 @@ func TestCaptureStats(t *testing.T) {
 	}
 	actual = subject.captureStats(inputs)
 
-	expect = map[string]CaptureBindingStats{
+	expect = map[string]ops.CaptureBindingStats{
 		"test/collectionA": {
-			Right: DocsAndBytes{
+			Right: ops.DocsAndBytes{
 				Docs:  4,
 				Bytes: 4444,
 			},
-			Out: DocsAndBytes{
+			Out: ops.DocsAndBytes{
 				Docs:  6,
 				Bytes: 6666,
 			},

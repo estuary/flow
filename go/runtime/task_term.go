@@ -34,7 +34,7 @@ type taskTerm struct {
 	// Resolved *Build of the task's build ID.
 	build *flow.Build
 	// ops.Publisher of ops.Logs and (in the future) ops.Stats.
-	opsPublisher *flow.OpsPublisher
+	opsPublisher *OpsPublisher
 	// TODO(johnny): Refactor into `ops` package.
 	*StatsFormatter
 }
@@ -76,7 +76,7 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 		return err
 	}
 
-	if t.opsPublisher, err = flow.NewOpsPublisher(
+	if t.opsPublisher, err = NewOpsPublisher(
 		host.LogAppendService,
 		t.labels,
 		flow.NewMapper(shard.Context(), host.Service.Etcd, host.Journals, shard.FQN()),

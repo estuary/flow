@@ -214,6 +214,8 @@ pub enum Error {
         #[source]
         detail: rusqlite::Error,
     },
+    #[error("the docker image '{image}' could not be inspected: {error}")]
+    ImageInspectFailed { image: String, error: anyhow::Error },
 }
 
 impl Error {

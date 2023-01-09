@@ -200,7 +200,7 @@ fn bundled_capture(
     let bindings = bindings.iter().map(|p| p.spec.clone()).collect();
 
     let endpoint = match &capture.spec.endpoint {
-        models::CaptureEndpoint::Connector(models::ConnectorConfig { image, config: _ }) => {
+        models::CaptureEndpoint::Connector(models::ConnectorConfig { image, .. }) => {
             let image = image.clone();
             let config = capture.endpoint_config.as_ref().unwrap();
             let config = t
@@ -234,10 +234,7 @@ fn bundled_materialization(
     let bindings = bindings.iter().map(|p| p.spec.clone()).collect();
 
     let endpoint = match &materialization.spec.endpoint {
-        models::MaterializationEndpoint::Connector(models::ConnectorConfig {
-            image,
-            config: _,
-        }) => {
+        models::MaterializationEndpoint::Connector(models::ConnectorConfig { image, .. }) => {
             let image = image.clone();
             let config = materialization.endpoint_config.as_ref().unwrap();
             let config = t

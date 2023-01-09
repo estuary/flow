@@ -229,8 +229,28 @@ All {
                                         value: "a-build-id",
                                     },
                                     Label {
+                                        name: "estuary.dev/expose-port",
+                                        value: "567",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/expose-port",
+                                        value: "789",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/hostname",
+                                        value: "d7f4a9d02b48c1a",
+                                    },
+                                    Label {
                                         name: "estuary.dev/log-level",
                                         value: "info",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/port-proto/789",
+                                        value: "h2",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/port-public/567",
+                                        value: "true",
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
@@ -686,8 +706,28 @@ All {
                                         value: "a-build-id",
                                     },
                                     Label {
+                                        name: "estuary.dev/expose-port",
+                                        value: "567",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/expose-port",
+                                        value: "789",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/hostname",
+                                        value: "d4b08a40cd6dda6d",
+                                    },
+                                    Label {
                                         name: "estuary.dev/log-level",
                                         value: "info",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/port-proto/789",
+                                        value: "h2",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/port-public/567",
+                                        value: "true",
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
@@ -5714,8 +5754,28 @@ All {
                                         value: "a-build-id",
                                     },
                                     Label {
+                                        name: "estuary.dev/expose-port",
+                                        value: "567",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/expose-port",
+                                        value: "789",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/hostname",
+                                        value: "7c018f7d92537c75",
+                                    },
+                                    Label {
                                         name: "estuary.dev/log-level",
                                         value: "info",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/port-proto/789",
+                                        value: "h2",
+                                    },
+                                    Label {
+                                        name: "estuary.dev/port-public/567",
+                                        value: "true",
                                     },
                                     Label {
                                         name: "estuary.dev/task-name",
@@ -6141,6 +6201,28 @@ All {
         Fetch {
             depth: 3,
             resource: test://example/webhook-config.yaml,
+        },
+    ],
+    image_inspections: [
+        ImageInspection {
+            image: database,
+            inspect_output: ".. binary ..",
+            inspect_error: NULL,
+        },
+        ImageInspection {
+            image: database/image,
+            inspect_output: ".. binary ..",
+            inspect_error: NULL,
+        },
+        ImageInspection {
+            image: s3,
+            inspect_output: ".. binary ..",
+            inspect_error: NULL,
+        },
+        ImageInspection {
+            image: webhook/connector,
+            inspect_output: ".. binary ..",
+            inspect_error: NULL,
         },
     ],
     imports: [

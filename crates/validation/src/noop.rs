@@ -68,4 +68,15 @@ impl Drivers for NoOpDrivers {
             Ok(ValidateResponse { bindings })
         })
     }
+
+    fn inspect_image<'a>(
+        &'a self,
+        _image: String,
+    ) -> LocalBoxFuture<'a, Result<Vec<u8>, anyhow::Error>> {
+        // Just return a constant value that matches the basic shape of the `docker inspect` output.
+        // The `source` property is just to make it obvious where this came from if looking at a build db.
+        Box::pin(async move {
+            Ok(r#"[{"Config": {},"source": "flow no-op driver"}]"#.as_bytes().to_vec())
+        })
+    }
 }
