@@ -62,6 +62,10 @@ const (
 	SplitSource = "estuary.dev/split-source"
 	// LogLevel is the desired log level for publishing logs related to the catalog task.
 	LogLevel = "estuary.dev/log-level"
+
+	// PortPrefix is used to identify ports to be exposed by the shard
+	PortPrefix      = "estuary.dev/port/"
+	PortProtoPrefix = "estuary.dev/alpn-proto/"
 )
 
 // A re-exported subset of Gazette labels, defined in go.gazette.dev/core/labels/labels.go.

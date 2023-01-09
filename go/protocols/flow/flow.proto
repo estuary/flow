@@ -332,10 +332,14 @@ message FieldSelection {
   ];
 }
 
+message PortSpec {
+  // protobuf doesn't have uint16, but this is a port number in the range 0-65535
+  uint32 container_port = 1;
+  string alpn_protocol = 2;
+}
+
 // CaptureSpec describes a collection and its capture from an endpoint.
 message CaptureSpec {
-  // Next tag: 8.
-
   // Name of this capture.
   string capture = 1 [ (gogoproto.casttype) = "Capture" ];
   // Type of the captures's endpoint.
@@ -368,13 +372,13 @@ message CaptureSpec {
   consumer.ShardSpec shard_template = 6;
   // Template for recovery logs of shards of this capture.
   protocol.JournalSpec recovery_log_template = 7;
+  
+  map<string, PortSpec> ports = 8;
 }
 
 // MaterializationSpec describes a collection and its materialization to an
 // endpoint.
 message MaterializationSpec {
-  // Next tag: 7.
-
   // Name of this materialization.
   string materialization = 1 [ (gogoproto.casttype) = "Materialization" ];
   // Type of the materialization's endpoint.
@@ -412,6 +416,8 @@ message MaterializationSpec {
   consumer.ShardSpec shard_template = 5;
   // Template for recovery logs of shards of this materialization.
   protocol.JournalSpec recovery_log_template = 6;
+  
+  map<string, PortSpec> ports = 7;
 }
 
 // OAuth2Spec describes an OAuth2 provider
@@ -986,4 +992,27 @@ service Testing {
   rpc ResetState(ResetStateRequest) returns (ResetStateResponse);
   rpc AdvanceTime(AdvanceTimeRequest) returns (AdvanceTimeResponse);
   rpc Ingest(IngestRequest) returns (IngestResponse);
+}
+
+message TaskNetworkProxyRequest {
+  message Open {
+    string shard_id = 1;
+    string port_name = 2;
+    // for funsies
+    string client_ip = 3;
+  }
+  Open open = 1;
+  bytes data = 2;
+}
+
+message TaskNetworkProxyResponse {
+  message Opened {
+    string err = 1;
+  }
+  Opened opened = 1;
+  bytes data = 2;
+}
+
+service NetworkProxy {
+  rpc Proxy(stream TaskNetworkProxyRequest) returns (stream TaskNetworkProxyResponse);
 }

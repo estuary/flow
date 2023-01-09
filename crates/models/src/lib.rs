@@ -33,8 +33,8 @@ pub use materializations::{
     SqliteConfig,
 };
 pub use references::{
-    Capture, Collection, CompositeKey, Field, JsonPointer, Materialization, PartitionField, Prefix,
-    RelativeUrl, Test, Transform,
+    Capture, Collection, CompositeKey, Field, JsonPointer, Materialization, PartitionField,
+    PortName, Prefix, RelativeUrl, Test, Transform,
 };
 pub use resources::{ContentType, Import, ResourceDef};
 pub use schemas::Schema;

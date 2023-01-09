@@ -2,9 +2,16 @@ package labels
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 )
+
+type PortConfig struct {
+	ContainerPort uint16
+	AlpnProtocol  string
+}
 
 // ShardLabeling is a parsed and validated representation of the Flow
 // labels which are attached to Gazette ShardSpecs, that are understood
@@ -24,6 +31,12 @@ type ShardLabeling struct {
 	TaskName string
 	// Type of this task (capture, derivation, or materialization).
 	TaskType string
+
+	// Ports is a map from port name to the combined configuration
+	// for the port. The runtime itself doesn't actually care
+	// about the alpn protocol, but it's there for the sake of
+	// completeness.
+	Ports map[string]*PortConfig `json:",omitempty"`
 }
 
 // ParseShardLabels parses and validates ShardLabels from their defined
@@ -96,4 +109,30 @@ func maybeOne(set pf.LabelSet, name string) (string, error) {
 	} else {
 		return v[0], nil
 	}
+}
+
+func parsePorts(set pf.LabelSet) (map[string]*PortConfig, error) {
+	var out = make(map[string]*PortConfig)
+	for _, label := range set.Labels {
+		if strings.HasPrefix(label.Name, PortPrefix) {
+			var portName = label.Name[len(PortPrefix):]
+			if _, ok := out[portName]; !ok {
+				out[portName] = &PortConfig{}
+			}
+
+			var port, err = strconv.ParseUint(label.Value, 10, 16)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value for '%s': '%s'", label.Name, label.Value)
+			}
+			out[portName].ContainerPort = uint16(port)
+		}
+		if strings.HasPrefix(label.Name, PortProtoPrefix) {
+			var portName = label.Name[len(PortProtoPrefix):]
+			if _, ok := out[portName]; !ok {
+				out[portName] = &PortConfig{}
+			}
+			out[portName].AlpnProtocol = label.Value
+		}
+	}
+	return out, nil
 }

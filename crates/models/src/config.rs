@@ -1,8 +1,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json, value::RawValue};
+use std::collections::BTreeMap;
 
-use super::{Object, RelativeUrl};
+use super::{Object, PortName, RelativeUrl};
 
 /// A configuration which is either defined inline, or is a relative or
 /// absolute URI to a configuration file.
@@ -33,6 +34,23 @@ impl Config {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct PortSpec {
+    pub port: u16,
+    pub alpn_protocol: Option<String>,
+}
+
+fn ports_json_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    from_value(json!({
+        "type": "object",
+        "patternProperties": {
+            PortName::schema_pattern(): PortSpec::json_schema(),
+        },
+        "additionalProperties": false,
+    }))
+    .unwrap()
+}
+
 /// Connector image and configuration specification.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct ConnectorConfig {
@@ -41,6 +59,8 @@ pub struct ConnectorConfig {
     /// # Configuration of the connector.
     #[schemars(schema_with = "Config::json_schema")]
     pub config: Box<RawValue>,
+
+    pub ports: BTreeMap<PortName, PortSpec>,
 }
 
 impl ConnectorConfig {

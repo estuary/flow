@@ -132,11 +132,14 @@ func StartContainer(
 		"--label", fmt.Sprintf("image=%s", image),
 		"--label", fmt.Sprintf("task-name=%s", labels.TaskName),
 		"--label", fmt.Sprintf("task-type=%s", labels.TaskType),
+	}
+
+	args = append(args, string[]{
 		image,
 		// The following are arguments of connector-init, not docker.
 		"--image-inspect-json-path=/image-inspect.json",
 		"--port", fmt.Sprint(portInit),
-	}
+	})
 
 	// `cmdCtx` has a scope equal to the lifetime of the container.
 	// It's cancelled with the parent context, or when the container crashes,

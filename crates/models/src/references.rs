@@ -38,6 +38,8 @@ lazy_static! {
     static ref FIELD_RE: Regex = Regex::new(&[&JSON_POINTER_CHAR, "+(/", &JSON_POINTER_CHAR, "+)*"].concat()).unwrap();
     // RELATIVE_URL_RE matches a relative or absolute URL. It's quite permissive, prohibiting only a space.
     static ref RELATIVE_URL_RE: Regex = Regex::new(&["[^", &SPACE_CHAR, "]+"].concat()).unwrap();
+    /// Matches a valid port name, for exposing container ports
+    static ref PORT_NAME_RE: Regex = Regex::new("[a-z0-9]{1,63}").unwrap();
 }
 
 macro_rules! string_reference_types {
@@ -201,6 +203,9 @@ string_reference_types! {
     /// with respect to the current resource (i.e, ../path/to/flow.yaml),
     /// or may be an external absolute URL (i.e., http://example/flow.yaml).
     pub struct RelativeUrl("RelativeUrl::schema", pattern = RELATIVE_URL_RE, example = "https://example/resource");
+
+    /// A named port, which can be exposed over the network.
+    pub struct PortName("PortName::schema", pattern = PORT_NAME_RE, example = "http");
 }
 
 impl RelativeUrl {
