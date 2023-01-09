@@ -193,6 +193,7 @@ func (cmd cmdTempDataPlane) consumerCmd(ctx context.Context, tempdir, buildsRoot
 		"--consumer.limit", "1024",
 		"--consumer.max-hot-standbys", "0",
 		"--consumer.port", port,
+		"--consumer.host", "localhost",
 		"--consumer.watch-delay", "0ms", // Speed test execution.
 		"--etcd.address", etcdAddr,
 		"--flow.builds-root", buildsRoot,

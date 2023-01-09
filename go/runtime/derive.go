@@ -188,9 +188,9 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 	return nil
 }
 
-func (d *Derive) deriveStats(txnStats *pf.DeriveAPI_Stats) StatsEvent {
+func (d *Derive) deriveStats(txnStats *pf.DeriveAPI_Stats) ops.StatsEvent {
 	// assert that our task is a derivation and panic if not.
-	var tfStats = make(map[string]DeriveTransformStats, len(txnStats.Transforms))
+	var tfStats = make(map[string]ops.DeriveTransformStats, len(txnStats.Transforms))
 	// Only output register stats if at least one participating transform has an update lambda. This
 	// allows for distinguishing between transforms where no update was invoked (Register stats will
 	// be omitted) and transforms where the update lambda happened to only update existing registers
@@ -202,32 +202,32 @@ func (d *Derive) deriveStats(txnStats *pf.DeriveAPI_Stats) StatsEvent {
 			continue
 		}
 		var tfSpec = d.derivation.Transforms[i]
-		var stats = DeriveTransformStats{
+		var stats = ops.DeriveTransformStats{
 			Source: tfSpec.Shuffle.SourceCollection.String(),
-			Input:  docsAndBytesFromProto(tf.Input),
+			Input:  ops.DocsAndBytesFromProto(tf.Input),
 		}
 		if tfSpec.UpdateLambda != nil {
 			includesUpdate = true
-			stats.Update = &InvokeStats{
-				Out:          docsAndBytesFromProto(tf.Update.Output),
+			stats.Update = &ops.InvokeStats{
+				Out:          ops.DocsAndBytesFromProto(tf.Update.Output),
 				SecondsTotal: tf.Update.TotalSeconds,
 			}
 		}
 		if tfSpec.PublishLambda != nil {
-			stats.Publish = &InvokeStats{
-				Out:          docsAndBytesFromProto(tf.Publish.Output),
+			stats.Publish = &ops.InvokeStats{
+				Out:          ops.DocsAndBytesFromProto(tf.Publish.Output),
 				SecondsTotal: tf.Publish.TotalSeconds,
 			}
 		}
 		tfStats[tfSpec.Transform.String()] = stats
 	}
 	var event = d.NewStatsEvent()
-	event.Derive = &DeriveStats{
+	event.Derive = &ops.DeriveStats{
 		Transforms: tfStats,
-		Out:        docsAndBytesFromProto(txnStats.Output),
+		Out:        ops.DocsAndBytesFromProto(txnStats.Output),
 	}
 	if includesUpdate {
-		event.Derive.Registers = &DeriveRegisterStats{
+		event.Derive.Registers = &ops.DeriveRegisterStats{
 			CreatedTotal: uint64(txnStats.Registers.Created),
 		}
 	}

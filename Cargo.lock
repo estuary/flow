@@ -150,6 +150,7 @@ version = "0.0.0"
 dependencies = [
  "bytes",
  "doc",
+ "fxhash",
  "insta",
  "itertools 0.10.5",
  "json",
@@ -813,6 +814,8 @@ name = "connector-init"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "bytes",
  "clap 3.2.22",
  "connector-protocol",
  "futures",
@@ -826,6 +829,7 @@ dependencies = [
  "serde_json",
  "time 0.3.14",
  "tokio",
+ "tokio-util",
  "tonic",
  "tracing",
  "tracing-subscriber",

@@ -252,6 +252,17 @@ pub fn shard_id_base(task_name: &str, task_type: &str) -> String {
     format!("{}/{}", task_type, task_name)
 }
 
+/// Represents additional configuration about an exposed port.
+#[derive(Default)]
+pub struct PortConfig {
+    pub protocol: Option<String>,
+    pub public: bool,
+}
+
+/// Represents network ports that are meant to be exposed by the container of a running shard.
+/// An empty map indicates that no ports should be exposed.
+pub type PortMap = std::collections::BTreeMap<u16, PortConfig>;
+
 // shard_template returns a template ShardSpec for creating or updating
 // shards of the task.
 pub fn shard_template(
@@ -260,6 +271,7 @@ pub fn shard_template(
     task_type: &str,
     shard: &models::ShardTemplate,
     disable_wait_for_ack: bool,
+    ports: PortMap,
 ) -> consumer::ShardSpec {
     let models::ShardTemplate {
         disable,
@@ -291,8 +303,7 @@ pub fn shard_template(
     // If not set, the default read channel size is 128k.
     let read_channel_size = read_channel_size.unwrap_or(1 << 17);
 
-    // Labels must be in alphabetical order.
-    let labels = vec![
+    let mut labels = vec![
         broker::Label {
             name: labels::MANAGED_BY.to_string(),
             value: labels::MANAGED_BY_FLOW.to_string(),
@@ -315,6 +326,37 @@ pub fn shard_template(
         },
     ];
 
+    // Only add a hostname if the task actually exposes any ports.
+    if !ports.is_empty() {
+        labels.push(broker::Label {
+            name: labels::HOSTNAME.to_string(),
+            value: shard_hostname_label(task_name),
+        });
+    }
+    for (port_num, port_config) in ports {
+        // labels are a multiset, so we use the same label for all exposed port numbers.
+        labels.push(broker::Label {
+            name: labels::EXPOSE_PORT.to_string(),
+            value: port_num.to_string(),
+        });
+
+        // Only add these labels if they differ from the defaults
+        if port_config.public {
+            labels.push(broker::Label {
+                name: format!("{}{}", labels::PORT_PUBLIC_PREFIX, port_num),
+                value: "true".to_string(),
+            });
+        }
+        if let Some(proto) = port_config.protocol {
+            labels.push(broker::Label {
+                name: format!("{}{}", labels::PORT_PROTO_PREFIX, port_num),
+                value: proto,
+            });
+        }
+    }
+    // Labels must be in lexicographic order.
+    labels.sort_by(|l, r| l.name.cmp(&r.name));
+
     consumer::ShardSpec {
         id: shard_id_base(task_name, task_type),
         disable: *disable,
@@ -330,6 +372,17 @@ pub fn shard_template(
         ring_buffer_size,
         sources: Vec::new(),
     }
+}
+
+/// This function supplies a domain name label that identifies _all_ shards for a given task.
+/// To do this, we just hash the task name and convert it to a hexidecimal string.
+/// It's a bit janky, but the only idea I've liked better is pet-names, which we
+/// don't have yet. This also has the property of being pretty short (16 chars),
+/// which is nice because it leaves a little more headroom for other labels in the
+/// the full hostname.
+fn shard_hostname_label(task_name: &str) -> String {
+    let hash = fxhash::hash64(task_name);
+    format!("{:x}", hash)
 }
 
 pub fn collection_spec(
@@ -613,6 +666,7 @@ pub fn derivation_spec(
             labels::TASK_TYPE_DERIVATION,
             shards,
             disable_wait_for_ack,
+            PortMap::new(), // we aren't yet able to expose network ports for derivations
         )),
     }
 }

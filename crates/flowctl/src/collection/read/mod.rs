@@ -118,7 +118,9 @@ pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> an
     let selector = args.selector.build_label_selector();
     tracing::debug!(?selector, "build label selector");
 
-    let mut journals = list_journals(&mut data_plane_client, &selector).await?;
+    let mut journals = list_journals(&mut data_plane_client, &selector)
+        .await
+        .context("listing journals for collection read")?;
     tracing::debug!(journal_count = journals.len(), collection = %args.selector.collection, "listed journals");
     let maybe_journal = journals.pop();
     if !journals.is_empty() {
