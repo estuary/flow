@@ -302,6 +302,11 @@ type chanPublisher struct {
 	labels labels.ShardLabeling
 }
 
+// PublishStats implements ops.Publisher
+func (*chanPublisher) PublishStats(ops.StatsEvent) {
+	// no-op
+}
+
 var _ ops.Publisher = &chanPublisher{}
 
 func newChanPublisher(ch chan<- ops.Log, level pf.LogLevel) *chanPublisher {

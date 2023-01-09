@@ -45,6 +45,11 @@ func TestWriteAdapter(t *testing.T) {
 
 type appendPublisher struct{ logs []Log }
 
+// PublishStats implements Publisher
+func (*appendPublisher) PublishStats(StatsEvent) {
+	// no-op
+}
+
 var _ Publisher = &appendPublisher{}
 
 func (p *appendPublisher) PublishLog(log Log) { p.logs = append(p.logs, log) }

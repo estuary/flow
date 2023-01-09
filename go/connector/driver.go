@@ -12,6 +12,7 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/gogo/protobuf/proto"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -39,6 +40,7 @@ type Driver struct {
 type imageSpec struct {
 	Image  string          `json:"image"`
 	Config json.RawMessage `json:"config"`
+	Ports  json.RawMessage `json:"ports"`
 }
 
 // Validate returns an error if EndpointSpec is invalid.
@@ -56,6 +58,7 @@ func NewDriver(
 	endpointType pf.EndpointType,
 	publisher ops.Publisher,
 	network string,
+	exposePorts ExposePorts,
 ) (*Driver, error) {
 
 	if endpointType == pf.EndpointType_SQLITE {
@@ -80,7 +83,7 @@ func NewDriver(
 		if err := pf.UnmarshalStrict(endpointSpec, parsedSpec); err != nil {
 			return nil, fmt.Errorf("parsing connector configuration: %w", err)
 		}
-		container, err := StartContainer(ctx, parsedSpec.Image, network, publisher)
+		container, err := StartContainer(ctx, parsedSpec.Image, network, publisher, exposePorts)
 		if err != nil {
 			return nil, fmt.Errorf("starting connector container: %w", err)
 		}
@@ -126,6 +129,14 @@ func (d *Driver) CaptureClient() pc.DriverClient {
 		return d.ingest
 	} else {
 		panic("invalid driver type for capture")
+	}
+}
+
+func (d *Driver) GetContainerClientConn() *grpc.ClientConn {
+	if d.container != nil {
+		return d.container.conn
+	} else {
+		panic("invalid driver type for GetContainerClientConn")
 	}
 }
 
@@ -175,6 +186,7 @@ func Invoke[
 		request.GetEndpointType(),
 		publisher,
 		network,
+		nil,
 	)
 	if err != nil {
 		return nil, err

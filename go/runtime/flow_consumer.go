@@ -50,6 +50,8 @@ type FlowConsumer struct {
 	Journals flow.Journals
 	// Shared catalog builds.
 	Builds *flow.BuildService
+	// Proxies network traffic to containers
+	NetworkProxyServer *ProxyServer
 	// Timepoint that regulates shuffled reads of started shards.
 	Timepoint struct {
 		Now *flow.Timepoint
@@ -210,6 +212,9 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 
 	pf.RegisterShufflerServer(args.Server.GRPCServer, shuffle.NewAPI(args.Service.Resolver))
 	capture.RegisterRuntimeServer(args.Server.GRPCServer, f)
+
+	f.NetworkProxyServer = NewProxyServer(args.Service.Resolver)
+	pf.RegisterNetworkProxyServer(args.Server.GRPCServer, f.NetworkProxyServer)
 
 	return nil
 }

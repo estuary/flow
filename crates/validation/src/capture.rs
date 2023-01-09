@@ -1,4 +1,10 @@
-use super::{indexed, reference, storage_mapping, Drivers, Error, NoOpDrivers};
+use std::collections::BTreeMap;
+
+use crate::PortMap;
+
+use super::{
+    indexed, parse_image_inspection, reference, storage_mapping, Drivers, Error, NoOpDrivers,
+};
 use futures::FutureExt;
 use itertools::{EitherOrBoth, Itertools};
 use proto_flow::{capture, flow};
@@ -6,6 +12,7 @@ use proto_flow::{capture, flow};
 pub async fn walk_all_captures<D: Drivers>(
     build_config: &flow::build_api::Config,
     drivers: &D,
+    image_inspections: &[tables::ImageInspection],
     built_collections: &[tables::BuiltCollection],
     capture_bindings: &[tables::CaptureBinding],
     captures: &[tables::Capture],
@@ -39,7 +46,7 @@ pub async fn walk_all_captures<D: Drivers>(
             &mut capture_errors,
         );
 
-        let validation = walk_capture_request(
+        let (capture, bindings, req) = walk_capture_request(
             built_collections,
             capture,
             bindings.into_iter().flatten().collect_vec(),
@@ -47,19 +54,32 @@ pub async fn walk_all_captures<D: Drivers>(
             &mut capture_errors,
         );
 
+        let port_configs =
+            if let models::CaptureEndpoint::Connector(config) = &capture.spec.endpoint {
+                match parse_image_inspection(&config.image, image_inspections) {
+                    Ok(ports) => ports,
+                    Err(err) => {
+                        err.push(&capture.scope, errors);
+                        BTreeMap::new()
+                    }
+                }
+            } else {
+                BTreeMap::new()
+            };
+
         // Skip validation if errors were encountered building the request.
         if capture_errors.is_empty() {
-            validations.extend(validation.into_iter());
+            validations.push((capture, bindings, req, port_configs));
         } else {
             errors.extend(capture_errors.into_iter());
         }
     }
 
-    // Run all validations concurrently.
+    // Run all validations concurrently. We do this even if
     let validations =
         validations
             .into_iter()
-            .map(|(capture, binding_models, request)| async move {
+            .map(|(capture, binding_models, request, ports)| async move {
                 // If shards are disabled, then don't ask the connector to validate. Users may
                 // disable captures in response to the source system being unreachable, and we
                 // wouldn't want a validation error for a disabled task to terminate the build.
@@ -68,7 +88,7 @@ pub async fn walk_all_captures<D: Drivers>(
                 } else {
                     drivers.validate_capture(request.clone())
                 }
-                .map(|response| (capture, binding_models, request, response))
+                .map(|response| (capture, binding_models, request, response, ports))
                 .await
             });
 
@@ -77,11 +97,12 @@ pub async fn walk_all_captures<D: Drivers>(
         Vec<&tables::CaptureBinding>,
         proto_flow::capture::ValidateRequest,
         anyhow::Result<proto_flow::capture::ValidateResponse>,
+        PortMap,
     )> = futures::future::join_all(validations).await;
 
     let mut built_captures = tables::BuiltCaptures::new();
 
-    for (capture, binding_models, request, response) in validations {
+    for (capture, binding_models, request, response, ports) in validations {
         // Unwrap |response| and continue if an Err.
         let response = match response {
             Err(err) => {
@@ -200,6 +221,7 @@ pub async fn walk_all_captures<D: Drivers>(
                 labels::TASK_TYPE_CAPTURE,
                 &shards,
                 false, // Don't disable wait_for_ack.
+                ports,
             )),
         };
         built_captures.insert_row(scope, name, spec);
@@ -214,11 +236,11 @@ fn walk_capture_request<'a>(
     capture_bindings: Vec<&'a tables::CaptureBinding>,
     resources: &[tables::Resource],
     errors: &mut tables::Errors,
-) -> Option<(
+) -> (
     &'a tables::Capture,
     Vec<&'a tables::CaptureBinding>,
     capture::ValidateRequest,
-)> {
+) {
     let tables::Capture {
         scope: _,
         capture: name,
@@ -260,7 +282,7 @@ fn walk_capture_request<'a>(
         endpoint_spec_json,
     };
 
-    Some((capture, binding_models, request))
+    (capture, binding_models, request)
 }
 
 fn walk_capture_binding<'a>(

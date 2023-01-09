@@ -89,6 +89,22 @@ impl validation::Drivers for Drivers {
         );
         rx.map(|r| r.unwrap()).boxed_local()
     }
+
+    fn inspect_image<'a>(
+        &'a self,
+        image: String,
+    ) -> LocalBoxFuture<'a, Result<Vec<u8>, anyhow::Error>> {
+        let (tx, rx) = oneshot::channel();
+        self.0.start_task(
+            build_api::Code::TrampolineDockerInspect as u32,
+            move |arena: &mut Vec<u8>| arena.extend_from_slice(image.as_bytes()),
+            move |result: Result<&[u8], anyhow::Error>| {
+                let final_result = result.map(|output| output.to_vec());
+                tx.send(final_result).unwrap();
+            },
+        );
+        rx.map(|r| r.unwrap()).boxed_local()
+    }
 }
 
 // BuildFuture is a polled future which builds a catalog.

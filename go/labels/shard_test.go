@@ -36,6 +36,7 @@ func TestParsingShardLabels(t *testing.T) {
 		SplitTarget: "",
 		TaskName:    "a-task",
 		TaskType:    TaskTypeCapture,
+		Ports:       make(map[uint16]*PortConfig),
 	}, out)
 
 	// Case: invalid log-level.
