@@ -14,6 +14,12 @@ func TestParsingShardLabels(t *testing.T) {
 		LogLevel, "debug",
 		KeyBegin, "aaaaaaaa",
 		KeyEnd, "bbbbbbbb",
+		Hostname, "test-host",
+		ExposePort, "8080",
+		ExposePort, "9000",
+		ExposePort, "9001",
+		PortProtoPrefix+"8080", "http/1.1",
+		PortPublicPrefix+"9000", "true",
 		RClockBegin, "cccccccc",
 		RClockEnd, "dddddddd",
 		TaskName, "a-task",
@@ -26,6 +32,7 @@ func TestParsingShardLabels(t *testing.T) {
 	require.Equal(t, ShardLabeling{
 		Build:    "a-build",
 		LogLevel: pf.LogLevel_debug,
+		Hostname: "test-host",
 		Range: pf.RangeSpec{
 			KeyBegin:    0xaaaaaaaa,
 			KeyEnd:      0xbbbbbbbb,
@@ -36,6 +43,11 @@ func TestParsingShardLabels(t *testing.T) {
 		SplitTarget: "",
 		TaskName:    "a-task",
 		TaskType:    TaskTypeCapture,
+		Ports: map[uint16]*PortConfig{
+			8080: {Protocol: "http/1.1", Public: false},
+			9000: {Protocol: "", Public: true},
+			9001: {Protocol: "", Public: false},
+		},
 	}, out)
 
 	// Case: invalid log-level.

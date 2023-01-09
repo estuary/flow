@@ -282,6 +282,23 @@ test://example/int-string-len.schema:
       type: integer
 
 driver:
+  imageInspections:
+    s3:
+      output: &imageInspect '[{
+          "Id": "foo",
+          "Config":{
+            "ExposedPorts": {"567/tcp":{}, "123/udp": {}, "789":{} },
+            "Labels":{"dev.estuary.port-public.567":"true","dev.estuary.port-proto.789":"h2"}
+          }
+        }]'
+    database:
+      output: *imageInspect
+    # documenting the absolute minimal valid output from `docker inspect` that we're able to accept
+    database/image:
+      output: '[{"Config":{}}]'
+    webhook/connector:
+      output: *imageInspect
+
   materializations:
     testing/webhook/deliveries:
       endpoint: FLOW_SINK

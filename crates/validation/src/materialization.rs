@@ -1,4 +1,8 @@
-use super::{collection, indexed, reference, storage_mapping, Drivers, Error, NoOpDrivers};
+use super::{
+    collection, indexed, parse_image_inspection, reference, storage_mapping, Drivers, Error,
+    NoOpDrivers,
+};
+use assemble::PortMap;
 use futures::FutureExt;
 use itertools::{EitherOrBoth, Itertools};
 use proto_flow::{flow, materialize};
@@ -8,6 +12,7 @@ use url::Url;
 pub async fn walk_all_materializations<D: Drivers>(
     build_config: &flow::build_api::Config,
     drivers: &D,
+    image_inspections: &[tables::ImageInspection],
     built_collections: &[tables::BuiltCollection],
     materialization_bindings: &[tables::MaterializationBinding],
     materializations: &[tables::Materialization],
@@ -47,49 +52,62 @@ pub async fn walk_all_materializations<D: Drivers>(
             &mut materialization_errors,
         );
 
-        let validation = walk_materialization_request(
+        let (mat, bindings, req) = walk_materialization_request(
             built_collections,
             materialization,
             bindings.into_iter().flatten().collect(),
             resources,
             &mut materialization_errors,
         );
+        let ports = if let models::MaterializationEndpoint::Connector(config) =
+            &materialization.spec.endpoint
+        {
+            match parse_image_inspection(&config.image, image_inspections) {
+                Ok(ports) => ports,
+                Err(err) => {
+                    err.push(&materialization.scope, errors);
+                    BTreeMap::new()
+                }
+            }
+        } else {
+            BTreeMap::new()
+        };
 
         // Skip validation if errors were encountered building the request.
         if materialization_errors.is_empty() {
-            validations.push(validation);
+            validations.push((mat, bindings, req, ports));
         } else {
             errors.extend(materialization_errors.into_iter());
         }
     }
 
     // Run all validations concurrently.
-    let validations =
-        validations
-            .into_iter()
-            .map(|(materialization, binding_models, request)| async move {
-                // If shards are disabled, then don't ask the connector to validate. Users may
-                // disable materializations in response to the target system being unreachable, and
-                // we wouldn't want a validation error for a disabled task to terminate the build.
-                if materialization.spec.shards.disable {
-                    NoOpDrivers {}.validate_materialization(request.clone())
-                } else {
-                    drivers.validate_materialization(request.clone())
-                }
-                .map(|response| (materialization, binding_models, request, response))
-                .await
-            });
+    let validations = validations.into_iter().map(
+        |(materialization, binding_models, request, ports)| async move {
+            // If shards are disabled, then don't ask the connector to validate. Users may
+            // disable materializations in response to the target system being unreachable, and
+            // we wouldn't want a validation error for a disabled task to terminate the build.
+            if materialization.spec.shards.disable {
+                NoOpDrivers {}.validate_materialization(request.clone())
+            } else {
+                drivers.validate_materialization(request.clone())
+            }
+            .map(|response| (materialization, binding_models, request, response, ports))
+            .await
+        },
+    );
 
     let validations: Vec<(
         &tables::Materialization,
         Vec<&tables::MaterializationBinding>,
         proto_flow::materialize::ValidateRequest,
         anyhow::Result<proto_flow::materialize::ValidateResponse>,
+        PortMap,
     )> = futures::future::join_all(validations).await;
 
     let mut built_materializations = tables::BuiltMaterializations::new();
 
-    for (materialization, binding_models, request, response) in validations {
+    for (materialization, binding_models, request, response, ports) in validations {
         // Unwrap |response| and continue if an Err.
         let response = match response {
             Ok(response) => response,
@@ -225,6 +243,7 @@ pub async fn walk_all_materializations<D: Drivers>(
                 labels::TASK_TYPE_MATERIALIZATION,
                 shards,
                 false, // Don't disable wait_for_ack.
+                ports,
             )),
         };
 

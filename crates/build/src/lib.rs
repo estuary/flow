@@ -150,6 +150,7 @@ where
         built_materializations,
         built_tests,
         errors: validation_errors,
+        image_inspections,
         inferences,
     } = validation::validate(
         config,
@@ -185,6 +186,7 @@ where
         derivations,
         errors,
         fetches,
+        image_inspections,
         imports,
         inferences,
         materialization_bindings,

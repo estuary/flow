@@ -47,3 +47,4 @@ driver:
   # Expect that no actual driver calls are made.
   materializations: {}
   captures: {}
+  imageInspections: {}

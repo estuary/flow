@@ -53,7 +53,12 @@ func (*LocalPublisher) PublishLog(log Log) {
 	logrus.StandardLogger().WithFields(fields).Log(level, log.Message)
 }
 
-/// logrusLogLevel maps the current Level of the logrus logger into a pf.LogLevel.
+// PublishStats implements Publisher
+func (*LocalPublisher) PublishStats(event StatsEvent) {
+	logrus.WithField("stats", event).Error("got local stats event")
+}
+
+// logrusLogLevel maps the current Level of the logrus logger into a pf.LogLevel.
 func logrusLogLevel() pf.LogLevel {
 	switch logrus.StandardLogger().Level {
 	case logrus.TraceLevel:

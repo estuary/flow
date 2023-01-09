@@ -1,9 +1,13 @@
+use std::collections::BTreeMap;
+
+use assemble::{PortConfig, PortMap};
 use futures::future::LocalBoxFuture;
 
 mod capture;
 mod collection;
 mod derivation;
 mod errors;
+mod images;
 mod indexed;
 mod materialization;
 mod noop;
@@ -19,6 +23,11 @@ pub use noop::NoOpDrivers;
 /// Drivers is a delegated trait -- provided to validate -- through which runtime
 /// driver validation RPCs are dispatched.
 pub trait Drivers {
+    fn inspect_image<'a>(
+        &'a self,
+        image: String,
+    ) -> LocalBoxFuture<'a, Result<Vec<u8>, anyhow::Error>>;
+
     fn validate_materialization<'a>(
         &'a self,
         request: proto_flow::materialize::ValidateRequest,
@@ -148,9 +157,12 @@ pub async fn validate<D: Drivers>(
         &mut errors,
     );
 
+    let image_inspections = images::walk_all_images(drivers, captures, materializations).await;
+
     let built_captures = capture::walk_all_captures(
         build_config,
         drivers,
+        &image_inspections,
         &built_collections,
         capture_bindings,
         captures,
@@ -163,6 +175,7 @@ pub async fn validate<D: Drivers>(
     let built_materializations = materialization::walk_all_materializations(
         build_config,
         drivers,
+        &image_inspections,
         &built_collections,
         materialization_bindings,
         materializations,
@@ -177,6 +190,7 @@ pub async fn validate<D: Drivers>(
     errors.extend(tmp_errors.into_iter());
 
     tables::Validations {
+        image_inspections,
         built_captures,
         built_collections,
         built_derivations,
@@ -185,4 +199,96 @@ pub async fn validate<D: Drivers>(
         errors,
         inferences,
     }
+}
+
+/// Parses the image inspection json into an `assemble::PortMap`, which can be used to create the shard template.
+fn parse_image_inspection(
+    image: &str,
+    image_inspections: &[tables::ImageInspection],
+) -> Result<PortMap, Error> {
+    let row = image_inspections
+        .iter()
+        .find(|r| r.image == image)
+        .ok_or_else(|| Error::ImageInspectFailed {
+            image: image.to_owned(),
+            error: anyhow::anyhow!("image inspection results missing"),
+        })?;
+    if let Some(err) = row.inspect_error.as_ref() {
+        return Err(Error::ImageInspectFailed {
+            image: image.to_owned(),
+            error: anyhow::format_err!(err.clone()),
+        });
+    }
+
+    let deserialized: Vec<InspectJson> =
+        serde_json::from_slice(&row.inspect_output).map_err(|err| {
+            let output_str = String::from_utf8_lossy(&row.inspect_output);
+            eprintln!("deserializing docker inspect output failed: {}", output_str);
+            Error::ImageInspectFailed {
+                image: image.to_owned(),
+                error: anyhow::Error::from(err),
+            }
+        })?;
+
+    if deserialized.len() != 1 {
+        return Err(Error::ImageInspectFailed {
+            image: image.to_owned(),
+            error: anyhow::anyhow!("expected 1 image, got {}", deserialized.len()),
+        });
+    }
+    let mut ports = BTreeMap::new();
+    for (port_config, _) in deserialized[0].config.exposed_ports.iter() {
+        // We're unable to support UDP at this time.
+        if port_config.ends_with("/udp") {
+            continue;
+        }
+        // Technically, the ports are allowed to appear without the '/tcp' suffix, though
+        // I haven't actually observed that in practice.
+        let port_str = port_config.strip_suffix("/tcp").unwrap_or(port_config);
+        let port_num = port_str.parse::<u16>().map_err(|_| {
+            let error = anyhow::anyhow!("invalid port value in ExposedPorts: '{}'", port_config,);
+            Error::ImageInspectFailed {
+                image: image.to_string(),
+                error,
+            }
+        })?;
+        let mut config = PortConfig::default();
+        let proto_key = format!("dev.estuary.port-proto.{port_num}");
+        config.protocol = deserialized[0].config.labels.get(&proto_key).cloned();
+        let public_key = format!("dev.estuary.port-public.{port_num}");
+        if let Some(visibility) = deserialized[0].config.labels.get(&public_key) {
+            config.public = visibility.parse::<bool>().map_err(|_| {
+                let error = anyhow::anyhow!(
+                    "invalid '{}' label value: '{}', must be either 'true' or 'false'",
+                    public_key,
+                    visibility
+                );
+                Error::ImageInspectFailed {
+                    image: image.to_string(),
+                    error,
+                }
+            })?;
+        };
+        ports.insert(port_num, config);
+    }
+
+    Ok(ports)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct InspectConfig {
+    /// According to the [OCI spec](https://github.com/opencontainers/image-spec/blob/d60099175f88c47cd379c4738d158884749ed235/config.md?plain=1#L125)
+    /// `ExposedPorts` is a map where the keys are in the format `1234/tcp`, `456/udp`, or `789` (implicit default of tcp), and the values are
+    /// empty objects. The choice of `serde_json::Value` here is meant to convey that the actual values are irrelevant.
+    #[serde(default)]
+    exposed_ports: BTreeMap<String, serde_json::Value>,
+    #[serde(default)]
+    labels: BTreeMap<String, String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct InspectJson {
+    config: InspectConfig,
 }
