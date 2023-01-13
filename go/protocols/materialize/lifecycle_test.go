@@ -55,9 +55,7 @@ func TestStreamLifecycle(t *testing.T) {
 	require.NoError(t, WriteLoad(cliRPC, &txRequest, 1, tuple.Tuple{-3}.Pack()))
 	require.NoError(t, WriteLoad(cliRPC, &txRequest, 1, tuple.Tuple{"four"}.Pack()))
 	require.NoError(t, WriteLoad(cliRPC, &txRequest, 0, tuple.Tuple{[]byte("five")}.Pack()))
-	require.NoError(t, WriteFlush(cliRPC, &txRequest,
-		// Deprecated checkpoint, to be removed.
-		pf.Checkpoint{AckIntents: map[pf.Journal][]byte{"deprecated": nil}}))
+	require.NoError(t, WriteFlush(cliRPC, &txRequest))
 
 	// Driver reads Loads.
 	var it = &LoadIterator{stream: srvRPC, request: &rxRequest}
@@ -95,8 +93,7 @@ func TestStreamLifecycle(t *testing.T) {
 	require.Nil(t, loaded) // Indicates end of Loaded responses.
 
 	// Runtime reads Flushed.
-	_, err = ReadFlushed(&rxResponse)
-	require.NoError(t, err)
+	require.NoError(t, ReadFlushed(&rxResponse))
 
 	// Runtime sends Store, then StartCommit with runtime checkpoint.
 	require.NoError(t, WriteStore(cliRPC, &txRequest,

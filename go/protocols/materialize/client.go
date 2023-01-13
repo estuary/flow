@@ -34,10 +34,6 @@ type TxnClient struct {
 	spec       *pf.MaterializationSpec     // Specification of this Transactions client.
 	txRequest  TransactionRequest          // Request which is sent from.
 	version    string                      // Version of the client's MaterializationSpec.
-
-	// Temporary storage for a DriverCheckpoint received within a Flushed response.
-	// This will be removed with Flushed-contained driver checkpoints.
-	deprecatedDriverCP *pf.DriverCheckpoint
 }
 
 // OpenTransactions opens a Transactions RPC and completes the Open/Opened phase,
@@ -117,9 +113,6 @@ func OpenTransactions(
 		spec:       spec,
 		txRequest:  txRequest,
 		version:    version,
-
-		// TODO(johnny): Remove me.
-		deprecatedDriverCP: nil,
 	}
 
 	var initialAcknowledged = client.NewAsyncOperation()
@@ -211,8 +204,8 @@ func (c *TxnClient) combineRight(binding int, packedKey []byte, doc json.RawMess
 
 // Flush the current transaction, causing the server to respond with any
 // remaining Loaded responses before it sends Flushed in response.
-func (c *TxnClient) Flush(deprecatedRuntimeCP pf.Checkpoint) error {
-	if err := WriteFlush(c.client, &c.txRequest, deprecatedRuntimeCP); err != nil {
+func (c *TxnClient) Flush() error {
+	if err := WriteFlush(c.client, &c.txRequest); err != nil {
 		return c.writeErr(err)
 	}
 	// Now block until we've read through the remaining `Loaded` responses.
@@ -221,8 +214,7 @@ func (c *TxnClient) Flush(deprecatedRuntimeCP pf.Checkpoint) error {
 	}
 	c.loadedOp = nil // readAcknowledgedAndLoaded has completed.
 
-	var err error
-	if c.deprecatedDriverCP, err = ReadFlushed(&c.rxResponse); err != nil {
+	if err := ReadFlushed(&c.rxResponse); err != nil {
 		return err
 	}
 	return nil
@@ -270,11 +262,6 @@ func (c *TxnClient) StartCommit(runtimeCP pf.Checkpoint) (_ *pf.DriverCheckpoint
 		return nil, nil, c.writeErr(err)
 	} else if driverCP, err = ReadStartedCommit(c.client, &c.rxResponse); err != nil {
 		return nil, nil, err
-	}
-
-	// TODO(johnny): remove when Flush can no longer contain a driver checkpoint.
-	if driverCP == nil {
-		driverCP = c.deprecatedDriverCP
 	}
 
 	// Future resolved upon reading `Acknowledged` response, which permits the

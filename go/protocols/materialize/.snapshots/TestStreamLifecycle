@@ -4,7 +4,7 @@
   (materialize.TransactionRequest) load:<arena:"\002key-1\000" packed_keys:<end:7 > > ,
   (materialize.TransactionRequest) load:<binding:1 arena:"\025\002\023\374\002four\000" packed_keys:<end:2 > packed_keys:<begin:2 end:4 > packed_keys:<begin:4 end:10 > > ,
   (materialize.TransactionRequest) load:<arena:"\001five\000" packed_keys:<end:6 > > ,
-  (materialize.TransactionRequest) flush:<deprecated_runtime_checkpoint:"\022\014\n\ndeprecated" > ,
+  (materialize.TransactionRequest) flush:<> ,
   (materialize.TransactionRequest) store:<arena:"\002key-1\000&doc-1\002key\000\025\002\002two\000doc-2" packed_keys:<end:7 > packed_keys:<begin:13 end:20 > packed_values:<begin:7 end:8 > packed_values:<begin:20 end:25 > docs_json:<begin:8 end:13 > docs_json:<begin:25 end:30 > exists:true exists:false > ,
   (materialize.TransactionRequest) store:<binding:1 arena:"\002three\000'doc-3" packed_keys:<end:7 > packed_values:<begin:7 end:8 > docs_json:<begin:8 end:13 > exists:true > ,
   (materialize.TransactionRequest) start_commit:<runtime_checkpoint:"\022\016\n\014a-checkpoint" > ,
@@ -15,7 +15,7 @@
   (materialize.TransactionResponse) acknowledged:<> ,
   (materialize.TransactionResponse) loaded:<arena:"loaded-1loaded-2" docs_json:<end:8 > docs_json:<begin:8 end:16 > > ,
   (materialize.TransactionResponse) loaded:<binding:2 arena:"loaded-3" docs_json:<end:8 > > ,
-  (materialize.TransactionResponse) flushed:<driver_checkpoint_json:"{}" rfc7396_merge_patch:true > ,
+  (materialize.TransactionResponse) flushed:<> ,
   (materialize.TransactionResponse) started_commit:<driver_checkpoint:<driver_checkpoint_json:"checkpoint" > > ,
   (materialize.TransactionResponse) acknowledged:<> 
 }

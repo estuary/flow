@@ -232,12 +232,7 @@ message TransactionRequest {
   // Flush loads. No further Loads will be sent in this transaction,
   // and the runtime will await the driver's remaining Loaded responses
   // followed by one Flushed response.
-  message Flush {
-    // Flow checkpoint to commit with this transaction.
-    // This is being removed, in favor of instead sending
-    // StartCommit.runtime_checkpoint
-    bytes deprecated_runtime_checkpoint = 1;
-  }
+  message Flush {}
   Flush flush = 3;
 
   // Store documents of this transaction commit.
@@ -307,9 +302,8 @@ message TransactionResponse {
 
   // Flushed responds to a TransactionRequest.Flush of the client.
   // The driver will send no further Loaded responses.
-  // The DriverCheckpoint body is being deprecated and will be
-  // replaced with an empty message Flushed{}.
-  flow.DriverCheckpoint flushed = 3;
+  message Flushed {}
+  Flushed flushed = 3;
 
   // StartedCommit responds to a TransactionRequest.StartCommit of the client.
   // The driver has processed all Store requests, it has started to commit its
