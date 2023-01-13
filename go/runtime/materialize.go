@@ -14,7 +14,6 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/estuary/flow/go/shuffle"
-	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/recoverylog"
@@ -78,8 +77,6 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		if err == nil {
 			ops.PublishLog(m.opsPublisher, pf.LogLevel_debug,
 				"initialized processing term",
-				"materialization", m.labels.TaskName,
-				"shard", m.shardSpec.Id,
 				"build", m.labels.Build,
 				"checkpoint", cp,
 				"checkpointSource", checkpointSource,
@@ -192,34 +189,6 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 
 // StartCommit implements consumer.Store.StartCommit
 func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
-	ops.PublishLog(m.opsPublisher, pf.LogLevel_debug,
-		"StartCommit",
-		"materialization", m.labels.TaskName,
-		"shard", m.shardSpec.Id,
-		"build", m.labels.Build,
-		"checkpoint", cp,
-	)
-
-	// TODO(johnny): Move to FinalizeTxn.
-	if err := m.client.Flush(cp); err != nil { // `cp` is deprecated here.
-		return client.FinishedOperation(err)
-	}
-	// TODO(johnny): Move to FinalizeTxn.
-	var stats, err = m.client.Store()
-	if err != nil {
-		return client.FinishedOperation(err)
-	}
-
-	// TODO(johnny): Move to FinalizeTxn, and write as a regular (non-deferred) message.
-	// Now that we've drained the combiner, we're able to finish publishing the stats for this
-	// transaction. This PendingPublish was initialized by the call to DeferPublishUncommitted
-	// in FinalizeTxn.
-	var statsEvent = m.materializationStats(stats)
-	err = m.pendingStats.Resolve(m.StatsFormatter.FormatEvent(statsEvent))
-	if err != nil {
-		return client.FinishedOperation(fmt.Errorf("publishing stats: %w", err))
-	}
-
 	driverCP, opAcknowledged, err := m.client.StartCommit(cp)
 	if err != nil {
 		return client.FinishedOperation(err)
@@ -237,6 +206,10 @@ func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFo
 	} else if err = m.client.Acknowledge(); err != nil {
 		return client.FinishedOperation(err)
 	}
+
+	ops.PublishLog(m.opsPublisher, pf.LogLevel_debug, "started commit",
+		"runtimeCheckpoint", cp,
+		"driverCheckpoint", driverCP)
 
 	// Return `opAcknowledged` so that the next transaction will remain open
 	// so long as the driver is still committing the current transaction.
@@ -312,17 +285,24 @@ func (m *Materialize) ConsumeMessage(shard consumer.Shard, envelope message.Enve
 }
 
 func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error {
-	var mapper = flow.NewMapper(shard.Context(), m.host.Service.Etcd, m.host.Journals, shard.FQN())
-	var journal, ct, ack, err = m.StatsFormatter.PrepareStatsJournal(mapper)
+	if err := m.client.Flush(); err != nil {
+		return err
+	}
+	ops.PublishLog(m.opsPublisher, pf.LogLevel_debug, "flushed loads")
+
+	var stats, err = m.client.Store()
 	if err != nil {
 		return err
 	}
+	ops.PublishLog(m.opsPublisher, pf.LogLevel_debug, "stored documents")
 
-	m.pendingStats, err = pub.DeferPublishUncommitted(journal, ct, ack)
-	if err != nil {
-		return fmt.Errorf("sequencing future stats message: %w", err)
+	var mapper = flow.NewMapper(shard.Context(), m.host.Service.Etcd, m.host.Journals, shard.FQN())
+	var statsEvent = m.materializationStats(stats)
+	var statsMessage = m.StatsFormatter.FormatEvent(statsEvent)
+
+	if _, err := pub.PublishUncommitted(mapper.Map, statsMessage); err != nil {
+		return fmt.Errorf("publishing stats document: %w", err)
 	}
-	log.WithFields(log.Fields{"shard": shard.Spec().Id}).Trace("FinalizeTxn")
 	return nil
 }
 

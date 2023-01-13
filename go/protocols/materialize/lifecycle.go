@@ -85,11 +85,7 @@ func WriteLoad(
 	return nil
 }
 
-func WriteFlush(
-	stream TransactionRequestTx,
-	request *TransactionRequest,
-	deprecatedCheckpoint pc.Checkpoint, // Will be removed.
-) error {
+func WriteFlush(stream TransactionRequestTx, request *TransactionRequest) error {
 	if request.Acknowledge == nil && request.Load == nil {
 		panic(fmt.Sprintf("expected prior request is Acknowledge or Load, got %#v", request))
 	}
@@ -101,14 +97,8 @@ func WriteFlush(
 		*request = TransactionRequest{}
 	}
 
-	var checkpointBytes, err = deprecatedCheckpoint.Marshal()
-	if err != nil {
-		panic(err) // Cannot fail.
-	}
 	*request = TransactionRequest{
-		Flush: &TransactionRequest_Flush{
-			DeprecatedRuntimeCheckpoint: checkpointBytes,
-		},
+		Flush: &TransactionRequest_Flush{},
 	}
 	if err := stream.Send(request); err != nil {
 		return fmt.Errorf("sending Flush request: %w", err)
@@ -462,11 +452,7 @@ func WriteFlushed(stream TransactionResponseTx, response *TransactionResponse) e
 	}
 
 	*response = TransactionResponse{
-		// Flushed as-a DriverCheckpoint is deprecated and will be removed.
-		Flushed: &pf.DriverCheckpoint{
-			DriverCheckpointJson: []byte("{}"),
-			Rfc7396MergePatch:    true,
-		},
+		Flushed: &TransactionResponse_Flushed{},
 	}
 	if err := stream.Send(response); err != nil {
 		return fmt.Errorf("sending Flushed response: %w", err)
@@ -540,13 +526,13 @@ func ReadLoaded(stream TransactionResponseRx, response *TransactionResponse) (*T
 	return response.Loaded, nil
 }
 
-func ReadFlushed(response *TransactionResponse) (deprecatedDriverCP *pf.DriverCheckpoint, _ error) {
+func ReadFlushed(response *TransactionResponse) error {
 	if response.Flushed == nil {
-		return nil, fmt.Errorf("protocol error (expected Flushed, got %#v)", response)
+		return fmt.Errorf("protocol error (expected Flushed, got %#v)", response)
 	} else if err := response.Validate(); err != nil {
-		return nil, fmt.Errorf("validation failed: %w", err)
+		return fmt.Errorf("validation failed: %w", err)
 	}
-	return response.Flushed, nil
+	return nil
 }
 
 func ReadStartedCommit(stream TransactionResponseRx, response *TransactionResponse) (*pf.DriverCheckpoint, error) {
