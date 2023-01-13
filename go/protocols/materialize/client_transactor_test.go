@@ -80,7 +80,7 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{1}.Pack(), json.RawMessage(`"one"`)))
 		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{2}.Pack(), json.RawMessage(`2`)))
 		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{"three"}.Pack(), json.RawMessage(`3`)))
-		require.NoError(t, rpc.Flush(pf.Checkpoint{}))
+		require.NoError(t, rpc.Flush())
 
 		combiner.AddDrainFixture(false, "one", tuple.Tuple{1}, tuple.Tuple{"val", 1})
 		combiner.AddDrainFixture(true, 2, tuple.Tuple{2}, tuple.Tuple{"val", 2})
@@ -107,8 +107,8 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{4}.Pack(), json.RawMessage(`"four"`)))
 
 		transactor.commitOp.Resolve(nil)
-		require.NoError(t, opAcknowledged.Err())       // Read Acknowledged.
-		require.NoError(t, rpc.Flush(pf.Checkpoint{})) // Close Load phase.
+		require.NoError(t, opAcknowledged.Err()) // Read Acknowledged.
+		require.NoError(t, rpc.Flush())          // Close Load phase.
 
 		combiner.AddDrainFixture(true, "four", tuple.Tuple{4}, tuple.Tuple{"val", 4})
 
@@ -138,7 +138,7 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 		// We do NOT expect to see Load requests for these documents in the snapshot.
 		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{"five"}.Pack(), json.RawMessage(`5`)))
 		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{"six"}.Pack(), json.RawMessage(`"six"`)))
-		require.NoError(t, rpc.Flush(pf.Checkpoint{})) // Close Load phase.
+		require.NoError(t, rpc.Flush()) // Close Load phase.
 
 		combiner.AddDrainFixture(true, "five", tuple.Tuple{"five"}, tuple.Tuple{"val", 5})
 		combiner.AddDrainFixture(true, "six", tuple.Tuple{"six"}, tuple.Tuple{"val", 6})
@@ -177,7 +177,7 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 		require.NoError(t, err)
 
 		// Cleanly run through an empty transaction, then gracefully close.
-		require.Nil(t, rpc.Flush(pf.Checkpoint{}))
+		require.Nil(t, rpc.Flush())
 		_, opAcknowledged, err := rpc.StartCommit(pf.Checkpoint{
 			Sources: map[pf.Journal]pc.Checkpoint_Source{"foobar": {ReadThrough: 123}}})
 		require.NoError(t, err)
@@ -200,7 +200,7 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 		// Set a Loaded fixture to return, and load some documents.
 		transactor.loadErr = fmt.Errorf("mysterious load failure")
 		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{1}.Pack(), json.RawMessage(`"one"`)))
-		require.EqualError(t, rpc.Flush(pf.Checkpoint{}),
+		require.EqualError(t, rpc.Flush(),
 			"reading Loaded: transactor.Load: mysterious load failure")
 	})
 
@@ -213,7 +213,7 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 
 		var rpc, err = openTransactions(combiner, "{}")
 		require.NoError(t, err)
-		require.Nil(t, rpc.Flush(pf.Checkpoint{}))
+		require.Nil(t, rpc.Flush())
 
 		transactor.storeErr = fmt.Errorf("mysterious store failure")
 		_, _, err = rpc.StartCommit(pf.Checkpoint{
@@ -230,7 +230,7 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 
 		var rpc, err = openTransactions(combiner, "{}")
 		require.NoError(t, err)
-		require.Nil(t, rpc.Flush(pf.Checkpoint{}))
+		require.Nil(t, rpc.Flush())
 
 		transactor.startCommitErr = fmt.Errorf("mysterious start-commit failure")
 		_, _, err = rpc.StartCommit(pf.Checkpoint{
@@ -247,7 +247,7 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 
 		var rpc, err = openTransactions(combiner, "{}")
 		require.NoError(t, err)
-		require.Nil(t, rpc.Flush(pf.Checkpoint{}))
+		require.Nil(t, rpc.Flush())
 
 		transactor.commitOp = client.NewAsyncOperation()
 

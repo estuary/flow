@@ -294,6 +294,15 @@ func (m *TransactionResponse_Loaded) Validate() error {
 	return nil
 }
 
+func (m *TransactionResponse_Flushed) Validate() error {
+	// Added in support of materialization protocol updates circa Jan 2023.
+	// Remove once no old connectors could possibly ever run again.
+	if len(m.XXX_unrecognized) != 0 {
+		return pb.NewValidationError("connector version is out of date and must be upgraded")
+	}
+	return nil
+}
+
 // Validate returns an error if the message is not well-formed.
 func (m *TransactionResponse_StartedCommit) Validate() error {
 	return nil

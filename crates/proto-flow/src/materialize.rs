@@ -252,11 +252,6 @@ pub mod transaction_request {
     /// followed by one Flushed response.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Flush {
-        /// Flow checkpoint to commit with this transaction.
-        /// This is being removed, in favor of instead sending
-        /// StartCommit.runtime_checkpoint
-        #[prost(bytes="vec", tag="1")]
-        pub deprecated_runtime_checkpoint: ::prost::alloc::vec::Vec<u8>,
     }
     /// Store documents of this transaction commit.
     #[derive(Clone, PartialEq, ::prost::Message)]
@@ -303,12 +298,8 @@ pub struct TransactionResponse {
     pub opened: ::core::option::Option<transaction_response::Opened>,
     #[prost(message, optional, tag="2")]
     pub loaded: ::core::option::Option<transaction_response::Loaded>,
-    /// Flushed responds to a TransactionRequest.Flush of the client.
-    /// The driver will send no further Loaded responses.
-    /// The DriverCheckpoint body is being deprecated and will be
-    /// replaced with an empty message Flushed{}.
     #[prost(message, optional, tag="3")]
-    pub flushed: ::core::option::Option<super::flow::DriverCheckpoint>,
+    pub flushed: ::core::option::Option<transaction_response::Flushed>,
     #[prost(message, optional, tag="4")]
     pub started_commit: ::core::option::Option<transaction_response::StartedCommit>,
     #[prost(message, optional, tag="5")]
@@ -345,6 +336,11 @@ pub mod transaction_response {
         /// Loaded JSON documents.
         #[prost(message, repeated, tag="3")]
         pub docs_json: ::prost::alloc::vec::Vec<super::super::flow::Slice>,
+    }
+    /// Flushed responds to a TransactionRequest.Flush of the client.
+    /// The driver will send no further Loaded responses.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Flushed {
     }
     /// StartedCommit responds to a TransactionRequest.StartCommit of the client.
     /// The driver has processed all Store requests, it has started to commit its
