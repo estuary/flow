@@ -32,6 +32,9 @@ type ShardLabeling struct {
 	// Type of this task (capture, derivation, or materialization).
 	TaskType string
 
+	// TODO: comment and add test for parsing host and ports
+	Hostname string
+
 	// Ports is a map from port name to the combined configuration
 	// for the port. The runtime itself doesn't actually care
 	// about the alpn protocol, but it's there for the sake of
@@ -68,6 +71,12 @@ func ParseShardLabels(set pf.LabelSet) (ShardLabeling, error) {
 		return out, err
 	}
 	if out.TaskType, err = ExpectOne(set, TaskType); err != nil {
+		return out, err
+	}
+	if out.Ports, err = parsePorts(set); err != nil {
+		return out, err
+	}
+	if out.Hostname, err = maybeOne(set, Hostname); err != nil {
 		return out, err
 	}
 

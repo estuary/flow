@@ -711,6 +711,8 @@ name = "connector-init"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "bytes",
  "clap 3.2.22",
  "futures",
  "insta",
@@ -722,6 +724,7 @@ dependencies = [
  "serde_json",
  "time 0.3.14",
  "tokio",
+ "tokio-util",
  "tonic",
  "tracing",
  "tracing-subscriber",

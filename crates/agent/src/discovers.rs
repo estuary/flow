@@ -252,6 +252,7 @@ fn swizzle_response_to_catalog(
             endpoint: models::CaptureEndpoint::Connector(models::ConnectorConfig {
                 image: image_composed,
                 config: endpoint_config.to_owned(),
+                ports: Default::default(),
             }),
             interval: models::CaptureDef::default_interval(),
             shards: Default::default(),

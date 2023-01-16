@@ -996,20 +996,55 @@ service Testing {
 
 message TaskNetworkProxyRequest {
   message Open {
-    string shard_id = 1;
+    string shard_id = 1 [ 
+      (gogoproto.casttype) = "go.gazette.dev/core/consumer/protocol.ShardID"
+    ];
+
     string port_name = 2;
     // for funsies
     string client_ip = 3;
+
+    // TODO: reorder and comment
+    protocol.Header header = 4;
   }
   Open open = 1;
   bytes data = 2;
 }
 
 message TaskNetworkProxyResponse {
-  message Opened {
-    string err = 1;
+  // Status represents the high-level response to an Open request. If OK, then
+  // the connection may proceed. Any other status indicates the reason for refusal.
+  // This enum is a superset of the consumer.Status enum used by the Shards service,
+  // though some statuses have taken on broader meanings.
+  enum Status {
+    OK = 0;
+  	// The named shard does not exist.
+  	SHARD_NOT_FOUND = 1;
+  	// There is no current primary consumer process for the shard. This is a
+  	// temporary condition which should quickly resolve, assuming sufficient
+  	// consumer capacity.
+  	NO_SHARD_PRIMARY = 2;
+  	// The present consumer process is not the assigned primary for the shard,
+  	// and was not instructed to proxy the request.
+  	NOT_SHARD_PRIMARY = 3;
+    // Used to indicate an error in the proxying machinery.
+    // This corresponds to consumer.Status_ETCD_TRANSACTION_FAILED, which is considered
+    // a specific case of the broader category of "internal" errors, since the proxy API
+    // doesn't directly expose anything about etcd.
+    INTERNAL_ERROR = 4;
+    // Either the shard itself is stopped or failed, or else the container is.
+    SHARD_STOPPED = 5;
+
+    // The client is not allowed to connect to the port named in the request.
+    // This could be either because the port does not exist or for any other
+    // reason, such as if we implement IP-based access policies.
+    PORT_NOT_ALLOWED = 1000;
   }
-  Opened opened = 1;
+  message OpenResponse {
+    Status status = 1;
+    protocol.Header header = 2;
+  }
+  OpenResponse open_response = 1;
   bytes data = 2;
 }
 

@@ -63,6 +63,7 @@ const (
 	// LogLevel is the desired log level for publishing logs related to the catalog task.
 	LogLevel = "estuary.dev/log-level"
 
+	Hostname = "estuary.dev/hostname"
 	// PortPrefix is used to identify ports to be exposed by the shard
 	PortPrefix      = "estuary.dev/port/"
 	PortProtoPrefix = "estuary.dev/alpn-proto/"

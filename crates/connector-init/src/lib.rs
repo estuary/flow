@@ -4,6 +4,7 @@ use tokio::signal::unix;
 mod capture;
 mod inspect;
 mod materialize;
+mod proxy;
 mod rpc;
 
 #[derive(clap::Parser, Debug)]

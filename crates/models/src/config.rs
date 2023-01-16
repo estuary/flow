@@ -40,11 +40,11 @@ pub struct PortSpec {
     pub alpn_protocol: Option<String>,
 }
 
-fn ports_json_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+fn ports_json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
     from_value(json!({
         "type": "object",
         "patternProperties": {
-            PortName::schema_pattern(): PortSpec::json_schema(),
+            PortName::schema_pattern(): PortSpec::json_schema(gen),
         },
         "additionalProperties": false,
     }))
@@ -65,6 +65,14 @@ pub struct ConnectorConfig {
 
 impl ConnectorConfig {
     pub fn example() -> Self {
+        let mut ex_ports = BTreeMap::new();
+        ex_ports.insert(
+            PortName::new("http"),
+            PortSpec {
+                port: 80,
+                alpn_protocol: None,
+            },
+        );
         Self {
             image: "connector/image:tag".to_string(),
             config: RawValue::from_string(
@@ -72,6 +80,7 @@ impl ConnectorConfig {
                     .unwrap(),
             )
             .unwrap(),
+            ports: ex_ports,
         }
     }
 }

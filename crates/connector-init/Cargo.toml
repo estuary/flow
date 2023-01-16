@@ -15,9 +15,11 @@ path = "src/main.rs"
 [dependencies]
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
-proto-grpc = { path = "../proto-grpc", features = ["capture_server", "materialize_server"] }
+proto-grpc = { path = "../proto-grpc", features = ["capture_server", "materialize_server", "flow_server"] }
 
+async-trait = { workspace = true }
 anyhow = { workspace = true }
+bytes = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
 prost = { workspace = true }
@@ -25,6 +27,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

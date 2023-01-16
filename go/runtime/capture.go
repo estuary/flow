@@ -305,6 +305,13 @@ func (c *Capture) startReadingMessages(
 		if err != nil {
 			return fmt.Errorf("opening pull RPC: %w", err)
 		}
+
+		var ports []string
+		for portName := range c.labels.Ports {
+			ports = append(ports, portName)
+		}
+		// Tell the proxy server that it's OK to start proxying traffic to the container.
+		c.host.NetworkProxyServer.ContainerStarted(shard.Spec().Id, c.driver.GetContainerClientConn(), c.opsPublisher, ports)
 	}
 
 	ops.PublishLog(c.opsPublisher, pf.LogLevel_debug,

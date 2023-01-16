@@ -368,9 +368,15 @@ pub struct FieldSelection {
     #[prost(map="string, string", tag="4")]
     pub field_config_json: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PortSpec {
+    /// protobuf doesn't have uint16, but this is a port number in the range 0-65535
+    #[prost(uint32, tag="1")]
+    pub container_port: u32,
+    #[prost(string, tag="2")]
+    pub alpn_protocol: ::prost::alloc::string::String,
+}
 /// CaptureSpec describes a collection and its capture from an endpoint.
-///
-/// Next tag: 8.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CaptureSpec {
     /// Name of this capture.
@@ -394,6 +400,8 @@ pub struct CaptureSpec {
     /// Template for recovery logs of shards of this capture.
     #[prost(message, optional, tag="7")]
     pub recovery_log_template: ::core::option::Option<::proto_gazette::broker::JournalSpec>,
+    #[prost(map="string, message", tag="8")]
+    pub ports: ::std::collections::HashMap<::prost::alloc::string::String, PortSpec>,
 }
 /// Nested message and enum types in `CaptureSpec`.
 pub mod capture_spec {
@@ -416,8 +424,6 @@ pub mod capture_spec {
 }
 /// MaterializationSpec describes a collection and its materialization to an
 /// endpoint.
-///
-/// Next tag: 7.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MaterializationSpec {
     /// Name of this materialization.
@@ -438,6 +444,8 @@ pub struct MaterializationSpec {
     /// Template for recovery logs of shards of this materialization.
     #[prost(message, optional, tag="6")]
     pub recovery_log_template: ::core::option::Option<::proto_gazette::broker::JournalSpec>,
+    #[prost(map="string, message", tag="7")]
+    pub ports: ::std::collections::HashMap<::prost::alloc::string::String, PortSpec>,
 }
 /// Nested message and enum types in `MaterializationSpec`.
 pub mod materialization_spec {
@@ -1187,6 +1195,41 @@ pub struct IngestResponse {
     /// Etcd header which describes current journal partitions.
     #[prost(message, optional, tag="2")]
     pub journal_etcd: ::core::option::Option<::proto_gazette::broker::header::Etcd>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TaskNetworkProxyRequest {
+    #[prost(message, optional, tag="1")]
+    pub open: ::core::option::Option<task_network_proxy_request::Open>,
+    #[prost(bytes="vec", tag="2")]
+    pub data: ::prost::alloc::vec::Vec<u8>,
+}
+/// Nested message and enum types in `TaskNetworkProxyRequest`.
+pub mod task_network_proxy_request {
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Open {
+        #[prost(string, tag="1")]
+        pub shard_id: ::prost::alloc::string::String,
+        #[prost(string, tag="2")]
+        pub port_name: ::prost::alloc::string::String,
+        /// for funsies
+        #[prost(string, tag="3")]
+        pub client_ip: ::prost::alloc::string::String,
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TaskNetworkProxyResponse {
+    #[prost(message, optional, tag="1")]
+    pub opened: ::core::option::Option<task_network_proxy_response::Opened>,
+    #[prost(bytes="vec", tag="2")]
+    pub data: ::prost::alloc::vec::Vec<u8>,
+}
+/// Nested message and enum types in `TaskNetworkProxyResponse`.
+pub mod task_network_proxy_response {
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Opened {
+        #[prost(string, tag="1")]
+        pub err: ::prost::alloc::string::String,
+    }
 }
 /// EndpointType enumerates the endpoint types understood by Flow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]

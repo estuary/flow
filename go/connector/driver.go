@@ -12,6 +12,7 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/gogo/protobuf/proto"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -126,6 +127,14 @@ func (d *Driver) CaptureClient() pc.DriverClient {
 		return d.ingest
 	} else {
 		panic("invalid driver type for capture")
+	}
+}
+
+func (d *Driver) GetContainerClientConn() *grpc.ClientConn {
+	if d.container != nil {
+		return d.container.conn
+	} else {
+		panic("invalid driver type for GetContainerClientConn")
 	}
 }
 
