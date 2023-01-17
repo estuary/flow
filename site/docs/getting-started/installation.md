@@ -44,6 +44,10 @@ To install, copy and paste the appropriate script below into your terminal. This
    brew install flowctl
    ```
 
+flowctl isn't currently available for Windows.
+For Windows users, we recommend running the Linux version inside [WSL](https://learn.microsoft.com/en-us/windows/wsl/),
+or using a remote development environment.
+
 The flowctl source files are also on GitHub [here](https://go.estuary.dev/flowctl).
 
 Once you've installed flowctl and are ready to begin working, authenticate your session using an access token.
