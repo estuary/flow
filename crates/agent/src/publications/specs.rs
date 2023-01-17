@@ -170,7 +170,7 @@ pub fn validate_transition(
             errors.push(Error {
                 catalog_name: catalog_name.clone(),
                 detail: format!(
-                    "Draft has an incompatible type {draft_type:?} vs current type {live_type:?}. This may be caused by an attempt to create a {live_type:?} while an existing {draft_type:?} with this name exists.",
+                    "Draft has an incompatible type {draft_type:?} vs current type {live_type:?}. This may be caused by an attempt to create a {draft_type:?} while an existing {live_type:?} with this name exists.",
                     draft_type = draft_type.as_ref().unwrap(),
                     live_type = live_type.as_ref().unwrap(),
                 ),
