@@ -60,8 +60,15 @@ Use the below properties to configure a Google Cloud Pub/Sub materialization, wh
 
 #### Bindings
 
+:::caution
+PubSub topics need a [default subscription](https://cloud.google.com/pubsub/docs/create-topic#properties_of_a_topic);
+otherwise, delivered messages will be lost. Leave **Create with Default Subscription** set to the default, `true`,
+unless you have a specific reason not to do so.
+:::
+
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
+| **`/create_default_subscription`** | Create with Default Subscription | Create a default subscription when creating the topic. Will be created as &quot;&lt;topic&gt;-sub&quot;. Has no effect if the topic already exists. | boolean | Required, `true` |
 | `identifier` | Resource Binding Identifier | Optional identifier for the resource binding if creating a [multiplex topic](#multiplex-topics). Included as \"identifier\" attribute in published messages if specified. | string | |
 | **`/topic`** | Topic Name | Name of the topic to publish materialized results to. | string | Required |
 
@@ -81,6 +88,7 @@ materializations:
           project_id: my_google_cloud_project
     bindings:
   	- resource:
+        create_default_subscription: true
       	topic: my_new_topic
       source: ${PREFIX}/${source_collection}
 ```

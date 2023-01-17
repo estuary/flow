@@ -38,6 +38,10 @@ flowctl binaries for MacOS and Linux are available.
 
    You can also find the source files on GitHub [here](https://go.estuary.dev/flowctl).
 
+   flowctl isn't currently available for Windows.
+   For Windows users, we recommend running the Linux version inside [WSL](https://learn.microsoft.com/en-us/windows/wsl/),
+   or using a remote development environment.
+
 2. To connect to your Flow account and start a session, [use an authentication token](../reference/authentication.md#authenticating-flow-using-the-cli) from the web app.
 
 ## flowctl subcommands

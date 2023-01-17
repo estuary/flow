@@ -228,10 +228,18 @@ You can safely experiment with the read schema at your convenience, knowing the 
 To achieve this, edit the collection, re-naming the standard `schema` to `writeSchema` and adding a `readSchema`.
 Make sure that the field used as the collection key is defined in both schemas.
 
-:::caution
-If you're using standard [projections](./advanced/projections.md), you must only define them in the read schema.
-However, if your projections are [logical partitions](./advanced/projections.md#logical-partitions), you must define them in both schemas.
-:::
+**Before separating your write and read schemas, have the following in mind:**
+
+* The write schema comes from the capture connector that produced the collection and shouldn't be modified.
+  Always apply your schema changes to the _read_ schema.
+
+* Read and write schemas are typically useful for collections that come from a source system with a flat or loosely
+  defined data structure, such as cloud storage or pub-sub systems.
+  Collections sourced from databases and most SaaS systems come with an explicitly defined data structure and shouldn't
+  need a new read schema.
+
+* If you're using standard [projections](./advanced/projections.md), you must only define them in the read schema.
+  However, if your projections are [logical partitions](./advanced/projections.md#logical-partitions), you must define them in both schemas.
 
 Here's a simple example in which you don't know how purchase prices are formatted when capturing them,
 but find out later that `number` is the appropriate data type:
