@@ -26,6 +26,7 @@ atty = "0.2"
 avro-rs = { version = "0.13", features = ["snappy"] }
 
 base64 = "0.13"
+bigdecimal = "0.3.0"
 # TODO(johnny): bitvec had a breaking 1.0 release we've not upgraded to yet.
 bitvec = "0.19"
 bytecount = { version = "0.6.3", features = ["runtime-dispatch-simd"] }
