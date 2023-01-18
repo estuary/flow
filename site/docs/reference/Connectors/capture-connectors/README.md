@@ -102,6 +102,9 @@ The versions made available in Flow have been adapted for compatibility.
 * Mailchimp
   * [Configuration](./mailchimp.md)
   * Package - ghcr.io/estuary/source-mailchimp:dev
+* Salesforce
+  * [Configuration](./salesforce.md)
+  * Package - ghcr.io/estuary/source-salesforce:dev
 * Notion
   * [Configuration](./notion.md)
   * Package - ghcr.io/estuary/source-notion:dev
