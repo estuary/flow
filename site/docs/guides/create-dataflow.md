@@ -77,12 +77,12 @@ Click the menu icon, and then choose **Filter**.
 
   Here, you can view the generated capture definition and the schema for each collection.
 
-  Flow displays these specifications as JSON.
-  You can modify what you see by filling in new values in the form and clicking **Next**,
-  or by editing the JSON directly in the Specification Editor.
-  (Those who prefer a [command-line interface](../concepts/flowctl.md) can manage and edit YAML in their preferred development environment).
+  Flow displays these specifications as JSON in a read-only editor.
+  For many source systems, you'll notice that the collection schemas are quite permissive.
+  You'll have the option to apply more restrictive schemas later, when you materialize the collections.
 
-  It's not always necessary to review and edit the specifications — Flow will prevent the publication of invalid specifications.
+  (Those who prefer a [command-line interface](../concepts/flowctl.md) can manage and edit the schema in their preferred development environment.
+  Click the **CLI** button near the **Collection Specification** viewer to get started.).
 
 8. If you made any changes in the Collection Editor, click **Next** again.
 
@@ -103,22 +103,40 @@ Now that you've captured data into one or more collections, you can materialize 
 
 3. Fill out the required properties in the **Endpoint Configuration**.
 
-4. Details of the collections you just created are already filled out in the **Collection Selector**.
-If you'd like, you can remove some of these or add additional collections.
+4. Click **Next**.
+
+  Flow initiates a connection with the destination system.
+
+  The Endpoint Config has collapsed and the **Collection Selector** is now prominent.
+  It shows each collection you captured previously.
+  All of them will be mapped to a **resource** in the destination.
+  Again, these may be tables, data streams, or something else.
+  When you publish the Data Flow, Flow will create these new resources in the destination.
+
+  Now's your chance to make changes to the collections before you materialize them.
+
+5. Optionally remove some collections or add additional collections.
 
    * To easily find collections, you can use a filter.
    Hover your cursor within to the Collection Selector table header, next to the **Remove All** button, to reveal an expandable menu icon (three dots).
    Click the menu icon, and then choose **Filter**.
+
    * To remove a collection, click the **x** in its table row. You can also click the **Remove All** button, but keep in mind that this button always removes _all_
    collections from the materialization, regardless of whether they're hidden by a filter.
 
-5. Click **Next**.
+6. Optionally apply a stricter schema to each collection to use for the materialization.
 
-  Flow initiates a connection with the destination system, and creates a binding to map each collection from your capture to a **resource** in the destination.
-  Again, these may be tables, data streams, or something else.
-  When you publish the Data Flow, Flow will create these new resources in the destination.
+   Depending on the data source, you may have captured data with a fairly permissive schema.
+   You can tighten up the schema so it'll materialize to your destination in the correct shape.
+   (This shouldn't be necessary for database and SaaS data sources.)
 
-6. Look over the generated materialization definition and edit it, if you'd like.
+   1. In the Collection Selector, choose a collection and click its **Specification** tab.
+
+   2. Click **Schema Inference**
+
+      The Schema Inference window appears. Flow scans the data in your collection and infers a new schema, called the `readSchema`, to use for the materialization.
+
+   3. Review the new schema and click **Apply Inferred Schema**.
 
 7. Click **Save and publish**. You'll see a notification when the full Data Flow publishes successfully.
 
