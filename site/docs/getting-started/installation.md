@@ -4,15 +4,18 @@ sidebar_position: 1
 
 # Registration and setup
 
-Estuary Flow is a hosted web application that also offers a robust CLI.
+Estuary Flow is a fully managed web application that also offers a robust CLI.
 
-Flow is currently in private beta. Essentially, this means that it's available to you, but new sign-ups are personally reviewed by our team.
+Flow is currently in public beta beta.
 
 ## Get started with the Flow web application
 
-You can sign up to get started as a Flow trial user by visiting the web application [here](https://go.estuary.dev/dashboard).
+You can get started with a Flow trial by visiting the web application [here](https://go.estuary.dev/dashboard).
 
-Once you've signed up with your personal information, an Estuary team member will be in touch to activate your account and discuss your business use-case, if applicable.
+As a trial user, you can create one end-to-end Data Flow.
+Trial user data is deleted from Flow after 30 days.
+
+To skip the limitations of the trial and begin with an organizational account instead, [contact the Estuary team](mailto:support@estuary.dev).
 
 ## Get started with the Flow CLI
 
