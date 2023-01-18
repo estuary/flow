@@ -7,8 +7,7 @@ This guide walks you through the process of creating an end-to-end Data Flow in 
 Flow web application.
 
 :::info Beta
-The Flow web application is currently available to users in the Estuary beta program. Sign up for a [free account](https://go.estuary.dev/sign-up)
-or email support@estuary.dev to get started.
+The Flow web application is currently available to users in the Estuary beta program. Sign up for a [free account](https://go.estuary.dev/sign-up).
 :::
 
 ## Prerequisites
@@ -61,7 +60,7 @@ credentials provided by your Estuary account manager.
   The **Collection Selector** appears, showing this list of available collections.
   You can decide which ones you want to capture.
 
-6. Look over the list of available collections. All area selected by default.
+6. Look over the list of available collections. All are selected by default.
 You can remove collections you don't want to capture, change collection names, and for some connectors, modify other properties.
 
 :::tip
