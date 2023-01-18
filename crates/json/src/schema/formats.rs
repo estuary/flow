@@ -1,8 +1,10 @@
 use std::{net::IpAddr, str::FromStr};
 
 use addr::{parse_domain_name, parse_email_address};
+use bigdecimal::BigDecimal;
 use fancy_regex::Regex;
 use iri_string::spec::{IriSpec, UriSpec};
+use num_bigint::BigInt;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -157,8 +159,10 @@ impl Format {
             Self::RelativeJsonPointer => {
                 ValidationResult::from(RELATIVE_JSON_POINTER_RE.is_match(val).unwrap_or(false))
             }
-            Self::Integer => ValidationResult::from(true),
-            Self::Number => ValidationResult::from(true),
+            Self::Integer => {
+                ValidationResult::from(BigInt::parse_bytes(val.as_bytes(), 10).is_some())
+            }
+            Self::Number => ValidationResult::from(BigDecimal::from_str(val).is_ok()),
         }
     }
 }
@@ -216,6 +220,18 @@ mod test {
             ("relative-json-pointer", "0/objects", true),
             ("regex", "^hello$", true),
             ("regex", "[hello", false),
+            ("integer", "1234", true),
+            ("integer", "-1234", true),
+            ("integer", "1_234", true),
+            ("integer", "1.234", false),
+            ("integer", " 1234", false),
+            ("number", "1234", true),
+            ("number", "-1234", true),
+            ("number", "1_234", true),
+            ("number", "1.234", true),
+            ("number", "-1.234", true),
+            ("number", " 1234", false),
+            ("number", " 1.234", false),
         ] {
             let format: Format =
                 serde_json::from_value(serde_json::Value::String(format.to_string())).unwrap();
