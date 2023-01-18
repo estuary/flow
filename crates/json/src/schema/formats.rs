@@ -43,6 +43,8 @@ pub enum Format {
     Regex,
     #[serde(rename = "relative-json-pointer")]
     RelativeJsonPointer,
+    Integer,
+    Number,
 }
 
 // Some are from https://github.com/JamesNK/Newtonsoft.Json.Schema/blob/master/Src/Newtonsoft.Json.Schema/Infrastructure/FormatHelpers.cs
@@ -155,6 +157,8 @@ impl Format {
             Self::RelativeJsonPointer => {
                 ValidationResult::from(RELATIVE_JSON_POINTER_RE.is_match(val).unwrap_or(false))
             }
+            Self::Integer => ValidationResult::from(true),
+            Self::Number => ValidationResult::from(true),
         }
     }
 }
