@@ -1,9 +1,12 @@
 # TimescaleDB
 
 This connector materializes Flow collections into tables in a TimescaleDB database.
-Timescale DB provides managed PostgreSQL instances for real-time data.
+TimescaleDB provides managed PostgreSQL instances for real-time data.
 The connector is derived from the main [PostgreSQL](./PostgreSQL.md) materialization connector
 and has the same configuration.
+
+By default, the connector only materializes regular PostgreSQL tables in TimescaleDB.
+You can materialize an accompanying [Hypertable](https://docs.timescale.com/timescaledb/latest/how-to-guides/hypertables/) by [adding a SQL statement to a binding's configuration](#creating-timescaledb-hypertables).
 
 The connector is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-timescaledb:dev`](https://ghcr.io/estuary/materialize-timescaledb:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
@@ -39,6 +42,7 @@ The connector will create new tables in the database per your specification. Tab
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
+| `/additional_table_create_sql` | Additional Table Create SQL | Additional SQL statement(s) to be run in the same transaction that creates the table. Useful for creating [Hypertables](#creating-timescaledb-hypertables). | string |  |
 | `/delta_updates` | Delta Update | Should updates to this table be done via delta updates. | boolean | `false` |
 | `/schema` | Alternative Schema | Alternative schema for this table (optional). Overrides schema set in endpoint configuration. | string |  |
 | **`/table`** | Table | Table name to materialize to. It will be created by the connector, unless the connector has previously created it. | string | Required |
@@ -60,6 +64,33 @@ materializations:
       - resource:
           table: ${TABLE_NAME}
         source: ${PREFIX}/${COLLECTION_NAME}
+```
+
+## Creating TimescaleDB hypertables
+
+[Hypertables](https://docs.timescale.com/timescaledb/latest/how-to-guides/hypertables/) are PostgreSQL tables in TimescaleDB optimized for time-series data.
+They exist alongside regular PostgreSQL tables.
+
+You can add Hypertables to your materialization on a per-binding basis by adding the optional `/additional_table_create_sql` field to each [binding configuration](#bindings).
+
+Your SQL statement should take the following format:
+
+```sql
+SELECT create_hypertable('table', 'timestamp_column');
+```
+
+Where 'table' matches the value for the field `/table` in that binding, and
+'timestamp_column' is the name of the table column containing its time values.
+
+For example, materializing the Flow collection `acmeCo/my_time_series` would produce a table called 'my_time_series'.
+Assuming its timestamp value is in the field 'time', the binding configuration would look like:
+
+```yaml
+bindings:
+  - resource:
+      additional_table_create_sql: 'SELECT create_hypertable('my_time_series', 'time');'
+      table: my_time_series
+    source: acmeCo/my_time_series
 ```
 
 ## Delta updates
