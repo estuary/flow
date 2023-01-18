@@ -32,6 +32,7 @@ Use the below properties to configure a Postgres materialization, which will dir
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
+| `/additional_table_create_sql` | Additional Table Create SQL | Additional SQL statement(s) to be run in the same transaction that creates the table. | string |  |
 | `/delta_updates` | Delta Update | Should updates to this table be done via delta updates. | boolean | `false` |
 | `/schema` | Alternative Schema | Alternative schema for this table (optional). Overrides schema set in endpoint configuration. | string |  |
 | **`/table`** | Table | Table name to materialize to. It will be created by the connector, unless the connector has previously created it. | string | Required |
