@@ -1,6 +1,6 @@
 # Salesforce
 
-This connector captures data from [Salesforce standard and custom objects](https://developer.salesforce.com/docs/atlas.en-us.238.0.object_reference.meta/object_reference/sforce_api_objects_concepts.htm) into Flow collections.
+This connector captures data from Salesforce objects into Flow collections.
 
 It’s available for use in the Flow web application.
 For local development or open-source workflows, [`ghcr.io/estuary/source-salesforce:dev`](https://ghcr.io/estuary/source-salesforce:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
@@ -11,17 +11,42 @@ but keep in mind that the two versions may be significantly different.
 
 ## Supported data resources
 
-This connector can capture all available Salesforce [standard objects](https://developer.salesforce.com/docs/atlas.en-us.object_reference.meta/object_reference/sforce_api_objects_list.htm) present in your account,
-and any [custom objects](https://help.salesforce.com/s/articleView?id=sf.dev_object_def.htm&type=5) you've defined in your organization.
+This connector can capture the following Salesforce [standard objects](https://developer.salesforce.com/docs/atlas.en-us.object_reference.meta/object_reference/sforce_api_objects_list.htm), if present in your account:
 
-Because most Salesforce accounts contain large volumes of data, you'll likely only want to capture a subset of the available objects.
-There are two ways to control this:
+* Account
+* Contact
+* User
+* OpportunityFilledHistory
+* LeadHistory
+* Opportunity
+* Campaign
+* Case
+* ContactLineItem
+* Entitlement
+* Lead
+* LiveChatTranscript
+* MessagingSession
+* Quote
+* QuoteLineItem
+* ServiceAppointment
+* ServiceContract
+* Task
+* UserServicePresence
+* WorkOrder
+* WorkOrderLineItem
+
+[Custom objects](https://help.salesforce.com/s/articleView?id=sf.dev_object_def.htm&type=5) aren't currently supported.
+Each captured object is mapped to a Flow collection through a separate binding.
+
+Because most Salesforce accounts contain large volumes of data, you may only want to capture a subset of the available objects.
+There are several ways to control this:
 
 * Create a [dedicated Salesforce user](#create-a-read-only-salesforce-user) with access only to the objects you'd like to capture.
 
 * Apply a filter when you [configure](#endpoint) the connector. If you don't apply a filter, the connector captures all objects available to the user.
 
-Each captured object is mapped to a Flow collection through a separate binding.
+* During [capture creation in the web application](../../../guides/create-dataflow.md#create-a-capture),
+remove the bindings for objects you don't want to capture.
 
 ## Prerequisites
 
@@ -47,7 +72,7 @@ you'll need to manually supply OAuth credentials. You'll need:
 #### Create a read-only Salesforce user
 
 Creating a dedicated read-only Salesforce user is a simple way to specify which objects Flow will capture.
-This is useful if you have a large number of objects in your Salesforce organization.
+This is useful if you have a large amount of data in your Salesforce organization.
 
 1. While signed in as an administrator, create a [new profile](https://help.salesforce.com/s/articleView?id=sf.users_profiles_cloning.htm&type=5) by cloning the standard [Minimum Access](https://help.salesforce.com/s/articleView?id=sf.standard_profiles.htm&type=5) profile.
 
@@ -125,11 +150,16 @@ captures:
           start_date: 2022-01-01
           streams_criteria:
             - criteria: "starts with"
-              value: "most"
+              value: "Work"
     bindings:
       - resource:
           cursorField: [SystemModstamp]
-          stream: most_important_object
+          stream: WorkOrder
           syncMode: incremental
-        target: ${PREFIX}/most_important_object
+        target: ${PREFIX}/WorkOrder
+      - resource:
+          cursorField: [SystemModstamp]
+          stream: WorkOrderLineItem
+          syncMode: incremental
+        target: ${PREFIX}/WorkOrderLineItem
 ```
