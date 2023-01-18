@@ -8,6 +8,7 @@ import (
 	"os/exec"
 
 	"github.com/estuary/flow/go/pkgbin"
+	"github.com/gogo/protobuf/proto"
 )
 
 // DecryptConfig decrypts a `sops`-protected configuration document.
@@ -54,7 +55,14 @@ func DecryptConfig(ctx context.Context, config json.RawMessage) (json.RawMessage
 	// values in our own heap, and is also succinct.
 	// See: https://jqplay.org/s/sQunN3Qc4s
 	stripped, err := decryptCmd(ctx, decrypted, "jq",
-		"-c",
+		// --compact-output disables jq's pretty-printer, which will otherwise introduce
+		// unneccesary newlines/tabs in the output, which will cause the output to be
+		// longer than the intput, which is prohibited by decryptCmd
+		"--compact-output",
+		// --join-output puts jq into raw output mode, and additionally stops it from writing newlines
+		// at the end of its output, which can otherwise cause the output to be longer
+		// than the input, prohibited by decryptCmd
+		"--join-output",
 		"walk(if type == \"object\" then with_entries(. + {key: .key | "+
 			"rtrimstr(\""+envelope.Sops.EncryptedSuffix+"\")}) else . end)",
 	)
@@ -72,6 +80,27 @@ func ZeroBytes(b []byte) {
 	for i := 0; i != len(b); i++ {
 		b[i] = 0
 	}
+}
+
+// WithUnsealed invokes the given callback with a clone of the given specification,
+// which is otherwise identical but has a unwrapped and decrypted endpoint configuration.
+// The decrypted configuration is explicitly zero'd on return of this function.
+// To prevent disclosure, tightly scope all usages of decrypted configuration
+// and avoid making any copies.
+func WithUnsealed[M interface {
+	proto.Message
+	GetEndpointSpecPtr() *json.RawMessage
+}](d *Driver, spec M, cb func(M) error) error {
+	var decrypted, err = DecryptConfig(context.Background(), d.config)
+	if err != nil {
+		return err
+	}
+	defer ZeroBytes(decrypted)
+
+	var cloned = proto.Clone(spec).(M)
+	*cloned.GetEndpointSpecPtr() = decrypted
+
+	return cb(cloned)
 }
 
 func decryptCmd(ctx context.Context, input []byte, args ...string) ([]byte, error) {

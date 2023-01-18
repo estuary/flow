@@ -102,10 +102,7 @@ func (cmd apiTest) execute(ctx context.Context) error {
 			break
 		}
 
-		var _, err = tc.ResetState(ctx, &pf.ResetStateRequest{})
-		if err != nil {
-			return fmt.Errorf("reseting internal state between test cases: %w", err)
-		} else if scope, err := testing.RunTestCase(ctx, graph, driver, testCase); err != nil {
+		if scope, err := testing.RunTestCase(ctx, graph, driver, testCase); err != nil {
 			var path, ptr = scopeToPathAndPtr(config.Directory, scope)
 			fmt.Println("❌", yellow(path), "failure at step", red(ptr), ":")
 			fmt.Println(err)
@@ -120,6 +117,11 @@ func (cmd apiTest) execute(ctx context.Context) error {
 		} else {
 			var path, _ = scopeToPathAndPtr(config.Directory, testCase.Steps[0].StepScope)
 			fmt.Println("✔️", path, "::", green(testCase.Test))
+		}
+
+		var _, err = tc.ResetState(ctx, &pf.ResetStateRequest{})
+		if err != nil {
+			return fmt.Errorf("resetting internal state between test cases: %w", err)
 		}
 	}
 

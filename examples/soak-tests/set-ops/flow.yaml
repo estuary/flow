@@ -75,7 +75,7 @@ tests:
               "author": 17369,
               "id": 0,
               "ones": 0,
-              "timestamp": "2021-04-19T09:00:50",
+              "timestamp": "2021-04-19T09:00:50Z",
               "op": 1,
               "type": "remove",
               "values": { "k": 1, "s": 1 },
@@ -85,7 +85,7 @@ tests:
               "author": 17369,
               "id": 1,
               "ones": 1,
-              "timestamp": "2021-04-19T09:00:51",
+              "timestamp": "2021-04-19T09:00:51Z",
               "op": 1,
               "type": "add",
               "values": { "h": 1, "k": 1, "m": 1, "q": 1, "u": 1, "v": 1 },
@@ -95,7 +95,7 @@ tests:
           - {
               "author": 17369,
               "id": 1,
-              "timestamp": "2021-04-19T09:00:52",
+              "timestamp": "2021-04-19T09:00:52Z",
               "ones": 1,
               "op": 2,
               "type": "add",
@@ -119,14 +119,14 @@ tests:
               "id": 0,
               "ones": 0,
               "op": 2,
-              "timestamp": "2021-04-19T09:00:59",
+              "timestamp": "2021-04-19T09:00:59Z",
               "type": "add",
               "values": { "j": 1, "w": 1 },
               "expectValues": { "j": 1, "w": 1 },
             }
           - {
               "author": 17369,
-              "timestamp": "2021-04-19T09:01:01",
+              "timestamp": "2021-04-19T09:01:01Z",
               "id": 2,
               "ones": 1,
               "op": 1,
@@ -139,7 +139,7 @@ tests:
               "id": 2,
               "ones": 1,
               "op": 2,
-              "timestamp": "2021-04-19T09:01:02",
+              "timestamp": "2021-04-19T09:01:02Z",
               "type": "remove",
               "values":
                 { "a": 1, "d": 1, "f": 1, "h": 1, "k": 1, "o": 1, "p": 1 },
@@ -156,13 +156,13 @@ tests:
               "appliedOps": 2,
               "appliedRemove": 1,
               "derived": { "add": { "j": 1, "w": 1 } },
-              "timestamp": "2021-04-19T09:00:59",
+              "timestamp": "2021-04-19T09:00:59Z",
               "expectValues": { "j": 1, "w": 1 },
             }
           - {
               "author": 17369,
               "id": 1,
-              "timestamp": "2021-04-19T09:00:52",
+              "timestamp": "2021-04-19T09:00:52Z",
               "appliedAdd": 2,
               "appliedOps": 2,
               "derived":
@@ -198,7 +198,7 @@ tests:
           - {
               "author": 17369,
               "id": 2,
-              "timestamp": "2021-04-19T09:01:02",
+              "timestamp": "2021-04-19T09:01:02Z",
               "appliedAdd": 1,
               "appliedOps": 2,
               "appliedRemove": 1,

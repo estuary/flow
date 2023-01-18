@@ -29,6 +29,22 @@ pub mod constraint {
         /// because it uses an incompatible type with a previous applied version).
         Unsatisfiable = 5,
     }
+    impl Type {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Type::FieldRequired => "FIELD_REQUIRED",
+                Type::LocationRequired => "LOCATION_REQUIRED",
+                Type::LocationRecommended => "LOCATION_RECOMMENDED",
+                Type::FieldOptional => "FIELD_OPTIONAL",
+                Type::FieldForbidden => "FIELD_FORBIDDEN",
+                Type::Unsatisfiable => "UNSATISFIABLE",
+            }
+        }
+    }
 }
 /// SpecRequest is the request type of the Spec RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -55,6 +71,9 @@ pub struct SpecResponse {
     /// URL for connector's documention.
     #[prost(string, tag="3")]
     pub documentation_url: ::prost::alloc::string::String,
+    /// OAuth2 spec
+    #[prost(message, optional, tag="4")]
+    pub oauth2_spec: ::core::option::Option<super::flow::OAuth2Spec>,
 }
 /// ValidateRequest is the request type of the Validate RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -166,11 +185,11 @@ pub struct TransactionRequest {
     #[prost(message, optional, tag="2")]
     pub load: ::core::option::Option<transaction_request::Load>,
     #[prost(message, optional, tag="3")]
-    pub prepare: ::core::option::Option<transaction_request::Prepare>,
+    pub flush: ::core::option::Option<transaction_request::Flush>,
     #[prost(message, optional, tag="4")]
     pub store: ::core::option::Option<transaction_request::Store>,
     #[prost(message, optional, tag="5")]
-    pub commit: ::core::option::Option<transaction_request::Commit>,
+    pub start_commit: ::core::option::Option<transaction_request::StartCommit>,
     #[prost(message, optional, tag="6")]
     pub acknowledge: ::core::option::Option<transaction_request::Acknowledge>,
 }
@@ -228,12 +247,11 @@ pub mod transaction_request {
         #[prost(message, repeated, tag="3")]
         pub packed_keys: ::prost::alloc::vec::Vec<super::super::flow::Slice>,
     }
-    /// Prepare to commit. No further Loads will be sent in this transaction.
+    /// Flush loads. No further Loads will be sent in this transaction,
+    /// and the runtime will await the driver's remaining Loaded responses
+    /// followed by one Flushed response.
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Prepare {
-        /// Flow checkpoint to commit with this transaction.
-        #[prost(bytes="vec", tag="1")]
-        pub flow_checkpoint: ::prost::alloc::vec::Vec<u8>,
+    pub struct Flush {
     }
     /// Store documents of this transaction commit.
     #[derive(Clone, PartialEq, ::prost::Message)]
@@ -258,9 +276,12 @@ pub mod transaction_request {
         pub exists: ::prost::alloc::vec::Vec<bool>,
     }
     /// Mark the end of the Store phase, and if the remote store is authoritative,
-    /// instruct it to commit its transaction.
+    /// instruct it to start committing its transaction.
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Commit {
+    pub struct StartCommit {
+        /// Flow runtime checkpoint to commit with this transaction.
+        #[prost(bytes="vec", tag="1")]
+        pub runtime_checkpoint: ::prost::alloc::vec::Vec<u8>,
     }
     /// Notify the driver that the previous transaction has committed to the Flow
     /// runtime's recovery log.
@@ -277,12 +298,10 @@ pub struct TransactionResponse {
     pub opened: ::core::option::Option<transaction_response::Opened>,
     #[prost(message, optional, tag="2")]
     pub loaded: ::core::option::Option<transaction_response::Loaded>,
-    /// Prepared responds to a TransactionRequest.Prepare of the client.
-    /// No further Loaded responses will be sent.
     #[prost(message, optional, tag="3")]
-    pub prepared: ::core::option::Option<super::flow::DriverCheckpoint>,
+    pub flushed: ::core::option::Option<transaction_response::Flushed>,
     #[prost(message, optional, tag="4")]
-    pub driver_committed: ::core::option::Option<transaction_response::DriverCommitted>,
+    pub started_commit: ::core::option::Option<transaction_response::StartedCommit>,
     #[prost(message, optional, tag="5")]
     pub acknowledged: ::core::option::Option<transaction_response::Acknowledged>,
 }
@@ -291,7 +310,7 @@ pub mod transaction_response {
     /// Opened responds to TransactionRequest.Open of the client.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Opened {
-        /// Flow checkpoint to begin processing from.
+        /// Flow runtime checkpoint to begin processing from.
         /// If empty, the most recent checkpoint of the Flow recovery log is used.
         ///
         /// Or, a driver may send the value []byte{0xf8, 0xff, 0xff, 0xff, 0xf, 0x1}
@@ -299,7 +318,7 @@ pub mod transaction_response {
         /// rebuilding the materialization from scratch. This sentinel is a trivial
         /// encoding of the max-value 2^29-1 protobuf tag with boolean true.
         #[prost(bytes="vec", tag="1")]
-        pub flow_checkpoint: ::prost::alloc::vec::Vec<u8>,
+        pub runtime_checkpoint: ::prost::alloc::vec::Vec<u8>,
     }
     /// Loaded responds to TransactionRequest.Loads of the client.
     /// It returns documents of requested keys which have previously been stored.
@@ -318,23 +337,26 @@ pub mod transaction_response {
         #[prost(message, repeated, tag="3")]
         pub docs_json: ::prost::alloc::vec::Vec<super::super::flow::Slice>,
     }
-    /// Mark the end of the Store phase, indicating that all documents have been
-    /// fully stored.
-    ///
-    /// If the remote store is authoritative, tell the Flow runtime that it has
-    /// committed.
-    ///
-    /// If the recovery log is authoritative, DriverCommitted is sent but no actual
-    /// transactional driver commit is performed.
+    /// Flushed responds to a TransactionRequest.Flush of the client.
+    /// The driver will send no further Loaded responses.
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct DriverCommitted {
+    pub struct Flushed {
     }
-    /// Notify the Flow runtime of receipt of it's confirmation that the
-    /// Flow recovery log has committed.
+    /// StartedCommit responds to a TransactionRequest.StartCommit of the client.
+    /// The driver has processed all Store requests, it has started to commit its
+    /// transaction (if it has one), and it is now ready for the runtime to start
+    /// committing to its own recovery log.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct StartedCommit {
+        #[prost(message, optional, tag="1")]
+        pub driver_checkpoint: ::core::option::Option<super::super::flow::DriverCheckpoint>,
+    }
+    /// Notify the runtime that the previous driver transaction has committed
+    /// to the endpoint store (where applicable). On receipt, the runtime may
+    /// begin to flush, store, and commit a next (pipelined) transaction.
     ///
-    /// If the driver utilizes staged data which is idempotently applied,
-    /// it must apply staged data of the commit at this time, and respond
-    /// with Acknowledged only once that's completed.
+    /// Acknowledged is _not_ a direct response to TransactionRequest.Acknowledge,
+    /// and Acknowledge vs Acknowledged may be written in either order.
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Acknowledged {
     }

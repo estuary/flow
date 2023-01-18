@@ -59,6 +59,10 @@ pub enum Error {
     CollectionKeyEmpty { collection: String },
     #[error("collection {collection} schema must be an object")]
     CollectionSchemaNotObject { collection: String },
+    #[error("{ptr} is not a valid JSON pointer (missing leading '/' slash)")]
+    KeyMissingLeadingSlash { ptr: String },
+    #[error("{ptr} is not a valid JSON pointer ({unmatched:?} is invalid)")]
+    KeyRegex { ptr: String, unmatched: String },
     #[error("keyed location {ptr} must be required to exist by schema {schema} (https://go.estuary.dev/KUYbal)")]
     KeyMayNotExist { ptr: String, schema: Url },
     #[error(
@@ -99,7 +103,7 @@ pub enum Error {
         field: String,
         collection: String,
     },
-    #[error("projection {field} is the canonical field name of location {canonical_ptr}, and cannot re-map it to {wrong_ptr}")]
+    #[error("projection {field} is the canonical field name of location {canonical_ptr:?}, and cannot re-map it to {wrong_ptr:?}")]
     ProjectionRemapsCanonicalField {
         field: String,
         canonical_ptr: String,
@@ -114,10 +118,6 @@ pub enum Error {
     },
     #[error("{category} partition selector field {field} cannot be an empty string")]
     SelectorEmptyString { category: String, field: String },
-    #[error(
-        "source schema {schema} is already the schema of {collection} and should be omitted here"
-    )]
-    SourceSchemaNotDifferent { schema: Url, collection: String },
     #[error("transform {transform} shuffle key is already the key of {collection} and should be omitted here")]
     ShuffleKeyNotDifferent {
         transform: String,

@@ -1,14 +1,13 @@
 ---
-sidebar_position: 14
+sidebar_position: 7
 ---
 
 This is a change data capture (CDC) connector that captures change events from a MySQL database via the [Binary Log](https://dev.mysql.com/doc/refman/8.0/en/binary-log.html).
 
-[`ghcr.io/estuary/source-mysql:dev`](https://github.com/estuary/connectors/pkgs/container/source-mysql) provides the latest connector image.
-You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-mysql:dev`](https://github.com/estuary/connectors/pkgs/container/source-mysql) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
-To use this connector, you'll need a MySQL database setup with the following:
+To use this connector, you'll need a MySQL database setup with the following.
 * [`binlog_format`](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_format)
   system variable set to `ROW` (the default value).
 * [Binary log expiration period](https://dev.mysql.com/doc/refman/8.0/en/replication-options-binary-log.html#sysvar_binlog_expire_logs_seconds) set to MySQL's default value of 30 days (2592000 seconds) if at all possible.
@@ -22,11 +21,13 @@ To use this connector, you'll need a MySQL database setup with the following:
   - Permission to insert, update, and delete on the watermarks table.
   - Permission to read the tables being captured.
   - Permission to read from `information_schema` tables, if automatic discovery is used.
+* If the table(s) to be captured include columns of type `DATETIME`, the `time_zone` system variable
+  must be set to an IANA zone name or numerical offset.
 
 ### Setup
 To meet these requirements, do the following:
 
-1. Create the watermarks table. This table can have any name and be in any database, so long as `config.json` is modified accordingly.
+1. Create the watermarks table. This table can have any name and be in any database, so long as the capture's `config.json` file is modified accordingly.
 ```sql
 CREATE DATABASE IF NOT EXISTS flow;
 CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
@@ -47,6 +48,33 @@ GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
 ```sql
 SET PERSIST binlog_expire_logs_seconds = 2592000;
 ```
+4. Configure the database's time zone. See [below](#setting-the-mysql-time-zone) for more information.
+```sql
+SET PERSIST time_zone = '-05:00'
+```
+
+### Setting the MySQL time zone
+
+MySQL's [`time_zone` server system variable](https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_time_zone) is set to `SYSTEM` by default.
+
+If you intend to capture tables including columns of the type `DATETIME`,
+and `time_zone` is set to `SYSTEM`,
+Flow won't be able to detect the time zone and convert the column to [RFC3339 format](https://www.rfc-editor.org/rfc/rfc3339).
+To avoid this, you must explicitly set the time zone for your database.
+
+You can:
+
+* Specify a numerical offset from UTC.
+   - For MySQL version 8.0.19 or higher, values from `-13:59` to `+14:00`, inclusive, are permitted.
+   - Prior to MySQL 8.0.19, values from `-12:59` to `+13:00`, inclusive, are permitted
+
+* Specify a named timezone in [IANA timezone format](https://www.iana.org/time-zones).
+
+For example, if you're located in New Jersey, USA, you could set `time_zone` to `-05:00` or `-04:00`, depending on the time of year.
+Because this region observes daylight savings time, you'd be responsible for changing the offset.
+Alternatively, you could set `time_zone` to `America/New_York`, and time changes would occur automatically.
+
+If using IANA time zones, your database must include time zone tables. [Learn more in the MySQL docs](https://dev.mysql.com/doc/refman/8.0/en/time-zone-support.html).
 
 ## Backfills and performance considerations
 
@@ -58,8 +86,8 @@ However, you may find it appropriate to skip the backfill, especially for extrem
 In this case, you may turn of backfilling on a per-table basis. See [properties](#properties) for details.
 
 ## Configuration
-You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and YAML sample below provide configuration details specific to the MySQL source connector.
+You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the MySQL source connector.
 
 ### Properties
 
@@ -74,6 +102,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | `/advanced/dbname` | Database Name | The name of database to connect to. In general this shouldn&#x27;t matter. The connector can discover and capture from all databases it&#x27;s authorized to access. | string | `"mysql"` |
 | `/advanced/node_id` | Node ID | Node ID for the capture. Each node in a replication cluster must have a unique 32-bit ID. The specific value doesn&#x27;t matter so long as it is unique. If unset or zero the connector will pick a value. | integer |  |
 | `/advanced/skip_backfills` | Skip Backfills | A comma-separated list of fully-qualified table names which should not be backfilled. | string |  |
+| `/advanced/backfill_chunk_size` | Backfill Chunk Size | The number of rows which should be fetched from the database in a single backfill query. | integer | `131072` |
 | `/advanced/skip_binlog_retention_check` | Skip Binlog Retention Sanity Check | Bypasses the &#x27;dangerously short binlog retention&#x27; sanity check at startup. Only do this if you understand the danger and have a specific need. | boolean |  |
 
 #### Bindings
@@ -114,7 +143,7 @@ captures:
 
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
 
-[Learn more about capture definitions.](../../../concepts/captures.md#pull-captures).
+[Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
 
 ## MySQL on managed cloud platforms
 
@@ -123,6 +152,7 @@ In addition to standard MySQL, this connector supports cloud-based MySQL instanc
 ### Amazon RDS
 
 You can use this connector for MySQL instances on Amazon RDS using the following setup instructions.
+For Amazon Aurora, see [below](#amazon-aurora).
 
 Estuary recommends creating a [read replica](https://aws.amazon.com/rds/features/read-replicas/)
 in RDS for use with Flow; however, it's not required.
@@ -130,15 +160,28 @@ You're able to apply the connector directly to the primary instance if you'd lik
 
 #### Setup
 
-1. You'll need to configure secure access to the database to enable the Flow capture.
-  Estuary recommends SSH tunneling to allow this.
-  Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/).
+1. Allow connections to the database from the Estuary Flow IP address.
+
+   1. [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
+
+   1. Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
+      Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
+      Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
+
+   :::info
+   Alternatively, you can allow secure connections via SSH tunneling. To do so:
+     * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
+     * When you configure your connector as described in the [configuration](#configuration) section above,
+        including the additional `networkTunnel` configuration to enable the SSH tunnel.
+        See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+        for additional details and a sample.
+   :::
 
 2. Create a RDS parameter group to enable replication in MySQL.
 
    1. [Create a parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Creating).
    Create a unique name and description and set the following properties:
-      * **Family**: mysql 8.0
+      * **Family**: mysql8.0
       * **Type**: DB Parameter group
 
    2. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithDBInstanceParamGroups.html#USER_WorkingWithParamGroups.Modifying) and update the following parameters:
@@ -159,6 +202,7 @@ You're able to apply the connector directly to the primary instance if you'd lik
    and set the following:
       * **DB parameter group**: choose the parameter group you created previously
       * **Backup retention period**: 7 days
+      * **Public access**: Publicly accessible
 
    3. Reboot the replica to allow the changes to take effect.
 
@@ -183,15 +227,91 @@ CALL mysql.rds_set_configuration('binlog retention hours', 168);
 
 6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
 
+### Amazon Aurora
+
+You can use this connector for MySQL-compatible Amazon Aurora instances using the following setup instructions.
+
+You must apply some of the settings to the entire Aurora DB cluster, and others to a database instance within the cluster
+(we recommend you use a [replica, or reader instance](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Overview.html) to connect with Flow).
+For each step, take note of which entity you're working with.
+
+#### Setup
+
+1. Allow connections to the database from the Estuary Flow IP address.
+
+   1. [Modify the instance](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Modifying.html#Aurora.Modifying.Instance), choosing **Publicly accessible** in the **Connectivity** settings.
+
+   2. Edit the VPC security group associated with your instance, or create a new VPC security group and associate it with the instance.
+      Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
+      Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
+
+   :::info
+   Alternatively, you can allow secure connections via SSH tunneling. To do so:
+     * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
+     * When you configure your connector as described in the [configuration](#configuration) section above,
+        including the additional `networkTunnel` configuration to enable the SSH tunnel.
+        See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+        for additional details and a sample.
+   :::
+
+2. Create a RDS parameter group to enable replication on your Aurora DB cluster.
+
+   1. [Create a parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.CreatingCluster).
+   Create a unique name and description and set the following properties:
+      * **Family**: aurora-mysql8.0
+      * **Type**: DB ClusterParameter group
+
+   2. [Modify the new parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.ModifyingCluster) and update the following parameters:
+      * binlog_format: ROW
+      * binlog_row_metadata: FULL
+      * read_only: 0
+
+   3. [Associate the  parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.AssociatingCluster)
+   with the DB cluster.
+   While you're modifying the cluster, also set [Backup Retention Period](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Managing.Backups.html) to 7 days.
+
+   4. Reboot the cluster to allow the changes to take effect.
+
+4. Switch to your MySQL client. Run the following commands to create a new user for the capture with appropriate permissions,
+and set up the watermarks table:
+
+```sql
+CREATE DATABASE IF NOT EXISTS flow;
+CREATE TABLE IF NOT EXISTS flow.watermarks (slot INTEGER PRIMARY KEY, watermark TEXT);
+CREATE USER IF NOT EXISTS flow_capture
+  IDENTIFIED BY 'secret'
+  COMMENT 'User account for Flow MySQL data capture';
+GRANT REPLICATION CLIENT, REPLICATION SLAVE ON *.* TO 'flow_capture';
+GRANT SELECT ON *.* TO 'flow_capture';
+GRANT INSERT, UPDATE, DELETE ON flow.watermarks TO 'flow_capture';
+```
+
+5. Run the following command to set the binary log retention to 7 days, the maximum value Aurora permits:
+```sql
+CALL mysql.rds_set_configuration('binlog retention hours', 168);
+```
+
+6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
+
 ### Google Cloud SQL
 
 You can use this connector for MySQL instances on Google Cloud SQL using the following setup instructions.
 
 #### Setup
 
-1. You'll need to configure secure access to the database to enable the Flow capture.
-  Estuary recommends SSH tunneling to allow this.
-  Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/).
+1. Allow connections to the DB instance from the Estuary Flow IP address.
+
+   1. [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add
+      `34.121.207.128` as an authorized IP address.
+
+   :::info
+   Alternatively, you can allow secure connections via SSH tunneling. To do so:
+     * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
+     * When you configure your connector as described in the [configuration](#configuration) section above,
+        including the additional `networkTunnel` configuration to enable the SSH tunnel.
+        See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+        for additional details and a sample.
+   :::
 
 2. Set the instance's `binlog_expire_logs_seconds` [flag](https://cloud.google.com/sql/docs/mysql/flags?_ga=2.8077298.-1359189752.1655241239&_gac=1.226418280.1655849730.Cj0KCQjw2MWVBhCQARIsAIjbwoOczKklaVaykkUiCMZ4n3_jVtsInpmlugWN92zx6rL5i7zTxm3AALIaAv6nEALw_wcB)
 to `2592000`.
@@ -223,9 +343,19 @@ You can use this connector for MySQL instances on Azure Database for MySQL using
 
 #### Setup
 
-1. You'll need to configure secure access to the database to enable the Flow capture.
-  Estuary recommends SSH tunneling to allow this.
-  Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/).
+1. Allow connections to the database from the Estuary Flow IP address.
+
+   1. Create a new [firewall rule](https://docs.microsoft.com/en-us/azure/mysql/flexible-server/how-to-manage-firewall-portal#create-a-firewall-rule-after-server-is-created)
+   that grants access to the IP address `34.121.207.128`.
+
+   :::info
+   Alternatively, you can allow secure connections via SSH tunneling. To do so:
+     * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
+     * When you configure your connector as described in the [configuration](#configuration) section above,
+        including the additional `networkTunnel` configuration to enable the SSH tunnel.
+        See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+        for additional details and a sample.
+   :::
 
 2. Set the `binlog_expire_logs_seconds` [server perameter](https://docs.microsoft.com/en-us/azure/mysql/single-server/concepts-server-parameters#configurable-server-parameters)
 to `2592000`.

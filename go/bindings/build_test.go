@@ -6,19 +6,18 @@ import (
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
-	"github.com/estuary/flow/go/capture"
-	"github.com/estuary/flow/go/materialize"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
+	pb "go.gazette.dev/core/broker/protocol"
 )
 
 func TestBuildCatalog(t *testing.T) {
+	pb.RegisterGRPCDispatcher("local") // Required (only) by sqlite.InProcessServer.
+
 	var args = BuildArgs{
-		Context:             context.Background(),
-		FileRoot:            "./testdata",
-		CaptureDriverFn:     capture.NewDriver,
-		MaterializeDriverFn: materialize.NewDriver,
+		Context:  context.Background(),
+		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			BuildId:    "fixture",
 			Directory:  t.TempDir(),
@@ -97,10 +96,8 @@ func TestBuildCatalog(t *testing.T) {
 
 func TestBuildSchema(t *testing.T) {
 	var args = BuildArgs{
-		Context:             context.Background(),
-		FileRoot:            "./testdata",
-		CaptureDriverFn:     nil, // Not needed.
-		MaterializeDriverFn: nil, // Not needed.
+		Context:  context.Background(),
+		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			BuildId:    "fixture",
 			Directory:  t.TempDir(),

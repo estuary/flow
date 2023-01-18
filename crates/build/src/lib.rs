@@ -1,7 +1,10 @@
 use anyhow::Context;
 use protocol::flow;
 use serde_json::value::RawValue;
-use std::path::Path;
+use std::{
+    io::{stderr, stdout, Write},
+    path::Path,
+};
 use url::Url;
 
 mod api;
@@ -53,6 +56,18 @@ where
         load_and_validate(root_url.clone(), root_spec, fetcher, drivers, &config).await;
     all_tables.meta.insert_row(config.clone());
 
+    let has_typescript_derivations = all_tables
+        .derivations
+        .iter()
+        .any(|derivation| derivation.typescript_module.is_some());
+
+    let has_npm_resources = all_tables
+        .resources
+        .iter()
+        .any(|resource| resource.content_type == protocol::flow::ContentType::TypescriptModule);
+
+    let has_typescript_resources = has_typescript_derivations || has_npm_resources;
+
     // Output database path is implied from the configured directory and ID.
     let output_path = directory.join(&config.build_id);
     let db = rusqlite::Connection::open(&output_path).context("failed to open catalog database")?;
@@ -60,6 +75,7 @@ where
     // Generate TypeScript package? Generation should always succeed if the input catalog is valid.
     if all_tables.errors.is_empty()
         && (config.typescript_generate || config.typescript_compile || config.typescript_package)
+        && has_typescript_resources
     {
         if let Err(err) = generate_npm_package(&all_tables, &directory)
             .context("failed to generate TypeScript package")
@@ -68,13 +84,16 @@ where
         }
     }
     // Compile TypeScript? This may fail due to a user-caused error.
-    if all_tables.errors.is_empty() && (config.typescript_compile || config.typescript_package) {
+    if all_tables.errors.is_empty()
+        && (config.typescript_compile || config.typescript_package)
+        && has_typescript_resources
+    {
         if let Err(err) = compile_npm(&directory) {
             all_tables.errors.insert_row(&root_url, err);
         }
     }
     // Package TypeScript?
-    if all_tables.errors.is_empty() && config.typescript_package {
+    if all_tables.errors.is_empty() && config.typescript_package && has_typescript_resources {
         let npm_resources = pack_npm(&directory).context("failed to pack TypeScript package")?;
         tables::persist_tables(&db, &[&npm_resources]).context("failed to persist NPM package")?;
     }
@@ -237,14 +256,16 @@ fn npm_cmd(package_dir: &std::path::Path, args: &[&str]) -> Result<(), anyhow::E
 
     tracing::info!(?package_dir, ?args, "invoking `npm`");
 
-    let status = cmd
-        .spawn()
-        .and_then(|mut c| c.wait())
-        .context("failed to spawn `npm` command")?;
+    let output = cmd.output().context("failed to spawn `npm` command")?;
 
-    if !status.success() {
-        anyhow::bail!("npm command {:?} failed with {}", args.join(" "), status);
+    if !output.status.success() {
+        stdout()
+            .write(output.stdout.as_slice())
+            .context("failed to write `npm` output to stdout")?;
+        stderr()
+            .write(output.stderr.as_slice())
+            .context("failed to write `npm` output to stderr")?;
+        anyhow::bail!("npm command {:?} failed, output logged", args.join(" "))
     }
-
     Ok(())
 }

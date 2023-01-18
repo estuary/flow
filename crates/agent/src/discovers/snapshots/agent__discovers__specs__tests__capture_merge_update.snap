@@ -1,0 +1,41 @@
+---
+source: crates/agent/src/discovers/specs.rs
+expression: json!(out)
+---
+[
+  {
+    "bindings": [
+      {
+        "resource": {
+          "modified": 1,
+          "stream": "foo"
+        },
+        "target": "acmeCo/renamed"
+      }
+    ],
+    "endpoint": {
+      "connector": {
+        "config": {
+          "discovered": 1
+        },
+        "image": "new/image"
+      }
+    },
+    "interval": "34s",
+    "shards": {
+      "maxTxnDuration": "12s"
+    }
+  },
+  [
+    {
+      "documentSchema": {
+        "const": "discovered"
+      },
+      "keyPtrs": [],
+      "recommendedName": "suggested",
+      "resourceSpec": {
+        "stream": "foo"
+      }
+    }
+  ]
+]

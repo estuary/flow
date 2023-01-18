@@ -1,12 +1,8 @@
----
-sidebar_position: 11
----
-
 # Hubspot
 
 This connector captures data from a Hubspot account.
 
-[`ghcr.io/estuary/source-hubspot:dev`](https://ghcr.io/estuary/source-hubspot:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-hubspot:dev`](https://ghcr.io/estuary/source-hubspot:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/hubspot),
@@ -51,22 +47,17 @@ The following data resources are supported for pro accounts (set **Subscription 
 
 ## Prerequisites
 
-There are two ways to authenticate with Hubspot when capturing data: using OAuth, and with a private app access token.
+There are two ways to authenticate with Hubspot when capturing data: using OAuth2, and manually, with a private app access token.
 Their prerequisites differ.
 
 OAuth is recommended for simplicity in the Flow web app;
 the access token method is the only supported method using the command line.
 
-### Prerequisites for OAuth
-
-:::caution Beta
-OAuth implementation is under active development and is coming soon.
-Use the access token method for now.
-:::
+### Using OAuth2 to authenticate with Hubspot in the Flow web app
 
 * A Hubspot account
 
-### Prerequisites using a private app access token
+### Configuring the connector specification manually
 
 * A Hubspot account
 
@@ -88,8 +79,8 @@ To create a private app in Hubspot and generate its access token, do the followi
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and YAML sample below provide configuration details specific to the Hubspot source connector.
+You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Hubspot source connector.
 
 ### Properties
 

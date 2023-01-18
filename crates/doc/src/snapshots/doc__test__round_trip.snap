@@ -1,0 +1,97 @@
+---
+source: crates/doc/src/lib.rs
+expression: doc
+---
+Object(
+    [
+        HeapField {
+            property: "big string",
+            value: String(
+                "a bigger string",
+            ),
+        },
+        HeapField {
+            property: "nested",
+            value: Object(
+                [
+                    HeapField {
+                        property: "false",
+                        value: Bool(
+                            false,
+                        ),
+                    },
+                    HeapField {
+                        property: "shared string",
+                        value: Object(
+                            [
+                                HeapField {
+                                    property: "shared string",
+                                    value: String(
+                                        "shared string",
+                                    ),
+                                },
+                            ],
+                        ),
+                    },
+                    HeapField {
+                        property: "true",
+                        value: Bool(
+                            true,
+                        ),
+                    },
+                    HeapField {
+                        property: "two",
+                        value: PosInt(
+                            2,
+                        ),
+                    },
+                ],
+            ),
+        },
+        HeapField {
+            property: "null",
+            value: Null,
+        },
+        HeapField {
+            property: "numbers",
+            value: Array(
+                [
+                    PosInt(
+                        1229782938247303441,
+                    ),
+                    NegInt(
+                        -1234,
+                    ),
+                    Float(
+                        56.7891122334455,
+                    ),
+                ],
+            ),
+        },
+        HeapField {
+            property: "shared string",
+            value: String(
+                "shared string",
+            ),
+        },
+        HeapField {
+            property: "small string",
+            value: String(
+                "smol",
+            ),
+        },
+        HeapField {
+            property: "some",
+            value: Object(
+                [
+                    HeapField {
+                        property: "bytes",
+                        value: String(
+                            "c29tZSBieXRlcw==",
+                        ),
+                    },
+                ],
+            ),
+        },
+    ],
+)

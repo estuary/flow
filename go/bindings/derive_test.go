@@ -8,11 +8,10 @@ import (
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
-	"github.com/estuary/flow/go/flow/ops"
+	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	_ "github.com/mattn/go-sqlite3" // Import for registration side-effect.
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/message"
@@ -64,7 +63,7 @@ func TestDeriveWithIntStrings(t *testing.T) {
 		derivation.Collection.GetProjection(field).IsPartitionKey = true
 	}
 
-	derive, err := NewDerive(nil, t.TempDir(), ops.StdLogger())
+	derive, err := NewDerive(nil, t.TempDir(), localPublisher)
 	require.NoError(t, err)
 
 	// Loop to exercise multiple transactions.
@@ -279,17 +278,18 @@ func TestDeriveWithIncResetPublish(t *testing.T) {
 	}
 
 	var drainError = func(t *testing.T, d *Derive) string {
-		var stats, err = d.Drain(func(_ bool, _ json.RawMessage, _, _ []byte) error {
+		var _, err = d.Drain(func(_ bool, _ json.RawMessage, _, _ []byte) error {
 			t.Error("not called")
 			return nil
 		})
 		require.Error(t, err)
-		require.Nil(t, stats)
 		return err.Error()
 	}
 
+	var opsLogs = make(chan ops.Log)
+
 	var build = func(t *testing.T) *Derive {
-		d, err := NewDerive(nil, t.TempDir(), ops.StdLogger())
+		d, err := NewDerive(nil, t.TempDir(), newChanPublisher(opsLogs, pf.LogLevel_warn))
 		require.NoError(t, err)
 		require.NoError(t, d.Configure("test/derive/withIncReset", derivation, lambdaClient))
 		return d
@@ -321,6 +321,7 @@ func TestDeriveWithIncResetPublish(t *testing.T) {
 		ack(t, d)
 
 		// Drain transaction, and look for expected roll-ups.
+		// Expect nothing is logged to `opsLog`.
 		cupaloy.SnapshotT(t, drainOK(t, d))
 		require.NoError(t, d.PrepareCommit(protocol.Checkpoint{}))
 	})
@@ -333,7 +334,8 @@ func TestDeriveWithIncResetPublish(t *testing.T) {
 		apply(t, d, TF_RST, sourceDoc{Key: "foobar", Reset: -1})
 		ack(t, d)
 
-		cupaloy.SnapshotT(t, drainError(t, d))
+		var err, opsLog = drainError(t, d), <-opsLogs
+		cupaloy.SnapshotT(t, err, opsLog.Level, opsLog.Message, string(opsLog.Fields))
 	})
 
 	t.Run("derivedValidationErr", func(t *testing.T) {
@@ -344,7 +346,8 @@ func TestDeriveWithIncResetPublish(t *testing.T) {
 		apply(t, d, TF_PUB, sourceDoc{Key: "foobar", Invalid: "not empty"})
 		ack(t, d)
 
-		cupaloy.SnapshotT(t, drainError(t, d))
+		var err, opsLog = drainError(t, d), <-opsLogs
+		cupaloy.SnapshotT(t, err, opsLog.Level, opsLog.Message, string(opsLog.Fields))
 	})
 
 	t.Run("processingErr", func(t *testing.T) {
@@ -355,7 +358,8 @@ func TestDeriveWithIncResetPublish(t *testing.T) {
 		apply(t, d, TF_PUB, sourceDoc{Key: "an-error"})
 		ack(t, d)
 
-		cupaloy.SnapshotT(t, drainError(t, d))
+		var err, opsLog = drainError(t, d), <-opsLogs
+		cupaloy.SnapshotT(t, err, opsLog.Level, opsLog.Message, string(opsLog.Fields))
 	})
 
 }

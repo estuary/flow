@@ -11,7 +11,7 @@ First, it stores data as JSON documents in an S3 bucket.
 It then references the S3 bucket to create a [Firebolt _external table_](https://docs.firebolt.io/loading-data/working-with-external-tables.html),
 which acts as a SQL interface between the JSON documents and the destination table in Firebolt.
 
-[`ghcr.io/estuary/materialize-firebolt:dev`](https://ghcr.io/estuary/materialize-firebolt:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-firebolt:dev`](https://ghcr.io/estuary/materialize-firebolt:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
@@ -103,7 +103,8 @@ materializations:
 
 ## Delta updates
 
-The Firebolt connector operates only in [delta updates](../../../concepts/materialization.md#delta-updates) mode.
+Firebolt is an insert-only system; it doesn't support updates or deletes.
+Because of this, the Firebolt connector operates only in [delta updates](../../../concepts/materialization.md#delta-updates) mode.
 Firebolt stores all deltas — the unmerged collection documents — directly.
 
 In some cases, this will affect how materialized views look in Firebolt compared to other systems that use standard updates.

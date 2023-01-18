@@ -24,7 +24,7 @@ $defs:
         description: "The id of the sensor that produced the reading"
       timestamp:
         type: string
-        format: timestamp
+        format: date-time
         description: "An RFC-3339 formatted string holding the time of the reading"
       tempC:
         type: number
@@ -56,7 +56,7 @@ $defs:
         reduce: { strategy: maximize }
       lastReading:
         type: string
-        format: timestamp
+        format: date-time
         description: "Timestamp of the most recent reading for this named location"
         # Since our timestamps are in RFC 3339 format, the lexicographic comparison done by
         # maximize will pick the most recent time.

@@ -17,9 +17,16 @@ use super::{CompositeKey, Derivation, Field, JournalTemplate, JsonPointer, Relat
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "CollectionDef::example")]
 pub struct CollectionDef {
-    /// # Schema against which collection documents are validated and reduced.
+    /// # Schema against which collection documents are validated and reduced on write and read.
     #[schemars(example = "Schema::example_relative")]
-    pub schema: Schema,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<Schema>,
+    /// # Schema against which collection documents are validated and reduced on write.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_schema: Option<Schema>,
+    /// # Schema against which collection documents are validated and reduced on read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_schema: Option<Schema>,
     /// # Composite key of this collection.
     pub key: CompositeKey,
     /// # Projections and logical partitions of this collection.
@@ -37,11 +44,13 @@ pub struct CollectionDef {
 impl CollectionDef {
     pub fn example() -> Self {
         Self {
-            schema: Schema::Url(RelativeUrl::example_relative()),
+            schema: Some(Schema::Url(RelativeUrl::example_relative())),
+            write_schema: None,
+            read_schema: None,
             key: CompositeKey::example(),
+            projections: BTreeMap::new(),
             derivation: None,
             journals: JournalTemplate::default(),
-            projections: BTreeMap::new(),
         }
     }
 }

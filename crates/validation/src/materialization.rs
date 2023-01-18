@@ -1,4 +1,4 @@
-use super::{collection, indexed, reference, storage_mapping, Drivers, Error};
+use super::{collection, indexed, reference, storage_mapping, Drivers, Error, NoOpDrivers};
 use futures::FutureExt;
 use itertools::{EitherOrBoth, Itertools};
 use proto_flow::{flow, materialize};
@@ -9,7 +9,6 @@ pub async fn walk_all_materializations<D: Drivers>(
     build_config: &flow::build_api::Config,
     drivers: &D,
     built_collections: &[tables::BuiltCollection],
-    imports: &[tables::Import],
     materialization_bindings: &[tables::MaterializationBinding],
     materializations: &[tables::Materialization],
     resources: &[tables::Resource],
@@ -50,7 +49,6 @@ pub async fn walk_all_materializations<D: Drivers>(
 
         let validation = walk_materialization_request(
             built_collections,
-            imports,
             materialization,
             bindings.into_iter().flatten().collect(),
             resources,
@@ -74,14 +72,12 @@ pub async fn walk_all_materializations<D: Drivers>(
                 // disable materializations in response to the target system being unreachable, and
                 // we wouldn't want a validation error for a disabled task to terminate the build.
                 if materialization.spec.shards.disable {
-                    let response = no_op_validation(&request);
-                    (materialization, binding_models, request, Ok(response))
+                    NoOpDrivers {}.validate_materialization(request.clone())
                 } else {
-                    drivers
-                        .validate_materialization(request.clone())
-                        .map(|response| (materialization, binding_models, request, response))
-                        .await
+                    drivers.validate_materialization(request.clone())
                 }
+                .map(|response| (materialization, binding_models, request, response))
+                .await
             });
 
     let validations: Vec<(
@@ -207,7 +203,6 @@ pub async fn walk_all_materializations<D: Drivers>(
         let recovery_stores = storage_mapping::mapped_stores(
             scope,
             "materialization",
-            imports,
             &format!("recovery/{}", name.as_str()),
             storage_mappings,
             errors,
@@ -239,26 +234,8 @@ pub async fn walk_all_materializations<D: Drivers>(
     built_materializations
 }
 
-// Performs a no-op validation. The result includes a mocked `resource_path` for each binding. This
-// is assumed to be valid because Flow treats resource paths as opaque, and because it never
-// compares two resource paths from different builds.
-fn no_op_validation(req: &materialize::ValidateRequest) -> materialize::ValidateResponse {
-    let bindings = req
-        .bindings
-        .iter()
-        .enumerate()
-        .map(|(i, _)| materialize::validate_response::Binding {
-            constraints: HashMap::new(),
-            resource_path: vec![format!("no-op-resource-path-{i}")],
-            delta_updates: false,
-        })
-        .collect();
-    materialize::ValidateResponse { bindings }
-}
-
 fn walk_materialization_request<'a>(
     built_collections: &'a [tables::BuiltCollection],
-    imports: &[tables::Import],
     materialization: &'a tables::Materialization,
     materialization_bindings: Vec<&'a tables::MaterializationBinding>,
     resources: &[tables::Resource],
@@ -278,13 +255,8 @@ fn walk_materialization_request<'a>(
     let (binding_models, binding_requests): (Vec<_>, Vec<_>) = materialization_bindings
         .iter()
         .filter_map(|materialization_binding| {
-            walk_materialization_binding(
-                built_collections,
-                imports,
-                materialization_binding,
-                errors,
-            )
-            .map(|binding_request| (*materialization_binding, binding_request))
+            walk_materialization_binding(built_collections, materialization_binding, errors)
+                .map(|binding_request| (*materialization_binding, binding_request))
         })
         .unzip();
 
@@ -319,7 +291,6 @@ fn walk_materialization_request<'a>(
 
 fn walk_materialization_binding<'a>(
     built_collections: &'a [tables::BuiltCollection],
-    imports: &[tables::Import],
     materialization_binding: &'a tables::MaterializationBinding,
     errors: &mut tables::Errors,
 ) -> Option<materialize::validate_request::Binding> {
@@ -349,7 +320,6 @@ fn walk_materialization_binding<'a>(
         collection,
         built_collections,
         |c| (&c.collection, &c.scope),
-        imports,
         errors,
     )?;
 
@@ -465,7 +435,7 @@ fn walk_materialization_response(
 
     // Sort projections so that we walk, in order:
     // * Fields which *must* be included.
-    // * Fields which are user-defined, and should be selected preferentially
+    // * Fields which are explicitly-defined, and should be selected preferentially
     //   for locations where we need only one field.
     // * Everything else.
     let projections = projections
@@ -477,7 +447,7 @@ fn walk_materialization_response(
                     .map(|c| c.r#type == Type::FieldRequired as i32)
                     .unwrap_or_default();
 
-            (!must_include, !p.user_provided) // Negate to order before.
+            (!must_include, !p.explicit) // Negate to order before.
         })
         .collect::<Vec<_>>();
 

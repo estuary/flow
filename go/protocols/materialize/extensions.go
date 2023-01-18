@@ -1,10 +1,9 @@
 package materialize
 
 import (
-	"bytes"
+	"encoding/json"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
-	"github.com/gogo/protobuf/jsonpb"
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
@@ -30,6 +29,13 @@ func (m *SpecRequest) Validate() error {
 		return pb.NewValidationError("unknown EndpointType %v", m.EndpointType)
 	}
 	return nil
+}
+
+func (m *SpecRequest) GetEndpointType() pf.EndpointType {
+	return m.EndpointType
+}
+func (m *SpecRequest) GetEndpointSpecPtr() *json.RawMessage {
+	return &m.EndpointSpecJson
 }
 
 // Validate returns an error if the SpecResponse isn't well-formed.
@@ -62,6 +68,13 @@ func (m *ValidateRequest) Validate() error {
 	return nil
 }
 
+func (m *ValidateRequest) GetEndpointType() pf.EndpointType {
+	return m.EndpointType
+}
+func (m *ValidateRequest) GetEndpointSpecPtr() *json.RawMessage {
+	return &m.EndpointSpecJson
+}
+
 // Validate returns an error if the ValidateRequest_Binding isn't well-formed.
 func (m *ValidateRequest_Binding) Validate() error {
 	if err := m.Collection.Validate(); err != nil {
@@ -70,16 +83,6 @@ func (m *ValidateRequest_Binding) Validate() error {
 		return pb.NewValidationError("missing EndpointSpecJson")
 	}
 	return nil
-}
-
-func (m *ValidateRequest) MarshalJSON() ([]byte, error) {
-	var b bytes.Buffer
-	var err = (&jsonpb.Marshaler{}).Marshal(&b, m)
-	return b.Bytes(), err
-}
-
-func (m *ValidateRequest) UnmarshalJSON(b []byte) error {
-	return jsonpb.Unmarshal(bytes.NewReader(b), m)
 }
 
 // Validate returns an error if the ValidateResponse isn't well-formed.
@@ -95,7 +98,10 @@ func (m *ValidateResponse) Validate() error {
 // Validate returns an error if the ValidateResponse_Binding isn't well-formed.
 func (m *ValidateResponse_Binding) Validate() error {
 	for field, constraint := range m.Constraints {
-		if _, ok := Constraint_Type_name[int32(constraint.Type)]; !ok {
+		if constraint == nil {
+			return pb.ExtendContext(
+				pb.NewValidationError("Constraint is missing"), "Constraints[%s]", field)
+		} else if _, ok := Constraint_Type_name[int32(constraint.Type)]; !ok {
 			return pb.ExtendContext(
 				pb.NewValidationError("unknown Constraint Type %v", constraint),
 				"Constraints[%s]", field)
@@ -113,16 +119,6 @@ func (m *ValidateResponse_Binding) Validate() error {
 	return nil
 }
 
-func (m *ValidateResponse) MarshalJSON() ([]byte, error) {
-	var b bytes.Buffer
-	var err = (&jsonpb.Marshaler{}).Marshal(&b, m)
-	return b.Bytes(), err
-}
-
-func (m *ValidateResponse) UnmarshalJSON(b []byte) error {
-	return jsonpb.Unmarshal(bytes.NewReader(b), m)
-}
-
 // Validate returns an error if the ApplyRequest is malformed.
 func (m *ApplyRequest) Validate() error {
 	if err := m.Materialization.Validate(); err != nil {
@@ -133,24 +129,16 @@ func (m *ApplyRequest) Validate() error {
 	return nil
 }
 
-func (m *ApplyRequest) MarshalJSON() ([]byte, error) {
-	var b bytes.Buffer
-	var err = (&jsonpb.Marshaler{}).Marshal(&b, m)
-	return b.Bytes(), err
+func (m *ApplyRequest) GetEndpointType() pf.EndpointType {
+	return m.Materialization.EndpointType
+}
+func (m *ApplyRequest) GetEndpointSpecPtr() *json.RawMessage {
+	return &m.Materialization.EndpointSpecJson
 }
 
-func (m *ApplyRequest) UnmarshalJSON(b []byte) error {
-	return jsonpb.Unmarshal(bytes.NewReader(b), m)
-}
-
-func (m *ApplyResponse) MarshalJSON() ([]byte, error) {
-	var b bytes.Buffer
-	var err = (&jsonpb.Marshaler{}).Marshal(&b, m)
-	return b.Bytes(), err
-}
-
-func (m *ApplyResponse) UnmarshalJSON(b []byte) error {
-	return jsonpb.Unmarshal(bytes.NewReader(b), m)
+func (m *ApplyResponse) Validate() error {
+	// No validations to do.
+	return nil
 }
 
 // Validate returns an error if the message is not well-formed.
@@ -168,9 +156,9 @@ func (m *TransactionRequest) Validate() error {
 		}
 		count += 1
 	}
-	if m.Prepare != nil {
-		if err := m.Prepare.Validate(); err != nil {
-			return pb.ExtendContext(err, "Prepare")
+	if m.Flush != nil {
+		if err := m.Flush.Validate(); err != nil {
+			return pb.ExtendContext(err, "Flush")
 		}
 		count += 1
 	}
@@ -180,9 +168,9 @@ func (m *TransactionRequest) Validate() error {
 		}
 		count += 1
 	}
-	if m.Commit != nil {
-		if err := m.Commit.Validate(); err != nil {
-			return pb.ExtendContext(err, "Commit")
+	if m.StartCommit != nil {
+		if err := m.StartCommit.Validate(); err != nil {
+			return pb.ExtendContext(err, "StartCommit")
 		}
 		count += 1
 	}
@@ -220,11 +208,8 @@ func (m *TransactionRequest_Load) Validate() error {
 	return nil
 }
 
-// Validate returns an error if the message is not well-formed.
-func (m *TransactionRequest_Prepare) Validate() error {
-	if len(m.FlowCheckpoint) == 0 {
-		return pb.NewValidationError("expected FlowCheckpoint")
-	}
+// Validate returns an error if the message is malformed.
+func (m *TransactionRequest_Flush) Validate() error {
 	return nil
 }
 
@@ -242,8 +227,11 @@ func (m *TransactionRequest_Store) Validate() error {
 	return nil
 }
 
-// Validate is a no-op.
-func (m *TransactionRequest_Commit) Validate() error {
+// Validate returns an error if the message is malformed.
+func (m *TransactionRequest_StartCommit) Validate() error {
+	if len(m.RuntimeCheckpoint) == 0 {
+		return pb.NewValidationError("expected RuntimeCheckpoint")
+	}
 	return nil
 }
 
@@ -267,15 +255,15 @@ func (m *TransactionResponse) Validate() error {
 		}
 		count += 1
 	}
-	if m.Prepared != nil {
-		if err := m.Prepared.Validate(); err != nil {
-			return pb.ExtendContext(err, "Prepared")
+	if m.Flushed != nil {
+		if err := m.Flushed.Validate(); err != nil {
+			return pb.ExtendContext(err, "Flushed")
 		}
 		count += 1
 	}
-	if m.DriverCommitted != nil {
-		if err := m.DriverCommitted.Validate(); err != nil {
-			return pb.ExtendContext(err, "DriverCommitted")
+	if m.StartedCommit != nil {
+		if err := m.StartedCommit.Validate(); err != nil {
+			return pb.ExtendContext(err, "StartedCommit")
 		}
 		count += 1
 	}
@@ -306,32 +294,21 @@ func (m *TransactionResponse_Loaded) Validate() error {
 	return nil
 }
 
+func (m *TransactionResponse_Flushed) Validate() error {
+	// Added in support of materialization protocol updates circa Jan 2023.
+	// Remove once no old connectors could possibly ever run again.
+	if len(m.XXX_unrecognized) != 0 {
+		return pb.NewValidationError("connector version is out of date and must be upgraded")
+	}
+	return nil
+}
+
 // Validate returns an error if the message is not well-formed.
-func (m *TransactionResponse_DriverCommitted) Validate() error {
+func (m *TransactionResponse_StartedCommit) Validate() error {
 	return nil
 }
 
 // Validate returns an error if the message is not well-formed.
 func (m *TransactionResponse_Acknowledged) Validate() error {
 	return nil
-}
-
-func (m *TransactionRequest_Open) MarshalJSON() ([]byte, error) {
-	var b bytes.Buffer
-	var err = (&jsonpb.Marshaler{}).Marshal(&b, m)
-	return b.Bytes(), err
-}
-
-func (m *TransactionRequest_Open) UnmarshalJSON(b []byte) error {
-	return jsonpb.Unmarshal(bytes.NewReader(b), m)
-}
-
-func (m *TransactionResponse_Opened) MarshalJSON() ([]byte, error) {
-	var b bytes.Buffer
-	var err = (&jsonpb.Marshaler{}).Marshal(&b, m)
-	return b.Bytes(), err
-}
-
-func (m *TransactionResponse_Opened) UnmarshalJSON(b []byte) error {
-	return jsonpb.Unmarshal(bytes.NewReader(b), m)
 }

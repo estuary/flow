@@ -1,14 +1,18 @@
 [package]
 name = "typescript"
-version = "0.0.0"
-authors = ["Estuary Technologies, Inc"]
-edition = "2021"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
-json = { path = "../json", version = "0.0.0" }
-doc = { path = "../doc", version = "0.0.0" }
+json = { path = "../json" }
+doc = { path = "../doc" }
 
-lazy_static = "*"
-regex = "*"
-serde_json = "*"
-url = "*"
+lazy_static = { workspace = true }
+regex = { workspace = true }
+serde_json = { workspace = true }
+url = { workspace = true }

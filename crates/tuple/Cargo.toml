@@ -1,13 +1,16 @@
 [package]
 name = "tuple"
-version = "0.0.0"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
 
 authors = [
 "Benjamin Fry <benjaminfry@me.com>",
 "Vincent Rouillé <vincent@clikengo.com>",
 "Estuary Technologies, Inc <johnny@estuary.dev>",
 ]
-edition = "2018"
 license = "MIT OR Apache-2.0"
 
 description = """
@@ -20,7 +23,6 @@ work (MIT or Apache 2), which is available at:
 """
 
 [dependencies]
-memchr = "*"
-serde_json = "*"
+memchr = { workspace = true }
+serde_json = { workspace = true }
 
-[dev-dependencies]

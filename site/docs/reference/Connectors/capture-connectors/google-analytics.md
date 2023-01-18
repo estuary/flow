@@ -1,7 +1,3 @@
----
-sidebar_position: 7
----
-
 # Google Analytics
 
 This connector captures data from a view in Google Analytics.
@@ -11,7 +7,7 @@ This connector supports Universal Analytics.
 Support for Google Analytics 4 is coming soon.
 :::
 
-[`ghcr.io/estuary/source-google-analytics-v4:dev`](https://ghcr.io/estuary/source-google-analytics-v4:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-analytics-v4:dev`](https://ghcr.io/estuary/source-google-analytics-v4:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/google-analytics-universal-analytics),
@@ -38,25 +34,20 @@ You can also configure [custom reports](#custom-reports).
 
 ## Prerequisites
 
-There are two ways to authenticate with Google when capturing data from a Google Analytics view: using OAuth, and by generating a service account key.
+There are two ways to authenticate with Google when capturing data from a Google Analytics view: using OAuth2, and manually, by generating a service account key.
 Their prerequisites differ.
 
 OAuth is recommended for simplicity in the Flow web app;
 the service account key method is the only supported method using the command line.
 
-### Prerequisites for OAuth
-
-:::caution Beta
-OAuth implementation is under active development and is coming soon.
-Use the service account key method for now.
-:::
+### Using OAuth2 to authenticate with Google in the Flow web app
 
 * The View ID for your Google Analytics account.
 You can find this using Google's [Account Explorer](https://ga-dev-tools.web.app/account-explorer/) tool.
 
 * Your Google account username and password.
 
-### Prerequisites using a service account key
+### Authenticating manually with a service account key
 
 * The View ID for your Google Analytics account.
 You can find this using Google's [Account Explorer](https://ga-dev-tools.web.app/account-explorer/) tool.
@@ -82,20 +73,20 @@ You'll copy the contents of the downloaded key file into the Service Account Cre
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
+You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors.
-The values and YAML sample below provide configuration details specific to the Google Analytics source connector.
+The values and specification sample below provide configuration details specific to the Google Analytics source connector.
 
 ### Properties
 
 #### Endpoint
 
-The following properties reflect the Service Account Key authentication method.
+The following properties reflect the Service Account Key authentication method. If you're working in the Flow web app, you'll use [OAuth2](#using-oauth2-to-authenticate-with-google--in-the-flow-web-app), so some of these properties aren't required.
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | `/credentials` | Credentials | Credentials for the service | object |  |
-| `/credentials/auth_type` | Authentication Type | Authentication method. Set to `Service`. | string | Required |
+| `/credentials/auth_type` | Authentication Type | Authentication method. Set to `Service` for manual configuration, or use OAuth in the web app. | string | Required |
 | `credentials/credentials_json` | Service Account Credentials | Contents of the JSON key file generated during setup. | string | Required |
 | `/custom_reports` | Custom Reports (Optional) | A JSON array describing the custom reports you want to sync from GA.  | string |  |
 | **`/start_date`** | Start Date | The date in the format YYYY-MM-DD. Any data before this date will not be replicated. | string | Required |
@@ -215,3 +206,26 @@ captures:
 ```
 
 [Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
+
+## Performance considerations
+
+### Data sampling
+
+The Google Analytics Reporting API enforces compute thresholds for ad-hoc queries and reports.
+If a threshold is exceeded, the API will apply sampling to limit the number of sessions analyzed for the specified time range.
+These thresholds can be found [here](https://support.google.com/analytics/answer/2637192?hl=en&ref_topic=2601030&visit_id=637868645346124317-2833523666&rd=1#thresholds&zippy=%2Cin-this-article).
+
+If your account is on the Analytics 360 tier, you're less likely to run into these limitations.
+For Analytics Standard accounts, you can avoid sampling by keeping the `window_in_days` parameter set to its default value, `1`.
+This makes it less likely that you will exceed the threshold.
+When sampling occurs, a warning is written to the capture log.
+
+### Processing latency
+
+Data in Google Analytics reports may continue to update [up to 48 hours after it appears](https://support.google.com/analytics/answer/1070983?hl=en#DataProcessingLatency&zippy=%2Cin-this-article).
+
+To ensure data correctness, each time it reads from Google Analytics,
+this connector automatically applies a lookback window of 2 days prior to its last read.
+This allows it to double-check and correct for any changes in reports resulting from latent data updates.
+
+This mechanism relies on the `isDataGolden` flag in the [Google Analytics Reporting API](https://developers.google.com/analytics/devguides/reporting/core/v4/rest/v4/reports/batchGet#reportdata).

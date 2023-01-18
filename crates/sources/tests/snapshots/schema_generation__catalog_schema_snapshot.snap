@@ -310,9 +310,28 @@ expression: "&schema"
         }
       ],
       "type": "object",
+      "oneOf": [
+        {
+          "required": [
+            "schema"
+          ],
+          "properties": {
+            "readSchema": false,
+            "writeSchema": false
+          }
+        },
+        {
+          "required": [
+            "readSchema",
+            "writeSchema"
+          ],
+          "properties": {
+            "schema": false
+          }
+        }
+      ],
       "required": [
-        "key",
-        "schema"
+        "key"
       ],
       "properties": {
         "derivation": {
@@ -353,12 +372,41 @@ expression: "&schema"
           },
           "additionalProperties": false
         },
+        "readSchema": {
+          "title": "Schema against which collection documents are validated and reduced on read.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Schema"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "schema": {
-          "title": "Schema against which collection documents are validated and reduced.",
+          "title": "Schema against which collection documents are validated and reduced on write and read.",
           "examples": [
             "../path/to/schema#/$defs/subPath"
           ],
-          "$ref": "#/definitions/Schema"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Schema"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "writeSchema": {
+          "title": "Schema against which collection documents are validated and reduced on write.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Schema"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": false
@@ -1502,21 +1550,6 @@ expression: "&schema"
           "anyOf": [
             {
               "$ref": "#/definitions/PartitionSelector"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "schema": {
-          "title": "Optional JSON-Schema to validate against the source collection.",
-          "description": "All data in the source collection is already validated against the schema of that collection, so providing a source schema is only used for _additional_ validation beyond that.\n\nThis is useful in building \"Extract Load Transform\" patterns, where a collection is captured with minimal schema applied (perhaps because it comes from an uncontrolled third party), and is then progressively verified as collections are derived. If None, the principal schema of the collection is used instead.",
-          "examples": [
-            "../path/to/schema#/$defs/subPath"
-          ],
-          "anyOf": [
-            {
-              "$ref": "#/definitions/Schema"
             },
             {
               "type": "null"

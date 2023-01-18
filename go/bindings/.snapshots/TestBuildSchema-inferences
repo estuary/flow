@@ -2,6 +2,6 @@
   (catalog.SchemaLocation) {
     Schema: (string) (len=21) "file:///b.schema.yaml",
     Location: (string) "",
-    Spec: (flow.Inference) types:"string" deprecated_must_exist:true string:<format:"email" > title:"A title" description:"An email description" exists:MUST 
+    Spec: (flow.Inference) types:"string" string:<format:"email" > title:"A title" description:"An email description" exists:MUST 
   }
 }

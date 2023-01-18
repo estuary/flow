@@ -195,10 +195,11 @@ func (b *Build) initTypeScript() (err error) {
 		return fmt.Errorf("loading NPM package: %w", err)
 	}
 
-	b.tsWorker, err = NewJSWorker(npmPackage)
+	tsWorker, err := NewJSWorker(npmPackage)
 	if err != nil {
 		return fmt.Errorf("starting worker: %w", err)
 	}
+	b.tsWorker = tsWorker
 
 	// HTTP/S client which dials the TypeScript server over the loopback
 	// for both cleartext and (fake) HTTPS connections.
@@ -207,10 +208,10 @@ func (b *Build) initTypeScript() (err error) {
 	b.tsClient = &http.Client{
 		Transport: &http.Transport{
 			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", b.tsWorker.socketPath)
+				return net.Dial("unix", tsWorker.socketPath)
 			},
 			DialTLSContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", b.tsWorker.socketPath)
+				return net.Dial("unix", tsWorker.socketPath)
 			},
 			// Compression isn't desired over a local UDS transport.
 			DisableCompression: true,

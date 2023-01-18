@@ -10,12 +10,12 @@ Sources {
             scope: test://example/catalog.yaml#/collections/a~1collection,
             collection: a/collection,
             spec: {
-              "schema": false,
               "key": [
                 "/key"
               ]
             },
-            schema: test://example/schema,
+            write_schema: test://example/schema,
+            read_schema: test://example/schema,
         },
     ],
     derivations: [],
@@ -87,6 +87,12 @@ Sources {
               "location": "/bing",
               "partition": true
             },
+        },
+        Projection {
+            scope: test://example/catalog.yaml#/collections/a~1collection/projections/flow_document,
+            collection: a/collection,
+            field: flow_document,
+            spec: "",
         },
         Projection {
             scope: test://example/catalog.yaml#/collections/a~1collection/projections/foo,

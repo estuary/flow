@@ -10,19 +10,30 @@ Sources {
             scope: test://example/catalog.yaml#/collections/test~1collection,
             collection: test/collection,
             spec: {
-              "schema": false,
               "key": [
                 "/key/1",
                 "/key/0"
               ]
             },
-            schema: test://example/schema.json#foobar,
+            write_schema: test://example/schema.json#foobar,
+            read_schema: test://example/schema.json#foobar,
+        },
+        Collection {
+            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read,
+            collection: test/collection-with-write-and-read,
+            spec: {
+              "key": [
+                "/key/1",
+                "/key/0"
+              ]
+            },
+            write_schema: test://example/schema.json#foobar,
+            read_schema: test://example/schema.json#/properties/a,
         },
         Collection {
             scope: test://example/catalog.yaml#/collections/test~1collection~1with-journals,
             collection: test/collection/with-journals,
             spec: {
-              "schema": false,
               "key": [
                 "/a/key"
               ],
@@ -35,11 +46,21 @@ Sources {
                 }
               }
             },
-            schema: test://example/schema.json#foobar,
+            write_schema: test://example/schema.json#foobar,
+            read_schema: test://example/schema.json#foobar,
         },
     ],
     derivations: [],
-    errors: [],
+    errors: [
+        Error {
+            scope: test://example/catalog.yaml#/collections/test~1collection-no-schema,
+            error: either `schema` or both of `writeSchema` and `readSchema` must be configured,
+        },
+        Error {
+            scope: test://example/catalog.yaml#/collections/test~1collection-wrong-schemas,
+            error: either `schema` or both of `writeSchema` and `readSchema` must be configured,
+        },
+    ],
     fetches: [
         Fetch {
             depth: 1,
@@ -51,6 +72,26 @@ Sources {
         },
     ],
     imports: [
+        Import {
+            scope: test://example/catalog.yaml#/collections/test~1collection-wrong-schemas/schema,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/catalog.yaml?ptr=/collections/test~1collection-wrong-schemas/schema,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read/writeSchema,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/schema.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read/readSchema,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/schema.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/test~1collection-wrong-schemas/writeSchema,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/schema.json,
+        },
         Import {
             scope: test://example/catalog.yaml#/collections/test~1collection~1with-journals/schema,
             from_resource: test://example/catalog.yaml,
@@ -84,13 +125,49 @@ Sources {
               "partition": false
             },
         },
+        Projection {
+            scope: test://example/catalog.yaml#/collections/test~1collection/projections/flow_document,
+            collection: test/collection,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
+            scope: test://example/catalog.yaml#/collections/test~1collection-no-schema/projections/flow_document,
+            collection: test/collection-no-schema,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
+            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read/projections/flow_document,
+            collection: test/collection-with-write-and-read,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
+            scope: test://example/catalog.yaml#/collections/test~1collection-wrong-schemas/projections/flow_document,
+            collection: test/collection-wrong-schemas,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
+            scope: test://example/catalog.yaml#/collections/test~1collection~1with-journals/projections/flow_document,
+            collection: test/collection/with-journals,
+            field: flow_document,
+            spec: "",
+        },
     ],
     resources: [
         Resource {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"test/collection":{"key":["/key/1","/key/0"],"projections":{"field_a":{"location":"/a/a","partition":true},"field_b":{"location":"/b/b","partition":false}},"schema":"schema.json#foobar"},"test/collection/with-journals":{"journals":{"fragments":{"compressionCodec":"GZIP_OFFLOAD_DECOMPRESSION","flushInterval":"15m","length":12345,"retention":"320h"}},"key":["/a/key"],"schema":"schema.json#foobar"}}},
+            content_dom: {"collections":{"test/collection":{"key":["/key/1","/key/0"],"projections":{"field_a":{"location":"/a/a","partition":true},"field_b":{"location":"/b/b","partition":false}},"schema":"schema.json#foobar"},"test/collection-no-schema":{"key":["/key"]},"test/collection-with-write-and-read":{"key":["/key/1","/key/0"],"readSchema":"schema.json#/properties/a","writeSchema":"schema.json#foobar"},"test/collection-wrong-schemas":{"key":["/key"],"schema":true,"writeSchema":"schema.json#foobar"},"test/collection/with-journals":{"journals":{"fragments":{"compressionCodec":"GZIP_OFFLOAD_DECOMPRESSION","flushInterval":"15m","length":12345,"retention":"320h"}},"key":["/a/key"],"schema":"schema.json#foobar"}}},
+        },
+        Resource {
+            resource: test://example/catalog.yaml?ptr=/collections/test~1collection-wrong-schemas/schema,
+            content_type: "JSON_SCHEMA",
+            content: ".. binary ..",
+            content_dom: true,
         },
         Resource {
             resource: test://example/schema.json,
@@ -100,6 +177,10 @@ Sources {
         },
     ],
     schema_docs: [
+        SchemaDoc {
+            schema: test://example/catalog.yaml?ptr=/collections/test~1collection-wrong-schemas/schema,
+            dom: true,
+        },
         SchemaDoc {
             schema: test://example/schema.json,
             dom: {

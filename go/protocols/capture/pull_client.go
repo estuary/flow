@@ -14,6 +14,8 @@ type PullClient struct {
 	coordinator
 	// rpc is the long-lived Pull RPC, and is accessed only from Serve.
 	rpc Driver_PullClient
+	// Should Acknowledgements be sent?
+	explicitAcks bool
 }
 
 // OpenPull opens a Pull RPC using the provided DriverClient and CaptureSpec.
@@ -25,7 +27,6 @@ func OpenPull(
 	range_ pf.RangeSpec,
 	spec *pf.CaptureSpec,
 	version string,
-	tail bool,
 	startCommitFn func(error),
 ) (*PullClient, error) {
 
@@ -52,7 +53,6 @@ func OpenPull(
 			KeyBegin:             range_.KeyBegin,
 			KeyEnd:               range_.KeyEnd,
 			DriverCheckpointJson: driverCheckpoint,
-			Tail:                 tail,
 		}}); err != nil {
 		return nil, fmt.Errorf("sending Open: %w", err)
 	}
@@ -65,11 +65,17 @@ func OpenPull(
 		return nil, fmt.Errorf("expected Opened, got %#v", opened.String())
 	}
 
-	var out = &PullClient{
-		coordinator: coordinator,
-		rpc:         rpc,
+	// We will send no more input into the RPC.
+	if !opened.Opened.ExplicitAcknowledgements {
+		_ = rpc.CloseSend()
 	}
-	go out.serve(startCommitFn)
+
+	var out = &PullClient{
+		coordinator:  coordinator,
+		rpc:          rpc,
+		explicitAcks: opened.Opened.ExplicitAcknowledgements,
+	}
+	go out.serve(ctx, startCommitFn)
 
 	rpc = nil // Don't run deferred CloseSend.
 	return out, nil
@@ -90,8 +96,10 @@ func OpenPull(
 //
 // serve will call into startCommitFn with a non-nil error exactly once,
 // as its very last invocation.
-func (c *PullClient) serve(startCommitFn func(error)) {
-	defer c.rpc.CloseSend()
+func (c *PullClient) serve(ctx context.Context, startCommitFn func(error)) {
+	if c.explicitAcks {
+		defer c.rpc.CloseSend()
+	}
 	var respCh = PullResponseChannel(c.rpc)
 
 	var onResp = func(rx PullResponseError, ok bool) (drained bool, err error) {
@@ -135,6 +143,15 @@ func (c *PullClient) serve(startCommitFn func(error)) {
 				}
 			}
 
+			// We prefer to gracefully `respCh` to close, and then drain any
+			// final transaction. But, if not reading from `respCh`, we *must*
+			// monitor for context cancellation as there's no guarantee that
+			// log commit operations will resolve (the client may have gone away).
+			var maybeDoneCh <-chan struct{}
+			if maybeRespCh == nil {
+				maybeDoneCh = ctx.Done()
+			}
+
 			// We don't have a ready response.
 			// Block for a response OR a commit operation.
 			select {
@@ -142,7 +159,9 @@ func (c *PullClient) serve(startCommitFn func(error)) {
 				if err = c.onLogCommitted(); err != nil {
 					return false, fmt.Errorf("onLogCommitted: %w", err)
 				}
-				c.sendAck()
+				if c.explicitAcks {
+					c.sendAck()
+				}
 
 			case op := <-c.logCommittedOpCh:
 				if err := c.onLogCommittedOpCh(op); err != nil {
@@ -151,6 +170,9 @@ func (c *PullClient) serve(startCommitFn func(error)) {
 
 			case rx, ok := <-maybeRespCh:
 				return onResp(rx, ok)
+
+			case <-maybeDoneCh:
+				return false, ctx.Err()
 			}
 
 			return respCh == nil, nil

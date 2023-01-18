@@ -76,7 +76,7 @@ func columnType(projection *pf.Projection) ColumnType {
 
 func commentForProjection(projection *pf.Projection) string {
 	var source = "auto-generated"
-	if projection.UserProvided {
+	if projection.Explicit {
 		source = "user-provided"
 	}
 	var types = strings.Join(projection.Inference.Types, ", ")

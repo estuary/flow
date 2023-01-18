@@ -1,5 +1,5 @@
 ---
-sidebar_position: 4
+sidebar_position: 6
 ---
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
@@ -7,21 +7,34 @@ import Mermaid from '@theme/Mermaid';
 
 # Derivations
 
-A derivation is a [collection](collections.md)
-that continuously derives its documents
-from transformations that are applied to one or more other source collections.
-It defines the collection of derived documents
-as well as a [catalog task](../#tasks).
-The task processes documents of source collections as they become available,
-transforming them into updates of the derived collection.
+A derivation is a [collection](../#collections)
+that results from transformations applied to one or more other collections.
 
-In addition to their collection,
-derivations are defined by their **transformations** and **registers**.
+Derivations derive data continuously,
+reflecting updates to the source collections as they happen.
 
-Complex transformations can be implemented with **lambdas**,
-functions defined in referenced TypeScript modules.
+A derivation has two main components:
 
-![](<derivations.svg>)
+* The new collection, which stores the derived data.
+* A [catalog task](../#tasks), which applies the transformations to source documents as they become available.
+
+The derivation task is defined by:
+
+* The **transformations** it applies
+* Its **register**, which serves as its internal memory
+* In many cases, **lambdas**, functions defined in accompanying TypeScript modules
+that allow more complex transformations.
+
+![](<derivations-new.svg>)
+
+## Creating derivations
+
+You can create a derivation in your local development environment using flowctl.
+
+Use [`flowctl draft` to begin work with a draft](./flowctl.md#working-with-catalog-drafts),
+and manually add [a derivation to the Flow specification file](#specification).
+
+If necessary, [generate a typescript file](#creating-typescript-modules) and define lambda functions there.
 
 ## Specification
 
@@ -61,6 +74,7 @@ collections:
         # TypeScript module implementing this derivation.
         # Module is either a relative URL of a TypeScript module file (recommended),
         # or an inline representation of a TypeScript module.
+        # The file specified will be created when you run `flowctl typescript generate`
         module: acmeModule.ts
 
         # NPM package dependencies of the module
@@ -82,10 +96,6 @@ collections:
             # Name of the collection to be read.
             # Required.
             name: acmeCo/my/source/collection
-            # JSON Schema to validate against the source collection.
-            # If not set, the schema of the source collection is used.
-            # Optional, type: string (relative URL form) or object (inline form)
-            schema: {}
             # Partition selector of the source collection.
             # Optional. Default is to read all partitions.
             partitions: {}
@@ -645,7 +655,7 @@ For example, [moment](https://momentjs.com/) is a common library
 for working with times:
 
 <Tabs>
-<TabItem value="catalog.flow.yaml" default>
+<TabItem value="derivation.flow.yaml" default>
 
 ```yaml
 derivation:
@@ -673,7 +683,7 @@ which can include local packages, GitHub repository commits, and more.
 See [package.json documentation](https://docs.npmjs.com/cli/v8/configuring-npm/package-json#dependencies).
 
 During the catalog build process, Flow gathers NPM dependencies
-across all catalog source files and patches them into the catalog's
+across all Flow specification files and patches them into the catalog's
 managed `package.json`.
 Flow organizes its generated TypeScript project structure
 for a seamless editing experience out of the box with VS Code

@@ -106,28 +106,19 @@ type Catalog struct {
 
 type ConfiguredCatalog struct {
 	Streams []ConfiguredStream `json:"streams"`
-	Tail    bool               `json:"estuary.dev/tail"`
 	Range   Range              `json:"estuary.dev/range"`
 }
 
 // This impl exists solely so that we can accept either the namespaced or non-namespaced identifiers
-// for tail and range, for the purpose of compatibility.
+// for range, for the purpose of compatibility.
 func (c *ConfiguredCatalog) UnmarshalJSON(b []byte) error {
 	var tmp = struct {
 		Streams []ConfiguredStream `json:"streams"`
-		NSTail  *bool              `json:"estuary.dev/tail"`
-		Tail    *bool              `json:"tail"`
 		NSRange *Range             `json:"estuary.dev/range"`
 		Range   *Range             `json:"range"`
 	}{}
 	if err := json.Unmarshal(b, &tmp); err != nil {
 		return err
-	}
-	var tail bool
-	if tmp.NSTail != nil {
-		tail = *tmp.NSTail
-	} else if tmp.Tail != nil {
-		tail = *tmp.Tail
 	}
 	var r Range
 	if tmp.NSRange != nil {
@@ -137,7 +128,6 @@ func (c *ConfiguredCatalog) UnmarshalJSON(b []byte) error {
 	}
 	*c = ConfiguredCatalog{
 		Streams: tmp.Streams,
-		Tail:    tail,
 		Range:   r,
 	}
 	return nil

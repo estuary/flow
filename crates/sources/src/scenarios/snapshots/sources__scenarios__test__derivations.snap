@@ -10,18 +10,17 @@ Sources {
             scope: test://example/catalog.yaml#/collections/d1~1collection,
             collection: d1/collection,
             spec: {
-              "schema": false,
               "key": [
                 "/d1-key"
               ]
             },
-            schema: test://example/a-schema.json,
+            write_schema: test://example/a-schema.json,
+            read_schema: test://example/a-schema.json,
         },
         Collection {
             scope: test://example/catalog.yaml#/collections/d2~1collection,
             collection: d2/collection,
             spec: {
-              "schema": false,
               "key": [
                 "/d2-key"
               ],
@@ -32,18 +31,19 @@ Sources {
                 }
               }
             },
-            schema: test://example/a-schema.json,
+            write_schema: test://example/a-schema.json,
+            read_schema: test://example/a-schema.json,
         },
         Collection {
             scope: test://example/catalog.yaml#/collections/d3~1collection,
             collection: d3/collection,
             spec: {
-              "schema": false,
               "key": [
                 "/some/key"
               ]
             },
-            schema: test://example/a-schema.json,
+            write_schema: test://example/a-schema.json,
+            read_schema: test://example/other-schema.json,
         },
     ],
     derivations: [
@@ -118,11 +118,11 @@ Sources {
         },
         Fetch {
             depth: 2,
-            resource: test://example/alt-schema.json,
+            resource: test://example/catalog.ts,
         },
         Fetch {
             depth: 2,
-            resource: test://example/catalog.ts,
+            resource: test://example/other-schema.json,
         },
         Fetch {
             depth: 2,
@@ -136,7 +136,7 @@ Sources {
             to_resource: test://example/a-schema.json,
         },
         Import {
-            scope: test://example/catalog.yaml#/collections/d3~1collection/schema,
+            scope: test://example/catalog.yaml#/collections/d3~1collection/writeSchema,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/a-schema.json,
         },
@@ -144,11 +144,6 @@ Sources {
             scope: test://example/catalog.yaml#/collections/d1~1collection/schema,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/a-schema.json,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/collections/d1~1collection/derivation/transform/some-name/source/schema,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/alt-schema.json,
         },
         Import {
             scope: test://example/catalog.yaml#/collections/d1~1collection/derivation/typescript/module,
@@ -169,6 +164,11 @@ Sources {
             scope: test://example/catalog.yaml#/collections/d3~1collection/derivation/typescript/module,
             from_resource: test://example/catalog.yaml,
             to_resource: test://example/catalog.yaml?ptr=/collections/d3~1collection/derivation/typescript/module,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d3~1collection/readSchema,
+            from_resource: test://example/catalog.yaml,
+            to_resource: test://example/other-schema.json,
         },
         Import {
             scope: test://example/catalog.yaml#/collections/d1~1collection/derivation/register/schema,
@@ -192,19 +192,32 @@ Sources {
             version: ~v2,
         },
     ],
-    projections: [],
+    projections: [
+        Projection {
+            scope: test://example/catalog.yaml#/collections/d1~1collection/projections/flow_document,
+            collection: d1/collection,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
+            scope: test://example/catalog.yaml#/collections/d2~1collection/projections/flow_document,
+            collection: d2/collection,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
+            scope: test://example/catalog.yaml#/collections/d3~1collection/projections/flow_document,
+            collection: d3/collection,
+            field: flow_document,
+            spec: "",
+        },
+    ],
     resources: [
         Resource {
             resource: test://example/a-schema.json,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: true,
-        },
-        Resource {
-            resource: test://example/alt-schema.json,
-            content_type: "JSON_SCHEMA",
-            content: ".. binary ..",
-            content_dom: {"$anchor":"foobar","properties":{"d1-key":{"type":"string"},"key":{"description":"the key description","title":"the key title","type":"integer"},"moar":{"type":"number"},"shuffle":{"type":"integer"}},"type":"object"},
         },
         Resource {
             resource: test://example/catalog.ts,
@@ -216,7 +229,7 @@ Sources {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"d1/collection":{"derivation":{"register":{"initial":{"initial":["value",32]},"schema":"reg-schema.json#/$defs/qib"},"transform":{"some-name":{"priority":32,"publish":{"lambda":"typescript"},"readDelay":"1 hour","shuffle":{"key":["/shuffle","/key"]},"source":{"name":"src/collection","partitions":{"exclude":{"other_field":[false]},"include":{"a_field":["foo",42]}},"schema":"alt-schema.json#foobar"},"update":{"lambda":"typescript"}}},"typescript":{"module":"catalog.ts","npmDependencies":{"package-one":"v0.1.2"}}},"key":["/d1-key"],"schema":"a-schema.json"},"d2/collection":{"derivation":{"shards":{"disable":true,"hotStandbys":2,"maxTxnDuration":"6m","minTxnDuration":"15s","readChannelSize":6789,"ringBufferSize":12345},"transform":{"do-the-thing":{"source":{"name":"src/collection"},"update":{"lambda":{"remote":"https://example/api"}}}}},"journals":{"fragments":{"compressionCodec":"ZSTANDARD","flushInterval":"15m"}},"key":["/d2-key"],"schema":"a-schema.json"},"d3/collection":{"derivation":{"transform":{"frob":{"publish":{"lambda":"typescript"},"source":{"name":"src/collection"}}},"typescript":{"module":"import { some } from 'the/package';\n\ninlineTypescript();\n","npmDependencies":{"pkg-2":"~v2"}}},"key":["/some/key"],"schema":"a-schema.json"}}},
+            content_dom: {"collections":{"d1/collection":{"derivation":{"register":{"initial":{"initial":["value",32]},"schema":"reg-schema.json#/$defs/qib"},"transform":{"some-name":{"priority":32,"publish":{"lambda":"typescript"},"readDelay":"1 hour","shuffle":{"key":["/shuffle","/key"]},"source":{"name":"src/collection","partitions":{"exclude":{"other_field":[false]},"include":{"a_field":["foo",42]}}},"update":{"lambda":"typescript"}}},"typescript":{"module":"catalog.ts","npmDependencies":{"package-one":"v0.1.2"}}},"key":["/d1-key"],"schema":"a-schema.json"},"d2/collection":{"derivation":{"shards":{"disable":true,"hotStandbys":2,"maxTxnDuration":"6m","minTxnDuration":"15s","readChannelSize":6789,"ringBufferSize":12345},"transform":{"do-the-thing":{"source":{"name":"src/collection"},"update":{"lambda":{"remote":"https://example/api"}}}}},"journals":{"fragments":{"compressionCodec":"ZSTANDARD","flushInterval":"15m"}},"key":["/d2-key"],"schema":"a-schema.json"},"d3/collection":{"derivation":{"transform":{"frob":{"publish":{"lambda":"typescript"},"source":{"name":"src/collection"}}},"typescript":{"module":"import { some } from 'the/package';\n\ninlineTypescript();\n","npmDependencies":{"pkg-2":"~v2"}}},"key":["/some/key"],"readSchema":"other-schema.json","writeSchema":"a-schema.json"}}},
         },
         Resource {
             resource: test://example/catalog.yaml?ptr=/collections/d2~1collection/derivation/register/schema,
@@ -237,6 +250,12 @@ Sources {
             content_dom: null,
         },
         Resource {
+            resource: test://example/other-schema.json,
+            content_type: "JSON_SCHEMA",
+            content: ".. binary ..",
+            content_dom: {"$anchor":"foobar","properties":{"d1-key":{"type":"string"},"key":{"description":"the key description","title":"the key title","type":"integer"},"moar":{"type":"number"},"shuffle":{"type":"integer"}},"type":"object"},
+        },
+        Resource {
             resource: test://example/reg-schema.json,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
@@ -249,7 +268,15 @@ Sources {
             dom: true,
         },
         SchemaDoc {
-            schema: test://example/alt-schema.json,
+            schema: test://example/catalog.yaml?ptr=/collections/d2~1collection/derivation/register/schema,
+            dom: true,
+        },
+        SchemaDoc {
+            schema: test://example/catalog.yaml?ptr=/collections/d3~1collection/derivation/register/schema,
+            dom: true,
+        },
+        SchemaDoc {
+            schema: test://example/other-schema.json,
             dom: {
               "$anchor": "foobar",
               "properties": {
@@ -270,14 +297,6 @@ Sources {
               },
               "type": "object"
             },
-        },
-        SchemaDoc {
-            schema: test://example/catalog.yaml?ptr=/collections/d2~1collection/derivation/register/schema,
-            dom: true,
-        },
-        SchemaDoc {
-            schema: test://example/catalog.yaml?ptr=/collections/d3~1collection/derivation/register/schema,
-            dom: true,
         },
         SchemaDoc {
             schema: test://example/reg-schema.json,
@@ -327,7 +346,6 @@ Sources {
                 "lambda": "typescript"
               }
             },
-            source_schema: test://example/alt-schema.json#foobar,
         },
         Transform {
             scope: test://example/catalog.yaml#/collections/d2~1collection/derivation/transform/do-the-thing,
@@ -343,7 +361,6 @@ Sources {
                 }
               }
             },
-            source_schema: NULL,
         },
         Transform {
             scope: test://example/catalog.yaml#/collections/d3~1collection/derivation/transform/frob,
@@ -357,7 +374,6 @@ Sources {
                 "lambda": "typescript"
               }
             },
-            source_schema: NULL,
         },
     ],
 }

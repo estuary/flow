@@ -1,11 +1,11 @@
 ---
-sidebar_position: 10
+sidebar_position: 6
 ---
 # HTTP file
 
 This connector captures data from an HTTP endpoint into a Flow collection.
 
-[`ghcr.io/estuary/source-http-file:dev`](https://ghcr.io/estuary/source-http-file:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-http-file:dev`](https://ghcr.io/estuary/source-http-file:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported data types
 
@@ -16,6 +16,7 @@ The following file types are supported:
 * Avro
 * CSV
 * JSON
+* Protobuf
 * W3C Extended Log
 
 The following compression methods are supported:
@@ -43,8 +44,8 @@ If this is the case, have your username and password ready.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and YAML sample below provide configuration details specific to the HTTP file source connector.
+You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the HTTP file source connector.
 
 ### Properties
 
@@ -55,6 +56,10 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | `/credentials` | Credentials | User credentials, if required to access the data at the HTTP URL. | object |  |
 | `/credentials/password` | Password | Password, if required to access the HTTP endpoint. | string |  |
 | `/credentials/user` | User | Username, if required to access the HTTP endpoint. | string |  |
+| `/headers` | Headers |  | object |  |
+| `/headers/items` | Additional HTTP Headers | Additional HTTP headers when requesting the file. These are uncommon. | array |  |
+| _`/headers/items/-/key`_ | Header Key |  | string |  |
+| _`/headers/items/-/value`_ | Header Value |  | string |  |
 | `/parser` | Parser Configuration | Configures how files are parsed | object |  |
 | `/parser/compression` | Compression | Determines how to decompress the contents. The default, &#x27;Auto&#x27;, will try to determine the compression automatically. | null, string | `null` |
 | `/parser/format` | Format | Determines how to parse the contents. The default, &#x27;Auto&#x27;, will try to determine the format automatically based on the file extension or MIME type, if available. | object | `{"type":"auto"}` |
@@ -128,6 +133,7 @@ Options are:
    * **Avro**
    * **CSV**
    * **JSON**
+   * **Protobuf**
    * **W3C Extended Log**
 
 #### CSV configuration
@@ -174,4 +180,13 @@ but you may need to specify for unusual datasets. These properties are:
   * Disable Quoting (`""`)
   * Auto
 
-The YAML sample [above](#sample) includes these fields.
+The sample specification [above](#sample) includes these fields.
+
+### Advanced: Using HTTP headers
+
+For data accessed through certain APIs, you may need to send [headers as part of your HTTP request](https://developer.mozilla.org/en-US/docs/Glossary/Request_header).
+This is uncommon, and is supported by the optional **Headers** configuration.
+
+This configuration section is [encrypted with `sops`](../../../concepts/connectors.md#protecting-secrets), so you can safely include secretes such as API keys.
+
+See the source data's API documentation for headers that may be required for your capture.

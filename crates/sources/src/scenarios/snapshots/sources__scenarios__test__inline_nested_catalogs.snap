@@ -10,34 +10,34 @@ Sources {
             scope: test://example/B.yaml#/collections/bar,
             collection: bar,
             spec: {
-              "schema": false,
               "key": [
                 "/ptr"
               ]
             },
-            schema: test://example/subpath/wrong-content-type.yaml,
+            write_schema: test://example/subpath/wrong-content-type.yaml,
+            read_schema: test://example/subpath/wrong-content-type.yaml,
         },
         Collection {
             scope: test://example/B.yaml#/collections/baz,
             collection: baz,
             spec: {
-              "schema": false,
               "key": [
                 "/ptr"
               ]
             },
-            schema: test://example/subpath/invalid-base64,
+            write_schema: test://example/subpath/invalid-base64,
+            read_schema: test://example/subpath/invalid-base64,
         },
         Collection {
             scope: test://example/B.yaml#/collections/foo,
             collection: foo,
             spec: {
-              "schema": false,
               "key": [
                 "/ptr"
               ]
             },
-            schema: test://example/subpath/json-schema.yaml,
+            write_schema: test://example/subpath/json-schema.yaml,
+            read_schema: test://example/subpath/json-schema.yaml,
         },
     ],
     derivations: [],
@@ -122,7 +122,26 @@ Sources {
     materialization_bindings: [],
     materializations: [],
     npm_dependencies: [],
-    projections: [],
+    projections: [
+        Projection {
+            scope: test://example/B.yaml#/collections/bar/projections/flow_document,
+            collection: bar,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
+            scope: test://example/B.yaml#/collections/baz/projections/flow_document,
+            collection: baz,
+            field: flow_document,
+            spec: "",
+        },
+        Projection {
+            scope: test://example/B.yaml#/collections/foo/projections/flow_document,
+            collection: foo,
+            field: flow_document,
+            spec: "",
+        },
+    ],
     resources: [
         Resource {
             resource: test://example/B.yaml,

@@ -19,6 +19,7 @@ import (
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
 	"gopkg.in/yaml.v3"
 )
@@ -41,6 +42,7 @@ func (cmd cmdDiscover) Execute(_ []string) error {
 		"version":   mbp.Version,
 		"buildDate": mbp.BuildDate,
 	}).Info("flowctl configuration")
+	pb.RegisterGRPCDispatcher("local")
 
 	var imageParts = strings.Split(cmd.Image, "/")
 	var connectorName = strings.Split(imageParts[len(imageParts)-1], ":")[0]
@@ -118,6 +120,12 @@ Edit and update this file, and then run this command again.
 	for _, b := range discovered.Bindings {
 		var collection = path.Join(cmd.Prefix, b.RecommendedName.String())
 		var schemaName = fmt.Sprintf("%s.schema.yaml", b.RecommendedName)
+		var outputPath = filepath.Join(cmd.Directory, schemaName)
+		var outputDir = path.Dir(outputPath)
+
+		if err := os.MkdirAll(outputDir, 0755); err != nil {
+			return fmt.Errorf("creating output directory: %w", err)
+		}
 
 		var schema, resource interface{}
 		if err := json.Unmarshal(b.DocumentSchemaJson, &schema); err != nil {
@@ -228,11 +236,9 @@ func (cmd cmdDiscover) writeConfigStub(ctx context.Context, w io.WriteCloser) er
 	defer func() { _ = os.Remove(buildConfig.OutputPath()) }()
 
 	if err = bindings.BuildCatalog(bindings.BuildArgs{
-		Context:             ctx,
-		BuildAPI_Config:     buildConfig,
-		FileRoot:            "/",
-		CaptureDriverFn:     nil, // Not used.
-		MaterializeDriverFn: nil, // Not used.
+		Context:         ctx,
+		BuildAPI_Config: buildConfig,
+		FileRoot:        "/",
 	}); err != nil {
 		return fmt.Errorf("building schema catalog: %w", err)
 	}

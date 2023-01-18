@@ -20,10 +20,10 @@ pub struct RecordedOp {
     /// These are meta-fields: they're not literally serialized into written messages.
     /// The offsets of a particular message will also vary over its lifetime:
     /// * When first recorded, the offsets at which the write will land within the journal
-    ///   cannot be known ahead of time, and Recorders use an approximate lower bound
-    ///   as |first_offset|.
+    ///    cannot be known ahead of time, and Recorders use an approximate lower bound
+    ///    as |first_offset|.
     /// * During playback, players have the benefit of inspecting the committed log and
-    ///   attach exact byte offsets as they deserialized RecordedOps.
+    ///    attach exact byte offsets as they deserialized RecordedOps.
     #[prost(int64, tag="9")]
     pub first_offset: i64,
     #[prost(int64, tag="10")]
@@ -52,19 +52,19 @@ pub mod recorded_op {
     // is principally useful for issuing transactional write-barriers at log
     // handoff. Eg, given a log Player which desires to be the log Recorder:
     //
-    //   1) The Player will read all available log content, and then inject
-    //      what it understands to be a correctly sequenced no-op with
-    //      its unique author ID. Note that this injected operation may well
-    //      lose a write race with another Recorder, resulting in its being
-    //      mis-sequenced and ignored by other readers.
+    //    1) The Player will read all available log content, and then inject
+    //       what it understands to be a correctly sequenced no-op with
+    //       its unique author ID. Note that this injected operation may well
+    //       lose a write race with another Recorder, resulting in its being
+    //       mis-sequenced and ignored by other readers.
     //
-    //   2) It will continue to read the log until its no-op is read.
-    //      If the operation is mis-sequenced, it will restart from step 1.
+    //    2) It will continue to read the log until its no-op is read.
+    //       If the operation is mis-sequenced, it will restart from step 1.
     //
-    //   3) If the no-op is sequenced correctly, it will terminate playback
-    //      immediately after the no-op and transition to recording new log
-    //      operations. Any following, raced writes must be mis-sequenced,
-    //      having lost the write race, and will be ignored by other readers.
+    //    3) If the no-op is sequenced correctly, it will terminate playback
+    //       immediately after the no-op and transition to recording new log
+    //       operations. Any following, raced writes must be mis-sequenced,
+    //       having lost the write race, and will be ignored by other readers.
 
     /// Create a new "File Node" (Fnode), initially linked to |path|. Fnodes play
     /// a similar role to Posix inodes: they identify a specific file object while

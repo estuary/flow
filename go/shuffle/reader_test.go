@@ -12,7 +12,6 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
@@ -305,7 +304,7 @@ func (a testApp) NewStore(shard consumer.Shard, recorder *recoverylog.Recorder) 
 		a.buildID,
 		make(<-chan struct{}),
 		a.journals,
-		ops.StdLogger(),
+		localPublisher,
 		a.service,
 		shard.Spec().Id,
 		a.shuffles,
@@ -314,7 +313,7 @@ func (a testApp) NewStore(shard consumer.Shard, recorder *recoverylog.Recorder) 
 		return nil, err
 	}
 
-	var coordinator = NewCoordinator(shard.Context(), a.builds, ops.StdLogger(), shard.JournalClient())
+	var coordinator = NewCoordinator(shard.Context(), a.builds, localPublisher, shard.JournalClient())
 
 	return &testStore{
 		JSONFileStore: store,

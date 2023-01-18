@@ -1,11 +1,12 @@
 [package]
 name = "parser"
-version = "0.1.0"
-authors = ["Estaury <info@estuary.dev>"]
-edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [[bin]]
 name = "flow-parser"
@@ -13,40 +14,43 @@ path = "src/main.rs"
 
 
 [dependencies]
-json = { path = "../json", version = "0.0.0" }
-doc = { path = "../doc", version = "0.0.0" }
+json = { path = "../json" }
+doc = { path = "../doc" }
 
-avro-rs = { version = "*", features = ["snappy"] }
-base64 = "*"
-bytes = "*"
-caseless = "*"
-chardetng = "*"
-chrono = "*"
-csv = "*"
-encoding_rs = {version = "*", features = ["serde"]}
-flate2 = "*"
-mime = "*"
-num-bigint = "*"
-schemars = "*"
-serde = {version = "*", features=["derive"]}
-serde_json = {version = "*", features = ["raw_value"]}
-structopt = "*"
-tempfile = "*"
-thiserror = "*"
-tracing = "*"
-tracing-subscriber = {version = "*", features = ["time", "json", "env-filter"]}
-unicode-bom = "*"
-unicode-normalization = "*"
-url = "*"
-uuid = {version = "*", features = ["v4"]}
-zip = "*"
-strum = { version = "0.24.1", features = ["derive"] }
-bytecount = { version = "0.6.3", features = ["runtime-dispatch-simd"] }
-lazy_static = "1.4.0"
-regex = "1.5.6"
-zstd = "0.11.2"
+avro-rs = { workspace = true }
+base64 = { workspace = true }
+bytes = { workspace = true }
+caseless = { workspace = true }
+chardetng = { workspace = true }
+chrono = { workspace = true }
+csv = { workspace = true }
+encoding_rs = { workspace = true }
+flate2 = { workspace = true }
+mime = { workspace = true }
+num-bigint = { workspace = true }
+protobuf = { workspace = true }
+protobuf-json-mapping = { workspace = true }
+protobuf-parse = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+clap = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+unicode-bom = { workspace = true }
+unicode-normalization = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+zip = { workspace = true }
+strum = { workspace = true }
+bytecount = { workspace = true }
+lazy_static = { workspace = true }
+regex = { workspace = true }
+zstd = { workspace = true }
 
 [dev-dependencies]
-assert_cmd = "*"
-tempdir = "*"
-insta = "*"
+assert_cmd = { workspace = true }
+tempdir = { workspace = true }
+insta = { workspace = true }

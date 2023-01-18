@@ -240,15 +240,19 @@ expression: intents
     };
     
     
+    // The collection has one schema, used for both reads and writes.
+    export type SourceDocument = Document;
+    export type OutputDocument = Document;
+    
     // Generated from derivation register schema sub/module.yaml?ptr=/collections/another~1derivation/derivation/register/schema.
     // Referenced from sub/module.yaml#/collections/another~1derivation/derivation.
     export type Register = unknown;
     
     
-    // Generated from transform widget as a re-export of collection some/input.
+    // Generated from transform widget as a re-export of collection remote/derivation.
     // Referenced from sub/module.yaml#/collections/another~1derivation/derivation/transform/widget."
-    import { Document as WidgetSource } from "./../some/input";
-    export { Document as WidgetSource } from "./../some/input";
+    import { SourceDocument as WidgetSource } from "./../remote/derivation";
+    export { SourceDocument as WidgetSource } from "./../remote/derivation";
     
     
     // Generated from derivation sub/module.yaml#/collections/another~1derivation/derivation.
@@ -258,7 +262,7 @@ expression: intents
             source: WidgetSource,
             register: Register,
             previous: Register,
-        ): Document[];
+        ): OutputDocument[];
     }
     ,
     "flow_generated/types/local/derivation.d.ts": Always:
@@ -272,6 +276,10 @@ expression: intents
     };
     
     
+    // The collection has one schema, used for both reads and writes.
+    export type SourceDocument = Document;
+    export type OutputDocument = Document;
+    
     // Generated from derivation register schema sub/module.yaml?ptr=/collections/local~1derivation/derivation/register/schema.
     // Referenced from sub/module.yaml#/collections/local~1derivation/derivation.
     export type Register = unknown;
@@ -279,13 +287,13 @@ expression: intents
     
     // Generated from self-referential transform thereItIs.
     // Referenced from sub/module.yaml#/collections/local~1derivation/derivation/transform/thereItIs."
-    export type ThereItIsSource = Document;
+    export type ThereItIsSource = SourceDocument;
     
     
     // Generated from transform whoot as a re-export of collection some/input.
     // Referenced from sub/module.yaml#/collections/local~1derivation/derivation/transform/whoot."
-    import { Document as WhootSource } from "./../some/input";
-    export { Document as WhootSource } from "./../some/input";
+    import { SourceDocument as WhootSource } from "./../some/input";
+    export { SourceDocument as WhootSource } from "./../some/input";
     
     
     // Generated from derivation sub/module.yaml#/collections/local~1derivation/derivation.
@@ -298,7 +306,7 @@ expression: intents
             source: WhootSource,
             register: Register,
             previous: Register,
-        ): Document[];
+        ): OutputDocument[];
     }
     ,
     "flow_generated/types/remote/derivation.d.ts": Always:
@@ -317,12 +325,19 @@ expression: intents
     };
     
     
-    // Generated from collection schema test://example/int-string.schema.
+    // Generated from collection read schema test://example/int-string.schema.
     // Referenced from test://example/external/module.yaml#/collections/remote~1derivation.
-    export type Document = {
+    export type SourceDocument = {
         anAnchor?: AnAnchor;
         int: number;
         str: string;
+    };
+    
+    
+    // Generated from collection write schema test://example/external/module.yaml?ptr=/collections/remote~1derivation/writeSchema.
+    // Referenced from test://example/external/module.yaml#/collections/remote~1derivation.
+    export type OutputDocument = /* This is probably an int-string. But we're not too sure and are using a weaker write schema. */ {
+        str: /* Definitely a string here, we think? */ string;
     };
     
     
@@ -333,8 +348,8 @@ expression: intents
     
     // Generated from transform somethingSomething as a re-export of collection some/input.
     // Referenced from test://example/external/module.yaml#/collections/remote~1derivation/derivation/transform/somethingSomething."
-    import { Document as SomethingSomethingSource } from "./../some/input";
-    export { Document as SomethingSomethingSource } from "./../some/input";
+    import { SourceDocument as SomethingSomethingSource } from "./../some/input";
+    export { SourceDocument as SomethingSomethingSource } from "./../some/input";
     
     
     // Generated from derivation test://example/external/module.yaml#/collections/remote~1derivation/derivation.
@@ -344,7 +359,7 @@ expression: intents
             source: SomethingSomethingSource,
             register: Register,
             previous: Register,
-        ): Document[];
+        ): OutputDocument[];
     }
     ,
     "flow_generated/types/some/input.d.ts": Always:
@@ -371,6 +386,10 @@ expression: intents
         str: string;
     };
     
+    
+    // The collection has one schema, used for both reads and writes.
+    export type SourceDocument = Document;
+    export type OutputDocument = Document;
     ,
     "package.json": Always:
     {
@@ -415,7 +434,7 @@ expression: intents
     }
     ,
     "sub/module.ts": IfNotExists:
-    import { IDerivation, Document, Register, ThereItIsSource, WhootSource } from 'flow/local/derivation';
+    import { IDerivation, OutputDocument, Register, ThereItIsSource, WhootSource } from 'flow/local/derivation';
     
     // Implementation for derivation sub/module.yaml#/collections/local~1derivation/derivation.
     export class Derivation implements IDerivation {
@@ -428,7 +447,7 @@ expression: intents
             _source: WhootSource,
             _register: Register,
             _previous: Register,
-        ): Document[] {
+        ): OutputDocument[] {
             throw new Error("Not implemented");
         }
     }

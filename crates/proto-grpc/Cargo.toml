@@ -1,19 +1,23 @@
 [package]
 name = "proto-grpc"
-version = "0.0.0"
-authors = ["Estuary Technologies, Inc"]
-edition = "2021"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
 proto-gazette = { path = "../proto-gazette" }
 proto-flow = { path = "../proto-flow", optional = true }
 
-tonic = "*"
+tonic = { workspace = true }
 
 [build-dependencies]
 proto-build = { path = "../proto-build" }
 
-tonic-build = "*"
+tonic-build = { workspace = true }
 
 [features]
 default = []

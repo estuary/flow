@@ -12,6 +12,10 @@ export type Document = /* Roll up of all products that users have added to a pen
     userId: number;
 };
 
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;
+
 // Generated from derivation register schema examples/shopping/carts.flow.yaml?ptr=/collections/examples~1shopping~1carts/derivation/register/schema.
 // Referenced from examples/shopping/carts.flow.yaml#/collections/examples~1shopping~1carts/derivation.
 export type Register = {
@@ -30,13 +34,13 @@ export type Register = {
 
 // Generated from transform cartUpdatesWithProducts as a re-export of collection examples/shopping/cartUpdatesWithProducts.
 // Referenced from examples/shopping/carts.flow.yaml#/collections/examples~1shopping~1carts/derivation/transform/cartUpdatesWithProducts."
-import { Document as CartUpdatesWithProductsSource } from './cartUpdatesWithProducts';
-export { Document as CartUpdatesWithProductsSource } from './cartUpdatesWithProducts';
+import { SourceDocument as CartUpdatesWithProductsSource } from './cartUpdatesWithProducts';
+export { SourceDocument as CartUpdatesWithProductsSource } from './cartUpdatesWithProducts';
 
 // Generated from transform clearAfterPurchase as a re-export of collection examples/shopping/cartPurchaseRequests.
 // Referenced from examples/shopping/carts.flow.yaml#/collections/examples~1shopping~1carts/derivation/transform/clearAfterPurchase."
-import { Document as ClearAfterPurchaseSource } from './cartPurchaseRequests';
-export { Document as ClearAfterPurchaseSource } from './cartPurchaseRequests';
+import { SourceDocument as ClearAfterPurchaseSource } from './cartPurchaseRequests';
+export { SourceDocument as ClearAfterPurchaseSource } from './cartPurchaseRequests';
 
 // Generated from derivation examples/shopping/carts.flow.yaml#/collections/examples~1shopping~1carts/derivation.
 // Required to be implemented by examples/shopping/carts.flow.ts.
@@ -46,7 +50,11 @@ export interface IDerivation {
         source: CartUpdatesWithProductsSource,
         register: Register,
         previous: Register,
-    ): Document[];
+    ): OutputDocument[];
     clearAfterPurchaseUpdate(source: ClearAfterPurchaseSource): Register[];
-    clearAfterPurchasePublish(source: ClearAfterPurchaseSource, register: Register, previous: Register): Document[];
+    clearAfterPurchasePublish(
+        source: ClearAfterPurchaseSource,
+        register: Register,
+        previous: Register,
+    ): OutputDocument[];
 }

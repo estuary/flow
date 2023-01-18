@@ -10,12 +10,12 @@ Sources {
             scope: test://example/catalog.yaml#/collections/test,
             collection: test,
             spec: {
-              "schema": false,
               "key": [
                 "/some-key"
               ]
             },
-            schema: test://example/catalog.yaml?ptr=/collections/test/schema,
+            write_schema: test://example/catalog.yaml?ptr=/collections/test/schema,
+            read_schema: test://example/catalog.yaml?ptr=/collections/test/schema,
         },
     ],
     derivations: [],
@@ -36,7 +36,14 @@ Sources {
     materialization_bindings: [],
     materializations: [],
     npm_dependencies: [],
-    projections: [],
+    projections: [
+        Projection {
+            scope: test://example/catalog.yaml#/collections/test/projections/flow_document,
+            collection: test,
+            field: flow_document,
+            spec: "",
+        },
+    ],
     resources: [
         Resource {
             resource: test://example/catalog.yaml,

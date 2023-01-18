@@ -32,4 +32,5 @@ func TestDecryptCases(t *testing.T) {
 	t.Run("no-suffix", doCase)
 	t.Run("under-suffix", doCase)
 	t.Run("hyphen-suffix", doCase)
+	t.Run("empty-input", doCase)
 }

@@ -1,28 +1,32 @@
 [package]
 name = "bindings"
-version = "0.0.0"
-authors = ["Estuary Technologies, Inc"]
-edition = "2018"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [lib]
 crate_type = ["staticlib"]
 
 [dependencies]
-allocator = { path = "../allocator", version = "0.0.0" }
-build = { path = "../build", version = "0.0.0" }
+allocator = { path = "../allocator" }
+build = { path = "../build" }
 cgo = { path = "../cgo" }
-derive = { path = "../derive", version = "0.0.0" }
-protocol = { path = "../protocol", version = "0.0.0" }
+derive = { path = "../derive" }
+ops = { path = "../ops" }
 
-anyhow = "*"
-bytes = "*"
-chrono = "*"
-prost = "*"
-serde = "*"
-serde_json = {version = "*", features = ["raw_value"]}
-thiserror = "*"
-tracing = "*"
-tracing-subscriber = {version = "*", features = ["env-filter", "json", "time"]}
+anyhow = { workspace = true }
+bytes = { workspace = true }
+prost = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [build-dependencies]
-cbindgen = "*"
+cbindgen = { workspace = true }

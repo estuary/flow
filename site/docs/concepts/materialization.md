@@ -1,22 +1,43 @@
 ---
-sidebar_position: 7
+sidebar_position: 4
 ---
 # Materializations
 
-**Materializations** are the means by which Flow pushes collections into your destination **endpoints**:
-databases, key/value stores, publish/subscribe systems, and more.
-A materialization binds one or more [collections](collections.md) to specific resources
-within the endpoint, such as database tables,
-into which the collections are continuously materialized.
-As documents are added to bound collections, the materialization ensures
-that each document is reflected in the endpoint resource with very low latency.
+A **materialization** is how Flow pushes data to an external destination.
+
+Materializations are a type of Flow **task**.
+They connect to an external destination system,
+or **endpoint**, and bind one or more Flow collections to resources at the endpoint, such as database tables.
+
+As documents added to the bound collections,
+the materialization continuously pushes it to the destination resources, where it is reflected with very low latency.
+Materializations can process [documents](./collections.md#documents) up to 16 MB in size.
+
 Materializations are the conceptual inverse of [captures](captures.md).
 
-![](<materializations.svg>)
+![](<materialization-new.svg>)
+
+You define and configure materializations in **Flow specifications**.
+
+[See the guide to create a materialization](../guides/create-dataflow.md#create-a-materialization)
+
+## Discovery
+
+Materializations use real-time [connectors](./connectors.md) to connect to many endpoint types.
+
+When you use a materialization connector in the Flow web app,
+flow helps you configure it through the **discovery** workflow.
+
+To begin discovery, you tell Flow the connector you'd like to use, basic information about the endpoint,
+and the collection(s) you'd like to materialize there.
+Flow maps the collection(s) to one or more **resources** — tables, data streams, or the equivalent —
+through one or more **bindings**.
+
+You may then modify the generated configuration as needed before publishing the materialization.
 
 ## Specification
 
-Materializations are expressed within a Flow catalog specification:
+Materializations are defined in Flow specification files per the following format:
 
 ```yaml
 # A set of materializations to include in the catalog.
@@ -29,9 +50,9 @@ materializations:
     endpoint:
       # This endpoint uses a connector provided as a Docker image.
       connector:
-        # Docker image which implements the materialization connector.
+        # Docker image that implements the materialization connector.
         image: ghcr.io/estuary/materialize-postgres:dev
-        # File which provides the connector's required configuration.
+        # File that provides the connector's required configuration.
         # Configuration may also be presented inline.
         config: path/to/connector-config.yaml
 
@@ -41,7 +62,7 @@ materializations:
     # Required, type: object
     bindings:
       - # The source collection to materialize.
-        # This may be defined in a separate, imported catalog source file.
+        # This may be defined in a separate, imported specification file.
         # Required, type: string
         source: acmeCo/example/collection
 
@@ -56,15 +77,26 @@ materializations:
           table: example_table
 ```
 
-## Continuous materialized views
+## How continuous materialization works
 
 Flow materializations are **continuous materialized views**.
 They maintain a representation of the collection within the endpoint system
-as a resource that is updated in near real-time. It's indexed on the
+that is updated in near real-time. It's indexed on the
 [collection key](collections.md#collection-keys).
 As the materialization runs, it ensures that all collection documents
 and their accumulated [reductions](../#reductions) are reflected in this
 managed endpoint resource.
+
+When you first publish a materialization,
+Flow back-fills the endpoint resource with the historical documents of the collection.
+Once caught up, Flow applies new collection documents using incremental and low-latency updates.
+
+As collection documents arrive, Flow:
+
+* **Reads** previously materialized documents from the endpoint for the relevant keys
+* **Reduces** new documents into these read documents
+* **Writes** updated documents back into the endpoint resource, indexed by their keys
+
 For example, consider a collection and its materialization:
 
 ```yaml
@@ -103,27 +135,17 @@ materialized table so that it reflects the overall count:
 
 ![](materialization.gif)
 
-When you first declare a materialization,
-Flow back-fills the endpoint resource with the historical documents of the collection.
-Once caught up, Flow applies new collection documents using incremental and low-latency updates.
-
-As collection documents arrive, Flow:
-
-* **Reads** previously materialized documents from the endpoint for the relevant keys
-* **Reduces** new documents into these read documents
-* **Writes** updated documents back into the endpoint resource, indexed by their keys
-
 Flow does _not_ keep separate internal copies of collection or reduction states,
 as some other systems do. The endpoint resource is the one and only place
 where state "lives" within a materialization. This makes materializations very
 efficient and scalable to operate. They are able to maintain _very_ large tables
-stored in highly scaled storage systems like OLAP warehouses, BigTable, or DynamoDB.
+stored in highly scaled storage systems like OLAP data warehouses.
 
 ## Projected fields
 
-Many systems are document-oriented and can directly work
+Many endpoint systems are document-oriented and can directly work
 with collections of JSON documents.
-Others systems are table-oriented and require an up-front declaration
+Others are table-oriented and require an up-front declaration
 of columns and types to be most useful, such as a SQL `CREATE TABLE` definition.
 
 Flow uses collection [projections](./advanced/projections.md) to relate locations within
@@ -212,27 +234,9 @@ materializations:
 
 [Learn more about partition selectors](./advanced/projections.md#partition-selectors).
 
-## SQLite endpoint
+## Destination-specific performance
 
-In addition to materialization connectors, Flow offers a built-in SQLite endpoint
-for local testing and development. SQLite is not suitable for materializations
-running within a managed data plane.
-
-```yaml
-materializations:
-  acmeCo/example/database-views:
-    endpoint:
-      # A SQLite endpoint is specified using `sqlite` instead of `connector`.
-      sqlite:
-        # The SQLite endpoint requires the `path` of the SQLite database to use,
-        # specified as a file path. It may include URI query parameters;
-        # See: https://www.sqlite.org/uri.html and https://github.com/mattn/go-sqlite3#connection-string
-        path: example/database.sqlite?_journal_mode=WAL
-```
-
-## Backpressure
-
-Flow processes updates in transactions, as quickly as the endpoint can handle them.
+Flow processes updates in transactions, as quickly as the destination endpoint can handle them.
 This might be milliseconds in the case of a fast key/value store,
 or many minutes in the case of an OLAP warehouse.
 
@@ -253,7 +257,7 @@ so long as the cardinality of the materialization is of reasonable size.
 
 ## Delta updates
 
-As described [above](#continuous-materialized-views), Flow's standard materialization
+As described [above](#how-continuous-materialization-works), Flow's standard materialization
 mechanism involves querying the target system for data state before reducing new documents
 directly into it.
 

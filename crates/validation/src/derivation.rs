@@ -8,7 +8,6 @@ pub fn walk_all_derivations(
     build_config: &flow::build_api::Config,
     built_collections: &[tables::BuiltCollection],
     derivations: &[tables::Derivation],
-    imports: &[tables::Import],
     schema_shapes: &[schema::Shape],
     storage_mappings: &[tables::StorageMapping],
     transforms: &[tables::Transform],
@@ -28,7 +27,6 @@ pub fn walk_all_derivations(
                 build_config,
                 built_collections,
                 derivation,
-                imports,
                 schema_shapes,
                 storage_mappings,
                 transforms,
@@ -68,7 +66,6 @@ fn walk_derivation(
     build_config: &flow::build_api::Config,
     built_collections: &[tables::BuiltCollection],
     derivation: &tables::Derivation,
-    imports: &[tables::Import],
     schema_shapes: &[schema::Shape],
     storage_mappings: &[tables::StorageMapping],
     transforms: &[tables::Transform],
@@ -106,9 +103,9 @@ fn walk_derivation(
     {
         // Referential integrity error, which we've already reported.
     } else if let Err(err) = doc::Validation::validate(
-        &mut doc::Validator::new(&register_schema.index),
+        &mut doc::RawValidator::new(&register_schema.index),
         &register_schema.schema,
-        register_initial.clone(),
+        register_initial,
     )
     .unwrap()
     .ok()
@@ -126,7 +123,6 @@ fn walk_derivation(
     for transform in transforms {
         if let Some(type_set) = walk_transform(
             built_collections,
-            imports,
             schema_shapes,
             transform,
             &mut built_transforms,
@@ -193,7 +189,6 @@ fn walk_derivation(
     let recovery_stores = storage_mapping::mapped_stores(
         scope,
         "derivation",
-        imports,
         &format!("recovery/{}", collection.as_str()),
         storage_mappings,
         errors,
@@ -211,7 +206,6 @@ fn walk_derivation(
 
 pub fn walk_transform(
     built_collections: &[tables::BuiltCollection],
-    imports: &[tables::Import],
     schema_shapes: &[schema::Shape],
     transform: &tables::Transform,
     built_transforms: &mut Vec<flow::TransformSpec>,
@@ -228,13 +222,11 @@ pub fn walk_transform(
                 source:
                     models::TransformSource {
                         name: source,
-                        schema: _,
                         partitions: source_partitions,
                     },
                 update,
                 ..
             },
-        source_schema,
     } = transform;
 
     indexed::walk_name(
@@ -260,7 +252,6 @@ pub fn walk_transform(
         source,
         built_collections,
         |c| (&c.collection, &c.scope),
-        imports,
         errors,
     ) {
         Some(s) => s,
@@ -268,28 +259,11 @@ pub fn walk_transform(
     };
 
     if let Some(selector) = source_partitions {
-        // Note that the selector is deliberately checked against the
-        // collection's schema shape, and not our own transform source schema.
         collection::walk_selector(scope, &source.spec, &selector, errors);
     }
 
-    // Map to an effective source schema & shape.
-    let source_schema = match source_schema {
-        Some(url) => {
-            // Was the collection defined using this same schema?
-            if url.as_str() == &source.spec.schema_uri {
-                Error::SourceSchemaNotDifferent {
-                    schema: url.clone(),
-                    collection: source.collection.to_string(),
-                }
-                .push(scope, errors);
-            }
-            url.as_str()
-        }
-        None => &source.spec.schema_uri,
-    };
-    let source_shape =
-        &schema_shapes[schema_shapes.equal_range_by_key(&source_schema, |s| s.schema.as_str())][0];
+    let source_shape = &schema_shapes[schema_shapes
+        .equal_range_by_key(&source.spec.read_schema_uri.as_str(), |s| s.schema.as_str())][0];
 
     // Project |source.spec.key| from Vec<String> => CompositeKey.
     let source_key = models::CompositeKey::new(

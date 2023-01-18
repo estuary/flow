@@ -9,7 +9,6 @@ use url::Url;
 pub fn walk_all_collections(
     build_config: &flow::build_api::Config,
     collections: &[tables::Collection],
-    imports: &[tables::Import],
     projections: &[tables::Projection],
     schema_shapes: &[schema::Shape],
     storage_mappings: &[tables::StorageMapping],
@@ -27,7 +26,6 @@ pub fn walk_all_collections(
             walk_collection(
                 build_config,
                 collection,
-                imports,
                 projections,
                 schema_shapes,
                 storage_mappings,
@@ -42,7 +40,6 @@ pub fn walk_all_collections(
 fn walk_collection(
     build_config: &flow::build_api::Config,
     collection: &tables::Collection,
-    imports: &[tables::Import],
     projections: &[tables::Projection],
     schema_shapes: &[schema::Shape],
     storage_mappings: &[tables::StorageMapping],
@@ -52,7 +49,8 @@ fn walk_collection(
         scope,
         collection: name,
         spec: models::CollectionDef { key, .. },
-        schema,
+        write_schema,
+        read_schema,
     } = collection;
 
     indexed::walk_name(
@@ -70,22 +68,40 @@ fn walk_collection(
         .push(scope, errors);
     }
 
-    let schema = schema_shapes.iter().find(|s| s.schema == *schema).unwrap();
-    schema::walk_composite_key(scope, key, schema, errors);
+    let write_shape = schema_shapes
+        .iter()
+        .find(|s| s.schema == *write_schema)
+        .unwrap();
+    let read_shape = schema_shapes
+        .iter()
+        .find(|s| s.schema == *read_schema)
+        .unwrap();
 
-    if schema.shape.type_ != types::OBJECT {
+    if read_shape.shape.type_ != types::OBJECT {
         Error::CollectionSchemaNotObject {
             collection: name.to_string(),
         }
         .push(scope, errors);
     }
+    schema::walk_composite_key(scope, key, read_shape, errors);
 
-    let projections = walk_collection_projections(collection, projections, schema, errors);
+    if write_schema != read_schema {
+        // These checks must also validate against a differentiated write schema.
+        if write_shape.shape.type_ != types::OBJECT {
+            Error::CollectionSchemaNotObject {
+                collection: name.to_string(),
+            }
+            .push(scope, errors);
+        }
+        schema::walk_composite_key(scope, key, write_shape, errors);
+    }
+
+    let projections =
+        walk_collection_projections(collection, projections, write_shape, read_shape, errors);
 
     let partition_stores = storage_mapping::mapped_stores(
         scope,
         "collection",
-        imports,
         name.as_str(),
         storage_mappings,
         errors,
@@ -95,7 +111,8 @@ fn walk_collection(
         build_config,
         collection,
         projections,
-        &schema.bundle,
+        &write_shape.bundle,
+        &read_shape.bundle,
         partition_stores,
     )
 }
@@ -103,7 +120,8 @@ fn walk_collection(
 fn walk_collection_projections(
     collection: &tables::Collection,
     projections: &[tables::Projection],
-    schema_shape: &schema::Shape,
+    write_shape: &schema::Shape,
+    read_shape: &schema::Shape,
     errors: &mut tables::Errors,
 ) -> Vec<flow::Projection> {
     // Require that projection fields have no duplicates under our collation.
@@ -117,7 +135,7 @@ fn walk_collection_projections(
     );
 
     // Projections which are statically inferred from the JSON schema.
-    let implied_projections = schema_shape
+    let implied_projections = read_shape
         .fields
         .iter()
         .map(|(f, p)| (models::Field::new(f), p));
@@ -128,14 +146,15 @@ fn walk_collection_projections(
         .merge_join_by(implied_projections, |projection, (infer_field, _)| {
             projection.field.cmp(infer_field)
         })
-        .map(|eob| walk_projection_with_inference(collection, eob, schema_shape, errors))
+        .map(|eob| walk_projection_with_inference(collection, eob, write_shape, read_shape, errors))
         .collect()
 }
 
 fn walk_projection_with_inference(
     collection: &tables::Collection,
     eob: EitherOrBoth<&tables::Projection, (models::Field, &models::JsonPointer)>,
-    schema_shape: &schema::Shape,
+    write_shape: &schema::Shape,
+    read_shape: &schema::Shape,
     errors: &mut tables::Errors,
 ) -> flow::Projection {
     let (scope, field, location, projection) = match &eob {
@@ -169,15 +188,15 @@ fn walk_projection_with_inference(
         EitherOrBoth::Right((field, location)) => (&collection.scope, field, *location, None),
     };
 
-    let (shape, exists) = schema_shape.shape.locate(&doc::Pointer::from_str(location));
+    let (r_inference, r_exists) = read_shape.shape.locate(&doc::Pointer::from_str(location));
 
     let mut spec = flow::Projection {
         ptr: location.to_string(),
         field: field.to_string(),
-        user_provided: false,
+        explicit: false,
         is_primary_key: collection.spec.key.iter().any(|k| k == location),
         is_partition_key: false,
-        inference: Some(assemble::inference(shape, exists)),
+        inference: Some(assemble::inference(r_inference, r_exists)),
     };
 
     if let Some(projection) = projection {
@@ -191,18 +210,34 @@ fn walk_projection_with_inference(
                 models::PartitionField::regex(),
                 errors,
             );
+
+            if write_shape.schema != read_shape.schema {
+                // Partitioned projections must also validated against a differentiated write schema.
+                let (w_inference, w_exists) =
+                    write_shape.shape.locate(&doc::Pointer::from_str(location));
+
+                schema::walk_explicit_location(
+                    scope,
+                    &write_shape.schema,
+                    location,
+                    true,
+                    w_inference,
+                    w_exists,
+                    errors,
+                );
+            }
         }
         schema::walk_explicit_location(
             scope,
-            &schema_shape.schema,
+            &read_shape.schema,
             location,
             partition,
-            shape,
-            exists,
+            r_inference,
+            r_exists,
             errors,
         );
 
-        spec.user_provided = true;
+        spec.explicit = true;
         spec.is_partition_key = partition;
     }
 

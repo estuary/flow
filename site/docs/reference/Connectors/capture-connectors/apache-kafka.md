@@ -1,11 +1,24 @@
 ---
-sidebar_position: 4
+sidebar_position: 3
 ---
 # Apache Kafka
 
 This connector captures streaming data from Apache Kafka topics.
 
-[`ghcr.io/estuary/source-kafka:dev`](https://github.com/estuary/connectors/pkgs/container/source-kafka) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-kafka:dev`](https://github.com/estuary/connectors/pkgs/container/source-kafka) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+
+## Supported data types
+
+This connector supports Kafka messages that contain JSON data.
+Flow [collections](../../../concepts/collections.md) store data as JSON.
+Before deploying this connector, you should modify [schema(s)](../../../concepts/schemas.md)
+of the Flow collection(s) you're creating to reflect the structure of your JSON Kafka messages.
+
+At this time, the connector does not support other data types in Kafka messages.
+
+:::info Beta
+Support for Avro Kafka messages will be added soon. For more information, [contact the Estuary team](mailto:info@estuary.dev).
+:::
 
 ## Prerequisites
 
@@ -40,8 +53,8 @@ Other connection security methods may be enabled in the future.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and YAML sample below provide configuration details specific to the Apache Kafka source connector.
+You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Apache Kafka source connector.
 
 ### Properties
 

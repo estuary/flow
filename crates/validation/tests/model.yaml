@@ -46,6 +46,18 @@ test://example/int-string:
         fragments:
           compressionCodec: ZSTANDARD
 
+    testing/int-string-rw:
+      writeSchema: test://example/int-string.schema
+      readSchema: test://example/int-string-len.schema
+      key: [/int]
+      projections:
+        Int: /int
+        Len: /len
+        Str: /str
+        bit:
+          location: /bit
+          partition: true
+
 test://example/int-string-captures:
   import:
     - test://example/int-string
@@ -199,14 +211,15 @@ test://example/int-halve:
         transform:
           halveIntString:
             source:
-              name: testing/int-string
-              schema: test://example/int-string-len.schema
+              name: testing/int-string-rw
               partitions:
                 include:
                   bit: [true]
                 exclude:
                   bit: [false]
             shuffle:
+              # Note that /len is defined in int-string-rw's readSchema,
+              # but not its writeSchema.
               key: [/len, /int]
             update:
               lambda:
@@ -285,8 +298,6 @@ driver:
           resourcePath: [Web!hook, foo bar]
 
         - constraints:
-            flow_document: { type: 1, reason: "location required" }
-            # `Root`, as a user-defined projection, is selected over `flow_document`.
             Root: { type: 1, reason: "location required" }
             int: { type: 0, reason: "required" }
             Extra: { type: 1, reason: "location required" }
@@ -369,19 +380,14 @@ test://example/from-array-key:
 
       derivation:
         transform:
-          withSourceSchema:
-            source:
-              name: testing/array-key
-              schema: { $ref: test://example/array-key.schema }
-            shuffle:
-              # We do *not* expect a generated inference of testing/array-key
-              # because our key reference a different (inline) schema.
-              key: [/arr/2/aKey]
+          # The shuffle keys of these transforms become projections
+          # of the read collection.
+          withBar:
+            source: { name: testing/array-key }
+            shuffle: { key: [/arr/2/aKey] }
             publish: { lambda: { remote: https://an/api } }
 
-          withoutSourceSchema:
+          withFoo:
             source: { name: testing/array-key }
-            shuffle:
-              # We DO expect this shuffle generates an inference of testing/array-key.
-              key: [/arr/3/aKey]
+            shuffle: { key: [/arr/3/aKey] }
             publish: { lambda: { remote: https://an/api } }

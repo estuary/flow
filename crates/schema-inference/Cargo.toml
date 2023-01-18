@@ -1,24 +1,44 @@
 
 [package]
 name = "schema-inference"
-version = "0.1.0"
-authors = ["Alex Burkhart <alex@estuary.dev>"]
-edition = "2021"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [[bin]]
 name = "flow-schema-inference"
 path = "src/main.rs"
 
 [dependencies]
-doc = { path = "../doc", version = "0.0.0" }
-json = { path = "../json", version = "0.0.0" }
+doc = { path = "../doc" }
+json = { path = "../json" }
+journal-client = { path = "../journal-client" }
+assemble = { path = "../assemble" }
+models = { path = "../models" }
+proto-gazette = { path = "../proto-gazette" }
 
-anyhow = "1.0.57"
-clap = {version = "3.2.5", features=["derive"]}
-itertools = {version = "0.10.3"}
-schemars = "0.8.10"
-serde = {version = "1.0.137", features=["derive"]}
-serde_json = {version = "1.0.81", features = ["raw_value"]}
+humantime = { workspace = true }
+bytesize = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+itertools = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tonic = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+tokio-util = { workspace = true }
+futures-util = { workspace = true }
+futures = { workspace = true }
+bytes = { workspace = true }
+warp = { workspace = true }
 
 [dev-dependencies]
-insta = "*"
+insta = { workspace = true }

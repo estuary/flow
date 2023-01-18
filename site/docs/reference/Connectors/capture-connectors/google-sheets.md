@@ -1,12 +1,8 @@
----
-sidebar_position: 9
----
-
 # Google Sheets
 
 This connector captures data from a Google Sheets spreadsheet.
 
-[`ghcr.io/estuary/source-google-sheets:dev`](https://ghcr.io/estuary/source-google-sheets:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-sheets:dev`](https://ghcr.io/estuary/source-google-sheets:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/google-sheets),
@@ -14,24 +10,19 @@ but keep in mind that the two versions may be significantly different.
 
 ## Prerequisites
 
-There are two ways to authenticate with Google when capturing data from a Sheet: using OAuth, and by generating a service account key.
+There are two ways to authenticate with Google when capturing data from a Sheet: using OAuth2, and manually,by generating a service account key.
 Their prerequisites differ.
 
 OAuth is recommended for simplicity in the Flow web app;
 the service account key method is the only supported method using the command line.
 
-### Prerequisites for OAuth
-
-:::caution Beta
-OAuth implementation is under active development and is coming soon.
-Use the service account key method for now.
-:::
+### Using OAuth2 to authenticate with Google in the Flow web app
 
 * A link to a Google spreadsheet. Simply copy the link from your browser.
 
 * Your Google account username and password.
 
-### Prerequisites using a service account key
+### Configuring the connector specification manually
 
 * A link to a Google spreadsheet. Simply copy the link from your browser.
 
@@ -56,9 +47,9 @@ or share explicitly with the service account's email address.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
+You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors.
-The values and YAML sample below provide configuration details specific to the Google Sheets source connector.
+The values and specification sample below provide configuration details specific to the Google Sheets source connector.
 
 ### Properties
 

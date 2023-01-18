@@ -2,6 +2,7 @@ package schemagen
 
 import (
 	"reflect"
+	"strconv"
 
 	"github.com/invopop/jsonschema"
 )
@@ -27,28 +28,60 @@ func GenerateSchema(title string, configObject interface{}) *jsonschema.Schema {
 	schema.AdditionalProperties = nil // Unset means additional properties are permitted on the root object, as they should be
 	schema.Definitions = nil          // Since no references are used, these definitions are just noise
 	schema.Title = title
-	fixSchemaFlagBools(schema, "secret", "advanced", "multiline")
+	walkSchema(
+		schema,
+		fixSchemaFlagBools(schema, "secret", "advanced", "multiline"),
+		fixSchemaOrderingStrings,
+	)
+
 	return schema
 }
 
-func fixSchemaFlagBools(t *jsonschema.Schema, flagKeys ...string) {
-	if t.Properties != nil {
-		for _, key := range t.Properties.Keys() {
-			if p, ok := t.Properties.Get(key); ok {
+// walkSchema invokes visit on every property of the root schema, and then traverses each of these
+// sub-schemas recursively. The visit function should modify the provided schema in-place to
+// accomplish the desired transformation.
+func walkSchema(root *jsonschema.Schema, visits ...func(t *jsonschema.Schema)) {
+	if root.Properties != nil {
+		for _, key := range root.Properties.Keys() {
+			if p, ok := root.Properties.Get(key); ok {
 				if p, ok := p.(*jsonschema.Schema); ok {
-					fixSchemaFlagBools(p, flagKeys...)
+					for _, visit := range visits {
+						visit(p)
+					}
+
+					walkSchema(p, visits...)
 				}
 			}
 		}
 	}
+}
+
+func fixSchemaFlagBools(t *jsonschema.Schema, flagKeys ...string) func(t *jsonschema.Schema) {
+	return func(t *jsonschema.Schema) {
+		for key, val := range t.Extras {
+			for _, flag := range flagKeys {
+				if key != flag {
+					continue
+				} else if val == "true" {
+					t.Extras[key] = true
+				} else if val == "false" {
+					t.Extras[key] = false
+				}
+			}
+		}
+	}
+}
+
+func fixSchemaOrderingStrings(t *jsonschema.Schema) {
 	for key, val := range t.Extras {
-		for _, flag := range flagKeys {
-			if key != flag {
-				continue
-			} else if val == "true" {
-				t.Extras[key] = true
-			} else if val == "false" {
-				t.Extras[key] = false
+		if key == "order" {
+			if str, ok := val.(string); ok {
+				converted, err := strconv.Atoi(str)
+				if err != nil {
+					// Don't try to convert strings that don't look like integers.
+					continue
+				}
+				t.Extras[key] = converted
 			}
 		}
 	}

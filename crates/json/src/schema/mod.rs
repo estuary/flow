@@ -1,8 +1,9 @@
 use crate::Number;
 use serde_json as sj;
-use std::fmt::Write;
+use std::fmt::{Write, Display};
 
 pub mod build;
+pub mod formats;
 pub mod index;
 pub mod intern;
 pub mod keywords;
@@ -42,11 +43,7 @@ pub enum CoreAnnotation {
     Examples(Vec<sj::Value>),
     ContentEncoding(String),
     ContentMediaType(String),
-    /// The "format" annotation can be simply informational, or it can optionally be an assertion
-    /// that a string is valid for the given format. We currently only collect and use it as an
-    /// annotation, but we may also use it as an assertion in the future.
-    /// https://json-schema.org/draft/2019-09/json-schema-validation.html#format
-    Format(String),
+    Format(formats::Format),
 }
 // CoreAnnotation trivially implements Annotation.
 impl Annotation for CoreAnnotation {
@@ -236,7 +233,7 @@ pub enum Validation {
     MaxLength(usize),
     MinLength(usize),
     Pattern(fancy_regex::Regex),
-    // Format(String),
+    Format(formats::Format),
 
     // Number-specific validations.
     MultipleOf(Number),
@@ -265,4 +262,37 @@ pub enum Validation {
         then_: Vec<String>,
         then_interned: intern::Set,
     },
+}
+
+impl Display for Validation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use Validation::*;
+        match self {
+            False => write!(f, "false"),
+            Required { props, .. } => write!(f, "Properties \"{}\" are required", props.join("\", \"")),
+            MaxLength(size) => write!(f, "Maximum length is {}", size),
+            MinLength(size) => write!(f, "Minimum length is {}", size),
+            Type(types) => write!(f, "Must be of type {}", types),
+            Const(constant) => write!(f, "Must be the constant {}", constant.value),
+            Enum { variants } => {
+                let enums = variants.iter().map(|literal| literal.value.to_string()).collect::<Vec<String>>().join("\", ");
+                write!(f, "Must be one of \"{}\"", enums)
+            },
+            Pattern(ptrn) => write!(f, "Must match the pattern \"{}\"", ptrn),
+            Format(fmt) => write!(f, "Must match the format \"{:?}", fmt),
+            MultipleOf(n) => write!(f, "Must be a multiple of {}", n),
+            Maximum(n) => write!(f, "Must be less than or equal to {}", n),
+            ExclusiveMaximum(n) => write!(f, "Must be less than {}", n),
+            Minimum(n) => write!(f, "Must be greater than or equal to {}", n),
+            ExclusiveMinimum(n) => write!(f, "Must be greater than {}", n),
+            MaxItems(n) => write!(f, "Must have a maximum of {} items", n),
+            MinItems(n) => write!(f, "Must have a minimum of {} items", n),
+            UniqueItems => write!(f, "Items must be unique"),
+            MaxProperties(n) => write!(f, "Must have a maximum of {} properties", n),
+            MinProperties(n) => write!(f, "Must have a minimum of {} properties", n),
+            DependentRequired { if_, then_, .. } => write!(f, "If \"{}\" is present, then \"{}\" must also be present", if_, then_.join("\", \"")),
+            MaxContains(_) => todo!(),
+            MinContains(_) => todo!(),
+        }
+    }
 }

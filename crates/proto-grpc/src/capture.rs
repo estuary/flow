@@ -3,6 +3,7 @@
 pub mod driver_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
     /// Driver is the service implemented by a capture connector.
     #[derive(Debug, Clone)]
     pub struct DriverClient<T> {
@@ -30,6 +31,10 @@ pub mod driver_client {
             let inner = tonic::client::Grpc::new(inner);
             Self { inner }
         }
+        pub fn with_origin(inner: T, origin: Uri) -> Self {
+            let inner = tonic::client::Grpc::with_origin(inner, origin);
+            Self { inner }
+        }
         pub fn with_interceptor<F>(
             inner: T,
             interceptor: F,
@@ -49,19 +54,19 @@ pub mod driver_client {
         {
             DriverClient::new(InterceptedService::new(inner, interceptor))
         }
-        /// Compress requests with `gzip`.
+        /// Compress requests with the given encoding.
         ///
         /// This requires the server to support it otherwise it might respond with an
         /// error.
         #[must_use]
-        pub fn send_gzip(mut self) -> Self {
-            self.inner = self.inner.send_gzip();
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.send_compressed(encoding);
             self
         }
-        /// Enable decompressing responses with `gzip`.
+        /// Enable decompressing responses.
         #[must_use]
-        pub fn accept_gzip(mut self) -> Self {
-            self.inner = self.inner.accept_gzip();
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.accept_compressed(encoding);
             self
         }
         /// Spec returns the specification definition of this driver.
@@ -70,9 +75,9 @@ pub mod driver_client {
             &mut self,
             request: impl tonic::IntoRequest<::proto_flow::capture::SpecRequest>,
         ) -> Result<
-                tonic::Response<::proto_flow::capture::SpecResponse>,
-                tonic::Status,
-            > {
+            tonic::Response<::proto_flow::capture::SpecResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -91,9 +96,9 @@ pub mod driver_client {
             &mut self,
             request: impl tonic::IntoRequest<::proto_flow::capture::DiscoverRequest>,
         ) -> Result<
-                tonic::Response<::proto_flow::capture::DiscoverResponse>,
-                tonic::Status,
-            > {
+            tonic::Response<::proto_flow::capture::DiscoverResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -113,9 +118,9 @@ pub mod driver_client {
             &mut self,
             request: impl tonic::IntoRequest<::proto_flow::capture::ValidateRequest>,
         ) -> Result<
-                tonic::Response<::proto_flow::capture::ValidateResponse>,
-                tonic::Status,
-            > {
+            tonic::Response<::proto_flow::capture::ValidateResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -134,9 +139,9 @@ pub mod driver_client {
             &mut self,
             request: impl tonic::IntoRequest<::proto_flow::capture::ApplyRequest>,
         ) -> Result<
-                tonic::Response<::proto_flow::capture::ApplyResponse>,
-                tonic::Status,
-            > {
+            tonic::Response<::proto_flow::capture::ApplyResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -157,9 +162,9 @@ pub mod driver_client {
             &mut self,
             request: impl tonic::IntoRequest<::proto_flow::capture::ApplyRequest>,
         ) -> Result<
-                tonic::Response<::proto_flow::capture::ApplyResponse>,
-                tonic::Status,
-            > {
+            tonic::Response<::proto_flow::capture::ApplyResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -227,11 +232,11 @@ pub mod driver_client {
                 Message = ::proto_flow::capture::PullRequest,
             >,
         ) -> Result<
-                tonic::Response<
-                    tonic::codec::Streaming<::proto_flow::capture::PullResponse>,
-                >,
-                tonic::Status,
-            > {
+            tonic::Response<
+                tonic::codec::Streaming<::proto_flow::capture::PullResponse>,
+            >,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -252,6 +257,7 @@ pub mod driver_client {
 pub mod runtime_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
     /// Runtime is the Flow runtime service which implements push-based captures.
     #[derive(Debug, Clone)]
     pub struct RuntimeClient<T> {
@@ -279,6 +285,10 @@ pub mod runtime_client {
             let inner = tonic::client::Grpc::new(inner);
             Self { inner }
         }
+        pub fn with_origin(inner: T, origin: Uri) -> Self {
+            let inner = tonic::client::Grpc::with_origin(inner, origin);
+            Self { inner }
+        }
         pub fn with_interceptor<F>(
             inner: T,
             interceptor: F,
@@ -298,19 +308,19 @@ pub mod runtime_client {
         {
             RuntimeClient::new(InterceptedService::new(inner, interceptor))
         }
-        /// Compress requests with `gzip`.
+        /// Compress requests with the given encoding.
         ///
         /// This requires the server to support it otherwise it might respond with an
         /// error.
         #[must_use]
-        pub fn send_gzip(mut self) -> Self {
-            self.inner = self.inner.send_gzip();
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.send_compressed(encoding);
             self
         }
-        /// Enable decompressing responses with `gzip`.
+        /// Enable decompressing responses.
         #[must_use]
-        pub fn accept_gzip(mut self) -> Self {
-            self.inner = self.inner.accept_gzip();
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.inner = self.inner.accept_compressed(encoding);
             self
         }
         /// Push may be a short or very long lived RPC through which the Flow runtime
@@ -367,11 +377,11 @@ pub mod runtime_client {
                 Message = ::proto_flow::capture::PushRequest,
             >,
         ) -> Result<
-                tonic::Response<
-                    tonic::codec::Streaming<::proto_flow::capture::PushResponse>,
-                >,
-                tonic::Status,
-            > {
+            tonic::Response<
+                tonic::codec::Streaming<::proto_flow::capture::PushResponse>,
+            >,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -406,34 +416,34 @@ pub mod driver_server {
             &self,
             request: tonic::Request<::proto_flow::capture::DiscoverRequest>,
         ) -> Result<
-                tonic::Response<::proto_flow::capture::DiscoverResponse>,
-                tonic::Status,
-            >;
+            tonic::Response<::proto_flow::capture::DiscoverResponse>,
+            tonic::Status,
+        >;
         /// Validate that store resources and proposed collection bindings are
         /// compatible.
         async fn validate(
             &self,
             request: tonic::Request<::proto_flow::capture::ValidateRequest>,
         ) -> Result<
-                tonic::Response<::proto_flow::capture::ValidateResponse>,
-                tonic::Status,
-            >;
+            tonic::Response<::proto_flow::capture::ValidateResponse>,
+            tonic::Status,
+        >;
         /// ApplyUpsert applies a new or updated capture to the store.
         async fn apply_upsert(
             &self,
             request: tonic::Request<::proto_flow::capture::ApplyRequest>,
         ) -> Result<
-                tonic::Response<::proto_flow::capture::ApplyResponse>,
-                tonic::Status,
-            >;
+            tonic::Response<::proto_flow::capture::ApplyResponse>,
+            tonic::Status,
+        >;
         /// ApplyDelete deletes an existing capture from the store.
         async fn apply_delete(
             &self,
             request: tonic::Request<::proto_flow::capture::ApplyRequest>,
         ) -> Result<
-                tonic::Response<::proto_flow::capture::ApplyResponse>,
-                tonic::Status,
-            >;
+            tonic::Response<::proto_flow::capture::ApplyResponse>,
+            tonic::Status,
+        >;
         ///Server streaming response type for the Pull method.
         type PullStream: futures_core::Stream<
                 Item = Result<::proto_flow::capture::PullResponse, tonic::Status>,
@@ -495,8 +505,8 @@ pub mod driver_server {
     #[derive(Debug)]
     pub struct DriverServer<T: Driver> {
         inner: _Inner<T>,
-        accept_compression_encodings: (),
-        send_compression_encodings: (),
+        accept_compression_encodings: EnabledCompressionEncodings,
+        send_compression_encodings: EnabledCompressionEncodings,
     }
     struct _Inner<T>(Arc<T>);
     impl<T: Driver> DriverServer<T> {
@@ -519,6 +529,18 @@ pub mod driver_server {
             F: tonic::service::Interceptor,
         {
             InterceptedService::new(Self::new(inner), interceptor)
+        }
+        /// Enable decompressing requests with the given encoding.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.accept_compression_encodings.enable(encoding);
+            self
+        }
+        /// Compress responses with the given encoding, if the client supports it.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.send_compression_encodings.enable(encoding);
+            self
         }
     }
     impl<T, B> tonic::codegen::Service<http::Request<B>> for DriverServer<T>
@@ -813,7 +835,7 @@ pub mod driver_server {
             write!(f, "{:?}", self.0)
         }
     }
-    impl<T: Driver> tonic::transport::NamedService for DriverServer<T> {
+    impl<T: Driver> tonic::server::NamedService for DriverServer<T> {
         const NAME: &'static str = "capture.Driver";
     }
 }
@@ -888,8 +910,8 @@ pub mod runtime_server {
     #[derive(Debug)]
     pub struct RuntimeServer<T: Runtime> {
         inner: _Inner<T>,
-        accept_compression_encodings: (),
-        send_compression_encodings: (),
+        accept_compression_encodings: EnabledCompressionEncodings,
+        send_compression_encodings: EnabledCompressionEncodings,
     }
     struct _Inner<T>(Arc<T>);
     impl<T: Runtime> RuntimeServer<T> {
@@ -912,6 +934,18 @@ pub mod runtime_server {
             F: tonic::service::Interceptor,
         {
             InterceptedService::new(Self::new(inner), interceptor)
+        }
+        /// Enable decompressing requests with the given encoding.
+        #[must_use]
+        pub fn accept_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.accept_compression_encodings.enable(encoding);
+            self
+        }
+        /// Compress responses with the given encoding, if the client supports it.
+        #[must_use]
+        pub fn send_compressed(mut self, encoding: CompressionEncoding) -> Self {
+            self.send_compression_encodings.enable(encoding);
+            self
         }
     }
     impl<T, B> tonic::codegen::Service<http::Request<B>> for RuntimeServer<T>
@@ -1008,7 +1042,7 @@ pub mod runtime_server {
             write!(f, "{:?}", self.0)
         }
     }
-    impl<T: Runtime> tonic::transport::NamedService for RuntimeServer<T> {
+    impl<T: Runtime> tonic::server::NamedService for RuntimeServer<T> {
         const NAME: &'static str = "capture.Runtime";
     }
 }

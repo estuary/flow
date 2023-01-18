@@ -6,33 +6,20 @@ use protocol::{
     flow::build_api::{self, Code},
     materialize,
 };
-use serde::Serialize;
 use std::rc::Rc;
 use std::task::Poll;
 use url::Url;
 
-#[derive(thiserror::Error, Debug, Serialize)]
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("protocol error (invalid state or invocation)")]
     InvalidState,
     #[error("Protobuf decoding error")]
-    #[serde(serialize_with = "serialize_as_display")]
     ProtoDecode(#[from] prost::DecodeError),
     #[error(transparent)]
-    #[serde(serialize_with = "serialize_as_display")]
     UTF8Error(#[from] std::str::Utf8Error),
     #[error(transparent)]
-    #[serde(serialize_with = "serialize_as_display")]
     Anyhow(#[from] anyhow::Error),
-}
-
-fn serialize_as_display<T, S>(thing: T, serializer: S) -> Result<S::Ok, S::Error>
-where
-    T: std::fmt::Display,
-    S: serde::ser::Serializer,
-{
-    let s = thing.to_string();
-    serializer.serialize_str(&s)
 }
 
 // Fetcher implements sources::Fetcher, and delegates to Go via Trampoline.

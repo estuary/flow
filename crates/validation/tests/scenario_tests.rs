@@ -37,25 +37,23 @@ fn connector_validation_is_skipped_when_shards_are_disabled() {
         "expected no errors, got: {:?}",
         tables.errors
     );
-    assert!(tables.built_captures.len() == 1);
-    assert_eq!(
+    assert_eq!(tables.built_captures.len(), 1);
+    assert!(
         tables.built_captures[0]
             .spec
             .shard_template
             .as_ref()
             .unwrap()
             .disable,
-        true
     );
-    assert!(tables.built_materializations.len() == 1);
-    assert_eq!(
+    assert_eq!(tables.built_materializations.len(), 1);
+    assert!(
         tables.built_materializations[0]
             .spec
             .shard_template
             .as_ref()
             .unwrap()
             .disable,
-        true
     );
 }
 
@@ -146,6 +144,34 @@ test://example/int-string:
 
         # Attempt to re-map a canonical projection.
         str: /int
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_invalid_remap_of_default_flow_document() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+# Collection int-string uses the default `flow_document` projection of the root.
+test://example/int-string.schema:
+  type: object
+  properties:
+    flow_document: { type: boolean }
+
+# Collection int-reverse uses a different `Root` projection of the root.
+# We don't expect it to produce an error from an implicit literal
+# `flow_document` property.
+test://example/int-reverse:
+  collections:
+    testing/int-reverse:
+      schema:
+        $ref: test://example/int-string.schema
+        properties:
+          flow_document: { type: boolean }
+      projections:
+        Root: ""
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -377,25 +403,6 @@ test://example/int-string-captures:
 }
 
 #[test]
-fn test_capture_target_is_missing_imports() {
-    let errors = run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/int-string-captures:
-  import: null
-  captures:
-    # testing/s3-source is unchanged but is now missing its import.
-
-    testing/db-cdc:
-      bindings:
-        - target: testing/int-reverse
-          resource: { }
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
 fn test_capture_duplicates() {
     let errors = run_test_errors(
         &GOLDEN,
@@ -463,24 +470,6 @@ driver:
 }
 
 #[test]
-fn test_use_without_import() {
-    let errors = run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/int-string:
-  import: [] # Clear.
-
-test://example/int-reverse:
-  import: [] # Clear.
-
-test://example/webhook-deliveries:
-  import: [] # Clear.
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
 fn test_schema_fragment_not_found() {
     let errors = run_test_errors(
         &GOLDEN,
@@ -490,20 +479,33 @@ test://example/int-string:
     testing/int-string:
       schema: test://example/int-string.schema#/not/found
 
+    testing/int-string-rw:
+      writeSchema: test://example/int-string.schema#/also/not/found
+      readSchema: test://example/int-string-len.schema#DoesNotExist
+
 # Omit downstream errors.
 test://example/db-views:
   materializations: null
 test://example/webhook-deliveries:
   materializations: null
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
 
-test://example/int-halve:
+#[test]
+fn test_keyed_location_pointer_is_malformed() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/int-string:
   collections:
-    testing/int-halve:
-      derivation:
-        transform:
-          halveIntString:
-            source:
-              schema: test://example/int-string-len.schema#/not/found
+    testing/int-string:
+      key: [int]
+      projections:
+        Int: int
+        DoubleSlash: /double//slash
+        InvalidEscape: /an/esc~ape
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -671,21 +673,32 @@ test://example/int-halve:
 }
 
 #[test]
-fn test_redundant_source_schema_and_shuffle() {
+fn test_partition_not_defined_in_write_schema() {
     let errors = run_test_errors(
         &GOLDEN,
         r#"
-test://example/int-reverse:
+test://example/int-string:
   collections:
-    testing/int-reverse:
-      derivation:
-        transform:
-          reverseIntString:
-            source:
-              name: testing/int-string
-              schema: test://example/int-string.schema
-            shuffle:
-              key: [/int]
+    testing/int-string-rw:
+      projections:
+        Len:
+          location: /len
+          partition: true
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_key_not_defined_in_write_schema() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/int-string:
+  collections:
+    testing/int-string-rw:
+      # /len is present in the read but not write schema.
+      key: [/int, /len, /missing-in-read-and-write-schemas]
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -893,7 +906,7 @@ driver:
           resourcePath: [tar!get, one]
           typeOverride: 98
         - constraints:
-            flow_document: { type: 1, reason: "location required" }
+            Root: { type: 1, reason: "location required" }
             str: { reason: "whoops" }
           resourcePath: [tar!get, two]
           typeOverride: 99
@@ -1100,25 +1113,6 @@ test://example/int-string:
 }
 
 #[test]
-fn test_storage_mappings_not_imported() {
-    let errors = run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/catalog.yaml:
-  storageMappings: null
-
-test://example/array-key:
-  storageMappings:
-    testing/:
-      stores: [{provider: S3, bucket: data-bucket}]
-    recovery/testing/:
-      stores: [{provider: GCS, bucket: recovery-bucket, prefix: some/ }]
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
 fn test_storage_mappings_not_found() {
     let errors = run_test_errors(
         &GOLDEN,
@@ -1174,6 +1168,7 @@ fn test_collection_schema_string() {
 test://example/catalog.yaml:
   import:
     - test://example/string-schema
+
 test://example/string-schema:
   collections:
     testing/string-schema:

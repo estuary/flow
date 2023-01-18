@@ -45,18 +45,15 @@ pub enum Error {
     RegexErr(#[from] regex::Error),
     #[error("failed to build annotation: {0}")]
     AnnotationErr(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
+    #[error(transparent)]
+    FormatErr(#[from] serde_json::Error),
 
     #[error("at schema '{curi}': {detail}")]
-    AtSchema {
-        #[source]
-        detail: Box<Error>,
-        curi: url::Url,
-    },
+    AtSchema { curi: url::Url, detail: Box<Error> },
     #[error("at keyword '{keyword}' of schema '{curi}': {detail}")]
     AtKeyword {
-        #[source]
-        detail: Box<Error>,
         curi: url::Url,
+        detail: Box<Error>,
         keyword: String,
     },
 }
@@ -159,7 +156,7 @@ where
 
         let mut unknown = false;
         match keyword {
-            // Already handeled outside of this match.
+            // Already handled outside of this match.
             keywords::ID => (),
             keywords::NULLABLE => (),
 
@@ -370,6 +367,9 @@ where
                 }
                 _ => return Err(ExpectedObject),
             },
+            keywords::FORMAT => self.add_validation(Val::Format(
+                serde_json::from_value(v.clone()).map_err(|err| Error::FormatErr(err))?,
+            )),
 
             keywords::SCHEMA | keywords::VOCABULARY | keywords::COMMENT => (), // Ignored.
 
@@ -624,7 +624,9 @@ impl AnnotationBuilder for CoreAnnotation {
             keywords::CONTENT_MEDIA_TYPE => {
                 CoreAnnotation::ContentMediaType(extract_str(v)?.to_owned())
             }
-            keywords::FORMAT => CoreAnnotation::Format(extract_str(v)?.to_owned()),
+            keywords::FORMAT => CoreAnnotation::Format(
+                serde_json::from_value(v.clone()).map_err(|err| Error::FormatErr(err))?,
+            ),
             keywords::DEFAULT => CoreAnnotation::Default(v.clone()),
             keywords::DEPRECATED => CoreAnnotation::Deprecated(extract_bool(v)?),
             keywords::DESCRIPTION => CoreAnnotation::Description(extract_str(v)?.to_owned()),

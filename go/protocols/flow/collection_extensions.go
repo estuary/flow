@@ -1,6 +1,8 @@
 package flow
 
 import (
+	"encoding/json"
+
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
@@ -17,6 +19,14 @@ func GetProjectionByField(field string, projections []Projection) *Projection {
 // GetProjection finds the projection with the given field name, or nil if one does not exist
 func (m *CollectionSpec) GetProjection(field string) *Projection {
 	return GetProjectionByField(field, m.Projections)
+}
+
+// GetReadSchemaJson returns the effective JSON schema for collection reads.
+func (m *CollectionSpec) GetReadSchemaJson() json.RawMessage {
+	if len(m.ReadSchemaJson) != 0 {
+		return m.ReadSchemaJson
+	}
+	return m.WriteSchemaJson
 }
 
 // Validate returns an error if the CollectionSpec is invalid.
@@ -41,7 +51,7 @@ func (m *CollectionSpec) Validate() error {
 		}
 	}
 
-	if m.SchemaUri == "" {
+	if m.WriteSchemaUri == "" {
 		return pb.NewValidationError("missing schema URI")
 	}
 	if len(m.KeyPtrs) == 0 {

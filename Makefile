@@ -22,14 +22,23 @@ UNAME := $(shell uname -sp)
 ifeq ($(UNAME),Darwin arm)
 export CARGO_BUILD_TARGET=aarch64-apple-darwin
 PACKAGE_ARCH=arm64-darwin
+ETCD_ARCH=darwin-arm64
+ETCD_SHASUM=33094133a771b2d086dc04f2ede41c249258947042de72132af127972880171f
+ETCD_EXT=zip
 export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C linker=musl-gcc
 else ifeq ($(UNAME),Darwin i386)
 export CARGO_BUILD_TARGET=x86_64-apple-darwin
 PACKAGE_ARCH=x86-darwin
+ETCD_ARCH=darwin-amd64
+ETCD_SHASUM=8bd279948877cfb730345ecff2478f69eaaa02513c2a43384ba182c9985267bd
+ETCD_EXT=zip
 export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C linker=musl-gcc
 else
 export CARGO_BUILD_TARGET=x86_64-unknown-linux-gnu
 PACKAGE_ARCH=x86-linux
+ETCD_ARCH=linux-amd64
+ETCD_SHASUM=7910a2fdb1863c80b885d06f6729043bff0540f2006bf6af34674df2636cb906
+ETCD_EXT=tar.gz
 endif
 RUSTBIN = ${CARGO_TARGET_DIR}/${CARGO_BUILD_TARGET}/release
 RUST_MUSL_BIN = ${CARGO_TARGET_DIR}/x86_64-unknown-linux-musl/release
@@ -42,9 +51,7 @@ WORKDIR  = $(realpath .)/.build
 PKGDIR = ${WORKDIR}/package
 
 # Etcd release we pin within Flow distributions.
-ETCD_VERSION = v3.5.4
-ETCD_LINUX_SHA256 = b1091166153df1ee0bb29b47fb1943ef0ddf0cd5d07a8fe69827580a08134def
-ETCD_DARWIN_AMD64_SHA256=f7133a24f9f563ccadbd5a3f94da708a920baaf82d9b0b4bc9efc058b58b17ee
+ETCD_VERSION = v3.5.5
 
 # PROTOC_INC_GO_MODULES are Go modules which must be resolved and included
 # with `protoc` invocations
@@ -82,7 +89,7 @@ GO_BUILD_DEPS = \
 # Build rules:
 
 .PHONY: default
-default: package
+default: linux-binaries package
 
 # Rules for protocols
 .PHONY: protoc-gen-gogo
@@ -102,45 +109,20 @@ go-protobufs: $(GO_PROTO_TARGETS)
 
 # `etcd` is used for testing, and packaged as a release artifact.
 ${PKGDIR}/bin/etcd:
-	# For Apple M1 we are currently using an unofficial built binary. Once the official binary for
-	# M1 is released we should switch to use that: https://github.com/etcd-io/etcd/issues/14001
-	if [ "$(UNAME)" = "Darwin arm" ]; then \
-		curl -L -o /tmp/etcd.tgz \
-										https://github.com/UniversalShipping/etcd/releases/download/${ETCD_VERSION}/etcd-binaries-darwin-arm64.tar.gz \
-						&& tar --extract \
-										--file /tmp/etcd.tgz \
-										--directory /tmp/ \
+		curl -L -o /tmp/etcd.${ETCD_EXT} \
+										https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-${ETCD_ARCH}.${ETCD_EXT} \
+						&& echo "${ETCD_SHASUM} /tmp/etcd.${ETCD_EXT}" | sha256sum -c - \
+						&& if [ "${ETCD_EXT}" = "zip" ]; then \
+								unzip /tmp/etcd.${ETCD_EXT} -d /tmp; \
+							else \
+								tar --extract --file /tmp/etcd.${ETCD_EXT} --directory /tmp/; \
+						fi \
 						&& mkdir -p ${PKGDIR}/bin/ \
-						&& mv /tmp/bin/etcd /tmp/bin/etcdctl ${PKGDIR}/bin/ \
+						&& mv /tmp/etcd-${ETCD_VERSION}-${ETCD_ARCH}/etcd /tmp/etcd-${ETCD_VERSION}-${ETCD_ARCH}/etcdctl ${PKGDIR}/bin/ \
 						&& chown ${UID}:${UID} ${PKGDIR}/bin/etcd ${PKGDIR}/bin/etcdctl \
-						&& rm -r /tmp/bin/ \
-						&& rm /tmp/etcd.tgz \
+						&& rm -r /tmp/etcd-${ETCD_VERSION}-${ETCD_ARCH}/ \
+						&& rm /tmp/etcd.${ETCD_EXT} \
 						&& $@ --version; \
-	elif [ "$(UNAME)" = "Darwin i386" ]; then \
-		curl -L -o /tmp/etcd.zip \
-										https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-darwin-amd64.zip \
-						&& echo "${ETCD_DARWIN_AMD64_SHA256} /tmp/etcd.zip" | sha256sum -c - \
-						&& unzip /tmp/etcd.zip -d /tmp \
-						&& mkdir -p ${PKGDIR}/bin/ \
-						&& mv /tmp/etcd-${ETCD_VERSION}-darwin-amd64/etcd /tmp/etcd-${ETCD_VERSION}-darwin-amd64/etcdctl ${PKGDIR}/bin/ \
-						&& chown ${UID}:${UID} ${PKGDIR}/bin/etcd ${PKGDIR}/bin/etcdctl \
-						&& rm -r /tmp/etcd-${ETCD_VERSION}-darwin-amd64/ \
-						&& rm /tmp/etcd.zip \
-						&& $@ --version; \
-	else \
-		curl -L -o /tmp/etcd.tgz \
-										https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-linux-amd64.tar.gz \
-						&& echo "${ETCD_LINUX_SHA256} /tmp/etcd.tgz" | sha256sum -c - \
-						&& tar --extract \
-										--file /tmp/etcd.tgz \
-										--directory /tmp/ \
-						&& mkdir -p ${PKGDIR}/bin/ \
-						&& mv /tmp/etcd-${ETCD_VERSION}-linux-amd64/etcd /tmp/etcd-${ETCD_VERSION}-linux-amd64/etcdctl ${PKGDIR}/bin/ \
-						&& chown ${UID}:${UID} ${PKGDIR}/bin/etcd ${PKGDIR}/bin/etcdctl \
-						&& rm -r /tmp/etcd-${ETCD_VERSION}-linux-amd64/ \
-						&& rm /tmp/etcd.tgz \
-						&& $@ --version; \
-	fi; \
 
 # Rule for building Go targets.
 # go-install rules never correspond to actual files, and are always re-run each invocation.
@@ -154,6 +136,8 @@ go-install/%: ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h
 ${PKGDIR}/bin/gazette: go-install/go.gazette.dev/core/cmd/gazette
 ${PKGDIR}/bin/gazctl:  go-install/go.gazette.dev/core/cmd/gazctl
 ${PKGDIR}/bin/flowctl-go: $(GO_BUILD_DEPS) $(GO_PROTO_TARGETS) go-install/github.com/estuary/flow/go/flowctl-go
+${PKGDIR}/bin/fetch-open-graph:
+	cd fetch-open-graph && go build -o ${PKGDIR}/
 
 # `sops` is used for encrypt/decrypt of connector configurations.
 ${PKGDIR}/bin/sops:
@@ -173,15 +157,19 @@ ${RUSTBIN}/libbindings.a crates/bindings/flow_bindings.h &:
 ${RUSTBIN}/librocks-exp/librocksdb.a:
 	cargo build --release --locked -p librocks-exp
 
-.PHONY: ${RUSTBIN}/flowctl-admin
-${RUSTBIN}/flowctl-admin:
-	cargo build --release --locked -p flowctl-admin
+.PHONY: ${RUSTBIN}/agent
+${RUSTBIN}/agent:
+	cargo build --release --locked -p agent
+
+.PHONY: ${RUSTBIN}/flowctl
+${RUSTBIN}/flowctl:
+	cargo build --release --locked -p flowctl
 
 # Statically linked binaries using MUSL:
 
-.PHONY: ${RUST_MUSL_BIN}/flow-connector-proxy
-${RUST_MUSL_BIN}/flow-connector-proxy:
-	cargo build --target x86_64-unknown-linux-musl --release --locked -p connector_proxy
+.PHONY: ${RUST_MUSL_BIN}/flow-connector-init
+${RUST_MUSL_BIN}/flow-connector-init:
+	cargo build --target x86_64-unknown-linux-musl --release --locked -p connector-init
 
 .PHONY: ${RUST_MUSL_BIN}/flow-network-tunnel
 ${RUST_MUSL_BIN}/flow-network-tunnel:
@@ -199,31 +187,40 @@ ${RUST_MUSL_BIN}/flow-schema-inference:
 ${RUST_MUSL_BIN}/flow-schemalate:
 	cargo build --target x86_64-unknown-linux-musl --release --locked -p schemalate
 
-
 ########################################################################
 # Final output packaging:
 
-RUST_TARGETS = \
+GNU_TARGETS = \
+	${PKGDIR}/bin/agent \
 	${PKGDIR}/bin/etcd \
-	${PKGDIR}/bin/flowctl-admin \
 	${PKGDIR}/bin/flowctl-go \
 	${PKGDIR}/bin/gazette \
-	${PKGDIR}/bin/sops
+	${PKGDIR}/bin/sops \
+	${PKGDIR}/bin/flowctl \
 
 MUSL_TARGETS = \
-	${PKGDIR}/bin/flow-connector-proxy \
+	${PKGDIR}/bin/flow-connector-init \
 	${PKGDIR}/bin/flow-network-tunnel \
 	${PKGDIR}/bin/flow-parser \
 	${PKGDIR}/bin/flow-schema-inference \
 	${PKGDIR}/bin/flow-schemalate
 
-.PHONY: rust-binaries
-rust-binaries: $(RUST_TARGETS)
+.PHONY: linux-gnu-binaries
+linux-gnu-binaries: $(GNU_TARGETS)
 
-.PHONY: musl-binaries
-musl-binaries: $(MUSL_TARGETS)
+.PHONY: linux-musl-binaries
+linux-musl-binaries: | ${PKGDIR}
+	cargo build --target x86_64-unknown-linux-musl --release --locked -p connector-init -p network-tunnel -p parser -p schema-inference -p schemalate
+	cp -f target/x86_64-unknown-linux-musl/release/flow-connector-init .build/package/bin/
+	cp -f target/x86_64-unknown-linux-musl/release/flow-network-tunnel .build/package/bin/
+	cp -f target/x86_64-unknown-linux-musl/release/flow-parser .build/package/bin/
+	cp -f target/x86_64-unknown-linux-musl/release/flow-schema-inference .build/package/bin/
+	cp -f target/x86_64-unknown-linux-musl/release/flow-schemalate .build/package/bin/
 
-${PKGDIR}/flow-$(PACKAGE_ARCH).tar.gz: $(RUST_TARGETS) $(MUSL_TARGETS)
+.PHONY: linux-binaries
+linux-binaries: linux-gnu-binaries linux-musl-binaries
+
+${PKGDIR}/flow-$(PACKAGE_ARCH).tar.gz:
 	rm -f $@
 	cd ${PKGDIR}/bin && tar -zcf ../flow-$(PACKAGE_ARCH).tar.gz *
 
@@ -233,12 +230,10 @@ package: ${PKGDIR}/flow-$(PACKAGE_ARCH).tar.gz
 ${PKGDIR}:
 	mkdir -p ${PKGDIR}/bin
 	mkdir ${PKGDIR}/lib
-${PKGDIR}/bin/flowctl-admin: ${RUSTBIN}/flowctl-admin | ${PKGDIR}
-	cp ${RUSTBIN}/flowctl-admin $@
 
 # The following binaries are statically linked, so come from a different subdirectory
-${PKGDIR}/bin/flow-connector-proxy: ${RUST_MUSL_BIN}/flow-connector-proxy | ${PKGDIR}
-	cp ${RUST_MUSL_BIN}/flow-connector-proxy $@
+${PKGDIR}/bin/flow-connector-init: ${RUST_MUSL_BIN}/flow-connector-init | ${PKGDIR}
+	cp ${RUST_MUSL_BIN}/flow-connector-init $@
 
 ${PKGDIR}/bin/flow-network-tunnel: ${RUST_MUSL_BIN}/flow-network-tunnel | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-network-tunnel $@
@@ -252,18 +247,25 @@ ${PKGDIR}/bin/flow-schema-inference: ${RUST_MUSL_BIN}/flow-schema-inference | ${
 ${PKGDIR}/bin/flow-schemalate: ${RUST_MUSL_BIN}/flow-schemalate | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-schemalate $@
 
+${PKGDIR}/bin/flowctl: ${RUSTBIN}/flowctl | ${PKGDIR}
+	cp ${RUSTBIN}/flowctl $@
+
+# Control-plane binaries
+
+${PKGDIR}/bin/agent: ${RUSTBIN}/agent | ${PKGDIR}
+	cp ${RUSTBIN}/agent $@
+
+
 ##########################################################################
 # Make targets used by CI:
 
-# We use LLVM for faster linking. See .cargo/config.
+# We use LLVM for faster linking. See RUSTFLAGS in .github/workflows/main.yml
 .PHONY: extra-ci-runner-setup
 extra-ci-runner-setup:
 	sudo apt install -y \
-		libprotobuf-dev \
 		libssl-dev \
 		musl-tools \
-		pkg-config \
-		protobuf-compiler
+		pkg-config
 	sudo ln --force --symbolic /usr/bin/ld.lld-12 /usr/bin/ld.lld
 
 .PHONY: print-versions
@@ -282,13 +284,13 @@ print-versions:
 .PHONY: install-tools
 install-tools: ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 
-.PHONY: rust-test
-rust-test:
-	cargo test --release --locked --workspace --exclude parser --exclude network-tunnel --exclude schemalate --exclude connector_proxy
+.PHONY: rust-gnu-test
+rust-gnu-test:
+	cargo test --release --locked --workspace --exclude parser --exclude network-tunnel --exclude schemalate --exclude connector-init
 
-.PHONY: musl-test
-musl-test:
-	cargo test --release --locked --target x86_64-unknown-linux-musl --package parser --package network-tunnel --package schemalate --package connector_proxy
+.PHONY: rust-musl-test
+rust-musl-test:
+	cargo test --release --locked --target x86_64-unknown-linux-musl --package parser --package network-tunnel --package schemalate --package connector-init
 
 # `go` test targets must have PATH-based access to tools (etcd & sops),
 # because the `go` tool compiles tests as binaries within a temp directory,
@@ -300,21 +302,34 @@ go-test-fast: $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./go/...
 
 .PHONY: go-test-ci
-go-test-ci:   $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops ${PKGDIR}/bin/flow-connector-proxy ${PKGDIR}/bin/flowctl-admin ${PKGDIR}/bin/flowctl-go
+go-test-ci:
 	PATH=${PKGDIR}/bin:$$PATH ;\
 	GORACE="halt_on_error=1" ;\
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./go/...
 
+.PHONY: data-plane-test-setup
+data-plane-test-setup:
+
+ifeq ($(SKIP_BUILD),true)
+data-plane-test-setup:
+	@echo "testing using pre-built binaries:"
+	@ls -al ${PKGDIR}/bin/
+	${PKGDIR}/bin/flowctl-go json-schema > flow.schema.json
+else
+data-plane-test-setup: ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/flow-connector-init ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops flow.schema.json
+endif
+
+
 .PHONY: catalog-test
-catalog-test: | ${PKGDIR}/bin/flowctl-admin ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops flow.schema.json
-	${PKGDIR}/bin/flowctl-admin test --source examples/local-sqlite.flow.yaml $(ARGS)
+catalog-test: data-plane-test-setup
+	${PKGDIR}/bin/flowctl-go test --source examples/local-sqlite.flow.yaml $(ARGS)
 
 .PHONY: end-to-end-test
-end-to-end-test: | ${PKGDIR}/bin/flowctl-admin ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/flow-connector-proxy ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
+end-to-end-test: data-plane-test-setup
 	./tests/run-all.sh
 
-flow.schema.json: | ${PKGDIR}/bin/flowctl-admin ${PKGDIR}/bin/flowctl-go
-	${PKGDIR}/bin/flowctl-admin json-schema > $@
+flow.schema.json: |  ${PKGDIR}/bin/flowctl-go
+	${PKGDIR}/bin/flowctl-go json-schema > $@
 
 # These docker targets intentionally don't depend on any upstream targets. This is because the
 # upstream targes are all PHONY as well, so there would be no way to prevent them from running twice if you

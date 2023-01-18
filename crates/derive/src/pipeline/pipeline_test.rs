@@ -90,7 +90,7 @@ impl Fixture {
 
     // Polls the pipeline and resolves all trampoline tasks. The final output documents and stats
     // are returned.
-    fn poll_to_completion(&mut self) -> (Vec<Value>, derive_api::Stats) {
+    fn poll_to_completion(mut self) -> (Vec<Value>, derive_api::Stats) {
         self.pipeline.flush();
 
         let mut arena = Vec::with_capacity(1024);
@@ -170,7 +170,10 @@ impl Fixture {
             out.clear();
         }
 
-        while !self.pipeline.drain_chunk(1, &mut arena, &mut out) {}
+        let mut more = true;
+        while more {
+            (self.pipeline, more) = self.pipeline.drain_chunk(1, &mut arena, &mut out).unwrap();
+        }
 
         let mut outputs = Vec::new();
         for frame in out.iter() {
@@ -290,8 +293,8 @@ impl FixtureBuilder {
             key_ptrs,
         } = self;
 
-        let temp_dir = tempfile::TempDir::new().unwrap();
-        let reg = Registers::new(rocksdb::Options::default(), temp_dir.path()).unwrap();
+        let dir = tempfile::TempDir::new().unwrap();
+        let rocks_db = Registers::open_rocks(rocksdb::Options::default(), dir.path()).unwrap();
 
         let transform_specs = transforms
             .iter()
@@ -320,8 +323,10 @@ impl FixtureBuilder {
                 register_schema_json: register_schema.to_string(),
                 collection: Some(CollectionSpec {
                     collection: derivation.clone(),
-                    schema_uri: "http://example/collection.schema".to_string(),
-                    schema_json: collection_schema.to_string(),
+                    write_schema_uri: "http://example/collection.schema".to_string(),
+                    write_schema_json: collection_schema.to_string(),
+                    read_schema_uri: "http://example/collection.schema".to_string(),
+                    read_schema_json: String::new(),
                     key_ptrs,
                     uuid_ptr: String::from("/_meta/uuid"),
                     partition_fields: Vec::new(),
@@ -336,11 +341,11 @@ impl FixtureBuilder {
             }),
         };
 
-        let pipeline = Pipeline::from_config_and_parts(config, reg, 0)
+        let pipeline = Pipeline::from_config_and_parts(config, rocks_db, 0)
             .expect("failed to create test pipeline");
         Fixture {
             pipeline,
-            _temp_dir: temp_dir,
+            _temp_dir: dir,
             transforms,
         }
     }

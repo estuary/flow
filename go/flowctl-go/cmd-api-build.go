@@ -10,12 +10,11 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/bindings"
-	"github.com/estuary/flow/go/capture"
-	"github.com/estuary/flow/go/materialize"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/fatih/color"
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
 )
 
@@ -60,9 +59,7 @@ func (cmd apiBuild) execute(ctx context.Context) error {
 			TypescriptCompile:  cmd.TSCompile,
 			TypescriptPackage:  cmd.TSPackage,
 		},
-		FileRoot:            cmd.FileRoot,
-		CaptureDriverFn:     capture.NewDriver,
-		MaterializeDriverFn: materialize.NewDriver,
+		FileRoot: cmd.FileRoot,
 	}
 	if err := bindings.BuildCatalog(args); err != nil {
 		return err
@@ -105,6 +102,7 @@ func (cmd apiBuild) Execute(_ []string) error {
 		"version":   mbp.Version,
 		"buildDate": mbp.BuildDate,
 	}).Info("flowctl configuration")
+	pb.RegisterGRPCDispatcher("local")
 
 	return cmd.execute(ctx)
 }

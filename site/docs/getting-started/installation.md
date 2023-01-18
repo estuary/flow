@@ -19,23 +19,75 @@ Once you've signed up with your personal information, an Estuary team member wil
 After your account has been activated through the [web app](#get-started-with-the-flow-web-application), you can begin to work with your data flows from the command line.
 This is not required, but it enables more advanced workflows or might simply be your preference.
 
-Flow has a single binary, flowctl. flowctl binaries for MacOS and Linux are available.
+Flow has a single binary, **flowctl**.
+
+flowctl is available for:
+
+* **Linux** x86-64. All distributions are supported.
+* **MacOS** 11 (Big Sur) or later. Both Intel and M1 chips are supported.
 
 To install, copy and paste the appropriate script below into your terminal. This will download flowctl, make it executable, and add it to your `PATH`.
 
    * For Linux:
    ```console
-   sudo curl -o /usr/local/bin/flowctl -L 'https://github.com/estuary/flowctl/releases/latest/download/flowctl-x86_64-linux' && sudo chmod +x /usr/local/bin/flowctl
+   sudo curl -o /usr/local/bin/flowctl -L 'https://github.com/estuary/flow/releases/latest/download/flowctl-x86_64-linux' && sudo chmod +x /usr/local/bin/flowctl
    ```
 
    * For Mac:
    ```console
-   sudo curl -o /usr/local/bin/flowctl -L 'https://github.com/estuary/flowctl/releases/latest/download/flowctl-multiarch-macos' && sudo chmod +x /usr/local/bin/flowctl
+   sudo curl -o /usr/local/bin/flowctl -L 'https://github.com/estuary/flow/releases/latest/download/flowctl-multiarch-macos' && sudo chmod +x /usr/local/bin/flowctl
    ```
 
-Alternatively, you can find the source files on GitHub [here](https://go.estuary.dev/flowctl).
+   Alternatively, Mac users can install with Homebrew:
+   ```console
+   brew tap estuary/flowctl
+   brew install flowctl
+   ```
+
+flowctl isn't currently available for Windows.
+For Windows users, we recommend running the Linux version inside [WSL](https://learn.microsoft.com/en-us/windows/wsl/),
+or using a remote development environment.
+
+The flowctl source files are also on GitHub [here](https://go.estuary.dev/flowctl).
+
+Once you've installed flowctl and are ready to begin working, authenticate your session using an access token.
+
+1. Ensure that you have an Estuary account and have signed into the Flow web app before.
+
+2. In the terminal of your local development environment, run:
+   ``` console
+   flowctl auth login
+   ```
+   In a browser window, the web app opens to the CLI-API tab.
+
+3. Copy the access token.
+
+4. Return to the terminal, paste the access token, and press Enter.
+
+The token will expire after a predetermined duration. Repeat this process to re-authenticate.
+
 
 [Learn more about using flowctl.](../concepts/flowctl.md)
+
+## Configuring your cloud storage bucket for use with Flow
+
+During your trial period, Flow uses Estuary's cloud storage to temporarily store your data.
+When you upgrade from a trial to an organizational account, you're provisioned a unique [prefix](../concepts/catalogs.md#namespace) in the Flow namespace,
+and transition to using your own cloud storage bucket to store your Flow data. This is called a [storage mapping](../concepts/storage-mappings.md).
+
+Flow supports Google Cloud Storage and Amazon S3 buckets.
+Before your account manager configures your bucket as your storage mapping, you must grant access to Estuary.
+
+#### Google Cloud Storage buckets
+
+Follow the steps to [add a principal to a bucket level policy](https://cloud.google.com/storage/docs/access-control/using-iam-permissions#bucket-add).
+
+* For the principal, enter `flow-258@helpful-kingdom-273219.iam.gserviceaccount.com`
+* Select the [`roles/storage.admin`](https://cloud.google.com/storage/docs/access-control/iam-roles) role.
+
+#### Amazon S3 buckets
+
+Contact your Estuary account manager for instructions.
 
 ## Self-hosting Flow
 

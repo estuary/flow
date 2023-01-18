@@ -6,7 +6,7 @@ sidebar_position: 2
 
 This connector materializes Flow collections into indices in an Elasticsearch cluster.
 
-[`ghcr.io/estuary/materialize-elasticsearch:dev`](https://ghcr.io/estuary/materialize-elasticsearch:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-elasticsearch:dev`](https://ghcr.io/estuary/materialize-elasticsearch:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 

@@ -299,13 +299,11 @@ message PullRequest {
       (gogoproto.casttype) = "encoding/json.RawMessage",
       json_name = "driverCheckpoint"
     ];
-    // If true, perform a blocking tail of the capture.
-    // If false, produce all ready output and then close the stream.
-    bool tail = 6;
   }
   Open open = 1;
 
   // Tell the driver that its Checkpoint has committed to the Flow recovery log.
+  // Acknowledgments are sent iff PullResponse.Opened.explicit_acknowledgements is true.
   Acknowledge acknowledge = 2;
 }
 
@@ -315,7 +313,12 @@ message PullRequest {
 message PullResponse {
   // Opened responds to PullRequest.Open of the runtime,
   // and is sent exactly once as the first message of the stream.
-  message Opened {}
+  message Opened {
+    // If true then the runtime will send one PullRequest.Acknowledge
+    // for each PullResponse.DriverCheckpoint sent by the connector,
+    // upon that DriverCheckpoint having fully committed.
+    bool explicit_acknowledgements = 1;
+  }
   Opened opened = 1;
 
   // Captured documents of the stream.
@@ -377,5 +380,7 @@ message PushResponse {
   Opened opened = 1;
 
   // Tell the driver that its Checkpoint has committed to the Flow recovery log.
+  // Unlike PullRequest.Acknowledge, which is only sent if explicitly opted into,
+  // PushResponse.Acknowledge is always sent.
   Acknowledge acknowledge = 2;
 }

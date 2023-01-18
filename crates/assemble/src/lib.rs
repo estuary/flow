@@ -19,7 +19,7 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
     let default_json = shape
         .default
         .as_ref()
-        .map(|v| v.to_string())
+        .map(|(v, _)| v.to_string())
         .unwrap_or_default();
 
     let is_base64 = shape
@@ -38,7 +38,6 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
 
     flow::Inference {
         types: shape.type_.to_vec(),
-        deprecated_must_exist: matches!(exists, flow::inference::Exists::Must),
         exists: exists as i32,
         title: shape.title.clone().unwrap_or_default(),
         description: shape.description.clone().unwrap_or_default(),
@@ -47,7 +46,11 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
         string: if shape.type_.overlaps(types::STRING) {
             Some(flow::inference::String {
                 content_type: shape.string.content_type.clone().unwrap_or_default(),
-                format: shape.string.format.clone().unwrap_or_default(),
+                format: shape
+                    .string
+                    .format
+                    .map(|f| f.to_string())
+                    .unwrap_or_default(),
                 content_encoding: shape.string.content_encoding.clone().unwrap_or_default(),
                 is_base64,
                 max_length: shape.string.max_length.unwrap_or_default() as u32,
@@ -330,14 +333,16 @@ pub fn collection_spec(
     build_config: &flow::build_api::Config,
     collection: &tables::Collection,
     projections: Vec<flow::Projection>,
-    schema_bundle: &Value,
+    write_schema_bundle: &Value,
+    read_schema_bundle: &Value,
     stores: &[models::Store],
 ) -> flow::CollectionSpec {
     let tables::Collection {
-        collection: name,
         scope: _,
-        schema,
+        collection: name,
         spec: models::CollectionDef { key, journals, .. },
+        write_schema,
+        read_schema,
     } = collection;
 
     let partition_fields = projections
@@ -356,8 +361,15 @@ pub fn collection_spec(
 
     flow::CollectionSpec {
         collection: name.to_string(),
-        schema_uri: schema.to_string(),
-        schema_json: schema_bundle.to_string(),
+        write_schema_uri: write_schema.to_string(),
+        write_schema_json: write_schema_bundle.to_string(),
+        read_schema_uri: read_schema.to_string(),
+        // If read_schema_json is unset, then write_schema_json is to be implicitly used instead.
+        read_schema_json: if read_schema != write_schema {
+            read_schema_bundle.to_string()
+        } else {
+            String::new()
+        },
         key_ptrs: key.iter().map(|p| p.to_string()).collect(),
         projections,
         partition_fields,
@@ -412,6 +424,11 @@ const PATH_SEGMENT_SET: &percent_encoding::AsciiSet = &percent_encoding::NON_ALP
     .remove(b'=')
     .remove(b'@');
 
+/// Percent-encodes string values so that they can be used in Gazette label values.
+pub fn percent_encode_partition_value(s: &str) -> String {
+    percent_encoding::utf8_percent_encode(s, PATH_SEGMENT_SET).to_string()
+}
+
 // Flatten partition selector fields into a Vec<Label>.
 // JSON strings are percent-encoded but un-quoted.
 // Other JSON types map to their literal JSON strings.
@@ -420,9 +437,7 @@ fn push_partitions(fields: &BTreeMap<String, Vec<Value>>, out: &mut Vec<broker::
     for (field, value) in fields {
         for value in value {
             let value = match value {
-                Value::String(s) => {
-                    percent_encoding::utf8_percent_encode(s, PATH_SEGMENT_SET).to_string()
-                }
+                Value::String(s) => percent_encode_partition_value(s),
                 _ => serde_json::to_string(value).unwrap(),
             };
             out.push(broker::Label {
@@ -476,14 +491,12 @@ pub fn transform_spec(
                     models::TransformSource {
                         name: source_collection,
                         partitions: source_partitions,
-                        schema: _,
                     },
                 publish,
                 update,
                 read_delay,
                 shuffle,
             },
-        source_schema,
     } = &transform;
 
     let (uses_source_key, shuffle_key_ptrs, shuffle_lambda) = match shuffle {
@@ -513,12 +526,7 @@ pub fn transform_spec(
         shuffle_key_ptrs,
         uses_source_key,
         shuffle_lambda,
-        source_schema_uri: source_schema
-            .as_ref()
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| source.schema_uri.clone()),
-        uses_source_schema: source_schema.is_none(),
-        deprecated_validate_schema_at_read: true,
+        deprecated_source_schema_uri: source.read_schema_uri.clone(),
         filter_r_clocks: update.is_none(),
         read_delay_seconds: read_delay.map(|d| d.as_secs() as u32).unwrap_or(0),
         priority: *priority,
@@ -659,9 +667,7 @@ pub fn materialization_shuffle(
         shuffle_key_ptrs: source.key_ptrs.clone(),
         uses_source_key: true,
         shuffle_lambda: None,
-        source_schema_uri: source.schema_uri.clone(),
-        uses_source_schema: true,
-        deprecated_validate_schema_at_read: false,
+        deprecated_source_schema_uri: source.read_schema_uri.clone(),
         // At all times, a given collection key must be exclusively owned by
         // a single materialization shard. Therefore we only subdivide
         // materialization shards on key, never on r-clock.
@@ -715,16 +721,6 @@ pub fn test_step_spec(
             .join("\n"),
         partitions: Some(journal_selector(collection, selector)),
         description: description.clone(),
-    }
-}
-
-pub fn content_type(t: models::ContentType) -> flow::ContentType {
-    match t {
-        models::ContentType::Catalog => flow::ContentType::Catalog,
-        models::ContentType::JsonSchema => flow::ContentType::JsonSchema,
-        models::ContentType::TypescriptModule => flow::ContentType::TypescriptModule,
-        models::ContentType::Config => flow::ContentType::Config,
-        models::ContentType::DocumentsFixture => flow::ContentType::DocumentsFixture,
     }
 }
 
@@ -802,13 +798,13 @@ mod test {
     fn test_inference() {
         let mut shape = Shape {
             type_: types::STRING | types::BOOLEAN,
-            default: Some(json!({"hello": "world"})),
+            default: Some((json!({"hello": "world"}), None)),
             description: Some("the description".to_string()),
             title: Some("the title".to_owned()),
             secret: Some(true),
             string: StringShape {
                 content_encoding: Some("BaSE64".to_owned()),
-                format: Some("email".to_string()),
+                format: Some(json::schema::formats::Format::DateTime),
                 content_type: Some("a/type".to_string()),
                 min_length: 10,
                 max_length: Some(123),

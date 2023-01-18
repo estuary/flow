@@ -1,59 +1,78 @@
+use super::{AsNode, Field, Fields, Node};
 use itertools::{
     EitherOrBoth::{Both, Left, Right},
     Itertools,
 };
 use json::Location;
 use serde::Serialize;
-use serde_json::Value;
+
+/// Diff an actual (observed) document against an expected document,
+/// pushing all detected differences into a Vec. Object properties
+/// which are in the actual document but not the expected document
+/// are ignored, but all other locations must match.
+pub fn diff<'a, 'e, A: AsNode, E: AsNode>(
+    actual: Option<&'a A>,
+    expect: Option<&'e E>,
+) -> Vec<Diff<'a, 'e, A, E>> {
+    let mut out = Vec::new();
+    Diff::diff_inner(actual, expect, &Location::Root, &mut out);
+    out
+}
 
 /// Diff is a detected difference within a document.
 #[derive(Serialize, Debug)]
-pub struct Diff {
+pub struct Diff<'a, 'e, A: AsNode, E: AsNode> {
     /// JSON-Pointer location of the difference.
     pub location: String,
     /// Actual value at the document location.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub actual: Option<Value>,
+    pub actual: Option<&'a A>,
     /// Expected value at the document location.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub expect: Option<Value>,
+    pub expect: Option<&'e E>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub note: Option<String>,
+    pub note: Option<&'static str>,
 }
 
-impl Diff {
-    /// Diff an actual (observed) document against an expected document,
-    /// pushing all detected differences into a Vec. Object properties
-    /// which are in the actual document but not the expected document
-    /// are ignored, but all other locations must match.
-    pub fn diff(
-        actual: Option<&Value>,
-        expect: Option<&Value>,
+impl<'a, 'e, A: AsNode, E: AsNode> Diff<'a, 'e, A, E> {
+    fn diff_inner(
+        actual: Option<&'a A>,
+        expect: Option<&'e E>,
         location: &Location,
-        out: &mut Vec<Diff>,
+        out: &mut Vec<Self>,
     ) {
-        match (actual, expect) {
-            (Some(Value::Object(actual)), Some(Value::Object(expect))) => {
+        match (actual.map(AsNode::as_node), expect.map(AsNode::as_node)) {
+            (Some(Node::Object(actual)), Some(Node::Object(expect))) => {
                 for eob in actual
                     .iter()
-                    .merge_join_by(expect.into_iter(), |(l, _), (r, _)| l.cmp(r))
+                    .merge_join_by(expect.iter(), |l, r| l.property().cmp(r.property()))
                 {
                     match eob {
-                        Left((_p, _actual)) => {
-                            // Ignore properties of |actual| not in |expect|.
+                        Left(_actual) => {
+                            // Ignore properties of `actual` not in `expect`.
                         }
-                        Right((p, expect)) => {
-                            Self::diff(None, Some(expect), &location.push_prop(p), out);
+                        Right(expect) => {
+                            Self::diff_inner(
+                                None,
+                                Some(expect.value()),
+                                &location.push_prop(expect.property()),
+                                out,
+                            );
                         }
-                        Both((p, actual), (_, expect)) => {
-                            Self::diff(Some(actual), Some(expect), &location.push_prop(p), out);
+                        Both(actual, expect) => {
+                            Self::diff_inner(
+                                Some(actual.value()),
+                                Some(expect.value()),
+                                &location.push_prop(actual.property()),
+                                out,
+                            );
                         }
                     }
                 }
             }
-            (Some(Value::Array(actual)), Some(Value::Array(expect))) => {
+            (Some(Node::Array(actual)), Some(Node::Array(expect))) => {
                 for (index, eob) in actual.iter().zip_longest(expect.iter()).enumerate() {
-                    Self::diff(
+                    Self::diff_inner(
                         eob.as_ref().left().cloned(),
                         eob.as_ref().right().cloned(),
                         &location.push_item(index),
@@ -61,31 +80,33 @@ impl Diff {
                     );
                 }
             }
-            // if both values are floats, then compare them using an epsilon value so we don't
-            // fail the test due to floaty funny bitness
-            (Some(Value::Number(actual_num)), Some(Value::Number(expected_num)))
-                if actual_num.is_f64() && expected_num.is_f64() =>
-            {
-                // safe unwraps here since `is_f64` returned true for both of these
-                let actual_f64 = actual_num.as_f64().unwrap();
-                let expected_f64 = expected_num.as_f64().unwrap();
+            // If both values are floats, then compare them using an epsilon value so we don't
+            // fail the diff due to floaty funny bitness.
+            (
+                Some(Node::Number(json::Number::Float(actual_f64))),
+                Some(Node::Number(json::Number::Float(expected_f64))),
+            ) => {
                 if !f64_eq(actual_f64, expected_f64) {
                     out.push(Diff {
                         location: format!("{}", location.pointer_str()),
-                        expect: expect.cloned(),
-                        actual: actual.cloned(),
+                        expect,
+                        actual,
                         note: None,
                     });
                 }
             }
-            _ if expect == actual => {}
+            // For remaining scalar cases, or differing types, fall back to basic equality.
+            (Some(_), Some(_)) if super::compare(actual.unwrap(), expect.unwrap()).is_eq() => {}
+            // Technically allowed for someone to pass in None, None.
+            (None, None) => {}
+
             _ => {
                 out.push(Diff {
-                    location: format!("{}", location.pointer_str()),
-                    expect: expect.cloned(),
-                    actual: actual.cloned(),
+                    location: location.pointer_str().to_string(),
+                    expect,
+                    actual,
                     note: if actual.is_none() {
-                        Some("missing in actual document".to_owned())
+                        Some("missing in actual document")
                     } else {
                         None
                     },
@@ -104,7 +125,7 @@ fn f64_eq(actual: f64, expected: f64) -> bool {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use super::{diff, f64_eq};
     use serde_json::json;
 
     // I'm paranoid about the compiler pre-computing the math on constants.
@@ -134,7 +155,7 @@ mod test {
     }
 
     #[test]
-    fn test_diff_cases() {
+    fn test_output_detail() {
         let expect = json!({
             "longer": [
                 true,
@@ -178,9 +199,7 @@ mod test {
             ],
         });
 
-        let root = Location::Root;
-        let mut out = Vec::new();
-        Diff::diff(Some(&actual), Some(&expect), &root, &mut out);
+        let out = diff(Some(&actual), Some(&expect));
 
         insta::assert_json_snapshot!(&out, @r###"
         [
@@ -227,5 +246,36 @@ mod test {
           }
         ]
         "###);
+    }
+
+    #[test]
+    fn test_subset_cases() {
+        let case = |result, actual, expect| {
+            assert_eq!(result, diff(Some(&actual), Some(&expect)).is_empty());
+        };
+
+        case(true, json!({}), json!({}));
+        case(false, json!({}), json!({"a": 42}));
+        case(true, json!({"a": 42, "b": 1}), json!({"a": 42}));
+        case(
+            false,
+            json!({"a": 42, "b": 1, "c": []}),
+            json!({"a": 42, "c": {"d": 5}}),
+        );
+        case(
+            false,
+            json!({"a": 42, "b": 1, "c": {"d": 6}}),
+            json!({"a": 42, "c": {"d": 5}}),
+        );
+        case(
+            true,
+            json!({"a": 42, "b": 1, "c": {"d": 5}}),
+            json!({"a": 42, "c": {"d": 5}}),
+        );
+        case(
+            false,
+            json!({"a": "43", "b": 1, "c": {"d": 5}}),
+            json!({"a": 42, "c": {"d": 5}}),
+        );
     }
 }

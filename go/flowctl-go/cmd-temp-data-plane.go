@@ -21,7 +21,6 @@ type cmdTempDataPlane struct {
 	BrokerPort   uint16                `long:"broker-port" default:"8080" description:"Port bound by Gazette broker"`
 	ConsumerPort uint16                `long:"consumer-port" default:"9000" description:"Port bound by Flow consumer"`
 	Network      string                `long:"network" description:"The Docker network that connector containers are given access to."`
-	Poll         bool                  `long:"poll" description:"Poll connectors, rather than running them continuously. Required in order to use 'flowctl api poll'"`
 	Sigterm      bool                  `long:"sigterm" hidden:"true" description:"Send SIGTERM rather than SIGKILL on exit"`
 	Tempdir      string                `long:"tempdir" description:"Directory for data plane files. If not set, a temporary directory is created and then deleted upon exit"`
 	UnixSockets  bool                  `long:"unix-sockets" description:"Bind Gazette to 'gazette.sock' and Flow to 'consumer.sock' within the --tempdir (instead of TCP ports)"`
@@ -186,7 +185,7 @@ func (cmd cmdTempDataPlane) consumerCmd(ctx context.Context, tempdir, buildsRoot
 	}
 
 	var args = []string{
-		pkgbin.MustLocate("flowctl-admin"),
+		pkgbin.MustLocate("flowctl-go"),
 		"serve",
 		"consumer",
 		"--broker.address", gazetteAddr,
@@ -200,9 +199,6 @@ func (cmd cmdTempDataPlane) consumerCmd(ctx context.Context, tempdir, buildsRoot
 		"--flow.test-apis",
 		"--log.format", cmd.Log.Format,
 		"--log.level", cmd.Log.Level,
-	}
-	if cmd.Poll {
-		args = append(args, "--flow.poll")
 	}
 	if cmd.Network != "" {
 		args = append(args, "--flow.network", cmd.Network)

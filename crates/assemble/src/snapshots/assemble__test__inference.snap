@@ -1,6 +1,5 @@
 ---
 source: crates/assemble/src/lib.rs
-assertion_line: 706
 expression: "&[out1, out2]"
 ---
 [
@@ -9,11 +8,10 @@ expression: "&[out1, out2]"
             "boolean",
             "string",
         ],
-        deprecated_must_exist: true,
         string: Some(
             String {
                 content_type: "a/type",
-                format: "email",
+                format: "date-time",
                 content_encoding: "BaSE64",
                 is_base64: true,
                 max_length: 123,
@@ -29,7 +27,6 @@ expression: "&[out1, out2]"
         types: [
             "boolean",
         ],
-        deprecated_must_exist: false,
         string: None,
         title: "the title",
         description: "the description",

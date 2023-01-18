@@ -1,34 +1,40 @@
 [package]
 name = "derive"
-version = "0.0.0"
-authors = ["Estuary Technologies, Inc"]
-edition = "2018"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
-allocator = { path = "../allocator", version = "0.0.0" }
+allocator = { path = "../allocator" }
 cgo = { path = "../cgo" }
-doc = { path = "../doc", version = "0.0.0" }
-json = { path = "../json", version = "0.0.0" }
-models = { path = "../models", version = "0.0.0" }
+doc = { path = "../doc" }
+json = { path = "../json" }
+models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
-tables = { path = "../tables", version = "0.0.0" }
-tuple = { path = "../tuple", version = "0.0.0" }
+tables = { path = "../tables" }
+tuple = { path = "../tuple" }
 
-anyhow = "*"
-bytes = "*"
-futures = "*"
-itertools = "*"
-librocksdb-sys = { version = "*", default-features = false, features = ["snappy", "rtti"] }
-prost = "*"
-rocksdb = { version = "*", default-features = false, features = ["snappy", "rtti"] }
-serde = { version = "*", features = ["derive"] }
-serde_json = "*"
-thiserror = "*"
-tracing = "*"
-url = "*"
-uuid = "*"
+anyhow = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+itertools = { workspace = true }
+librocksdb-sys = { workspace = true }
+prost = { workspace = true }
+rocksdb = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
-insta = {version = "*", features = ["redactions"]}
-tempfile = "*"
+insta = { workspace = true }
+rand = { workspace = true }
+rand_distr = { workspace = true }

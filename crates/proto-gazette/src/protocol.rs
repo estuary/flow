@@ -78,9 +78,9 @@ pub mod journal_spec {
         /// form, with the choice of backend defined by the scheme. The full path of
         /// a Journal's Fragment is derived by joining the store path with the
         /// Fragment's ContentPath. Eg, given a fragment_store of
-        ///   "s3://My-AWS-bucket/a/prefix" and a JournalSpec of name "my/journal",
+        ///    "s3://My-AWS-bucket/a/prefix" and a JournalSpec of name "my/journal",
         /// a complete Fragment path might be:
-        ///   "s3://My-AWS-bucket/a/prefix/my/journal/000123-000456-789abcdef.gzip
+        ///    "s3://My-AWS-bucket/a/prefix/my/journal/000123-000456-789abcdef.gzip
         ///
         /// Multiple stores may be specified, in which case the Journal's Fragments
         /// are the union of all Fragments present across all stores, and new
@@ -129,8 +129,8 @@ pub mod journal_spec {
         /// are available for introspection in the template. For example,
         /// to partition on the UTC date and hour of creation, use:
         ///
-        ///    date={{ .Spool.FirstAppendTime.Format "2006-01-02" }}/hour={{
-        ///    .Spool.FirstAppendTime.Format "15" }}
+        ///     date={{ .Spool.FirstAppendTime.Format "2006-01-02" }}/hour={{
+        ///     .Spool.FirstAppendTime.Format "15" }}
         ///
         /// Which will produce a path postfix like "date=2019-11-19/hour=22".
         #[prost(string, tag="7")]
@@ -153,6 +153,20 @@ pub mod journal_spec {
         OWronly = 2,
         /// The Journal may be used for reads or writes.
         ORdwr = 4,
+    }
+    impl Flag {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Flag::NotSpecified => "NOT_SPECIFIED",
+                Flag::ORdonly => "O_RDONLY",
+                Flag::OWronly => "O_WRONLY",
+                Flag::ORdwr => "O_RDWR",
+            }
+        }
     }
 }
 /// ProcessSpec describes a uniquely identified process and its addressable
@@ -277,7 +291,7 @@ pub struct ReadRequest {
 /// Responses messages are of two types:
 ///
 /// * "Metadata" messages, which conveys the journal Fragment addressed by the
-///    request which is ready to be read.
+///     request which is ready to be read.
 /// * "Chunk" messages, which carry associated journal Fragment content bytes.
 ///
 /// A metadata message specifying a Fragment always precedes all "chunks" of the
@@ -478,10 +492,10 @@ pub struct ListRequest {
     /// If zero-valued, all journals are returned. Otherwise, only JournalSpecs
     /// matching the LabelSelector will be returned. Two meta-labels "name" and
     /// "prefix" are additionally supported by the selector, where:
-    ///   * name=examples/a-name will match a JournalSpec with Name
-    ///   "examples/a-name"
-    ///   * prefix=examples/ will match any JournalSpec having prefix "examples/".
-    ///     The prefix Label value must end in '/'.
+    ///    * name=examples/a-name will match a JournalSpec with Name
+    ///    "examples/a-name"
+    ///    * prefix=examples/ will match any JournalSpec having prefix "examples/".
+    ///      The prefix Label value must end in '/'.
     #[prost(message, optional, tag="1")]
     pub selector: ::core::option::Option<LabelSelector>,
 }
@@ -719,6 +733,30 @@ pub enum Status {
     /// request, but it was not matched by current register values of the journal.
     RegisterMismatch = 13,
 }
+impl Status {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Status::Ok => "OK",
+            Status::JournalNotFound => "JOURNAL_NOT_FOUND",
+            Status::NoJournalPrimaryBroker => "NO_JOURNAL_PRIMARY_BROKER",
+            Status::NotJournalPrimaryBroker => "NOT_JOURNAL_PRIMARY_BROKER",
+            Status::NotJournalBroker => "NOT_JOURNAL_BROKER",
+            Status::InsufficientJournalBrokers => "INSUFFICIENT_JOURNAL_BROKERS",
+            Status::OffsetNotYetAvailable => "OFFSET_NOT_YET_AVAILABLE",
+            Status::WrongRoute => "WRONG_ROUTE",
+            Status::ProposalMismatch => "PROPOSAL_MISMATCH",
+            Status::EtcdTransactionFailed => "ETCD_TRANSACTION_FAILED",
+            Status::NotAllowed => "NOT_ALLOWED",
+            Status::WrongAppendOffset => "WRONG_APPEND_OFFSET",
+            Status::IndexHasGreaterOffset => "INDEX_HAS_GREATER_OFFSET",
+            Status::RegisterMismatch => "REGISTER_MISMATCH",
+        }
+    }
+}
 /// CompressionCode defines codecs known to Gazette.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -739,8 +777,8 @@ pub enum CompressionCodec {
     /// GZIP_OFFLOAD_DECOMPRESSION is the GZIP codec with additional behavior
     /// around reads and writes to remote Fragment stores, designed to offload
     /// the work of decompression onto compatible stores. Specifically:
-    ///  * Fragments are written with a "Content-Encoding: gzip" header.
-    ///  * Client read requests are made with "Accept-Encoding: identity".
+    ///   * Fragments are written with a "Content-Encoding: gzip" header.
+    ///   * Client read requests are made with "Accept-Encoding: identity".
     /// This can be helpful in contexts where reader IO bandwidth to the storage
     /// API is unconstrained, as the cost of decompression is offloaded to the
     /// store and CPU-intensive batch readers may receive a parallelism benefit.
@@ -749,4 +787,20 @@ pub enum CompressionCodec {
     /// header handling can be subtle and sometimes confusing. It uses the default
     /// suffix ".gzod".
     GzipOffloadDecompression = 5,
+}
+impl CompressionCodec {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            CompressionCodec::Invalid => "INVALID",
+            CompressionCodec::None => "NONE",
+            CompressionCodec::Gzip => "GZIP",
+            CompressionCodec::Zstandard => "ZSTANDARD",
+            CompressionCodec::Snappy => "SNAPPY",
+            CompressionCodec::GzipOffloadDecompression => "GZIP_OFFLOAD_DECOMPRESSION",
+        }
+    }
 }

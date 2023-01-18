@@ -1,24 +1,47 @@
 [package]
 name = "doc"
-version = "0.0.0"
-authors = ["Estuary Technologies, Inc"]
-edition = "2018"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
-json = { path = "../json", version = "0.0.0" }
+json = { path = "../json" }
+tuple = { path = "../tuple" }
 
-itertools = "*"
-lazy_static = "*"
-fancy-regex = "*"
-serde = { version = "*", features = ["derive"] }
-serde_json = "*"
-thiserror = "*"
-tinyvec = {version = "*", features = ["alloc"]}
-tracing = "*"
-url = "*"
+base64 = { workspace = true }
+bumpalo = { workspace = true }
+fancy-regex = { workspace = true }
+futures = { workspace = true }
+fxhash = { workspace = true }
+itertools = { workspace = true }
+lz4 = { workspace = true, optional = true }
+rkyv = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
-insta = "*"
-quickcheck = "*"
-quickcheck_macros = "*"
-serde_yaml = "*"
+allocator = { path = "../allocator" }
+
+criterion = { workspace = true }
+hexdump = { workspace = true }
+insta = { workspace = true }
+quickcheck = { workspace = true }
+quickcheck_macros = { workspace = true }
+rand = { workspace = true }
+rand_distr = { workspace = true }
+serde-transcode = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+[features]
+default = ["combine"]
+
+combine = ["lz4"]

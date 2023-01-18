@@ -1,2 +1,1 @@
-level=error msg="connector failed" error="exit status 1" logSource="ghcr.io/estuary/source-test:dev" operation=pull
-level=error msg="servePrimary failed" err="runTransactions: readMessage: exit status 1 with stderr:\\n\\na horrible, no good error!
+level=error msg="servePrimary failed" err="runTransactions: readMessage: connector failed (exit status: 1) with stderr:\\na horrible, no good error!.*

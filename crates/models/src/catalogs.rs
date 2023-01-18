@@ -68,7 +68,25 @@ fn collections_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::sch
     gen.definitions_mut()
         .insert(Collection::schema_name(), schema);
 
-    let schema = CollectionDef::json_schema(gen);
+    let mut schema = CollectionDef::json_schema(gen);
+
+    // Extend CollectionDef schema with a oneOf which requires either schema or readSchema / writeSchema.
+    let schemars::schema::Schema::Object(schema_obj) = &mut schema else {
+        panic!("must be a schema object")
+    };
+    schema_obj.subschemas().one_of = Some(vec![
+        from_value(json!({
+            "required": ["schema"],
+            "properties": { "readSchema": false, "writeSchema": false },
+        }))
+        .unwrap(),
+        from_value(json!({
+            "required": ["readSchema", "writeSchema"],
+            "properties": { "schema": false },
+        }))
+        .unwrap(),
+    ]);
+
     gen.definitions_mut()
         .insert(CollectionDef::schema_name(), schema);
 

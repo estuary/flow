@@ -11,13 +11,14 @@ on:
 env:
   CARGO_TERM_COLOR: always
   CARGO_CACHE_VERSION: 0.8.2
+  RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  flowctl:
+  gnu-binaries:
     runs-on: ubuntu-20.04
 
     steps:
@@ -25,10 +26,20 @@ jobs:
         with:
           fetch-depth: 0
           submodules: true
+          lfs: true
 
       - uses: actions/setup-go@v2
         with:
-          go-version: "1.18"
+          go-version: "1.19"
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v0
@@ -37,10 +48,15 @@ jobs:
           service_account_key: ${{ secrets.GCP_SA_KEY }}
           export_default_credentials: true
 
+      - uses: supabase/setup-cli@v1
+      - run: supabase start
+      - name: SQL tests
+        run: ./supabase/run_sql_tests.sh
+
       - run: make extra-ci-runner-setup
       - run: make print-versions
 
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
 
       - name: Cache/Restore Go dependencies.
         uses: actions/cache@v2
@@ -51,8 +67,8 @@ jobs:
       # Build and test all the things.
       - run: make install-tools
       - run: go mod download
-      - run: make rust-test
-      - run: make rust-binaries
+      - run: make rust-gnu-test
+      - run: make linux-gnu-binaries
 
       - name: Ensure that generated files are unchanged.
         run: |
@@ -63,11 +79,14 @@ jobs:
       - name: Upload Binaries
         uses: actions/upload-artifact@v2
         with:
-          name: flowctl_binaries
+          name: linux-gnu-binaries
           path: |
             .build/package/bin/*
+            target/x86_64-unknown-linux-gnu/release/libbindings.a
+            crates/bindings/flow_bindings.h
+            target/x86_64-unknown-linux-gnu/release/librocksdb-exp/
 
-  musl:
+  musl-binaries:
     runs-on: ubuntu-20.04
 
     steps:
@@ -76,26 +95,36 @@ jobs:
           fetch-depth: 0
           submodules: true
 
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-unknown-linux-musl
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - run: make extra-ci-runner-setup
       - run: make print-versions
 
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
 
       # Build and test all the things.
       - run: go mod download
-      - run: make musl-test
-      - run: make musl-binaries
+      - run: make rust-musl-test
+      - run: make linux-musl-binaries
 
       - name: Upload Binaries
         uses: actions/upload-artifact@v2
         with:
-          name: musl_binaries
+          name: linux-musl-binaries
           path: |
             .build/package/bin/*
 
   assembly:
     runs-on: ubuntu-20.04
-    needs: [flowctl, musl]
+    needs: [gnu-binaries, musl-binaries]
 
     services:
       postgres:
@@ -119,18 +148,15 @@ jobs:
           fetch-depth: 0
           submodules: true
 
-      - name: Install protobuf compiler (it's not already included in CI runner)
-        run: sudo apt install -y libprotobuf-dev protobuf-compiler
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       # We require a minimal Go version of 1.17.
       - uses: actions/setup-go@v2
         with:
-          go-version: "1.17.3"
-
-      - name: Install rust toolchain
-        run: rustup show
-
-      - uses: Swatinem/rust-cache@v1
+          go-version: "1.19"
 
       - name: Cache/Restore Go dependencies.
         uses: actions/cache@v2
@@ -153,18 +179,31 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | \
             docker login --username ${{ github.actor }} --password-stdin ghcr.io
 
-      - name: Download Stage1 Binaries
+      - name: Download gnu-linux-binaries
         uses: actions/download-artifact@v2
         with:
-          path: artifacts
-
-      - name: Move Artifacts to PKGBIN
+          name: linux-gnu-binaries
+          path: linux-gnu-binaries
+      - name: Move linux-gnu-binaries to PKGBIN
         run: |
           mkdir -p .build/package/bin && \
-          mv artifacts/*/* .build/package/bin
+          mv linux-gnu-binaries/.build/package/bin/* .build/package/bin && \
+          mkdir -p target/x86_64-unknown-linux-gnu/release && \
+          mv -f linux-gnu-binaries/target/x86_64-unknown-linux-gnu/release/* target/x86_64-unknown-linux-gnu/release/ && \
+          mv -f linux-gnu-binaries/crates/bindings/flow_bindings.h crates/bindings/
+
+      - name: Download linux-musl-binaries
+        uses: actions/download-artifact@v2
+        with:
+          name: linux-musl-binaries
+          path: linux-musl-binaries
+      - name: Move linux-musl-binaries to PKGBIN
+        run: |
+          mkdir -p .build/package/bin && \
+          mv linux-musl-binaries/* .build/package/bin
 
       # Downloaded artifacts lose their prior permission settings
-      - name: Adjust stage1_binaries permissions
+      - name: Adjust binaries permissions
         run: |
           chmod +x .build/package/bin/*
 
@@ -176,59 +215,19 @@ jobs:
       # scratch. This prevents us from recompiling them again here.
       - name: make catalog-test
         run: |
-          make catalog-test \
-          -o /home/runner/work/flow/flow/.build/package/bin/etcd \
-          -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
-          -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-tunnel \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-schema-inference \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
-          -o /home/runner/work/flow/flow/.build/package/bin/gazette \
-          -o /home/runner/work/flow/flow/.build/package/bin/sops
+          make catalog-test SKIP_BUILD=true
 
       - name: make go-test-ci
         run: |
-          make go-test-ci \
-          -o /home/runner/work/flow/flow/.build/package/bin/etcd \
-          -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
-          -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-tunnel \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-schema-inference \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
-          -o /home/runner/work/flow/flow/.build/package/bin/gazette \
-          -o /home/runner/work/flow/flow/.build/package/bin/sops
+          make go-test-ci SKIP_BUILD=true
 
       - name: make end-to-end-test
         run: |
-          make end-to-end-test \
-          -o /home/runner/work/flow/flow/.build/package/bin/etcd \
-          -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
-          -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-tunnel \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-schema-inference \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
-          -o /home/runner/work/flow/flow/.build/package/bin/gazette \
-          -o /home/runner/work/flow/flow/.build/package/bin/sops
+          make end-to-end-test SKIP_BUILD=true
 
       - name: make package (tar only)
         run: |
-          make /home/runner/work/flow/flow/.build/package/flow-x86-linux.tar.gz \
-          -o /home/runner/work/flow/flow/.build/package/bin/etcd \
-          -o /home/runner/work/flow/flow/.build/package/bin/flowctl \
-          -o /home/runner/work/flow/flow/.build/package/bin/flowctl-go \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-connector-proxy \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-network-tunnel \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-parser \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-schema-inference \
-          -o /home/runner/work/flow/flow/.build/package/bin/flow-schemalate \
-          -o /home/runner/work/flow/flow/.build/package/bin/gazette \
-          -o /home/runner/work/flow/flow/.build/package/bin/sops
+          make /home/runner/work/flow/flow/.build/package/flow-x86-linux.tar.gz
 
       # Package and push images.
       - run: make docker-image

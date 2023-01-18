@@ -1,6 +1,5 @@
 ---
 source: crates/derive/src/pipeline/mod.rs
-assertion_line: 590
 expression: actual
 ---
 - input: {}
@@ -8,7 +7,7 @@ expression: actual
     output:
       docs: 6
       bytes: 1000
-    totalSeconds: 3.0
+    totalSeconds: 3
   publish:
     output: {}
 - input: {}
@@ -25,5 +24,5 @@ expression: actual
     output:
       docs: 3
       bytes: 8192
-    totalSeconds: 3.0
+    totalSeconds: 3
 

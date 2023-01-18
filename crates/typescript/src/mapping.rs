@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 
 pub struct Mapper<'a> {
     pub index: SchemaIndex<'a>,
+    pub schema: url::Url,
     pub top_level: BTreeMap<&'a url::Url, String>,
 }
 

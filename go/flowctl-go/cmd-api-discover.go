@@ -7,8 +7,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/estuary/flow/go/capture"
-	"github.com/estuary/flow/go/flow/ops"
+	"github.com/estuary/flow/go/connector"
+	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/ops"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/gogo/protobuf/jsonpb"
@@ -23,6 +24,7 @@ type apiDiscover struct {
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 	Image       string                `long:"image" required:"true" description:"Docker image of the connector to use"`
 	Network     string                `long:"network" description:"The Docker network that connector containers are given access to."`
+	Name        string                `long:"name" description:"The Docker container name."`
 	Config      string                `long:"config" description:"Path to the connector endpoint configuration"`
 	Output      string                `long:"output" choice:"json" choice:"proto" default:"json"`
 }
@@ -43,30 +45,29 @@ func (cmd apiDiscover) execute(ctx context.Context) (*pc.DiscoverResponse, error
 	if err != nil {
 		return nil, err
 	}
+	var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
+		TaskName: cmd.Name,
+	})
 
-	client, err := capture.NewDriver(ctx, pf.EndpointType_AIRBYTE_SOURCE, spec, cmd.Network, ops.StdLogger())
-	if err != nil {
-		return nil, fmt.Errorf("building client: %w", err)
+	var request = &pc.DiscoverRequest{
+		EndpointType:     pf.EndpointType_AIRBYTE_SOURCE,
+		EndpointSpecJson: spec,
 	}
-
-	resp, err := client.Discover(ctx,
-		&pc.DiscoverRequest{
-			EndpointType:     pf.EndpointType_AIRBYTE_SOURCE,
-			EndpointSpecJson: spec,
-		})
-	if err != nil {
-		return nil, err
-	} else if err = resp.Validate(); err != nil {
-		return nil, err
-	}
-
-	return resp, nil
+	return connector.Invoke(
+		ctx,
+		request,
+		cmd.Network,
+		publisher,
+		func(driver *connector.Driver, request *pc.DiscoverRequest) (*pc.DiscoverResponse, error) {
+			return driver.CaptureClient().Discover(ctx, request)
+		},
+	)
 }
 
 func (cmd apiDiscover) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
 	mbp.InitLog(cmd.Log)
-	var ctx, cancelFn = context.WithTimeout(context.Background(), time.Minute)
+	var ctx, cancelFn = context.WithTimeout(context.Background(), time.Hour)
 	defer cancelFn()
 
 	logrus.WithFields(logrus.Fields{

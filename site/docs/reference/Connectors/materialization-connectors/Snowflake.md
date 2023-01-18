@@ -18,6 +18,8 @@ To use this connector, you'll need:
     * A virtual warehouse
     * A user with a role assigned that grants the appropriate access levels to these resources.
     See the [script below](#setup) for details.
+* Know your Snowflake account's host URL. This is formatted using your [Snowflake account identifier](https://docs.snowflake.com/en/user-guide/admin-account-identifier.html#where-are-account-identifiers-used),
+for example, `orgname-accountname.snowflakecomputing.com`.
 * At least one Flow collection
 
 :::tip
@@ -26,7 +28,11 @@ If you haven't yet captured your data from its external source, start at the beg
 
 ### Setup
 
-To meet the prerequisites, copy and paste the following script into the Snowflake SQL editor, replacing the variable names in the first six lines with whatever you'd like.
+To meet the prerequisites, copy and paste the following script into the Snowflake SQL editor, replacing the variable names in the first six lines.
+
+If you'd like to use an existing database, warehouse, and/or schema, be sure to set
+`database_name`, `warehouse_name`, and `estuary_schema` accordingly. If you specify a new name, the script will create the item for you. You can set `estuary_role`, `estuary_user`, and `estuary_password` to whatever you'd like.
+
 Check the **All Queries** check box, and click **Run**.
 
 ```sql
@@ -39,6 +45,9 @@ set estuary_schema = 'ESTUARY_SCHEMA';
 -- create role and schema for Estuary
 create role if not exists identifier($estuary_role);
 grant role identifier($estuary_role) to role SYSADMIN;
+-- Create snowflake DB
+create database if not exists identifier($database_name);
+use database identifier($database_name);
 create schema if not exists identifier($estuary_schema);
 -- create a user for Estuary
 create user if not exists identifier($estuary_user)
@@ -46,7 +55,7 @@ password = $estuary_password
 default_role = $estuary_role
 default_warehouse = $warehouse_name;
 grant role identifier($estuary_role) to user identifier($estuary_user);
-grant all on schema identifier($estuary_schema) to identifier($estuary_user);
+grant all on schema identifier($estuary_schema) to identifier($estuary_role);
 -- create a warehouse for estuary
 create warehouse if not exists identifier($warehouse_name)
 warehouse_size = xsmall
@@ -54,8 +63,6 @@ warehouse_type = standard
 auto_suspend = 60
 auto_resume = true
 initially_suspended = true;
--- Create snowflake DB
-create database if not exists identifier($database_name);
 -- grant Estuary role access to warehouse
 grant USAGE
 on warehouse identifier($warehouse_name)
@@ -82,9 +89,8 @@ Use the below properties to configure a Snowflake materialization, which will di
 |---|---|---|---|---|
 | **`/account`** | Account | The Snowflake account identifier | string | Required |
 | **`/database`** | Database | Name of the Snowflake database to which to materialize | string | Required |
+| **`/host`** | Host URL | The Snowflake Host used for the connection. Example: orgname-accountname.snowflakecomputing.com (do not include the protocol). | string | Required |
 | **`/password`** | Password | Snowflake user password | string | Required |
-| **`/cloud_provider`** | Cloud Provider | Cloud Provider where the account is located | string | Required |
-| **`/region`** | Region | Region where the account is located | string | Required |
 | `/role` | Role | Role assigned to the user | string |  |
 | **`/schema`** | Schema | Snowflake schema within the database to which to materialize | string | Required |
 | **`/user`** | User | Snowflake username | string | Required |
@@ -108,9 +114,8 @@ materializations:
     	    config:
               account: acmeCo
               database: acmeCo_db
+              host: orgname-accountname.snowflakecomputing.com
               password: secret
-              cloud_provider: aws
-              region: us-east-1
               schema: acmeCo_flow_schema
               user: snowflake_user
               warehouse: acmeCo_warehouse
@@ -142,6 +147,7 @@ You can enable delta updates on a per-binding basis:
         delta_updates: true
     source: ${PREFIX}/${source_collection}
 ```
+## Performance considerations
 
 ### Optimizing performance for standard updates
 
@@ -157,6 +163,65 @@ This is because most materializations tend to be roughly chronological over time
 
 This means that updates of keys `/date, /user_id` will need to physically read far fewer rows as compared to a key like `/user_id`,
 because those rows will tend to live in the same micro-partitions, and Snowflake is able to cheaply prune micro-partitions that aren't relevant to the transaction.
+
+### Reducing active warehouse time
+
+Snowflake compute is [priced](https://www.snowflake.com/pricing/) per second of activity, with a minimum of 60 seconds.
+Inactive warehouses don't incur charges.
+To keep costs down, you'll want to minimize your warehouse's active time.
+
+Like other Estuary connectors, this is a real-time connector that materializes documents using continuous [**transactions**](../../../concepts/advanced/shards.md#transactions).
+Every time a Flow materialization commits a transaction, your warehouse becomes active.
+
+If your source data collection or collections don't change much, this shouldn't cause an issue;
+Flow only commits transactions when data has changed.
+However, if your source data is frequently updated, your materialization may have frequent transactions that result in
+excessive active time in the warehouse, and thus a higher bill from Snowflake.
+
+To mitigate this, we recommend a two-pronged approach:
+
+* [Configure your Snowflake warehouse to auto-suspend](https://docs.snowflake.com/en/sql-reference/sql/create-warehouse.html#:~:text=Specifies%20the%20number%20of%20seconds%20of%20inactivity%20after%20which%20a%20warehouse%20is%20automatically%20suspended.) after 60 seconds.
+
+   This ensures that for each transaction, you'll only be charged for one minute of compute, Snowflake's smallest granularity.
+
+   Use a query like the one shown below, being sure to substitute your warehouse name:
+
+   ```sql
+   ALTER WAREHOUSE ESTUARY_WH SET auto_suspend = 60;
+   ```
+
+* Configure the materialization's **minimum transaction duration** to as long as 30 minutes.
+
+   This ensures that Flow will wait at least 30 minutes between new data commits to Snowflake.
+   If no new data appears within the 30-minute window, the interval will be longer.
+   You can change this setting in the materialization's [shard configuration](../../Configuring-task-shards.md#properties)
+   as described [below](#adding-the-shard-configuration).
+
+For example, if you set the warehouse to auto-suspend after 60 seconds and set the materialization's
+minimum transaction duration to 30 minutes, you'll never incur more than 48 minutes per day of active time in the warehouse.
+
+#### Adding the shard configuration
+
+:::info Beta
+UI controls for this workflow will be added to the Flow web app soon.
+For now, you must edit the materialization specification manually, either in the web app or using the CLI.
+:::
+
+1. Using the [Flow web application](../../../guides/create-dataflow.md#create-a-materialization) or the [flowctl CLI](../../../concepts/flowctl.md#working-with-drafts),
+create a draft materialization as you normally would.
+   1. If using the web app, input the required values and click **Discover Endpoint**.
+   2. If using the flowctl, create your materialization specification manually.
+
+2. Add the [`shards` configuration](../../Configuring-task-shards.md) to the materialization specification at the same indentation level as `endpoint` and `bindings`.
+Set the `minTxnDuration` property as high as `30m` (we recommend between `15m` and `30m` for significant cost savings).
+In the web app, you do this in the Catalog Editor.
+
+   ```yaml
+   shards:
+     minTxnDuration: 30m
+   ```
+
+3. Continue to test, save, and publish the materialization as usual.
 
 ## Reserved words
 

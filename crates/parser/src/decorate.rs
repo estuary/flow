@@ -37,7 +37,7 @@ impl Decorator {
 }
 
 fn add_field(target: &mut Value, location: &Pointer, value: &Value) -> Result<(), AddFieldError> {
-    if let Some(target_location) = location.create(target) {
+    if let Some(target_location) = location.create_value(target) {
         *target_location = value.clone();
         Ok(())
     } else {

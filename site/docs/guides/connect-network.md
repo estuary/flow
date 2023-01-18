@@ -5,6 +5,12 @@ For added security, you can configure [SSH tunneling](https://www.ssh.com/academ
 You configure this in the `networkTunnel` section of applicable capture or materialization definitions, but
 before you can do so, you need a properly configured SSH server on your internal network or cloud hosting platform.
 
+:::tip
+If permitted by your organization, a quicker way to connect to a secure database is to whitelist the Estuary IP address, `34.121.207.128`.
+For help completing this task on different cloud hosting platforms,
+see the documentation for the [connector](../reference/Connectors/README.md) you're using.
+:::
+
 This guide includes setup steps for popular cloud platforms,
 as well as generalized setup that provides a basic roadmap for on-premise servers or other cloud platforms.
 

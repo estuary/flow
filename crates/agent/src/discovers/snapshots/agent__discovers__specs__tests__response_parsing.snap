@@ -1,0 +1,62 @@
+---
+source: crates/agent/src/discovers/specs.rs
+expression: json!(out)
+---
+[
+  {
+    "connector": {
+      "config": {
+        "some": "config"
+      },
+      "image": "ghcr.io/foo/bar/source-potato:v1.2.3"
+    }
+  },
+  [
+    {
+      "documentSchema": {
+        "properties": {
+          "croak": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "croak"
+        ],
+        "type": "object"
+      },
+      "keyPtrs": [
+        "/croak"
+      ],
+      "recommendedName": "frogs",
+      "resourceSpec": {
+        "stream": "greetings",
+        "syncMode": "incremental"
+      }
+    },
+    {
+      "documentSchema": {
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "count",
+          "message"
+        ],
+        "type": "object"
+      },
+      "keyPtrs": [
+        "/count"
+      ],
+      "recommendedName": "greetings",
+      "resourceSpec": {
+        "stream": "greetings",
+        "syncMode": "incremental"
+      }
+    }
+  ]
+]

@@ -1,14 +1,10 @@
----
-sidebar_position: 13
----
-
 # Mailchimp
 
 This connector captures data from a Mailchimp account.
 
 Three data resources are supported, each of which is mapped to a Flow collection: lists, campaigns, and email activity.
 
-[`ghcr.io/estuary/source-mailchimp:dev`](https://ghcr.io/estuary/source-mailchimp:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-mailchimp:dev`](https://ghcr.io/estuary/source-mailchimp:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/mailchimp),
@@ -16,22 +12,17 @@ but keep in mind that the two versions may be significantly different.
 
 ## Prerequisites
 
-There are two ways to authenticate with MailChimp when capturing data: using OAuth, and with an API key.
+There are two ways to authenticate with MailChimp when capturing data: using OAuth2, and manually, with an API key.
 Their prerequisites differ.
 
 OAuth is recommended for simplicity in the Flow web app;
 the API key method is the only supported method using the command line.
 
-### Prerequisites for OAuth
-
-:::caution Beta
-OAuth implementation is under active development and is coming soon.
-Use the API key method for now.
-:::
+### Using OAuth2 to authenticate with Mailchimp in the Flow web app
 
 * A Mailchimp account
 
-### Prerequisites using an API key
+### Configuring the connector specification manually
 
 * A Mailchimp account
 
@@ -39,8 +30,8 @@ Use the API key method for now.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and YAML sample below provide configuration details specific to the Mailchimp source connector.
+You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Mailchimp source connector.
 
 ### Properties
 

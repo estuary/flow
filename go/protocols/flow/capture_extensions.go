@@ -1,6 +1,8 @@
 package flow
 
 import (
+	"encoding/json"
+
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
@@ -36,6 +38,13 @@ func (m *CaptureSpec) Validate() error {
 		return pb.ExtendContext(err, "RecoveryLogTemplate")
 	}
 	return nil
+}
+
+func (m *CaptureSpec) GetEndpointType() EndpointType {
+	return m.EndpointType
+}
+func (m *CaptureSpec) GetEndpointSpecPtr() *json.RawMessage {
+	return &m.EndpointSpecJson
 }
 
 // Validate returns an error if the CaptureSpec_Binding is malformed.

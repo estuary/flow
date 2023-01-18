@@ -1,6 +1,6 @@
 test://example/a-schema.json: true
 
-test://example/alt-schema.json:
+test://example/other-schema.json:
   $anchor: foobar
   type: object
   properties:
@@ -31,7 +31,6 @@ test://example/catalog.yaml:
               partitions:
                 include: { "a_field": ["foo", 42] }
                 exclude: { "other_field": [false] }
-              schema: alt-schema.json#foobar
             readDelay: "1 hour"
             priority: 32
             shuffle:
@@ -42,7 +41,7 @@ test://example/catalog.yaml:
         typescript:
           module: catalog.ts
           npmDependencies:
-              package-one: "v0.1.2"
+            package-one: "v0.1.2"
 
     d2/collection:
       schema: a-schema.json
@@ -68,7 +67,8 @@ test://example/catalog.yaml:
           readChannelSize: 6789
 
     d3/collection:
-      schema: a-schema.json
+      writeSchema: a-schema.json
+      readSchema: other-schema.json
       key: [/some/key]
       derivation:
         transform:
@@ -83,7 +83,7 @@ test://example/catalog.yaml:
 
             inlineTypescript();
           npmDependencies:
-              pkg-2: "~v2"
+            pkg-2: "~v2"
 
 test://example/catalog.ts:
   typescript: "module placeholder"

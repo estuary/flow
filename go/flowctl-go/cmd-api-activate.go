@@ -11,11 +11,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/estuary/flow/go/capture"
+	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/flow/ops"
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/materialize"
+	"github.com/estuary/flow/go/ops"
 	pfc "github.com/estuary/flow/go/protocols/capture"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
@@ -84,23 +83,32 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 		if !ok {
 			continue
 		}
+		var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
+			Build:    spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
+			TaskName: spec.TaskName(),
+			TaskType: labels.TaskTypeCapture,
+		})
+
 		if spec.ShardTemplate.Disable {
 			log.WithField("capture", spec.Capture.String()).
 				Info("Will skip applying capture because it's shards are disabled")
 			continue
 		}
 
-		driver, err := capture.NewDriver(ctx,
-			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), cmd.Network, ops.StdLogger())
-		if err != nil {
-			return fmt.Errorf("building driver for capture %q: %w", spec.Capture, err)
-		}
-
-		response, err := driver.ApplyUpsert(ctx, &pfc.ApplyRequest{
+		var request = &pfc.ApplyRequest{
 			Capture: spec,
-			Version: spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
+			Version: publisher.Labels().Build,
 			DryRun:  cmd.DryRun,
-		})
+		}
+		var response, err = connector.Invoke(
+			ctx,
+			request,
+			cmd.Network,
+			publisher,
+			func(driver *connector.Driver, request *pfc.ApplyRequest) (*pfc.ApplyResponse, error) {
+				return driver.CaptureClient().ApplyUpsert(ctx, request)
+			},
+		)
 		if err != nil {
 			return fmt.Errorf("applying capture %q: %w", spec.Capture, err)
 		}
@@ -120,23 +128,32 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 		if !ok {
 			continue
 		}
+		var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
+			Build:    spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
+			TaskName: spec.TaskName(),
+			TaskType: labels.TaskTypeMaterialization,
+		})
+
 		if spec.ShardTemplate.Disable {
 			log.WithField("materialization", spec.Materialization.String()).
 				Info("Will skip applying materialization because it's shards are disabled")
 			continue
 		}
 
-		driver, err := materialize.NewDriver(ctx,
-			spec.EndpointType, json.RawMessage(spec.EndpointSpecJson), cmd.Network, ops.StdLogger())
-		if err != nil {
-			return fmt.Errorf("building driver for materialization %q: %w", spec.Materialization, err)
-		}
-
-		response, err := driver.ApplyUpsert(ctx, &pm.ApplyRequest{
+		var request = &pm.ApplyRequest{
 			Materialization: spec,
-			Version:         spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
+			Version:         publisher.Labels().Build,
 			DryRun:          cmd.DryRun,
-		})
+		}
+		var response, err = connector.Invoke(
+			ctx,
+			request,
+			cmd.Network,
+			publisher,
+			func(driver *connector.Driver, request *pm.ApplyRequest) (*pm.ApplyResponse, error) {
+				return driver.MaterializeClient().ApplyUpsert(ctx, request)
+			},
+		)
 		if err != nil {
 			return fmt.Errorf("applying materialization %q: %w", spec.Materialization, err)
 		}

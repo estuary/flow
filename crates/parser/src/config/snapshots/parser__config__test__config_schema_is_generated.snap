@@ -45,6 +45,7 @@ expression: schema
       "default": {
         "type": "auto"
       },
+      "type": "object",
       "oneOf": [
         {
           "title": "Auto",
@@ -56,6 +57,7 @@ expression: schema
           "properties": {
             "type": {
               "default": "auto",
+              "type": "string",
               "const": "auto"
             }
           }
@@ -70,6 +72,7 @@ expression: schema
           "properties": {
             "type": {
               "default": "avro",
+              "type": "string",
               "const": "avro"
             }
           }
@@ -84,6 +87,7 @@ expression: schema
           "properties": {
             "type": {
               "default": "json",
+              "type": "string",
               "const": "json"
             }
           }
@@ -455,7 +459,43 @@ expression: schema
             },
             "type": {
               "default": "csv",
+              "type": "string",
               "const": "csv"
+            }
+          }
+        },
+        {
+          "title": "Protobuf",
+          "description": "Parses a single protobuf message, using the given .proto file in the configuration.",
+          "type": "object",
+          "required": [
+            "config",
+            "type"
+          ],
+          "properties": {
+            "config": {
+              "type": "object",
+              "required": [
+                "message",
+                "protoFile"
+              ],
+              "properties": {
+                "message": {
+                  "description": "The name of the protobuf Message to deserialize as. Must be defined within the given proto file.",
+                  "type": "string"
+                },
+                "protoFile": {
+                  "title": "Your .proto file",
+                  "description": "The contents of the .proto that defines the message type to deserialize.",
+                  "type": "string",
+                  "multiline": true
+                }
+              }
+            },
+            "type": {
+              "default": "protobuf",
+              "type": "string",
+              "const": "protobuf"
             }
           }
         },
@@ -469,6 +509,7 @@ expression: schema
           "properties": {
             "type": {
               "default": "w3cExtendedLog",
+              "type": "string",
               "const": "w3cExtendedLog"
             }
           }

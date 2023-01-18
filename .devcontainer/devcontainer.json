@@ -39,7 +39,7 @@
 		// Go language support.
 		"golang.go",
 		// Rust language support.
-		"matklad.rust-analyzer",
+		"rust-lang.rust-analyzer",
 		// SQL support.
 		"mtxr.sqltools",
 		// Driver for attached, docker compose database.

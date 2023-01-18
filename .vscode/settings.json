@@ -1,24 +1,29 @@
 {
-    "files.watcherExclude": {
-        "**/.build/**": true,
-        "**/target/**": true
-    },
-    "yaml.schemas": {
-        "https://json-schema.org/draft/2019-09/schema": [
-            "schema.yaml",
-            "*.schema.yaml"
-        ]
-    },
-    "sqltools.format": {
-        "linesBetweenQueries": 2,
-        "reservedWordCase": "upper",
-        "language": "sql"
-    },
-    "files.trimTrailingWhitespace": true,
-    "editor.formatOnSave": true,
-    "cSpell.words": [
-        "airbyte",
-        "Firebolt",
-        "schemalate"
-    ],
+  "files.watcherExclude": {
+    "**/.build/**": true,
+    "**/target/**": true
+  },
+  "yaml.schemas": {
+    "https://json-schema.org/draft/2019-09/schema": [
+      "schema.yaml",
+      "*.schema.yaml"
+    ]
+  },
+  "sqltools.format": {
+    "linesBetweenQueries": 2,
+    "reservedWordCase": "upper",
+    "language": "sql"
+  },
+  "files.trimTrailingWhitespace": true,
+  "editor.formatOnSave": true,
+  "cSpell.words": [
+    "airbyte",
+    "Firebolt",
+    "schemalate"
+  ],
+  "[sql]": {
+    // Disable SQL formatting because it's - frankly - terrible.
+    "editor.formatOnSave": false
+  },
+  "deno.enable": true
 }

@@ -1,11 +1,11 @@
 ---
-sidebar_position: 8
+sidebar_position: 4
 ---
 # Google Cloud Storage
 
 This connector captures data from a Google Cloud Storage (GCS) bucket.
 
-[`ghcr.io/estuary/source-gcs:dev`](https://ghcr.io/estuary/source-gcs:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-gcs:dev`](https://ghcr.io/estuary/source-gcs:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
@@ -18,8 +18,8 @@ To use this connector, either your GCS bucket must be public, or you must have a
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and YAML sample below provide configuration details specific to the GCS source connector.
+You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the GCS source connector.
 
 :::tip
 You might use [prefixes](https://cloud.google.com/storage/docs/samples/storage-list-files-with-prefix) to organize your GCS bucket
@@ -39,7 +39,8 @@ To capture the entire bucket, omit `prefix` in the endpoint configuration and se
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| `/ascendingKeys` | Ascending Keys | Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering. | boolean | `false` |
+| `/advanced` |  | Options for advanced users. You should not typically need to modify these. | object |  |
+| `/advanced/ascendingKeys` | Ascending Keys | Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering. If data is not ordered correctly, using ascending keys could cause errors. | boolean | `false` |
 | **`/bucket`** | Bucket | Name of the Google Cloud Storage bucket | string | Required |
 | `/googleCredentials` | Google Service Account | Service account JSON key to use as Application Default Credentials | string |  |
 | `/matchKeys` | Match Keys | Filter applied to all object keys under the prefix. If provided, only objects whose key (relative to the prefix) matches this regex will be read. For example, you can use &quot;.&#x2A;&#x5C;.json&quot; to only capture json files. | string |  |
@@ -131,6 +132,7 @@ Options are:
    * **Avro**
    * **CSV**
    * **JSON**
+   * **Protobuf**
    * **W3C Extended Log**
 
    :::info
@@ -185,7 +187,7 @@ but you may need to specify for unusual datasets. These properties are:
   * Disable Quoting (`""`)
   * Auto
 
-The YAML sample [above](#sample) includes these fields.
+The sample specification [above](#sample) includes these fields.
 
 ### Advanced: Configure Google service account impersonation
 

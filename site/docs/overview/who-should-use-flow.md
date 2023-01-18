@@ -18,7 +18,8 @@ If you answer "yes" to any of the following questions, Flow can help:
   Flink, or Google Cloud Dataflow, and want a faster, easier-to-evolve alternative?
 * Is your organization held back by a data engineering bottleneck,
   while less-technical stakeholders are blocked from contributing by a high barrier to entry?
-* Are you building a [distributed data mesh](https://martinfowler.com/articles/data-monolith-to-mesh.html)
+* Are you implementing a new data architecture framework, like a
+ [distributed data mesh](https://martinfowler.com/articles/data-monolith-to-mesh.html)
   and are seeking a tool to help with orchestration?
 
 ## Benefits
@@ -38,9 +39,9 @@ To achieve comparable capabilities to Flow you would need:
 * ETL job management and execution, such as a self-hosting or Google Cloud Dataflow
 * Custom reconciliation of historical vs streaming datasets, including onerous backfills of new streaming applications from historical data
 
-Flow's declarative GitOps workflow is a dramatic simplification from this inherent complexity. It saves you time and costs, catches mistakes before they hit production, and keeps your data fresh across all the places you use it.
-The UI-forward web application takes usability to a new level,
-allowing more types of professionals to contribute to what would otherwise require a
+Flow dramatically simplifies this inherent complexity. It saves you time and costs, catches mistakes before they hit production, and keeps your data fresh across all the places you use it.
+With both a UI-forward web application and a powerful CLI ,
+more types of professionals can contribute to what would otherwise require a
 highly specialized set of technical skills.
 
 ### Efficient architecture
@@ -52,7 +53,7 @@ Flow mixes a variety of architectural techniques to deliver great throughput, av
 * Optimistic pipelining and vectorization of internal remote procedure calls (RPCs) and operations
 * A cloud-native design that optimizes for public cloud pricing models
 
-Flow also makes it easy to [**materialize**](../concepts/materialization.md) focused data rollups as views directly into your warehouse, so you don't need to repeatedly query the much larger source datasets. This can dramatically lower warehouse costs.
+Flow also makes it easy to [**materialize**](../concepts/materialization.md) focused data views directly into your warehouse, so you don't need to repeatedly query the much larger source datasets. This can dramatically lower warehouse costs.
 
 ### Powerful transformations
 
@@ -62,15 +63,16 @@ Flow transforms data in durable micro-transactions, meaning that an outcome, onc
 
 ### Data integrity
 
-Flow supports strong schematization, durable transactions with exactly-once semantics, and easy end-to-end testing to ensure that your data is accurate and that changes don't break pipelines.
+Flow is architected to ensure that your data is accurate and that changes don't break pipelines.
+It supports strong schematization, durable transactions with exactly-once semantics, and easy end-to-end testing.
 
-* JSON schemas are verified with every document read or written. If a document violates its schema, Flow pauses the pipeline, giving you a chance to fix the error.
+* Required JSON schemas ensure that only clean, consistent data is ingested into Flow or written to external systems. If a document violates its schema, Flow pauses the pipeline, giving you a chance to fix the error.
 * Schemas can encode constraints, like that a latitude value must be between +90 and -90 degrees, or that a field must be a valid email address.
-* Flow projects JSON schema into other flavors, like TypeScript types or SQL tables. Strong type checking catches bugs before they're applied to production.
-* Flow's declarative tests verify the integrated, end-to-end behavior of processing pipelines.
+* Flow can project JSON schema into other flavors, like TypeScript types or SQL tables. Strong type checking catches bugs before they're applied to production.
+* Flow's declarative tests verify the integrated, end-to-end behavior of data flows.
 
 ### Dynamic scaling
 
-The Flow runtime scales from a single process for local development up to a large Kubernetes cluster for high-volume production deployments. Processing tasks are quickly reassigned upon any machine failure for high availability.
+The Flow runtime scales from a single process up to a large Kubernetes cluster for high-volume production deployments. Processing tasks are quickly reassigned upon any machine failure for high availability.
 
 Each process can also be scaled independently, at any time, and without downtime. This is unique to Flow. Comparable systems require that an arbitrary data partitioning be decided upfront, a crucial performance knob that's awkward and expensive to change. Instead, Flow can repeatedly [split a running task](../concepts/advanced/shards.md) into two new tasks, each half the size, without stopping it or impacting its downstream uses.

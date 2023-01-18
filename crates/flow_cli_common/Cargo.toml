@@ -1,13 +1,16 @@
 [package]
 name = "flow_cli_common"
-version = "0.1.0"
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
-anyhow = "*"
-clap = {version = "*", features = ["derive"]}
-atty = "*"
-tracing = "*"
-tracing-subscriber = {version = "*", features = ["json", "env-filter", "fmt", "time"]}
+anyhow = { workspace = true }
+clap = { workspace = true }
+atty = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

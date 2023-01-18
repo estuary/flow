@@ -1,61 +1,30 @@
 ---
-sidebar_position: 1
+sidebar_position: 2
 ---
 # Captures
 
-A **capture** is a catalog task that connects to an external data source, or endpoint,
-and binds one or more of its resources, such as database tables,
-to Flow collections.
-As documents become available for any of the bindings,
-Flow validates their schema and adds them to their bound collection.
+A **capture** is how Flow ingests data from an external source.
+Every Data Flow starts with a capture.
 
-![](<captures.svg>)
+Captures are a type of Flow **task**.
+They connect to an external data source, or **endpoint**,
+and bind one or more of its resources, such as database tables.
+Each binding adds documents to a corresponding Flow **collection**.
+
+Captures run continuously:
+as soon as new documents are made available at the endpoint resources,
+Flow validates their schema and adds them to the appropriate collection.
+Captures can process [documents](./collections.md#documents) up to 16 MB in size.
+
+![](<captures-new.svg>)
+
+You define and configure captures in **Flow specifications**.
+
+[See the guide to create a capture](../guides/create-dataflow.md#create-a-capture)
 
 ## Pull captures
 
-Pull captures pull documents from an endpoint using a [connector](../#connectors):
-
-```yaml
-# A set of captures to include in the catalog.
-# Optional, type: object
-captures:
-  # The name of the capture.
-  acmeCo/example/source-s3:
-    # Endpoint defines how to connect to the source of the capture.
-    # Required, type: object
-    endpoint:
-      # This endpoint uses a connector provided as a Docker image.
-      connector:
-        # Docker image which implements the capture connector.
-        image: ghcr.io/estuary/source-s3:dev
-        # File which provides the connector's required configuration.
-        # Configuration may also be presented inline.
-        config: path/to/connector-config.yaml
-
-    # Bindings define how collections are populated from the data source.
-    # A capture may bind multiple resources to different collections.
-    # Required, type: array
-    bindings:
-      - # The target collection to capture into.
-        # This may be defined in a separate, imported catalog source file.
-        # Required, type: string
-        target: acmeCo/example/collection
-
-        # The resource is additional configuration required by the endpoint
-        # connector to identify and capture a specific endpoint resource.
-        # The structure and meaning of this configuration is defined by
-        # the specific connector.
-        # Required, type: object
-        resource:
-          stream: a-bucket/and-prefix
-          # syncMode should be set to incremental for all Estuary connectors
-          syncMode: incremental
-
-      - target: acmeCo/example/another-collection
-        resource:
-          stream: a-bucket/another-prefix
-          syncMode: incremental
-```
+Pull captures pull data from an endpoint using a [connector](../#connectors).
 
 ### Estuary sources
 
@@ -80,17 +49,71 @@ If you see a connector you'd like to prioritize for access in the Flow web app, 
 To help you configure new pull captures, Flow offers the guided **discovery** workflow in the Flow web application.
 
 To begin discovery, you tell Flow the connector you'd like to use and basic information about the endpoint.
-Flow automatically stubs out the capture configuration for you. It identifies one or more
+Flow automatically generates a capture configuration for you. It identifies one or more
 **resources** — tables, data streams, or the equivalent — and generates **bindings** so that each will be mapped to a
 data collection in Flow.
 
 You may then modify the generated configuration as needed before publishing the capture.
 
-For detailed steps, see the [guide to create a dataflow in the web app](../guides/create-dataflow.md#create-a-capture).
+### Specification
+
+Pull captures are defined in Flow specification files per the following format:
+
+```yaml
+# A set of captures to include in the catalog.
+# Optional, type: object
+captures:
+  # The name of the capture.
+  acmeCo/example/source-s3:
+    # Endpoint defines how to connect to the source of the capture.
+    # Required, type: object
+    endpoint:
+      # This endpoint uses a connector provided as a Docker image.
+      connector:
+        # Docker image that implements the capture connector.
+        image: ghcr.io/estuary/source-s3:dev
+        # File that provides the connector's required configuration.
+        # Configuration may also be presented inline.
+        config: path/to/connector-config.yaml
+
+    # Bindings define how collections are populated from the data source.
+    # A capture may bind multiple resources to different collections.
+    # Required, type: array
+    bindings:
+      - # The target collection to capture into.
+        # This may be defined in a separate, imported specification file.
+        # Required, type: string
+        target: acmeCo/example/collection
+
+        # The resource is additional configuration required by the endpoint
+        # connector to identify and capture a specific endpoint resource.
+        # The structure and meaning of this configuration is defined by
+        # the specific connector.
+        # Required, type: object
+        resource:
+          stream: a-bucket/and-prefix
+          # syncMode should be set to incremental for all Estuary connectors
+          syncMode: incremental
+
+      - target: acmeCo/example/another-collection
+        resource:
+          stream: a-bucket/another-prefix
+          syncMode: incremental
+```
 
 ## Push captures
 
-Push captures expose an endpoint to which documents may be pushed using a supported ingestion protocol:
+Push captures expose an endpoint to which documents may be pushed using a supported ingestion protocol.
+
+:::caution Beta
+Push captures are under development.
+Estuary intends to offer Webhook, Websocket, and Kafka-compatible APIs for capturing into collections.
+Join the [Estuary Slack](https://estuary-dev.slack.com/join/shared_invite/enQtNjQxMzgyNTEzNzk1LTU0ZjZlZmY5ODdkOTEzZDQzZWU5OTk3ZTgyNjY1ZDE1M2U1ZTViMWQxMThiMjU1N2MwOTlhMmVjYjEzMjEwMGQ#/shared-invite/email) for more information on this and other ongoing development work.
+:::
+
+### Specification
+
+Push capture configurations use the following general format:
 
 ```yaml
 captures:
@@ -108,8 +131,3 @@ captures:
         resource:
           name: webhooks
 ```
-
-:::caution
-Push captures are under development.
-Estuary intends to offer Webhook, Websocket, and Kafka-compatible APIs for capturing into collections. Specification details are likely to exist.
-:::

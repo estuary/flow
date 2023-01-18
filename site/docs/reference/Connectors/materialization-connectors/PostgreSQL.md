@@ -1,7 +1,7 @@
 
 This connector materializes Flow collections into tables in a PostgreSQL database.
 
-[`ghcr.io/estuary/materialize-postgres:dev`](https://ghcr.io/estuary/materialize-postgres:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-postgres:dev`](https://ghcr.io/estuary/materialize-postgres:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
@@ -25,12 +25,16 @@ Use the below properties to configure a Postgres materialization, which will dir
 | `/database`     | Database | Name of the logical database to materialize to. | string  |                  |
 | **`/address`**  | Address  | Host and port of the database                   | string  | Required         |
 | **`/password`** | Password | Password for the specified database user.       | string  | Required         |
+| `/schema` | Database Schema | Database [schema](https://www.postgresql.org/docs/current/ddl-schemas.html) to use for materialized tables (unless overridden within the binding resource configuration) as well as associated materialization metadata tables | string | `"public"` |
 | **`/user`**     | User     | Database user to connect as.                    | string  | Required         |
 
 #### Bindings
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
+| `/additional_table_create_sql` | Additional Table Create SQL | Additional SQL statement(s) to be run in the same transaction that creates the table. | string |  |
+| `/delta_updates` | Delta Update | Should updates to this table be done via delta updates. | boolean | `false` |
+| `/schema` | Alternative Schema | Alternative schema for this table (optional). Overrides schema set in endpoint configuration. | string |  |
 | **`/table`** | Table | Table name to materialize to. It will be created by the connector, unless the connector has previously created it. | string | Required |
 
 ### Sample
@@ -63,6 +67,21 @@ You may use other cloud platforms, but Estuary doesn't guarantee performance.
 
 ### Setup
 
+You must configure your database to allow connections from Estuary.
+The recommended method is to whitelist Estuary Flow's IP address.
+
+* **Amazon RDS and Amazon Aurora**: Edit the VPC security group associated with your database instance, or create a new VPC security group and associate it with the database instance.
+   * [Modify the instance](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), choosing **Publicly accessible** in the **Connectivity** settings.
+
+   * Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
+   Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
+
+* **Google Cloud SQL**: [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
+
+* **Azure Database For PostgreSQL**: Create a new [firewall rule](https://docs.microsoft.com/en-us/azure/postgresql/flexible-server/how-to-manage-firewall-portal#create-a-firewall-rule-after-server-is-created) that grants access to the IP address `34.121.207.128`.
+
+Alternatively, you can allow secure connections via SSH tunneling. To do so:
+
 1. Refer to the [guide](../../../../guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
 
 2. Configure your connector as described in the [configuration](#configuration) section above,
@@ -70,12 +89,19 @@ with the additional of the `networkTunnel` stanza to enable the SSH tunnel, if u
 See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
 for additional details and a sample.
 
-:::tip
-You can find the values for `forwardHost` and `forwardPort` in the following locations in each platform's console:
-* Amazon RDS: `forwardHost` as Endpoint; `forwardPort` as Port.
-* Google Cloud SQL: `forwardHost` as Private IP Address; `forwardPort` is always `5432`. You may need to [configure private IP](https://cloud.google.com/sql/docs/postgres/configure-private-ip) on your database.
-* Azure Database: `forwardHost` as Server Name; `forwardPort` under Connection Strings (usually `5432`).
+:::tip Configuration Tip
+To configure the connector, you must specify the database address in the format `host:port`.
+You can find the host and port in the following locations in each platform's console:
+* Amazon RDS and Amazon Aurora: host as Endpoint; port as Port.
+* Google Cloud SQL: host as Private IP Address; port is always `5432`. You may need to [configure private IP](https://cloud.google.com/sql/docs/postgres/configure-private-ip) on your database.
+* Azure Database: host as Server Name; port under Connection Strings (usually `5432`).
+* TimescaleDB: host as Host; port as Port.
 :::
+
+## Delta updates
+
+This connector supports both standard (merge) and [delta updates](../../../concepts/materialization.md#delta-updates).
+The default is to use standard updates.
 
 ## Reserved words
 
@@ -180,3 +206,23 @@ These reserve words are listed in the table below. Flow automatically quotes fie
 |current_schema|	immediate|	open|	sql|	xmltext|
 |current_time|	import|	option|	sqlcode|	xmlvalidate|
 |current_timestamp|	in|	or|	sqlerror|	year|
+
+## Changelog
+
+The changelog includes a list of breaking changes made to this connector. Backwards-compatible changes are not listed.
+
+**Proceed with caution when editing materializations created with previous versions of this connector;
+editing always upgrades your materialization to the latest connector version.**
+
+#### V4: 2022-11-30
+
+This version includes breaking changes to materialized table columns.
+These  provide more consistent column names and types, but tables created from previous versions of the connector may
+not be compatible with this version.
+
+* Capitalization is now preserved when fields in Flow are converted to Postgres column names.
+  Previously, fields containing uppercase letters were converted to lowercase.
+
+* Field names and values of types `date`, `duration`, `ipv4`, `ipv6`, `macaddr`, `macaddr8`, and `time` are now converted into
+  their corresponding Postgres types.
+  Previously, only `date-time` was converted, and all others were materialized as strings.

@@ -8,6 +8,18 @@ use serde_json::{json, Value};
 use testutil::{input_for_file, run_test};
 
 #[test]
+fn protobuf_file_is_parsed() {
+    let config = ParseConfig {
+        format: Format::Protobuf(parser::protobuf::ProtobufConfig {
+            proto_file_content: include_str!("examples/gtfs-realtime.proto").to_string(),
+            message: "FeedMessage".to_string(),
+        }),
+        ..Default::default()
+    };
+    assert_file_is_parsed_with_config("tests/examples/vehicle-positions.pb".into(), config);
+}
+
+#[test]
 fn valid_examples_are_parsed_with_default_config() {
     for result in fs::read_dir("tests/examples").unwrap() {
         let entry = result.unwrap();
@@ -59,9 +71,12 @@ fn csv_does_not_require_explicit_quote_configuration() {
 }
 
 fn assert_file_is_parsed(file: PathBuf) {
+    assert_file_is_parsed_with_config(file, ParseConfig::default());
+}
+
+fn assert_file_is_parsed_with_config(file: PathBuf, mut config: ParseConfig) {
     let canary_ptr = "/_meta/canary";
     let offset_ptr = "/_meta/sourceOffset";
-    let mut config = ParseConfig::default();
     config
         .add_values
         .insert(JsonPointer::from(canary_ptr), json!(true));

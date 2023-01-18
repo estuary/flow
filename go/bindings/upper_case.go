@@ -9,13 +9,13 @@ import (
 	"reflect"
 	"unsafe"
 
-	"github.com/estuary/flow/go/flow/ops"
+	"github.com/estuary/flow/go/ops"
 )
 
 // newUpperCase is a testing Service that upper-cases each input Frame,
 // and returns the running sum length of its inputs via its response
 // Frame Code.
-func newUpperCase(logPublisher ops.Logger) *service {
+func newUpperCase(publisher ops.Publisher) *service {
 	var svc, err = newService(
 		"uppercase",
 		func(logFilter, logDest C.int32_t) *C.Channel { return C.upper_case_create(logFilter, logDest) },
@@ -23,7 +23,7 @@ func newUpperCase(logPublisher ops.Logger) *service {
 		func(ch *C.Channel, in C.In4) { C.upper_case_invoke4(ch, in) },
 		func(ch *C.Channel, in C.In16) { C.upper_case_invoke16(ch, in) },
 		func(ch *C.Channel) { C.upper_case_drop(ch) },
-		logPublisher,
+		publisher,
 	)
 	if err != nil {
 		panic(err)
@@ -33,7 +33,7 @@ func newUpperCase(logPublisher ops.Logger) *service {
 
 // newNoOpService is a testing Service that doesn't invoke into CGO,
 // but still produces an (empty) output Frame for each input.
-func newNoOpService() *service {
+func newNoOpService(publisher ops.Publisher) *service {
 	var svc, err = newService(
 		"noop",
 		func(_, _ C.int32_t) *C.Channel {
@@ -54,7 +54,7 @@ func newNoOpService() *service {
 			C.free(unsafe.Pointer(ch.out_ptr))
 			C.free(unsafe.Pointer(ch))
 		},
-		ops.StdLogger(),
+		publisher,
 	)
 	if err != nil {
 		panic(err)

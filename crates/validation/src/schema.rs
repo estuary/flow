@@ -29,15 +29,17 @@ pub enum Ref<'a> {
         collection: &'a tables::Collection,
         // Projections of this collection.
         projections: &'a [tables::Projection],
+        // Is this a reference to a distinct collection write schema?
+        // As opposed to its read schema, or a shared write & read schema.
+        write_only: bool,
     },
     // Schema of a derivation register.
     Register(&'a tables::Derivation),
     // Schema being read by a transform.
     Source {
         transform: &'a tables::Transform,
-        // Schema resolved from either transform.source_schema,
-        // or the schema of the referenced collection.
-        schema: &'a url::Url,
+        // `read_schema` of the referenced source collection.
+        read_schema: &'a url::Url,
     },
 }
 
@@ -54,9 +56,22 @@ impl<'a> Ref<'a> {
     fn schema(&'a self) -> &'a url::Url {
         match self {
             Ref::Root(schema) => schema,
-            Ref::Collection { collection, .. } => &collection.schema,
+            Ref::Collection {
+                collection,
+                projections: _,
+                write_only,
+            } => {
+                if *write_only {
+                    &collection.write_schema
+                } else {
+                    &collection.read_schema
+                }
+            }
             Ref::Register(derivation) => &derivation.register_schema,
-            Ref::Source { schema, .. } => schema,
+            Ref::Source {
+                read_schema: schema,
+                ..
+            } => schema,
         }
     }
 
@@ -66,14 +81,21 @@ impl<'a> Ref<'a> {
             Ref::Collection {
                 collection,
                 projections,
+                write_only,
             } => Box::new(
                 // Locations of explicit projections of the collection are explicit
                 // schema locations, as are the components of the collection key itself.
+                // If a schema is used only for writes, we skip projections that aren't logical partitions.
                 projections
                     .iter()
-                    .map(|projection| {
-                        let (location, _) = projection.spec.as_parts();
-                        location
+                    .filter_map(|projection| {
+                        let (location, partition) = projection.spec.as_parts();
+
+                        if partition || !*write_only {
+                            Some(location)
+                        } else {
+                            None
+                        }
                     })
                     .chain(collection.spec.key.iter()),
             ),
@@ -120,36 +142,35 @@ impl<'a> Ref<'a> {
             refs.push(Ref::Collection {
                 collection,
                 projections,
+                write_only: false,
             });
+            // A distinct write schema creates a separate schema reference for the collection.
+            if collection.write_schema != collection.read_schema {
+                refs.push(Ref::Collection {
+                    collection,
+                    projections,
+                    write_only: true,
+                });
+            }
         }
 
         for derivation in derivations.iter() {
             refs.push(Ref::Register(derivation));
         }
 
-        // We track schema references from transforms for two reasons:
-        // * Transforms may use alternate source schemas,
-        //   which are distinguished from the collection's declared schema.
-        // * Transforms may have shuffle keys which contribute to the explicitly
-        //   inferred locations of a schema.
+        // We track schema references from transforms as they may have shuffle keys
+        // which contribute to the explicitly inferred locations of a schema.
         for transform in transforms.iter() {
             let source = collections
                 [collections.equal_range_by_key(&&transform.spec.source.name, |c| &c.collection)]
             .first();
 
-            match (&transform.source_schema, source) {
-                (Some(schema), _) => {
-                    refs.push(Ref::Source { schema, transform });
-                }
-                (None, Some(source)) => {
-                    refs.push(Ref::Source {
-                        schema: &source.schema,
-                        transform,
-                    });
-                }
-                (None, None) => {
-                    // Referential error that we'll report later.
-                }
+            // If source is not Some, it's a referential error that we'll report later.
+            if let Some(source) = source {
+                refs.push(Ref::Source {
+                    read_schema: &source.read_schema,
+                    transform,
+                });
             }
         }
 
@@ -221,7 +242,7 @@ pub fn walk_all_schema_refs<'a>(
         let shape = match index.fetch(schema) {
             Some(schema) => inference::Shape::infer(schema, &index),
             None => {
-                // Schema is local, and was not found in our schema index.
+                // Schema was not found in our schema index.
                 // Report error against each reference of the schema.
                 for reference in references.iter() {
                     let schema = schema.clone();
@@ -276,14 +297,8 @@ pub fn walk_all_schema_refs<'a>(
             })
             // Generate a canonical projection field for each location.
             .map(|(ptr, shape, exists)| {
-                let field = if ptr.is_empty() {
-                    "flow_document".to_string()
-                } else {
-                    // Canonical projection field is the JSON pointer
-                    // stripped of its leading '/'.
-                    ptr.chars().skip(1).collect::<String>()
-                };
-
+                // Canonical projection field is the JSON pointer stripped of its leading '/'.
+                let field = ptr.chars().skip(1).collect::<String>();
                 (field, models::JsonPointer::new(ptr), shape, exists)
             })
             // Re-order to walk in ascending field name order.
@@ -296,7 +311,10 @@ pub fn walk_all_schema_refs<'a>(
         for (field, ptr, shape, exists) in merged {
             // Note we're already ordered on |field|.
             inferences.insert_row(schema, &ptr, assemble::inference(shape, exists));
-            fields.push((field, ptr));
+
+            if !field.is_empty() {
+                fields.push((field, ptr));
+            }
         }
 
         schema_shapes.push(Shape {
@@ -339,9 +357,10 @@ pub fn walk_composite_key(
 ) {
     for ptr in key.iter() {
         // An explicit field should be attached to the schema shape
-        // for every composite key component pointer we encounter.
+        // for every composite key component pointer we encounter...
+        // with the exception of the document root.
         assert!(
-            schema.fields.iter().find(|(_, p)| p == ptr).is_some(),
+            schema.fields.iter().find(|(_, p)| p == ptr).is_some() || ptr.is_empty(),
             "scope {} key {} not found in schema {}",
             scope.to_string(),
             ptr.as_str(),
@@ -367,13 +386,34 @@ pub fn walk_explicit_location(
     exists: Exists,
     errors: &mut tables::Errors,
 ) {
-    if exists == Exists::Implicit {
+    let (start, stop) = models::JsonPointer::regex()
+        .find(ptr)
+        .map(|m| (m.start(), m.end()))
+        .unwrap_or((0, 0));
+    let unmatched = [&ptr[..start], &ptr[stop..]].concat();
+
+    // These checks return early if matched because
+    // further errors are likely spurious.
+    if !ptr.is_empty() && !ptr.starts_with("/") {
+        Error::KeyMissingLeadingSlash {
+            ptr: ptr.to_string(),
+        }
+        .push(scope, errors);
+        return;
+    } else if !unmatched.is_empty() {
+        Error::KeyRegex {
+            ptr: ptr.to_string(),
+            unmatched,
+        }
+        .push(scope, errors);
+        return;
+    } else if exists == Exists::Implicit {
         Error::KeyIsImplicit {
             ptr: ptr.to_string(),
             schema: schema.clone(),
         }
         .push(scope, errors);
-        return; // Further errors are likely spurious.
+        return;
     } else if exists == Exists::Cannot {
         Error::KeyCannotExist {
             ptr: ptr.to_string(),

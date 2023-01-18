@@ -1,48 +1,47 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
-
 ---
 [
     Error {
         scope: test://example/int-string-tests#/tests/testing~1test/0,
         error: test ingest document is invalid against the collection schema: {
-          "document": {
-            "bit": true,
-            "int": 42,
-            "str_whoops": "string A"
-          },
           "basic_output": {
             "errors": [
               {
                 "absoluteKeywordLocation": "test://example/int-string.schema",
-                "error": "Invalid(Required { props: [\"int\", \"str\", \"bit\"], props_interned: 7 })",
+                "error": "Invalid: Properties \"int\", \"str\", \"bit\" are required.",
                 "instanceLocation": "",
                 "keywordLocation": "#"
               }
             ],
             "valid": false
+          },
+          "document": {
+            "bit": true,
+            "int": 42,
+            "str_whoops": "string A"
           }
         },
     },
     Error {
         scope: test://example/int-string-tests#/tests/testing~1test/0,
         error: test ingest document is invalid against the collection schema: {
-          "document": {
-            "bit": true,
-            "int": 52,
-            "str_whoops": "string B"
-          },
           "basic_output": {
             "errors": [
               {
                 "absoluteKeywordLocation": "test://example/int-string.schema",
-                "error": "Invalid(Required { props: [\"int\", \"str\", \"bit\"], props_interned: 7 })",
+                "error": "Invalid: Properties \"int\", \"str\", \"bit\" are required.",
                 "instanceLocation": "",
                 "keywordLocation": "#"
               }
             ],
             "valid": false
+          },
+          "document": {
+            "bit": true,
+            "int": 52,
+            "str_whoops": "string B"
           }
         },
     },

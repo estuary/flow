@@ -6,7 +6,7 @@ $defs:
   ip-port:
     type: object
     properties:
-      ip: { type: string }
+      ip: { type: string, format: ipv4 }
       port: { type: integer }
     required: [ip, port]
 

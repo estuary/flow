@@ -5,17 +5,15 @@ use bytes::Buf;
 use prost::Message;
 use proto_flow::flow::derive_api::{self, Code};
 
-#[derive(thiserror::Error, Debug, serde::Serialize)]
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("RocksDB error: {0}")]
-    #[serde(serialize_with = "crate::serialize_as_display")]
+    #[error("RocksDB error")]
     Rocks(#[from] rocksdb::Error),
     #[error("register database error")]
     RegisterErr(#[from] registers::Error),
     #[error(transparent)]
     PipelineErr(#[from] pipeline::Error),
     #[error("Protobuf decoding error")]
-    #[serde(serialize_with = "crate::serialize_as_display")]
     ProtoDecode(#[from] prost::DecodeError),
     #[error("protocol error (invalid state or invocation)")]
     InvalidState,
@@ -29,7 +27,7 @@ pub struct API {
 // State is the private inner state machine of the API.
 enum State {
     Init,
-    Opened(registers::Registers),
+    Opened(rocksdb::DB),
     Idle(Pipeline),
     Running(Pipeline),
     DocHeader(Pipeline, derive_api::DocHeader),
@@ -79,20 +77,20 @@ impl cgo::Service for API {
 
                 let mut opts = rocksdb::Options::default();
                 opts.set_env(&env);
-                let registers = registers::Registers::new(opts, &local_dir)?;
+                let rocks_db = registers::Registers::open_rocks(opts, &local_dir)?;
 
-                self.state = State::Opened(registers);
+                self.state = State::Opened(rocks_db);
             }
-            (Code::Configure, State::Opened(registers)) => {
+            (Code::Configure, State::Opened(rocks_db)) => {
                 let config = derive_api::Config::decode(data)?;
-                let pipeline = pipeline::Pipeline::from_config_and_parts(config, registers, 1)?;
+                let pipeline = pipeline::Pipeline::from_config_and_parts(config, rocks_db, 1)?;
                 self.state = State::Idle(pipeline);
             }
             (Code::Configure, State::Idle(pipeline)) => {
                 let config = derive_api::Config::decode(data)?;
-                let (registers, next_id) = pipeline.into_inner();
+                let (rocks_db, next_id) = pipeline.into_inner();
                 let pipeline =
-                    pipeline::Pipeline::from_config_and_parts(config, registers, next_id)?;
+                    pipeline::Pipeline::from_config_and_parts(config, rocks_db, next_id)?;
                 self.state = State::Idle(pipeline);
             }
             (Code::RestoreCheckpoint, State::Idle(pipeline)) => {
@@ -147,9 +145,10 @@ impl cgo::Service for API {
                     self.state = State::Flushing(pipeline);
                 }
             }
-            (Code::DrainChunk, State::Draining(mut pipeline)) if data.len() == 4 => {
-                if !pipeline.drain_chunk(data.get_u32() as usize, arena, out) {
-                    self.state = State::Draining(pipeline); // Not done yet.
+            (Code::DrainChunk, State::Draining(pipeline)) if data.len() == 4 => {
+                let (pipeline, more) = pipeline.drain_chunk(data.get_u32() as usize, arena, out)?;
+                if more {
+                    self.state = State::Draining(pipeline);
                 } else {
                     self.state = State::Prepare(pipeline);
                 }

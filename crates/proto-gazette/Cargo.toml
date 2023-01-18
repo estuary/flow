@@ -1,18 +1,29 @@
 [package]
 name = "proto-gazette"
-version = "0.0.0"
-authors = ["Estuary Technologies, Inc"]
-edition = "2021"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lib]
+# The formatting of the generated code comments changed slightly in prost 0.11,
+# which results in some comments containing indented sections that are mistaken
+# for code blocks, causing doc tests to fail. We don't actually have any doc
+# tests in this crate, so they are explicitly disabled.
+doctest = false
 
 [dependencies]
-bytes = "*"
-pbjson = "*"
-pbjson-types = "*"
-prost = "*"
-serde = "*"
+bytes = { workspace = true }
+pbjson = { workspace = true }
+pbjson-types = { workspace = true }
+prost = { workspace = true }
+serde = { workspace = true }
 
 [build-dependencies]
 proto-build = { path = "../proto-build" }
 
-pbjson-build = "*"
-prost-build = "*"
+pbjson-build = { workspace = true }
+prost-build = { workspace = true }

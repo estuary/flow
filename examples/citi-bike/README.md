@@ -108,7 +108,7 @@ and its declared projections map CSV headers in the source data to document loca
 
 ```console
 # Start a local development instance, and leave it running:
-$ flowctl-admin develop --port 8080
+$ flowctl-go develop --port 8080
 
 # Begin loading rides into the development instance:
 $ examples/citi-bike/load-rides.sh

@@ -1,16 +1,18 @@
 package runtime
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/recoverylog"
@@ -59,17 +61,18 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 
 	defer func() {
 		if err == nil {
-			d.Log(log.DebugLevel, log.Fields{
-				"derivation": d.labels.TaskName,
-				"shard":      d.shardSpec.Id,
-				"build":      d.labels.Build,
-				"checkpoint": cp,
-			}, "initialized processing term")
-
-		} else {
-			d.Log(log.ErrorLevel, log.Fields{
-				"error": err.Error(),
-			}, "failed to initialize processing term")
+			ops.PublishLog(d.opsPublisher, pf.LogLevel_debug,
+				"initialized processing term",
+				"derivation", d.labels.TaskName,
+				"shard", d.shardSpec.Id,
+				"build", d.labels.Build,
+				"checkpoint", cp,
+			)
+		} else if !errors.Is(err, context.Canceled) {
+			ops.PublishLog(d.opsPublisher, pf.LogLevel_error,
+				"failed to initialize processing term",
+				"error", err,
+			)
 		}
 	}()
 
@@ -83,8 +86,9 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 	if err != nil {
 		return pf.Checkpoint{}, err
 	}
-	d.Log(log.DebugLevel, log.Fields{"spec": d.derivation, "build": d.labels.Build},
-		"loaded specification")
+	ops.PublishLog(d.opsPublisher, pf.LogLevel_debug,
+		"loaded specification",
+		"spec", d.derivation, "build", d.labels.Build)
 
 	if err = d.initReader(&d.taskTerm, shard, d.derivation.TaskShuffles(), d.host); err != nil {
 		return pf.Checkpoint{}, err
@@ -97,7 +101,7 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 
 	if d.binding != nil {
 		// No-op.
-	} else if d.binding, err = bindings.NewDerive(d.recorder, d.recorder.Dir(), d.LogPublisher); err != nil {
+	} else if d.binding, err = bindings.NewDerive(d.recorder, d.recorder.Dir(), d.opsPublisher); err != nil {
 		return pf.Checkpoint{}, fmt.Errorf("creating derive service: %w", err)
 	}
 
@@ -113,11 +117,15 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 // Destroy releases the API binding delegate, which also cleans up the associated
 // Rust-held RocksDB and its files.
 func (d *Derive) Destroy() {
-	d.taskTerm.destroy()
-	// binding could be nil if there was a failure during initialization
+	// `binding` could be nil if there was a failure during initialization.
+	// binding.destroy() will also destroy its trampoline server and synchronously
+	// wait for its concurrent tasks to complete. We must do this before destroying
+	// the taskTerm -- which will also destroy the TypeScript server which the
+	// trampoline tasks are likely calling.
 	if d.binding != nil {
 		d.binding.Destroy()
 	}
+	d.taskTerm.destroy()
 }
 
 // BeginTxn begins a derive transaction.
@@ -195,7 +203,8 @@ func (d *Derive) deriveStats(txnStats *pf.DeriveAPI_Stats) StatsEvent {
 		}
 		var tfSpec = d.derivation.Transforms[i]
 		var stats = DeriveTransformStats{
-			Input: docsAndBytesFromProto(tf.Input),
+			Source: tfSpec.Shuffle.SourceCollection.String(),
+			Input:  docsAndBytesFromProto(tf.Input),
 		}
 		if tfSpec.UpdateLambda != nil {
 			includesUpdate = true
@@ -228,12 +237,13 @@ func (d *Derive) deriveStats(txnStats *pf.DeriveAPI_Stats) StatsEvent {
 // StartCommit implements the Store interface, and writes the current transaction
 // as an atomic RocksDB WriteBatch, guarded by a write barrier.
 func (d *Derive) StartCommit(_ consumer.Shard, cp pf.Checkpoint, waitFor client.OpFutures) client.OpFuture {
-	d.Log(log.DebugLevel, log.Fields{
-		"derivation": d.labels.TaskName,
-		"shard":      d.shardSpec.Id,
-		"build":      d.labels.Build,
-		"checkpoint": cp,
-	}, "StartCommit")
+	ops.PublishLog(d.opsPublisher, pf.LogLevel_debug,
+		"StartCommit",
+		"derivation", d.labels.TaskName,
+		"shard", d.shardSpec.Id,
+		"build", d.labels.Build,
+		"checkpoint", cp,
+	)
 
 	// Install a barrier such that we don't begin writing until |waitFor| has resolved.
 	_ = d.recorder.Barrier(waitFor)
@@ -249,7 +259,7 @@ func (d *Derive) StartCommit(_ consumer.Shard, cp pf.Checkpoint, waitFor client.
 
 // FinishedTxn logs if an error occurred.
 func (d *Derive) FinishedTxn(_ consumer.Shard, op consumer.OpFuture) {
-	logTxnFinished(d.LogPublisher, op)
+	logTxnFinished(d.opsPublisher, op)
 }
 
 // ClearRegistersForTest delegates the request to its worker.

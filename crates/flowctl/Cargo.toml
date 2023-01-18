@@ -1,0 +1,64 @@
+[package]
+name = "flowctl"
+# The version here is ignored for release builds. During releases, this is instead set by the env
+# variable FLOW_VERSION, based on the git tag.
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+assemble = { path = "../assemble" }
+doc = { path = "../doc" }
+labels = { path = "../labels" }
+journal-client = { path = "../journal-client" }
+schema-inference = { path = "../schema-inference" }
+models = { path = "../models" }
+proto-flow = { path = "../proto-flow" }
+proto-gazette = { path = "../proto-gazette" }
+sources = { path = "../sources" }
+tables = { path = "../tables" }
+validation = { path = "../validation" }
+
+anyhow = { workspace = true }
+base64 = { workspace = true }
+bytes = { workspace = true }
+clap = { workspace = true }
+comfy-table = { workspace = true }
+crossterm = { workspace = true }
+dirs = { workspace = true }
+futures = { workspace = true }
+humantime = { workspace = true }
+itertools = { workspace = true }
+lazy_static = { workspace = true }
+
+# open is used for opening URLs in the user's browser
+open = { workspace = true }
+postgrest = { workspace = true }
+reqwest = { workspace = true }
+# rpassword is used for reading credentials from stdin
+rpassword = { workspace = true }
+
+serde = { workspace = true }
+serde-transcode = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+size = { workspace = true }
+superslice = { workspace = true }
+
+tempfile = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+walkdir = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+tempfile = { workspace = true }

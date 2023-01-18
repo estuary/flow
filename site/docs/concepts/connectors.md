@@ -1,5 +1,5 @@
 ---
-sidebar_position: 3
+sidebar_position: 5
 ---
 
 import Tabs from '@theme/Tabs';
@@ -7,44 +7,28 @@ import TabItem from '@theme/TabItem';
 
 # Connectors
 
-**Connectors** are plugin components that bridge the gap between Flow’s runtime and
-the various endpoints from which you capture or materialize data.
-They're packaged as Docker images, each encapsulating the details of working with
-a particular kind of endpoint.
+**Connectors** bridge the gap between Flow and
+the various endpoints from which you capture or to which you materialize data.
 
-Flow’s vision is to provide a common runtime against which any open connector may be run.
-Today Flow supports the
+Supported connectors are all available to you within the Flow web application.
+From a technical perspective, they're packaged as [Docker images](https://github.com/orgs/estuary/packages?repo_name=connectors),
+each encapsulating the details of working with a particular external system.
+
+All connectors available in Flow are open-source, and many of them were built by Estuary.
+Estuary connectors are dual-licensed under Apache 2.0 or MIT.
+Flow also supports open-source connectors built by third parties, which Estuary independently tests and may alter slightly
+for optimal performance within the Flow ecosystem.
+
+Estuary’s vision is to provide a common runtime against which any open connector may be run.
+To that end, Flow currently supports the
 [Airbyte specification](https://docs.airbyte.io/understanding-airbyte/airbyte-specification)
 as well as Flow’s low-latency gRPC protocols for captures and materializations.
 
-Estuary is implementing a number of connectors,
-with a particular focus on integrating high-performance technical systems.
-Connectors for SaaS APIs are already well-covered through Flow’s support of
-Airbyte connectors and the [singer.io](https://www.singer.io) ecosystem.
-Connectors implemented by Estuary are dual-licensed under Apache 2.0 or MIT.
-
-## Why an open connector architecture?
-
-Historically, data platforms have directly implemented integrations to external systems with which they interact.
-Today, there are simply so many systems and APIs that companies use,
-that it’s not feasible for a company to provide all possible integrations.
-Users are forced to wait indefinitely while the platform works through their prioritized integration list.
-
-An open connector architecture removes Estuary — or any company — as a bottleneck in the development of integrations.
-Estuary contributes open-source connectors to the ecosystem, and in turn is able to leverage connectors implemented by others.
-Users are empowered to write their own connectors for esoteric systems not already covered by the ecosystem.
-
-Furthermore, implementing a Docker-based community specification brings other important qualities to Estuary connectors:
-
-* Cross-platform interoperability between Flow, Airbyte, and any other platform that supports the protocol
-* The abilities to write connectors in any language and run them on any machine
-* Built-in solutions for version management (through image tags) and distribution
-* The ability to integrate connectors from different sources at will, without the centralized control of a single company, thanks to container image registries
-
 ## Using connectors
 
-Most — if not all — of your data flows will use at least one connector.
-Connector configuration is an important aspect of catalog configuration, and when you deploy a catalog, you're also deploying all the connectors it uses.
+Most — if not all — of your Data Flows will use at least one connector.
+You configure connectors within capture or materialization specifications.
+When you publish one of these entities, you're also deploying all the connectors it uses.
 
 You can interact with connectors using either the Flow web application or the flowctl CLI.
 
@@ -55,13 +39,13 @@ It's a completely no-code experience, but it's compatible with Flow's command li
 
 When you add a capture or materialization in the Flow web app, choose the desired data system from the **Connector** drop-down menu.
 
-The required fields for the connector appear below the drop-down. When you fill in the fields and click **Test Config**,
+The required fields for the connector appear below the drop-down. When you fill in the fields and click **Discover Endpoint**,
 Flow automatically "discovers" the data streams or tables — known as **resources** — associated with the endpoint system.
-From there, you can refine the configuration, save, and publish the resulting **catalog**.
+From there, you can refine the configuration, save, and publish the resulting Flow specification.
 
 ### GitOps and flowctl
 
-From a technical perspective, connectors are packaged as [Open Container](https://opencontainers.org/) (Docker) images,
+Connectors are packaged as [Open Container](https://opencontainers.org/) (Docker) images,
 and can be tagged, and pulled using
 [Docker Hub](https://hub.docker.com/),
 [GitHub Container registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry),
@@ -76,12 +60,12 @@ To interface with a connector, the Flow runtime needs to know:
 
 3. Resource configuration such as a specific database table to capture, which is also specific to the connector.
 
-To integrate a connector within your dataflow,
-You define all three components within your catalog specification.
+To integrate a connector into your dataflow,
+you must define all three components within your Flow specification.
 
-The web application is intended to generate the catalog specification YAML file.
+The web application is intended to help you generate the Flow specification.
 From there, you can use [flowctl](./flowctl.md) to refine it in your local environment.
-It's also possible to manually write your catalog YAML files, but this isn't the recommended workflow.
+It's also possible to manually write your Flow specification files, but this isn't the recommended workflow.
 
 ```yaml
 materializations:
@@ -120,11 +104,12 @@ materializations:
 
 #### Configuration
 
-Connectors interface with external systems and universally require endpoint configuration,
-such as a database hostname or account credentials,
-which must be provided to the connector for it to function.
-When directly working with catalog source files,
-you have the option of inlining the configuration into your connector
+Because connectors interface with external systems, each requires a slightly different **endpoint configuration**.
+Here you specify information such as a database hostname or account credentials —
+whatever that specific connector needs to function.
+
+If you're working directly with Flow specification files,
+you have the option of including the configuration inline
 or storing it in separate files:
 
 <Tabs>
@@ -176,15 +161,13 @@ Storing configuration in separate files serves two important purposes:
 Most endpoint systems require credentials of some kind,
 such as a username or password.
 
-Directly storing secrets in files that are versioned in Git is poor practice.
-Similarly, sensitive credentials should be protected while not in use within Flow's runtime as well.
-The only time a credential needs to be directly accessed is when it's
-required by Flow's runtime for the purposes of instantiating the connector.
+Sensitive credentials should be protected while not in use.
+The only time a credential needs to be directly accessed is when Flow initiates the connector.
 
 Flow integrates with Mozilla’s [sops](https://github.com/mozilla/sops) tool,
-which can encrypt and protect credentials within a GitOps-managed catalog.
-Flow's runtime similarly stores a `sops`-protected configuration in its encrypted form,
-and decrypts it only when invoking a connector on the user’s behalf.
+which can encrypt and protect credentials.
+It stores a `sops`-protected configuration in its encrypted form,
+and decrypts it only when invoking a connector on the your behalf.
 
 sops, short for “Secrets Operations,” is a tool that encrypts the values of a JSON or YAML document
 against a key management system (KMS) such as Google Cloud Platform KMS, Azure Key Vault, or Hashicorp Vault.
@@ -193,6 +176,11 @@ it requires that the user (or the Flow runtime identity) have a current authoriz
 and creates a request trace which can be logged and audited.
 It's also possible to revoke access to the KMS,
 which immediately and permanently removes access to the protected credential.
+
+When you use the Flow web application, Flow automatically
+adds `sops` protection to sensitive fields on your behalf.
+You can also implement `sops` manually if you are writing a Flow specification locally.
+The examples below provide a useful reference.
 
 #### Example: Protect a configuration
 
@@ -229,7 +217,7 @@ sops:
     version: 3.7.1
 ```
 
-You then use this `config.yaml` within your Flow catalog.
+You then use this `config.yaml` within your Flow specification.
 The Flow runtime knows that this document is protected by `sops`
 will continue to store it in its protected form,
 and will attempt a decryption only when invoking a connector on your behalf.
@@ -288,7 +276,7 @@ sops:
     version: 3.7.1
 ```
 
-You then use this `config.yaml` within your Flow catalog.
+You then use this `config.yaml` within your Flow specification.
 Flow looks for and understands the `encrypted_suffix`,
 and will remove this suffix from configuration keys before passing them to the connector.
 
@@ -297,8 +285,15 @@ and will remove this suffix from configuration keys before passing them to the c
 In some cases, your source or destination endpoint may be within a secure network, and you may not be able
 to allow direct access to its port due to your organization's security policy.
 
+:::tip
+If permitted by your organization, a quicker solution is to whitelist the Estuary IP address, `34.121.207.128`.
+For help completing this task on different cloud hosting platforms,
+see the documentation for the [connector](../reference/Connectors/README.md) you're using.
+:::
+
 [SHH tunneling](https://www.ssh.com/academy/ssh/tunneling/example#local-forwarding), or port forwarding,
-provides a means for Flow to access the port indirectly through an SSH server. SSH tunneling is universally supported by Estuary's connectors.
+provides a means for Flow to access the port indirectly through an SSH server.
+SSH tunneling is available in Estuary connectors for endpoints that use a network address for connection.
 
 To set up and configure the SSH server, see the [guide](../../guides/connect-network/).
 Then, add the appropriate properties when you define the capture or materialization in the Flow web app,
@@ -343,6 +338,30 @@ captures:
                 -----END RSA PRIVATE KEY-----
         bindings: []
 ```
+
+## Why an open connector architecture?
+
+Historically, data platforms have directly implemented integrations to external systems with which they interact.
+Today, there are simply so many systems and APIs that companies use,
+that it’s not feasible for a company to provide all possible integrations.
+Users are forced to wait indefinitely while the platform works through their prioritized integration list.
+
+An open connector architecture removes Estuary — or any company — as a bottleneck in the development of integrations.
+Estuary contributes open-source connectors to the ecosystem, and in turn is able to leverage connectors implemented by others.
+Users are empowered to write their own connectors for esoteric systems not already covered by the ecosystem.
+
+Furthermore, implementing a Docker-based community specification brings other important qualities to Estuary connectors:
+
+* Cross-platform interoperability between Flow, Airbyte, and any other platform that supports the protocol
+* The abilities to write connectors in any language and run them on any machine
+* Built-in solutions for version management (through image tags) and distribution
+* The ability to integrate connectors from different sources at will, without the centralized control of a single company, thanks to container image registries
+
+:::info
+In order to be reflected in the Flow web app and used on the managed Flow platform,
+connectors must be reviewed and added by the Estuary team. Have a connector you'd like to add?
+[Contact us](mailto:info@estuary.dev).
+:::
 
 ## Available connectors
 

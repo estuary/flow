@@ -1,14 +1,10 @@
----
-sidebar_position: 5
----
-
 # Exchange Rates API
 
 This connector captures data from the [Exchange Rates API](https://exchangeratesapi.io/).
 It creates a Flow collection with daily exchange rate data for a variety of supported currencies.
 This simple connector is useful for educational and demonstration purposes.
 
-[`ghcr.io/estuary/source-exchange-rates:dev`](https://ghcr.io/estuary/source-exchange-rates:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-exchange-rates:dev`](https://ghcr.io/estuary/source-exchange-rates:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/exchangeratesapi),
@@ -22,8 +18,8 @@ After you sign up, your API key can be found on your account page.
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and YAML sample below provide configuration details specific to the Exchange Rates source connector.
+You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Exchange Rates source connector.
 
 ### Properties
 

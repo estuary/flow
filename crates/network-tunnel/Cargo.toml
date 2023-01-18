@@ -1,9 +1,12 @@
 [package]
 name = "network-tunnel"
-version = "0.1.0"
-edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [[bin]]
 name = "flow-network-tunnel"
@@ -12,17 +15,17 @@ path = "src/main.rs"
 [dependencies]
 flow_cli_common = { path = "../flow_cli_common" }
 
-async-trait="*"
-base64="*"
-futures="*"
-openssl-sys = { version = "*", features = ['vendored'] }
-openssl="*"
-rand = "*"
-schemars = "*"
-serde = { version = "*", features = ["derive"] }
-serde_json = "*"
-thiserror = "*"
-tracing = "*"
-tracing-subscriber = {version = "*", features = ["time", "json", "env-filter"]}
-tokio = { version = "1.15.0", features = ["full"] }
-url = "*"
+async-trait={ workspace = true }
+base64={ workspace = true }
+futures={ workspace = true }
+openssl-sys = { workspace = true }
+openssl={ workspace = true }
+rand = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tokio = { workspace = true }
+url = { workspace = true }

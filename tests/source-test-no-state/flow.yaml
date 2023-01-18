@@ -23,8 +23,9 @@ captures:
         config:
           # Number of greeting documents to produce
           # [integer] (required)
-          greetings: 100
+          exit_after: 100
           skip_state: true
+          greetings: 1
     bindings:
       - resource:
           stream: greetings

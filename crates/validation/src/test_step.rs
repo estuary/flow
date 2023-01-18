@@ -5,7 +5,6 @@ use superslice::Ext;
 
 pub fn walk_all_test_steps(
     built_collections: &[tables::BuiltCollection],
-    imports: &[tables::Import],
     resources: &[tables::Resource],
     schema_shapes: &[schema::Shape],
     test_steps: &[tables::TestStep],
@@ -24,7 +23,6 @@ pub fn walk_all_test_steps(
             .map(|test_step| {
                 walk_test_step(
                     built_collections,
-                    imports,
                     resources,
                     schema_shapes,
                     test_step,
@@ -58,7 +56,6 @@ pub fn walk_all_test_steps(
 
 pub fn walk_test_step(
     built_collections: &[tables::BuiltCollection],
-    imports: &[tables::Import],
     resources: &[tables::Resource],
     schema_shapes: &[schema::Shape],
     test_step: &tables::TestStep,
@@ -98,7 +95,6 @@ pub fn walk_test_step(
         collection,
         built_collections,
         |c| (&c.collection, &c.scope),
-        imports,
         errors,
     ) {
         Some(s) => s,
@@ -106,17 +102,22 @@ pub fn walk_test_step(
     };
     // Pluck the collection schema Shape, which must exist but could be a placeholder.
     let shape = &schema_shapes[schema_shapes
-        .equal_range_by_key(&collection.spec.schema_uri.as_str(), |s| s.schema.as_str())][0];
+        .equal_range_by_key(&collection.spec.write_schema_uri.as_str(), |s| {
+            s.schema.as_str()
+        })][0];
 
     // Verify that any ingest documents conform to the collection schema.
     if shape.index.fetch(&shape.schema).is_none() {
         // Referential integrity error, which we've already reported.
     } else {
-        let mut validator = doc::Validator::new(&shape.index);
         for doc in ingest {
-            if let Err(err) = doc::Validation::validate(&mut validator, &shape.schema, doc.clone())
-                .unwrap()
-                .ok()
+            if let Err(err) = doc::Validation::validate(
+                &mut doc::RawValidator::new(&shape.index),
+                &shape.schema,
+                doc,
+            )
+            .unwrap()
+            .ok()
             {
                 Error::IngestDocInvalid(err).push(scope, errors);
             }

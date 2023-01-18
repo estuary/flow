@@ -1,8 +1,0 @@
-collections:
-  test/test-combine:
-    schema: test-schema.yaml
-    key: [/id]
-
-storageMappings:
-  "": { stores: [{ provider: S3, bucket: a-bucket }] }
-

@@ -3,10 +3,9 @@ use fancy_regex::Regex;
 use itertools::{self, EitherOrBoth, Itertools};
 use json::{
     json_cmp,
-    schema::{types, Application, CoreAnnotation, Keyword, Validation},
+    schema::{formats, types, Application, CoreAnnotation, Keyword, Validation},
     LocatedProperty, Location,
 };
-use lazy_static::lazy_static;
 use serde_json::Value;
 use url::Url;
 
@@ -24,8 +23,9 @@ pub struct Shape {
     pub reduction: Reduction,
     /// Does this location's schema flow from a `$ref`?
     pub provenance: Provenance,
-    /// Default value of this document location, if any.
-    pub default: Option<Value>,
+    /// Default value of this document location, if any. A validation error is recorded if the
+    /// default value specified does not validate against the location's schema.
+    pub default: Option<(Value, Option<super::FailedValidation>)>,
     /// Is this location sensitive? For example, a password or credential.
     pub secret: Option<bool>,
 
@@ -39,7 +39,7 @@ pub struct Shape {
 pub struct StringShape {
     pub content_encoding: Option<String>,
     pub content_type: Option<String>,
-    pub format: Option<String>,
+    pub format: Option<formats::Format>,
     pub max_length: Option<usize>,
     pub min_length: usize,
 }
@@ -668,7 +668,18 @@ impl Shape {
                         shape.description = Some(d.clone());
                     }
                     Annotation::Core(CoreAnnotation::Default(value)) => {
-                        shape.default = Some(value.clone());
+                        let default_value = value.clone();
+
+                        let validation_err = super::Validation::validate(
+                            &mut super::RawValidator::new(index),
+                            &schema.curi,
+                            &default_value,
+                        )
+                        .unwrap()
+                        .ok()
+                        .err();
+
+                        shape.default = Some((default_value, validation_err));
                     }
 
                     // String constraints.
@@ -679,7 +690,7 @@ impl Shape {
                         shape.string.content_type = Some(mt.clone());
                     }
                     Annotation::Core(CoreAnnotation::Format(format)) => {
-                        shape.string.format = Some(format.clone());
+                        shape.string.format = Some(*format);
                     }
                     Annotation::Core(_) => {} // Other CoreAnnotations are no-ops.
 
@@ -1127,18 +1138,18 @@ impl Shape {
         (shape, exists)
     }
 
-    fn locate_token(&self, token: Token) -> (&Shape, Exists) {
+    fn locate_token(&self, token: &Token) -> (&Shape, Exists) {
         match token {
             Token::Index(index) if self.type_.overlaps(types::ARRAY) => {
-                let exists = if self.type_ == types::ARRAY && index < self.array.min.unwrap_or(0) {
+                let exists = if self.type_ == types::ARRAY && *index < self.array.min.unwrap_or(0) {
                     // A sub-item must exist iff this location can _only_
                     // be an array, and it's within the minItems bound.
                     Exists::Must
-                } else if index >= self.array.max.unwrap_or(std::usize::MAX) {
+                } else if *index >= self.array.max.unwrap_or(std::usize::MAX) {
                     // It cannot exist if outside the maxItems bound.
                     Exists::Cannot
                 } else if self.array.max.is_some()
-                    || index < self.array.tuple.len()
+                    || *index < self.array.tuple.len()
                     || self.array.additional.is_some()
                 {
                     // It may exist if there is a defined array maximum that we're within,
@@ -1151,7 +1162,7 @@ impl Shape {
                     Exists::Implicit
                 };
 
-                if let Some(tuple) = self.array.tuple.get(index) {
+                if let Some(tuple) = self.array.tuple.get(*index) {
                     (tuple, exists)
                 } else if let Some(addl) = &self.array.additional {
                     (addl.as_ref(), exists)
@@ -1169,34 +1180,46 @@ impl Shape {
             ),
 
             Token::Property(property) if self.type_.overlaps(types::OBJECT) => {
-                if let Some(property) = self.object.properties.iter().find(|p| p.name == property) {
-                    let exists = if self.type_ == types::OBJECT && property.is_required {
-                        // A property must exist iff this location can _only_ be an object,
-                        // and it's marked as a required property.
-                        Exists::Must
-                    } else {
-                        Exists::May
-                    };
+                self.obj_property_location(property)
+            }
 
-                    (&property.shape, exists)
-                } else if let Some(pattern) = self
-                    .object
-                    .patterns
-                    .iter()
-                    .find(|p| regex_matches(&p.re, property))
-                {
-                    (&pattern.shape, Exists::May)
-                } else if let Some(addl) = &self.object.additional {
-                    (addl.as_ref(), Exists::May)
-                } else {
-                    (&SENTINEL_SHAPE, Exists::Implicit)
-                }
+            Token::Index(index) if self.type_.overlaps(types::OBJECT) => {
+                self.obj_property_location(&index.to_string())
+            }
+
+            Token::NextIndex if self.type_.overlaps(types::OBJECT) => {
+                self.obj_property_location("-")
             }
 
             // Match arms for cases where types don't overlap.
             Token::Index(_) => (&SENTINEL_SHAPE, Exists::Cannot),
             Token::NextIndex => (&SENTINEL_SHAPE, Exists::Cannot),
             Token::Property(_) => (&SENTINEL_SHAPE, Exists::Cannot),
+        }
+    }
+
+    fn obj_property_location(&self, prop: &str) -> (&Shape, Exists) {
+        if let Some(property) = self.object.properties.iter().find(|p| p.name == prop) {
+            let exists = if self.type_ == types::OBJECT && property.is_required {
+                // A property must exist iff this location can _only_ be an object,
+                // and it's marked as a required property.
+                Exists::Must
+            } else {
+                Exists::May
+            };
+
+            (&property.shape, exists)
+        } else if let Some(pattern) = self
+            .object
+            .patterns
+            .iter()
+            .find(|p| regex_matches(&p.re, prop))
+        {
+            (&pattern.shape, Exists::May)
+        } else if let Some(addl) = &self.object.additional {
+            (addl.as_ref(), Exists::May)
+        } else {
+            (&SENTINEL_SHAPE, Exists::Implicit)
         }
     }
 
@@ -1314,10 +1337,8 @@ pub enum Error {
         "{0} location's parent has 'set' reduction strategy, restricted to 'add'/'remove'/'intersect' properties"
     )]
     SetInvalidProperty(String),
-    #[error(
-        "{0} is a disallowed object property (it's an object property that looks like an array index)"
-    )]
-    DigitInvalidProperty(String),
+    #[error("{0} default value is invalid: {1}")]
+    InvalidDefaultValue(String, super::FailedValidation),
 }
 
 impl Shape {
@@ -1328,9 +1349,6 @@ impl Shape {
     }
 
     fn inspect_inner(&self, loc: Location, must_exist: bool, out: &mut Vec<Error>) {
-        lazy_static! {
-            static ref ARRAY_PROPERTY: Regex = Regex::new(r"^([\d]+|-)$").unwrap();
-        }
         // Enumerations over array sub-locations.
         let items = self.array.tuple.iter().enumerate().map(|(index, s)| {
             (
@@ -1367,6 +1385,15 @@ impl Shape {
         if self.type_ == types::INVALID && must_exist {
             out.push(Error::ImpossibleMustExist(loc.pointer_str().to_string()));
         }
+
+        // Invalid values for default values.
+        if let Some((_, Some(err))) = &self.default {
+            out.push(Error::InvalidDefaultValue(
+                loc.pointer_str().to_string(),
+                err.to_owned(),
+            ));
+        };
+
         if matches!(self.reduction, Reduction::Sum)
             && self.type_ - types::INT_OR_FRAC != types::INVALID
         {
@@ -1406,11 +1433,6 @@ impl Shape {
             .chain(patterns)
             .chain(addl_props)
         {
-            if matches!(loc, Location::Property(prop) if regex_matches(&*ARRAY_PROPERTY, prop.name))
-            {
-                out.push(Error::DigitInvalidProperty(loc.pointer_str().to_string()));
-            }
-
             if matches!(self.reduction, Reduction::Unset)
                 && !matches!(child.reduction, Reduction::Unset)
             {
@@ -1523,7 +1545,7 @@ mod test {
                     - contentEncoding: not-base64
                     - contentMediaType: wrong/thing
                     - default: jane.doe@gmail.com
-                    - format: timestamp
+                    - format: date-time
                     - secret: false
                 "#,
             ],
@@ -1533,12 +1555,12 @@ mod test {
                 description: Some("a-description".to_owned()),
                 reduction: Reduction::FirstWriteWins,
                 provenance: Provenance::Inline,
-                default: Some(Value::String("john.doe@gmail.com".to_owned())),
+                default: Some((Value::String("john.doe@gmail.com".to_owned()), None)),
                 secret: Some(true),
                 string: StringShape {
                     content_encoding: Some("base64".to_owned()),
                     content_type: Some("some/thing".to_owned()),
-                    format: Some("email".to_owned()),
+                    format: Some(formats::Format::Email),
                     max_length: None,
                     min_length: 0,
                 },
@@ -2165,7 +2187,16 @@ mod test {
                 properties:
                     child: {const: multi-type-child}
                 required: [child]
-        required: [parent]
+            1:
+                type: object
+                properties:
+                    -:
+                        type: object
+                        properties:
+                            2: { const: int-prop }
+                        required: ["2"]
+                required: ["-"]
+        required: [parent, "1"]
 
         patternProperties:
             pattern+: {const: pattern}
@@ -2191,6 +2222,7 @@ mod test {
         );
 
         let cases = &[
+            (&obj, "/1/-/2", ("int-prop", Exists::Must)),
             (&obj, "/prop", ("prop", Exists::May)),
             (&obj, "/missing", ("addl-prop", Exists::May)),
             (&obj, "/parent/opt-child", ("opt-child", Exists::May)),
@@ -2200,8 +2232,8 @@ mod test {
             (&obj, "/parent/impossible", ("<missing>", Exists::Cannot)),
             (&obj, "/pattern", ("pattern", Exists::May)),
             (&obj, "/patternnnnnn", ("pattern", Exists::May)),
-            (&obj, "/123", ("<missing>", Exists::Cannot)),
-            (&obj, "/-", ("<missing>", Exists::Cannot)),
+            (&obj, "/123", ("addl-prop", Exists::May)),
+            (&obj, "/-", ("addl-prop", Exists::May)),
             (&arr1, "/0", ("zero", Exists::Must)),
             (&arr1, "/1", ("one", Exists::Must)),
             (&arr1, "/2", ("two", Exists::May)),
@@ -2240,6 +2272,9 @@ mod test {
             obj_locations,
             vec![
                 ("", false, types::OBJECT, Exists::Must),
+                ("/1", false, types::OBJECT, Exists::Must),
+                ("/1/-", false, types::OBJECT, Exists::Must),
+                ("/1/-/2", false, types::STRING, Exists::Must),
                 (
                     "/multi-type",
                     false,
@@ -2332,11 +2367,6 @@ mod test {
                     - $ref: '#/properties/nested-array'
                     - type: string
 
-            "123": {type: boolean}  # Disallowed.
-            "-": {type: boolean}    # Disallowed.
-            "-123": {type: boolean} # Allowed (cannot be an index).
-            "12.0": {type: boolean} # Allowed (also cannot be an index).
-
         patternProperties:
             merge-wrong-type:
                 reduce: {strategy: merge}
@@ -2374,8 +2404,6 @@ mod test {
                 Error::SetNotObject("/0".to_owned(), types::ANY),
                 Error::SetInvalidProperty("/-/whoops1".to_owned()),
                 Error::SetInvalidProperty("/-/whoops2".to_owned()),
-                Error::DigitInvalidProperty("/-".to_owned()),
-                Error::DigitInvalidProperty("/123".to_owned()),
                 Error::ImpossibleMustExist("/must-exist-but-cannot".to_owned()),
                 Error::ImpossibleMustExist("/nested-array/1".to_owned()),
                 Error::SumNotNumber(
@@ -2386,6 +2414,47 @@ mod test {
                 Error::ChildWithoutParentReduction("/*/nested-sum".to_owned()),
             ]
         );
+    }
+
+    #[test]
+    fn test_default_value_validation() {
+        let obj = shape_from(
+            r#"
+        type: object
+        properties:
+            scalar-type:
+                type: string
+                default: 1234
+
+            multi-type:
+                type: [string, array]
+                default: 1234
+
+            object-type-missing-prop:
+                type: object
+                properties:
+                    requiredProp:
+                        type: string
+                required: [requiredProp]
+                default: { otherProp: "stringValue" }
+
+            object-type-prop-wrong-type:
+                type: object
+                properties:
+                    requiredProp:
+                        type: string
+                required: [requiredProp]
+                default: { requiredProp: 1234 }
+
+            array-wrong-items:
+                type: array
+                items:
+                    type: integer
+                default: ["aString"]
+        "#,
+        );
+
+        insta::assert_debug_snapshot!(obj.inspect());
     }
 
     #[test]
@@ -2400,7 +2469,7 @@ mod test {
 
                 properties:
                     a-thing:
-                        oneOf:
+                        anyOf:
                             - $ref: '#/$defs/thing'
                             - $ref: '#/$defs/thing'
                         title: Just a thing.
@@ -2431,7 +2500,7 @@ mod test {
                                 provenance: Provenance::Reference(
                                     Url::parse("http://example/schema#/$defs/thing").unwrap(),
                                 ),
-                                default: Some(json!("a-default")),
+                                default: Some((json!("a-default"), None)),
                                 ..Shape::default()
                             },
                         },

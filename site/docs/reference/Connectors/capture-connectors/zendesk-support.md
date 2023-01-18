@@ -2,7 +2,7 @@
 
 This connector captures data from Zendesk into Flow collections.
 
-[`ghcr.io/estuary/source-zendesk-support:dev`](https://ghcr.io/estuary/source-zendesk-support:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-zendesk-support:dev`](https://ghcr.io/estuary/source-zendesk-support:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/zendesk-support/),
@@ -41,8 +41,8 @@ By default, each resource is mapped to a Flow collection through a separate bind
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and YAML sample below provide configuration details specific to the Facebook Marketing source connector.
+You configure connectors either in the Flow web app, or by directly editing the catalog specification files.
+See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Zendesk Support source connector.
 
 ### Properties
 

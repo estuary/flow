@@ -46,7 +46,7 @@ As more users and prefixes are added, admins can [provision capabilities](#provi
 
 ## Authenticating Flow in the web app
 
-You must sign in to begin a new session using the Flow web application.
+You must sign in to begin a new session using the [Flow web application](https://dashboard.estuary.dev).
 For the duration of the session, you'll be able to perform actions depending on the capabilities granted to the user profile.
 
 You can view the capabilities currently provisioned in your organization on the **Admin** tab.
@@ -57,16 +57,19 @@ You can use the [flowctl](../concepts/flowctl.md) CLI to work with your organiza
 
 To authenticate a local development session using the CLI, do the following:
 
-1. Sign into the Flow web application.
+1. Ensure that you have an Estuary account and have signed into the Flow web app before.
 
-2. Click the **Admin** tab, scroll to the **Access Token** box, and copy the token.
-
-3. In the terminal of your local development environment, run:
+2. In the terminal of your local development environment, run:
    ``` console
-   flowctl auth token --token=<copied-token>
+   flowctl auth login
    ```
+   In a browser window, the web app opens to the CLI-API tab.
 
-The token will expire after a predetermined duration. Generate a new token using the web application and re-authenticate.
+3. Copy the access token.
+
+4. Return to the terminal, paste the access token, and press Enter.
+
+The token will expire after a predetermined duration. Repeat this process to re-authenticate.
 
 ## Provisioning capabilities
 

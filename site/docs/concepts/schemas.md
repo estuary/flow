@@ -6,17 +6,22 @@ sidebar_position: 7
 Flow documents and [collections](collections.md) always have an associated schema
 that defines the structure, representation, and constraints
 of your documents.
+Collections must have one schema, but [may have two distinct schemas](#write-and-read-schemas): one for when documents are added to the collection, and one for when documents are read from that collection.
 
 Schemas are a powerful tool for data quality.
 Flow verifies every document against its schema whenever it's read or written,
 which provides a strong guarantee that your collections hold only "clean" data,
 and that bugs and invalid documents are caught before they can impact downstream data products.
 
+In most cases, Flow generates a functioning schema on your behalf during the [discovery](./captures.md#discovery)
+phase of capture.
+In advanced use cases, however, customizing your schema becomes more important.
+
 ## JSON Schema
 
 [JSON Schema](https://json-schema.org/understanding-json-schema/)
 is an expressive open standard for defining the schema and structure of documents.
-Flow uses it for all schemas defined within a Flow catalog.
+Flow uses it for all schemas defined in Flow specifications.
 
 JSON Schema goes well beyond basic type information and can model
 [tagged unions](https://en.wikipedia.org/wiki/Tagged\_union),
@@ -75,7 +80,9 @@ properties:
 ```
 
 Flow extends JSON Schema with additional annotation keywords,
-which provide Flow with further instruction of how documents should be processed.
+which provide Flow with further instruction for how documents should be processed.
+In particular, the [`reduce`](#reduce-annotations) and [`default`](#default-annotations) keywords
+help you define merge behaviors and avoid null values at your destination systems, respectively.
 
 What’s especially powerful about annotations is that they respond to
 **conditionals** within the schema.
@@ -207,6 +214,55 @@ but you can also use absolute URLs to a third-party schema like
 [schemastore.org](https://www.schemastore.org).
 :::
 
+## Write and read schemas
+
+In some cases, you may want to impose different constraints to data that is being added (_written_) to the collection
+and data that is exiting (_read from_) the collection.
+
+For example, you may need to start capturing data _now_ from a source system; say, a pub-sub system with short-lived
+historical data support or an HTTP endpoint, but don't know or don't control the endpoint's schema.
+You can capture the data with a permissive write schema, and impose a stricter read schema on the data
+as you need to perform a derivation or materialization.
+You can safely experiment with the read schema at your convenience, knowing the data has already been captured.
+
+To achieve this, edit the collection, re-naming the standard `schema` to `writeSchema` and adding a `readSchema`.
+Make sure that the field used as the collection key is defined in both schemas.
+
+**Before separating your write and read schemas, have the following in mind:**
+
+* The write schema comes from the capture connector that produced the collection and shouldn't be modified.
+  Always apply your schema changes to the _read_ schema.
+
+* Read and write schemas are typically useful for collections that come from a source system with a flat or loosely
+  defined data structure, such as cloud storage or pub-sub systems.
+  Collections sourced from databases and most SaaS systems come with an explicitly defined data structure and shouldn't
+  need a new read schema.
+
+* If you're using standard [projections](./advanced/projections.md), you must only define them in the read schema.
+  However, if your projections are [logical partitions](./advanced/projections.md#logical-partitions), you must define them in both schemas.
+
+Here's a simple example in which you don't know how purchase prices are formatted when capturing them,
+but find out later that `number` is the appropriate data type:
+
+```yaml
+collections:
+  purchases:
+    writeSchema:
+      type: object
+      title: Store price as strings
+      description: Not sure if prices are formatted as numbers or strings.
+      properties:
+        id: { type: integer}
+        price: {type: [string, number]}
+    readSchema:
+      type: object
+      title: Prices as numbers
+      properties:
+        id: { type: integer}
+        price: {type: number}
+    key: [/id]
+```
+
 ## Reductions
 
 Flow collections have keys, and multiple documents
@@ -271,6 +327,21 @@ Learn more in the
 [reductions strategies](../../../reference/reduction-strategies/)
 reference documentation.
 
+#### Reductions and collection keys
+
+Reduction annotations change the common patterns for how you think about collection keys.
+
+Suppose you are building a reporting fact table over events of your business.
+Today you would commonly consider a unique event ID to be its natural key.
+You would load all events into your warehouse and perform query-time aggregation.
+When that becomes too slow, you periodically refresh materialized views for fast-but-stale queries.
+
+With Flow, you instead use a collection key of your _fact table dimensions_,
+and use `reduce` annotations to define your metric aggregations.
+A materialization of the collection then maintains a
+database table which is keyed on your dimensions,
+so that queries are both fast _and_ up to date.
+
 #### Composition with conditionals
 
 Like any other JSON Schema annotation,
@@ -293,6 +364,29 @@ oneOf:
 # [1, 2], [3, 4, 5], [] => []
 ```
 
-Combining schema conditionals with annotations can be used to build
+You can combine schema conditionals with annotations to build
 [rich behaviors](../reference/reduction-strategies/composing-with-conditionals.md).
 
+## `default` annotations
+
+You can use `default` annotations to prevent null values from being materialized to your endpoint system.
+
+When this annotation is absent for a non-required field, missing values in that field are materialized as `null`.
+When the annotation is present, missing values are materialized with the field's `default` value:
+
+```yaml
+collections:
+  acmeCo/coyotes:
+    schema:
+      type: object
+      required: [id]
+      properties:
+        id: {type: integer}
+        anvils_dropped: {type: integer}
+          reduce: {strategy: sum }
+          default: 0
+    key: [/id]
+```
+
+`default` annotations are only used for materializations; they're ignored by captures and derivations.
+If your collection has both a [write and read schema](#write-and-read-schemas), make sure you add this annotation to the read schema.

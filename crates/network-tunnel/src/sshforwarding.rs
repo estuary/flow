@@ -157,29 +157,35 @@ impl NetworkTunnel for SshForwarding {
             forward_port
         );
 
-        tracing::debug!("spawning ssh tunnel");
+        let args = vec![
+            // Disable psuedo-terminal allocation
+            "-T".to_string(),
+            // Be verbose so we can pick up signals about status of the tunnel
+            "-v".to_string(),
+            // This is necessary unless we also ask for the public key from users
+            "-o".to_string(),
+            "StrictHostKeyChecking no".to_string(),
+            // Indicate that ssh is to use ipv4 only. Otherwise sometimes it tries to bind to [::1] instead of 127.0.0.1,
+            // which breaks things when the runtime environment isn't set up to support ipv6
+            "-o".to_string(),
+            "AddressFamily inet".to_string(),
+            // Ask the client to time out after 5 seconds
+            "-o".to_string(),
+            "ConnectTimeout=5".to_string(),
+            // Pass the private key
+            "-i".to_string(),
+            temp_key_path.into_os_string().into_string().unwrap(),
+            // Do not execute a remote command. Just forward the ports.
+            "-N".to_string(),
+            // Port forwarding stanza
+            "-L".to_string(),
+            format!("{local_port}:{forward_host}:{forward_port}"),
+            ssh_endpoint,
+        ];
+
+        tracing::debug!("spawning ssh tunnel: {}", args.join(" "));
         let mut child = Command::new("ssh")
-            .args(vec![
-                // Disable psuedo-terminal allocation
-                "-T".to_string(),
-                // Be verbose so we can pick up signals about status of the tunnel
-                "-v".to_string(),
-                // This is necessary unless we also ask for the public key from users
-                "-o".to_string(),
-                "StrictHostKeyChecking no".to_string(),
-                // Ask the client to time out after 5 seconds
-                "-o".to_string(),
-                "ConnectTimeout=5".to_string(),
-                // Pass the private key
-                "-i".to_string(),
-                temp_key_path.into_os_string().into_string().unwrap(),
-                // Do not execute a remote command. Just forward the ports.
-                "-N".to_string(),
-                // Port forwarding stanza
-                "-L".to_string(),
-                format!("{local_port}:{forward_host}:{forward_port}"),
-                ssh_endpoint,
-            ])
+            .args(args)
             .stderr(Stdio::piped())
             .spawn()?;
 
@@ -244,7 +250,7 @@ impl NetworkTunnel for SshForwarding {
                 // InvalidInput means the process has already exited, in which case
                 // we do not need to cleanup the process
                 Err(e) if e.kind() == ErrorKind::InvalidInput => Ok(()),
-                a => a
+                a => a,
             }?;
         }
 

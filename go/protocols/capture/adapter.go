@@ -8,10 +8,13 @@ package capture
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	status "google.golang.org/grpc/status"
 )
 
 // pullRequestError is a channel-oriented wrapper of pc.PullRequest
@@ -49,6 +52,11 @@ func PullResponseChannel(stream Driver_PullClient) <-chan PullResponseError {
 			}
 
 			if err != io.EOF {
+				if status, ok := status.FromError(err); ok && status.Code() == codes.Internal {
+					err = errors.New(status.Message())
+				} else if ok && status.Code() == codes.Canceled {
+					err = context.Canceled
+				}
 				ch <- PullResponseError{Error: err}
 			}
 			close(ch)
@@ -201,8 +209,16 @@ func (a *adapterStreamServer) Send(m *PullResponse) error {
 	// Under the gRPC model, the server controls RPC termination. The client cannot
 	// revoke the server's ability to send (in the absence of a broken transport,
 	// which we don't model here).
-	a.tx <- PullResponseError{PullResponse: m}
-	return nil
+	//
+	// However here in the real we must ensure that Send doesn't block indefinitely
+	// if the context is cancelled, because the connector's stdout may be stuffed
+	// and prevent docker's internal communication over its unix domain socket.
+	select {
+	case <-a.ctx.Done():
+		return a.ctx.Err()
+	case a.tx <- PullResponseError{PullResponse: m}:
+		return nil
+	}
 }
 
 func (a *adapterStreamServer) SendMsg(m interface{}) error { return a.Send(m.(*PullResponse)) }

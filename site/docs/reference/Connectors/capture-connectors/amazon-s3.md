@@ -1,35 +1,99 @@
 ---
 sidebar_position: 2
 ---
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
 # Amazon S3
 
 This connector captures data from an Amazon S3 bucket.
 
-[`ghcr.io/estuary/source-s3:dev`](https://ghcr.io/estuary/source-s3:dev) provides the latest connector image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-s3:dev`](https://ghcr.io/estuary/source-s3:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Prerequisites
 
-To use this connector, either your S3 bucket must be public,
-or you must have access via a root or [IAM user](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users.html).
+You can use this connector to capture data from an entire S3 bucket or for a [prefix](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-prefixes.html) within a bucket.
+This bucket or prefix must be either be:
 
-* For public buckets, verify that the [access policy](https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-overview.html#access-control-resources-manage-permissions-basics) allows anonymous reads.
-* For buckets accessed by a user account, you'll need the AWS **access key** and **secret access key** for the user.
+* Publicly accessible and allowing anonymous reads.
+
+* Accessible via a root or [IAM user](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users.html).
+
+In either case, you'll need an [access policy](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_controlling.html).
+Policies in AWS are JSON objects that define permissions. You attach them to _resources_, which include both IAM users and S3 buckets.
+
+See the steps below to set up access.
+
+### Setup: Public buckets
+
+For a public buckets, the bucket access policy must allow anonymous reads on the whole bucket or a specific prefix.
+
+1. Create a bucket policy using the templates below.
+
+<Tabs>
+<TabItem value="Anonymous reads policy - Full bucket" default>
+
+```json file=./policies/public-full-bucket.json
+```
+
+</TabItem>
+<TabItem value="Anonymous reads policy - Specific prefix" default>
+
+```json file=./policies/public-prefix-only.json
+```
+
+</TabItem>
+</Tabs>
+
+2. [Add the policy to your bucket](https://docs.aws.amazon.com/AmazonS3/latest/userguide/add-bucket-policy.html). Paste over the existing policy and resolve any errors or warnings before saving.
+
+3. Confirm that the **Block public access** setting on the bucket is [disabled](https://docs.aws.amazon.com/AmazonS3/latest/userguide/WebsiteAccessPermissionsReqd.html).
+
+### Setup: Accessing with a user account
+
+For buckets accessed by a user account, you'll need the AWS **access key** and **secret access key** for the user.
+You'll also need to apply an access policy to the user to grant access to the specific bucket or prefix.
+
+1. [Create an IAM user](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users_create.html) if you don't yet have one to use with Flow.
+
+2. Note the user's access key and secret access key.
 See the [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for help finding these credentials.
+
+3. Create an IAM policy using the templates below.
+
+<Tabs>
+<TabItem value="IAM user access policy - Full bucket" default>
+
+```json file=./policies/iam-user-full-bucket.json
+```
+
+</TabItem>
+<TabItem value="IAM user access policy - Specific prefix" default>
+
+```json file=./policies/iam-user-prefix-only.json
+```
+
+</TabItem>
+</Tabs>
+
+4. [Add the policy](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_create-console.html#access_policies_create-json-editor) to AWS.
+
+5. [Attach the policy to the IAM user](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_manage-attach-detach.html#add-policies-console).
 
 ## Configuration
 
-You configure connectors either in the Flow web app, or by directly editing the catalog spec YAML.
-See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and YAML sample below provide configuration details specific to the S3 source connector.
+You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
+See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the S3 source connector.
 
 :::tip
 You might organize your S3 bucket using [prefixes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-prefixes.html) to emulate a directory structure.
 This connector can use prefixes in two ways: first, to perform the [**discovery**](../../../concepts/connectors.md#flowctl-discover) phase of setup, and later, when the capture is running.
 
 * You can specify a prefix in the endpoint configuration to limit the overall scope of data discovery.
-* You're required to specify prefixes on a per-binding basis. This allows you to map each prefix to a distinct Flow collection,
+* If using the flowctl CLI to write your specification locally, you can specify prefixes on a per-binding basis. This allows you to map each prefix to a distinct Flow collection,
 and informs how the capture will behave in production.
 
-To capture the entire bucket, omit `prefix` in the endpoint configuration and set `stream` to the name of the bucket.
+To capture the entire bucket, omit `prefix` in the endpoint configuration and set `stream` to the name of the bucket. (This is the only available method in the web app.)
 :::
 
 ### Properties
@@ -38,13 +102,14 @@ To capture the entire bucket, omit `prefix` in the endpoint configuration and se
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| `/ascendingKeys` | Ascending Keys | Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering. | boolean | `false` |
+| `/advanced` |  | Options for advanced users. You should not typically need to modify these. | object |  |
+| `/advanced/ascendingKeys` | Ascending Keys | Improve sync speeds by listing files from the end of the last sync, rather than listing the entire bucket prefix. This requires that you write objects in ascending lexicographic order, such as an RFC-3339 timestamp, so that key ordering matches modification time ordering. If data is not ordered correctly, using ascending keys could cause errors.| boolean | `false` |
+| `/advanced/endpoint` | AWS Endpoint | The AWS endpoint URI to connect to. Use if you&#x27;re capturing from a S3-compatible API that isn&#x27;t provided by AWS | string |  |
 | `/awsAccessKeyId` | AWS Access Key ID | Part of the AWS credentials that will be used to connect to S3. Required unless the bucket is public and allows anonymous listings and reads. | string |  |
 | `/awsSecretAccessKey` | AWS Secret Access Key | Part of the AWS credentials that will be used to connect to S3. Required unless the bucket is public and allows anonymous listings and reads. | string |  |
 | **`/bucket`** | Bucket | Name of the S3 bucket | string | Required |
-| `/endpoint` | AWS Endpoint | The AWS endpoint URI to connect to. Use if you&#x27;re capturing from a S3-compatible API that isn&#x27;t provided by AWS | string |  |
 | `/matchKeys` | Match Keys | Filter applied to all object keys under the prefix. If provided, only objects whose absolute path matches this regex will be read. For example, you can use &quot;.&#x2A;&#x5C;.json&quot; to only capture json files. | string |  |
-| `/parser` | Parser Configuration | Configures how files are parsed | object |  |
+| `/parser` | Parser Configuration | Configures how files are parsed (optional, see below) | object |  |
 | `/parser/compression` | Compression | Determines how to decompress the contents. The default, &#x27;Auto&#x27;, will try to determine the compression automatically. | null, string | `null` |
 | `/parser/format` | Format | Determines how to parse the contents. The default, &#x27;Auto&#x27;, will try to determine the format automatically based on the file extension or MIME type, if available. | object | `{"type":"auto"}` |
 | `/parser/format/type` | Type |  | string |  |
@@ -123,6 +188,7 @@ Options are:
    * **Avro**
    * **CSV**
    * **JSON**
+   * **Protobuf**
    * **W3C Extended Log**
 
    :::info
@@ -177,4 +243,4 @@ but you may need to specify for unusual datasets. These properties are:
   * Disable Quoting (`""`)
   * Auto
 
-The YAML sample [above](#sample) includes these fields.
+The sample specification [above](#sample) includes these fields.

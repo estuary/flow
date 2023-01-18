@@ -1,7 +1,6 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
-
 ---
 [
     Error {
@@ -30,6 +29,6 @@ expression: errors
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string/projections/str,
-        error: projection str is the canonical field name of location /str, and cannot re-map it to /int,
+        error: projection str is the canonical field name of location "/str", and cannot re-map it to "/int",
     },
 ]

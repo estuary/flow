@@ -10,12 +10,12 @@ Sources {
             scope: test://example/catalog.yaml#/collections/test,
             collection: test,
             spec: {
-              "schema": false,
               "key": [
                 "/a"
               ]
             },
-            schema: test://external/a#/$defs/a,
+            write_schema: test://external/a#/$defs/a,
+            read_schema: test://external/a#/$defs/a,
         },
     ],
     derivations: [],
@@ -58,7 +58,14 @@ Sources {
     materialization_bindings: [],
     materializations: [],
     npm_dependencies: [],
-    projections: [],
+    projections: [
+        Projection {
+            scope: test://example/catalog.yaml#/collections/test/projections/flow_document,
+            collection: test,
+            field: flow_document,
+            spec: "",
+        },
+    ],
     resources: [
         Resource {
             resource: test://example/catalog.yaml,

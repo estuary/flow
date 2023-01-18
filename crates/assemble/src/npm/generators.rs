@@ -16,10 +16,11 @@ pub fn module_types(
 ) -> String {
     let mut w = String::with_capacity(4096);
 
-    let doc_mapper = build_mapper(compiled, imports, &collection.schema, true);
+    let w_mapper = build_mapper(compiled, imports, &collection.write_schema, false);
+    let r_mapper = build_mapper(compiled, imports, &collection.read_schema, true);
 
-    // Generate named anchor types contained within the collection schema.
-    for (anchor_url, anchor_name) in doc_mapper.top_level.iter() {
+    // Generate named anchor types contained within the collection read schema.
+    for (anchor_url, anchor_name) in r_mapper.top_level.iter() {
         write!(
             w,
             r#"
@@ -29,28 +30,72 @@ export type {anchor_name} = "#,
         )
         .unwrap();
 
-        doc_mapper
-            .map(anchor_url)
-            .render(&mut Context::new_without_anchors(&mut w));
+        r_mapper.map(anchor_url).render(&mut Context::new(&mut w));
         write!(w, ";\n\n").unwrap();
     }
 
-    // Generate the Document type as the collection schema.
-    write!(
-        w,
-        r#"
+    if w_mapper.schema == r_mapper.schema {
+        // Generate the Document type as the collection schema.
+        write!(
+            w,
+            r#"
 // Generated from collection schema {schema}.
 // Referenced from {scope}.
 export type Document = "#,
-        schema = relative_url(&collection.schema, package_dir),
-        scope = relative_url(&collection.scope, package_dir),
-    )
-    .unwrap();
+            schema = relative_url(&r_mapper.schema, package_dir),
+            scope = relative_url(&collection.scope, package_dir),
+        )
+        .unwrap();
 
-    doc_mapper
-        .map(&collection.schema)
-        .render(&mut Context::new_without_anchors(&mut w));
-    write!(w, ";\n\n").unwrap();
+        r_mapper
+            .map(&r_mapper.schema)
+            .render(&mut Context::new(&mut w));
+        write!(w, ";\n\n").unwrap();
+
+        write!(
+            w,
+            r#"
+// The collection has one schema, used for both reads and writes.
+export type SourceDocument = Document;
+export type OutputDocument = Document;
+"#,
+        )
+        .unwrap();
+    } else {
+        // Generate the SourceDocument type as the collection read schema.
+        write!(
+            w,
+            r#"
+// Generated from collection read schema {schema}.
+// Referenced from {scope}.
+export type SourceDocument = "#,
+            schema = relative_url(&r_mapper.schema, package_dir),
+            scope = relative_url(&collection.scope, package_dir),
+        )
+        .unwrap();
+
+        r_mapper
+            .map(&r_mapper.schema)
+            .render(&mut Context::new(&mut w));
+        write!(w, ";\n\n").unwrap();
+
+        // Generate the OutputDocument type as the collection write schema.
+        write!(
+            w,
+            r#"
+// Generated from collection write schema {schema}.
+// Referenced from {scope}.
+export type OutputDocument = "#,
+            schema = relative_url(&w_mapper.schema, package_dir),
+            scope = relative_url(&collection.scope, package_dir),
+        )
+        .unwrap();
+
+        w_mapper
+            .map(&w_mapper.schema)
+            .render(&mut Context::new(&mut w));
+        write!(w, ";\n\n").unwrap();
+    }
 
     let Interface {
         derivation,
@@ -81,14 +126,13 @@ export type Register = "#,
 
     reg_mapper
         .map(&derivation.register_schema)
-        .render(&mut Context::new_without_anchors(&mut w));
+        .render(&mut Context::new(&mut w));
     write!(w, ";\n\n").unwrap();
 
     // For each transform, export a ${transform}Source type of its source schema.
     // This is either a re-export of another collection Document,
     // or (if a source-schema is used) a generated type.
     for tables::Transform {
-        source_schema,
         scope,
         transform,
         spec:
@@ -104,32 +148,13 @@ export type Register = "#,
     {
         let source_export = format!("{}Source", camel_case(transform, true));
 
-        if let Some(source_schema) = source_schema {
-            let source_mapper = build_mapper(compiled, imports, source_schema, false);
-
-            write!(
-                w,
-                r#"
-// Generated from transform {transform} source schema {schema}.
-// Referenced from {scope}.
-export type {source_export} = "#,
-                schema = relative_url(source_schema, package_dir),
-                scope = relative_url(scope, package_dir),
-                transform = transform.as_str(),
-            )
-            .unwrap();
-
-            source_mapper
-                .map(source_schema)
-                .render(&mut Context::new_without_anchors(&mut w));
-            write!(w, ";\n\n").unwrap();
-        } else if source_name == &derivation.derivation {
+        if source_name == &derivation.derivation {
             write!(
                 w,
                 r#"
 // Generated from self-referential transform {transform}.
 // Referenced from {scope}."
-export type {source_export} = Document;
+export type {source_export} = SourceDocument;
 
 "#,
                 scope = relative_url(scope, package_dir),
@@ -142,8 +167,8 @@ export type {source_export} = Document;
                 r#"
 // Generated from transform {transform} as a re-export of collection {source}.
 // Referenced from {scope}."
-import {{ Document as {source_export} }} from "./{rel_path}";
-export {{ Document as {source_export} }} from "./{rel_path}";
+import {{ SourceDocument as {source_export} }} from "./{rel_path}";
+export {{ SourceDocument as {source_export} }} from "./{rel_path}";
 
 "#,
                 rel_path = relative_path(&collection.collection, source_name),
@@ -260,7 +285,7 @@ pub fn stubs_ts<'a>(
 
         writeln!(
             w,
-            "import {{ IDerivation, Document, Register, {transform_sources} }} from 'flow/{derivation}';",
+            "import {{ IDerivation, OutputDocument, Register, {transform_sources} }} from 'flow/{derivation}';",
             derivation = derivation.derivation.as_str(),
         )
         .unwrap();

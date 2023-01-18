@@ -10,14 +10,14 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/bindings"
-	"github.com/estuary/flow/go/capture"
+	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow"
+	"github.com/estuary/flow/go/ops"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/shuffle"
-	"github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/recoverylog"
@@ -26,6 +26,7 @@ import (
 
 // Capture is a top-level Application which implements the capture workflow.
 type Capture struct {
+	driver *connector.Driver
 	// delegate is a pc.PullClient or a pc.PushServer
 	delegate delegate
 	// delegateEOF is set after reading a delegate EOF.
@@ -68,19 +69,36 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	}
 	defer func() {
 		if err == nil {
-			c.Log(logrus.DebugLevel, logrus.Fields{
-				"capture":    c.labels.TaskName,
-				"shard":      c.shardSpec.Id,
-				"build":      c.labels.Build,
-				"checkpoint": cp,
-			}, "initialized processing term")
-		} else {
-			c.Log(logrus.ErrorLevel, logrus.Fields{
-				"error": err,
-			}, "failed to initialize processing term")
+			ops.PublishLog(c.opsPublisher, pf.LogLevel_debug,
+				"initialized processing term",
+				"capture", c.labels.TaskName,
+				"shard", c.shardSpec.Id,
+				"build", c.labels.Build,
+				"checkpoint", cp,
+			)
+		} else if !errors.Is(err, context.Canceled) {
+			ops.PublishLog(c.opsPublisher, pf.LogLevel_error,
+				"failed to initialize processing term",
+				"error", err,
+			)
 		}
 	}()
 
+	// Stop a previous Driver and PullClient / PushServer delegate if it exists.
+	if c.delegate != nil {
+		if err = c.delegate.Close(); err != nil && !errors.Is(err, context.Canceled) {
+			return pf.Checkpoint{}, fmt.Errorf("closing previous connector client: %w", err)
+		}
+		c.delegate = nil
+	}
+	if c.driver != nil {
+		if err = c.driver.Close(); err != nil && !errors.Is(err, context.Canceled) {
+			return pf.Checkpoint{}, fmt.Errorf("closing previous connector driver: %w", err)
+		}
+		c.driver = nil
+	}
+
+	// Load the current term's CaptureSpec.
 	err = c.build.Extract(func(db *sql.DB) error {
 		captureSpec, err := catalog.LoadCapture(db, c.labels.TaskName)
 		if captureSpec != nil {
@@ -91,17 +109,9 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	if err != nil {
 		return pf.Checkpoint{}, err
 	}
-	c.Log(logrus.DebugLevel, logrus.Fields{"spec": c.spec, "build": c.labels.Build},
-		"loaded specification")
-
-	// Stop a previous PullClient / PushServer delegate if it exists.
-	if c.delegate != nil {
-		err, c.delegate = c.delegate.Close(), nil
-		if err != nil && !errors.Is(err, context.Canceled) {
-			return pf.Checkpoint{}, fmt.Errorf("closing connector: %w", err)
-		}
-		err = nil // Clear context.Canceled.
-	}
+	ops.PublishLog(c.opsPublisher, pf.LogLevel_debug,
+		"loaded specification",
+		"spec", c.spec, "build", c.labels.Build)
 
 	if cp, err = c.store.RestoreCheckpoint(shard); err != nil {
 		return pf.Checkpoint{}, err
@@ -229,14 +239,14 @@ func (c *Capture) startReadingMessages(
 
 	// Closure which builds a Combiner for a specified binding.
 	var newCombinerFn = func(binding *pf.CaptureSpec_Binding) (pf.Combiner, error) {
-		var combiner, err = bindings.NewCombine(c.LogPublisher)
+		var combiner, err = bindings.NewCombine(c.opsPublisher)
 		if err != nil {
 			return nil, err
 		}
 		return combiner, combiner.Configure(
 			shard.FQN(),
 			binding.Collection.Collection,
-			binding.Collection.SchemaJson,
+			binding.Collection.WriteSchemaJson,
 			binding.Collection.UuidPtr,
 			binding.Collection.KeyPtrs,
 			flow.PartitionPointers(&binding.Collection),
@@ -261,44 +271,49 @@ func (c *Capture) startReadingMessages(
 		}
 	} else {
 		// Establish driver connection and start Pull RPC.
-		conn, err := capture.NewDriver(
+		var err error
+		c.driver, err = connector.NewDriver(
 			c.taskTerm.ctx,
-			c.spec.EndpointType,
 			c.spec.EndpointSpecJson,
+			c.spec.EndpointType,
+			c.opsPublisher,
 			c.host.Config.Flow.Network,
-			c.LogPublisher,
 		)
 		if err != nil {
 			return fmt.Errorf("building endpoint driver: %w", err)
 		}
 
-		// Open a Pull RPC stream for the capture under this context.
-		// Careful! Don't assign directly to c.delegate because (*pc.PullClient)(nil) != nil
-		pullClient, err := pc.OpenPull(
-			c.taskTerm.ctx,
-			conn,
-			loadDriverCheckpoint(c.store),
-			newCombinerFn,
-			c.labels.Range,
-			&c.spec,
-			c.labels.Build,
-			!c.host.Config.Flow.Poll,
-			startCommitFn,
-		)
+		// Open a Pull RPC stream for the capture.
+		err = connector.WithUnsealed(c.driver, &c.spec, func(unsealed *pf.CaptureSpec) error {
+			// Careful! Don't assign directly to c.delegate because (*pc.PullClient)(nil) != nil
+			if pullClient, err := pc.OpenPull(
+				c.taskTerm.ctx,
+				c.driver.CaptureClient(),
+				loadDriverCheckpoint(c.store),
+				newCombinerFn,
+				c.labels.Range,
+				unsealed,
+				c.labels.Build,
+				startCommitFn,
+			); err != nil {
+				return err
+			} else {
+				c.delegate = pullClient
+				return nil
+			}
+		})
 		if err != nil {
 			return fmt.Errorf("opening pull RPC: %w", err)
-		} else {
-			c.delegate = pullClient
 		}
 	}
 
-	c.Log(logrus.DebugLevel, logrus.Fields{
-		"capture":  c.labels.TaskName,
-		"shard":    c.shardSpec.Id,
-		"build":    c.labels.Build,
-		"interval": minInterval,
-	}, "reading capture stream")
-
+	ops.PublishLog(c.opsPublisher, pf.LogLevel_debug,
+		"reading capture stream",
+		"capture", c.labels.TaskName,
+		"shard", c.shardSpec.Id,
+		"build", c.labels.Build,
+		"interval", minInterval,
+	)
 	return nil
 }
 
@@ -375,7 +390,8 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 			return fmt.Errorf("publishing stats document: %w", err)
 		}
 	} else {
-		c.Log(logrus.DebugLevel, nil, "capture transaction committing updating driver checkpoint only")
+		ops.PublishLog(c.opsPublisher, pf.LogLevel_debug,
+			"capture transaction committing updating driver checkpoint only")
 	}
 
 	return nil
@@ -420,7 +436,7 @@ func (c *Capture) FinalizeTxn(consumer.Shard, *message.Publisher) error { return
 
 // FinishedTxn logs if an error occurred.
 func (c *Capture) FinishedTxn(_ consumer.Shard, op consumer.OpFuture) {
-	logTxnFinished(c.LogPublisher, op)
+	logTxnFinished(c.opsPublisher, op)
 }
 
 // Coordinator panics if called.
@@ -430,11 +446,12 @@ func (c *Capture) Coordinator() *shuffle.Coordinator {
 
 // StartCommit implements consumer.Store.StartCommit
 func (c *Capture) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
-	c.Log(logrus.DebugLevel, logrus.Fields{
-		"capture": c.labels.TaskName,
-		"shard":   c.shardSpec.Id,
-		"build":   c.labels.Build,
-	}, "StartCommit")
+	ops.PublishLog(c.opsPublisher, pf.LogLevel_debug,
+		"StartCommit",
+		"capture", c.labels.TaskName,
+		"shard", c.shardSpec.Id,
+		"build", c.labels.Build,
+	)
 
 	var commitOp = c.store.StartCommit(shard, cp, waitFor)
 
@@ -455,6 +472,9 @@ func (c *Capture) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor co
 
 // Destroy implements consumer.Store.Destroy
 func (c *Capture) Destroy() {
+	if c.driver != nil {
+		_ = c.driver.Close()
+	}
 	if c.delegate != nil {
 		_ = c.delegate.Close()
 	}

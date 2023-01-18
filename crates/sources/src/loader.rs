@@ -15,9 +15,10 @@ pub enum LoadError {
     URLParse(#[from] url::ParseError),
     #[error("failed to fetch resource {uri}")]
     Fetch {
-        uri: String,
+        uri: Url,
         #[source]
         detail: anyhow::Error,
+        content_type: flow::ContentType,
     },
     #[error("failed to parse configuration document (https://go.estuary.dev/qpSUoq)")]
     ConfigParseErr(#[source] serde_json::Error),
@@ -35,6 +36,8 @@ pub enum LoadError {
     SchemaIndex(#[from] json::schema::index::Error),
     #[error("resources cannot have fragments")]
     ResourceWithFragment,
+    #[error("either `schema` or both of `writeSchema` and `readSchema` must be configured")]
+    InvalidSchemaCombination,
 }
 
 // FetchResult is the result type of a fetch operation,
@@ -66,6 +69,48 @@ pub struct Loader<F: Fetcher> {
     fetcher: F,
 }
 
+/// Parses a flow catalog specification **without** perfoming any sort of resolution of any other
+/// resources. This takes care of all the workarounds for dealing with `serde_json::RawValue`s, as
+/// well as resolving yaml merge keys.
+pub fn parse_catalog_spec(content: &[u8]) -> Result<models::Catalog, LoadError> {
+    let json = load_resource_content_dom(content, flow::ContentType::Catalog)?;
+    let catalog = serde_json::from_str(json.get())?;
+    Ok(catalog)
+}
+
+/// Parses `content` into a JSON DOM that can be further parsed into a Rust type.
+fn load_resource_content_dom(
+    content: &[u8],
+    content_type: flow::ContentType,
+) -> Result<Box<RawValue>, LoadError> {
+    use flow::ContentType as CT;
+
+    // These types are not documents and have a placeholder DOM.
+    if matches!(content_type, CT::NpmPackage | CT::TypescriptModule) {
+        return Ok(RawValue::from_string("null".to_string()).unwrap());
+    }
+
+    let mut dom: serde_yaml::Value = serde_yaml::from_slice(&content)?;
+
+    // We support YAML merge keys in catalog documents (only).
+    // We don't allow YAML aliases in schema documents as they're redundant
+    // with JSON Schema's $ref mechanism.
+    if let flow::ContentType::Catalog = content_type {
+        dom = yaml_merge_keys::merge_keys_serde(dom)?;
+    }
+
+    // Our models embed serde_json::RawValue, which cannot be directly
+    // deserialized from serde_yaml::Value. We cannot transmute to serde_json::Value
+    // because that could re-order elements along the way (Value is a BTreeMap),
+    // which could violate the message authentication code (MAC) of inlined and
+    // sops-encrypted documents. So, directly transcode into serialized JSON.
+    let mut buf = Vec::<u8>::new();
+    let mut serializer = serde_json::Serializer::new(&mut buf);
+    serde_transcode::transcode(dom, &mut serializer).expect("must transcode");
+
+    Ok(RawValue::from_string(String::from_utf8(buf).unwrap()).unwrap())
+}
+
 impl<F: Fetcher> Loader<F> {
     /// Build and return a new Loader.
     pub fn new(tables: tables::Sources, fetcher: F) -> Loader<F> {
@@ -80,6 +125,23 @@ impl<F: Fetcher> Loader<F> {
         self.tables.into_inner()
     }
 
+    /// Loads a resource from bytes that have already been fetched.
+    pub async fn load_resource_from_bytes<'a>(
+        &'a self,
+        scope: Scope<'a>,
+        resource_url: &Url,
+        content: bytes::Bytes,
+        content_type: flow::ContentType,
+    ) {
+        self.tables
+            .borrow_mut()
+            .fetches
+            .insert_row(scope.resource_depth() as u32, resource_url);
+
+        self.load_resource_content(scope, resource_url, content, content_type)
+            .await;
+    }
+
     /// Load (or re-load) a resource of the given ContentType.
     pub async fn load_resource<'a>(
         &'a self,
@@ -91,8 +153,9 @@ impl<F: Fetcher> Loader<F> {
             self.tables.borrow_mut().errors.insert_row(
                 &scope.flatten(),
                 anyhow::anyhow!(LoadError::Fetch {
-                    uri: resource.to_string(),
+                    uri: resource.clone(),
                     detail: LoadError::ResourceWithFragment.into(),
+                    content_type,
                 }),
             );
             return;
@@ -108,7 +171,7 @@ impl<F: Fetcher> Loader<F> {
 
         let content : Result<bytes::Bytes, anyhow::Error> = match inlined {
             // Resource has an inline definition of the expected content-type.
-            Some(models::ResourceDef{content, content_type: expected_type}) if assemble::content_type(expected_type) == content_type => {
+            Some(models::ResourceDef{content, content_type: expected_type}) if proto_content_type(expected_type) == content_type => {
                 if content.get().chars().next().unwrap() == '"' {
                     base64::decode(content.get()).context("base64-decode of inline resource failed").map(Into::into)
                 } else {
@@ -132,8 +195,9 @@ impl<F: Fetcher> Loader<F> {
                 self.tables.borrow_mut().errors.insert_row(
                     &scope.flatten(),
                     anyhow::anyhow!(LoadError::Fetch {
-                        uri: resource.to_string(),
+                        uri: resource.clone(),
                         detail: err,
+                        content_type,
                     }),
                 );
             }
@@ -200,32 +264,7 @@ impl<F: Fetcher> Loader<F> {
         content: &[u8],
         content_type: flow::ContentType,
     ) -> Option<Box<RawValue>> {
-        use flow::ContentType as CT;
-
-        // These types are not documents and have a placeholder DOM.
-        if matches!(content_type, CT::NpmPackage | CT::TypescriptModule) {
-            return Some(RawValue::from_string("null".to_string()).unwrap());
-        }
-
-        let mut dom: serde_yaml::Value = self.fallible(scope, serde_yaml::from_slice(&content))?;
-
-        // We support YAML merge keys in catalog documents (only).
-        // We don't allow YAML aliases in schema documents as they're redundant
-        // with JSON Schema's $ref mechanism.
-        if let flow::ContentType::Catalog = content_type {
-            dom = self.fallible(scope, yaml_merge_keys::merge_keys_serde(dom))?;
-        }
-
-        // Our models embed serde_json::RawValue, which cannot be directly
-        // deserialized from serde_yaml::Value. We cannot transmute to serde_json::Value
-        // because that could re-order elements along the way (Value is a BTreeMap),
-        // which could violate the message authentication code (MAC) of inlined and
-        // sops-encrypted documents. So, directly transcode into serialized JSON.
-        let mut buf = Vec::<u8>::new();
-        let mut serializer = serde_json::Serializer::new(&mut buf);
-        serde_transcode::transcode(dom, &mut serializer).expect("must transcode");
-
-        Some(RawValue::from_string(String::from_utf8(buf).unwrap()).unwrap())
+        self.fallible(scope, load_resource_content_dom(content, content_type))
     }
 
     async fn load_schema_document<'s>(
@@ -316,8 +355,10 @@ impl<F: Fetcher> Loader<F> {
     async fn load_schema_reference<'s>(
         &'s self,
         scope: Scope<'s>,
-        schema: models::Schema,
+        schema: Option<models::Schema>,
     ) -> Option<Url> {
+        let Some(schema) = schema else { return None; };
+
         // If schema is a relative URL, then import it.
         if let models::Schema::Url(import) = schema {
             let mut import = self.fallible(scope, scope.resource().join(&import))?;
@@ -455,7 +496,7 @@ impl<F: Fetcher> Loader<F> {
                 if let Some(url) =
                     self.fallible(scope, scope.resource().join(import.relative_url()))
                 {
-                    self.load_import(scope, &url, assemble::content_type(import.content_type()))
+                    self.load_import(scope, &url, proto_content_type(import.content_type()))
                         .await;
                 }
             }
@@ -516,10 +557,17 @@ impl<F: Fetcher> Loader<F> {
     ) {
         let derivation = std::mem::take(&mut spec.derivation);
         let projections = std::mem::take(&mut spec.projections);
-        let schema = std::mem::replace(&mut spec.schema, models::Schema::Bool(false));
+        let schema = std::mem::replace(&mut spec.schema, None);
+        let write_schema = std::mem::replace(&mut spec.write_schema, None);
+        let read_schema = std::mem::replace(&mut spec.read_schema, None);
 
         // Visit all collection projections.
+        let mut saw_root = false;
         for (field, spec) in projections {
+            if spec.as_parts().0.as_ref() == "" {
+                saw_root = true;
+            }
+
             self.tables.borrow_mut().projections.insert_row(
                 scope.push_prop("projections").push_prop(&field).flatten(),
                 collection_name,
@@ -528,33 +576,56 @@ impl<F: Fetcher> Loader<F> {
             );
         }
 
-        // Task which loads & maps collection schema => URL.
+        // If we didn't see an explicit projection of the root document,
+        // add a default projection with field "flow_document".
+        if !saw_root {
+            self.tables.borrow_mut().projections.insert_row(
+                scope
+                    .push_prop("projections")
+                    .push_prop("flow_document")
+                    .flatten(),
+                collection_name,
+                models::Field::new("flow_document"),
+                models::Projection::Pointer(models::JsonPointer::new("")),
+            );
+        }
+
+        // Tasks which concurrently load & maps collection schemas => URLs.
         // Recoverable failures project to Ok(None).
         let schema = self.load_schema_reference(scope.push_prop("schema"), schema);
+        let write_schema = self.load_schema_reference(scope.push_prop("writeSchema"), write_schema);
+        let read_schema = self.load_schema_reference(scope.push_prop("readSchema"), read_schema);
 
-        // If this collection is a derivation, concurrently
-        // load the collection's schema and its derivation.
-        let schema = match derivation {
-            Some(derivation) => {
-                let derivation = self.load_derivation(
-                    scope.push_prop("derivation"),
-                    collection_name,
-                    derivation,
-                );
+        // If this collection is a derivation, then concurrently load it.
+        let derivation =
+            self.load_derivation(scope.push_prop("derivation"), collection_name, derivation);
 
-                let (schema, ()) = futures::join!(schema, derivation);
-                schema
-            }
-            None => schema.await,
-        };
+        let (schema, write_schema, read_schema, ()) =
+            futures::join!(schema, write_schema, read_schema, derivation);
 
-        if let Some(schema) = schema {
-            self.tables.borrow_mut().collections.insert_row(
+        match (schema, write_schema, read_schema) {
+            // One schema used for both writes and reads.
+            (Some(schema), None, None) => self.tables.borrow_mut().collections.insert_row(
                 scope.flatten(),
                 collection_name,
                 spec,
-                schema,
-            );
+                &schema,
+                &schema,
+            ),
+            // Separate schemas used for writes and reads.
+            (None, Some(write_schema), Some(read_schema)) => {
+                self.tables.borrow_mut().collections.insert_row(
+                    scope.flatten(),
+                    collection_name,
+                    spec,
+                    write_schema,
+                    read_schema,
+                )
+            }
+            _ => self.tables.borrow_mut().errors.insert_row(
+                &scope.flatten(),
+                anyhow::anyhow!(LoadError::InvalidSchemaCombination),
+            ),
         }
     }
 
@@ -562,8 +633,10 @@ impl<F: Fetcher> Loader<F> {
         &'s self,
         scope: Scope<'s>,
         derivation_name: &'s models::Collection,
-        mut spec: models::Derivation,
+        spec: Option<models::Derivation>,
     ) {
+        let Some(mut spec) = spec else { return };
+
         // Destructure |spec|, taking components which are loaded and normalized.
         let transforms = std::mem::take(&mut spec.transform);
         let register_schema =
@@ -583,7 +656,7 @@ impl<F: Fetcher> Loader<F> {
         let register_schema = async move {
             self.load_schema_reference(
                 scope.push_prop("register").push_prop("schema"),
-                register_schema,
+                Some(register_schema),
             )
             .await
         };
@@ -619,30 +692,19 @@ impl<F: Fetcher> Loader<F> {
             }
         };
 
-        // Tasks which load each derivation transform.
-        let transforms =
-            transforms
-                .into_iter()
-                .map(|(transform_name, transform_spec)| async move {
-                    self.load_transform(
-                        scope
-                            .push_prop("transform")
-                            .push_prop(transform_name.as_ref()),
-                        &transform_name,
-                        derivation_name,
-                        transform_spec,
-                    )
-                    .await
-                });
+        // Load each derivation transform.
+        for (transform_name, transform_spec) in transforms {
+            self.load_transform(
+                scope
+                    .push_prop("transform")
+                    .push_prop(transform_name.as_ref()),
+                &transform_name,
+                derivation_name,
+                transform_spec,
+            );
+        }
 
-        // Poll until register schema and all transforms are loaded.
-        let (register_schema, typescript_module, _): (_, _, Vec<()>) = futures::join!(
-            register_schema,
-            typescript_module,
-            futures::future::join_all(transforms)
-        );
-
-        // Load any NPM package depenencies of the derivation's TypeScript module (if present).
+        // Load any NPM package dependencies of the derivation's TypeScript module (if present).
         for (package, version) in npm_dependencies {
             let scope = scope
                 .push_prop("typescript")
@@ -658,6 +720,10 @@ impl<F: Fetcher> Loader<F> {
             );
         }
 
+        // Concurrently load register schema & optional typescript module.
+        let (register_schema, typescript_module) =
+            futures::join!(register_schema, typescript_module);
+
         if let Some(register_schema) = register_schema {
             self.tables.borrow_mut().derivations.insert_row(
                 scope.flatten(),
@@ -669,28 +735,18 @@ impl<F: Fetcher> Loader<F> {
         }
     }
 
-    async fn load_transform<'s>(
+    fn load_transform<'s>(
         &'s self,
         scope: Scope<'s>,
         transform_name: &'s models::Transform,
         derivation: &'s models::Collection,
-        mut spec: models::TransformDef,
+        spec: models::TransformDef,
     ) {
-        // Map optional source schema => URL.
-        let source_schema = match std::mem::take(&mut spec.source.schema) {
-            Some(url) => {
-                self.load_schema_reference(scope.push_prop("source").push_prop("schema"), url)
-                    .await
-            }
-            None => None,
-        };
-
         self.tables.borrow_mut().transforms.insert_row(
             scope.flatten(),
             derivation,
             transform_name,
             spec,
-            source_schema,
         );
     }
 
@@ -879,5 +935,15 @@ impl<F: Fetcher> Loader<F> {
                 None
             }
         }
+    }
+}
+
+fn proto_content_type(t: models::ContentType) -> flow::ContentType {
+    match t {
+        models::ContentType::Catalog => flow::ContentType::Catalog,
+        models::ContentType::JsonSchema => flow::ContentType::JsonSchema,
+        models::ContentType::TypescriptModule => flow::ContentType::TypescriptModule,
+        models::ContentType::Config => flow::ContentType::Config,
+        models::ContentType::DocumentsFixture => flow::ContentType::DocumentsFixture,
     }
 }

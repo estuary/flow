@@ -1,2 +1,3 @@
 name,kind,level,message
-examples/source-test-fail,capture,info,"a horrible, no good error!"
+examples/source-test-fail,capture,error,"a horrible, no good error!"
+examples/source-test-fail,capture,error,connector failed

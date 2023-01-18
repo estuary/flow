@@ -1,20 +1,81 @@
 ---
-sidebar_position: 2
+sidebar_position: 3
 ---
 # Collections
 
-Flow stores data in **collections**:
-real-time data lakes of JSON documents.
-Collections may be added to by [captures](./captures.md),
-or be [derived](./derivations.md) as a transformation
-of other source collections.
+The documents of your Data Flows are stored in **collections**:
+real-time data lakes of JSON documents in cloud storage.
+
+The data in a collection may be [captured](./captures.md) from an external system,
+or [derived](./derivations.md) as a transformation of one or more other collections.
+When you [create a new capture in a typical workflow](../guides/create-dataflow.md#create-a-capture),
+you define one or more new collections as part of that process.
+[Materializations](./materialization.md) then read data from collections.
 
 Every collection has a key and an associated [schema](#schemas)
 that its documents must validate against.
 
+## Documents
+
+Flow processes and stores data in terms of documents: JSON files that consist of multiple key-value pair objects. Collections are comprised of documents; Flow tasks (captures, materializations, and derivations) process data in terms of documents.
+
+A Flow document corresponds to different units of data in different types of endpoint systems.
+For example, it might map to a table row, a pub/sub message, or an API response.
+The structure of a given collection’s documents is determined by that collection’s [schema](#schemas) and the way in which tasks handle documents is determined by the collection [key](#keys).
+
+The size of a document depends on the complexity of the source data.
+Flow allows documents up to 16 MB in size, but it's rare for documents to approach this limit.
+
+An example document for a collection with two fields, `name` and `count` is shown below.
+
+```json
+{
+  "_meta": {
+    "uuid": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  },
+  "count": 5954,
+  "message": "Hello #5954"
+}
+```
+
+The `_meta` object is present in all Flow documents, and contains metadata added by Flow. Minimally, every document `_meta` always has a `uuid`, which is a globally unique id for each document. Some capture connectors may add additional `_meta` properties to tie each document to a specific record within the source system. Documents that were captured from cloud storage connectors, for example, will contain `/_meta/file` and `/_meta/offset` properties that tell you where the document came from within your cloud storage bucket.
+
+## Viewing collection documents
+
+In many cases, it's not necessary to view your collection data — you're able to materialize it directly to a destination in the correct shape using a [connector](../concepts/README.md#connectors).
+
+However, it can be helpful to view collection documents to confirm the source data was captured as expected, or verify a schema change.
+
+#### In the web application
+
+Sign into the Flow web application and click the **Collections** tab. The collections to which you have access are listed.
+Click the **Details** drop down to show a sample of collection documents as well as the collection [specification](#specification).
+
+The collection documents are displayed by key. Click the desired key to preview it in its native JSON format.
+
+#### Using the flowctl CLI
+
+In your [authenticated flowctl session](../reference/authentication.md#authenticating-flow-using-the-cli), issue the command `flowctl collections read --collection <full/collection-name> --uncommitted`. For example, `flowctl collections read --collection acmeCo/inventory/anvils --uncommitted`.
+
+Options are available to read a subset of data from collections.
+For example, `--since` allows you to specify an approximate start time from which to read data, and
+`--include-partition` allows you to read only data from a specified [logical partition](../concepts/advanced/projections.md#logical-partitions).
+Use `flowctl collections read --help` to see documentation for all options.
+
+:::info Beta
+While in beta, this command currently has the following limitations. They will be removed in a later release:
+
+* The `--uncommitted` flag is required. This means that all collection documents are read, regardless of whether they were successfully committed or not.
+In the future, reads of committed documents will be the default.
+
+* Only reads of a single [partition](../concepts/advanced/projections.md#logical-partitions) are supported. If you need to read from a partitioned collection, use `--include-partition` or `--exclude-partition` to narrow down to a single partition.
+
+* The `--output` flag is not usable for this command. Only JSON data can be read from collections.
+:::
+
 ## Specification
 
-Collections are expressed within a Flow catalog specification:
+Collections are defined in Flow specification files per the following format:
 
 ```yaml
 # A set of collections to include in the catalog.
@@ -24,9 +85,9 @@ collections:
   acmeCo/products/anvils:
 
     # The schema of the collection, against which collection documents
-    # are validated. This may be an inline definition or a relative URL
+    # are validated. This may be an inline definition or a relative URI
     # reference.
-    # Required, type: string (relative URL form) or object (inline form)
+    # Required, type: string (relative URI form) or object (inline form)
     schema: anvils.schema.yaml
 
     # The key of the collection, specified as JSON pointers of one or more
@@ -37,7 +98,6 @@ collections:
     key: [/product/id]
 
     # Projections and logical partitions for this collection.
-    # See the "Projections" concept page to learn more.
     # Optional, type: object
     projections:
 
@@ -56,6 +116,7 @@ This helps ensure the quality of your data products
 and the reliability of your derivations and materializations.
 Schema specifications are flexible:
 yours could be exactingly strict, extremely permissive, or somewhere in between.
+For many source types, Flow is able to generate a basic schema during [discovery](./captures.md#discovery).
 
 Schemas may either be declared inline, or provided as a reference to a file.
 References can also include JSON pointers as a URL fragment to name a specific schema of a larger schema document:
@@ -174,7 +235,7 @@ Flow performs static inference of the collection schema to verify the existence
 and types of all keyed document locations, and will report an error if the
 location could not exist, or could exist with the wrong type.
 
-Flow itself doesn't mind if a keyed location could have multiple types,
+Flow itself doesn't mind if a keyed location has multiple types,
 so long as they're each of the allowed types: an `integer` or `string` for example.
 Some materialization [connectors](connectors.md), however, may impose further type
 restrictions as required by the endpoint.
@@ -222,7 +283,7 @@ properties:
 A collection key instructs Flow how documents of a collection are to be
 reduced, such as while being materialized to an endpoint.
 Flow also performs opportunistic local reductions over windows of documents
-(also called "combines") to improve its performance and reduce the volumes
+to improve its performance and reduce the volumes
 of data at each processing stage.
 
 An important subtlety is that the underlying storage of a collection
@@ -241,9 +302,9 @@ that's certain to be unique for every document.
 
 ### Empty keys
 
-When a catalog is automatically generated, there may not be an unambiguously correct key for all collections. This could occur, for example, when a SQL database doesn't have a primary key defined for some table.
+When a specification is automatically generated, there may not be an unambiguously correct key for all collections. This could occur, for example, when a SQL database doesn't have a primary key defined for some table.
 
-In cases like this, the generated catalog will contain an empty collection key. However, every collection must have a non-empty key, so you'll need to manually edit the generated catalog and specify keys for those collections before using the catalog.
+In cases like this, the generated specification will contain an empty collection key. However, every collection must have a non-empty key, so you'll need to manually edit the generated specification and specify keys for those collections before publishing to the catalog.
 
 ## Projections
 

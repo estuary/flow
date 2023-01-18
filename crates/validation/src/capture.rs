@@ -1,4 +1,4 @@
-use super::{indexed, reference, storage_mapping, Drivers, Error};
+use super::{indexed, reference, storage_mapping, Drivers, Error, NoOpDrivers};
 use futures::FutureExt;
 use itertools::{EitherOrBoth, Itertools};
 use proto_flow::{capture, flow};
@@ -9,7 +9,6 @@ pub async fn walk_all_captures<D: Drivers>(
     built_collections: &[tables::BuiltCollection],
     capture_bindings: &[tables::CaptureBinding],
     captures: &[tables::Capture],
-    imports: &[tables::Import],
     resources: &[tables::Resource],
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
@@ -44,7 +43,6 @@ pub async fn walk_all_captures<D: Drivers>(
             built_collections,
             capture,
             bindings.into_iter().flatten().collect_vec(),
-            imports,
             resources,
             &mut capture_errors,
         );
@@ -66,14 +64,12 @@ pub async fn walk_all_captures<D: Drivers>(
                 // disable captures in response to the source system being unreachable, and we
                 // wouldn't want a validation error for a disabled task to terminate the build.
                 if capture.spec.shards.disable {
-                    let response = no_op_validation(&request);
-                    (capture, binding_models, request, Ok(response))
+                    NoOpDrivers {}.validate_capture(request.clone())
                 } else {
-                    drivers
-                        .validate_capture(request.clone())
-                        .map(|response| (capture, binding_models, request, response))
-                        .await
+                    drivers.validate_capture(request.clone())
                 }
+                .map(|response| (capture, binding_models, request, response))
+                .await
             });
 
     let validations: Vec<(
@@ -181,7 +177,6 @@ pub async fn walk_all_captures<D: Drivers>(
         let recovery_stores = storage_mapping::mapped_stores(
             scope,
             "capture",
-            imports,
             &format!("recovery/{}", name.as_str()),
             storage_mappings,
             errors,
@@ -213,26 +208,10 @@ pub async fn walk_all_captures<D: Drivers>(
     built_captures
 }
 
-// Performs a no-op validation. The result includes a mocked `resource_path` for each binding. This
-// is assumed to be valid because Flow treats resource paths as opaque, and because it never
-// compares two resource paths from different builds.
-fn no_op_validation(req: &capture::ValidateRequest) -> capture::ValidateResponse {
-    let bindings = req
-        .bindings
-        .iter()
-        .enumerate()
-        .map(|(i, _)| capture::validate_response::Binding {
-            resource_path: vec![format!("no-op-resource-path-{i}")],
-        })
-        .collect();
-    capture::ValidateResponse { bindings }
-}
-
 fn walk_capture_request<'a>(
     built_collections: &'a [tables::BuiltCollection],
     capture: &'a tables::Capture,
     capture_bindings: Vec<&'a tables::CaptureBinding>,
-    imports: &[tables::Import],
     resources: &[tables::Resource],
     errors: &mut tables::Errors,
 ) -> Option<(
@@ -250,7 +229,7 @@ fn walk_capture_request<'a>(
     let (binding_models, binding_requests): (Vec<_>, Vec<_>) = capture_bindings
         .iter()
         .filter_map(|capture_binding| {
-            walk_capture_binding(built_collections, capture_binding, imports, errors)
+            walk_capture_binding(built_collections, capture_binding, errors)
                 .map(|binding_request| (*capture_binding, binding_request))
         })
         .unzip();
@@ -287,7 +266,6 @@ fn walk_capture_request<'a>(
 fn walk_capture_binding<'a>(
     built_collections: &'a [tables::BuiltCollection],
     capture_binding: &tables::CaptureBinding,
-    imports: &[tables::Import],
     errors: &mut tables::Errors,
 ) -> Option<capture::validate_request::Binding> {
     let tables::CaptureBinding {
@@ -309,7 +287,6 @@ fn walk_capture_binding<'a>(
         collection,
         built_collections,
         |c| (&c.collection, &c.scope),
-        imports,
         errors,
     )?;
 

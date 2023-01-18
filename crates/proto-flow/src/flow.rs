@@ -40,8 +40,8 @@ pub struct LambdaSpec {
 }
 /// Shuffle is a description of a document shuffle, where each document
 /// is mapped into:
-///  * An extracted, packed composite key (a "shuffle key").
-///  * A rotated Clock value (an "r-clock").
+///   * An extracted, packed composite key (a "shuffle key").
+///   * A rotated Clock value (an "r-clock").
 /// The packed key and r-clock can then be compared to individual reader
 /// RangeSpec's.
 ///
@@ -58,8 +58,8 @@ pub struct LambdaSpec {
 pub struct Shuffle {
     /// Group to which this shuffle belongs. It's used to suffix all journal
     /// reads undertaken by this shuffle, and must be stable. Examples:
-    ///  `derive/{derivation}/{transform}`
-    ///  `materialize/{materialization}`
+    ///   `derive/{derivation}/{transform}`
+    ///   `materialize/{materialization}`
     #[prost(string, tag="1")]
     pub group_name: ::prost::alloc::string::String,
     /// Source collection read by this transform.
@@ -86,16 +86,9 @@ pub struct Shuffle {
     #[prost(message, optional, tag="7")]
     pub shuffle_lambda: ::core::option::Option<LambdaSpec>,
     /// Schema against which shuffled documents are to be validated.
+    /// This will be removed.
     #[prost(string, tag="8")]
-    pub source_schema_uri: ::prost::alloc::string::String,
-    /// uses_source_schema is true iff source_schema_uri is the source collection's
-    /// schema, and false if it's a source schema specific to this transform.
-    #[prost(bool, tag="9")]
-    pub uses_source_schema: bool,
-    /// Validate the schema of documents at time of shuffled read.
-    /// Deprecated. Will be removed when |validate_schema_json| is established.
-    #[prost(bool, tag="10")]
-    pub deprecated_validate_schema_at_read: bool,
+    pub deprecated_source_schema_uri: ::prost::alloc::string::String,
     /// filter_r_clocks is true if the shuffle coordinator should filter documents
     /// sent to each subscriber based on its covered r-clock ranges and the
     /// individual document clocks. If false, the subscriber's r-clock range is
@@ -123,10 +116,10 @@ pub struct Shuffle {
     /// We always validate documents, but may do so either within the Shuffle
     /// server or later, within the shuffle client:
     /// - Derivations set `validate_schema_json`, as the derivation runtime can
-    ///   then by-pass a round of JSON parsing and validation.
+    ///    then by-pass a round of JSON parsing and validation.
     /// - Materializations don't, as the materialization runtime immediately
-    ///   combines over the document which requires parsing & validation
-    ///   anyway.
+    ///    combines over the document which requires parsing & validation
+    ///    anyway.
     ///
     /// Unlike other schema_json protobuf fields, we don't use a RawMessage
     /// casttype so that the generated Go equals method will work.
@@ -166,9 +159,10 @@ pub struct Projection {
     /// Field is the flattened, tabular alias of this projection.
     #[prost(string, tag="2")]
     pub field: ::prost::alloc::string::String,
-    /// Was this projection user provided ?
+    /// Was this projection explicitly provided ?
+    /// (As opposed to implicitly created through static analysis of the schema).
     #[prost(bool, tag="3")]
-    pub user_provided: bool,
+    pub explicit: bool,
     /// Does this projection constitute a logical partitioning of the collection?
     #[prost(bool, tag="4")]
     pub is_partition_key: bool,
@@ -188,11 +182,6 @@ pub struct Inference {
     /// "string"].
     #[prost(string, repeated, tag="1")]
     pub types: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    /// Whether the projection must always exist (either as a location within)
-    /// the source document, or as a null-able column in the database.
-    /// Deprecated. Use |exists|.
-    #[prost(bool, tag="2")]
-    pub deprecated_must_exist: bool,
     #[prost(message, optional, tag="3")]
     pub string: ::core::option::Option<inference::String>,
     /// The title from the schema, if provided.
@@ -253,24 +242,44 @@ pub mod inference {
         /// array bounds, or is a disallowed property, or has an impossible type.
         Cannot = 4,
     }
+    impl Exists {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Exists::Invalid => "INVALID",
+                Exists::Must => "MUST",
+                Exists::May => "MAY",
+                Exists::Implicit => "IMPLICIT",
+                Exists::Cannot => "CANNOT",
+            }
+        }
+    }
 }
-/// Next tag: 10.
+/// Next tag: 12.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CollectionSpec {
     /// Name of this collection.
     #[prost(string, tag="1")]
     pub collection: ::prost::alloc::string::String,
-    /// JSON-schema URI against which collection documents are validated,
-    /// and which provides reduction annotations.
-    /// * If this collection is local to this build, then |schema_uri|
-    ///   is the resource URL and fragment pointer of its schema.
-    /// * If this is a foreign collection, then |schema_uri| is a synthetic
-    ///   and unique URL which stands in for the collection's schema.
+    /// JSON Schema URI against which written collection documents are validated,
+    /// and which provides write-time reduction annotations.
     #[prost(string, tag="2")]
-    pub schema_uri: ::prost::alloc::string::String,
-    /// Bundled JSON-schema of the collection
+    pub write_schema_uri: ::prost::alloc::string::String,
+    /// Bundled write-time JSON Schema of the collection.
     #[prost(string, tag="8")]
-    pub schema_json: ::prost::alloc::string::String,
+    pub write_schema_json: ::prost::alloc::string::String,
+    /// JSON Schema URI against which read collection documents are validated,
+    /// and which provides read-time reduction annotations.
+    /// Optional. If not set then `write_schema_uri` should be used.
+    #[prost(string, tag="10")]
+    pub read_schema_uri: ::prost::alloc::string::String,
+    /// Bundled read-time JSON Schema of the collection.
+    /// Optional. If not set then `write_schema_json` should be used.
+    #[prost(string, tag="11")]
+    pub read_schema_json: ::prost::alloc::string::String,
     /// Composite key of the collection, as JSON-Pointers.
     #[prost(string, repeated, tag="3")]
     pub key_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
@@ -318,7 +327,7 @@ pub struct DerivationSpec {
     /// Derivations are collections.
     #[prost(message, optional, tag="1")]
     pub collection: ::core::option::Option<CollectionSpec>,
-    /// JSON-schema URI against which derivation registers are validated,
+    /// JSON Schema URI against which derivation registers are validated,
     /// and which provides reduction annotations. Register schemas are always
     /// local to this build, and are a resource URL and fragment pointer.
     #[prost(string, tag="2")]
@@ -467,13 +476,13 @@ pub struct OAuth2Spec {
     /// style of buttons in the UI
     #[prost(string, tag="1")]
     pub provider: ::prost::alloc::string::String,
-    // The templates below are handlebars templates and have a set of variables
+    // The templates below are mustache templates and have a set of variables
     // available to them, the variables available everywhere are:
     // client_id: OAuth2 provider client id
     // redirect_uri: OAuth2 provider client registered redirect URI
     //
     // Variables available in Auth URL request:
-    // state: the state parameter: this parameter is used to prevent attacks
+    // state: the state parameter, this parameter is used to prevent attacks
     // against our users. the parameter must be generated randomly and not
     // guessable. It must be associated with a user session, and we must check in
     // our redirect URI that the state we receive from the OAuth provider is the
@@ -487,7 +496,8 @@ pub struct OAuth2Spec {
     //
     // Variables available in Access Token request:
     // code: the code resulting from the suthorization step used to fetch the
-    // token client_secret: OAuth2 provider client secret
+    // token
+    // client_secret: OAuth2 provider client secret
     //
     // Variables available on Refresh Token request:
     // refresh_token: the refresh token
@@ -502,6 +512,9 @@ pub struct OAuth2Spec {
     /// where we request an access token from the provider
     #[prost(string, tag="3")]
     pub access_token_url_template: ::prost::alloc::string::String,
+    /// The method used to send access_token request. POST by default.
+    #[prost(string, tag="11")]
+    pub access_token_method: ::prost::alloc::string::String,
     /// The POST body of the access_token request
     #[prost(string, tag="4")]
     pub access_token_body: ::prost::alloc::string::String,
@@ -519,6 +532,9 @@ pub struct OAuth2Spec {
     /// token be refreshed.
     #[prost(string, tag="7")]
     pub refresh_token_url_template: ::prost::alloc::string::String,
+    /// The method used to send refresh_token request. POST by default.
+    #[prost(string, tag="12")]
+    pub refresh_token_method: ::prost::alloc::string::String,
     /// The POST body of the refresh_token request
     #[prost(string, tag="8")]
     pub refresh_token_body: ::prost::alloc::string::String,
@@ -576,6 +592,18 @@ pub mod test_spec {
         pub enum Type {
             Ingest = 0,
             Verify = 1,
+        }
+        impl Type {
+            /// String value of the enum field names used in the ProtoBuf definition.
+            ///
+            /// The values are not transformed in any way and thus are considered stable
+            /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+            pub fn as_str_name(&self) -> &'static str {
+                match self {
+                    Type::Ingest => "INGEST",
+                    Type::Verify => "VERIFY",
+                }
+            }
         }
     }
 }
@@ -722,6 +750,21 @@ pub mod extract_api {
         /// Fields extracted from a document (Rust -> Go).
         ExtractedFields = 4,
     }
+    impl Code {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Code::Invalid => "INVALID",
+                Code::Configure => "CONFIGURE",
+                Code::Extract => "EXTRACT",
+                Code::ExtractedUuid => "EXTRACTED_UUID",
+                Code::ExtractedFields => "EXTRACTED_FIELDS",
+            }
+        }
+    }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CombineApi {
@@ -787,6 +830,26 @@ pub mod combine_api {
         DrainedFields = 204,
         /// Drain stats, sent after all documents have been drained. (Rust -> Go)
         DrainedStats = 205,
+    }
+    impl Code {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Code::Invalid => "INVALID",
+                Code::Configure => "CONFIGURE",
+                Code::ReduceLeft => "REDUCE_LEFT",
+                Code::CombineRight => "COMBINE_RIGHT",
+                Code::DrainChunk => "DRAIN_CHUNK",
+                Code::DrainedCombinedDocument => "DRAINED_COMBINED_DOCUMENT",
+                Code::DrainedReducedDocument => "DRAINED_REDUCED_DOCUMENT",
+                Code::DrainedKey => "DRAINED_KEY",
+                Code::DrainedFields => "DRAINED_FIELDS",
+                Code::DrainedStats => "DRAINED_STATS",
+            }
+        }
     }
 }
 /// DeriveAPI is a meta-message which name spaces messages of the Derive API
@@ -954,6 +1017,35 @@ pub mod derive_api {
         /// Drain stats, sent after all documents have been drained. (Rust -> Go)
         DrainedStats = 205,
     }
+    impl Code {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Code::Invalid => "INVALID",
+                Code::Open => "OPEN",
+                Code::RestoreCheckpoint => "RESTORE_CHECKPOINT",
+                Code::Configure => "CONFIGURE",
+                Code::BeginTransaction => "BEGIN_TRANSACTION",
+                Code::NextDocumentHeader => "NEXT_DOCUMENT_HEADER",
+                Code::NextDocumentBody => "NEXT_DOCUMENT_BODY",
+                Code::Trampoline => "TRAMPOLINE",
+                Code::TrampolineInvoke => "TRAMPOLINE_INVOKE",
+                Code::FlushTransaction => "FLUSH_TRANSACTION",
+                Code::FlushedTransaction => "FLUSHED_TRANSACTION",
+                Code::PrepareToCommit => "PREPARE_TO_COMMIT",
+                Code::ClearRegisters => "CLEAR_REGISTERS",
+                Code::DrainChunk => "DRAIN_CHUNK",
+                Code::DrainedCombinedDocument => "DRAINED_COMBINED_DOCUMENT",
+                Code::DrainedReducedDocument => "DRAINED_REDUCED_DOCUMENT",
+                Code::DrainedKey => "DRAINED_KEY",
+                Code::DrainedFields => "DRAINED_FIELDS",
+                Code::DrainedStats => "DRAINED_STATS",
+            }
+        }
+    }
 }
 /// BuildAPI is a meta-message which name spaces messages of the Build API
 /// bridge.
@@ -1027,6 +1119,25 @@ pub mod build_api {
         /// Generate catalog specification JSON schema (Go <-> Rust)
         CatalogSchema = 100,
     }
+    impl Code {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Code::Begin => "BEGIN",
+                Code::Poll => "POLL",
+                Code::Trampoline => "TRAMPOLINE",
+                Code::TrampolineFetch => "TRAMPOLINE_FETCH",
+                Code::TrampolineValidateCapture => "TRAMPOLINE_VALIDATE_CAPTURE",
+                Code::TrampolineValidateMaterialization => "TRAMPOLINE_VALIDATE_MATERIALIZATION",
+                Code::Done => "DONE",
+                Code::DoneWithErrors => "DONE_WITH_ERRORS",
+                Code::CatalogSchema => "CATALOG_SCHEMA",
+            }
+        }
+    }
 }
 /// ResetStateRequest is the request of the Testing.ResetState RPC.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1088,19 +1199,51 @@ pub enum EndpointType {
     AirbyteSource = 7,
     FlowSink = 8,
 }
-/// LogLevelFilter is a common representation of a simple logging filter, which
-/// is shared between Rust and Go code. This enum is not used directly within
-/// other messages here because logging is configured at the time that Rust
-/// Service instances are created, not when they're configured.
+impl EndpointType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            EndpointType::Invalid => "INVALID",
+            EndpointType::Sqlite => "SQLITE",
+            EndpointType::Ingest => "INGEST",
+            EndpointType::AirbyteSource => "AIRBYTE_SOURCE",
+            EndpointType::FlowSink => "FLOW_SINK",
+        }
+    }
+}
+/// LogLevel is a common representation of a ops log level, which
+/// is shared between Rust and Go code. Variants are ordered, making
+/// LogLevel comparable.
+/// It uses non-conventional lower-case variants so that its canonical
+/// JSON encoding also uses lower-case.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
-pub enum LogLevelFilter {
-    Off = 0,
+pub enum LogLevel {
+    Undefined = 0,
     Error = 1,
     Warn = 2,
     Info = 3,
     Debug = 4,
     Trace = 5,
+}
+impl LogLevel {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            LogLevel::Undefined => "undefined",
+            LogLevel::Error => "error",
+            LogLevel::Warn => "warn",
+            LogLevel::Info => "info",
+            LogLevel::Debug => "debug",
+            LogLevel::Trace => "trace",
+        }
+    }
 }
 /// ContentType enumerates the content types understood by Flow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -1112,4 +1255,20 @@ pub enum ContentType {
     NpmPackage = 3,
     Config = 4,
     DocumentsFixture = 5,
+}
+impl ContentType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            ContentType::Catalog => "CATALOG",
+            ContentType::JsonSchema => "JSON_SCHEMA",
+            ContentType::TypescriptModule => "TYPESCRIPT_MODULE",
+            ContentType::NpmPackage => "NPM_PACKAGE",
+            ContentType::Config => "CONFIG",
+            ContentType::DocumentsFixture => "DOCUMENTS_FIXTURE",
+        }
+    }
 }
