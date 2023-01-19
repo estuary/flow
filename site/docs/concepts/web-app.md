@@ -257,19 +257,47 @@ For detailed steps to create a materialization, see the [guide](../guides/create
 
 ## Admin page
 
-On the **Admin** page, you can view users' capabilities, view a complete list of connectors, and obtain an access token to authenticate with flowctl.
+On the **Admin** page, you can view users' access grants, your organization's cloud storage locations, and a complete list of connectors.
+You can also get an access token to authenticate with flowctl and update your cookie preferences.
 
-The **Users** tab shows you all provisioned capabilities on objects to which you also have access.
-Each capability has its own row, so a given user may have multiple rows.
+#### Users
 
-For example, if you had read access to `foo/` and write access to `bar/`, you'd have a separate table row for each of these capabilities.
-If users Alice, Bob, and Carol each had write access on `foo/`, you'd see three more table rows representing these capabilities.
+The **Users** tab shows you all provisioned access grants on objects to which you also have access.
+Both users and catalog prefixes can receive access grants.
+These are split up into two tables called **Users** and **Prefixes**.
+Each access grant has its own row, so a given user or prefix may have multiple rows.
 
-Use the search box to filter by username or object.
+For example, if you had read access to `foo/` and write access to `bar/`, you'd have a separate table row in the **Users** table for each of these capabilities.
+If users Alice, Bob, and Carol each had write access on `foo/`, you'd see three more table rows representing these access grants.
+
+Taking this a step further, The prefix `foo/` could have read access to `buz/`. You'd see this in the **Prefixes** table,
+and it'd signify that everyone who has access to `foo/` also inherits read access to `buz/`.
+
+Use the search boxes to filter by username, prefix, or object.
 
 [Learn more about capabilities and access.](../reference/authentication.md)
+
+#### Storage Mappings
+
+The **Storage Mappings** tab includes a table of the cloud storage locations that back your Flow collections.
+You're able to view the table if you're an admin.
+
+Each top-level Flow [prefix](./catalogs.md#namespace) is backed by one or more cloud storage bucket that you own.
+You typically have just one prefix: your organization name, which you provided when configuring your Flow organizational account.
+If you're a trial user, your prefix is `trial/`, and this tab isn't applicable to you;
+your data is stored temporarily in Estuary's cloud storage bucket for your trial period.
+
+[Learn more about storage mappings.](./storage-mappings.md)
+
+#### Connectors
 
 The **Connectors** tab offers a complete view of all connectors that are currently available through the web application, including both capture and materialization connectors.
 If a connector you need is missing, you can request it.
 
-The **API** tab provides the access token required to [authenticate with flowctl](../reference/authentication.md#authenticating-flow-using-the-cli).
+#### CLI-API
+
+The **CLI-API** tab provides the access token required to [authenticate with flowctl](../reference/authentication.md#authenticating-flow-using-the-cli).
+
+#### Cookie Preferences
+
+You use the **Cookie Preferences** tab to view and modify cookie settings.
