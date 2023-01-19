@@ -46,6 +46,14 @@ pub async fn walk_all_materializations<D: Drivers>(
             models::Materialization::regex(),
             &mut materialization_errors,
         );
+        match &materialization.spec.endpoint {
+            models::MaterializationEndpoint::Connector(config) => crate::validate_ports(
+                &materialization.scope,
+                &config.ports,
+                &mut materialization_errors,
+            ),
+            models::MaterializationEndpoint::Sqlite(_) => { /* no ports here */ }
+        };
 
         let validation = walk_materialization_request(
             built_collections,
@@ -208,6 +216,11 @@ pub async fn walk_all_materializations<D: Drivers>(
             errors,
         );
 
+        let ports = match &materialization.spec.endpoint {
+            models::MaterializationEndpoint::Connector(cfg) => Some(&cfg.ports),
+            models::MaterializationEndpoint::Sqlite(_) => None,
+        };
+
         let spec = flow::MaterializationSpec {
             bindings,
             endpoint_spec_json,
@@ -225,6 +238,7 @@ pub async fn walk_all_materializations<D: Drivers>(
                 labels::TASK_TYPE_MATERIALIZATION,
                 shards,
                 false, // Don't disable wait_for_ack.
+                ports,
             )),
         };
 
@@ -261,7 +275,11 @@ fn walk_materialization_request<'a>(
         .unzip();
 
     let endpoint_spec_json = match endpoint {
-        models::MaterializationEndpoint::Connector(models::ConnectorConfig { image, config }) => {
+        models::MaterializationEndpoint::Connector(models::ConnectorConfig {
+            image,
+            config,
+            ports,
+        }) => {
             let config = match endpoint_config
                 .as_ref()
                 .and_then(|url| tables::Resource::fetch_content_dom(resources, url))
@@ -273,6 +291,7 @@ fn walk_materialization_request<'a>(
             serde_json::to_string(&models::ConnectorConfig {
                 image: image.to_owned(),
                 config,
+                ports: ports.clone(),
             })
             .unwrap()
         }

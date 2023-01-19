@@ -200,7 +200,11 @@ fn bundled_capture(
     let bindings = bindings.iter().map(|p| p.spec.clone()).collect();
 
     let endpoint = match &capture.spec.endpoint {
-        models::CaptureEndpoint::Connector(models::ConnectorConfig { image, config: _ }) => {
+        models::CaptureEndpoint::Connector(models::ConnectorConfig {
+            image,
+            config,
+            ports,
+        }) => {
             let image = image.clone();
             let config = capture.endpoint_config.as_ref().unwrap();
             let config = t
@@ -208,7 +212,11 @@ fn bundled_capture(
                 .binary_search_by_key(&config, |r| &r.resource)
                 .map(|ind| t.resources[ind].content_dom.clone())
                 .unwrap();
-            models::CaptureEndpoint::Connector(models::ConnectorConfig { image, config })
+            models::CaptureEndpoint::Connector(models::ConnectorConfig {
+                image,
+                config,
+                ports: ports.clone(),
+            })
         }
         models::CaptureEndpoint::Ingest(ingest) => models::CaptureEndpoint::Ingest(ingest.clone()),
     };
@@ -236,7 +244,8 @@ fn bundled_materialization(
     let endpoint = match &materialization.spec.endpoint {
         models::MaterializationEndpoint::Connector(models::ConnectorConfig {
             image,
-            config: _,
+            config,
+            ports,
         }) => {
             let image = image.clone();
             let config = materialization.endpoint_config.as_ref().unwrap();
@@ -245,7 +254,11 @@ fn bundled_materialization(
                 .binary_search_by_key(&config, |r| &r.resource)
                 .map(|ind| t.resources[ind].content_dom.clone())
                 .unwrap();
-            models::MaterializationEndpoint::Connector(models::ConnectorConfig { image, config })
+            models::MaterializationEndpoint::Connector(models::ConnectorConfig {
+                image,
+                config,
+                ports: ports.clone(),
+            })
         }
         models::MaterializationEndpoint::Sqlite(sqlite) => {
             models::MaterializationEndpoint::Sqlite(sqlite.clone())

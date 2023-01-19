@@ -136,7 +136,6 @@ where
             std::mem::drop(stdin); // Forward EOF to connector.
             return exit.await;
         };
-
         if let Err(error) = stdin.write_all(&encode_message(&message)).await {
             tracing::warn!(%error, "i/o error writing to connector stdin");
         }

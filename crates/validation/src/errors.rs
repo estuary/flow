@@ -180,7 +180,10 @@ pub enum Error {
         resource: String,
         rhs_scope: Url,
     },
-
+    #[error(
+        "the port named '{port_name}' uses port {port}, which is also configured for another port"
+    )]
+    PortNumberCollision { port: u16, port_name: String },
     #[error("one or more JSON schemas has errors which prevent further validation checks")]
     SchemaBuild,
     #[error(transparent)]

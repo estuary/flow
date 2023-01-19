@@ -1,23 +1,36 @@
 use anyhow::Context;
-use bytes::Bytes;
-use futures::{FutureExt, Stream, StreamExt, TryFutureExt};
+use futures::{FutureExt, Stream, StreamExt};
 use proto_flow::flow::{self, TaskNetworkProxyRequest, TaskNetworkProxyResponse};
 use proto_grpc::flow::network_proxy_server::NetworkProxy;
 use std::collections::BTreeMap;
 use std::future::Future;
+use std::sync::Arc;
 use std::task::Poll;
 use tokio::net::{
     tcp::{OwnedReadHalf, OwnedWriteHalf},
     TcpStream,
 };
 use tokio_util::io::ReaderStream;
-// use tokio::stream::StreamExt;
-use tokio::sync::mpsc::{Receiver, Sender};
 
 pub struct ProxyHandler {
-    shard_id: String,
     proxy_to_host: String,
-    ports: BTreeMap<String, u16>,
+    shards_to_ports: Arc<BTreeMap<String, u16>>,
+}
+
+impl ProxyHandler {
+    pub fn new(
+        proxy_to_host: impl Into<String>,
+        expose_ports: BTreeMap<String, u16>,
+    ) -> ProxyHandler {
+        ProxyHandler {
+            proxy_to_host: proxy_to_host.into(),
+            shards_to_ports: Arc::new(expose_ports),
+        }
+    }
+
+    fn get_local_port(&self, port_name: &str) -> Option<u16> {
+        self.shards_to_ports.get(port_name).copied()
+    }
 }
 
 #[async_trait::async_trait]
@@ -40,28 +53,46 @@ impl NetworkProxy for ProxyHandler {
         let Some(open) = msg.open else {
             return Err(tonic::Status::invalid_argument("expected first message to be Open"));
         };
-
         tracing::debug!(client_ip = %open.client_ip, requested_port = %open.port_name, "processing new proxy request");
 
-        let Some(port_number) = self.ports.get(&open.port_name) else {
-            return Err(tonic::Status::failed_precondition("invalid port_name, not exposed for this shard"));
+        // If the given port is not exposed, we will not perform i/o, and will instead close the
+        // respsonse stream after sending an OpenResponse with the error status.
+        let (open_resp, io) = if let Some(port) = self.get_local_port(&open.port_name) {
+            let target_addr = format!("{}:{port}", self.proxy_to_host);
+
+            let target_stream = TcpStream::connect(&target_addr)
+                .await
+                .context("failed to connect to target port")
+                .map_err(|e| tonic::Status::from_error(e.into()))?;
+            let (target_reader, target_writer) = target_stream.into_split();
+
+            // Spawn the background task that will copy data from the request stream to the connector.
+            // The write half of the tcp stream will be closed when this task completes.
+            let write_task =
+                tokio::task::spawn(async move { copy_data(recv_from_client, target_writer).await });
+
+            let resp = flow::task_network_proxy_response::OpenResponse {
+                status: flow::task_network_proxy_response::Status::Ok as i32,
+                header: None,
+            };
+            let io = Io {
+                n_bytes: 0,
+                reader: ReaderStream::new(target_reader),
+                write_task,
+            };
+            (resp, Some(io))
+        } else {
+            tracing::error!(port_name = %open.port_name, "no such port is currently exposed, rejecting proxy request");
+            let resp = flow::task_network_proxy_response::OpenResponse {
+                status: flow::task_network_proxy_response::Status::PortNotAllowed as i32,
+                header: None,
+            };
+            (resp, None)
         };
-        let target_addr = format!("{}:{port_number}", self.proxy_to_host);
-
-        let target_stream = TcpStream::connect(&target_addr)
-            .await
-            .context("failed to connect to target port")
-            .map_err(|e| tonic::Status::from_error(e.into()))?;
-        let (target_reader, target_writer) = target_stream.into_split();
-
-        let write_task =
-            tokio::task::spawn(async move { copy_data(recv_from_client, target_writer).await });
 
         Ok(tonic::Response::new(ProxyResponseStream {
-            open: Some(flow::task_network_proxy_response::Opened { err: String::new() }),
-            reader: ReaderStream::new(target_reader),
-            write_task,
-            n_bytes: 0,
+            open: Some(open_resp),
+            io,
         }))
     }
 }
@@ -74,6 +105,7 @@ async fn copy_data(
 
     let mut n = 0;
     while let Some(req) = requests.message().await? {
+        n += req.data.len();
         target.write_all(&req.data).await?;
     }
     tracing::debug!(
@@ -83,14 +115,39 @@ async fn copy_data(
     Ok(n)
 }
 
-pub struct ProxyResponseStream {
+struct Io {
     n_bytes: u64,
-    open: Option<flow::task_network_proxy_response::Opened>,
     reader: ReaderStream<OwnedReadHalf>,
     write_task: tokio::task::JoinHandle<Result<usize, anyhow::Error>>,
 }
 
-impl ProxyResponseStream {
+impl Io {
+    fn poll_next(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Result<TaskNetworkProxyResponse, tonic::Status>>> {
+        let bytes = futures::ready!(self.reader.next().poll_unpin(cx));
+        if let Some(read_result) = bytes {
+            match read_result {
+                Ok(data) => {
+                    self.n_bytes += data.len() as u64;
+                    Poll::Ready(Some(Ok(TaskNetworkProxyResponse {
+                        open_response: None,
+                        data: data.into(),
+                    })))
+                }
+                Err(err) => {
+                    let err = anyhow::Error::from(err);
+                    self.log_done(cx, Some(&err));
+                    Poll::Ready(Some(Err(tonic::Status::from_error(err.into()))))
+                }
+            }
+        } else {
+            self.log_done(cx, None);
+            Poll::Ready(None)
+        }
+    }
+
     fn log_done(&mut self, cx: &mut std::task::Context<'_>, r_err: Option<&anyhow::Error>) {
         let r_bytes = self.n_bytes;
         // In the happy path, the write_task should have already completed
@@ -139,6 +196,13 @@ impl ProxyResponseStream {
     }
 }
 
+pub struct ProxyResponseStream {
+    open: Option<flow::task_network_proxy_response::OpenResponse>,
+    /// io will be None if the open response has a non-OK status, and Some
+    /// if we are actually proxying data.
+    io: Option<Io>,
+}
+
 impl Stream for ProxyResponseStream {
     type Item = Result<TaskNetworkProxyResponse, tonic::Status>;
 
@@ -148,48 +212,16 @@ impl Stream for ProxyResponseStream {
     ) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         if let Some(opened) = this.open.take() {
-            Poll::Ready(Some(Ok(TaskNetworkProxyResponse {
-                opened: Some(opened),
+            return Poll::Ready(Some(Ok(TaskNetworkProxyResponse {
+                open_response: Some(opened),
                 data: Vec::new(),
-            })))
+            })));
+        }
+
+        if let Some(io) = this.io.as_mut() {
+            io.poll_next(cx)
         } else {
-            let bytes = futures::ready!(this.reader.next().poll_unpin(cx));
-            if let Some(read_result) = bytes {
-                match read_result {
-                    Ok(data) => {
-                        this.n_bytes += data.len() as u64;
-                        Poll::Ready(Some(Ok(TaskNetworkProxyResponse {
-                            opened: None,
-                            data: data.into(),
-                        })))
-                    }
-                    Err(err) => {
-                        let err = anyhow::Error::from(err);
-                        this.log_done(cx, Some(&err));
-                        Poll::Ready(Some(Err(tonic::Status::from_error(err.into()))))
-                    }
-                }
-            } else {
-                this.log_done(cx, None);
-                Poll::Ready(None)
-            }
+            Poll::Ready(None)
         }
     }
 }
-
-/*
-struct ClientReadStream {
-    inner:  tonic::Streaming<TaskNetworkProxyRequest>,
-    current_
-}
-
-impl tokio::io::AsyncBufRead for ClientReadStream {
-    fn poll_fill_buf(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<&[u8]>> {
-        todo!()
-    }
-
-    fn consume(self: std::pin::Pin<&mut Self>, amt: usize) {
-        todo!()
-    }
-}
-*/

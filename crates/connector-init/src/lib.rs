@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use anyhow::Context;
 use tokio::signal::unix;
 
@@ -19,9 +21,24 @@ pub struct Args {
     /// Port on which to listen for requests from the runtime.
     #[clap(short, long, default_value = "8080")]
     pub port: u16,
+
+    #[clap(long, value_parser = parse_expose_val)]
+    pub expose: Vec<(String, u16)>,
 }
 
-pub async fn run(args: Args) -> anyhow::Result<()> {
+/// Parse a single expose argument value, given in the form of: portName=80
+fn parse_expose_val(
+    s: &str,
+) -> Result<(String, u16), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    let pos = s
+        .find('=')
+        .ok_or_else(|| anyhow::anyhow!("invalid --expose argument: '{}'", s))?;
+    let port_name = s[..pos].trim().to_string();
+    let port_num = s[pos + 1..].parse().context("invalid u16 port value")?;
+    Ok((port_name, port_num))
+}
+
+pub async fn run(mut args: Args) -> anyhow::Result<()> {
     let image = inspect::Image::parse_from_json_file(&args.image_inspect_json_path)
         .context("reading image inspect JSON")?;
     let mut entrypoint = image.get_argv()?;
@@ -30,6 +47,9 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     if let Ok(log_level) = std::env::var("LOG_LEVEL") {
         entrypoint.push(format!("--log.level={log_level}"));
     }
+    let expose_ports = args.expose.drain(..).collect::<BTreeMap<_, _>>();
+
+    let mut proxy_handler = proxy::ProxyHandler::new("localhost", expose_ports);
 
     let capture = proto_grpc::capture::driver_server::DriverServer::new(capture::Driver {
         entrypoint: entrypoint.clone(),
@@ -38,6 +58,8 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         proto_grpc::materialize::driver_server::DriverServer::new(materialize::Driver {
             entrypoint: entrypoint.clone(),
         });
+
+    let proxy = proto_grpc::flow::network_proxy_server::NetworkProxyServer::new(proxy_handler);
 
     let addr = format!("0.0.0.0:{}", args.port).parse().unwrap();
 
@@ -56,6 +78,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     let () = tonic::transport::Server::builder()
         .add_service(capture)
         .add_service(materialize)
+        .add_service(proxy)
         .serve_with_shutdown(addr, signal)
         .await?;
 

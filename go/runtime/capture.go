@@ -278,6 +278,7 @@ func (c *Capture) startReadingMessages(
 			c.spec.EndpointType,
 			c.opsPublisher,
 			c.host.Config.Flow.Network,
+			c.labels.Ports,
 		)
 		if err != nil {
 			return fmt.Errorf("building endpoint driver: %w", err)

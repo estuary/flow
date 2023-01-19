@@ -59,7 +59,8 @@ pub struct ConnectorConfig {
     /// # Configuration of the connector.
     #[schemars(schema_with = "Config::json_schema")]
     pub config: Box<RawValue>,
-
+    /// # Network ports to expose to the internet
+    #[schemars(schema_with = "ports_json_schema")]
     pub ports: BTreeMap<PortName, PortSpec>,
 }
 

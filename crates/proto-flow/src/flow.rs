@@ -368,14 +368,6 @@ pub struct FieldSelection {
     #[prost(map="string, string", tag="4")]
     pub field_config_json: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PortSpec {
-    /// protobuf doesn't have uint16, but this is a port number in the range 0-65535
-    #[prost(uint32, tag="1")]
-    pub container_port: u32,
-    #[prost(string, tag="2")]
-    pub alpn_protocol: ::prost::alloc::string::String,
-}
 /// CaptureSpec describes a collection and its capture from an endpoint.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CaptureSpec {
@@ -400,8 +392,6 @@ pub struct CaptureSpec {
     /// Template for recovery logs of shards of this capture.
     #[prost(message, optional, tag="7")]
     pub recovery_log_template: ::core::option::Option<::proto_gazette::broker::JournalSpec>,
-    #[prost(map="string, message", tag="8")]
-    pub ports: ::std::collections::HashMap<::prost::alloc::string::String, PortSpec>,
 }
 /// Nested message and enum types in `CaptureSpec`.
 pub mod capture_spec {
@@ -444,8 +434,6 @@ pub struct MaterializationSpec {
     /// Template for recovery logs of shards of this materialization.
     #[prost(message, optional, tag="6")]
     pub recovery_log_template: ::core::option::Option<::proto_gazette::broker::JournalSpec>,
-    #[prost(map="string, message", tag="7")]
-    pub ports: ::std::collections::HashMap<::prost::alloc::string::String, PortSpec>,
 }
 /// Nested message and enum types in `MaterializationSpec`.
 pub mod materialization_spec {
@@ -1214,21 +1202,72 @@ pub mod task_network_proxy_request {
         /// for funsies
         #[prost(string, tag="3")]
         pub client_ip: ::prost::alloc::string::String,
+        /// TODO: reorder and comment
+        #[prost(message, optional, tag="4")]
+        pub header: ::core::option::Option<::proto_gazette::broker::Header>,
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TaskNetworkProxyResponse {
     #[prost(message, optional, tag="1")]
-    pub opened: ::core::option::Option<task_network_proxy_response::Opened>,
+    pub open_response: ::core::option::Option<task_network_proxy_response::OpenResponse>,
     #[prost(bytes="vec", tag="2")]
     pub data: ::prost::alloc::vec::Vec<u8>,
 }
 /// Nested message and enum types in `TaskNetworkProxyResponse`.
 pub mod task_network_proxy_response {
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Opened {
-        #[prost(string, tag="1")]
-        pub err: ::prost::alloc::string::String,
+    pub struct OpenResponse {
+        #[prost(enumeration="Status", tag="1")]
+        pub status: i32,
+        #[prost(message, optional, tag="2")]
+        pub header: ::core::option::Option<::proto_gazette::broker::Header>,
+    }
+    /// Status represents the high-level response to an Open request. If OK, then
+    /// the connection may proceed. Any other status indicates the reason for refusal.
+    /// This enum is a superset of the consumer.Status enum used by the Shards service,
+    /// though some statuses have taken on broader meanings.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum Status {
+        Ok = 0,
+        /// The named shard does not exist.
+        ShardNotFound = 1,
+        /// There is no current primary consumer process for the shard. This is a
+        /// temporary condition which should quickly resolve, assuming sufficient
+        /// consumer capacity.
+        NoShardPrimary = 2,
+        /// The present consumer process is not the assigned primary for the shard,
+        /// and was not instructed to proxy the request.
+        NotShardPrimary = 3,
+        /// Used to indicate an error in the proxying machinery.
+        /// This corresponds to consumer.Status_ETCD_TRANSACTION_FAILED, which is considered
+        /// a specific case of the broader category of "internal" errors, since the proxy API
+        /// doesn't directly expose anything about etcd.
+        InternalError = 4,
+        /// Either the shard itself is stopped or failed, or else the container is.
+        ShardStopped = 5,
+        /// The client is not allowed to connect to the port named in the request.
+        /// This could be either because the port does not exist or for any other
+        /// reason, such as if we implement IP-based access policies.
+        PortNotAllowed = 1000,
+    }
+    impl Status {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Status::Ok => "OK",
+                Status::ShardNotFound => "SHARD_NOT_FOUND",
+                Status::NoShardPrimary => "NO_SHARD_PRIMARY",
+                Status::NotShardPrimary => "NOT_SHARD_PRIMARY",
+                Status::InternalError => "INTERNAL_ERROR",
+                Status::ShardStopped => "SHARD_STOPPED",
+                Status::PortNotAllowed => "PORT_NOT_ALLOWED",
+            }
+        }
     }
 }
 /// EndpointType enumerates the endpoint types understood by Flow.

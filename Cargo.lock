@@ -138,6 +138,7 @@ version = "0.0.0"
 dependencies = [
  "bytes",
  "doc",
+ "fxhash",
  "insta",
  "itertools 0.10.5",
  "json",

@@ -38,6 +38,14 @@ pub async fn walk_all_captures<D: Drivers>(
             models::Capture::regex(),
             &mut capture_errors,
         );
+        // if the capture exposes any ports, validate that configuration now
+        match &capture.spec.endpoint {
+            models::CaptureEndpoint::Connector(config) => {
+                crate::validate_ports(&capture.scope, &config.ports, &mut capture_errors)
+            }
+            models::CaptureEndpoint::Ingest(_) => { /* ingest is likely to be removed, and doesn't have port config */
+            }
+        };
 
         let validation = walk_capture_request(
             built_collections,
@@ -182,6 +190,10 @@ pub async fn walk_all_captures<D: Drivers>(
             errors,
         );
 
+        let ports = match &capture.spec.endpoint {
+            models::CaptureEndpoint::Connector(config) => Some(&config.ports),
+            models::CaptureEndpoint::Ingest(_) => None,
+        };
         let spec = flow::CaptureSpec {
             capture: name.clone(),
             endpoint_type,
@@ -200,6 +212,7 @@ pub async fn walk_all_captures<D: Drivers>(
                 labels::TASK_TYPE_CAPTURE,
                 &shards,
                 false, // Don't disable wait_for_ack.
+                ports,
             )),
         };
         built_captures.insert_row(scope, name, spec);
@@ -235,7 +248,11 @@ fn walk_capture_request<'a>(
         .unzip();
 
     let endpoint_spec_json = match endpoint {
-        models::CaptureEndpoint::Connector(models::ConnectorConfig { image, config }) => {
+        models::CaptureEndpoint::Connector(models::ConnectorConfig {
+            image,
+            config,
+            ports,
+        }) => {
             let config = match endpoint_config
                 .as_ref()
                 .and_then(|url| tables::Resource::fetch_content_dom(resources, url))
@@ -247,6 +264,7 @@ fn walk_capture_request<'a>(
             serde_json::to_string(&models::ConnectorConfig {
                 image: image.to_owned(),
                 config,
+                ports: ports.clone(),
             })
             .unwrap()
         }

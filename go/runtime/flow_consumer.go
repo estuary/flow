@@ -213,7 +213,7 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	pf.RegisterShufflerServer(args.Server.GRPCServer, shuffle.NewAPI(args.Service.Resolver))
 	capture.RegisterRuntimeServer(args.Server.GRPCServer, f)
 
-	f.NetworkProxyServer = NewProxyServer(args.Service.State)
+	f.NetworkProxyServer = NewProxyServer(args.Service.Resolver)
 	pf.RegisterNetworkProxyServer(args.Server.GRPCServer, f.NetworkProxyServer)
 
 	return nil

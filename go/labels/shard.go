@@ -10,7 +10,7 @@ import (
 
 type PortConfig struct {
 	ContainerPort uint16
-	AlpnProtocol  string
+	Protocol      string
 }
 
 // ShardLabeling is a parsed and validated representation of the Flow
@@ -140,7 +140,7 @@ func parsePorts(set pf.LabelSet) (map[string]*PortConfig, error) {
 			if _, ok := out[portName]; !ok {
 				out[portName] = &PortConfig{}
 			}
-			out[portName].AlpnProtocol = label.Value
+			out[portName].Protocol = label.Value
 		}
 	}
 	return out, nil

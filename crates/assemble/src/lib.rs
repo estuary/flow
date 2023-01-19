@@ -257,6 +257,7 @@ pub fn shard_template(
     task_type: &str,
     shard: &models::ShardTemplate,
     disable_wait_for_ack: bool,
+    ports: Option<&BTreeMap<models::PortName, models::PortSpec>>,
 ) -> consumer::ShardSpec {
     let models::ShardTemplate {
         disable,
@@ -288,8 +289,7 @@ pub fn shard_template(
     // If not set, the default read channel size is 128k.
     let read_channel_size = read_channel_size.unwrap_or(1 << 17);
 
-    // Labels must be in alphabetical order.
-    let labels = vec![
+    let mut labels = vec![
         broker::Label {
             name: labels::MANAGED_BY.to_string(),
             value: labels::MANAGED_BY_FLOW.to_string(),
@@ -311,6 +311,27 @@ pub fn shard_template(
             value: task_type.to_string(),
         },
     ];
+    if let Some(ports) = ports {
+        labels.push(broker::Label {
+            name: labels::HOSTNAME.to_string(),
+            value: shard_hostname_label(task_name),
+        });
+        for (port_name, port_cfg) in ports {
+            labels.push(broker::Label {
+                name: format!("{}{}", labels::PORT_PREFIX, port_name),
+                value: port_cfg.port.to_string(),
+            });
+            // the protocol is an optional label. If it's missing, then any alpn protocol (or none) is allowed.
+            if let Some(proto) = port_cfg.alpn_protocol.as_ref() {
+                labels.push(broker::Label {
+                    name: format!("{}{}", labels::PORT_PROTO_PREFIX, port_name),
+                    value: proto.to_string(),
+                });
+            }
+        }
+    }
+    // Labels must be in lexicographic order.
+    labels.sort_by(|l, r| l.name.cmp(&r.name));
 
     consumer::ShardSpec {
         id: shard_id_base(task_name, task_type),
@@ -327,6 +348,17 @@ pub fn shard_template(
         ring_buffer_size,
         sources: Vec::new(),
     }
+}
+
+/// This function supplies a domain name label that identifies _all_ shards for a given task.
+/// To do this, we just hash the task name and convert it to a hexidecimal string.
+/// It's a bit janky, but the only idea I've liked better is pet-names, which we
+/// don't have yet. This also has the property of being pretty short (16 chars),
+/// which is nice because it leaves a little more headroom for other labels in the
+/// the full hostname.
+fn shard_hostname_label(task_name: &str) -> String {
+    let hash = fxhash::hash64(task_name);
+    format!("{:x}", hash)
 }
 
 pub fn collection_spec(
@@ -599,6 +631,7 @@ pub fn derivation_spec(
             labels::TASK_TYPE_DERIVATION,
             shards,
             disable_wait_for_ack,
+            None, // we aren't yet able to expose network ports for derivations
         )),
     }
 }

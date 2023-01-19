@@ -63,6 +63,7 @@ func (ps *ProxyServer) Proxy(streaming pf.NetworkProxy_ProxyServer) error {
 	// are problems with that connection, and so we can return the Status from the
 	// container's proxy service if it's not OK.
 	var proxyContext, cancelFunc = context.WithCancel(streaming.Context())
+	defer cancelFunc()
 	logrus.WithFields(logrus.Fields{
 		"shardID":  open.ShardId,
 		"portName": open.PortName,
@@ -71,7 +72,6 @@ func (ps *ProxyServer) Proxy(streaming pf.NetworkProxy_ProxyServer) error {
 	var client = pf.NewNetworkProxyClient(container.connection)
 	proxyClient, err := client.Proxy(proxyContext)
 	if err != nil {
-		cancelFunc()
 		return fmt.Errorf("dialing client: %w", err)
 	}
 	var handshakeComplete = false

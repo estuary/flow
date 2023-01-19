@@ -1,3 +1,5 @@
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+
 use futures::future::LocalBoxFuture;
 
 mod capture;
@@ -186,3 +188,48 @@ pub async fn validate<D: Drivers>(
         inferences,
     }
 }
+
+pub fn validate_ports(
+    scope: &url::Url,
+    ports: &BTreeMap<models::PortName, models::PortSpec>,
+    errors: &mut tables::Errors,
+) {
+    let mut used_numbers = BTreeSet::new();
+    for (port_name, port_config) in ports {
+        // TODO: maybe also validate that the port number isn't 0?
+
+        indexed::walk_name(
+            scope,
+            "port",
+            port_name.as_str(),
+            models::PortName::regex(),
+            errors,
+        );
+        if !used_numbers.insert(port_config.port) {
+            Error::PortNumberCollision {
+                port: port_config.port,
+                port_name: port_name.to_string(),
+            }
+            .push(scope, errors);
+        }
+    }
+}
+
+/*
+pub fn models_to_proto_ports(
+    proto_ports: &BTreeMap<models::PortName, models::PortSpec>,
+) -> HashMap<String, proto_flow::flow::PortSpec> {
+    proto_ports
+        .iter()
+        .map(|(name, spec)| {
+            (
+                name.to_string(),
+                proto_flow::flow::PortSpec {
+                    container_port: spec.port as u32,
+                    alpn_protocol: spec.alpn_protocol.clone().unwrap_or_default(),
+                },
+            )
+        })
+        .collect()
+}
+*/

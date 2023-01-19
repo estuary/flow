@@ -25,6 +25,10 @@ pub const RCLOCK_END_MAX: &str = KEY_END_MAX;
 pub const SPLIT_TARGET: &str = "estuary.dev/split-target";
 pub const SPLIT_SOURCE: &str = "estuary.dev/split-source";
 pub const LOG_LEVEL: &str = "estuary.dev/log-level";
+// Shard labels related to network connectivity to shards.
+pub const HOSTNAME: &str = "estuary.dev/hostname";
+pub const PORT_PREFIX: &str = "estuary.dev/port/";
+pub const PORT_PROTO_PREFIX: &str = "estuary.dev/alpn-proto/";
 
 // A used subset of Gazette labels, defined in go.gazette.dev/core/labels/labels.go.
 pub const CONTENT_TYPE: &str = "content-type";
