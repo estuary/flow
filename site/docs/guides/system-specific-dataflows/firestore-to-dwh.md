@@ -72,9 +72,9 @@ credentials provided by your Estuary account manager.
 
   Flow uses the provided configuration to initiate a connection with Firestore.
 
-  It maps each available Firestore collection to a possible Flow collection. It also generates a capture specification and schemas for each collection.
+  It maps each available Firestore collection to a possible Flow collection. It also generates a capture specification and minimal schemas for each collection.
 
-  You can use the **Collection Selector** to remove or modify collections, or edit the JSON in the **Specification Editor** directly.
+  You can use the **Collection Selector** to remove or modify collections. You'll have the chance to tighten up each collection's JSON schema later, when you materialize to Snowflake.
 
   :::tip
   If you make any changes in the collection editor, click **Next** again.
@@ -113,19 +113,37 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
    * **Warehouse**: optional
    * **Role**: optional
 
-4. Scroll down to view the **Collection Selector** and fill in the **Table** field for each collection.
+4. Click **Next**.
 
-   The collections you just created have already been selected, but you must provide names for the tables to which they'll be materialized in Snowflake.
-
-5. For each table, choose whether to [enable delta updates](../../reference/Connectors/materialization-connectors/Snowflake.md#delta-updates).
-
-6. Click **Next**.
-
-  Flow uses the provided configuration to initiate a connection to Snowflake. It generates a materialization specification.
+  Flow uses the provided configuration to initiate a connection to Snowflake.
 
   You'll be notified if there's an error. In that case, fix the configuration form or Snowflake setup as needed and click **Next** to try again.
 
-7. Click **Save and Publish**. You'll see a notification when the full Data Flow publishes successfully.
+  Once the connection is successful, the Endpoint Config collapses and the Collection Selector becomes prominent.
+  It shows each collection you captured previously.
+  Each of them will be mapped to a Snowflake table.
+
+5. In the **Collection Selector**, fill in the **Table** field for each collection.
+
+   The collections you just created have already been selected, but you must provide names for the tables to which they'll be materialized in Snowflake.
+
+6. For each table, choose whether to [enable delta updates](../../reference/Connectors/materialization-connectors/Snowflake.md#delta-updates).
+
+7. For each collection, apply a stricter schema to be used for the materialization.
+
+  Firestore has a flat data structure.
+  To materialize data effectively from Firestore to Snowflake, you should apply a schema can translate to a table structure.
+  Flow's **Schema Inference** tool can help.
+
+   1. In the Collection Selector, choose a collection and click its **Specification** tab.
+
+   2. Click **Schema Inference**
+
+      The Schema Inference window appears. Flow scans the data in your collection and infers a new schema, called the `readSchema`, to use for the materialization.
+
+   3. Review the new schema and click **Apply Inferred Schema**.
+
+8. Click **Save and Publish**. You'll see a notification when the full Data Flow publishes successfully.
 
 ## What's next?
 
