@@ -270,7 +270,7 @@ Each access grant has its own row, so a given user or prefix may have multiple r
 For example, if you had read access to `foo/` and write access to `bar/`, you'd have a separate table row in the **Users** table for each of these capabilities.
 If users Alice, Bob, and Carol each had write access on `foo/`, you'd see three more table rows representing these access grants.
 
-Taking this a step further, The prefix `foo/` could have read access to `buz/`. You'd see this in the **Prefixes** table,
+Taking this a step further, the prefix `foo/` could have read access to `buz/`. You'd see this in the **Prefixes** table,
 and it'd signify that everyone who has access to `foo/` also inherits read access to `buz/`.
 
 Use the search boxes to filter by username, prefix, or object.
