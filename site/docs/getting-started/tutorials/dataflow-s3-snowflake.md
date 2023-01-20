@@ -56,7 +56,7 @@ You'll start by creating your capture.
 
 ## Capture Citi Bike data from S3
 
-1. Go to the Flow web app at [dashboard.estuary.dev](http://dashboard.estuary.dev) and sign in using the credentials provided by your Estuary account manager.
+1. Go to the Flow web app at [dashboard.estuary.dev](http://dashboard.estuary.dev) and sign in.
 
 2. Click the **Captures** tab and choose **New Capture**
 
@@ -88,7 +88,7 @@ You'll start by creating your capture.
 
    * **Prefix**: The storage bucket isn't organized by prefixes, so leave this blank.
 
-   * **Match Keys**: `JC-20221*`
+   * **Match Keys**: `2022`
 
    The Citi Bike storage bucket has been around for a while. Some of the older datasets have incorrect file extensions or contain data in different formats. By selecting a subset of files from the year 2022, you'll make things easier to manage for the purposes of this tutorial.
    (In a real-world use case, you'd likely reconcile the different schemas of the various data formats using a **derivation**.
@@ -106,7 +106,7 @@ You'll start by creating your capture.
 
    Flow deploys, or **publishes**, your capture, including your change to the schema. You'll see a notification when the this is complete.
 
-   All data in the Citi Bike tripdata bucket has been captured to a Flow collection. Now, you can materialize that data to Snowflake.
+   A subset of data from the Citi Bike tripdata bucket has been captured to a Flow collection. Now, you can materialize that data to Snowflake.
 
 9. Click **Materialize Collections**.
 
@@ -208,9 +208,7 @@ All of the available materialization connectors — representing the possible da
 
    * **Role**: `ESTUARY_ROLE`
 
-4. Scroll down to view the **Collection Selector** and fill in the **Table** field with `CitiBikeData` or another name of your choosing.
-
-   The collection you just created was already selected, but you must provide a name for the table to which it'll be materialized in Snowflake.
+4. Scroll down to view the **Collection Selector** and change the default name in the **Table** field to `CitiBikeData` or another name of your choosing.
 
 6. Click **Next**.
 
