@@ -26,11 +26,7 @@ You'll need a PostgreSQL database setup with the following:
 
 :::info
 These setup instructions are PostgreSQL instances you manage yourself. If you use a cloud-based managed service
-for your database, different setup steps may be required.
-
-Instructions for setup on Amazon RDS can be found [here](#postgresql-on-amazon-rds). If you use a different managed service
-and the standard steps don't work as expected,
-contact [Estuary support](mailto:support@estuary.dev).
+for your database, see [below](#postgresql-on-managed-cloud-platforms).
 :::
 
 The simplest way to meet the above prerequisites is to change the WAL level and have the connector use a database superuser role.
@@ -353,14 +349,6 @@ CREATE PUBLICATION flow_publication FOR TABLE schema.table1, schema.table2;
 
    * Find the instance's host under Server Name, and the port under Connection Strings (usually `5432`). Together, you'll use the host:port as the `address` property when you configure the connector.
    * Format `user` as `username@databasename`; for example, `flow_capture@myazuredb`.
-
-### TimescaleDB
-
-You can use this connector for TimescaleDB instances using the following setup instructions.
-
-#### Setup
-
-
 
 ## TOASTed values
 
