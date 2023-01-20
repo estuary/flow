@@ -1,5 +1,8 @@
 use super::codec::{reader_to_message_stream, Codec};
+
+use anyhow::Context;
 use futures::{StreamExt, TryStreamExt};
+use std::collections::HashMap;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
 /// Status is an error representation that combines a well-known error
@@ -10,6 +13,7 @@ type Status = tonic::Status;
 pub async fn unary<In, Out>(
     entrypoint: &[String],
     codec: Codec,
+    envs: &HashMap<String, String>,
     op: &str,
     request: In,
 ) -> Result<Out, Status>
@@ -18,7 +22,7 @@ where
     Out: prost::Message + proto_convert::FromMessage + Default + Unpin,
 {
     let requests = futures::stream::once(async { Ok(request) });
-    let responses = bidi(entrypoint, codec, op, requests)?;
+    let responses = bidi(entrypoint, codec, envs, op, requests)?;
     let mut responses: Vec<Out> = responses.try_collect().await?;
 
     let response = responses.pop();
@@ -37,6 +41,7 @@ where
 pub fn bidi<In, Out, InStream>(
     entrypoint: &[String],
     codec: Codec,
+    envs: &HashMap<String, String>,
     op: &str,
     requests: InStream,
 ) -> Result<impl futures::Stream<Item = Result<Out, Status>>, Status>
@@ -60,6 +65,7 @@ where
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .args(args)
+        .envs(envs)
         .kill_on_drop(true)
         .spawn()
         .map_err(|err| map_status("could not start connector entrypoint", err))?;
@@ -214,6 +220,10 @@ fn map_status<E: Into<anyhow::Error>>(message: &'static str, err: E) -> Status {
 #[cfg(test)]
 mod test {
     use super::{bidi, process_logs, unary, Codec};
+    use std::collections::HashMap;
+
+    use super::{bidi, decode_message, encode_message, reader_to_message_stream};
+    use super::{process_logs, unary};
     use futures::StreamExt;
     use proto_flow::flow::TestSpec;
 
@@ -304,7 +314,7 @@ mod test {
             // Let "cat" run to completion and collect its output messages.
             // Note that "cat" will only exit if we properly close its stdin after sending all inputs.
             let responses: Vec<Result<TestSpec, _>> =
-                bidi(&["cat".to_string()], codec, "-", requests)
+                bidi(&["cat".to_string()], codec, &HashMap::new(), "-", requests)
                     .unwrap()
                     .collect()
                     .await;
@@ -338,11 +348,16 @@ mod test {
         }); // Unbounded stream.
 
         // "true" exits immediately with success, without reading our unbounded stream of inputs.
-        let responses: Vec<Result<TestSpec, _>> =
-            bidi(&["true".to_string()], Codec::Proto, "", requests)
-                .unwrap()
-                .collect()
-                .await;
+        let responses: Vec<Result<TestSpec, _>> = bidi(
+            &["true".to_string()],
+            Codec::Proto,
+            &HashMap::new(),
+            "",
+            requests,
+        )
+        .unwrap()
+        .collect()
+        .await;
 
         insta::assert_debug_snapshot!(responses, @r###"
         []
@@ -362,6 +377,7 @@ mod test {
             let responses: Vec<Result<TestSpec, _>> = bidi(
                 &["cat".to_string()],
                 codec,
+                &HashMap::new(),
                 "/this/path/does/not/exist",
                 requests,
             )
@@ -401,6 +417,7 @@ mod test {
         let responses: Vec<Result<TestSpec, _>> = bidi(
             &["cat".to_string(), "/etc/hosts".to_string()],
             Codec::Proto,
+            &HashMap::new(),
             "/this/path/does/not/exist",
             requests,
         )
@@ -436,9 +453,15 @@ mod test {
                 ..Default::default()
             };
 
-            let out: TestSpec = unary(&["cat".to_string()], codec, "-", fixture.clone())
-                .await
-                .unwrap();
+            let out: TestSpec = unary(
+                &["cat".to_string()],
+                codec,
+                &HashMap::new(),
+                "-",
+                fixture.clone(),
+            )
+            .await
+            .unwrap();
             assert_eq!(out, fixture);
         }
     }
@@ -451,8 +474,14 @@ mod test {
                 ..Default::default()
             };
 
-            let out: Result<TestSpec, _> =
-                unary(&["true".to_string()], codec, "", fixture.clone()).await;
+            let out: Result<TestSpec, _> = unary(
+                &["true".to_string()],
+                codec,
+                &HashMap::new(),
+                "",
+                fixture.clone(),
+            )
+            .await;
             insta::assert_debug_snapshot!(out, @r###"
         Err(
             Status {
