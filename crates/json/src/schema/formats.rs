@@ -47,6 +47,7 @@ pub enum Format {
     RelativeJsonPointer,
     Integer,
     Number,
+    Fractional,
 }
 
 // Some are from https://github.com/JamesNK/Newtonsoft.Json.Schema/blob/master/Src/Newtonsoft.Json.Schema/Infrastructure/FormatHelpers.cs
@@ -163,6 +164,10 @@ impl Format {
                 ValidationResult::from(BigInt::parse_bytes(val.as_bytes(), 10).is_some())
             }
             Self::Number => ValidationResult::from(BigDecimal::from_str(val).is_ok()),
+            Self::Fractional => ValidationResult::from(match BigDecimal::from_str(val) {
+                Ok(d) => !d.is_integer(),
+                Err(_) => false,
+            }),
         }
     }
 }
@@ -232,6 +237,12 @@ mod test {
             ("number", "-1.234", true),
             ("number", " 1234", false),
             ("number", " 1.234", false),
+            ("fractional", "1234", false),
+            ("fractional", "1_234", false),
+            ("fractional", "1.234", true),
+            ("fractional", "-1.234", true),
+            ("fractional", "1.2_34", true),
+            ("fractional", "1.234 ", false),
         ] {
             let format: Format =
                 serde_json::from_value(serde_json::Value::String(format.to_string())).unwrap();
