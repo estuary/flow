@@ -1,23 +1,24 @@
 use std::collections::HashMap;
 
 use ipnetwork::IpNetwork;
+use serde::{Deserialize, Serialize};
 
 /// Image is the object returned by `docker inspect` over an image.
-#[derive(Debug, serde::Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
 pub struct Image {
     pub config: ImageConfig,
     pub repo_tags: Vec<String>,
 }
 
-#[derive(Debug, serde::Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "PascalCase")]
 pub struct ImageConfig {
     pub cmd: Option<Vec<String>>,
     pub entrypoint: Option<Vec<String>>,
     pub labels: HashMap<String, String>,
     #[serde(rename = "env")]
-    _env: Vec<String>,
+    pub _env: Vec<String>,
     #[serde(skip)]
     pub env: HashMap<String, String>,
     pub working_dir: Option<String>,
@@ -27,7 +28,12 @@ pub struct ImageConfig {
 impl Image {
     pub fn parse_from_json_file(path: &str) -> anyhow::Result<Self> {
         let [mut out] = serde_json::from_slice::<[Image; 1]>(&std::fs::read(path)?)?;
-        out.config.env = out
+        out.parse_env();
+        Ok(out)
+    }
+
+    pub fn parse_env(&mut self) {
+        self.config.env = self
             .config
             ._env
             .iter()
@@ -39,7 +45,6 @@ impl Image {
                 )
             })
             .collect();
-        Ok(out)
     }
 
     /// Find the arguments required to invoke the connector,
@@ -55,41 +60,43 @@ impl Image {
     }
 }
 
-#[derive(serde::Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug, Default, Builder)]
 pub struct GuestConfig {
+    #[builder(setter(into, strip_option))]
     pub ip_configs: Option<Vec<IPConfig>>,
     pub hostname: String,
 
+    #[builder(setter(into, strip_option))]
     pub root_device: Option<String>,
 
+    #[builder(setter(into, strip_option))]
     pub etc_resolv: Option<EtcResolv>,
+    #[builder(setter(into, strip_option))]
     pub etc_hosts: Option<Vec<EtcHost>>,
 }
 
 impl GuestConfig {
     pub fn parse_from_json_file(path: &str) -> anyhow::Result<Self> {
-        let [out] = serde_json::from_slice::<[GuestConfig; 1]>(&std::fs::read(path)?)?;
-        Ok(out)
+        Ok(serde_json::from_slice(&std::fs::read(path)?)?)
     }
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "PascalCase")]
 pub struct IPConfig {
     pub gateway: IpNetwork,
     #[serde(rename = "IP")]
     pub ip: IpNetwork,
-    pub mask: u8,
 }
 
-#[derive(serde::Deserialize, Debug, Default, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 #[serde(rename_all = "PascalCase")]
 pub struct Mount {
     pub mount_path: String,
     pub device_path: String,
 }
 
-#[derive(serde::Deserialize, Debug, Default, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 #[serde(rename_all = "PascalCase")]
 pub struct EtcHost {
     pub host: String,
@@ -98,7 +105,7 @@ pub struct EtcHost {
     pub desc: Option<String>,
 }
 
-#[derive(serde::Deserialize, Debug, Default, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 #[serde(rename_all = "PascalCase")]
 pub struct EtcResolv {
     pub nameservers: Vec<String>,

@@ -34,18 +34,18 @@ tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-
-libc = "0.2.62"
-nix = "0.26.2"
 warp = { workspace = true }
-procfs = "0.14.2"
-rlimit = "0.9.0"
-rtnetlink = "0.11.0"
-ipnetwork = { version = "0.20.0", features = ["serde"] }
-ifstructs = "0.1.1"
-pin-project = "1.0.1"
-os_pipe = "1.1.2"
-tokio-vsock = "0.4.0"
+libc = { workspace = true }
+nix = { workspace = true }
+procfs = { workspace = true }
+rlimit = { workspace = true }
+rtnetlink = { workspace = true }
+ipnetwork = { workspace = true }
+ifstructs = { workspace = true }
+pin-project = { workspace = true }
+os_pipe = { workspace = true }
+tokio-vsock = { workspace = true }
+derive_builder = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }

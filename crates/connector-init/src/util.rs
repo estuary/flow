@@ -187,6 +187,24 @@ pub fn setup_device_mounts() -> Result<(), InitError> {
         None,
     )?;
 
+    // debug!("Mounting /dev/[u]random");
+    // mkdir("/dev/random", chmod_0555).ok();
+    // mount::<_, _, _, [u8]>(
+    //     Some("random"),
+    //     "/dev/random",
+    //     Some("random"),
+    //     common_mnt_flags,
+    //     None,
+    // )?;
+    // mkdir("/dev/urandom", chmod_0555).ok();
+    // mount::<_, _, _, [u8]>(
+    //     Some("urandom"),
+    //     "/dev/urandom",
+    //     Some("urandom"),
+    //     common_mnt_flags,
+    //     None,
+    // )?;
+
     debug!("Mounting /dev/shm");
     mkdir("/dev/shm", chmod_1777).ok();
     mount::<_, _, _, [u8]>(
@@ -553,18 +571,22 @@ pub async fn setup_networking(conf: &GuestConfig) -> Result<(), InitError> {
 
         for ipc in ip_configs {
             if let IpNetwork::V4(ipn) = ipc.ip {
-                debug!("netlink: adding ip {}/{}", ipc.ip.ip(), ipc.mask);
+                debug!("netlink: adding ip {}/{}", ipc.ip.ip(), ipc.ip.prefix());
                 address
-                    .add(eth0.header.index, ipc.ip.ip(), ipc.mask)
+                    .add(eth0.header.index, ipc.ip.ip(), ipn.prefix())
                     .execute()
                     .await?;
 
-                if ipc.mask < 30 {
+                if ipn.prefix() < 30 {
                     let ipint: u32 = ipn.ip().into();
                     let nextip: std::net::Ipv4Addr = (ipint + 1).into();
 
                     address
-                        .add(eth0.header.index, std::net::IpAddr::V4(nextip), ipc.mask)
+                        .add(
+                            eth0.header.index,
+                            std::net::IpAddr::V4(nextip),
+                            ipn.prefix(),
+                        )
                         .execute()
                         .await?;
                 }

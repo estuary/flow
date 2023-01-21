@@ -179,7 +179,22 @@ pbjson-build = "0.5"
 prost-build = "0.11"
 tonic-build = "0.8"
 
+derive_builder = "0.12.0"
+
 warp = "0.3.3"
+
+firec = "0.2.0"
+bollard = "0.13.0"
+
+nix = "0.26.2"
+procfs = "0.14.2"
+rlimit = "0.9.0"
+rtnetlink = "0.11.0"
+ipnetwork = { version = "0.20.0", features = ["serde"] }
+ifstructs = "0.1.1"
+os_pipe = "1.1.2"
+tokio-vsock = "0.4.0"
+cmd_lib = "1.3.0"
 
 [profile.release]
 incremental = true

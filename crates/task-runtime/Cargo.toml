@@ -1,0 +1,43 @@
+[package]
+name = "task-runtime"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "test-firecracker"
+path = "src/main.rs"
+
+[dependencies]
+connector-init = { path = "../connector-init" }
+
+cmd_lib = { workspace = true }
+uuid = { workspace = true }
+tempfile = { workspace = true }
+
+async-trait = { workspace = true }
+firec = { workspace = true }
+bollard = { workspace = true }
+ipnetwork = { workspace = true }
+#-- Prune:
+anyhow = { workspace = true }
+clap = { workspace = true }
+itertools = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tonic = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+tokio-util = { workspace = true }
+futures-util = { workspace = true }
+futures = { workspace = true }
+bytes = { workspace = true }
+warp = { workspace = true }
+#--

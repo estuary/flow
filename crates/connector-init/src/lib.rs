@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate derive_builder;
+
 use anyhow::Context;
 use codec::Codec;
 use tokio::signal::unix;
@@ -6,7 +9,7 @@ use firecracker_init::init_firecracker;
 
 mod capture;
 mod codec;
-mod config;
+pub mod config;
 mod firecracker_init;
 mod materialize;
 mod rpc;
@@ -29,6 +32,7 @@ pub struct Args {
     #[clap(
         short,
         long,
+        action,
         default_value = "false",
         requires = "guest_config_json_path"
     )]
@@ -44,12 +48,14 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         .context("reading image inspect JSON")?;
 
     if args.firecracker {
+        // NOTE: these JSON files will live on the initial /dev/vda device
+        // which we almost immediately chroot away from in `init_firecracker`
         let guest_config = config::GuestConfig::parse_from_json_file(
             &args
                 .guest_config_json_path
                 .expect("Must provide a guest config when running in firecracker mode"),
         )
-        .context("reading image inspect JSON")?;
+        .context("reading guest config JSON")?;
 
         init_firecracker(&mut image.config, &guest_config).await?;
     }
