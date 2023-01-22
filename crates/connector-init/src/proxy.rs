@@ -53,13 +53,14 @@ impl NetworkProxy for ProxyHandler {
         let Some(open) = msg.open else {
             return Err(tonic::Status::invalid_argument("expected first message to be Open"));
         };
-        tracing::debug!(client_ip = %open.client_ip, requested_port = %open.port_name, "processing new proxy request");
+        tracing::warn!(client_ip = %open.client_ip, requested_port = %open.port_name, "processing new proxy request");
 
         // If the given port is not exposed, we will not perform i/o, and will instead close the
         // respsonse stream after sending an OpenResponse with the error status.
         let (open_resp, io) = if let Some(port) = self.get_local_port(&open.port_name) {
             let target_addr = format!("{}:{port}", self.proxy_to_host);
 
+            tracing::warn!(client_ip = %open.client_ip, requested_port = %open.port_name, target_addr = %target_addr, "connecting to target_addr");
             let target_stream = TcpStream::connect(&target_addr)
                 .await
                 .context("failed to connect to target port")

@@ -181,6 +181,10 @@ pub enum Error {
         rhs_scope: Url,
     },
     #[error(
+        "the port named '{port_name}' uses port {port}, which is not reserved. Please use a different port number"
+    )]
+    ReservedPortNumber { port: u16, port_name: String },
+    #[error(
         "the port named '{port_name}' uses port {port}, which is also configured for another port"
     )]
     PortNumberCollision { port: u16, port_name: String },

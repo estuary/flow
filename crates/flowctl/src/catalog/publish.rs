@@ -54,7 +54,9 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
 async fn prompt_to_continue() -> bool {
     use tokio::io::AsyncReadExt;
 
-    print!("\nEnter Y to publish these specs, or anything else to abort: ");
+    // TODO: flush stdout instead of adding the newline? This is a little weird because of using both tokio and std stdin
+    print!("\nEnter Y to publish these specs, or anything else to abort: \n");
+
     let mut buf = [0u8];
     match tokio::io::stdin().read_exact(&mut buf[..]).await {
         Ok(_) => &buf == b"y" || &buf == b"Y",

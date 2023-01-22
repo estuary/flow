@@ -35,9 +35,17 @@ impl Config {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PortSpec {
+    /// The port number that your connector will listen on
     pub port: u16,
-    pub alpn_protocol: Option<String>,
+    /// The ALPN protocol to associate with this port
+    ///
+    /// Many use cases will work without specifying a protocol at all, because
+    /// a Flow data-plane will accept whichever procotol the client requests (or not) by default.
+    /// But exposing HTTP services will typically require specifying either `http/1.1` or `h2`,
+    /// as appropriate.
+    pub protocol: Option<String>,
 }
 
 fn ports_json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
@@ -71,7 +79,7 @@ impl ConnectorConfig {
             PortName::new("http"),
             PortSpec {
                 port: 80,
-                alpn_protocol: None,
+                protocol: None,
             },
         );
         Self {

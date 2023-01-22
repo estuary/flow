@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -53,6 +54,14 @@ func (ps *ProxyServer) Proxy(streaming pf.NetworkProxy_ProxyServer) error {
 		return err
 	}
 	if openResp.Status != pf.TaskNetworkProxyResponse_OK {
+		logrus.WithFields(logrus.Fields{
+			"status":              openResp.Status,
+			"shardID":             open.ShardId,
+			"portName":            open.PortName,
+			"hasRunningContainer": container != nil,
+
+			// TODO: better message
+		}).Warn("cannot open proxy connection")
 		return streaming.Send(&pf.TaskNetworkProxyResponse{
 			OpenResponse: openResp,
 		})
@@ -68,7 +77,7 @@ func (ps *ProxyServer) Proxy(streaming pf.NetworkProxy_ProxyServer) error {
 		"shardID":  open.ShardId,
 		"portName": open.PortName,
 		"clientIP": open.ClientIp,
-	}).Debug("network proxy request is valid and container is running, starting handshake")
+	}).Info("network proxy request is valid and container is running, starting handshake")
 	var client = pf.NewNetworkProxyClient(container.connection)
 	proxyClient, err := client.Proxy(proxyContext)
 	if err != nil {
@@ -93,10 +102,19 @@ func (ps *ProxyServer) Proxy(streaming pf.NetworkProxy_ProxyServer) error {
 		return fmt.Errorf("internal protocol error, expected OpenResponse from container")
 	}
 	if proxyOpenResp.OpenResponse.Status != pf.TaskNetworkProxyResponse_OK {
+		logrus.WithFields(logrus.Fields{
+			"status":   proxyOpenResp.OpenResponse.Status,
+			"shardID":  open.ShardId,
+			"portName": open.PortName,
+		}).Warn("connector-init returned !OK")
 		openResp.Status = proxyOpenResp.OpenResponse.Status
 		return streaming.Send(&pf.TaskNetworkProxyResponse{
 			OpenResponse: openResp,
 		})
+	}
+
+	if err = streaming.Send(&pf.TaskNetworkProxyResponse{OpenResponse: openResp}); err != nil {
+		return fmt.Errorf("sending open response: %w", err)
 	}
 
 	ops.PublishLog(container.logger, pf.LogLevel_debug, "proxy connection opened", "port", open.PortName, "clientIP", open.ClientIp)
@@ -256,6 +274,10 @@ func copyRequests(streaming pf.NetworkProxy_ProxyServer, client pf.NetworkProxy_
 func (ps *ProxyServer) ContainerStarted(shardID pc.ShardID, grpcConn *grpc.ClientConn, logger ops.Publisher, ports []string) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
+	logrus.WithFields(logrus.Fields{
+		"shardID": shardID,
+		"ports":   strings.Join(ports, ","),
+	}).Info("enabling proxy connections for container")
 
 	var portSet = make(map[string]bool)
 	for _, port := range ports {

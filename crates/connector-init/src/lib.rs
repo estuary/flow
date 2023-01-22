@@ -49,7 +49,7 @@ pub async fn run(mut args: Args) -> anyhow::Result<()> {
     }
     let expose_ports = args.expose.drain(..).collect::<BTreeMap<_, _>>();
 
-    let mut proxy_handler = proxy::ProxyHandler::new("localhost", expose_ports);
+    let proxy_handler = proxy::ProxyHandler::new("localhost", expose_ports);
 
     let capture = proto_grpc::capture::driver_server::DriverServer::new(capture::Driver {
         entrypoint: entrypoint.clone(),

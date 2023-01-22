@@ -154,6 +154,13 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 	if err != nil {
 		return pf.Checkpoint{}, fmt.Errorf("building endpoint driver: %w", err)
 	}
+	var ports []string
+	for name := range m.labels.Ports {
+		ports = append(ports, name)
+	}
+	// TODO: tell the proxy server when the container is no loger running
+	// Tell the proxy server that it's OK to start proxying traffic to the container.
+	m.host.NetworkProxyServer.ContainerStarted(shard.Spec().Id, m.driver.GetContainerClientConn(), m.opsPublisher, ports)
 
 	// Open a Transactions RPC stream for the materialization.
 	err = connector.WithUnsealed(m.driver, &m.spec, func(unsealed *pf.MaterializationSpec) error {

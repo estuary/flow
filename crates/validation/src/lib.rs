@@ -196,8 +196,6 @@ pub fn validate_ports(
 ) {
     let mut used_numbers = BTreeSet::new();
     for (port_name, port_config) in ports {
-        // TODO: maybe also validate that the port number isn't 0?
-
         indexed::walk_name(
             scope,
             "port",
@@ -205,6 +203,16 @@ pub fn validate_ports(
             models::PortName::regex(),
             errors,
         );
+        // 0 just isn't a valid port number, since it has special meaning to the kernel.
+        // 8080 is the port that's used by connector-init itself. See go/connector/container.go, where
+        // the connector-init port is defined.
+        if port_config.port == 0 || port_config.port == 8080 {
+            Error::ReservedPortNumber {
+                port: port_config.port,
+                port_name: port_name.to_string(),
+            }
+            .push(scope, errors);
+        }
         if !used_numbers.insert(port_config.port) {
             Error::PortNumberCollision {
                 port: port_config.port,

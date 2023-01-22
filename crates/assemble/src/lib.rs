@@ -322,11 +322,24 @@ pub fn shard_template(
                 value: port_cfg.port.to_string(),
             });
             // the protocol is an optional label. If it's missing, then any alpn protocol (or none) is allowed.
-            if let Some(proto) = port_cfg.alpn_protocol.as_ref() {
+            if let Some(proto) = port_cfg.protocol.as_ref() {
                 labels.push(broker::Label {
                     name: format!("{}{}", labels::PORT_PROTO_PREFIX, port_name),
                     value: proto.to_string(),
                 });
+                // TODO:  splitting is now handled in DPG, right?
+                /*
+                // We allow the protocol to be a comma-separated list, so that we can handle the special
+                // case where a connector uses `h2c`, which allows either http/1.1 or h2.
+                // This may be removed in a future release, as it's not entirely clear that it's
+                // necessary or warranted.
+                for proto in protos.split(',') {
+                    labels.push(broker::Label {
+                        name: format!("{}{}", labels::PORT_PROTO_PREFIX, port_name),
+                        value: proto.to_string(),
+                    });
+                }
+                */
             }
         }
     }

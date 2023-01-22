@@ -19,6 +19,13 @@ import (
 	"google.golang.org/grpc"
 )
 
+// Port on which connector-init listens for requests.
+// This is the default, made explicit here.
+// Flow has an explicit validation to ensure that users
+// may not expose this port, so if you change this value
+// then you need to also update crates/validation/src/lib.rs.
+const CONNECTOR_INIT_PORT = 8080
+
 // Container is a connector running as a linux container.
 type Container struct {
 	cmd *exec.Cmd
@@ -96,9 +103,6 @@ func StartContainer(
 		network = "bridge"
 	}
 
-	// Port on which connector-init listens for requests.
-	// This is the default, made explicit here.
-	const portInit = 8080
 	// Mapped and published connector-init port accessible from the host.
 	var portHost, err = GetFreePort()
 	if err != nil {
@@ -121,7 +125,7 @@ func StartContainer(
 		"--mount", fmt.Sprintf("type=bind,source=%s,target=/image-inspect.json", tmpInspect.Name()),
 		// Publish the flow-connector-init port through to a mapped host port.
 		// We use 0.0.0.0 instead of 127.0.0.1 for compatibility with GitHub CodeSpaces.
-		"--publish", fmt.Sprintf("0.0.0.0:%d:%d/tcp", portHost, portInit),
+		"--publish", fmt.Sprintf("0.0.0.0:%d:%d/tcp", portHost, CONNECTOR_INIT_PORT),
 		// Thread-through the logging configuration of the connector.
 		"--env", "LOG_FORMAT=json",
 		"--env", "LOG_LEVEL=" + labels.LogLevel.String(),
@@ -137,7 +141,11 @@ func StartContainer(
 		image,
 		// The following are arguments of connector-init, not docker.
 		"--image-inspect-json-path=/image-inspect.json",
-		"--port", fmt.Sprint(portInit),
+		"--port", fmt.Sprint(CONNECTOR_INIT_PORT),
+	}
+	// Add connector-init args that tell it to expose and configured ports through it's grpc proxy service.
+	for portName, portNum := range exposePorts {
+		args = append(args, "--expose", fmt.Sprintf("%s=%d", portName, portNum.ContainerPort))
 	}
 
 	// `cmdCtx` has a scope equal to the lifetime of the container.

@@ -39,7 +39,9 @@ lazy_static! {
     // RELATIVE_URL_RE matches a relative or absolute URL. It's quite permissive, prohibiting only a space.
     static ref RELATIVE_URL_RE: Regex = Regex::new(&["[^", &SPACE_CHAR, "]+"].concat()).unwrap();
     /// Matches a valid port name, for exposing container ports
-    static ref PORT_NAME_RE: Regex = Regex::new("[a-z0-9]{1,63}").unwrap();
+    /// Port names must be valid DNS labels, so the set of characters is very limited.
+    /// Capitals are disallowed, since DNS is case insensitive.
+    static ref PORT_NAME_RE: Regex = Regex::new("[a-z0-9][a-z0-9-]{1,61}[a-z0-9]").unwrap();
 }
 
 macro_rules! string_reference_types {
@@ -205,7 +207,7 @@ string_reference_types! {
     pub struct RelativeUrl("RelativeUrl::schema", pattern = RELATIVE_URL_RE, example = "https://example/resource");
 
     /// A named port, which can be exposed over the network.
-    pub struct PortName("PortName::schema", pattern = PORT_NAME_RE, example = "http");
+    pub struct PortName("PortName::schema", pattern = PORT_NAME_RE, example = "webhook");
 }
 
 impl RelativeUrl {
