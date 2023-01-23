@@ -12,15 +12,15 @@ As you edit, you'll also have to account for any updates to the configuration fo
 
 ## How to edit Flow entities
 
-In the Flow web app, you can edit captures and materializations.
+In the Flow web app, you can edit captures and materializations, and use the **Schema Inference** tool to edit collection schemas.
 
-* [Editing captures and captured collections](../concepts/web-app.md#editing-captures-and-collections)
-* [Editing materializations](../concepts/web-app.md#editing-materializations)
+* [Editing captures and associated collections](../guides/edit-data-flows.md#edit-a-capture)
+* [Editing materializations and associated collections](../guides/edit-data-flows.md#edit-a-materialization)
 
 With flowctl, you can edit captures, materializations, collections, derivations, and tests.
-You do this by pulling the desired specification to a local **draft**, editing, and re-publishing.
+You do this by pulling the desired specification locally, editing, and re-publishing.
 
-* [Working with drafts in flowctl](../concepts/flowctl.md#working-with-drafts)
+* [Editing with flowctl](../concepts/flowctl.md#editing-data-flows-with-flowctl)
 
 ## Endpoint configuration changes
 
