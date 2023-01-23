@@ -35,9 +35,8 @@ Use the below properties to configure a Rockset materialization, which will dire
 
 #### Bindings
 
-The binding configuration for this connector includes two optional sections.
-**Backfill from S3** allows you to backfill historical data from an S3 bucket.
-**Advanced collection settings** includes settings that may help optimize your resulting Rockset collections:
+The binding configuration includes the optional **Advanced collection settings** section.
+These settings can help optimize your output Rockset collections:
 
 * **Clustering fields**: You can specify clustering fields
 for your Rockset collection's columnar index to help optimize specific query patterns.
@@ -52,12 +51,6 @@ A low value will keep the amount of data indexed in Rockset smaller.
 | _`/advancedCollectionSettings/clustering_key/-/field_name`_ | Field Name | The name of a field | string |  |
 | `/advancedCollectionSettings/retention_secs` | Retention Period | Number of seconds after which data is purged based on event time | integer |  |
 | **`/collection`** | Rockset Collection | The name of the Rockset collection (will be created if it does not exist) | string | Required |
-| `/initializeFromS3` | Backfill from S3 |  | object |  |
-| `/initializeFromS3/bucket` | Bucket | The name of the S3 bucket to load data from. | string |  |
-| `/initializeFromS3/integration` | Integration Name | The name of the integration that was previously created in the Rockset UI | string |  |
-| `/initializeFromS3/pattern` | Pattern | A regex that is used to match objects to be ingested | string |  |
-| `/initializeFromS3/prefix` | Prefix | Prefix of the data within the S3 bucket. All files under this prefix will be loaded. Optional. Must not be set if &#x27;pattern&#x27; is defined. | string |  |
-| `/initializeFromS3/region` | Region | The AWS region in which the bucket resides. Optional. | string |  |
 | **`/workspace`** | Workspace | The name of the Rockset workspace (will be created if it does not exist) | string | Required |
 
 ### Sample
