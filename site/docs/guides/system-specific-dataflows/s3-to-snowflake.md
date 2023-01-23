@@ -79,7 +79,8 @@ credentials provided by your Estuary account manager.
 
   It generates a capture specification and details of the collection that it will create, once published.
 
-  You can change the collection name in the **Collection Selector**, or edit the JSON in the **Specification Editor** directly.
+  You can change the collection name in the **Collection Selector**.
+  You'll have the chance to tighten up each collection's JSON schema later, when you materialize to Snowflake.
 
   :::tip
   If you'd rather work on the specification files in their native YAML format, you can use the [flowctl](../../concepts/flowctl.md) CLI. flowctl provides a developer-focused path to build full Data Flows in your preferred development environment.
@@ -116,19 +117,36 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
    * **Warehouse**: optional
    * **Role**: optional
 
-4. Scroll down to view the **Collection Selector** and fill in the **Table** field.
+4. Click **Next**.
 
-   The collection you just created is already selected, but you must provide a name for the table to which it'll be materialized in Snowflake.
-
-5. Choose whether to [enable delta updates](../../reference/Connectors/materialization-connectors/Snowflake.md#delta-updates).
-
-6. Click **Next**.
-
-  Flow uses the provided configuration to initiate a connection to Snowflake. It generates a materialization specification.
+  Flow uses the provided configuration to initiate a connection to Snowflake.
 
   You'll be notified if there's an error. In that case, fix the configuration form or Snowflake setup as needed and click **Next** to try again.
 
-7. Click **Save and Publish**. You'll see a notification when the full Data Flow publishes successfully.
+  Once the connection is successful, the Endpoint Config collapses and the Collection Selector becomes prominent.
+  It shows the collection you captured previously, which will be mapped to a Snowflake table.
+
+5. In the **Collection Selector**, fill in the **Table** field.
+
+   The collection you just created is already selected, but you must provide a name for the table to which it'll be materialized in Snowflake.
+
+6. Choose whether to [enable delta updates](../../reference/Connectors/materialization-connectors/Snowflake.md#delta-updates).
+
+7. Apply a stricter schema to the collection for the materialization.
+
+  S3 has a flat data structure.
+  To materialize this data effectively to Snowflake, you should apply a schema that can translate to a table structure.
+  Flow's **Schema Inference** tool can help.
+
+   1. In the Collection Selector, click the collection's **Specification** tab.
+
+   2. Click **Schema Inference**
+
+      The Schema Inference window appears. Flow scans the data in your collection and infers a new schema, called the `readSchema`, to use for the materialization.
+
+   3. Review the new schema and click **Apply Inferred Schema**.
+
+8. Click **Save and Publish**. You'll see a notification when the full Data Flow publishes successfully.
 
 ## What's next?
 

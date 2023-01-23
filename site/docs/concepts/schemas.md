@@ -228,15 +228,18 @@ You can safely experiment with the read schema at your convenience, knowing the 
 To achieve this, edit the collection, re-naming the standard `schema` to `writeSchema` and adding a `readSchema`.
 Make sure that the field used as the collection key is defined in both schemas.
 
+You can either perform this manually, or use Flow's **Schema Inference** tool to infer a read schema.
+Schema Inference is available in the web app when you [edit a capture or materialization](../guides/edit-data-flows.md) and [create a materialization](../guides/create-dataflow.md#create-a-materialization).
+
 **Before separating your write and read schemas, have the following in mind:**
 
 * The write schema comes from the capture connector that produced the collection and shouldn't be modified.
   Always apply your schema changes to the _read_ schema.
 
-* Read and write schemas are typically useful for collections that come from a source system with a flat or loosely
+* Separate read and write schemas are typically useful for collections that come from a source system with a flat or loosely
   defined data structure, such as cloud storage or pub-sub systems.
   Collections sourced from databases and most SaaS systems come with an explicitly defined data structure and shouldn't
-  need a new read schema.
+  need a different read schema.
 
 * If you're using standard [projections](./advanced/projections.md), you must only define them in the read schema.
   However, if your projections are [logical partitions](./advanced/projections.md#logical-partitions), you must define them in both schemas.

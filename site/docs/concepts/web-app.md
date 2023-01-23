@@ -56,7 +56,7 @@ You can use the different pages in the web app to monitor and manage your items 
 
 ## Captures page
 
-The **Captures** pages shows you a table of existing Flow [captures](./captures.md) to which you have [access](../reference/authentication.md).
+The **Captures** page shows you a table of existing Flow [captures](./captures.md) to which you have [access](../reference/authentication.md).
 The **New Capture** button is also visible.
 You use the table to monitor your captures.
 
@@ -118,31 +118,7 @@ When you click **Edit specification** for a capture, you're taken to the **Edit 
 
 This page is similar to the [**Create Capture**](#creating-a-capture) page as it was filled out just before the capture was published.
 
-To edit a capture:
-
-1. Edit the connection to the source system, if desired. You can either update fields in the **Endpoint Configuration** section or manually update the JSON in the **Specification Editor**.
-
-:::caution
-You may have to re-authenticate with the source system. Be sure to have current credentials on hand before editing the endpoint configuration.
-:::
-
-2. Use the **Collection Selector** to add or remove collections from the capture, if desired.
-
-   To refresh your connection with the source and see an updated list of possible collections, click the **Refresh** button,
-   but be aware that it will overwrite all existing collection selections.
-
-3. When you're done making changes, click **Next.**
-
-   Collection specifications become editable.
-
-4. Use the **Specification Editor** to edit collection specifications, if desired. If you make any changes, click **Next** again.
-
-5. Click **Save and Publish**.
-
-Editing a capture only affects how it will work going forward.
-Data that was captured before editing will reflect the original configuration.
-
-It's important to be mindful of how your edits will effect downstream processes. For more information on the implications of editing, see the [reference documentation](../reference/editing.md).
+For detailed steps to edit a capture, see the [guide](../guides/edit-data-flows.md#edit-a-capture).
 
 ### Creating a capture
 
@@ -253,24 +229,7 @@ When you click **Edit specification** for a materialization, you're taken to the
 
 This page is similar to the [**Create Materialization**](#creating-a-materialization) page as it was filled out just before the materialization was published.
 
-To edit a materialization:
-
-1. Edit the connection to the destination system, if desired. You can either update fields in the **Endpoint Configuration** section or manually update the JSON in the **Specification Editor**.
-
-:::caution
-You may have to re-authenticate with the source system. Be sure to have current credentials on hand before editing the endpoint configuration.
-:::
-
-2. Use the **Collection Selector** to add or remove collections from the materialization, if desired.
-
-3. When you're done making changes, click **Next.**
-
-4. Click **Save and Publish**.
-
-Editing a materialization only affects how it will work going forward.
-Data that was materialized before editing will reflect the original configuration.
-
-It's important to be mindful of how your edits will effect downstream processes. For more information on the implications of editing, see the [reference documentation](../reference/editing.md).
+For detailed steps to edit a materialization, see the [guide](../guides/edit-data-flows.md#edit-a-materialization).
 
 ### Creating a materialization
 
@@ -298,19 +257,47 @@ For detailed steps to create a materialization, see the [guide](../guides/create
 
 ## Admin page
 
-On the **Admin** page, you can view users' capabilities, view a complete list of connectors, and obtain an access token to authenticate with flowctl.
+On the **Admin** page, you can view users' access grants, your organization's cloud storage locations, and a complete list of connectors.
+You can also get an access token to authenticate with flowctl and update your cookie preferences.
 
-The **Users** tab shows you all provisioned capabilities on objects to which you also have access.
-Each capability has its own row, so a given user may have multiple rows.
+#### Users
 
-For example, if you had read access to `foo/` and write access to `bar/`, you'd have a separate table row for each of these capabilities.
-If users Alice, Bob, and Carol each had write access on `foo/`, you'd see three more table rows representing these capabilities.
+The **Users** tab shows you all provisioned access grants on objects to which you also have access.
+Both users and catalog prefixes can receive access grants.
+These are split up into two tables called **Users** and **Prefixes**.
+Each access grant has its own row, so a given user or prefix may have multiple rows.
 
-Use the search box to filter by username or object.
+For example, if you had read access to `foo/` and write access to `bar/`, you'd have a separate table row in the **Users** table for each of these capabilities.
+If users Alice, Bob, and Carol each had write access on `foo/`, you'd see three more table rows representing these access grants.
+
+Taking this a step further, the prefix `foo/` could have read access to `buz/`. You'd see this in the **Prefixes** table,
+and it'd signify that everyone who has access to `foo/` also inherits read access to `buz/`.
+
+Use the search boxes to filter by username, prefix, or object.
 
 [Learn more about capabilities and access.](../reference/authentication.md)
+
+#### Storage Mappings
+
+The **Storage Mappings** tab includes a table of the cloud storage locations that back your Flow collections.
+You're able to view the table if you're an admin.
+
+Each top-level Flow [prefix](./catalogs.md#namespace) is backed by one or more cloud storage bucket that you own.
+You typically have just one prefix: your organization name, which you provided when configuring your Flow organizational account.
+If you're a trial user, your prefix is `trial/`, and this tab isn't applicable to you;
+your data is stored temporarily in Estuary's cloud storage bucket for your trial period.
+
+[Learn more about storage mappings.](./storage-mappings.md)
+
+#### Connectors
 
 The **Connectors** tab offers a complete view of all connectors that are currently available through the web application, including both capture and materialization connectors.
 If a connector you need is missing, you can request it.
 
-The **API** tab provides the access token required to [authenticate with flowctl](../reference/authentication.md#authenticating-flow-using-the-cli).
+#### CLI-API
+
+The **CLI-API** tab provides the access token required to [authenticate with flowctl](../reference/authentication.md#authenticating-flow-using-the-cli).
+
+#### Cookie Preferences
+
+You use the **Cookie Preferences** tab to view and modify cookie settings.
