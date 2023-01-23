@@ -1,47 +1,74 @@
-import { IDerivation, Document, Register, LogsSource, StatsSource } from 'flow/ops/TENANT/catalog-stats';
+import {
+    IDerivation,
+    Document,
+    Register,
+    FromTENANTLogsSource,
+    FromTENANTStatsSource,
+} from 'flow/ops/catalog-stats-L1/L1ID';
 
-// Implementation for derivation template-common.flow.yaml#/collections/ops~1TENANT~1catalog-stats/derivation.
+// This allows for a general form of the specific types to be used for the many publish functions
+// that will be templated in to this module. The word TENANT gets replaced by the most recent tenant
+// used to generate the module, which is fine since the concrete types are the same for all tenants.
+// The linter will try to convert an empty interface extension into a type, so it is disabled here.
+
+// eslint-disable-next-line
+interface LogsSource extends FromTENANTLogsSource { }
+// eslint-disable-next-line
+interface StatsSource extends FromTENANTStatsSource { }
+
+// Do not change anything in this class definition block without also making the necessary changes
+// in the ops_catalogs pgSQL functions. This exact structure is coupled with the templating logic to
+// produce a complete set of publish functions for this derivation.
 export class Derivation implements IDerivation {
-    logsPublish(source: LogsSource, _register: Register, _previous: Register): Document[] {
-        let stats: Document['statsSummary'] = {};
-
-        if (source.level == 'error' && source.message == 'shard failed') {
-            stats = { failures: 1 };
-        } else if (source.level == 'error') {
-            stats = { errors: 1 };
-        } else if (source.level == 'warn') {
-            stats = { warnings: 1 };
-        } else {
-            return [];
-        }
-
-        const grains = grainsFromTS(new Date(source.ts));
-        return mapStatsToDocsByGrain(grains, { [source.shard.name]: stats });
+    // transformsBegin
+    fromTENANTLogsPublish(source: LogsSource, _register: Register, _previous: Register): Document[] {
+        return logsPublish(source);
     }
-
-    statsPublish(source: StatsSource, _register: Register, _previous: Register): Document[] {
-        const ts = new Date(source.ts);
-        const grains = grainsFromTS(ts);
-
-        const taskDocs = mapStatsToDocsByGrain(grains, taskStats(source)).map((doc) => ({
-            ...doc,
-            // For documents generated specific to this task, retain the detailed information about
-            // the task itself.
-            taskStats: {
-                capture: source.capture,
-                derive: source.derive,
-                materialize: source.materialize,
-            },
-        }));
-
-        // Documents generated for collections involved in this task will not have associated
-        // detailed task information. If the collection is a derivation, that will be accounted for
-        // above.
-        const collectionDocs = mapStatsToDocsByGrain(grains, collectionStats(source));
-
-        return [...taskDocs, ...collectionDocs];
+    fromTENANTStatsPublish(source: StatsSource, _register: Register, _previous: Register): Document[] {
+        return statsPublish(source);
     }
+    // transformsEnd
 }
+
+const logsPublish = (source: LogsSource): Document[] => {
+    let stats: Document['statsSummary'] = {};
+
+    if (source.level == 'error' && source.message == 'shard failed') {
+        stats = { failures: 1 };
+    } else if (source.level == 'error') {
+        stats = { errors: 1 };
+    } else if (source.level == 'warn') {
+        stats = { warnings: 1 };
+    } else {
+        return [];
+    }
+
+    const grains = grainsFromTS(new Date(source.ts));
+    return mapStatsToDocsByGrain(grains, { [source.shard.name]: stats });
+};
+
+const statsPublish = (source: StatsSource): Document[] => {
+    const ts = new Date(source.ts);
+    const grains = grainsFromTS(ts);
+
+    const taskDocs = mapStatsToDocsByGrain(grains, taskStats(source)).map((doc) => ({
+        ...doc,
+        // For documents generated specific to this task, retain the detailed information about
+        // the task itself.
+        taskStats: {
+            capture: source.capture,
+            derive: source.derive,
+            materialize: source.materialize,
+        },
+    }));
+
+    // Documents generated for collections involved in this task will not have associated
+    // detailed task information. If the collection is a derivation, that will be accounted for
+    // above.
+    const collectionDocs = mapStatsToDocsByGrain(grains, collectionStats(source));
+
+    return [...taskDocs, ...collectionDocs];
+};
 
 type TimeGrain = {
     grain: Document['grain'];

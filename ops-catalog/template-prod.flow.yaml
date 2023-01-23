@@ -2,14 +2,14 @@ import:
   - template-common.flow.yaml
 
 materializations:
-  ops/TENANT/catalog-stats-view:
+  ops/catalog-stats-view:
     endpoint:
       connector:
         image: ghcr.io/estuary/materialize-postgres:v4
         config: stats-production-endpoint.sops.yaml
 
     bindings:
-      - source: ops/TENANT/catalog-stats
+      - source: ops/catalog-stats-L2/0
         resource:
           table: catalog_stats
         fields:

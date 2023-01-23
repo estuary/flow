@@ -21,9 +21,33 @@ collections:
         location: /shard/name
         partition: true
 
-  ops/TENANT/catalog-stats:
+  # An L1 stats derivation computes granular stats for a bound subset of platform tenants. Each
+  # tenant is assigned a transform with the source collection of their raw stats and logs
+  # collections.
+  ops/catalog-stats-L1/L1ID:
     schema: ops-catalog-stats-schema.json
-    key: [/catalogName, /grain, /ts]
+    key: &catalogStatsKey [/catalogName, /grain, /ts]
+
+    derivation:
+      shards:
+        minTxnDuration: 5s
+      typescript: { module: "catalog-stats.ts" }
+      transform:
+        fromTENANTLogs:
+          source:
+            name: ops/TENANT/logs
+          publish: { lambda: typescript }
+        fromTENANTStats:
+          source:
+            name: ops/TENANT/stats
+          publish: { lambda: typescript }
+
+  # An L2 stats derivation is a simple pass-through of stats documents from one or more L1 stats
+  # derivations. This single derived collection can be materialized directly for reporting, or
+  # further combined by similar higher-level pass-through derivations.
+  ops/catalog-stats-L2/0:
+    schema: ops-catalog-stats-schema.json
+    key: *catalogStatsKey
     projections:
       catalog_name: /catalogName
       bytes_written_by_me: /statsSummary/writtenByMe/bytesTotal
@@ -39,17 +63,11 @@ collections:
       failures: /statsSummary/failures
 
     derivation:
-      shards:
-        minTxnDuration: 5s
-      typescript: { module: "catalog-stats.ts" }
+      typescript: { module: "catalog-stats-rollup.ts" }
       transform:
-        logs:
+        fromL1ID:
           source:
-            name: ops/TENANT/logs
-          publish: { lambda: typescript }
-        stats:
-          source:
-            name: ops/TENANT/stats
+            name: ops/catalog-stats-L1/L1ID
           publish: { lambda: typescript }
 
 tests:
@@ -169,8 +187,9 @@ tests:
             }
 
     - verify:
-        collection: ops/TENANT/catalog-stats
-        documents:
+        collection: ops/catalog-stats-L1/L1ID
+        documents: &docs
+
           # Capture task
           - catalogName: "tenant/test/cap"
             grain: "daily"
@@ -332,6 +351,11 @@ tests:
             ts: "2022-04-01T00:00:00.000Z"
             statsSummary:
               readFromMe: { bytesTotal: 30, docsTotal: 6 }
+
+    - verify:
+        # L2 derivation passed through docs as-is.
+        collection: ops/catalog-stats-L2/0
+        documents: *docs
 
 # TODO(johnny): this is used only for local testing with `flowctl-go` and can go away soon.
 storageMappings:
