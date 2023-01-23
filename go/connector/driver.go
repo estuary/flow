@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/materialize/driver/sqlite"
 	"github.com/estuary/flow/go/ops"
 	pc "github.com/estuary/flow/go/protocols/capture"
@@ -59,7 +58,7 @@ func NewDriver(
 	endpointType pf.EndpointType,
 	publisher ops.Publisher,
 	network string,
-	exposePorts map[string]*labels.PortConfig,
+	exposePorts ExposePorts,
 ) (*Driver, error) {
 
 	if endpointType == pf.EndpointType_SQLITE {

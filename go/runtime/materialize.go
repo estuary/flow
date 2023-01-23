@@ -142,6 +142,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		)
 	}
 
+	var configHandle = m.host.NetworkProxyServer.NetworkConfigHandle(m.shardSpec.Id, m.labels.Ports)
 	// Start driver and Transactions RPC client.
 	m.driver, err = connector.NewDriver(
 		shard.Context(),
@@ -149,7 +150,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		m.spec.EndpointType,
 		m.opsPublisher,
 		m.host.Config.Flow.Network,
-		m.labels.Ports,
+		configHandle,
 	)
 	if err != nil {
 		return pf.Checkpoint{}, fmt.Errorf("building endpoint driver: %w", err)
@@ -158,9 +159,6 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 	for name := range m.labels.Ports {
 		ports = append(ports, name)
 	}
-	// TODO: tell the proxy server when the container is no loger running
-	// Tell the proxy server that it's OK to start proxying traffic to the container.
-	m.host.NetworkProxyServer.ContainerStarted(shard.Spec().Id, m.driver.GetContainerClientConn(), m.opsPublisher, ports)
 
 	// Open a Transactions RPC stream for the materialization.
 	err = connector.WithUnsealed(m.driver, &m.spec, func(unsealed *pf.MaterializationSpec) error {

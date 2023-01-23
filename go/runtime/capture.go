@@ -272,13 +272,14 @@ func (c *Capture) startReadingMessages(
 	} else {
 		// Establish driver connection and start Pull RPC.
 		var err error
+		var exposePorts = c.host.NetworkProxyServer.NetworkConfigHandle(shard.Spec().Id, c.labels.Ports)
 		c.driver, err = connector.NewDriver(
 			c.taskTerm.ctx,
 			c.spec.EndpointSpecJson,
 			c.spec.EndpointType,
 			c.opsPublisher,
 			c.host.Config.Flow.Network,
-			c.labels.Ports,
+			exposePorts,
 		)
 		if err != nil {
 			return fmt.Errorf("building endpoint driver: %w", err)
@@ -311,8 +312,6 @@ func (c *Capture) startReadingMessages(
 		for portName := range c.labels.Ports {
 			ports = append(ports, portName)
 		}
-		// Tell the proxy server that it's OK to start proxying traffic to the container.
-		c.host.NetworkProxyServer.ContainerStarted(shard.Spec().Id, c.driver.GetContainerClientConn(), c.opsPublisher, ports)
 	}
 
 	ops.PublishLog(c.opsPublisher, pf.LogLevel_debug,

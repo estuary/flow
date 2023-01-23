@@ -2,18 +2,23 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/estuary/flow/go/connector"
+	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 )
 
@@ -21,12 +26,6 @@ type ProxyServer struct {
 	mu         *sync.Mutex
 	containers map[pc.ShardID]*runningContainer
 	resolver   *consumer.Resolver
-}
-
-type runningContainer struct {
-	ports      map[string]bool
-	connection *grpc.ClientConn
-	logger     ops.Publisher
 }
 
 func NewProxyServer(resolver *consumer.Resolver) *ProxyServer {
@@ -37,9 +36,24 @@ func NewProxyServer(resolver *consumer.Resolver) *ProxyServer {
 	}
 }
 
-// TODO: log unsuccessful proxy connnections
+// NetworkConfigHandle returns a handle that can be passed to `connector.StartContainer` to expose the given set of ports when
+// the container is started, and stop exposing them once the container is stopped.
+func (ps *ProxyServer) NetworkConfigHandle(shardID pc.ShardID, ports map[string]*labels.PortConfig) connector.ExposePorts {
+	return &networkConfigHandle{
+		server:  ps,
+		shardID: shardID,
+		ports:   ports,
+	}
+}
+
 // TODO: publish stats
 func (ps *ProxyServer) Proxy(streaming pf.NetworkProxy_ProxyServer) error {
+	var handshakeComplete = false
+	defer func() {
+		if !handshakeComplete {
+			proxyConnectionRejectedCounter.Inc()
+		}
+	}()
 	var req, err = streaming.Recv()
 	if err != nil {
 		return err
@@ -59,9 +73,7 @@ func (ps *ProxyServer) Proxy(streaming pf.NetworkProxy_ProxyServer) error {
 			"shardID":             open.ShardId,
 			"portName":            open.PortName,
 			"hasRunningContainer": container != nil,
-
-			// TODO: better message
-		}).Warn("cannot open proxy connection")
+		}).Warn("network connection rejected by connector")
 		return streaming.Send(&pf.TaskNetworkProxyResponse{
 			OpenResponse: openResp,
 		})
@@ -83,8 +95,10 @@ func (ps *ProxyServer) Proxy(streaming pf.NetworkProxy_ProxyServer) error {
 	if err != nil {
 		return fmt.Errorf("dialing client: %w", err)
 	}
-	var handshakeComplete = false
 	defer func() {
+		// only close send if we have not actually completed the handhshake.
+		// If we did complete the handshake, the CloseSend will be called within
+		// copyRequests.
 		if !handshakeComplete {
 			proxyClient.CloseSend()
 		}
@@ -117,22 +131,36 @@ func (ps *ProxyServer) Proxy(streaming pf.NetworkProxy_ProxyServer) error {
 		return fmt.Errorf("sending open response: %w", err)
 	}
 
+	handshakeComplete = true // prevent
+	var shardID = open.ShardId.String()
+	proxyConnectionsAcceptedCounter.WithLabelValues(shardID, open.PortName).Inc()
 	ops.PublishLog(container.logger, pf.LogLevel_debug, "proxy connection opened", "port", open.PortName, "clientIP", open.ClientIp)
 
-	go func() {
-		if e := copyResponses(proxyContext, streaming, proxyClient); isFailure(e) {
-			ops.PublishLog(container.logger, pf.LogLevel_warn, "proxy response stream failed", "port", open.PortName, "clientIP", open.ClientIp, "error", e)
-			// TODO: take another look at how these contexts and cancellation are handled
-			cancelFunc()
-		}
-	}()
+	var grp = errgroup.Group{}
 
-	if err = copyRequests(streaming, proxyClient); isFailure(err) {
-		ops.PublishLog(container.logger, pf.LogLevel_warn, "proxy request stream failed", "port", open.PortName, "clientIP", open.ClientIp, "error", err)
-		cancelFunc()
+	grp.Go(func() error {
+		if e := copyResponses(streaming, proxyClient, shardID, open.PortName); isFailure(e) {
+			return fmt.Errorf("copying outbound data: %w", e)
+		}
+		return nil
+	})
+	grp.Go(func() error {
+		if e := copyRequests(streaming, proxyClient, shardID, open.PortName); isFailure(e) {
+			return fmt.Errorf("copying inbound data: %w", e)
+		}
+		return nil
+	})
+
+	err = grp.Wait()
+	var status = "ok"
+	if err != nil {
+		status = "error"
+		ops.PublishLog(container.logger, pf.LogLevel_warn, "proxy connection failed", "port", open.PortName, "clientAddr", open.ClientIp, "error", err)
+	} else {
+		ops.PublishLog(container.logger, pf.LogLevel_debug, "proxy connection closing normally", "port", open.PortName, "clientAddr", open.ClientIp)
 	}
-	cancelFunc()
-	return err
+	proxyConnectionsClosedCounter.WithLabelValues(shardID, open.PortName, status).Inc()
+	return nil
 }
 
 func (ps *ProxyServer) openConnection(ctx context.Context, open *pf.TaskNetworkProxyRequest_Open) (*pf.TaskNetworkProxyResponse_OpenResponse, *runningContainer, error) {
@@ -198,7 +226,7 @@ func (ps *ProxyServer) checkShardStatus(ctx context.Context, open *pf.TaskNetwor
 }
 
 func isFailure(err error) bool {
-	return err != io.EOF && err != context.Canceled
+	return !errors.Is(err, io.EOF) && !errors.Is(err, context.Canceled)
 }
 
 //func (ps *ProxyServer) tryStartProxy(streaming pf.NetworkProxy_ProxyServer) (*shard)
@@ -230,8 +258,9 @@ func validateOpen(req *pf.TaskNetworkProxyRequest) error {
 	return nil
 }
 
-func copyResponses(ctx context.Context, streaming pf.NetworkProxy_ProxyServer, client pf.NetworkProxy_ProxyClient) error {
-	for ctx.Err() == nil {
+func copyResponses(streaming pf.NetworkProxy_ProxyServer, client pf.NetworkProxy_ProxyClient, shard, port string) error {
+	var counter = proxyConnBytesOutboundCounter.WithLabelValues(shard, port)
+	for {
 		var resp, err = client.Recv()
 		if err != nil {
 			return err
@@ -247,11 +276,12 @@ func copyResponses(ctx context.Context, streaming pf.NetworkProxy_ProxyServer, c
 		if err = streaming.Send(resp); err != nil {
 			return err
 		}
+		counter.Add(float64(len(resp.Data)))
 	}
-	return ctx.Err()
 }
 
-func copyRequests(streaming pf.NetworkProxy_ProxyServer, client pf.NetworkProxy_ProxyClient) error {
+func copyRequests(streaming pf.NetworkProxy_ProxyServer, client pf.NetworkProxy_ProxyClient, shard, port string) error {
+	var counter = proxyConnBytesInboundCounter.WithLabelValues(shard, port)
 	defer client.CloseSend()
 	for {
 		var req, err = streaming.Recv()
@@ -268,31 +298,110 @@ func copyRequests(streaming pf.NetworkProxy_ProxyServer, client pf.NetworkProxy_
 		if err = client.Send(req); err != nil {
 			return err
 		}
+		counter.Add(float64(len(req.Data)))
 	}
 }
 
-func (ps *ProxyServer) ContainerStarted(shardID pc.ShardID, grpcConn *grpc.ClientConn, logger ops.Publisher, ports []string) {
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
+type runningContainer struct {
+	instanceVersion int
+	ports           map[string]bool
+	connection      *grpc.ClientConn
+	logger          ops.Publisher
+}
+
+type networkConfigHandle struct {
+	server *ProxyServer
+	// container lifecycles aren't always as straight forward as you'd hope for.
+	// It can happen that a container exits, and `Unexpose` is called, before
+	// `Expose` is called. This incrementing number is used to ensure correctness
+	// in scenarios where things may be called out of order.
+	instanceVersion int
+	shardID         pc.ShardID
+	ports           map[string]*labels.PortConfig
+}
+
+func (h *networkConfigHandle) Ports() map[string]*labels.PortConfig {
+	return h.ports
+}
+
+func (h *networkConfigHandle) Expose(connection *grpc.ClientConn, logger ops.Publisher) {
+	if h.instanceVersion > 0 {
+		panic("expose called more than once")
+	}
+
+	h.server.mu.Lock()
+	defer h.server.mu.Unlock()
 	logrus.WithFields(logrus.Fields{
-		"shardID": shardID,
-		"ports":   strings.Join(ports, ","),
+		"shardID": h.shardID,
 	}).Info("enabling proxy connections for container")
 
+	// copy the ports map to ensure it doesn't get modified while we're using it.
 	var portSet = make(map[string]bool)
-	for _, port := range ports {
+	for port := range h.ports {
 		portSet[port] = true
 	}
-	ps.containers[shardID] = &runningContainer{
-		ports:      portSet,
-		connection: grpcConn,
-		logger:     logger,
+
+	// If this call to Expose came prior to the call to Unexpose the previous instances' ports,
+	// then increment the instanceVersion so that a delayed call to Unexpose can be ignored.
+	if previousInstance := h.server.containers[h.shardID]; previousInstance != nil {
+		h.instanceVersion = previousInstance.instanceVersion + 1
+	} else {
+		h.instanceVersion = 1
 	}
+
+	h.server.containers[h.shardID] = &runningContainer{
+		instanceVersion: h.instanceVersion,
+		ports:           portSet,
+		connection:      connection,
+		logger:          logger,
+	}
+
 }
 
-func (ps *ProxyServer) ContainerStopped(shardID pc.ShardID) {
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
+func (h *networkConfigHandle) Unexpose() {
+	if h.instanceVersion == 0 {
+		return // Expose was never called. This is normal if the container failed quickly.
+	}
 
-	delete(ps.containers, shardID)
+	h.server.mu.Lock()
+	defer h.server.mu.Unlock()
+
+	if previousInstance := h.server.containers[h.shardID]; previousInstance != nil {
+		// Has Expose already been called again prior to this call to Unexpose?
+		if previousInstance.instanceVersion > h.instanceVersion {
+			return
+		}
+	}
+	delete(h.server.containers, h.shardID)
+
+	logrus.WithFields(logrus.Fields{
+		"shardID": h.shardID,
+	}).Debug("disabled proxy connections after container shutdown")
 }
+
+// Prometheus metrics for connector TCP proxying. The labels here will likely result
+// in more timeseries than we'd like in the long term. But in the short term, I'm
+// thinking it's better to have them to aid in debugging. These metrics match those
+// collected by data-plane-gateway
+var proxyConnectionsAcceptedCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "net_proxy_conns_accept_total",
+	Help: "counter of proxy connections that have been accepted",
+}, []string{"shard", "port"})
+var proxyConnectionsClosedCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "net_proxy_conns_closed_total",
+	Help: "counter of proxy connections that have completed and closed",
+}, []string{"shard", "port", "status"})
+
+var proxyConnectionRejectedCounter = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "net_proxy_conns_reject_total",
+	Help: "counter of proxy connections that have been rejected due to error or invalid sni",
+})
+
+var proxyConnBytesInboundCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "net_proxy_conn_inbound_bytes_total",
+	Help: "total bytes proxied from client to container",
+}, []string{"shard", "port"})
+var proxyConnBytesOutboundCounter = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "net_proxy_conn_outbound_bytes_total",
+	Help: "total bytes proxied from container to client",
+}, []string{"shard", "port"})

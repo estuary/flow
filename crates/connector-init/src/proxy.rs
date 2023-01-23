@@ -53,24 +53,25 @@ impl NetworkProxy for ProxyHandler {
         let Some(open) = msg.open else {
             return Err(tonic::Status::invalid_argument("expected first message to be Open"));
         };
-        tracing::warn!(client_ip = %open.client_ip, requested_port = %open.port_name, "processing new proxy request");
+        tracing::debug!(client_ip = %open.client_ip, requested_port = %open.port_name, "processing new proxy request");
 
         // If the given port is not exposed, we will not perform i/o, and will instead close the
         // respsonse stream after sending an OpenResponse with the error status.
         let (open_resp, io) = if let Some(port) = self.get_local_port(&open.port_name) {
             let target_addr = format!("{}:{port}", self.proxy_to_host);
 
-            tracing::warn!(client_ip = %open.client_ip, requested_port = %open.port_name, target_addr = %target_addr, "connecting to target_addr");
             let target_stream = TcpStream::connect(&target_addr)
                 .await
                 .context("failed to connect to target port")
                 .map_err(|e| tonic::Status::from_error(e.into()))?;
             let (target_reader, target_writer) = target_stream.into_split();
+            tracing::debug!(client_ip = %open.client_ip, requested_port = %open.port_name, target_addr = %target_addr, "connected to target_addr");
 
             // Spawn the background task that will copy data from the request stream to the connector.
             // The write half of the tcp stream will be closed when this task completes.
-            let write_task =
-                tokio::task::spawn(async move { copy_data(recv_from_client, target_writer).await });
+            let write_task = tokio::task::spawn(async move {
+                copy_inbound_data(recv_from_client, target_writer).await
+            });
 
             let resp = flow::task_network_proxy_response::OpenResponse {
                 status: flow::task_network_proxy_response::Status::Ok as i32,
@@ -98,7 +99,7 @@ impl NetworkProxy for ProxyHandler {
     }
 }
 
-async fn copy_data(
+async fn copy_inbound_data(
     mut requests: tonic::Streaming<TaskNetworkProxyRequest>,
     mut target: OwnedWriteHalf,
 ) -> Result<usize, anyhow::Error> {
@@ -116,6 +117,7 @@ async fn copy_data(
     Ok(n)
 }
 
+/// Encapsulates the network i/o of a proxy rpc that has had a successful handshake.
 struct Io {
     n_bytes: u64,
     reader: ReaderStream<OwnedReadHalf>,
@@ -159,25 +161,25 @@ impl Io {
         let write_result = pinned
             .poll(cx)
             .map(|result| result.map_err(anyhow::Error::from).and_then(|r| r));
-        // TODO: are there more idiomatic names that proxies use for these values?
         match (r_err, write_result) {
-            (None, Poll::Ready(Ok(wbytes))) => tracing::info!(
+            (None, Poll::Ready(Ok(wbytes))) => tracing::debug!(
                 client_to_connector = wbytes,
                 connector_to_client = r_bytes,
                 "proxy connection closed normally"
             ),
+
+            // :( cases
             (Some(r_err), Poll::Ready(Ok(w_bytes))) => tracing::warn!(
-                connector_to_client = r_bytes,
+                outbound_bytes = r_bytes,
                 client_to_connector = w_bytes,
-                connector_to_client_error = %r_err,
+                error = %r_err,
                 "proxy connection closed with error reading from connector"
             ),
-            // The write task failed to receive a message or to write to the connector
             (None, Poll::Ready(Err(w_err))) => tracing::warn!(
                 connector_to_client = r_bytes,
-                "proxy connection closed with client_to_connector error"
+                error = %w_err,
+                "proxy connection closed with client-to-connector error"
             ),
-            // The write task failed to receive a message or to write to the connector
             (Some(r_err), Poll::Ready(Err(w_err))) => tracing::warn!(
                 connector_to_client = r_bytes,
                 connector_to_client_error = %r_err,
@@ -197,6 +199,8 @@ impl Io {
     }
 }
 
+/// The type returned from the `Proxy` RPC. This always be initialized with an OpenResponse,
+/// which may indicate either success or failure. If successful, then `Io` will also be present.
 pub struct ProxyResponseStream {
     open: Option<flow::task_network_proxy_response::OpenResponse>,
     /// io will be None if the open response has a non-OK status, and Some

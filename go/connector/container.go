@@ -42,6 +42,19 @@ type Container struct {
 	waitCh chan error
 }
 
+// ExposePorts is a handle to a network configuration process that can expose
+// the ports for a running container. This is currently done by `runtime.ProxyServer`,
+// which proxies traffic throught the `grpc.ClientConn` to the container.
+type ExposePorts interface {
+	// Ports returns a map of named ports that the user wishes to expose.
+	Ports() map[string]*labels.PortConfig
+	// Starts exposing the ports returned by `Ports`.
+	Expose(*grpc.ClientConn, ops.Publisher)
+	// Stops exposing the ports. This function must be safe to call
+	// at any time (though at most once), even if `Expose` has never been called.
+	Unexpose()
+}
+
 // StartContainer starts a container of the specified connector image.
 // The container will run until the provided context is complete,
 // at which point it will be torn down.
@@ -57,7 +70,7 @@ func StartContainer(
 	image string,
 	network string,
 	publisher ops.Publisher,
-	exposePorts map[string]*labels.PortConfig,
+	exposePorts ExposePorts,
 ) (*Container, error) {
 	// Don't undertake expensive operations if we're already shutting down.
 	if err := ctx.Err(); err != nil {
@@ -144,8 +157,10 @@ func StartContainer(
 		"--port", fmt.Sprint(CONNECTOR_INIT_PORT),
 	}
 	// Add connector-init args that tell it to expose and configured ports through it's grpc proxy service.
-	for portName, portNum := range exposePorts {
-		args = append(args, "--expose", fmt.Sprintf("%s=%d", portName, portNum.ContainerPort))
+	if exposePorts != nil {
+		for portName, portNum := range exposePorts.Ports() {
+			args = append(args, "--expose", fmt.Sprintf("%s=%d", portName, portNum.ContainerPort))
+		}
 	}
 
 	// `cmdCtx` has a scope equal to the lifetime of the container.
@@ -180,6 +195,9 @@ func StartContainer(
 	go func(cmdCancel context.CancelFunc) {
 		var err = cmd.Wait()
 		cmdCancel()
+		if exposePorts != nil {
+			exposePorts.Unexpose()
+		}
 		waitCh <- err
 		close(waitCh)
 	}(cmdCancel)
@@ -202,12 +220,16 @@ func StartContainer(
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMessageSize), grpc.MaxCallSendMsgSize(maxMessageSize)),
 	)
 	if err != nil {
+		// TODO: is it actually guaranteed that receiving from waitCh will ever happen if we failed to dial?
 		if waitErr := <-waitCh; waitErr != nil {
 			err = fmt.Errorf("crashed with %w", waitErr)
 		}
 		return nil, fmt.Errorf("dialing container connector-init: %w", err)
 	}
 
+	if exposePorts != nil {
+		exposePorts.Expose(conn, publisher)
+	}
 	logrus.WithFields(logrus.Fields{"image": image, "portHost": portHost}).Info("started connector")
 
 	var out = &Container{
