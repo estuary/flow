@@ -243,6 +243,8 @@ mod test {
             ("fractional", "-1.234", true),
             ("fractional", "1.2_34", true),
             ("fractional", "1.234 ", false),
+            ("fractional", "1.0 ", false),
+            ("fractional", "0.0 ", false),
         ] {
             let format: Format =
                 serde_json::from_value(serde_json::Value::String(format.to_string())).unwrap();
