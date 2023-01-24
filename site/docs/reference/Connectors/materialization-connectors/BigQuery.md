@@ -29,6 +29,7 @@ Instructions to set the minimum transaction time are detailed [below](#shard-con
 To use this connector, you'll need:
 
 * A [new Google Cloud Storage bucket](https://cloud.google.com/storage/docs/creating-buckets) in the same region as the BigQuery destination dataset.
+
 * A Google Cloud [service account](https://cloud.google.com/docs/authentication/getting-started) with a key file generated and the following roles:
     * [`roles/bigquery.dataEditor`](https://cloud.google.com/bigquery/docs/access-control#bigquery.dataEditor) on the destination dataset
     * [`roles/bigquery.jobUser`](https://cloud.google.com/bigquery/docs/access-control#bigquery.jobUser) on the
@@ -37,7 +38,16 @@ To use this connector, you'll need:
     on the GCS bucket created above
 
     See [Setup](#setup) for detailed steps to set up your service account.
-* At least one Flow collection
+
+The Flow collections you materialize must accommodate the following naming restrictions:
+
+  * Field names may not contain hyphens (`-`), or the materialization will fail.
+  * Field names must begin with a letter or underscore (`_`), or the materialization will fail.
+  * Field names *may* contain non-alphanumeric characters, but these are replaced with underscores in the corresponding BigQuery column name.
+  * If two field names become identical after special characters are replaced with underscores (for example, `field!` and `field$` both become `field_`), the materialization will fail.
+  * Collection names *may* contain non-alphanumeric characters, but all such characters except hyphens are replaced with underscores in the BigQuery table name.
+
+If necessary, you can add [projections](../../../concepts/advanced/projections.md) to your collection specification to change field names.
 
 :::tip
 If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md). You'll be referred back to this connector-specific documentation at the appropriate steps.
