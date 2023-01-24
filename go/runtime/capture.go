@@ -404,8 +404,8 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 	return nil
 }
 
-func (c *Capture) captureStats(statsPerBinding []*pf.CombineAPI_Stats) StatsEvent {
-	var captureStats = make(map[string]CaptureBindingStats)
+func (c *Capture) captureStats(statsPerBinding []*pf.CombineAPI_Stats) ops.StatsEvent {
+	var captureStats = make(map[string]ops.CaptureBindingStats)
 	for i, bindingStats := range statsPerBinding {
 		// Skip bindings that didn't participate
 		if bindingStats == nil {
@@ -415,9 +415,9 @@ func (c *Capture) captureStats(statsPerBinding []*pf.CombineAPI_Stats) StatsEven
 		// It's possible for multiple bindings to use the same collection, in which case the
 		// stats should be summed.
 		var prevStats = captureStats[name]
-		captureStats[name] = CaptureBindingStats{
-			Right: prevStats.Right.with(bindingStats.Right),
-			Out:   prevStats.Out.with(bindingStats.Out),
+		captureStats[name] = ops.CaptureBindingStats{
+			Right: prevStats.Right.With(bindingStats.Right),
+			Out:   prevStats.Out.With(bindingStats.Out),
 		}
 	}
 	// Prune stats for any collections that didn't have any data. This allows us to check
