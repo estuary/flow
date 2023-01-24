@@ -1,4 +1,4 @@
-use super::rpc;
+use super::{codec::Codec, rpc};
 use futures::StreamExt;
 use proto_flow::capture::{
     ApplyRequest, ApplyResponse, DiscoverRequest, DiscoverResponse, PullRequest, PullResponse,
@@ -7,6 +7,7 @@ use proto_flow::capture::{
 
 pub struct Driver {
     pub entrypoint: Vec<String>,
+    pub codec: Codec,
 }
 
 #[tonic::async_trait]
@@ -15,7 +16,8 @@ impl proto_grpc::capture::driver_server::Driver for Driver {
         &self,
         request: tonic::Request<SpecRequest>,
     ) -> Result<tonic::Response<SpecResponse>, tonic::Status> {
-        let message = rpc::unary(&self.entrypoint, "spec", request.into_inner()).await?;
+        let message =
+            rpc::unary(&self.entrypoint, self.codec, "spec", request.into_inner()).await?;
         Ok(tonic::Response::new(message))
     }
 
@@ -23,7 +25,13 @@ impl proto_grpc::capture::driver_server::Driver for Driver {
         &self,
         request: tonic::Request<DiscoverRequest>,
     ) -> Result<tonic::Response<DiscoverResponse>, tonic::Status> {
-        let message = rpc::unary(&self.entrypoint, "discover", request.into_inner()).await?;
+        let message = rpc::unary(
+            &self.entrypoint,
+            self.codec,
+            "discover",
+            request.into_inner(),
+        )
+        .await?;
         Ok(tonic::Response::new(message))
     }
 
@@ -31,7 +39,13 @@ impl proto_grpc::capture::driver_server::Driver for Driver {
         &self,
         request: tonic::Request<ValidateRequest>,
     ) -> Result<tonic::Response<ValidateResponse>, tonic::Status> {
-        let message = rpc::unary(&self.entrypoint, "validate", request.into_inner()).await?;
+        let message = rpc::unary(
+            &self.entrypoint,
+            self.codec,
+            "validate",
+            request.into_inner(),
+        )
+        .await?;
         Ok(tonic::Response::new(message))
     }
 
@@ -39,7 +53,13 @@ impl proto_grpc::capture::driver_server::Driver for Driver {
         &self,
         request: tonic::Request<ApplyRequest>,
     ) -> Result<tonic::Response<ApplyResponse>, tonic::Status> {
-        let message = rpc::unary(&self.entrypoint, "apply-upsert", request.into_inner()).await?;
+        let message = rpc::unary(
+            &self.entrypoint,
+            self.codec,
+            "apply-upsert",
+            request.into_inner(),
+        )
+        .await?;
         Ok(tonic::Response::new(message))
     }
 
@@ -47,7 +67,14 @@ impl proto_grpc::capture::driver_server::Driver for Driver {
         &self,
         request: tonic::Request<ApplyRequest>,
     ) -> Result<tonic::Response<ApplyResponse>, tonic::Status> {
-        let message = rpc::unary(&self.entrypoint, "apply-delete", request.into_inner()).await?;
+        // For the JSON protocol, there is no apply-delete operation.
+        // Instead, a deletion is an apply with no bindings.
+        let mut request = request.into_inner();
+        if let Codec::Json = self.codec {
+            request.capture.as_mut().unwrap().bindings.clear();
+        }
+
+        let message = rpc::unary(&self.entrypoint, self.codec, "apply-delete", request).await?;
         Ok(tonic::Response::new(message))
     }
 
@@ -59,8 +86,13 @@ impl proto_grpc::capture::driver_server::Driver for Driver {
         request: tonic::Request<tonic::Streaming<PullRequest>>,
     ) -> Result<tonic::Response<Self::PullStream>, tonic::Status> {
         Ok(tonic::Response::new(
-            rpc::bidi::<_, PullResponse, _>(&self.entrypoint, "pull", request.into_inner())?
-                .boxed(),
+            rpc::bidi::<PullRequest, PullResponse, _>(
+                &self.entrypoint,
+                self.codec,
+                "pull",
+                request.into_inner(),
+            )?
+            .boxed(),
         ))
     }
 }
