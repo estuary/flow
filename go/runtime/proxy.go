@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/estuary/flow/go/connector"
@@ -138,14 +139,18 @@ func (ps *ProxyServer) Proxy(streaming pf.NetworkProxy_ProxyServer) error {
 
 	var grp = errgroup.Group{}
 
+	// These variables will be updated by the goroutines that are copying the data.
+	var inboundBytes, outboundBytes uint64
+	// These variables will be updated by the goroutine that publishes stats
+	var publishedInbound, publishedOutbound uint64
 	grp.Go(func() error {
-		if e := copyResponses(streaming, proxyClient, shardID, open.PortName); isFailure(e) {
+		if e := copyResponses(streaming, proxyClient, shardID, open.PortName, &outboundBytes); isFailure(e) {
 			return fmt.Errorf("copying outbound data: %w", e)
 		}
 		return nil
 	})
 	grp.Go(func() error {
-		if e := copyRequests(streaming, proxyClient, shardID, open.PortName); isFailure(e) {
+		if e := copyRequests(streaming, proxyClient, shardID, open.PortName, &inboundBytes); isFailure(e) {
 			return fmt.Errorf("copying inbound data: %w", e)
 		}
 		return nil
@@ -258,7 +263,7 @@ func validateOpen(req *pf.TaskNetworkProxyRequest) error {
 	return nil
 }
 
-func copyResponses(streaming pf.NetworkProxy_ProxyServer, client pf.NetworkProxy_ProxyClient, shard, port string) error {
+func copyResponses(streaming pf.NetworkProxy_ProxyServer, client pf.NetworkProxy_ProxyClient, shard, port string, outboundBytes *uint64) error {
 	var counter = proxyConnBytesOutboundCounter.WithLabelValues(shard, port)
 	for {
 		var resp, err = client.Recv()
@@ -277,10 +282,11 @@ func copyResponses(streaming pf.NetworkProxy_ProxyServer, client pf.NetworkProxy
 			return err
 		}
 		counter.Add(float64(len(resp.Data)))
+		atomic.AddUint64(outboundBytes, uint64(len(resp.Data)))
 	}
 }
 
-func copyRequests(streaming pf.NetworkProxy_ProxyServer, client pf.NetworkProxy_ProxyClient, shard, port string) error {
+func copyRequests(streaming pf.NetworkProxy_ProxyServer, client pf.NetworkProxy_ProxyClient, shard, port string, inboundBytes *uint64) error {
 	var counter = proxyConnBytesInboundCounter.WithLabelValues(shard, port)
 	defer client.CloseSend()
 	for {
@@ -299,6 +305,7 @@ func copyRequests(streaming pf.NetworkProxy_ProxyServer, client pf.NetworkProxy_
 			return err
 		}
 		counter.Add(float64(len(req.Data)))
+		atomic.AddUint64(inboundBytes, uint64(len(req.Data)))
 	}
 }
 

@@ -15,7 +15,8 @@ import (
 type Publisher interface {
 	// PublishLog publishes a Log instance.
 	PublishLog(Log)
-	//PublishStats(StatsEvent)
+	// PublishStats publishes a StatsEvent.
+	PublishStats(StatsEvent)
 	// Labels which are the context of this Publisher.
 	Labels() labels.ShardLabeling
 }
