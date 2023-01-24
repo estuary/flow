@@ -729,10 +729,12 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap 3.2.22",
+ "connector-protocol",
  "futures",
  "insta",
  "ops",
  "prost",
+ "proto-convert",
  "proto-flow",
  "proto-grpc",
  "serde",
@@ -742,6 +744,16 @@ dependencies = [
  "tonic",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "connector-protocol"
+version = "0.0.0"
+dependencies = [
+ "insta",
+ "schemars",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2922,6 +2934,23 @@ dependencies = [
 [[package]]
 name = "proto-build"
 version = "0.0.0"
+
+[[package]]
+name = "proto-convert"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "connector-protocol",
+ "hex",
+ "insta",
+ "prost",
+ "proto-flow",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tuple",
+]
 
 [[package]]
 name = "proto-flow"
