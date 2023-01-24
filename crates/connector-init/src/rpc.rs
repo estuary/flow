@@ -1,20 +1,24 @@
-use anyhow::Context;
+use super::codec::{reader_to_message_stream, Codec};
 use futures::{StreamExt, TryStreamExt};
-use prost::Message;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
 /// Status is an error representation that combines a well-known error
 /// code with a descriptive error message.
 type Status = tonic::Status;
 
 /// Process a unary RPC `op` which is delegated to the connector at `entrypoint`.
-pub async fn unary<In, Out>(entrypoint: &[String], op: &str, request: In) -> Result<Out, Status>
+pub async fn unary<In, Out>(
+    entrypoint: &[String],
+    codec: Codec,
+    op: &str,
+    request: In,
+) -> Result<Out, Status>
 where
-    In: Message + 'static,
-    Out: Message + Default + Unpin,
+    In: prost::Message + proto_convert::IntoMessages + 'static,
+    Out: prost::Message + proto_convert::FromMessage + Default + Unpin,
 {
     let requests = futures::stream::once(async { Ok(request) });
-    let responses = bidi(entrypoint, op, requests)?;
+    let responses = bidi(entrypoint, codec, op, requests)?;
     let mut responses: Vec<Out> = responses.try_collect().await?;
 
     let response = responses.pop();
@@ -32,12 +36,13 @@ where
 /// Process a bi-directional RPC `op` which is delegated to the connector at `entrypoint`.
 pub fn bidi<In, Out, InStream>(
     entrypoint: &[String],
+    codec: Codec,
     op: &str,
     requests: InStream,
 ) -> Result<impl futures::Stream<Item = Result<Out, Status>>, Status>
 where
-    In: Message + 'static,
-    Out: Message + Default,
+    In: prost::Message + proto_convert::IntoMessages + 'static,
+    Out: prost::Message + proto_convert::FromMessage + Default,
     InStream: futures::Stream<Item = Result<In, Status>> + Send + 'static,
 {
     // Extend `entrypoint` with `op`, then split into the binary and its arguments.
@@ -60,9 +65,14 @@ where
         .map_err(|err| map_status("could not start connector entrypoint", err))?;
 
     // Map connector's stdout into a stream of output messages.
-    let responses = reader_to_message_stream(connector.stdout.take().expect("stdout is piped"));
+    let responses = reader_to_message_stream(
+        codec,
+        connector.stdout.take().expect("stdout is piped"),
+        16 * 1024, // Minimum buffer capacity.
+    )
+    .map_err(|err| map_status("failed to process connector output", err));
     // Spawn a concurrent task that services the connector and forwards to its stdin.
-    let connector = tokio::spawn(service_connector(connector, requests));
+    let connector = tokio::spawn(service_connector(connector, codec, requests));
     // Ensure `connector` is aborted (and the process killed) if our response stream is dropped.
     let connector = AutoAbortHandle(connector);
     // Map to a Stream that awaits `connector` and returns EOF, or returns its error.
@@ -82,10 +92,11 @@ where
 /// is logged but is not considered an error.
 async fn service_connector<M, S>(
     mut connector: tokio::process::Child,
+    codec: Codec,
     stream: S,
 ) -> Result<(), Status>
 where
-    M: Message,
+    M: prost::Message + proto_convert::IntoMessages + 'static,
     S: futures::Stream<Item = Result<M, Status>>,
 {
     let mut stdin = connector.stdin.take().expect("connector stdin is a pipe");
@@ -137,31 +148,10 @@ where
             return exit.await;
         };
 
-        if let Err(error) = stdin.write_all(&encode_message(&message)).await {
+        if let Err(error) = stdin.write_all(&codec.encode(message)).await {
             tracing::warn!(%error, "i/o error writing to connector stdin");
         }
     }
-}
-
-// Maps an AsyncRead into a Stream of decoded messages.
-fn reader_to_message_stream<M, R>(reader: R) -> impl futures::Stream<Item = Result<M, Status>>
-where
-    M: Message + Default,
-    R: AsyncRead + Unpin,
-{
-    futures::stream::try_unfold(reader, |mut reader| async move {
-        match decode_message::<M, _>(&mut reader).await {
-            Err(error) => {
-                tracing::error!(?error, "failed to process connector output");
-                Err(map_status("failed to process connector output", error))
-            }
-            Ok(None) => {
-                tracing::debug!("finished reading connector output");
-                Ok(None)
-            }
-            Ok(Some(next)) => Ok(Some((next, reader))),
-        }
-    })
 }
 
 /// Decode ops::Logs from the AsyncRead, passing each to the given handler,
@@ -221,146 +211,11 @@ fn map_status<E: Into<anyhow::Error>>(message: &'static str, err: E) -> Status {
     Status::internal(format!("{:#}", anyhow::anyhow!(err).context(message)))
 }
 
-/// Encode a message into a returned buffer.
-/// The message is prefixed with a fix four-byte little endian length header.
-pub fn encode_message<T: Message>(message: &T) -> Vec<u8> {
-    let length = message.encoded_len();
-    let mut buf = Vec::with_capacity(4 + length);
-    buf.extend_from_slice(&(length as u32).to_le_bytes());
-    message
-        .encode(&mut buf)
-        .expect("buf has pre-allocated capacity");
-    buf
-}
-
-/// Decode a single message of type T from the AsyncRead.
-/// If the reader returns EOF prior to a length header being read,
-/// the EOF is mapped into an Ok(None). Other errors, including an
-/// unexpected EOF _after_ reading the length header, are returned.
-pub async fn decode_message<T, R>(mut reader: R) -> anyhow::Result<Option<T>>
-where
-    T: Message + Default,
-    R: AsyncRead + Unpin,
-{
-    let length = match reader.read_u32_le().await {
-        Err(err) => match err.kind() {
-            // UnexpectedEof indicates the ending of the stream.
-            std::io::ErrorKind::UnexpectedEof => return Ok(None),
-            _ => return Err(err).context("decoding message header"),
-        },
-        Ok(l) if l > 1 << 27 => {
-            anyhow::bail!("refusing to decode message with length greater than 128MB")
-        }
-        Ok(l) => l,
-    };
-
-    let mut buf: Vec<u8> = vec![0; length as usize];
-    reader
-        .read_exact(&mut buf)
-        .await
-        .context("reading message body")?;
-
-    Ok(Some(
-        T::decode(buf.as_slice()).context("decoding message body")?,
-    ))
-}
-
 #[cfg(test)]
 mod test {
-    use super::{bidi, decode_message, encode_message, reader_to_message_stream};
-    use super::{process_logs, unary};
+    use super::{bidi, process_logs, unary, Codec};
     use futures::StreamExt;
-
-    use futures::TryStreamExt;
     use proto_flow::flow::TestSpec;
-
-    #[tokio::test]
-    async fn test_encode_and_decode() {
-        let buf = encode_message(&TestSpec {
-            test: "hello world".to_string(),
-            ..Default::default()
-        });
-        let mut r = buf.as_slice();
-
-        // Expect we decode our fixture.
-        assert_eq!(
-            decode_message(&mut r).await.unwrap(),
-            Some(TestSpec {
-                test: "hello world".to_string(),
-                ..Default::default()
-            })
-        );
-        // Next attempt maps EOF => None.
-        assert_eq!(decode_message::<TestSpec, _>(&mut r).await.unwrap(), None,);
-
-        // Malformed input (ends prematurely given header).
-        let buf = vec![1, 2, 3, 4, 5, 6];
-        insta::assert_debug_snapshot!(
-            decode_message::<TestSpec, _>(buf.as_slice()).await,
-            @r###"
-        Err(
-            Error {
-                context: "reading message body",
-                source: Custom {
-                    kind: UnexpectedEof,
-                    error: "early eof",
-                },
-            },
-        )
-        "###);
-
-        // Malformed input (length is longer than our allowed maximum).
-        let buf = vec![0xee, 0xee, 0xee, 0xee, 1];
-        insta::assert_debug_snapshot!(
-            decode_message::<TestSpec, _>(buf.as_slice()).await,
-            @r###"
-        Err(
-            "refusing to decode message with length greater than 128MB",
-        )
-        "###);
-    }
-
-    #[tokio::test]
-    async fn test_byte_reader_to_stream() {
-        let fixture = TestSpec {
-            test: "hello world".to_string(),
-            ..Default::default()
-        };
-        let mut buf = encode_message(&fixture);
-
-        // We can collect multiple encoded items as a stream, and then read a clean EOF.
-        let three = buf.repeat(3);
-        let stream = reader_to_message_stream(three.as_slice());
-        let three: Vec<TestSpec> = stream.try_collect().await.unwrap();
-        assert_eq!(three.len(), 3);
-
-        // If the stream bytes are malformed, we read a message and then an appropriate error.
-        buf.extend_from_slice(&[0xee, 0xee, 0xee, 0xee, 1]);
-        let stream = reader_to_message_stream::<TestSpec, _>(buf.as_slice());
-        tokio::pin!(stream);
-
-        insta::assert_debug_snapshot!(stream.next().await, @r###"
-        Some(
-            Ok(
-                TestSpec {
-                    test: "hello world",
-                    steps: [],
-                },
-            ),
-        )
-        "###);
-        insta::assert_debug_snapshot!(stream.next().await, @r###"
-        Some(
-            Err(
-                Status {
-                    code: Internal,
-                    message: "failed to process connector output: refusing to decode message with length greater than 128MB",
-                    source: None,
-                },
-            ),
-        )
-        "###);
-    }
 
     #[tokio::test]
     async fn test_log_processing() {
@@ -437,22 +292,24 @@ mod test {
 
     #[tokio::test]
     async fn test_bidi_cat() {
-        let requests = futures::stream::repeat_with(|| {
-            Ok(TestSpec {
-                test: "hello world".to_string(),
-                ..Default::default()
+        for codec in [Codec::Proto, Codec::Json] {
+            let requests = futures::stream::repeat_with(|| {
+                Ok(TestSpec {
+                    test: "hello world".to_string(),
+                    ..Default::default()
+                })
             })
-        })
-        .take(2); // Bounded stream of two inputs.
+            .take(2); // Bounded stream of two inputs.
 
-        // Let "cat" run to completion and collect its output messages.
-        // Note that "cat" will only exit if we properly close its stdin after sending all inputs.
-        let responses: Vec<Result<TestSpec, _>> = bidi(&["cat".to_string()], "-", requests)
-            .unwrap()
-            .collect()
-            .await;
+            // Let "cat" run to completion and collect its output messages.
+            // Note that "cat" will only exit if we properly close its stdin after sending all inputs.
+            let responses: Vec<Result<TestSpec, _>> =
+                bidi(&["cat".to_string()], codec, "-", requests)
+                    .unwrap()
+                    .collect()
+                    .await;
 
-        insta::assert_debug_snapshot!(responses, @r###"
+            insta::assert_debug_snapshot!(responses, @r###"
         [
             Ok(
                 TestSpec {
@@ -468,6 +325,7 @@ mod test {
             ),
         ]
         "###);
+        }
     }
 
     #[tokio::test]
@@ -480,10 +338,11 @@ mod test {
         }); // Unbounded stream.
 
         // "true" exits immediately with success, without reading our unbounded stream of inputs.
-        let responses: Vec<Result<TestSpec, _>> = bidi(&["true".to_string()], "", requests)
-            .unwrap()
-            .collect()
-            .await;
+        let responses: Vec<Result<TestSpec, _>> =
+            bidi(&["true".to_string()], Codec::Proto, "", requests)
+                .unwrap()
+                .collect()
+                .await;
 
         insta::assert_debug_snapshot!(responses, @r###"
         []
@@ -492,20 +351,25 @@ mod test {
 
     #[tokio::test]
     async fn test_bidi_cat_error() {
-        let requests = futures::stream::repeat_with(|| {
-            Ok(TestSpec {
-                test: "hello world".to_string(),
-                ..Default::default()
-            })
-        }); // Unbounded stream.
+        for codec in [Codec::Proto, Codec::Json] {
+            let requests = futures::stream::repeat_with(|| {
+                Ok(TestSpec {
+                    test: "hello world".to_string(),
+                    ..Default::default()
+                })
+            }); // Unbounded stream.
 
-        let responses: Vec<Result<TestSpec, _>> =
-            bidi(&["cat".to_string()], "/this/path/does/not/exist", requests)
-                .unwrap()
-                .collect()
-                .await;
+            let responses: Vec<Result<TestSpec, _>> = bidi(
+                &["cat".to_string()],
+                codec,
+                "/this/path/does/not/exist",
+                requests,
+            )
+            .unwrap()
+            .collect()
+            .await;
 
-        insta::assert_debug_snapshot!(responses, @r###"
+            insta::assert_debug_snapshot!(responses, @r###"
         [
             Err(
                 Status {
@@ -516,6 +380,7 @@ mod test {
             ),
         ]
         "###);
+        }
     }
 
     #[tokio::test]
@@ -535,6 +400,7 @@ mod test {
         // or even close its stdout without actually exiting.
         let responses: Vec<Result<TestSpec, _>> = bidi(
             &["cat".to_string(), "/etc/hosts".to_string()],
+            Codec::Proto,
             "/this/path/does/not/exist",
             requests,
         )
@@ -547,7 +413,7 @@ mod test {
             Err(
                 Status {
                     code: Internal,
-                    message: "failed to process connector output: refusing to decode message with length greater than 128MB",
+                    message: "failed to process connector output: connector wrote a partial message and then closed its output",
                     source: None,
                 },
             ),
@@ -564,26 +430,30 @@ mod test {
 
     #[tokio::test]
     async fn test_unary_cat() {
-        let fixture = TestSpec {
-            test: "hello world".to_string(),
-            ..Default::default()
-        };
+        for codec in [Codec::Proto, Codec::Json] {
+            let fixture = TestSpec {
+                test: "hello world".to_string(),
+                ..Default::default()
+            };
 
-        let out: TestSpec = unary(&["cat".to_string()], "-", fixture.clone())
-            .await
-            .unwrap();
-        assert_eq!(out, fixture);
+            let out: TestSpec = unary(&["cat".to_string()], codec, "-", fixture.clone())
+                .await
+                .unwrap();
+            assert_eq!(out, fixture);
+        }
     }
 
     #[tokio::test]
     async fn test_unary_too_few_outputs() {
-        let fixture = TestSpec {
-            test: "hello world".to_string(),
-            ..Default::default()
-        };
+        for codec in [Codec::Proto, Codec::Json] {
+            let fixture = TestSpec {
+                test: "hello world".to_string(),
+                ..Default::default()
+            };
 
-        let out: Result<TestSpec, _> = unary(&["true".to_string()], "", fixture.clone()).await;
-        insta::assert_debug_snapshot!(out, @r###"
+            let out: Result<TestSpec, _> =
+                unary(&["true".to_string()], codec, "", fixture.clone()).await;
+            insta::assert_debug_snapshot!(out, @r###"
         Err(
             Status {
                 code: Internal,
@@ -592,6 +462,7 @@ mod test {
             },
         )
         "###);
+        }
     }
 }
 

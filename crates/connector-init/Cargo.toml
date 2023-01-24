@@ -13,7 +13,9 @@ name = "flow-connector-init"
 path = "src/main.rs"
 
 [dependencies]
+connector-protocol = { path = "../connector-protocol" }
 ops = { path = "../ops" }
+proto-convert = { path = "../proto-convert" }
 proto-flow = { path = "../proto-flow" }
 proto-grpc = { path = "../proto-grpc", features = ["capture_server", "materialize_server"] }
 

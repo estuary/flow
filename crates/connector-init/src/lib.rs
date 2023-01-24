@@ -1,7 +1,9 @@
 use anyhow::Context;
+use codec::Codec;
 use tokio::signal::unix;
 
 mod capture;
+mod codec;
 mod inspect;
 mod materialize;
 mod rpc;
@@ -30,12 +32,18 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         entrypoint.push(format!("--log.level={log_level}"));
     }
 
+    let codec = match image.config.labels.get("FLOW_RUNTIME_CODEC") {
+        Some(protocol) if protocol == "json" => Codec::Json,
+        _ => Codec::Proto,
+    };
     let capture = proto_grpc::capture::driver_server::DriverServer::new(capture::Driver {
         entrypoint: entrypoint.clone(),
+        codec,
     });
     let materialize =
         proto_grpc::materialize::driver_server::DriverServer::new(materialize::Driver {
             entrypoint: entrypoint.clone(),
+            codec,
         });
 
     let addr = format!("0.0.0.0:{}", args.port).parse().unwrap();

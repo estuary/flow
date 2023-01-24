@@ -1,0 +1,216 @@
+use anyhow::Context;
+use tokio::io::{AsyncRead, AsyncReadExt};
+
+#[derive(Debug, Copy, Clone)]
+pub enum Codec {
+    Proto,
+    Json,
+}
+
+impl Codec {
+    pub fn encode<M>(self, m: M) -> Vec<u8>
+    where
+        M: prost::Message + proto_convert::IntoMessages,
+    {
+        match self {
+            Self::Proto => {
+                // The protobuf encoding is prefixed with a fix four-byte little endian length header.
+                let length = m.encoded_len();
+                let mut buf = Vec::with_capacity(4 + length);
+                buf.extend_from_slice(&(length as u32).to_le_bytes());
+                m.encode(&mut buf).expect("buf has pre-allocated capacity");
+                buf
+            }
+            Self::Json => {
+                // Encode as newline-delimited JSON.
+                let mut buf = Vec::new();
+                for m in m.into_messages() {
+                    serde_json::to_writer(&mut buf, &m).unwrap();
+                    buf.push(b'\n');
+                }
+                buf
+            }
+        }
+    }
+
+    // Decode all complete messages contained within `buf`.
+    // Returns the number of bytes consumed, and the decoded messages.
+    // The unconsumed remainder is either empty, or contains a partial message
+    // which has not yet been fully read.
+    pub fn decode<M>(self, buffer: &mut Vec<u8>) -> anyhow::Result<Vec<M>>
+    where
+        M: prost::Message + proto_convert::FromMessage + Default,
+    {
+        let mut buf = buffer.as_slice();
+        let mut consumed = 0;
+        let mut out = Vec::new();
+
+        match self {
+            Self::Proto => loop {
+                if buf.len() < 4 {
+                    break;
+                }
+                let bound = 4 + u32::from_le_bytes(buf[0..4].try_into().unwrap()) as usize;
+
+                if buf.len() < bound {
+                    break;
+                }
+
+                out.push(M::decode(&buf[4..bound]).context("decoding protobuf message")?);
+                consumed += bound;
+
+                buf = &buf[bound..];
+            },
+            Self::Json => loop {
+                let Some(bound) = buf.iter().position(|b| *b == b'\n') else { break };
+                let bound = bound + 1; // Byte index after '\n'.
+
+                let parsed: M::Message = serde_json::from_slice::<M::Message>(&buf[..bound])
+                    .context("parsing JSON message")?;
+                M::from_message(parsed, &mut out).context("decoding JSON message")?;
+
+                consumed += bound;
+
+                buf = &buf[bound..];
+            },
+        }
+
+        // Remove consumed portion of `buffer`.
+        let len = buffer.len();
+        if consumed != 0 && consumed != len {
+            buffer.copy_within(consumed..len, 0); // Shift remainder to front.
+        }
+        buffer.truncate(len - consumed);
+
+        Ok(out)
+    }
+}
+
+// Maps an AsyncRead into a Stream of decoded messages.
+pub fn reader_to_message_stream<M, R>(
+    codec: Codec,
+    reader: R,
+    min_capacity: usize,
+) -> impl futures::Stream<Item = anyhow::Result<M>>
+where
+    M: prost::Message + proto_convert::FromMessage + Default,
+    R: AsyncRead + Unpin,
+{
+    let buffer = Vec::with_capacity(min_capacity);
+
+    futures::stream::try_unfold(
+        (Vec::new().into_iter(), buffer, reader),
+        move |(mut it, mut buffer, mut reader)| async move {
+            loop {
+                if let Some(next) = it.next() {
+                    return Ok(Some((next, (it, buffer, reader))));
+                }
+
+                // Read next chunk of bytes into unused `buffer`, first growing
+                // if needed. We don't bound the maximum size because connector-init
+                // runs inside of the container context and can consume only its
+                // allotted memory.
+                if buffer.len() == buffer.capacity() {
+                    buffer.reserve(1); // This uses quadratic resize.
+                }
+                let n = reader.read_buf(&mut buffer).await?;
+
+                if n == 0 && buffer.len() == 0 {
+                    tracing::debug!("finished reading connector output");
+                    return Ok(None); // Graceful EOF.
+                } else if n == 0 {
+                    anyhow::bail!("connector wrote a partial message and then closed its output");
+                }
+
+                let decoded = codec.decode::<M>(&mut buffer)?;
+                it = decoded.into_iter();
+            }
+        },
+    )
+}
+
+#[cfg(test)]
+mod test {
+    use super::{reader_to_message_stream, Codec};
+    use futures::{StreamExt, TryStreamExt};
+    use proto_flow::flow::TestSpec;
+
+    #[test]
+    fn test_generic_encode_and_decode() {
+        for codec in [Codec::Proto, Codec::Json] {
+            let buf = codec.encode(TestSpec {
+                test: "hello world".to_string(),
+                ..Default::default()
+            });
+
+            let mut r = buf.repeat(2);
+
+            // Expect we decode our fixture.
+            assert_eq!(
+                codec.decode::<TestSpec>(&mut r).unwrap(),
+                vec![
+                    TestSpec {
+                        test: "hello world".to_string(),
+                        ..Default::default()
+                    },
+                    TestSpec {
+                        test: "hello world".to_string(),
+                        ..Default::default()
+                    }
+                ]
+            );
+
+            // Expect the input is fully consumed.
+            assert!(r.is_empty());
+            assert_eq!(codec.decode::<TestSpec>(&mut r).unwrap(), vec![]);
+
+            let mut r = buf.repeat(3);
+            r.pop(); // Drop final byte.
+
+            assert_eq!(codec.decode::<TestSpec>(&mut r).unwrap().len(), 2);
+
+            // Remainder was shifted down to Vector start.
+            assert_eq!(r.as_slice(), &buf[0..buf.len() - 1]);
+            assert_eq!(codec.decode::<TestSpec>(&mut r).unwrap(), vec![]);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_reader_to_stream() {
+        for codec in [Codec::Proto, Codec::Json] {
+            let mut buf = codec.encode(TestSpec {
+                test: "hello world".to_string(),
+                ..Default::default()
+            });
+
+            // We can collect multiple encoded items as a stream, and then read a clean EOF.
+            let ten = buf.repeat(10);
+            let stream = reader_to_message_stream(codec, ten.as_slice(), 16);
+            let ten: Vec<TestSpec> = stream.try_collect().await.unwrap();
+            assert_eq!(ten.len(), 10);
+
+            // If the stream bytes have extra content, we read a message and then an unexpected EOF.
+            buf.extend_from_slice(&[0xaa, 0xbb, 0xcc, 0xdd, 0xee]);
+            let stream = reader_to_message_stream::<TestSpec, _>(codec, buf.as_slice(), 16);
+            tokio::pin!(stream);
+
+            insta::assert_debug_snapshot!(stream.next().await, @r###"
+            Some(
+                Ok(
+                    TestSpec {
+                        test: "hello world",
+                        steps: [],
+                    },
+                ),
+            )
+            "###);
+            insta::assert_debug_snapshot!(stream.next().await, @r###"
+            Some(
+                Err(
+                    "connector wrote a partial message and then closed its output",
+                ),
+            )
+            "###);
+        }
+    }
+}
