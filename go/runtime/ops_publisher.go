@@ -57,6 +57,41 @@ func NewOpsPublisher(
 
 func (p *OpsPublisher) Labels() labels.ShardLabeling { return p.labels }
 
+// PublishStats implements `ops.Publisher`. The stats event is written using
+// `PublishCommitted`, and is committed outside of any consumer transaction.
+// This means that this function is not appropriate for use in recording the
+// transaction processing stats, and is intended only for recording things that happen
+// outside of the normal transaction processing loop, such as network traffic.
+func (p *OpsPublisher) PublishStats(stats ops.StatsEvent) {
+	// TODO: verify that the key/partitions are correct
+	var key = tuple.Tuple{
+		stats.Shard.Name,
+		stats.Shard.KeyBegin,
+		stats.Shard.RClockBegin,
+		stats.Timestamp.Format(time.RFC3339),
+	}
+	var partitions = tuple.Tuple{
+		stats.Shard.Kind,
+		stats.Shard.Name,
+	}
+	// flow.Mappable replaces this sentinel in the marshalled JSON bytes.
+	stats.Meta.UUID = string(pf.DocumentUUIDPlaceholder)
+
+	var buf, err = json.Marshal(stats)
+	if err != nil {
+		panic(fmt.Errorf("marshal of ops.StatsEvent should always succeed but: %w", err))
+	}
+
+	var mappable = flow.Mappable{
+		Spec:       p.opsStatsSpec,
+		Doc:        json.RawMessage(buf),
+		Partitions: partitions,
+		PackedKey:  key.Pack(),
+	}
+	// Best effort. PublishCommitted only fails if the publisher itself is cancelled.
+	_, _ = p.publisher.PublishCommitted(p.mapper.Map, mappable)
+}
+
 func (p *OpsPublisher) PublishLog(log ops.Log) {
 	var key = tuple.Tuple{
 		log.Shard.Name,
