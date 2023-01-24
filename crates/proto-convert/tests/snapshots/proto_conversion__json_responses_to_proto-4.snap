@@ -1,0 +1,21 @@
+---
+source: crates/connector-protocol/tests/proto_conversion.rs
+expression: "parse_responses::<capture::ValidateResponse>(vec![json!\n        ({\n            \"validated\" :\n            {\n                \"bindings\" :\n                [{ \"resourcePath\" : [\"thing_one\"] },\n                { \"resourcePath\" : [\"schema\", \"thing_2\"] },]\n            }\n        })])"
+---
+[
+    ValidateResponse {
+        bindings: [
+            Binding {
+                resource_path: [
+                    "thing_one",
+                ],
+            },
+            Binding {
+                resource_path: [
+                    "schema",
+                    "thing_2",
+                ],
+            },
+        ],
+    },
+]

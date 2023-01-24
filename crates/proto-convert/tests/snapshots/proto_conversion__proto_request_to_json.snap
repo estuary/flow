@@ -1,0 +1,590 @@
+---
+source: crates/proto-convert/tests/proto_conversion.rs
+expression: "String::from_utf8_lossy(&output)"
+---
+
+// Capture Spec:
+{
+  "spec": {}
+}
+
+// Materialize Spec:
+{
+  "spec": {}
+}
+
+// Capture Discover:
+{
+  "discover": {
+    "config": {"foo":"bar","forty":2}
+  }
+}
+
+// Capture Validate:
+{
+  "validate": {
+    "name": "name/of/capture",
+    "config": {"foo":"capture","forty":2},
+    "bindings": [
+      {
+        "collection": {
+          "name": "collection/one",
+          "key": [
+            "/key/one",
+            "/two/3"
+          ],
+          "partitionFields": [
+            "part-field"
+          ],
+          "projections": [
+            {
+              "ptr": "/json/ptr",
+              "field": "a-field",
+              "explicit": false,
+              "isPartitionKey": true,
+              "isPrimaryKey": false,
+              "inference": {
+                "types": [
+                  "integer",
+                  "string"
+                ],
+                "string": {
+                  "contentType": "typ",
+                  "format": "date",
+                  "contentEncoding": "enc",
+                  "isBase64": false,
+                  "maxLength": 12345
+                },
+                "title": "title",
+                "description": "desc",
+                "default": {"def":"ault"},
+                "secret": false,
+                "exists": "Must"
+              }
+            }
+          ],
+          "schema": {"common":"schema"}
+        },
+        "resourceConfig": {"first":"resource"}
+      },
+      {
+        "collection": {
+          "name": "collection/two",
+          "key": [
+            "/a/key"
+          ],
+          "partitionFields": [],
+          "projections": [],
+          "writeSchema": {"write":"schema"},
+          "readSchema": {"read":"schema"}
+        },
+        "resourceConfig": {"resource":2}
+      }
+    ]
+  }
+}
+
+// Materialize Validate:
+{
+  "validate": {
+    "name": "name/of/materialization",
+    "config": {"foo":"materialize","forty":2},
+    "bindings": [
+      {
+        "collection": {
+          "name": "collection/one",
+          "key": [
+            "/key/one",
+            "/two/3"
+          ],
+          "partitionFields": [
+            "part-field"
+          ],
+          "projections": [
+            {
+              "ptr": "/json/ptr",
+              "field": "a-field",
+              "explicit": false,
+              "isPartitionKey": true,
+              "isPrimaryKey": false,
+              "inference": {
+                "types": [
+                  "integer",
+                  "string"
+                ],
+                "string": {
+                  "contentType": "typ",
+                  "format": "date",
+                  "contentEncoding": "enc",
+                  "isBase64": false,
+                  "maxLength": 12345
+                },
+                "title": "title",
+                "description": "desc",
+                "default": {"def":"ault"},
+                "secret": false,
+                "exists": "Must"
+              }
+            }
+          ],
+          "schema": {"common":"schema"}
+        },
+        "resourceConfig": {"first":"resource"},
+        "fieldConfig": {
+          "field-one": {"one":1},
+          "two": {"two":2}
+        }
+      },
+      {
+        "collection": {
+          "name": "collection/two",
+          "key": [
+            "/a/key"
+          ],
+          "partitionFields": [],
+          "projections": [],
+          "writeSchema": {"write":"schema"},
+          "readSchema": {"read":"schema"}
+        },
+        "resourceConfig": {"resource":2},
+        "fieldConfig": {}
+      }
+    ]
+  }
+}
+
+// Capture Apply:
+{
+  "apply": {
+    "name": "some/capture",
+    "config": {"endpoint":"config"},
+    "bindings": [
+      {
+        "collection": {
+          "name": "collection/one",
+          "key": [
+            "/key/one",
+            "/two/3"
+          ],
+          "partitionFields": [
+            "part-field"
+          ],
+          "projections": [
+            {
+              "ptr": "/json/ptr",
+              "field": "a-field",
+              "explicit": false,
+              "isPartitionKey": true,
+              "isPrimaryKey": false,
+              "inference": {
+                "types": [
+                  "integer",
+                  "string"
+                ],
+                "string": {
+                  "contentType": "typ",
+                  "format": "date",
+                  "contentEncoding": "enc",
+                  "isBase64": false,
+                  "maxLength": 12345
+                },
+                "title": "title",
+                "description": "desc",
+                "default": {"def":"ault"},
+                "secret": false,
+                "exists": "Must"
+              }
+            }
+          ],
+          "schema": {"common":"schema"}
+        },
+        "resourceConfig": {"first":"resource"},
+        "resourcePath": [
+          "table_one"
+        ]
+      },
+      {
+        "collection": {
+          "name": "collection/two",
+          "key": [
+            "/a/key"
+          ],
+          "partitionFields": [],
+          "projections": [],
+          "writeSchema": {"write":"schema"},
+          "readSchema": {"read":"schema"}
+        },
+        "resourceConfig": {"resource":2},
+        "resourcePath": [
+          "other_schema",
+          "table_two"
+        ]
+      }
+    ],
+    "version": "aabbccddee",
+    "dryRun": true
+  }
+}
+
+// Materialize Apply:
+{
+  "apply": {
+    "name": "some/materialization",
+    "config": {"endpoint":"config"},
+    "bindings": [
+      {
+        "collection": {
+          "name": "collection/one",
+          "key": [
+            "/key/one",
+            "/two/3"
+          ],
+          "partitionFields": [
+            "part-field"
+          ],
+          "projections": [
+            {
+              "ptr": "/json/ptr",
+              "field": "a-field",
+              "explicit": false,
+              "isPartitionKey": true,
+              "isPrimaryKey": false,
+              "inference": {
+                "types": [
+                  "integer",
+                  "string"
+                ],
+                "string": {
+                  "contentType": "typ",
+                  "format": "date",
+                  "contentEncoding": "enc",
+                  "isBase64": false,
+                  "maxLength": 12345
+                },
+                "title": "title",
+                "description": "desc",
+                "default": {"def":"ault"},
+                "secret": false,
+                "exists": "Must"
+              }
+            }
+          ],
+          "schema": {"common":"schema"}
+        },
+        "resourceConfig": {"first":"resource"},
+        "resourcePath": [
+          "table_one"
+        ],
+        "deltaUpdates": false,
+        "fieldSelection": {
+          "keys": [
+            "key/one"
+          ],
+          "values": [
+            "val1",
+            "val2"
+          ],
+          "document": "flow_document",
+          "fieldConfig": {
+            "val1": {"a":"setting"},
+            "val2": {}
+          }
+        }
+      },
+      {
+        "collection": {
+          "name": "collection/two",
+          "key": [
+            "/a/key"
+          ],
+          "partitionFields": [],
+          "projections": [],
+          "writeSchema": {"write":"schema"},
+          "readSchema": {"read":"schema"}
+        },
+        "resourceConfig": {"resource":2},
+        "resourcePath": [
+          "other_schema",
+          "table_two"
+        ],
+        "deltaUpdates": true,
+        "fieldSelection": {
+          "keys": [
+            "k1",
+            "k2"
+          ],
+          "values": [
+            "value_field"
+          ],
+          "document": null,
+          "fieldConfig": {}
+        }
+      }
+    ],
+    "version": "aabbccddee",
+    "dryRun": true
+  }
+}
+
+// Capture Open:
+{
+  "open": {
+    "name": "some/capture",
+    "config": {"endpoint":"config"},
+    "bindings": [
+      {
+        "collection": {
+          "name": "collection/one",
+          "key": [
+            "/key/one",
+            "/two/3"
+          ],
+          "partitionFields": [
+            "part-field"
+          ],
+          "projections": [
+            {
+              "ptr": "/json/ptr",
+              "field": "a-field",
+              "explicit": false,
+              "isPartitionKey": true,
+              "isPrimaryKey": false,
+              "inference": {
+                "types": [
+                  "integer",
+                  "string"
+                ],
+                "string": {
+                  "contentType": "typ",
+                  "format": "date",
+                  "contentEncoding": "enc",
+                  "isBase64": false,
+                  "maxLength": 12345
+                },
+                "title": "title",
+                "description": "desc",
+                "default": {"def":"ault"},
+                "secret": false,
+                "exists": "Must"
+              }
+            }
+          ],
+          "schema": {"common":"schema"}
+        },
+        "resourceConfig": {"first":"resource"},
+        "resourcePath": [
+          "table_one"
+        ]
+      },
+      {
+        "collection": {
+          "name": "collection/two",
+          "key": [
+            "/a/key"
+          ],
+          "partitionFields": [],
+          "projections": [],
+          "writeSchema": {"write":"schema"},
+          "readSchema": {"read":"schema"}
+        },
+        "resourceConfig": {"resource":2},
+        "resourcePath": [
+          "other_schema",
+          "table_two"
+        ]
+      }
+    ],
+    "version": "aabbccddee",
+    "keyBegin": 12345,
+    "keyEnd": 678910,
+    "driverCheckpoint": {"driver":"checkpoint"},
+    "intervalSeconds": 300
+  }
+}
+
+// Capture Acknowledge:
+{
+  "acknowledge": {}
+}
+
+// Materialize Open:
+{
+  "open": {
+    "name": "some/materialization",
+    "config": {"endpoint":"config"},
+    "bindings": [
+      {
+        "collection": {
+          "name": "collection/one",
+          "key": [
+            "/key/one",
+            "/two/3"
+          ],
+          "partitionFields": [
+            "part-field"
+          ],
+          "projections": [
+            {
+              "ptr": "/json/ptr",
+              "field": "a-field",
+              "explicit": false,
+              "isPartitionKey": true,
+              "isPrimaryKey": false,
+              "inference": {
+                "types": [
+                  "integer",
+                  "string"
+                ],
+                "string": {
+                  "contentType": "typ",
+                  "format": "date",
+                  "contentEncoding": "enc",
+                  "isBase64": false,
+                  "maxLength": 12345
+                },
+                "title": "title",
+                "description": "desc",
+                "default": {"def":"ault"},
+                "secret": false,
+                "exists": "Must"
+              }
+            }
+          ],
+          "schema": {"common":"schema"}
+        },
+        "resourceConfig": {"first":"resource"},
+        "resourcePath": [
+          "table_one"
+        ],
+        "deltaUpdates": false,
+        "fieldSelection": {
+          "keys": [
+            "key/one"
+          ],
+          "values": [
+            "val1",
+            "val2"
+          ],
+          "document": "flow_document",
+          "fieldConfig": {
+            "val1": {"a":"setting"},
+            "val2": {}
+          }
+        }
+      },
+      {
+        "collection": {
+          "name": "collection/two",
+          "key": [
+            "/a/key"
+          ],
+          "partitionFields": [],
+          "projections": [],
+          "writeSchema": {"write":"schema"},
+          "readSchema": {"read":"schema"}
+        },
+        "resourceConfig": {"resource":2},
+        "resourcePath": [
+          "other_schema",
+          "table_two"
+        ],
+        "deltaUpdates": true,
+        "fieldSelection": {
+          "keys": [
+            "k1",
+            "k2"
+          ],
+          "values": [
+            "value_field"
+          ],
+          "document": null,
+          "fieldConfig": {}
+        }
+      }
+    ],
+    "version": "aabbccddee",
+    "keyBegin": 12345,
+    "keyEnd": 678910,
+    "driverCheckpoint": {"driver":"checkpoint"}
+  }
+}
+
+// Materialize Load:
+{
+  "load": {
+    "binding": 2,
+    "keyPacked": "026b657900026f6e6500",
+    "key": [
+      "key",
+      "one"
+    ]
+  }
+}
+{
+  "load": {
+    "binding": 2,
+    "keyPacked": "026b6579001502",
+    "key": [
+      "key",
+      2
+    ]
+  }
+}
+
+// Materialize Flush:
+{
+  "flush": {}
+}
+
+// Materialize Store:
+{
+  "store": {
+    "binding": 2,
+    "keyPacked": "026b657900026f6e6500",
+    "key": [
+      "key",
+      "one"
+    ],
+    "values": [
+      1,
+      {
+        "two": "three"
+      },
+      "four"
+    ],
+    "doc": {"doc":"one"},
+    "exists": true
+  }
+}
+{
+  "store": {
+    "binding": 2,
+    "keyPacked": "026b6579001502",
+    "key": [
+      "key",
+      2
+    ],
+    "values": [
+      1,
+      {
+        "two": "three"
+      },
+      "four"
+    ],
+    "doc": {"doc":2},
+    "exists": false
+  }
+}
+
+// Materialize Start Commit:
+{
+  "startCommit": {
+    "runtimeCheckpoint": "AQIyAQIyAQIymQ=="
+  }
+}
+
+// Materialize Acknowledge:
+{
+  "acknowledge": {}
+}
+
