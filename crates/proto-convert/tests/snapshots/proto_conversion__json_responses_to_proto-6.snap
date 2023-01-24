@@ -1,0 +1,9 @@
+---
+source: crates/connector-protocol/tests/proto_conversion.rs
+expression: "parse_responses::<capture::ApplyResponse>(vec![applied.clone()])"
+---
+[
+    ApplyResponse {
+        action_description: "something something",
+    },
+]

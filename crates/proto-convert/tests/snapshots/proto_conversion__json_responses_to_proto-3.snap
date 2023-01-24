@@ -1,0 +1,27 @@
+---
+source: crates/connector-protocol/tests/proto_conversion.rs
+expression: "parse_responses::<capture::DiscoverResponse>(vec![json!\n        ({\n            \"discovered\" :\n            {\n                \"bindings\" :\n                [{\n                    \"recommendedName\" : \"thing_one\", \"resourceConfig\" :\n                    { \"table\" : \"one\", \"foo\" : \"bar\" }, \"documentSchema\" :\n                    { \"type\" : \"object\", \"const\" : \"document\" }, \"keyPtrs\" :\n                    [\"/key/one\", \"/two\"],\n                },\n                {\n                    \"recommendedName\" : \"thing_2\", \"resourceConfig\" :\n                    { \"table\" : 2, }, \"documentSchema\" :\n                    { \"type\" : \"object\", \"const\" : \"document-two\" }, \"keyPtrs\" :\n                    [\"/key/key\"],\n                },]\n            }\n        })])"
+---
+[
+    DiscoverResponse {
+        bindings: [
+            Binding {
+                recommended_name: "thing_one",
+                resource_spec_json: "{\"foo\":\"bar\",\"table\":\"one\"}",
+                document_schema_json: "{\"const\":\"document\",\"type\":\"object\"}",
+                key_ptrs: [
+                    "/key/one",
+                    "/two",
+                ],
+            },
+            Binding {
+                recommended_name: "thing_2",
+                resource_spec_json: "{\"table\":2}",
+                document_schema_json: "{\"const\":\"document-two\",\"type\":\"object\"}",
+                key_ptrs: [
+                    "/key/key",
+                ],
+            },
+        ],
+    },
+]
