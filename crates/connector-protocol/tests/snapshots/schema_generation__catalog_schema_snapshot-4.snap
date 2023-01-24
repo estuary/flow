@@ -1,0 +1,572 @@
+---
+source: crates/connector-protocol/tests/schema_generation.rs
+expression: "&generator.root_schema_for::<materialize::Response>()"
+---
+{
+  "$schema": "https://json-schema.org/draft/2019-09/schema",
+  "title": "Response",
+  "description": "Response is a message written by a materialization connector to the Flow runtime.",
+  "oneOf": [
+    {
+      "description": "Spec responds to a Request \"spec\" command.",
+      "type": "object",
+      "required": [
+        "spec"
+      ],
+      "properties": {
+        "spec": {
+          "type": "object",
+          "required": [
+            "configSchema",
+            "documentationUrl",
+            "resourceConfigSchema"
+          ],
+          "properties": {
+            "configSchema": {
+              "title": "JSON schema of the connector's endpoint configuration."
+            },
+            "documentationUrl": {
+              "title": "URL for connector's documentation.",
+              "type": "string"
+            },
+            "oauth2": {
+              "title": "Optional OAuth2 configuration.",
+              "default": null,
+              "$ref": "#/definitions/OAuth2"
+            },
+            "resourceConfigSchema": {
+              "title": "JSON schema of a binding's resource specification."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Validated responds to a Request \"validate\" command.",
+      "type": "object",
+      "required": [
+        "validated"
+      ],
+      "properties": {
+        "validated": {
+          "type": "object",
+          "required": [
+            "bindings"
+          ],
+          "properties": {
+            "bindings": {
+              "title": "Validated bindings of the endpoint.",
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ValidatedBinding"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Applied responds to a Request \"apply\" command.",
+      "type": "object",
+      "required": [
+        "applied"
+      ],
+      "properties": {
+        "applied": {
+          "type": "object",
+          "required": [
+            "actionDescription"
+          ],
+          "properties": {
+            "actionDescription": {
+              "title": "User-facing description of the action taken by this application.",
+              "description": "If the apply was a dry-run, then this is a description of actions that would have been taken.",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Opened responds to a Request \"open\" command.",
+      "type": "object",
+      "required": [
+        "opened"
+      ],
+      "properties": {
+        "opened": {
+          "type": "object",
+          "properties": {
+            "runtimeCheckpoint": {
+              "title": "Flow runtime checkpoint to begin processing from. Optional.",
+              "description": "If empty, the most recent checkpoint of the Flow recovery log is used.\n\nOr, a driver may send the value []byte{0xf8, 0xff, 0xff, 0xff, 0xf, 0x1} to explicitly begin processing from a zero-valued checkpoint, effectively rebuilding the materialization from scratch.",
+              "default": "",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Loaded responds to a Request \"load\" command.",
+      "type": "object",
+      "required": [
+        "loaded"
+      ],
+      "properties": {
+        "loaded": {
+          "type": "object",
+          "required": [
+            "binding",
+            "doc"
+          ],
+          "properties": {
+            "binding": {
+              "title": "Index of the Open binding for which this document is loaded.",
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "doc": {
+              "title": "Loaded document."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Loaded responds to a Request \"flush\" command.",
+      "type": "object",
+      "required": [
+        "flushed"
+      ],
+      "properties": {
+        "flushed": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "StartedCommit responds to a Request \"startCommit\" command.",
+      "type": "object",
+      "required": [
+        "startedCommit"
+      ],
+      "properties": {
+        "startedCommit": {
+          "type": "object",
+          "required": [
+            "driverCheckpoint",
+            "mergePatch"
+          ],
+          "properties": {
+            "driverCheckpoint": {
+              "title": "Updated driver checkpoint to commit with this checkpoint."
+            },
+            "mergePatch": {
+              "title": "Is this a partial update of the driver's checkpoint?",
+              "description": "If true, then treat the driver checkpoint as a partial state update which is incorporated into the full checkpoint as a RFC7396 Merge patch. Otherwise the checkpoint is completely replaced.",
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Acknowledged follows Open and also StartedCommit, and tells the Flow Runtime that a previously started commit has completed.\n\nAcknowledged is _not_ a direct response to Request \"acknowledge\" command, and Acknowledge vs Acknowledged may be written in either order.",
+      "type": "object",
+      "required": [
+        "acknowledged"
+      ],
+      "properties": {
+        "acknowledged": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  ],
+  "definitions": {
+    "ApplyBinding": {
+      "description": "A binding specification of the capture.",
+      "type": "object",
+      "required": [
+        "collection",
+        "resourceConfig",
+        "resourcePath"
+      ],
+      "properties": {
+        "collection": {
+          "title": "Collection of this binding.",
+          "$ref": "#/definitions/CollectionSpec"
+        },
+        "resourceConfig": {
+          "title": "Resource configuration of this binding."
+        },
+        "resourcePath": {
+          "title": "Resource path which fully qualifies the endpoint resource identified by this binding.",
+          "description": "For an RDBMS, this might be [\"my-schema\", \"my-table\"]. For Kafka, this might be [\"my-topic-name\"]. For Redis or DynamoDB, this might be [\"/my/key/prefix\"].",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "CollectionSpec": {
+      "description": "Specification of a Flow collection.",
+      "type": "object",
+      "required": [
+        "key",
+        "name",
+        "partitionFields",
+        "projections"
+      ],
+      "properties": {
+        "key": {
+          "title": "Composite key of the collection.",
+          "description": "Keys are specified as an ordered sequence of JSON-Pointers.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "title": "Name of this collection.",
+          "type": "string"
+        },
+        "partitionFields": {
+          "title": "Logically-partitioned fields of this collection.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "projections": {
+          "title": "Projections of this collection.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Projection"
+          }
+        },
+        "readSchema": {
+          "title": "JSON Schema against which read collection documents are validated.",
+          "description": "If set, then writeSchema is also and schema is not."
+        },
+        "schema": {
+          "title": "JSON Schema against which collection documents are validated.",
+          "description": "If set, then writeSchema and readSchema are not."
+        },
+        "writeSchema": {
+          "title": "JSON Schema against which written collection documents are validated.",
+          "description": "If set, then readSchema is also and schema is not."
+        }
+      },
+      "additionalProperties": false
+    },
+    "DiscoveredBinding": {
+      "description": "A discovered endpoint resource which may be bound to a Flow Collection.",
+      "type": "object",
+      "required": [
+        "documentSchema",
+        "key",
+        "recommendedName",
+        "resourceConfig"
+      ],
+      "properties": {
+        "documentSchema": {
+          "title": "JSON Schema for documents captured via the binding."
+        },
+        "key": {
+          "title": "Composite key of documents captured via the binding.",
+          "description": "Keys are specified as an ordered sequence of JSON-Pointers.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "recommendedName": {
+          "title": "Recommended partial name for this binding's collection.",
+          "description": "For example, a SQL database capture might use the table's name.",
+          "type": "string"
+        },
+        "resourceConfig": {
+          "title": "Resource configuration for this binding."
+        }
+      },
+      "additionalProperties": false
+    },
+    "Exists": {
+      "description": "Enumeration which describes what's known about a location's existence documents of the schema.",
+      "type": "string",
+      "enum": [
+        "Must",
+        "May",
+        "Implicit",
+        "Cannot"
+      ]
+    },
+    "Inference": {
+      "description": "Static inference over this document location, extracted from a JSON Schema.",
+      "type": "object",
+      "required": [
+        "default",
+        "description",
+        "exists",
+        "secret",
+        "title",
+        "types"
+      ],
+      "properties": {
+        "default": {
+          "description": "The default value from the schema, or \"null\" if there is no default."
+        },
+        "description": {
+          "description": "The description from the schema, if provided.",
+          "type": "string"
+        },
+        "exists": {
+          "description": "Existence of this document location.",
+          "$ref": "#/definitions/Exists"
+        },
+        "secret": {
+          "description": "Whether this location is marked as a secret, like a credential or password.",
+          "type": "boolean"
+        },
+        "string": {
+          "description": "String type-specific inferences, or null iff types doesn't include \"string\".",
+          "$ref": "#/definitions/StringInference"
+        },
+        "title": {
+          "description": "The title from the schema, if provided.",
+          "type": "string"
+        },
+        "types": {
+          "description": "The possible types for this location. Subset of: [\"null\", \"boolean\", \"object\", \"array\", \"integer\", \"numeric\", \"string\"].",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "OAuth2": {
+      "description": "OAuth2 describes an OAuth2 provider and templates how it should be used.\n\nThe templates are mustache templates and have a set of variables available to them, the variables available everywhere are: client_id: OAuth2 provider client id redirect_uri: OAuth2 provider client registered redirect URI\n\nVariables available in Auth URL request: state: the state parameter, this parameter is used to prevent attacks against our users. the parameter must be generated randomly and not guessable. It must be associated with a user session, and we must check in our redirect URI that the state we receive from the OAuth provider is the same as the one we passed in. Scenario: user A can initiate an OAuth2 flow, and send the OAuth Provider's Login URL to another person, user B. Once this other person logs in through the OAuth2 Provider, they will be redirected, and if there is no state check, we will authorise user A to access user B's account. With the state check, the state will not be available in user B's session, and therefore the state check will fail, preventing the attack.\n\nVariables available in Access Token request: code: the code resulting from the suthorization step used to fetch the token client_secret: OAuth2 provider client secret\n\nVariables available on Refresh Token request: refresh_token: the refresh token client_secret: OAuth2 provider client secret",
+      "type": "object",
+      "required": [
+        "accessTokenUrlTemplate",
+        "authUrlTemplate",
+        "provider"
+      ],
+      "properties": {
+        "accessTokenBody": {
+          "title": "The request body of the Access Token request.",
+          "description": "If not specified, the request body is empty.",
+          "default": "",
+          "type": "string"
+        },
+        "accessTokenHeaders": {
+          "title": "Headers for the Access Token request.",
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "accessTokenMethod": {
+          "title": "The method used to send Access Token requests.",
+          "description": "If not specified, POST is used by default.",
+          "type": "string"
+        },
+        "accessTokenResponseMap": {
+          "title": "Mapping from OAuth provider response documents of an Access Token request.",
+          "description": "Maps keys into correct locations of the connector endpoint configuration. If the connector supports refresh tokens, must include `refresh_token` and `expires_in`. If this mapping is not provided, the keys from the response are passed as-is to the connector config.",
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "accessTokenUrlTemplate": {
+          "title": "Template for access token URL.",
+          "description": "This is the second step of the OAuth2 flow, where we request an access token from the provider.",
+          "type": "string"
+        },
+        "authUrlTemplate": {
+          "title": "Authorization URL template.",
+          "description": "This is the first step of the OAuth2 flow where the user is redirected to the OAuth2 provider to authorize access to their account.",
+          "type": "string"
+        },
+        "provider": {
+          "title": "Name of the OAuth2 provider.",
+          "description": "This is a machine-readable key and must stay consistent. One example use case is to map providers to their respective style of buttons in the UI.",
+          "type": "string"
+        },
+        "refreshTokenBody": {
+          "title": "The request body of Refresh Token requests.",
+          "description": "If not specified, the request body is empty.",
+          "default": "",
+          "type": "string"
+        },
+        "refreshTokenHeaders": {
+          "title": "Headers for the Refresh Token request.",
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "refreshTokenMethod": {
+          "title": "The method used to send Refresh Token requests.",
+          "description": "If not specified, POST is used by default.",
+          "default": "",
+          "type": "string"
+        },
+        "refreshTokenResponseMap": {
+          "title": "Mapping from OAuth provider response documents of a Refresh Token request.",
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "refreshTokenUrlTemplate": {
+          "title": "Template for refresh token URL",
+          "description": "If not specified, refresh tokens are not requested.",
+          "default": "",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Projection": {
+      "description": "Projections are named locations within a collection document which may be used for logical partitioning, or may be mapped into a tabular representation such as a SQL database table.",
+      "type": "object",
+      "required": [
+        "explicit",
+        "field",
+        "inference",
+        "isPartitionKey",
+        "isPrimaryKey",
+        "ptr"
+      ],
+      "properties": {
+        "explicit": {
+          "title": "Was this projection explicitly provided ?",
+          "description": "(As opposed to implicitly created through static analysis of the schema).",
+          "type": "boolean"
+        },
+        "field": {
+          "title": "Flattened, tabular alias of this projection.",
+          "description": "A field may correspond to a SQL table column, for example.",
+          "type": "string"
+        },
+        "inference": {
+          "title": "Inference of this projection.",
+          "$ref": "#/definitions/Inference"
+        },
+        "isPartitionKey": {
+          "title": "Does this projection constitute a logical partitioning of the collection?",
+          "type": "boolean"
+        },
+        "isPrimaryKey": {
+          "title": "Does this location form (part of) the collection key?",
+          "type": "boolean"
+        },
+        "ptr": {
+          "title": "Document location of this projection, as a JSON-Pointer.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "StringInference": {
+      "description": "Static inference over a document location of type \"string\", extracted from a JSON schema.",
+      "type": "object",
+      "required": [
+        "contentEncoding",
+        "contentType",
+        "format",
+        "isBase64",
+        "maxLength"
+      ],
+      "properties": {
+        "contentEncoding": {
+          "title": "Annotated Content-Encoding when the projection is of \"string\" type.",
+          "type": "string"
+        },
+        "contentType": {
+          "title": "Annotated Content-Type when the projection is of \"string\" type.",
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "isBase64": {
+          "title": "Is the Content-Encoding \"base64\" (case-invariant)?",
+          "type": "boolean"
+        },
+        "maxLength": {
+          "title": "Maximum length when the projection is of \"string\" type.",
+          "description": "Zero for no limit.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "ValidateBinding": {
+      "description": "A proposed binding of the capture to validate.",
+      "type": "object",
+      "required": [
+        "collection",
+        "resourceConfig"
+      ],
+      "properties": {
+        "collection": {
+          "title": "Collection of the proposed binding.",
+          "$ref": "#/definitions/CollectionSpec"
+        },
+        "resourceConfig": {
+          "title": "Resource configuration of the proposed binding."
+        }
+      },
+      "additionalProperties": false
+    },
+    "ValidatedBinding": {
+      "description": "A validated binding.",
+      "type": "object",
+      "required": [
+        "resourcePath"
+      ],
+      "properties": {
+        "resourcePath": {
+          "title": "Resource path which fully qualifies the endpoint resource identified by this binding.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
