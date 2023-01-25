@@ -26,7 +26,18 @@ const config = {
         excludeRoutes: [
             'blog/**/*',
         ]
-    }]
+    },],
+    [
+      '@docusaurus/plugin-client-redirects',
+      {
+        redirects: [
+          {
+            to: '/docs/guides/flowctl/create-derivation.md',
+            from: 'docs/guides/create-derivation.md',
+          },
+        ],
+      },
+    ],
   ],
 
   presets: [
