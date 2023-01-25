@@ -35,6 +35,7 @@ declare
 	bundled_catalog_arg json := '${BUNDLED_CATALOG}';
 	ops_user_id uuid;
 	current_tenant tenants;
+	tenant_count integer;
 begin
 
 	-- Identify user which owns ops specifications.
@@ -43,11 +44,23 @@ begin
 	-- Update the ops catalog template.
 	update ops_catalog_template set bundled_catalog = bundled_catalog_arg;
 
-	-- Start a publication of the updated template for each existing tenant.
+	-- There must be at least one tenant in the system to proceed. This is a guard for local
+	-- development when first starting the local stack.
+	select count(*)
+	into strict tenant_count
+	from tenants;
+	if tenant_count = 0 then
+		return;
+	end if;
+
+	-- Migrate the ops reporting catalog.
+	call internal.migrate_reporting_catalog(ops_user_id);
+
+	-- Create a publication for the stats and logs of each tenant.
 	for current_tenant in
 		select * from tenants
 	loop
-		perform internal.create_ops_publication(current_tenant.tenant, ops_user_id);
+		call internal.migrate_stats_and_logs(current_tenant.tenant, ops_user_id);
 	end loop;
 	return;
 

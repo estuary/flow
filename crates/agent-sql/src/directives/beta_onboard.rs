@@ -67,6 +67,16 @@ pub async fn provision_tenant(
 ) -> sqlx::Result<ProvisionedTenant> {
     let prefix = format!("{tenant}/");
 
+    // Create the tenant record so that it is available to query later within this transaction by
+    // the ops catalog templating stored procedures.
+    sqlx::query!(
+        "insert into tenants (tenant, detail) values ($1, $2);",
+        &prefix as &str,
+        detail.clone() as Option<String>,
+    )
+    .execute(&mut *txn)
+    .await?;
+
     let provisioned = sqlx::query_as!(
         ProvisionedTenant,
         r#"with
@@ -75,9 +85,6 @@ pub async fn provision_tenant(
             -- Use a sub-select to select either one match or an explicit null row,
             -- which will then fail a not-null constraint.
             select (select id from auth.users where email = $4 limit 1) as accounts_id
-        ),
-        create_tenant as (
-            insert into tenants (tenant, detail) values ($2, $3)
         ),
         grant_user_admin_to_tenant as (
             insert into user_grants (user_id, object_role, capability, detail) values

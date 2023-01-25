@@ -23,46 +23,52 @@ Typically, this will actually get updated by using ops-catalog/generate-migratio
 create function internal.create_ops_publication(tenant_prefix catalog_tenant, ops_user_id uuid)
 returns flowid as $$
 declare
+	l1_stat_rollup_selected integer;
 	new_draft_id flowid := internal.id_generator();
 	publication_id flowid := internal.id_generator();
-	ops_template json;
-
+	ops_template jsonb;
+	current_tenant tenants;
+	current_l1_transform_id integer;
+	l1_derivation_spec jsonb;
+	l2_derivation_spec jsonb;
 begin
-	-- Fetch the current ops catalog template, instantiated for `tenant_prefix`.
-	select replace(bundled_catalog::text, 'TENANT', rtrim(tenant_prefix, '/'))::json
+	select bundled_catalog::jsonb #- '{tests}'
 	into strict ops_template
 	from ops_catalog_template
 	where id = '00:00:00:00:00:00:00:00';
 
+	select l1_stat_rollup from tenants where tenants.tenant = tenant_prefix
+	into strict l1_stat_rollup_selected;
+
+	l1_derivation_spec := internal.create_l1_derivation_spec(ops_template, l1_stat_rollup_selected);
+	ops_template := ops_template #- '{collections,ops/catalog-stats-L1/L1ID}';
+
+	l2_derivation_spec := internal.create_l2_derivation_spec(ops_template);
+	ops_template := ops_template #- '{ops/catalog-stats-L2/0}';
+
+	ops_template := replace(ops_template::text, 'TENANT', rtrim(tenant_prefix, '/'))::jsonb;
+	ops_template := replace(ops_template::text, 'L1ID', l1_stat_rollup_selected::text)::jsonb;
+
 	-- Create a draft of ops changes.
 	insert into drafts (id, user_id, detail) values
-	(new_draft_id, ops_user_id, 're-publishing ops catalog');
+	(new_draft_id, ops_user_id, 'ops catalog for new tenant');
 
 	-- Queue a publication of the draft.
 	insert into publications (id, user_id, draft_id) values
 	(publication_id, ops_user_id, new_draft_id);
 
-	-- Draft a deletion for all currently-live ops catalog specs.
-	insert into draft_specs (draft_id, catalog_name, spec_type, spec)
-	select new_draft_id, catalog_name, null, null
-	from live_specs
-	where catalog_name like ('ops/' || tenant_prefix || '%');
-
+	-- Add the draft spec. TBD is how to expect a build ID.
 	-- Now upsert drafts for all specs of the template.
 	-- Skip tests for the `ops/` tenant (only), as these fail.
 	insert into draft_specs (draft_id, catalog_name, spec_type, spec)
 	select new_draft_id, "key", 'capture'::catalog_spec_type, "value"
-	from json_each(json_extract_path(ops_template, 'captures'))
+	from jsonb_each(jsonb_extract_path(ops_template, 'captures'))
 	union all
 	select new_draft_id, "key", 'collection'::catalog_spec_type, "value"
-	from json_each(json_extract_path(ops_template, 'collections'))
+	from jsonb_each(jsonb_extract_path(ops_template, 'collections') || l1_derivation_spec || l2_derivation_spec )
 	union all
 	select new_draft_id, "key", 'materialization'::catalog_spec_type, "value"
-	from json_each(json_extract_path(ops_template, 'materializations'))
-	union all
-	select new_draft_id, "key", 'test'::catalog_spec_type, "value"
-	from json_each(json_extract_path(ops_template, 'tests'))
-	where tenant_prefix != 'ops/'
+	from jsonb_each(jsonb_extract_path(ops_template, 'materializations'))
 	on conflict (draft_id, catalog_name)
 	do update set spec_type = excluded.spec_type, spec = excluded.spec;
 
@@ -76,3 +82,183 @@ Creates a new publication of the ops catalog template for a specific tenant.
 This publication will include all specs from the bundled_catalog in ops_catalog_template.
 Any _other_ specs under the ops/<tenant>/ prefix will be deleted by this publication.
 ';
+
+create procedure internal.migrate_stats_and_logs(tenant_prefix catalog_tenant, ops_user_id uuid) as $$
+declare
+	ops_template jsonb;
+	logs_template jsonb;
+	stats_template jsonb;
+	new_draft_id flowid := internal.id_generator();
+	publication_id flowid := internal.id_generator();
+begin
+	select bundled_catalog::jsonb
+	into strict ops_template
+	from ops_catalog_template
+	where id = '00:00:00:00:00:00:00:00';
+
+	logs_template := jsonb_build_object('ops/TENANT/logs', ops_template #> '{collections,ops/TENANT/logs}');
+	stats_template := jsonb_build_object('ops/TENANT/stats', ops_template #> '{collections,ops/TENANT/stats}');
+
+	logs_template := replace(logs_template::text, 'TENANT', rtrim(tenant_prefix, '/'))::jsonb;
+	stats_template := replace(stats_template::text, 'TENANT', rtrim(tenant_prefix, '/'))::jsonb;
+
+	insert into drafts (id, user_id, detail) values
+	(new_draft_id, ops_user_id, 're-publishing ops catalog');
+
+	insert into publications (id, user_id, draft_id) values
+	(publication_id, ops_user_id, new_draft_id);
+
+	insert into draft_specs (draft_id, catalog_name, spec_type, spec)
+	select new_draft_id, "key", 'collection'::catalog_spec_type, "value"
+	from jsonb_each(logs_template || stats_template)
+	on conflict (draft_id, catalog_name)
+	do update set spec_type = excluded.spec_type, spec = excluded.spec;
+end;
+$$ language plpgsql
+security definer;
+
+create procedure internal.migrate_reporting_catalog(ops_user_id uuid) as $$
+declare
+	ops_template jsonb;
+	new_draft_id flowid := internal.id_generator();
+	publication_id flowid := internal.id_generator();
+	tenant_count integer := 0;
+	l1_derivation_specs jsonb := '{}';
+	l2_derivation_spec jsonb;
+	current_l1_stat_rollup integer;
+begin
+	select bundled_catalog::jsonb
+	into strict ops_template
+	from ops_catalog_template
+	where id = '00:00:00:00:00:00:00:00';
+
+	for current_l1_stat_rollup in
+		select distinct l1_stat_rollup from tenants
+	loop
+		l1_derivation_specs := l1_derivation_specs || internal.create_l1_derivation_spec(ops_template, current_l1_stat_rollup);
+	end loop;
+
+	l2_derivation_spec := internal.create_l2_derivation_spec(ops_template);
+
+	insert into drafts (id, user_id, detail) values
+	(new_draft_id, ops_user_id, 're-publishing reporting catalog');
+
+	insert into publications (id, user_id, draft_id) values
+	(publication_id, ops_user_id, new_draft_id);
+
+	insert into draft_specs (draft_id, catalog_name, spec_type, spec)
+	select new_draft_id, "key", 'collection'::catalog_spec_type, "value"
+	from jsonb_each(l1_derivation_specs || l2_derivation_spec)
+	union all
+	select new_draft_id, "key", 'materialization'::catalog_spec_type, "value"
+	from jsonb_each(jsonb_extract_path(ops_template, 'materializations'))
+	on conflict (draft_id, catalog_name)
+	do update set spec_type = excluded.spec_type, spec = excluded.spec;
+end;
+$$ language plpgsql
+security definer;
+
+create function internal.create_l1_derivation_spec(ops_template jsonb, l1_stat_rollup_arg integer)
+returns jsonb as $$
+declare
+	l1_transform_template jsonb;
+	l1_transforms_complete jsonb := '{}';
+	current_tenant tenants;
+begin
+	l1_transform_template := ops_template #> '{collections,ops/catalog-stats-L1/L1ID,derivation,transform}';
+
+	for current_tenant in
+		select * from tenants where tenants.l1_stat_rollup = l1_stat_rollup_arg
+	loop
+		l1_transforms_complete := l1_transforms_complete || replace(l1_transform_template::text, 'TENANT', rtrim(current_tenant.tenant, '/'))::jsonb;
+	end loop;
+
+	ops_template := jsonb_set(ops_template, '{collections,ops/catalog-stats-L1/L1ID,derivation,transform}', l1_transforms_complete);
+	ops_template := internal.extend_l1_lambdas(ops_template, l1_stat_rollup_arg);
+
+	return jsonb_build_object(
+		replace('ops/catalog-stats-L1/L1ID','L1ID', l1_stat_rollup_arg::text),
+		ops_template #> '{collections,ops/catalog-stats-L1/L1ID}'
+	);
+end;
+$$ language plpgsql
+security definer;
+
+create function internal.create_l2_derivation_spec(ops_template jsonb)
+returns jsonb as $$
+declare
+	l2_transform_template jsonb;
+	l2_transforms_complete jsonb := '{}';
+	current_l1_transform_id integer;
+begin
+	l2_transform_template := ops_template #> '{collections,ops/catalog-stats-L2/0,derivation,transform}';
+
+	for current_l1_transform_id in
+		select distinct l1_stat_rollup from tenants
+	loop
+		l2_transforms_complete := l2_transforms_complete || replace(l2_transform_template::text, 'L1ID', current_l1_transform_id::text)::jsonb;
+	end loop;
+
+	ops_template := jsonb_set(ops_template, '{collections,ops/catalog-stats-L2/0,derivation,transform}', l2_transforms_complete);
+	ops_template := internal.extend_l2_lambdas(ops_template);
+
+	return jsonb_build_object(
+		'ops/catalog-stats-L2/0',
+		ops_template #> '{collections,ops/catalog-stats-L2/0}'
+	);
+end;
+$$ language plpgsql
+security definer;
+
+create function internal.extend_l1_lambdas(ops_template jsonb, l1_stat_rollup_arg integer)
+returns jsonb as $$
+declare
+	logs_template text := 'fromTENANTLogsPublish(source: LogsSource, _register: Register, _previous: Register): Document[] { return logsPublish(source) };\n';
+	stats_template text := 'fromTENANTStatsPublish(source: StatsSource, _register: Register, _previous: Register): Document[] { return statsPublish(source) };\n';
+	insert_placeholder text := '// transformsInsertPoint\n';
+	base_ts text;
+	current_tenant tenants;
+begin
+	base_ts := ops_template #> '{collections,ops/catalog-stats-L1/L1ID,derivation,typescript,module}';
+	base_ts := REGEXP_REPLACE(base_ts, '\/\/ transformsBegin[\s\S]*transformsEnd', insert_placeholder);
+
+	for current_tenant in
+		select * from tenants where tenants.l1_stat_rollup = l1_stat_rollup_arg
+	loop
+		base_ts := REPLACE(base_ts, insert_placeholder, logs_template || insert_placeholder);
+		base_ts := REPLACE(base_ts, insert_placeholder, stats_template || insert_placeholder);
+		-- This is a little weird, but necessary. The "imports" section will end up importing from
+		-- the type from the last tenant processed, and that type will be extended from as an
+		-- interface for all the publish lambdas.
+		base_ts := REPLACE(base_ts, 'TENANT', rtrim(current_tenant.tenant, '/'));
+	end loop;
+
+	base_ts := REPLACE(base_ts, 'L1ID', l1_stat_rollup_arg::text);
+
+	return jsonb_set(ops_template, '{collections,ops/catalog-stats-L1/L1ID,derivation,typescript,module}', base_ts::jsonb);
+end;
+$$ language plpgsql
+security definer;
+
+create function internal.extend_l2_lambdas(ops_template jsonb)
+returns jsonb as $$
+declare
+	source_template text := 'fromL1IDPublish(source: AggregateSouce, _register: Register, _previous: Register): OutputDocument[] { return [source] };\n';
+	insert_placeholder text := '// transformsInsertPoint\n';
+	base_ts text;
+	current_l1_transform_id integer;
+begin
+	base_ts := ops_template #> '{collections,ops/catalog-stats-L2/0,derivation,typescript,module}';
+	base_ts := REGEXP_REPLACE(base_ts, '\/\/ transformsBegin[\s\S]*transformsEnd', insert_placeholder);
+
+	for current_l1_transform_id in
+		select distinct l1_stat_rollup from tenants
+	loop
+		base_ts := REPLACE(base_ts, insert_placeholder, source_template || insert_placeholder);
+		base_ts := REPLACE(base_ts, 'L1ID', current_l1_transform_id::text);
+	end loop;
+
+	return jsonb_set(ops_template, '{collections,ops/catalog-stats-L2/0,derivation,typescript,module}', base_ts::jsonb);
+end;
+$$ language plpgsql
+security definer;
