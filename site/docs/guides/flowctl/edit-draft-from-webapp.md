@@ -1,9 +1,9 @@
-import Mermaid from '@theme/Mermaid';
-
 ---
 sidebar_position: 2
 ---
-# Use flowctl to edit a draft created in the web app
+import Mermaid from '@theme/Mermaid';
+
+# Edit a draft created in the web app
 
 When you [create](../create-dataflow.md) or [edit](../edit-data-flows.md) tasks in the web app, your work is periodically saved as a **draft**.
 Specifically, each time you click the **Next** button to reveal the **Save and Publish** button, a draft is saved.
@@ -13,7 +13,7 @@ you can pull the draft into a local environment, finish making changes, and publ
 
 <Mermaid chart={`
 	graph LR;
-    a[catalog];
+    a[Catalog];
     d[Local files];
     c[Draft];
     d-- 2: Author to draft -->c;
@@ -25,7 +25,7 @@ you can pull the draft into a local environment, finish making changes, and publ
 
 To complete this workflow, you need:
 
-* An [Estuary account](../../getting-started/installation.md#registration-and-setup)
+* An [Estuary account](../../getting-started/installation.md)
 
 * [flowctl installed locally](../../getting-started/installation.md#get-started-with-the-flow-cli)
 
@@ -35,9 +35,9 @@ Drafts aren't currently visible in the Flow web app, but you can get a list with
 
 1. Authorize flowctl.
 
-  1. Go to the [CLI-API tab of the web app](https://dashboard.estuary.dev/admin/api) and copy your access token.
+   1. Go to the [CLI-API tab of the web app](https://dashboard.estuary.dev/admin/api) and copy your access token.
 
-  2. Run `flowctl auth token --token <paste-token-here>`
+   2. Run `flowctl auth token --token <paste-token-here>`
 
 2. Run `flowctl draft list`
 
@@ -64,15 +64,15 @@ Drafts aren't currently visible in the Flow web app, but you can get a list with
 
 ## Edit the draft and publish
 
-Next, you'll finish your work, test, and publish the draft.
+Next, you'll make changes to the specification(s), test, and publish the draft.
 
 1. Open the YAML files that contain the specification you want to edit.
 
 2. Make changes. For guidance on how to construct Flow specifications, see the documentation for the entity type:
 
-  * [Captures](../../concepts/captures.md#specification)
-  * [Collections](../../concepts/collections.md#specification)
-  * [Materializations](../../concepts/materialization.md#specification)
+   * [Captures](../../concepts/captures.md#specification)
+   * [Collections](../../concepts/collections.md#specification)
+   * [Materializations](../../concepts/materialization.md#specification)
 
 3. When you're done, sync the local work to the global draft: `flowctl draft author --source flow.yaml`.
 
@@ -80,11 +80,11 @@ Next, you'll finish your work, test, and publish the draft.
 
 4. Publish the draft: `flowctl draft publish`
 
-5. Once this operation completes successfully, check to verify if the entity or entities are live.
+5. Once this operation completes successfully, check to verify if the entity or entities are live. You can:
 
-  * Go to the appropriate tab in the Flow web app.
+   * Go to the appropriate tab in the Flow web app.
 
-  * Run `flowctl catalog list`, filtering by `--name`, `--prefix`, or entity type, for example `--capture`.
+   * Run `flowctl catalog list`, filtering by `--name`, `--prefix`, or entity type, for example `--capture`.
 
 If you're not satisfied with the published entities, you can continue to edit them.
 See the other guides for help:

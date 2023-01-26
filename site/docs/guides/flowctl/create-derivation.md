@@ -31,17 +31,13 @@ If you need help, see the [guide to create a Data Flow](./create-dataflow.md).
 To begin working in your local environment, you must authenticate Flow from the command line.
 Then, you'll need to add your source collection's specification files to a **draft** and bring the draft into your local environment for editing.
 
-1. In your local environment, authenticate flowctl:
+1. Authorize flowctl.
 
-   ```console
-   flowctl auth login
-   ```
+   1. Go to the [CLI-API tab of the web app](https://dashboard.estuary.dev/admin/api) and copy your access token.
 
-   A browser window opens to the CLI-API tab of the Flow web app.
+   2. Run `flowctl auth token --token <paste-token-here>`
 
-2. Copy the access token and paste it in the Auth Token prompt in your terminal. Press Enter.
-
-3. Begin by creating a fresh draft. This is where you'll add the specification files you need from the catalog.
+2. Begin by creating a fresh draft. This is where you'll add the specification files you need from the catalog.
 
    ```console
    flowctl draft create
@@ -50,7 +46,7 @@ Then, you'll need to add your source collection's specification files to a **dra
    The output table shows the draft ID and creation time. It doesn't have any catalog entities in it yet.
    You'll add the source collection's specification to the draft.
 
-4. Identify the collection (or collections) in the catalog that contains the data you want to derive, and add it to your draft.
+3. Identify the collection (or collections) in the catalog that contains the data you want to derive, and add it to your draft.
 
    ```console
    flowctl catalog draft --name namespace/data-flow-name/my-collection
@@ -69,7 +65,7 @@ Then, you'll need to add your source collection's specification files to a **dra
 
    Your draft is set up, but still exists only on the Estuary servers.
 
-5. Pull the draft locally to edit the specification files.
+4. Pull the draft locally to edit the specification files.
 
    ```console
    flowctl draft develop

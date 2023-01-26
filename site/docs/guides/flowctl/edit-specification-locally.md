@@ -1,8 +1,9 @@
-import Mermaid from '@theme/Mermaid';
 ---
 sidebar_position: 1
 ---
-# Edit a Flow specification in your local environment
+import Mermaid from '@theme/Mermaid';
+
+# Edit a Flow specification locally
 
 The [Flow web application](../../concepts/web-app.md) is designed to make the most common Flow tasks quick and easy.
 With the app, you're able to create, monitor, and manage captures, materializations, and more.
@@ -12,14 +13,12 @@ and [basic editing capabilities](../edit-data-flows.md) are provided.
 However, advanced editing tasks are only possible using flowctl. These include:
 
 * Manually editing collection schemas, for example, to add [projections](../../concepts/advanced/projections.md)
-or change the [reduction strategy](../../reference/reduction-strategies/).
+or change the [reduction strategy](../../reference/reduction-strategies/README.md).
 * Editing, testing, and publishing multiple entities at once.
 * Creating and editing derivations and tests.
 
 :::tip
 Creating a derivation has a dedicated guide [here](./create-derivation.md).
-
-Derivations are also coming to the web app soon.
 :::
 
 This guide covers the basic procedure of pulling one or more live Flow entities to your local development environment,
@@ -59,16 +58,16 @@ Using these names, you'll identify and pull the relevant specifications for edit
 
 1. Authorize flowctl.
 
-  1. Go to the [CLI-API tab of the web app](https://dashboard.estuary.dev/admin/api) and copy your access token.
+   1. Go to the [CLI-API tab of the web app](https://dashboard.estuary.dev/admin/api) and copy your access token.
 
-  2. Run `flowctl auth token --token <paste-token-here>`
+   2. Run `flowctl auth token --token <paste-token-here>`
 
 2. Determine which entities you need to pull from the catalog. You can:
 
-  * Check the web app's **Captures**, **Collections**, and **Materializations** pages.
+   * Check the web app's **Captures**, **Collections**, and **Materializations** pages.
   All published entities to which you have access are listed and may be searched.
 
-  * Run `flowctl catalog list`. This command returns a complete list of entities to which you have access.
+   * Run `flowctl catalog list`. This command returns a complete list of entities to which you have access.
   You can refine by specifying a `--prefix` and filter by entity type:  `--captures`, `--collections`, `--materializations`, or `--tests`.
 
     From the above example, `flowctl catalog list --prefix myOrg/marketing --captures --materializations` would return
@@ -76,9 +75,9 @@ Using these names, you'll identify and pull the relevant specifications for edit
 
 3. Pull the specifications you need by running `flowctl catalog pull-specs`:
 
-  * Pull one or more specifications by name, for example: `flowctl catalog pull-specs --name myOrg/marketing/emailList`
+   * Pull one or more specifications by name, for example: `flowctl catalog pull-specs --name myOrg/marketing/emailList`
 
-  * Pull a group of specifications by prefix or type filter, for example: `flowctl catalog pull-specs --prefix myOrg/marketing --collections`
+   * Pull a group of specifications by prefix or type filter, for example: `flowctl catalog pull-specs --prefix myOrg/marketing --collections`
 
   The source files are written to your current working directory.
 
@@ -98,11 +97,11 @@ Next, you'll complete your edits, test that they were performed correctly, and r
 
 2. Make changes. For guidance on how to construct Flow specifications, see the documentation for the task type:
 
-  * [Captures](../../concepts/captures.md#specification)
-  * [Collections](../../concepts/collections.md#specification)
-  * [Materializations](../../concepts/materialization.md#specification)
-  * [Derivations](../../concepts/derivations.md#specification)
-  * [Tests](../../concepts/tests.md)
+   * [Captures](../../concepts/captures.md#specification)
+   * [Collections](../../concepts/collections.md#specification)
+   * [Materializations](../../concepts/materialization.md#specification)
+   * [Derivations](../../concepts/derivations.md#specification)
+   * [Tests](../../concepts/tests.md)
 
 3. When you're done, run a generic test to make sure all the specifications are formatted correctly:
 `flowctl catalog test --source flow.yaml`

@@ -77,7 +77,7 @@ You'll often need to move these specifications back and forth between your local
 of published entities.
 
 The basic steps of this workflow are listed below, along with a diagram of the subcommands you'd use to accomplish them.
-Keep in mind that there's no single, correct way to work with drafts — flowctl offers alternative ways accomplish the same goals —
+Keep in mind that there's no single, correct way to work with flowctl,
 but we recommend this method to get started.
 
 * List all the active specifications in the catalog, which you can then pull into your local environment.

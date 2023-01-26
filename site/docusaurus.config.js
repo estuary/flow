@@ -33,7 +33,7 @@ const config = {
         redirects: [
           {
             to: '/docs/guides/flowctl/create-derivation.md',
-            from: 'docs/guides/create-derivation.md',
+            from: '/docs/guides/create-derivation.md',
           },
         ],
       },

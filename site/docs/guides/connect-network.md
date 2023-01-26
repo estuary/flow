@@ -1,3 +1,6 @@
+---
+sidebar_position: 8
+---
 # Configure connections with SSH tunneling
 
 Flow connects to certain types of endpoints — generally databases — using their IP address and port.
