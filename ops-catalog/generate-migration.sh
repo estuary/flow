@@ -36,6 +36,12 @@ declare
 	ops_user_id uuid;
 	current_tenant tenants;
 	tenant_count integer;
+	collection_specs jsonb := '{}';
+	current_l1_stat_rollup integer;
+	logs_template jsonb;
+	stats_template jsonb;
+	new_draft_id flowid := internal.id_generator();
+	publication_id flowid := internal.id_generator();
 begin
 
 	-- Identify user which owns ops specifications.
@@ -53,15 +59,39 @@ begin
 		return;
 	end if;
 
-	-- Migrate the ops reporting catalog.
-	call internal.migrate_reporting_catalog(ops_user_id);
+	for current_l1_stat_rollup in
+		select distinct l1_stat_rollup from tenants
+	loop
+		collection_specs := collection_specs || internal.create_l1_derivation_spec(bundled_catalog_arg::jsonb, current_l1_stat_rollup);
+	end loop;
 
-	-- Create a publication for the stats and logs of each tenant.
+	collection_specs := collection_specs || internal.create_l2_derivation_spec(bundled_catalog_arg::jsonb);
+
+	logs_template := jsonb_build_object('ops/TENANT/logs', bundled_catalog_arg::jsonb #> '{collections,ops/TENANT/logs}');
+	stats_template := jsonb_build_object('ops/TENANT/stats', bundled_catalog_arg::jsonb #> '{collections,ops/TENANT/stats}');
+
 	for current_tenant in
 		select * from tenants
 	loop
-		call internal.migrate_stats_and_logs(current_tenant.tenant, ops_user_id);
+		collection_specs := collection_specs || replace(logs_template::text, 'TENANT', rtrim(current_tenant.tenant, '/'))::jsonb;
+		collection_specs := collection_specs || replace(stats_template::text, 'TENANT', rtrim(current_tenant.tenant, '/'))::jsonb;
 	end loop;
+
+	insert into drafts (id, user_id, detail) values
+	(new_draft_id, ops_user_id, 're-publishing ops catalog');
+
+	insert into publications (id, user_id, draft_id) values
+	(publication_id, ops_user_id, new_draft_id);
+
+	insert into draft_specs (draft_id, catalog_name, spec_type, spec)
+	select new_draft_id, "key", 'collection'::catalog_spec_type, "value"
+	from jsonb_each(collection_specs)
+	union all
+	select new_draft_id, "key", 'materialization'::catalog_spec_type, "value"
+	from jsonb_each(jsonb_extract_path(bundled_catalog_arg::jsonb, 'materializations'))
+	on conflict (draft_id, catalog_name)
+	do update set spec_type = excluded.spec_type, spec = excluded.spec;
+
 	return;
 
 end \$\$

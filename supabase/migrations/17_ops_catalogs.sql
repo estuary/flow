@@ -27,12 +27,10 @@ declare
 	new_draft_id flowid := internal.id_generator();
 	publication_id flowid := internal.id_generator();
 	ops_template jsonb;
-	current_tenant tenants;
-	current_l1_transform_id integer;
 	l1_derivation_spec jsonb;
 	l2_derivation_spec jsonb;
 begin
-	select bundled_catalog::jsonb #- '{tests}'
+	select bundled_catalog::jsonb
 	into strict ops_template
 	from ops_catalog_template
 	where id = '00:00:00:00:00:00:00:00';
@@ -51,7 +49,7 @@ begin
 
 	-- Create a draft of ops changes.
 	insert into drafts (id, user_id, detail) values
-	(new_draft_id, ops_user_id, 'ops catalog for new tenant');
+	(new_draft_id, ops_user_id, 'updating ops catalog for new tenant');
 
 	-- Queue a publication of the draft.
 	insert into publications (id, user_id, draft_id) values
@@ -59,11 +57,7 @@ begin
 
 	-- Add the draft spec. TBD is how to expect a build ID.
 	-- Now upsert drafts for all specs of the template.
-	-- Skip tests for the `ops/` tenant (only), as these fail.
 	insert into draft_specs (draft_id, catalog_name, spec_type, spec)
-	select new_draft_id, "key", 'capture'::catalog_spec_type, "value"
-	from jsonb_each(jsonb_extract_path(ops_template, 'captures'))
-	union all
 	select new_draft_id, "key", 'collection'::catalog_spec_type, "value"
 	from jsonb_each(jsonb_extract_path(ops_template, 'collections') || l1_derivation_spec || l2_derivation_spec )
 	union all
@@ -79,84 +73,10 @@ security definer;
 
 comment on function internal.create_ops_publication is '
 Creates a new publication of the ops catalog template for a specific tenant.
-This publication will include all specs from the bundled_catalog in ops_catalog_template.
-Any _other_ specs under the ops/<tenant>/ prefix will be deleted by this publication.
+This publication will include the stats and logs collections for the tenant,
+the updated L1 derivation for the tenant, and the re-calculated L2
+derivation and reporting materialization.
 ';
-
-create procedure internal.migrate_stats_and_logs(tenant_prefix catalog_tenant, ops_user_id uuid) as $$
-declare
-	ops_template jsonb;
-	logs_template jsonb;
-	stats_template jsonb;
-	new_draft_id flowid := internal.id_generator();
-	publication_id flowid := internal.id_generator();
-begin
-	select bundled_catalog::jsonb
-	into strict ops_template
-	from ops_catalog_template
-	where id = '00:00:00:00:00:00:00:00';
-
-	logs_template := jsonb_build_object('ops/TENANT/logs', ops_template #> '{collections,ops/TENANT/logs}');
-	stats_template := jsonb_build_object('ops/TENANT/stats', ops_template #> '{collections,ops/TENANT/stats}');
-
-	logs_template := replace(logs_template::text, 'TENANT', rtrim(tenant_prefix, '/'))::jsonb;
-	stats_template := replace(stats_template::text, 'TENANT', rtrim(tenant_prefix, '/'))::jsonb;
-
-	insert into drafts (id, user_id, detail) values
-	(new_draft_id, ops_user_id, 're-publishing ops catalog');
-
-	insert into publications (id, user_id, draft_id) values
-	(publication_id, ops_user_id, new_draft_id);
-
-	insert into draft_specs (draft_id, catalog_name, spec_type, spec)
-	select new_draft_id, "key", 'collection'::catalog_spec_type, "value"
-	from jsonb_each(logs_template || stats_template)
-	on conflict (draft_id, catalog_name)
-	do update set spec_type = excluded.spec_type, spec = excluded.spec;
-end;
-$$ language plpgsql
-security definer;
-
-create procedure internal.migrate_reporting_catalog(ops_user_id uuid) as $$
-declare
-	ops_template jsonb;
-	new_draft_id flowid := internal.id_generator();
-	publication_id flowid := internal.id_generator();
-	tenant_count integer := 0;
-	l1_derivation_specs jsonb := '{}';
-	l2_derivation_spec jsonb;
-	current_l1_stat_rollup integer;
-begin
-	select bundled_catalog::jsonb
-	into strict ops_template
-	from ops_catalog_template
-	where id = '00:00:00:00:00:00:00:00';
-
-	for current_l1_stat_rollup in
-		select distinct l1_stat_rollup from tenants
-	loop
-		l1_derivation_specs := l1_derivation_specs || internal.create_l1_derivation_spec(ops_template, current_l1_stat_rollup);
-	end loop;
-
-	l2_derivation_spec := internal.create_l2_derivation_spec(ops_template);
-
-	insert into drafts (id, user_id, detail) values
-	(new_draft_id, ops_user_id, 're-publishing reporting catalog');
-
-	insert into publications (id, user_id, draft_id) values
-	(publication_id, ops_user_id, new_draft_id);
-
-	insert into draft_specs (draft_id, catalog_name, spec_type, spec)
-	select new_draft_id, "key", 'collection'::catalog_spec_type, "value"
-	from jsonb_each(l1_derivation_specs || l2_derivation_spec)
-	union all
-	select new_draft_id, "key", 'materialization'::catalog_spec_type, "value"
-	from jsonb_each(jsonb_extract_path(ops_template, 'materializations'))
-	on conflict (draft_id, catalog_name)
-	do update set spec_type = excluded.spec_type, spec = excluded.spec;
-end;
-$$ language plpgsql
-security definer;
 
 create function internal.create_l1_derivation_spec(ops_template jsonb, l1_stat_rollup_arg integer)
 returns jsonb as $$
@@ -262,3 +182,4 @@ begin
 end;
 $$ language plpgsql
 security definer;
+
