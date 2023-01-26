@@ -6,9 +6,10 @@ import {
 } from 'flow/ops/catalog-stats-L2/0';
 
 // This allows for a general form of the specific types to be used for the many publish functions
-// that will be templated in to this module. The word TENANT gets replaced by the most recent tenant
-// used to generate the module, which is fine since the concrete types are the same for all tenants.
-// The linter will try to convert an empty interface extension into a type, so it is disabled here.
+// that will be templated in to this module. The word L1ID gets replaced by the most recent
+// derivation used to generate the module, which is fine since the concrete types are the same for
+// all derivations. The linter will try to convert an empty interface extension into a type, so it
+// is disabled here.
 
 // eslint-disable-next-line
 interface AggregateSouce extends FromL1IDSource { }
