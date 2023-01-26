@@ -1,5 +1,5 @@
 {
-  "$schema": "https://json-schema.org/draft/2019-09/schema",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Catalog",
   "description": "Each catalog source defines a portion of a Flow Catalog, by defining collections, derivations, tests, and materializations of the Catalog. Catalog sources may reference and import other sources, in order to collections and other entities that source defines.",
   "type": "object",
@@ -35,7 +35,7 @@
       ],
       "type": "object",
       "patternProperties": {
-        "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$": {
+        "^[a-zA-Z0-9\\-_\\.]+(/[a-zA-Z0-9\\-_\\.]+)*$": {
           "$ref": "#/definitions/CaptureDef"
         }
       },
@@ -55,7 +55,7 @@
       ],
       "type": "object",
       "patternProperties": {
-        "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$": {
+        "^[a-zA-Z0-9\\-_\\.]+(/[a-zA-Z0-9\\-_\\.]+)*$": {
           "$ref": "#/definitions/CollectionDef"
         }
       },
@@ -96,7 +96,7 @@
       ],
       "type": "object",
       "patternProperties": {
-        "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$": {
+        "^[a-zA-Z0-9\\-_\\.]+(/[a-zA-Z0-9\\-_\\.]+)*$": {
           "$ref": "#/definitions/MaterializationDef"
         }
       },
@@ -118,7 +118,7 @@
       ],
       "type": "object",
       "patternProperties": {
-        "^([\\p{Letter}\\p{Number}\\-_\\.]+/)*$": {
+        "^([a-zA-Z0-9\\-_\\.]+/)*$": {
           "$ref": "#/definitions/StorageDef"
         }
       },
@@ -162,7 +162,7 @@
       ],
       "type": "object",
       "patternProperties": {
-        "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$": {
+        "^[a-zA-Z0-9\\-_\\.]+(/[a-zA-Z0-9\\-_\\.]+)*$": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/TestStep"
@@ -192,7 +192,7 @@
         "acmeCo/capture"
       ],
       "type": "string",
-      "pattern": "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$"
+      "pattern": "^[a-zA-Z0-9\\-_\\.]+(/[a-zA-Z0-9\\-_\\.]+)*$"
     },
     "CaptureBinding": {
       "examples": [
@@ -293,7 +293,7 @@
         "acmeCo/collection"
       ],
       "type": "string",
-      "pattern": "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$"
+      "pattern": "^[a-zA-Z0-9\\-_\\.]+(/[a-zA-Z0-9\\-_\\.]+)*$"
     },
     "CollectionDef": {
       "description": "Collection describes a set of related documents, where each adheres to a common schema and grouping key. Collections are append-only: once a document is added to a collection, it is never removed. However, it may be replaced or updated (either in whole, or in part) by a future document sharing its key. Each new document of a given key is \"reduced\" into existing documents of the key. By default, this reduction is achieved by completely replacing the previous document, but much richer reduction behaviors can be specified through the use of annotated reduction strategies of the collection schema.",
@@ -502,7 +502,7 @@
           "title": "Transforms which make up this derivation.",
           "type": "object",
           "patternProperties": {
-            "^[\\p{Letter}\\p{Number}\\-_\\.]+$": {
+            "^[a-zA-Z0-9\\-_\\.]+$": {
               "$ref": "#/definitions/TransformDef"
             }
           },
@@ -697,7 +697,7 @@
         "acmeCo/materialization"
       ],
       "type": "string",
-      "pattern": "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$"
+      "pattern": "^[a-zA-Z0-9\\-_\\.]+(/[a-zA-Z0-9\\-_\\.]+)*$"
     },
     "MaterializationBinding": {
       "examples": [
@@ -909,7 +909,7 @@
         "acmeCo/widgets/"
       ],
       "type": "string",
-      "pattern": "^([\\p{Letter}\\p{Number}\\-_\\.]+/)*$"
+      "pattern": "^([a-zA-Z0-9\\-_\\.]+/)*$"
     },
     "Projection": {
       "description": "Projections are named locations within a collection document which may be used for logical partitioning or directly exposed to databases into which collections are materialized.",
@@ -1216,7 +1216,7 @@
         "acmeCo/conversions/test"
       ],
       "type": "string",
-      "pattern": "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$"
+      "pattern": "^[a-zA-Z0-9\\-_\\.]+(/[a-zA-Z0-9\\-_\\.]+)*$"
     },
     "TestDocuments": {
       "description": "A test step describes either an \"ingest\" of document fixtures into a collection, or a \"verify\" of expected document fixtures from a collection.",
@@ -1416,7 +1416,7 @@
         "myTransform"
       ],
       "type": "string",
-      "pattern": "^[\\p{Letter}\\p{Number}\\-_\\.]+$"
+      "pattern": "^[a-zA-Z0-9\\-_\\.]+$"
     },
     "TransformDef": {
       "description": "A Transform reads and shuffles documents of a source collection, and processes each document through either one or both of a register \"update\" lambda and a derived document \"publish\" lambda.",
