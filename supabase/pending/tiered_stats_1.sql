@@ -1,0 +1,270 @@
+-- This script should be run after the updated agent has been deployed.
+
+begin;
+
+alter table tenants
+    add l1_stat_rollup integer not null
+    default 0;
+
+-- Prevent the deletion of the per-tenant stat materializations from deleting the catalog_stats
+-- table by temporarily changing the owner. We'll also manually clear out the materialized values so
+-- the new single materialization can start from scratch successfully.
+alter table catalog_stats owner to postgres;
+
+-- Create a publication that will delete all the existing per-tenant stat materializations. Wait for
+-- this publication to be completed by the agent prior to running tiered_stats_2.sql.
+do $$
+declare
+	ops_user_id uuid;
+    current_tenant tenants;
+	new_draft_id flowid := internal.id_generator();
+	publication_id flowid := internal.id_generator();
+begin
+	select id into strict ops_user_id from auth.users where email = 'support@estuary.dev';
+
+	insert into drafts (id, user_id, detail) values
+	(new_draft_id, ops_user_id, 're-publishing ops catalog');
+
+	insert into publications (id, user_id, draft_id) values
+	(publication_id, ops_user_id, new_draft_id);
+
+	for current_tenant in
+		select * from tenants
+	loop
+		insert into draft_specs (draft_id, catalog_name, spec_type, spec)
+		select new_draft_id, catalog_name, null, null
+		from live_specs
+		where catalog_name like ('ops/' || current_tenant.tenant || 'catalog-stats-view');
+	end loop;
+end
+$$ language plpgsql;
+
+truncate catalog_stats, flow_checkpoints_v1, flow_materializations_v2;
+
+-- Everything below is a direct copy from 17_ops_catalogs.sql, except for the "or replace" right
+-- below this comment, and the commit at the very end.
+create or replace function internal.create_ops_publication(tenant_prefix catalog_tenant, ops_user_id uuid)
+returns flowid as $$
+declare
+	l1_stat_rollup_selected integer;
+	new_draft_id flowid := internal.id_generator();
+	publication_id flowid := internal.id_generator();
+	ops_template jsonb;
+	l1_derivation_spec jsonb;
+	l2_derivation_spec jsonb;
+begin
+	select bundled_catalog::jsonb
+	into strict ops_template
+	from ops_catalog_template
+	where id = '00:00:00:00:00:00:00:00';
+
+	-- The l1_stat_rollup applicable to this tenant must be available in the tenants table.
+	select l1_stat_rollup from tenants where tenants.tenant = tenant_prefix
+	into strict l1_stat_rollup_selected;
+
+	-- Compute the level 1 reporting derivation spec for this tenant's publication and extract it
+	-- from the template. The new spec will include transforms for all tenants previously assigned
+	-- to l1_stat_rollup_selected plus the transform for the new tenant.
+	l1_derivation_spec := internal.create_l1_derivation_spec(ops_template, l1_stat_rollup_selected);
+	ops_template := ops_template #- '{collections,ops/catalog-stats-L1/L1ID}';
+
+	-- Compute the level 2 reporting derivation spec for this tenant's publication and extract it
+	-- from the template. A new level 2 derivation spec will only be published if this tenant is
+	-- created with a never before seen l1_stat_rollup. In most cases it will be a re-publication of
+	-- an existing spec.
+	l2_derivation_spec := internal.create_l2_derivation_spec(ops_template);
+	ops_template := ops_template #- '{collections,ops/catalog-stats-L2/0}';
+
+	-- Replace any remaining TENANT placeholders in the template. Currently this applies to the logs
+	-- and stats collections that are created for the new tenant.
+	ops_template := replace(ops_template::text, 'TENANT', rtrim(tenant_prefix, '/'))::jsonb;
+
+	-- Replace any remaining L1ID placeholders in the template. This is for the level 1 reporting
+	-- derivation. Currently this placeholder is only used in the tests section of the catalog.
+	ops_template := replace(ops_template::text, 'L1ID', l1_stat_rollup_selected::text)::jsonb;
+
+	-- Create a draft of ops changes.
+	insert into drafts (id, user_id, detail) values
+	(new_draft_id, ops_user_id, 'updating ops catalog for new tenant');
+
+	-- Queue a publication of the draft.
+	insert into publications (id, user_id, draft_id) values
+	(publication_id, ops_user_id, new_draft_id);
+
+	-- Upsert drafts for the level 1 and 2 derivations. Live specifications for these tasks will
+	-- usually already exist, so an expect_pub_id is provided to fail the publication on races that
+	-- may result from concurrent agents processing nearly-simultaneous tenant creations.
+	with l1_expect_pub_id as (
+		select last_pub_id as id
+		from live_specs
+		where catalog_name = (select * from jsonb_object_keys(l1_derivation_spec) limit 1)
+	),
+	l2_expect_pub_id as (
+		select last_pub_id as id
+		from live_specs
+		where catalog_name = (select * from jsonb_object_keys(l2_derivation_spec) limit 1)
+	)
+	insert into draft_specs (draft_id, catalog_name, spec_type, spec, expect_pub_id)
+	select new_draft_id, "key", 'collection'::catalog_spec_type, "value", (select id from l1_expect_pub_id)
+	from jsonb_each(l1_derivation_spec)
+	union all
+	select new_draft_id, "key", 'collection'::catalog_spec_type, "value", (select id from l2_expect_pub_id)
+	from jsonb_each(l2_derivation_spec)
+	on conflict (draft_id, catalog_name)
+	do update set spec_type = excluded.spec_type, spec = excluded.spec;
+
+	-- Now upsert drafts for all remaining specs in the template. Note that the materialization in
+	-- the ops catalog template is the single reporting materialization that reads from the single
+	-- level 2 reporting derivation. This materialization should never change after it has been
+	-- published for the first time. For simplicity it will be re-published as part of each new
+	-- tenant's complete reporting publication.
+	insert into draft_specs (draft_id, catalog_name, spec_type, spec)
+	select new_draft_id, "key", 'capture'::catalog_spec_type, "value"
+	from jsonb_each(jsonb_extract_path(ops_template, 'captures'))
+	union all
+	select new_draft_id, "key", 'collection'::catalog_spec_type, "value"
+	from jsonb_each(jsonb_extract_path(ops_template, 'collections'))
+	union all
+	select new_draft_id, "key", 'materialization'::catalog_spec_type, "value"
+	from jsonb_each(jsonb_extract_path(ops_template, 'materializations'))
+	on conflict (draft_id, catalog_name)
+	do update set spec_type = excluded.spec_type, spec = excluded.spec;
+
+	return publication_id;
+end;
+$$ language plpgsql
+security definer;
+
+comment on function internal.create_ops_publication is '
+Creates a new publication of the ops catalog template for a specific tenant.
+This publication will include the stats and logs collections for the tenant,
+the re-calculated level 1 and level 2 reporting derivations applicable to
+the tenant, and the single (unchanged) reporting materialization.
+';
+
+create function internal.create_l1_derivation_spec(ops_template jsonb, l1_stat_rollup_arg integer)
+returns jsonb as $$
+declare
+	l1_transform_template jsonb;
+	l1_transforms_complete jsonb := '{}';
+	current_tenant tenants;
+begin
+	l1_transform_template := ops_template #> '{collections,ops/catalog-stats-L1/L1ID,derivation,transform}';
+
+	for current_tenant in
+		select * from tenants where tenants.l1_stat_rollup = l1_stat_rollup_arg
+	loop
+		l1_transforms_complete := l1_transforms_complete || replace(l1_transform_template::text, 'TENANT', rtrim(current_tenant.tenant, '/'))::jsonb;
+	end loop;
+
+	ops_template := jsonb_set(ops_template, '{collections,ops/catalog-stats-L1/L1ID,derivation,transform}', l1_transforms_complete);
+	ops_template := internal.extend_l1_lambdas(ops_template, l1_stat_rollup_arg);
+
+	return jsonb_build_object(
+		replace('ops/catalog-stats-L1/L1ID','L1ID', l1_stat_rollup_arg::text),
+		ops_template #> '{collections,ops/catalog-stats-L1/L1ID}'
+	);
+end;
+$$ language plpgsql
+security definer;
+
+comment on function internal.create_l1_derivation_spec is'
+Helper function to build a complete level 1 reporting derivation spec
+including all tenants having a specified l1_stat_rollup value.
+';
+
+create function internal.create_l2_derivation_spec(ops_template jsonb)
+returns jsonb as $$
+declare
+	l2_transform_template jsonb;
+	l2_transforms_complete jsonb := '{}';
+	current_l1_transform_id integer;
+begin
+	l2_transform_template := ops_template #> '{collections,ops/catalog-stats-L2/0,derivation,transform}';
+
+	for current_l1_transform_id in
+		select distinct l1_stat_rollup from tenants
+	loop
+		l2_transforms_complete := l2_transforms_complete || replace(l2_transform_template::text, 'L1ID', current_l1_transform_id::text)::jsonb;
+	end loop;
+
+	ops_template := jsonb_set(ops_template, '{collections,ops/catalog-stats-L2/0,derivation,transform}', l2_transforms_complete);
+	ops_template := internal.extend_l2_lambdas(ops_template);
+
+	return jsonb_build_object(
+		'ops/catalog-stats-L2/0',
+		ops_template #> '{collections,ops/catalog-stats-L2/0}'
+	);
+end;
+$$ language plpgsql
+security definer;
+
+comment on function internal.create_l2_derivation_spec is '
+Helper function to build a complete level 2 reporting derivation spec
+including all level 1 derivations in the system.
+';
+
+create function internal.extend_l1_lambdas(ops_template jsonb, l1_stat_rollup_arg integer)
+returns jsonb as $$
+declare
+	logs_template text := 'fromTENANTLogsPublish(source: LogsSource, _register: Register, _previous: Register): Document[] { return logsPublish(source) };\n';
+	stats_template text := 'fromTENANTStatsPublish(source: StatsSource, _register: Register, _previous: Register): Document[] { return statsPublish(source) };\n';
+	insert_placeholder text := '// transformsInsertPoint\n';
+	base_ts text;
+	current_tenant tenants;
+begin
+	base_ts := ops_template #> '{collections,ops/catalog-stats-L1/L1ID,derivation,typescript,module}';
+	base_ts := REGEXP_REPLACE(base_ts, '\/\/ transformsBegin[\s\S]*transformsEnd', insert_placeholder);
+
+	for current_tenant in
+		select * from tenants where tenants.l1_stat_rollup = l1_stat_rollup_arg
+	loop
+		base_ts := REPLACE(base_ts, insert_placeholder, logs_template || insert_placeholder);
+		base_ts := REPLACE(base_ts, insert_placeholder, stats_template || insert_placeholder);
+		-- This is a little weird, but necessary. The "imports" section will end up importing from
+		-- the type from the last tenant processed, and that type will be extended from as an
+		-- interface for all the publish lambdas.
+		base_ts := REPLACE(base_ts, 'TENANT', rtrim(current_tenant.tenant, '/'));
+	end loop;
+
+	base_ts := REPLACE(base_ts, 'L1ID', l1_stat_rollup_arg::text);
+
+	return jsonb_set(ops_template, '{collections,ops/catalog-stats-L1/L1ID,derivation,typescript,module}', base_ts::jsonb);
+end;
+$$ language plpgsql
+security definer;
+
+comment on function internal.extend_l1_lambdas is '
+Helper function to populate the typescript lambdas for a level 1 reporting
+derivation for all tenants with a specified l1_stat_rollup value.
+';
+
+create function internal.extend_l2_lambdas(ops_template jsonb)
+returns jsonb as $$
+declare
+	source_template text := 'fromL1IDPublish(source: AggregateSouce, _register: Register, _previous: Register): OutputDocument[] { return [source] };\n';
+	insert_placeholder text := '// transformsInsertPoint\n';
+	base_ts text;
+	current_l1_transform_id integer;
+begin
+	base_ts := ops_template #> '{collections,ops/catalog-stats-L2/0,derivation,typescript,module}';
+	base_ts := REGEXP_REPLACE(base_ts, '\/\/ transformsBegin[\s\S]*transformsEnd', insert_placeholder);
+
+	for current_l1_transform_id in
+		select distinct l1_stat_rollup from tenants
+	loop
+		base_ts := REPLACE(base_ts, insert_placeholder, source_template || insert_placeholder);
+		base_ts := REPLACE(base_ts, 'L1ID', current_l1_transform_id::text);
+	end loop;
+
+	return jsonb_set(ops_template, '{collections,ops/catalog-stats-L2/0,derivation,typescript,module}', base_ts::jsonb);
+end;
+$$ language plpgsql
+security definer;
+
+comment on function internal.extend_l2_lambdas is '
+Helper function to populate the typescript lambdas for a level 2 reporting
+derivation for all level 1 derivations in the system.
+';
+
+commit;

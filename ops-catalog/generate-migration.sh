@@ -59,6 +59,14 @@ begin
 		return;
 	end if;
 
+	-- Create a draft of ops changes.
+	insert into drafts (id, user_id, detail) values
+	(new_draft_id, ops_user_id, 're-publishing ops catalog');
+
+	-- Queue a publication of the draft.
+	insert into publications (id, user_id, draft_id) values
+	(publication_id, ops_user_id, new_draft_id);
+
 	-- Build all of the level 1 derivation specs & the single level 2 derivation spec.
 	for current_l1_stat_rollup in
 		select distinct l1_stat_rollup from tenants
@@ -68,30 +76,22 @@ begin
 
 	collection_specs := collection_specs || internal.create_l2_derivation_spec(bundled_catalog_arg::jsonb);
 
-	-- Each tenant gets its own logs & stats collections.
 	logs_template := jsonb_build_object('ops/TENANT/logs', bundled_catalog_arg::jsonb #> '{collections,ops/TENANT/logs}');
 	stats_template := jsonb_build_object('ops/TENANT/stats', bundled_catalog_arg::jsonb #> '{collections,ops/TENANT/stats}');
 
+	-- Each tenant gets its own logs & stats collections.
 	for current_tenant in
 		select * from tenants
 	loop
 		collection_specs := collection_specs || replace(logs_template::text, 'TENANT', rtrim(current_tenant.tenant, '/'))::jsonb;
 		collection_specs := collection_specs || replace(stats_template::text, 'TENANT', rtrim(current_tenant.tenant, '/'))::jsonb;
+
+		-- Draft a deletion for all currently-live ops catalog specs for this tenant.
+		insert into draft_specs (draft_id, catalog_name, spec_type, spec)
+		select new_draft_id, catalog_name, null, null
+		from live_specs
+		where catalog_name like ('ops/' || current_tenant.tenant || '%');
 	end loop;
-
-	-- Create a draft of ops changes.
-	insert into drafts (id, user_id, detail) values
-	(new_draft_id, ops_user_id, 're-publishing ops catalog');
-
-	-- Queue a publication of the draft.
-	insert into publications (id, user_id, draft_id) values
-	(publication_id, ops_user_id, new_draft_id);
-
-	-- Draft a deletion for all currently-live ops catalog specs.
-	insert into draft_specs (draft_id, catalog_name, spec_type, spec)
-	select new_draft_id, catalog_name, null, null
-	from live_specs
-	where catalog_name like ('ops/' || tenant_prefix || '%');
 
 	-- Now upsert drafts specs that were created. The single materialization spec is extracted
 	-- directly from the template.
