@@ -9,13 +9,13 @@ use std::{
 
 use anyhow::{anyhow, bail, Context};
 use bollard::container::RemoveContainerOptions;
-use cmd_lib::{init_builtin_logger, run_cmd};
+use cmd_lib::{init_builtin_logger, run_cmd, run_fun};
 use connector_init::config::{
     EtcHost, EtcResolv, GuestConfig, GuestConfigBuilder, IPConfig, Image, ImageConfig,
 };
 use firec::{config::network::Interface, Machine};
 use futures::TryStreamExt;
-use ipnetwork::IpNetwork;
+use ipnetwork::{IpNetwork, Ipv4Network};
 use nftnl::{
     nft_expr, nftnl_sys::libc, Batch, Chain, ChainType, FinalizedBatch, Hook, MsgType, Policy,
     ProtoFamily, Rule, Table,
@@ -24,10 +24,12 @@ use serde_json::json;
 use std::ffi::CString;
 use tokio::{signal::unix, time::sleep};
 use tokio_tun::TunBuilder;
-use tracing::{debug, info, metadata::LevelFilter, trace};
+use tracing::{debug, error, info, metadata::LevelFilter, trace};
 use tracing_log::LogTracer;
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
+
+pub mod cni;
 
 /// Copy init binary, image inspect JSON, and guest config JSON
 #[tracing::instrument(err, skip_all)]
@@ -247,207 +249,65 @@ table inet flow-firecracker-nat {
     }
 }
 */
+
 #[tracing::instrument(err, skip_all)]
-async fn setup_networking(
-    id: &Uuid,
-    network_conf: &IPConfig,
-    wan_interface_name: Option<String>,
-) -> anyhow::Result<String> {
+async fn setup_networking(id: &Uuid) -> anyhow::Result<(String, String, IPConfig)> {
     let mut id_prefix = id.to_string();
     id_prefix.truncate(4);
 
-    let gateway_addr = match network_conf.gateway.ip() {
-        std::net::IpAddr::V4(ip) => ip,
-        std::net::IpAddr::V6(_) => {
-            bail!("Only IPV4 networks are supported for firecracker VMs at this point")
-        }
-    };
-    let netmask = match network_conf.gateway.mask() {
-        std::net::IpAddr::V4(mask) => mask,
-        // We should never get here because of the bail above
-        std::net::IpAddr::V6(_) => {
-            bail!("Only IPV4 networks are supported for firecracker VMs at this point")
-        }
-    };
+    let netns_name = format!("ns-{id_prefix}");
 
-    let tap = TunBuilder::new()
-        .name(format!("tun{}", id_prefix).as_ref())
-        .tap(true)
-        .address(gateway_addr)
-        .netmask(netmask)
-        .persist() // would love if this wasn't needed but it appears to not do anything without it :(
-        // .up() // or set it up manually using `sudo ip link set <tun-name> up`.
-        .try_build()
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    rtnetlink::NetworkNamespace::add(netns_name.clone()).await?;
 
-    let devname = tap.name();
+    debug!(netns = netns_name, "Created network namespace");
 
-    debug!(tap_device = devname, "TUN/TAP device created");
+    let cni_path = "/home/js/cniplugins";
+    let cni_cfg = "fcnet";
 
-    // // Apparently the ".up()" method on TunBuilder doesn't work?
-    let (connection, netlink_handle, _) = rtnetlink::new_connection().unwrap();
-    tokio::spawn(connection);
+    let netns_path = format!("/var/run/netns/{netns_name}");
 
-    let tap_link = netlink_handle
-        .link()
-        .get()
-        .match_name(devname.into())
-        .execute()
-        .try_next()
-        .await?
-        .context(format!(
-            "rtnetlink could not find newly created TUN/TAP device {devname}"
-        ))?;
+    let res = run_fun!(CNI_PATH=$cni_path cnitool add $cni_cfg $netns_path)?;
 
-    netlink_handle
-        .link()
-        .set(tap_link.header.index)
-        .up()
-        .execute()
-        .await
-        .context(format!(
-            "rtnetlink could not set TUN/TAP device {devname} 'up'"
-        ))?;
+    let parsed = serde_json::from_str::<crate::cni::Result>(res.as_ref()).map_err(|e| {
+        error!("Failed to load JSON result from cnitool. Response: {res}");
+        e
+    })?;
 
-    debug!(tap_device = devname, "TUN/TAP device set 'up'");
+    // This is probably always going to be `tap0`, which is fine because this is
+    // the name of the interface INSIDE of the network namespace
+    let tap_iface = parsed
+        .interfaces
+        .iter()
+        .find(|iface| {
+            iface
+                .sandbox
+                .to_owned()
+                // the cnitool binary prefixes all of its ContainerIDs with cnitool
+                // note: This is dumb and we should either put in the work to write a
+                // Rust client to use cni plugins, or PR cnitool to support CNI_CONTAINERID env
+                .map(|sbx| sbx.starts_with("cnitool"))
+                .unwrap_or(false)
+        })
+        .ok_or(anyhow!("Unable to find name of tap interface"))?;
 
-    // Now that we have the tap device for routing all traffic from this VM, let's NAT it to the world
-    // "Source NAT is most commonly used for translating private IP address to a public routable address"
-    // See https://wiki.nftables.org/wiki-nftables/index.php/Performing_Network_Address_Translation_(NAT)
+    let ip = parsed
+        .ips
+        .first()
+        .ok_or(anyhow!("No IPs were created for some reason"))?;
 
-    // Heavily inspired by: https://github.com/mullvad/nftnl-rs/blob/master/nftnl/examples/add-rules.rs
-
-    // Create a batch. This is used to store all the netlink messages we will later send.
-    // Creating a new batch also automatically writes the initial batch begin message needed
-    // to tell netlink this is a single transaction that might arrive over multiple netlink packets.
-    let mut batch = Batch::new();
-
-    // Create a netfilter table operating on both IPv4 and IPv6 (ProtoFamily::Inet)
-    let nat_table_name = format!("{NAT_TABLE_NAME}-{devname}");
-    let table = Table::new(&CString::new(nat_table_name.clone())?, ProtoFamily::Inet);
-    // Add the table to the batch with the `MsgType::Add` type, thus instructing netfilter to add
-    // this table under its `ProtoFamily::Inet` ruleset.
-    batch.add(&table, MsgType::Add);
-
-    let nat_prefilter_chain_name = format!("{NAT_CHAIN_NAME}-prefilter");
-    let mut nat_prefilter_chain =
-        Chain::new(&CString::new(nat_prefilter_chain_name.clone())?, &table);
-    nat_prefilter_chain.set_hook(Hook::Forward, 0);
-    nat_prefilter_chain.set_type(ChainType::Filter);
-    nat_prefilter_chain.set_policy(Policy::Drop);
-    batch.add(&nat_prefilter_chain, MsgType::Add);
-
-    let wan_interface = match wan_interface_name {
-        Some(iface) => iface,
-        None => get_default_route_device_name().await?,
-    };
-
-    // nft add rule $nat_chain iifname "tapx" oifname "wan" accept
-    let mut tap_nat_filter_rule = Rule::new(&nat_prefilter_chain);
-    tap_nat_filter_rule.add_expr(&nft_expr!(meta iifname)); // load input interface name
-    tap_nat_filter_rule.add_expr(&nft_expr!(cmp == devname)); // select packets with iifname equal to the name of the tap device
-    tap_nat_filter_rule.add_expr(&nft_expr!(meta oifname));
-    tap_nat_filter_rule.add_expr(&nft_expr!(cmp == wan_interface.as_str()));
-    tap_nat_filter_rule.add_expr(&nft_expr!(verdict accept));
-    batch.add(&tap_nat_filter_rule, MsgType::Add);
-
-    // nft add rule inet $nat_chain ct state related,established accept
-    let mut tap_nat_conntrack_rule = Rule::new(&nat_prefilter_chain);
-    tap_nat_conntrack_rule.add_expr(&nft_expr!(ct state));
-    let allowed_states =
-        nftnl::expr::ct::States::ESTABLISHED.bits() | nftnl::expr::ct::States::RELATED.bits();
-    tap_nat_conntrack_rule.add_expr(&nft_expr!(bitwise mask allowed_states, xor 0u32));
-    tap_nat_conntrack_rule.add_expr(&nft_expr!(cmp != 0u32));
-    tap_nat_conntrack_rule.add_expr(&nft_expr!(verdict accept));
-    batch.add(&tap_nat_conntrack_rule, MsgType::Add);
-
-    // Here I'm working from the "Source NAT" section
-    // https://wiki.nftables.org/wiki-nftables/index.php/Performing_Network_Address_Translation_(NAT)
-    // Also see https://github.com/mullvad/mullvadvpn-app/blob/master/talpid-core/src/firewall/linux.rs#L287
-    // 'add chain nat postrouting { type nat hook postrouting priority 100 ; }'
-    let nat_chain_name = format!("{NAT_CHAIN_NAME}");
-    let mut nat_chain = Chain::new(&CString::new(nat_chain_name.clone())?, &table);
-    // Not entirely sure why, but mullvad sets this to NF_IP_PRI_NAT_SRC instead of 0
-    nat_chain.set_hook(Hook::PostRouting, libc::NF_IP_PRI_NAT_SRC);
-    nat_chain.set_type(ChainType::Nat);
-    nat_chain.set_policy(Policy::Drop);
-    batch.add(&nat_chain, MsgType::Add);
-
-    // Now that we've set up the table and chain (which we should only have to do once)
-    // Let's actually add the NAT rule for our tap device
-
-    // nft add rule inet $nat_chain oifname "wan" masquerade
-    let mut tap_nat_rule = Rule::new(&nat_chain);
-
-    tap_nat_rule.add_expr(&nft_expr!(meta oifname)); // Load output interface name
-    tap_nat_rule.add_expr(&nft_expr!(cmp == wan_interface.as_str())); // Set output interface to default interface
-
-    tap_nat_rule.add_expr(&nft_expr!(meta oifname));
-    tap_nat_rule.add_expr(&nft_expr!(cmp != "lo")); // Don't masquerade packets on the loopback device.
-
-    tap_nat_rule.add_expr(&nft_expr!(masquerade)); // Rewrite such that "source address is automagically set to the address of the output interface"
-
-    batch.add(&tap_nat_rule, MsgType::Add);
-
-    // saddr [gateway] oifname "tun[xxxx]*" accept
-    let mut allow_host_to_guest_rule = Rule::new(&nat_chain);
-
-    // Load the `nfproto` metadata into the netfilter register. This metadata denotes which layer3
-    // protocol the packet being processed is using.
-    allow_host_to_guest_rule.add_expr(&nft_expr!(meta nfproto));
-    // Check if the currently processed packet is an IPv4 packet. This must be done before payload
-    // data assuming the packet uses IPv4 can be loaded in the next expression.
-    allow_host_to_guest_rule.add_expr(&nft_expr!(cmp == libc::NFPROTO_IPV4 as u8));
-    // Load the IPv4 destination address into the netfilter register.
-    allow_host_to_guest_rule.add_expr(&nft_expr!(payload ipv4 saddr));
-    // Allow requests to guest so long as they originate from host (i.e gateway ip)
-    allow_host_to_guest_rule.add_expr(&nft_expr!(cmp == gateway_addr));
-    // and they are destined for the guest
-    allow_host_to_guest_rule.add_expr(&nft_expr!(meta oifname));
-    allow_host_to_guest_rule.add_expr(&nft_expr!(cmp == devname));
-    allow_host_to_guest_rule.add_expr(&nft_expr!(verdict accept));
-    batch.add(&allow_host_to_guest_rule, MsgType::Add);
-
-    // iifname lo accept
-    let mut allow_loopback = Rule::new(&nat_chain);
-
-    allow_loopback.add_expr(&nft_expr!(meta oifname));
-    allow_loopback.add_expr(&nft_expr!(cmp == "lo"));
-    allow_loopback.add_expr(&nft_expr!(verdict accept));
-    batch.add(&allow_loopback, MsgType::Add);
-
-    let finalized_batch = batch.finalize();
-
-    // Send the entire batch and process any returned messages.
-    send_and_process_netfilter(&finalized_batch)?;
-
-    info!("To debug, run: sudo nft add rule inet {nat_table_name} {nat_chain_name} meta nftrace set 1");
-    info!("To watch trace, run: sudo nft monitor trace");
-
-    let guest_ip = match network_conf.ip.ip() {
-        std::net::IpAddr::V4(v4) => v4,
-        std::net::IpAddr::V6(_) => bail!("IPV6 not supported"),
-    };
-
-    debug!("Trying to add route to {guest_ip} via {gateway_addr} {devname}");
-
-    // ip r add {guest_ip} via {gateway_ip} dev {tapx}
-    netlink_handle
-        .route()
-        .add()
-        .v4()
-        .replace()
-        .destination_prefix(guest_ip, 32)
-        .gateway(gateway_addr)
-        .output_interface(nix::net::if_::if_nametoindex(devname)?)
-        .execute()
-        .await?;
-
-    debug!("Added route to {guest_ip} via {gateway_addr} {devname}");
-
-    sleep(Duration::from_secs(10)).await;
-
-    Ok(tap.name().to_owned())
+    Ok((
+        tap_iface.name.to_owned(),
+        netns_path.to_owned(),
+        IPConfig {
+            ip: ip.address,
+            gateway: IpNetwork::V4(match ip.gateway {
+                std::net::IpAddr::V4(v4ip) => Ipv4Network::new(v4ip, 0)?,
+                std::net::IpAddr::V6(v6ip) => {
+                    bail!("Got an unexpected IPV6 gateway from CNI: {v6ip}")
+                }
+            }),
+        },
+    ))
 }
 
 #[tokio::main]
@@ -475,12 +335,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let image_conf = get_image_config(image_name.to_owned()).await?;
 
-    let ip_config = IPConfig {
-        gateway: IpNetwork::from_str("172.50.0.1")?,
-        ip: IpNetwork::from_str("172.50.0.2/24")?,
-    };
-
-    let tap_dev_name = setup_networking(&vm_id, &ip_config, None).await?;
+    let (tap_dev_name, netns_path, ip_config) = setup_networking(&vm_id).await?;
 
     let guest_conf = GuestConfigBuilder::default()
         .root_device("/dev/vdb") // Assuming that the second disk becomes vdb...
@@ -514,16 +369,17 @@ async fn main() -> Result<(), anyhow::Error> {
             --image-inspect-json-path /flow/image_inspect.json \
             --guest-config-json-path /flow/guest_config.json";
 
-    let iface = Interface::new(tap_dev_name, "tap0");
+    let iface = Interface::new(tap_dev_name, "eth0");
 
     let config = firec::config::Config::builder(Some(vm_id), Path::new("vmlinux-self-5.19.bin"))
         .jailer_cfg()
         .chroot_base_dir(tempdir.path())
         .exec_file(Path::new("/usr/bin/firecracker"))
         .build()
+        .net_ns(netns_path)
         .kernel_args(kernel_args)
         .machine_cfg()
-        .vcpu_count(2)
+        .vcpu_count(1)
         .mem_size_mib(1024)
         .build()
         .add_drive("root", init_fs)

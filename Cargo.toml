@@ -183,8 +183,8 @@ derive_builder = "0.12.0"
 
 warp = "0.3.3"
 
-firec = "0.2.0"
-bollard = "0.13.0"
+firec = { git = "https://github.com/jshearer/firec.git", branch = "main" }
+bollard = "0.14.0"
 
 nix = "0.26.2"
 procfs = "0.14.2"
