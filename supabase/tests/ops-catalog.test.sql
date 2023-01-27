@@ -140,7 +140,92 @@ returns setof text as $test$
 			('ops/stats-view', 'materialization', null) $$
 	);
 
+	-- Level 1 derivation includes transforms for both tenants assigned to l1_stats_rollup = 0.
+	select is(
+		internal.create_l1_derivation_spec(0)::text,
+		'{
+			"ops/catalog-stats-L1/0":{
+				"derivation":{
+					"transform":{
+						"fromopsLogs":{
+							"source":{
+								"name":"ops/ops/logs"
+							}
+						},
+						"fromopsStats":{
+							"source":{
+								"name":"ops/ops/stats"
+							}
+						},
+						"fromaliceCoLogs":{
+							"source":{
+								"name":"ops/aliceCo/logs"
+							}
+						},
+						"fromaliceCoStats":{
+							"source":{
+								"name":"ops/aliceCo/stats"
+							}
+						}
+					},
+					"typescript":{
+						"module":{}
+					}
+				}
+			}
+		}'::jsonb::text
+	);
+
+	-- Level 1 derivation includes transforms for single tenant assigned to l1_stats_rollup = 1.
+	select is(
+		internal.create_l1_derivation_spec(1)::text,
+		'{
+			"ops/catalog-stats-L1/1":{
+				"derivation":{
+					"transform":{
+						"frombobCoLogs":{
+							"source":{
+								"name":"ops/bobCo/logs"
+							}
+						},
+						"frombobCoStats":{
+							"source":{
+								"name":"ops/bobCo/stats"
+							}
+						}
+					},
+					"typescript":{
+						"module":{}
+					}
+				}
+			}
+		}'::jsonb::text
+	);
+
+	-- Level 2 derivation includes transforms for both level 1 derivations
+	select is(
+		internal.create_l2_derivation_spec()::text,
+		'{
+			"ops/catalog-stats-L2/0":{
+				"derivation":{
+					"transform":{
+						"from0":{
+							"source":{
+								"name":"ops/catalog-stats-L1/0"
+							}
+						},
+						"from1":{
+							"source":{
+								"name":"ops/catalog-stats-L1/1"
+							}
+						}
+					},
+					"typescript":{
+						"module":{}
+					}
+				}
+			}
+		}'::jsonb::text
+	);
+
 $test$ language sql;
-
-
-
