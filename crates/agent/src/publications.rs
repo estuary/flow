@@ -252,8 +252,8 @@ impl PublishHandler {
             return Ok((row.pub_id, JobStatus::Success));
         }
 
-        let tmpdir = tempfile::TempDir::new().context("creating tempdir")?;
-        let tmpdir = tmpdir.path();
+        let tmpdir_handle = tempfile::TempDir::new().context("creating tempdir")?;
+        let tmpdir = tmpdir_handle.path();
 
         let errors = builds::build_catalog(
             &self.builds_root,
@@ -328,6 +328,8 @@ impl PublishHandler {
             return stop_with_errors(errors, JobStatus::PublishFailed, row, txn).await;
         }
 
+        // ensure that this tempdir doesn't get dropped before `deploy_build` is called, which depends on the files being there.
+        std::mem::drop(tmpdir_handle);
         Ok((row.pub_id, JobStatus::Success))
     }
 }
