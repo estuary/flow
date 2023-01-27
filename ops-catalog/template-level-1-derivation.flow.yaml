@@ -1,0 +1,21 @@
+# A level 1 reporting derivation computes granular reporting metrics for a bound subset of platform
+# tenants. Each tenant is assigned a transform with the source collection of their raw stats and
+# logs collections.
+collections:
+  ops/catalog-stats-L1/L1ID:
+    schema: ops-catalog-stats-schema.json
+    key: [/catalogName, /grain, /ts]
+
+    derivation:
+      shards:
+        minTxnDuration: 5s
+      typescript: { module: "catalog-stats.ts" }
+      transform:
+        fromTENANTLogs:
+          source:
+            name: ops/TENANT/logs
+          publish: { lambda: typescript }
+        fromTENANTStats:
+          source:
+            name: ops/TENANT/stats
+          publish: { lambda: typescript }

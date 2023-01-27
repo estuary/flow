@@ -1,0 +1,15 @@
+# This template exists to allow locally testing changes made to the specs. The tests are defined in
+# template-tests.flow.yaml.
+
+# Run the tests with : flowctl-go test --source template-local-combined.flow.yaml
+
+import:
+  - template-tenant.flow.yaml
+  - template-level-1-derivation.flow.yaml
+  - template-level-2-derivation.flow.yaml
+  - template-materialization-local.flow.yaml
+  - template-tests.flow.yaml
+
+# TODO(johnny): this is used only for local testing with `flowctl-go` and can go away soon.
+storageMappings:
+  "": { stores: [{ provider: S3, bucket: a-bucket }] }

@@ -1,9 +1,4 @@
-import {
-    IDerivation,
-    OutputDocument,
-    Register,
-    FromL1IDSource
-} from 'flow/ops/catalog-stats-L2/0';
+import { IDerivation, OutputDocument, Register, FromL1IDSource } from 'flow/ops/catalog-stats-L2/0';
 
 // This allows for a general form of the specific types to be used for the many publish functions
 // that will be templated in to this module. The word L1ID gets replaced by the most recent

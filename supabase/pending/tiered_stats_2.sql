@@ -1,4 +1,4 @@
--- This script should be run after the publications created in tiered_stats_1.sql are finished.
+-- This script should be run after the publications created in tiered_stats_1 are finished.
 -- ops-catalog/generate-migration.sh can then be run to (re-)generate the entire ops catalog,
 -- including per-tenant specs.
 

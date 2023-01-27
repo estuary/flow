@@ -1,0 +1,24 @@
+# These specs will be created for every new tenant.
+
+collections:
+  ops/TENANT/logs:
+    schema: ops-log-schema.json
+    key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
+    projections:
+      kind:
+        location: /shard/kind
+        partition: true
+      name:
+        location: /shard/name
+        partition: true
+
+  ops/TENANT/stats:
+    schema: ops-stats-schema.json
+    key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
+    projections:
+      kind:
+        location: /shard/kind
+        partition: true
+      name:
+        location: /shard/name
+        partition: true

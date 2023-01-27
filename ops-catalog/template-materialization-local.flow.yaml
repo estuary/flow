@@ -1,8 +1,5 @@
-import:
-  - template-common.flow.yaml
-
 materializations:
-  ops/catalog-stats-view:
+  ops/stats-view:
     endpoint:
       connector:
         image: ghcr.io/estuary/materialize-postgres:v4

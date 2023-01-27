@@ -1,0 +1,28 @@
+# A level 2 reporting derivation is a simple pass-through of reporting documents from one or more
+# level 1 reporting derivations. This single derived collection can be materialized directly or
+# further combined by similar higher-level derivations.
+collections:
+  ops/catalog-stats-L2/0:
+    schema: ops-catalog-stats-schema.json
+    key: [/catalogName, /grain, /ts]
+    projections:
+      catalog_name: /catalogName
+      bytes_written_by_me: /statsSummary/writtenByMe/bytesTotal
+      docs_written_by_me: /statsSummary/writtenByMe/docsTotal
+      bytes_read_by_me: /statsSummary/readByMe/bytesTotal
+      docs_read_by_me: /statsSummary/readByMe/docsTotal
+      bytes_written_to_me: /statsSummary/writtenToMe/bytesTotal
+      docs_written_to_me: /statsSummary/writtenToMe/docsTotal
+      bytes_read_from_me: /statsSummary/readFromMe/bytesTotal
+      docs_read_from_me: /statsSummary/readFromMe/docsTotal
+      warnings: /statsSummary/warnings
+      errors: /statsSummary/errors
+      failures: /statsSummary/failures
+
+    derivation:
+      typescript: { module: "catalog-stats-rollup.ts" }
+      transform:
+        fromL1ID:
+          source:
+            name: ops/catalog-stats-L1/L1ID
+          publish: { lambda: typescript }

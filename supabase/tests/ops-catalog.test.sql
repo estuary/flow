@@ -15,64 +15,91 @@ returns setof text as $test$
     	('0202020202020202', 'ops/catalog-stats-L1/0', 'collection', '{}', '0101010101010101', '0101010101010101'),
     	('0303030303030303', 'ops/catalog-stats-L2/0', 'collection', '{}', '0202020202020202', '0202020202020202');
 
-	-- Add a dummy catalog fixture. It includes a simplified form of the template for level 1 & 2
-	-- reporting derivations.
-	insert into ops_catalog_template (id, bundled_catalog) values (
-		'00:00:00:00:00:00:00:00',
-		'{
-			"captures": {
-				"ops/TENANT/foo": {
-					"endpoint": {
-						"connector": { "image": "test/capture-image:v0", "config": {}}
-					},
-					"bindings": []
-				}
-			},
-			"collections": {
-				"ops/TENANT/bar": {
-					"schema": { "type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"] },
-					"key": ["/id"]
+	-- Add dummy template fixtures.
+	insert into ops_catalog_template (template_type, bundled_catalog) values
+		(
+			'tenant',
+			'{
+				"captures": {
+					"ops/TENANT/foo": {
+						"endpoint": {
+							"connector": { "image": "test/capture-image:v0", "config": {}}
+						},
+						"bindings": []
+					}
 				},
-				"ops/catalog-stats-L1/L1ID": {
-					"derivation": {
-						"typescript": { "module": {} },
-						"transform": {
-							"fromTENANTLogs": {
-								"source": {
-									"name": "ops/TENANT/logs"
-								}
-							},
-							"fromTENANTStats": {
-								"source": {
-									"name": "ops/TENANT/stats"
+				"collections": {
+					"ops/TENANT/bar": {
+						"schema": { "type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"] },
+						"key": ["/id"]
+					}
+				},
+				"materializations": {
+					"ops/TENANT/baz": {
+						"endpoint": {
+							"connector": { "image": "test/materialize-image:v0", "config": {}}
+						},
+						"bindings": []
+					}
+				}
+			}'
+		),
+		(
+			'l1_derivation',
+			'{
+				"collections": {
+					"ops/catalog-stats-L1/L1ID": {
+						"derivation": {
+							"typescript": { "module": {} },
+							"transform": {
+								"fromTENANTLogs": {
+									"source": {
+										"name": "ops/TENANT/logs"
+									}
+								},
+								"fromTENANTStats": {
+									"source": {
+										"name": "ops/TENANT/stats"
+									}
 								}
 							}
 						}
 					}
-				},
-				"ops/catalog-stats-L2/0": {
-					"derivation": {
-						"typescript": { "module": {} },
-						"transform": {
-							"fromL1ID": {
-								"source": {
-									"name": "ops/catalog-stats-L1/L1ID"
+				}
+			}'
+		),
+		(
+			'l2_derivation',
+			'{
+				"collections": {
+					"ops/catalog-stats-L2/0": {
+						"derivation": {
+							"typescript": { "module": {} },
+							"transform": {
+								"fromL1ID": {
+									"source": {
+										"name": "ops/catalog-stats-L1/L1ID"
+									}
 								}
 							}
 						}
 					}
 				}
-			},
-			"materializations": {
-				"ops/TENANT/baz": {
-					"endpoint": {
-						"connector": { "image": "test/materialize-image:v0", "config": {}}
-					},
-					"bindings": []
+			}'
+		),
+		(
+			'materialization',
+			'{
+				"materializations": {
+					"ops/stats-view": {
+						"endpoint": {
+							"connector": { "image": "test/materialize-image:v0", "config": {}}
+						},
+						"bindings": []
+					}
 				}
-			}
-		}'
-	);
+			}'
+		);
 
 	-- Creation of a new tenant using an existing l1_stat_rollup. This will create an update of the
 	-- existing level 1 and level 2 derivations.
@@ -90,7 +117,8 @@ returns setof text as $test$
 			('ops/aliceCo/baz', 'materialization', null),
 			('ops/aliceCo/foo', 'capture', null),
 			('ops/catalog-stats-L1/0', 'collection', '01:01:01:01:01:01:01:01'),
-			('ops/catalog-stats-L2/0', 'collection', '02:02:02:02:02:02:02:02') $$
+			('ops/catalog-stats-L2/0', 'collection', '02:02:02:02:02:02:02:02'),
+			('ops/stats-view', 'materialization', null) $$
 	);
 
 	-- Creation of a different tenant using a new l1_stat_rollup. This will create a new level 1
@@ -108,7 +136,8 @@ returns setof text as $test$
 			('ops/bobCo/baz', 'materialization', null),
 			('ops/bobCo/foo', 'capture', null),
 			('ops/catalog-stats-L1/1', 'collection', null),
-			('ops/catalog-stats-L2/0', 'collection', '02:02:02:02:02:02:02:02') $$
+			('ops/catalog-stats-L2/0', 'collection', '02:02:02:02:02:02:02:02'),
+			('ops/stats-view', 'materialization', null) $$
 	);
 
 $test$ language sql;
