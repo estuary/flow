@@ -7,23 +7,59 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use validator::Validate;
 
-/// BucketType is a provider of object storage buckets,
-/// which are used to durably storage journal fragments.
-#[derive(Deserialize, Debug, Serialize, JsonSchema, Clone)]
-#[serde(deny_unknown_fields, rename_all = "SCREAMING_SNAKE_CASE")]
-#[schemars(example = "BucketType::example")]
-pub enum BucketType {
-    ///# Google Cloud Storage.
-    Gcs,
-    ///# Amazon Simple Storage Service.
-    S3,
-    ///# Azure object storage service.
-    Azure,
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate)]
+#[schemars(example = "BucketAndPrefix::example")]
+pub struct BucketAndPrefix {
+    /// Bucket into which Flow will store data.
+    #[validate(regex = "BUCKET_RE")]
+    bucket: String,
+
+    /// Optional prefix of keys written to the bucket.
+    #[validate]
+    #[serde(default)]
+    prefix: Option<Prefix>,
 }
 
-impl BucketType {
+impl BucketAndPrefix {
+    fn bucket_and_prefix(&self) -> (&str, &str) {
+        (self.bucket.as_str(), self.prefix.as_deref().unwrap_or(""))
+    }
+
     pub fn example() -> Self {
-        BucketType::S3
+        Self {
+            bucket: "my-bucket".to_string(),
+            prefix: None,
+        }
+    }
+}
+
+/// Details of an s3-compatible storage endpoint, such as Minio or R2.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate)]
+#[schemars(example = "CustomStore::example")]
+pub struct CustomStore {
+    /// Bucket into which Flow will store data.
+    #[validate(regex = "BUCKET_RE")]
+    pub bucket: String,
+    /// endpoint is required when provider is "custom", and specifies the
+    /// address of an s3-compatible storage provider.
+    pub endpoint: StorageEndpoint,
+    /// Optional prefix of keys written to the bucket.
+    #[validate]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<Prefix>,
+}
+
+impl CustomStore {
+    pub fn example() -> Self {
+        Self {
+            bucket: "my-bucket".to_string(),
+            endpoint: StorageEndpoint::example(),
+            prefix: None,
+        }
+    }
+
+    fn bucket_and_prefix(&self) -> (&str, &str) {
+        (self.bucket.as_str(), self.prefix.as_deref().unwrap_or(""))
     }
 }
 
@@ -39,37 +75,53 @@ impl BucketType {
 ///
 ///   s3://my-bucket/a/prefix/example/events/region=EU/utc_date=2021-10-25/utc_hour=13/000123-000456-789abcdef.gzip
 ///
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate)]
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[schemars(example = "Store::example")]
-pub struct Store {
-    /// Cloud storage provider.
-    pub provider: BucketType,
-    /// Bucket into which Flow will store data.
-    #[validate(regex = "BUCKET_RE")]
-    pub bucket: String,
-    /// Optional prefix of keys written to the bucket.
-    #[validate]
-    #[serde(default)]
-    pub prefix: Option<Prefix>,
+#[serde(tag = "provider", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum Store {
+    ///# Amazon Simple Storage Service.
+    S3(BucketAndPrefix),
+    ///# Google Cloud Storage.
+    Gcs(BucketAndPrefix),
+    ///# Azure object storage service.
+    Azure(BucketAndPrefix),
+    ///# An S3-compatible endpoint
+    Custom(CustomStore),
+}
+
+impl Validate for Store {
+    fn validate(&self) -> Result<(), validator::ValidationErrors> {
+        match self {
+            Self::S3(s) | Self::Gcs(s) | Self::Azure(s) => s.validate(),
+            Self::Custom(s) => s.validate(),
+        }
+    }
 }
 
 impl Store {
-    pub fn to_url(&self) -> url::Url {
-        let scheme = match self.provider {
-            BucketType::Azure => "azure",
-            BucketType::Gcs => "gs",
-            BucketType::S3 => "s3",
-        };
-        let prefix = self.prefix.as_ref().map(Prefix::as_str).unwrap_or("");
-        url::Url::parse(&format!("{}://{}/{}", scheme, self.bucket, prefix))
-            .expect("parsing as URL should never fail")
-    }
     pub fn example() -> Self {
-        Self {
-            provider: BucketType::S3,
-            bucket: "my-bucket".to_string(),
-            prefix: None,
+        Self::S3(BucketAndPrefix::example())
+    }
+    pub fn to_url(&self, catalog_name: &str) -> url::Url {
+        let (scheme, (bucket, prefix)) = match self {
+            Self::S3(cfg) => ("s3", cfg.bucket_and_prefix()),
+            Self::Gcs(cfg) => ("gs", cfg.bucket_and_prefix()),
+            Self::Azure(cfg) => ("azure", cfg.bucket_and_prefix()),
+            // Custom storage endpoints are expected to be s3-compatible, and thus use the s3 scheme
+            Self::Custom(cfg) => ("s3", cfg.bucket_and_prefix()),
+        };
+        let mut url = url::Url::parse(&format!("{}://{}/{}", scheme, bucket, prefix))
+            .expect("parsing as URL should never fail");
+        if let Store::Custom(cfg) = self {
+            let tenant = catalog_name
+                .split_once('/')
+                .expect("invalid catalog_name passed to Store::to_url")
+                .0;
+            url.query_pairs_mut()
+                .append_pair("profile", tenant)
+                .append_pair("endpoint", &cfg.endpoint);
         }
+        url
     }
 }
 
@@ -214,7 +266,7 @@ lazy_static! {
 
 #[cfg(test)]
 mod test {
-    use super::BUCKET_RE;
+    use super::*;
 
     #[test]
     fn test_regexes() {
@@ -226,5 +278,40 @@ mod test {
         ] {
             assert!(BUCKET_RE.is_match(case) == expect);
         }
+    }
+
+    // The representation of Store was changed from a struct to an enum, so this test is ensuring
+    // that existing Stores will deserialize properly with the new representation.
+    #[test]
+    fn old_store_json_still_deserializes_into_new_enum() {
+        let actual: Store =
+            serde_json::from_str(r#"{"provider":"GCS","prefix":"flow/","bucket":"test-bucket"}"#)
+                .expect("failed to deserialize");
+        let Store::Gcs(b_and_p) = actual else {
+            panic!("expected a gcs store, got: {:?}", actual);
+        };
+        assert_eq!("test-bucket", &b_and_p.bucket);
+        assert_eq!(Some("flow/"), b_and_p.prefix.as_deref());
+    }
+
+    #[test]
+    fn custom_storage_endpoint() {
+        let actual: Store = serde_json::from_str(
+            r#"{"provider":"CUSTOM","prefix":"test/","bucket":"test-bucket", "endpoint": "http://canary.test:1234"}"#,
+        ).expect("failed to deserialize");
+        let Store::Custom(cfg) = &actual else {
+            panic!("expected a custom store, got: {:?}", actual);
+        };
+        assert_eq!("http://canary.test:1234", cfg.endpoint.as_str());
+        assert_eq!("test-bucket", &cfg.bucket);
+        assert_eq!(Some("test/"), cfg.prefix.as_deref());
+
+        actual.validate().expect("failed validation");
+
+        let actual_url = actual.to_url("testTenant/foo").to_string();
+        assert_eq!(
+            "s3://test-bucket/test/?profile=testTenant&endpoint=http%3A%2F%2Fcanary.test%3A1234",
+            &actual_url
+        );
     }
 }

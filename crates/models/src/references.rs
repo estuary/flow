@@ -38,6 +38,7 @@ lazy_static! {
     static ref FIELD_RE: Regex = Regex::new(&[&JSON_POINTER_CHAR, "+(/", &JSON_POINTER_CHAR, "+)*"].concat()).unwrap();
     // RELATIVE_URL_RE matches a relative or absolute URL. It's quite permissive, prohibiting only a space.
     static ref RELATIVE_URL_RE: Regex = Regex::new(&["[^", &SPACE_CHAR, "]+"].concat()).unwrap();
+    static ref ENDPOINT_RE: Regex = Regex::new(r#"^(http://|https://)?[a-z0-9]+[a-z0-9\.:-]*[a-z0-9]+"#).unwrap();
 }
 
 macro_rules! string_reference_types {
@@ -201,6 +202,9 @@ string_reference_types! {
     /// with respect to the current resource (i.e, ../path/to/flow.yaml),
     /// or may be an external absolute URL (i.e., http://example/flow.yaml).
     pub struct RelativeUrl("RelativeUrl::schema", pattern = RELATIVE_URL_RE, example = "https://example/resource");
+
+    /// An address for a custom storage endpoint
+    pub struct StorageEndpoint("StorageEndpoint::schema", pattern = ENDPOINT_RE, example = "storage.example.com");
 }
 
 impl RelativeUrl {
@@ -247,7 +251,9 @@ impl Validate for CompositeKey {
 
 #[cfg(test)]
 mod test {
-    use super::{Collection, Field, JsonPointer, Prefix, RelativeUrl, Transform, Validate};
+    use super::{
+        Collection, Field, JsonPointer, Prefix, RelativeUrl, StorageEndpoint, Transform, Validate,
+    };
 
     #[test]
     fn test_token_re() {
@@ -366,6 +372,26 @@ mod test {
             ("cannot have a space", false),
         ] {
             let out = RelativeUrl::new(case).validate();
+            if expect {
+                out.unwrap();
+            } else {
+                out.unwrap_err();
+            }
+        }
+    }
+
+    #[test]
+    fn test_custom_storage_endpoint() {
+        for (case, expect) in [
+            ("https://github.com/a/path?query#/and/stuff", false),
+            ("", false), // Cannot be empty
+            ("foo.bar:123", true),
+            ("cannot have a space", false),
+            ("http://test.test:345", true),
+            ("https://test.test:456", true),
+            ("123.45.67.8:567", true),
+        ] {
+            let out = StorageEndpoint::new(case).validate();
             if expect {
                 out.unwrap();
             } else {

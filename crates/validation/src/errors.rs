@@ -39,6 +39,16 @@ pub enum Error {
     },
     #[error("at least one storage mapping must be defined")]
     NoStorageMappings {},
+    /// This comes from a validation that ensures users cannot specify the `endpoint` property of a Store that pertains
+    /// to the 'default/' prefix. This is because the prefix is used to look up the AWS credentials for each store that
+    /// uses a custom endpoint, but the 'default' profile is always used for Flow's own credentials. Therefore, allowing
+    /// a user to specify a custom endpoint for that profile could result in Flow's own credentials being sent to a
+    /// malicious endpoint. This also pertains to the empty storage prefix, which is also disallowed for custom storage endpoints.
+    #[error("'custom' storage mapping '{prefix}' is not allowed under the {disallowed} prefix")]
+    InvalidCustomStoragePrefix {
+        prefix: String,
+        disallowed: &'static str, // will either be "empty" or "'default/'"
+    },
     #[error("could not map {this_entity} {this_thing} into a storage mapping; did you mean {suggest_name} defined at {suggest_scope}?")]
     NoStorageMappingSuggest {
         this_thing: String,
