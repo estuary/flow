@@ -1,6 +1,7 @@
 use crate::errors::Error;
 
 use super::{indexed, reference};
+use models::Store;
 use superslice::Ext;
 
 pub fn walk_all_storage_mappings(
@@ -8,6 +9,41 @@ pub fn walk_all_storage_mappings(
     errors: &mut tables::Errors,
 ) {
     for m in storage_mappings {
+        for store in m.stores.iter() {
+            // TODO: it seems like we should also be calling `walk_name` for the bucket and prefix, right?
+
+            // Disallow specifying custom storage endpoints for the 'default/' prefix and empty prefix.
+            // See: https://github.com/estuary/flow/issues/892#issuecomment-1403873100
+            if let Store::Custom(cfg) = store {
+                indexed::walk_name(
+                    &m.scope,
+                    "endpoint",
+                    &cfg.endpoint,
+                    models::StorageEndpoint::regex(),
+                    errors,
+                );
+                if m.prefix.is_empty() {
+                    Error::InvalidCustomStoragePrefix {
+                        prefix: m.prefix.to_string(),
+                        disallowed: "empty",
+                    }
+                    .push(&m.scope, errors);
+                } else if m.prefix.starts_with("default/") {
+                    Error::InvalidCustomStoragePrefix {
+                        prefix: m.prefix.to_string(),
+                        disallowed: "'default/'",
+                    }
+                    .push(&m.scope, errors);
+                } else if m.prefix.starts_with("recovery/default/") {
+                    Error::InvalidCustomStoragePrefix {
+                        prefix: m.prefix.to_string(),
+                        disallowed: "'recovery/default/'",
+                    }
+                    .push(&m.scope, errors);
+                }
+            }
+        }
+
         if m.prefix.is_empty() {
             // Prefix is allowed to be empty. Continue because
             // walk_name will otherwise produce an error.

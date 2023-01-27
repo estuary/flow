@@ -26,7 +26,8 @@ pub use derivations::{
     Derivation, Publish, Register, TransformDef, TransformSource, TypescriptModule, Update,
 };
 pub use journals::{
-    BucketType, CompressionCodec, FragmentTemplate, JournalTemplate, StorageDef, Store,
+    BucketAndPrefix, CompressionCodec, CustomStore, FragmentTemplate, JournalTemplate, StorageDef,
+    Store,
 };
 pub use materializations::{
     MaterializationBinding, MaterializationDef, MaterializationEndpoint, MaterializationFields,
@@ -34,7 +35,7 @@ pub use materializations::{
 };
 pub use references::{
     Capture, Collection, CompositeKey, Field, JsonPointer, Materialization, PartitionField, Prefix,
-    RelativeUrl, Test, Transform,
+    RelativeUrl, StorageEndpoint, Test, Transform,
 };
 pub use resources::{ContentType, Import, ResourceDef};
 pub use schemas::Schema;

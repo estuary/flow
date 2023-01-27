@@ -141,7 +141,10 @@ pub fn partition_template(
             path_postfix_template,
             refresh_interval,
             retention,
-            stores: stores.iter().map(|s| s.to_url().into()).collect(),
+            stores: stores
+                .iter()
+                .map(|s| s.to_url(&collection).into())
+                .collect(),
         }),
         flags,
         labels: Some(broker::LabelSet { labels }),
@@ -225,7 +228,7 @@ pub fn recovery_log_template(
             path_postfix_template,
             refresh_interval,
             retention,
-            stores: stores.iter().map(|s| s.to_url().into()).collect(),
+            stores: stores.iter().map(|s| s.to_url(task_name).into()).collect(),
         }),
         flags,
         labels: Some(broker::LabelSet { labels }),
