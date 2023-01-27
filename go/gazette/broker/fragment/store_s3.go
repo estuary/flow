@@ -234,10 +234,18 @@ func (s *s3Backend) s3Client(ep *url.URL) (cfg S3StoreConfig, client *s3.S3, err
 		return
 	}
 
+	// The aws sdk will always just return an error if this Region is not set, even if
+	// the Endpoint was provided explicitly. It's important to return an error here
+	// in that case, before adding this client to the `clients` map.
+	if awsSession.Config.Region == nil || *awsSession.Config.Region == "" {
+		err = fmt.Errorf("missing AWS region configuration for profile %q", cfg.Profile)
+		return
+	}
+
 	log.WithFields(log.Fields{
 		"endpoint":     cfg.Endpoint,
 		"profile":      cfg.Profile,
-		"region":       awsSession.Config.Region,
+		"region":       *awsSession.Config.Region,
 		"keyID":        creds.AccessKeyID,
 		"providerName": creds.ProviderName,
 	}).Info("constructed new aws.Session")
