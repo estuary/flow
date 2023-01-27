@@ -13,7 +13,7 @@ use nix::unistd::{
     Uid, User,
 };
 use nix::{ioctl_write_ptr_bad, sys, NixPath};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::config::{GuestConfig, ImageConfig};
 
@@ -556,18 +556,9 @@ pub async fn setup_networking(conf: &GuestConfig) -> Result<(), InitError> {
         .await?
         .expect("no eth0 link found");
 
-    debug!("netlink: setting eth0 link \"up\"");
-    netlink_handle
-        .link()
-        .set(eth0.header.index)
-        .up()
-        .mtu(1420)
-        .execute()
-        .await?;
-
+    // First assign IPs
     if let Some(ref ip_configs) = conf.ip_configs {
         let address = netlink_handle.address();
-        let route = netlink_handle.route();
 
         for ipc in ip_configs {
             if let IpNetwork::V4(ipn) = ipc.ip {
@@ -593,7 +584,23 @@ pub async fn setup_networking(conf: &GuestConfig) -> Result<(), InitError> {
             } else {
                 warn!("IPv6 not supported for ip: {:?}", ipc.ip)
             }
+        }
+    }
 
+    debug!("netlink: setting eth0 link \"up\"");
+    netlink_handle
+        .link()
+        .set(eth0.header.index)
+        .up()
+        .mtu(1420)
+        .execute()
+        .await?;
+
+    // Then gateways, after setting interface up
+    if let Some(ref ip_configs) = conf.ip_configs {
+        let route = netlink_handle.route();
+
+        for ipc in ip_configs {
             match ipc.gateway {
                 IpNetwork::V4(gateway) => {
                     debug!("netlink: adding default route via {}", ipc.gateway);
@@ -605,6 +612,8 @@ pub async fn setup_networking(conf: &GuestConfig) -> Result<(), InitError> {
             }
         }
     }
+
+    info!("Network setup complete");
 
     Ok(())
 }

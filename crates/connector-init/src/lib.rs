@@ -4,6 +4,7 @@ extern crate derive_builder;
 use anyhow::Context;
 use codec::Codec;
 use tokio::signal::unix;
+use tracing::info;
 
 use firecracker_init::init_firecracker;
 
@@ -96,6 +97,9 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         }
         tracing::info!("caught signal to exit");
     };
+
+    let port = args.port;
+    info!("Listening for connections on 0.0.0.0:{port}");
 
     let () = tonic::transport::Server::builder()
         .add_service(capture)

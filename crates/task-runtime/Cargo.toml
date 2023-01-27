@@ -23,6 +23,16 @@ async-trait = { workspace = true }
 firec = { workspace = true }
 bollard = { workspace = true }
 ipnetwork = { workspace = true }
+
+tokio-tun = { workspace = true }
+nftnl = { workspace = true }
+mnl = { workspace = true }
+
+rtnetlink = { workspace = true }
+nix = { workspace = true }
+
+tracing-log = { workspace = true }
+
 #-- Prune:
 anyhow = { workspace = true }
 clap = { workspace = true }
