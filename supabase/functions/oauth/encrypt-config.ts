@@ -3,8 +3,17 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { returnPostgresError } from "../_shared/helpers.ts";
 import { supabaseClient } from "../_shared/supabaseClient.ts";
 
-const ENCRYPTION_SERVICE =
-  "https://config-encryption.estuary.dev/v1/encrypt-config";
+const config_encryption_url = () => {
+  const env = Deno.env.get('CONFIG_ENCRYPTION_URL');
+  // A more principled approach would be to require that this url is always provided by the
+  // env var. But that would require using a supabase secret to set the value in prod,
+  // and _that_ seemed like a whole ordeal that I don't have time for right now.
+  if (env) {
+    return env
+  } else {
+    return "https://config-encryption.estuary.dev/v1/encrypt-config"
+  }
+}
 
 const CREDENTIALS_KEY = "credentials";
 
@@ -58,7 +67,7 @@ export async function encryptConfig(req: Record<string, any>) {
 
   const { endpoint_spec_schema } = connectorTagData as ConnectorTagsResponse;
 
-  const response = await fetch(ENCRYPTION_SERVICE, {
+  const response = await fetch(config_encryption_url(), {
     method: "POST",
     body: JSON.stringify({
       config,
