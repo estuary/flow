@@ -9,7 +9,7 @@ There are two ways to work with Flow: through the web app, and using the flowctl
 flowctl gives you more direct control over the files and directories that comprise your Data Flows.
 You can work with any catalog to which you have [access](../reference/authentication.md), regardless of whether it was created from the command line or in the web app.
 
-You can also authorize Flow users and roles and generate Typescript modules to write custom transformations for your [derivations](derivations.md) — workflows that aren't yet available in the web app.
+You can also authorize Flow users and roles and generate TypeScript modules to write custom transformations for your [derivations](derivations.md) — workflows that aren't yet available in the web app.
 
 flowctl is the only Flow binary that you need to work with,
 so distribution and upgrades are all simple.
@@ -44,6 +44,10 @@ flowctl binaries for MacOS and Linux are available.
 
 2. To connect to your Flow account and start a session, [use an authentication token](../reference/authentication.md#authenticating-flow-using-the-cli) from the web app.
 
+## User guides
+
+[View guides for common flowctl workflows](../guides/flowctl/README.md).
+
 ## flowctl subcommands
 
 flowctl includes several top-level subcommands representing different functional areas. Each of these include multiple nested subcommands.
@@ -69,37 +73,39 @@ You can access full documentation of all flowctl subcommands from the command li
 ## Editing Data Flows with flowctl
 
 flowctl allows you to work locally on the specification files that define your Data Flows.
-You'll often need to move these specifications back and forth between your local **draft** — the files in your local environment — and the **catalog**
+You'll often need to move these specifications back and forth between your local environment and the **catalog**
 of published entities.
 
 The basic steps of this workflow are listed below, along with a diagram of the subcommands you'd use to accomplish them.
-Keep in mind that there's no single, correct way to work with drafts — flowctl offers alternative ways accomplish the same goals —
+Keep in mind that there's no single, correct way to work with flowctl,
 but we recommend this method to get started.
 
-* List all the active specifications in the catalog, which you can then pull into your local draft.
+* List all the active specifications in the catalog, which you can then pull into your local environment.
 You can filter the output by [prefix](../concepts/catalogs.md#namespace) or entity type.
 For example, `flowctl catalog list --prefix acmeCo/sales/ --collections` only lists collections under the
 `acmeCo/sales/` prefix.
 
-* Add a group of active specifications directly to your local draft. You can refine results by prefix or entity type as described above (1).
+* Pull a group of active specifications directly, resulting in local source files. You can refine results by prefix or entity type as described above (1).
 
   Note that if there are already files in your working directory, flowctl must reconcile them with the newly pulled specification.
   [Learn more about your options](#reconciling-specifications-in-local-drafts).
 
 * Make edits locally.
 
-* Test local draft (2).
+* Test local specifications (2).
 
-* Publish a local draft to the catalog (3).
+* Publish local specifications to the catalog (3).
 
 <Mermaid chart={`
 	graph LR;
-    d[Local draft];
+    d[Local environment];
     c[Active catalog];
     d-- 2: flowctl catalog test -->d;
     d-- 3: flowctl catalog publish -->c;
     c-- 1: flowctl catalog pull-specs -->d;
 `}/>
+
+[View the step-by-step guide.](../guides/flowctl/edit-specification-locally.md)
 
 ### Reconciling specifications in local drafts
 
@@ -120,22 +126,20 @@ the merged version will reference collections a, b, and c.
 
 ## Development directories
 
-Most of the work you perform with flowctl takes place remotely on Estuary infrastructure.
-You'll only see files locally when you are actively developing a draft.
-
-These files are created within your current working directory when you run `flowctl draft develop`.
+Flow specifications and other files are written to your working directory when you run `flowctl draft develop` or `flowctl catalog pull-specs`.
 
 They typically include:
 
 * `flow.yaml`:
-  The main specification file that imports all other Flow specification files in the current draft. As part of local development, you may add new specifications that you create as imports.
+  The main specification file that imports all other Flow specification files created in a single operation.
+  As part of local development, you may add new specifications that you create as imports.
 
 * `flow_generated/`:
   Directory of generated files, including TypeScript classes and interfaces.
   See [TypeScript code generation](#typescript-code-generation).
 
-* `estuary/`:
-  Directory of the draft's current specifications. Its contents will vary, but it may contain various YAML files and subdirectories.
+* `<prefix-name>/`:
+  Directory of specifications that you pulled. Its name corresponds to your catalog prefix. Its contents will vary, but it may contain various YAML files and subdirectories.
 
 * `package.json` and `package-lock.json`:
   Files used by `npm` to manage dependencies and your Data Flow's associated JavaScript project.
