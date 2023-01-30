@@ -1,4 +1,5 @@
 use crate::{api_exec, catalog::SpecSummaryItem, controlplane, source};
+use anyhow::Context;
 use serde::Serialize;
 
 #[derive(Debug, clap::Args)]
@@ -6,6 +7,16 @@ use serde::Serialize;
 pub struct Author {
     #[clap(flatten)]
     source_args: source::SourceArgs,
+}
+
+pub async fn clear_draft(client: controlplane::Client, draft_id: &str) -> anyhow::Result<()> {
+    tracing::info!(%draft_id, "clearing existing specs from draft");
+    api_exec::<Vec<serde_json::Value>>(
+        client.from("draft_specs").eq("draft_id", draft_id).delete(),
+    )
+    .await
+    .context("failed to clear existing draft specs")?;
+    Ok(())
 }
 
 pub async fn upsert_draft_specs(
@@ -111,6 +122,8 @@ pub async fn do_author(
 ) -> anyhow::Result<()> {
     let cur_draft = ctx.config().cur_draft()?;
     let catalog = crate::source::bundle(source_args).await?;
+    let client = ctx.controlplane_client()?;
+    clear_draft(client.clone(), &cur_draft).await?;
     let rows = upsert_draft_specs(ctx.controlplane_client()?, &cur_draft, &catalog).await?;
 
     ctx.write_all(rows, ())
