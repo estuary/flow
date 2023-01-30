@@ -50,8 +50,12 @@ func TestSQLCheckpointPersistAndRestore(t *testing.T) {
 	require.NoError(t, err)
 
 	runTransaction(tf, res.Shard, map[string]string{"key": "fails"})
-	require.Equal(t, "runTransactions: store.StartCommit: checkpoint fence was updated (ie, by a new primary)",
-		expectStatusCode(t, tf.state, pc.ReplicaStatus_FAILED).Errors[0])
+	// The actual error message might have a slightly different prefix because the
+	// error _might_ get returned synchronously as part of `txnStartCommit` if the
+	// operation happens to be comppleted before that function returns. That's why we
+	// use `Contains` here.
+	require.Contains(t, expectStatusCode(t, tf.state, pc.ReplicaStatus_FAILED).Errors[0],
+		"store.StartCommit: checkpoint fence was updated (ie, by a new primary)")
 
 	// Cleanup.
 	res.Done()
