@@ -29,3 +29,31 @@ create table internal.illegal_tenant_names (
 
 comment on table internal.illegal_tenant_names is
   'Illegal tenant names which are not allowed to be provisioned by users';
+
+create function internal.update_support_role() returns trigger as $trigger$
+begin
+  insert into role_grants (
+    detail,
+    subject_role,
+    object_role,
+    capability
+  )
+  select
+    'Automagically grant support role access to new tenant',
+    'estuary_support/',
+    tenants.tenant,
+    'admin'
+  from tenants
+  left join role_grants on
+    role_grants.object_role = tenants.tenant and
+    role_grants.subject_role = 'estuary_support/'
+  where role_grants.id is null and
+  tenants.tenant not in ('ops/', 'estuary/');
+
+  return null;
+END;
+$trigger$ LANGUAGE plpgsql;
+
+create trigger "Grant support role access to tenants"
+after insert on tenants
+for each statement execute function internal.update_support_role();
