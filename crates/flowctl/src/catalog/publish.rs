@@ -54,7 +54,7 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
 async fn prompt_to_continue() -> bool {
     use tokio::io::AsyncReadExt;
 
-    print!("\nEnter Y to publish these specs, or anything else to abort: ");
+    println!("\nEnter Y to publish these specs, or anything else to abort: ");
     let mut buf = [0u8];
     match tokio::io::stdin().read_exact(&mut buf[..]).await {
         Ok(_) => &buf == b"y" || &buf == b"Y",
