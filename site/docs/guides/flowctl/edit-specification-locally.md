@@ -83,11 +83,11 @@ Using these names, you'll identify and pull the relevant specifications for edit
 
 4. Browse the source files.
 
-  The directory structure will look slightly different depending on which specifications you pull.
-  Regardless, there will always be a top-level file called `flow.yaml` that *imports* all other nested YAML files.
-  These, in turn, contain the entity's specifications.
+  flowctl pulls specifications into subdirectories organized by entity name,
+  and specifications sharing a catalog prefix are written to the same YAML file.
 
-  Specifications sharing a catalog prefix are written to the same YAML file for convenience.
+  Regardless of what you pull, there is always a top-level file called `flow.yaml` that *imports* all other nested YAML files.
+  These, in turn, contains the entities' specifications.
 
 ## Edit source files and re-publish specifications
 
@@ -103,7 +103,7 @@ Next, you'll complete your edits, test that they were performed correctly, and r
    * [Derivations](../../concepts/derivations.md#specification)
    * [Tests](../../concepts/tests.md)
 
-3. When you're done, run a generic test to make sure all the specifications are formatted correctly:
+3. When you're done, you can test your changes:
 `flowctl catalog test --source flow.yaml`
 
   You'll almost always use the top-level `flow.yaml` file as the source here because it imports all other Flow specifications

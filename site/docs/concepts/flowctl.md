@@ -94,7 +94,7 @@ For example, `flowctl catalog list --prefix acmeCo/sales/ --collections` only li
 
 * Test local specifications (2).
 
-* Publish a local specifications to the catalog (3).
+* Publish local specifications to the catalog (3).
 
 <Mermaid chart={`
 	graph LR;
