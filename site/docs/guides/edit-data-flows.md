@@ -1,9 +1,12 @@
+---
+sidebar_position: 3
+---
 # Edit Data Flows in the web app
 
 You can edit existing captures, collection schemas, and materializations in the Flow web app.
 For a tour of the web app, [start here](../concepts/web-app.md).
 
-There are separate workflows for editing [captures](#edit-a-capture) and [materializations](#edit-a-materialization.
+There are separate workflows for editing [captures](#edit-a-capture) and [materializations](#edit-a-materialization).
 You can edit a collection schema using Flow's **Schema Inference** tool by editing either a capture or materialization associated
 with that collection.
 
@@ -90,3 +93,8 @@ You may have to re-authenticate with the destination system. Be sure to have cur
 
 Editing a materialization only affects how it will work going forward.
 Data that was materialized before editing will reflect the original configuration.
+
+## Advanced editing
+
+For more fine-grain control over editing, you can use flowctl and work directly on specification files in your local environment.
+[View the tutorial.](./flowctl/edit-specification-locally.md)
