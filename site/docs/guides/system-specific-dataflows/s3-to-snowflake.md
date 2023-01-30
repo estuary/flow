@@ -153,4 +153,4 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 Your Data Flow has been deployed, and will run continuously until it's stopped. Updates in your S3 bucket will be reflected in your Snowflake table as they occur.
 
 You can advance your Data Flow by adding a **derivation**. Derivations are real-time data transformations.
-See the [guide to create a derivation](../create-derivation.md).
+See the [guide to create a derivation](../flowctl/create-derivation.md).

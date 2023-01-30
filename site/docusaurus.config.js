@@ -32,8 +32,8 @@ const config = {
       {
         redirects: [
           {
-            to: '/docs/guides/flowctl/create-derivation.md',
-            from: '/docs/guides/create-derivation.md',
+            to: '/guides/flowctl/create-derivation/',
+            from: '/guides/create-derivation/',
           },
         ],
       },
