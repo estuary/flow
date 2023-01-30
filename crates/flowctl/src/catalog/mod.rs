@@ -346,31 +346,60 @@ impl crate::output::CliOutput for LiveSpecRow {
     }
 }
 
-/// Collects an iterator of `LiveSpecRow`s into a `models::Catalog`. The rows must
+/// Trait that's common to database rows of catalog specs, which can be turned into a bundled catalog.
+pub trait SpecRow {
+    fn catalog_name(&self) -> &str;
+    fn spec_type(&self) -> Option<CatalogSpecType>;
+    fn spec(&self) -> Option<&RawValue>;
+
+    fn parse_spec<T: serde::de::DeserializeOwned>(&self) -> anyhow::Result<T> {
+        let spec = self.spec().ok_or_else(|| {
+            anyhow::anyhow!("missing spec for catalog item: '{}'", self.catalog_name())
+        })?;
+        let parsed = serde_json::from_str::<T>(spec.get())?;
+        Ok(parsed)
+    }
+}
+
+impl SpecRow for LiveSpecRow {
+    fn catalog_name(&self) -> &str {
+        &self.catalog_name
+    }
+
+    fn spec_type(&self) -> Option<CatalogSpecType> {
+        self.spec_type
+    }
+
+    fn spec(&self) -> Option<&RawValue> {
+        self.spec.as_ref().map(|s| s.as_ref())
+    }
+}
+
+/// Collects an iterator of `SpecRow`s into a `models::Catalog`. The rows must
 /// all have a `spec` unless they are deleted (`spec_type = null`).
 pub fn collect_specs(
-    rows: impl IntoIterator<Item = LiveSpecRow>,
+    rows: impl IntoIterator<Item = impl SpecRow>,
 ) -> anyhow::Result<models::Catalog> {
     let mut catalog = models::Catalog::default();
 
     for row in rows {
-        match row.spec_type {
+        match row.spec_type() {
             Some(CatalogSpecType::Capture) => {
                 let cap = row.parse_spec::<models::CaptureDef>()?;
                 catalog
                     .captures
-                    .insert(models::Capture::new(row.catalog_name), cap);
+                    .insert(models::Capture::new(row.catalog_name()), cap);
             }
             Some(CatalogSpecType::Collection) => {
                 let collection = row.parse_spec::<models::CollectionDef>()?;
                 catalog
                     .collections
-                    .insert(models::Collection::new(row.catalog_name), collection);
+                    .insert(models::Collection::new(row.catalog_name()), collection);
             }
             Some(CatalogSpecType::Materialization) => {
                 let materialization = row.parse_spec::<models::MaterializationDef>()?;
                 catalog.materializations.insert(
-                    models::Materialization::new(row.catalog_name),
+                    models::Materialization::new(row.catalog_name()),
                     materialization,
                 );
             }
@@ -378,10 +407,10 @@ pub fn collect_specs(
                 let test = row.parse_spec::<Vec<models::TestStep>>()?;
                 catalog
                     .tests
-                    .insert(models::Test::new(row.catalog_name), test);
+                    .insert(models::Test::new(row.catalog_name()), test);
             }
             None => {
-                tracing::debug!(catalog_name = %row.catalog_name, "ignoring deleted spec from list results");
+                tracing::debug!(catalog_name = %row.catalog_name(), "ignoring deleted spec from list results");
             }
         }
     }
