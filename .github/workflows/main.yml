@@ -35,7 +35,8 @@ jobs:
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          default: true
+          toolchain: 1.66.1
       - name: Install Protoc
         uses: arduino/setup-protoc@v1
         with:
@@ -98,7 +99,8 @@ jobs:
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: 1.66.1
+          default: true
           target: x86_64-unknown-linux-musl
       - name: Install Protoc
         uses: arduino/setup-protoc@v1
