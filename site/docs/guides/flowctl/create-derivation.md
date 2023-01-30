@@ -3,8 +3,8 @@ sidebar_position: 3
 ---
 # Create a derivation with flowctl
 
-Once you're familiar with creating a basic [Data Flow](../concepts/README.md#essential-concepts), you can take things a step further
-and transform your data with [derivations](../concepts/derivations.md).
+Once you're familiar with creating a basic [Data Flow](../../concepts/README.md#essential-concepts), you can take things a step further
+and transform your data with [derivations](../../concepts/derivations.md).
 
 A **derivation** is a kind of Flow collection that results from the transformation of one or more other collections.
 This transformed stream of data keeps the order of the source data intact,
@@ -12,7 +12,7 @@ and can then be **materialized** to an outside system or further transformed wit
 When you master derivations, you unlock the full flexibility and power of your Data Flows.
 
 :::info Beta
-Derivation creation is currently a developer workflow that uses [flowctl](../concepts/flowctl.md).
+Derivation creation is currently a developer workflow that uses [flowctl](../../concepts/flowctl.md).
 Support for derivations in the Flow web application will be added in the future.
 :::
 
@@ -22,9 +22,9 @@ Support for derivations in the Flow web application will be added in the future.
 If you don't have an account yet, [go to the web app](https://dashboard.estuary.dev) to register for a free trial.
 
 * An existing Flow **collection**. Typically, you create this through a **capture** in the Flow web application.
-If you need help, see the [guide to create a Data Flow](./create-dataflow.md).
+If you need help, see the [guide to create a Data Flow](../create-dataflow.md).
 
-* **flowctl** installed locally. For help, see the [installation instructions](../concepts/flowctl.md#installation-and-setup).
+* **flowctl** installed locally. For help, see the [installation instructions](../../concepts/flowctl.md#installation-and-setup).
 
 ## Pull your specification files locally
 
@@ -81,7 +81,7 @@ Then, you'll need to add your source collection's specification files to a **dra
    Within a subdirectory that shares the name of your Data Flow, you'll find a second `flow.yaml` — this contains the collection specification.
 
    :::tip
-   Use `tree` to visualize your current working directory. This is a helpful tool to understand the [files that underlie your local draft](../concepts/flowctl.md#development-directories).
+   Use `tree` to visualize your current working directory. This is a helpful tool to understand the [files that underlie your local draft](../../concepts/flowctl.md#development-directories).
    For example:
 
    ```console
@@ -133,13 +133,13 @@ Then, you'll need to add your source collection's specification files to a **dra
    You may also create the derivation specification in a separate file; the results will be the same.
    However, if using separate files, you must make sure that the file with the derivation imports the source collection's specification,
    and that the top-level `flow.yaml` in your working directory imports all specification files.
-   [Learn more about imports.](../concepts/import.md)
+   [Learn more about imports.](../../concepts/import.md)
 
 3. Add a new collection below the first one.
 
    * The collection must have a schema that reflects your desired transformation output.
      They can be whatever you want, as long as they follow Flow's standard formatting.
-     For help, see the [schemas](../concepts/schemas.md) and [collection key](../concepts/collections.md#keys) documentation.
+     For help, see the [schemas](../../concepts/schemas.md) and [collection key](../../concepts/collections.md#keys) documentation.
    * Add the `derivation` stanza. The TypeScript module you name will be generated next, and you'll define the transformation's function there.
 
    ```yaml
@@ -215,7 +215,7 @@ Then, you'll need to add your source collection's specification files to a **dra
 
 3. Remove the underscore in front of `source` and fill out the function body as required for your required transformation.
 For more advanced transforms, you may need to activate `register` and `previous` by removing their underscores.
-[Learn more about derivations and see examples.](../concepts/derivations.md)
+[Learn more about derivations and see examples.](../../concepts/derivations.md)
 
    This simple example rounds the `count` field to the nearest dozen.
 
@@ -260,7 +260,7 @@ This helps you verify that your data is transformed correctly.
                - { dozens: 1, count: 13, message: "Hello #13"}
    ```
 
-   [Learn about tests.](../concepts/tests.md)
+   [Learn about tests.](../../concepts/tests.md)
 
 ## Publish the derivation
 
@@ -286,5 +286,5 @@ This helps you verify that your data is transformed correctly.
    ```
 
 The derivation you created is now live and ready for further use.
-You can access it from the web application and [materialize it to a destination](./create-dataflow.md#create-a-materialization),
+You can access it from the web application and [materialize it to a destination](../create-dataflow.md#create-a-materialization),
 just as you would any other Flow collection.
