@@ -1,3 +1,4 @@
+mod delete;
 mod publish;
 mod pull_specs;
 mod test;
@@ -23,6 +24,13 @@ pub struct Catalog {
 pub enum Command {
     /// List catalog specifications.
     List(List),
+
+    /// Delete catalog specifications.
+    ///
+    /// Permanently deletes catalog specifications.
+    /// **WARNING:** deleting a task is permanent and cannot be undone.
+    Delete(delete::Delete),
+
     /// Pull down catalog specifications into a local directory.
     ///
     /// Writes catalog specifications into a local directory so that
@@ -143,31 +151,49 @@ pub struct SpecTypeSelector {
 }
 
 impl SpecTypeSelector {
+    /// Adds postgrest query parameters based on the arugments provided to filter specs based on the `spec_type` column.
+    /// The `include_deleted` paraemeter specifies whether to include deleted specs. This is handled outside of the
+    /// `SpecTypeSelector` arguments, because it doesn't make sense in all contexts. For example, it wouldn't make sense
+    /// to have a `--deleted` selector in `flowctl catalog delete`, but it does make sense as part of `flowctl catalog list`.
     pub fn add_live_specs_filters<'a>(
         &self,
         mut builder: postgrest::Builder<'a>,
+        include_deleted: bool,
     ) -> postgrest::Builder<'a> {
         let all = &[
-            (CatalogSpecType::Capture, self.captures),
-            (CatalogSpecType::Collection, self.collections),
-            (CatalogSpecType::Materialization, self.materializations),
-            (CatalogSpecType::Test, self.tests),
+            (CatalogSpecType::Capture.as_ref(), "eq", self.captures),
+            (CatalogSpecType::Collection.as_ref(), "eq", self.collections),
+            (
+                CatalogSpecType::Materialization.as_ref(),
+                "eq",
+                self.materializations,
+            ),
+            (CatalogSpecType::Test.as_ref(), "eq", self.tests),
+            // Deleted specs, will always be Some, so that an empty type selector
+            ("null", "is", Some(include_deleted)),
         ];
+
         // If any of the types were explicitly included, then we'll add
         // an `or.` that only includes items for each explicitly included type.
-        if self.has_any_include_types() {
+        if self.has_any_include_types() || include_deleted {
             let expr = all
                 .iter()
-                .filter(|(_, inc)| inc.unwrap_or(false))
-                .map(|(ty, _)| format!("spec_type.eq.{ty}"))
+                .filter(|(_, _, inc)| inc.unwrap_or(false))
+                .map(|(ty, op, _)| format!("spec_type.{op}.{ty}"))
                 .join(",");
             builder = builder.or(expr);
         } else {
-            // If no types were explicitly included, then we can just add
-            // an `neq.` for each explicitly excluded type, since postgrest
-            // implicitly applies AND logic there.
-            for (ty, _) in all.iter().filter(|(_, inc)| *inc == Some(false)) {
+            // If no types were explicitly included, then we can just filter out the types we _don't_ want.
+            // We need to use `IS NOT NULL` to filter out deleted specs, rather than using `neq`.
+            // Postgrest implicitly applies AND logic for these.
+            for (ty, _, _) in all
+                .iter()
+                .filter(|(_, op, inc)| *op == "eq" && *inc == Some(false))
+            {
                 builder = builder.neq("spec_type", ty);
+            }
+            if !include_deleted {
+                builder = builder.not("is", "spec_type", "null");
             }
         }
         builder
@@ -218,6 +244,9 @@ pub struct List {
     pub name_selector: NameSelector,
     #[clap(flatten)]
     pub type_selector: SpecTypeSelector,
+    /// Include deleted specs, which have no type.
+    #[clap(long)]
+    pub deleted: bool,
 }
 
 impl List {
@@ -265,6 +294,7 @@ impl Catalog {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> Result<(), anyhow::Error> {
         match &self.cmd {
             Command::List(list) => do_list(ctx, list).await,
+            Command::Delete(del) => delete::do_delete(ctx, del).await,
             Command::PullSpecs(pull) => pull_specs::do_pull_specs(ctx, pull).await,
             Command::Publish(publish) => publish::do_publish(ctx, publish).await,
             Command::Test(source) => test::do_test(ctx, source).await,
@@ -280,24 +310,34 @@ pub async fn fetch_live_specs(
     columns: Vec<&'static str>,
 ) -> anyhow::Result<Vec<LiveSpecRow>> {
     let builder = cp_client.from("live_specs_ext").select(columns.join(","));
-    let builder = list.type_selector.add_live_specs_filters(builder);
+    let builder = list
+        .type_selector
+        .add_live_specs_filters(builder, list.deleted);
     let builder = list.name_selector.add_live_specs_filters(builder);
 
     let rows = api_exec(builder).await?;
     Ok(rows)
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 pub struct LiveSpecRow {
     pub catalog_name: String,
     pub id: String,
-    pub last_pub_user_email: Option<String>,
-    pub last_pub_user_full_name: Option<String>,
-    pub last_pub_user_id: Option<uuid::Uuid>,
-    pub spec_type: Option<CatalogSpecType>,
     pub updated_at: crate::Timestamp,
+    pub spec_type: Option<CatalogSpecType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_pub_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_pub_user_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_pub_user_full_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_pub_user_id: Option<uuid::Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reads_from: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub writes_to: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub spec: Option<Box<serde_json::value::RawValue>>,
 }
 
