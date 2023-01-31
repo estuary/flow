@@ -41,6 +41,7 @@ pub async fn do_pull_specs(ctx: &mut CliContext, args: &PullSpecs) -> anyhow::Re
         flows: true,
         name_selector: args.name_selector.clone(),
         type_selector: args.type_selector.clone(),
+        deleted: false, // deleted specs have nothing to pull
     };
 
     let live_specs = fetch_live_specs(client, &list_args, columns).await?;
