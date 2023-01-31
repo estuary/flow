@@ -1,313 +1,50 @@
 use std::{
-    collections::HashMap,
-    fs::File,
-    net::Ipv4Addr,
     path::{Path, PathBuf},
-    str::FromStr,
-    time::Duration,
+    process::Stdio,
 };
 
-use anyhow::{anyhow, bail, Context};
-use bollard::container::RemoveContainerOptions;
-use cmd_lib::{init_builtin_logger, run_cmd, run_fun};
-use connector_init::config::{
-    EtcHost, EtcResolv, GuestConfig, GuestConfigBuilder, IPConfig, Image, ImageConfig,
+use anyhow::Context;
+use clap::Parser;
+use connector_init::config::{EtcHost, EtcResolv, GuestConfigBuilder};
+use firec::{
+    config::{network::Interface, JailerMode},
+    Machine,
 };
-use firec::{config::network::Interface, Machine};
-use futures::TryStreamExt;
-use ipnetwork::{IpNetwork, Ipv4Network};
-use nftnl::{
-    nft_expr, nftnl_sys::libc, Batch, Chain, ChainType, FinalizedBatch, Hook, MsgType, Policy,
-    ProtoFamily, Rule, Table,
-};
-use serde_json::json;
-use std::ffi::CString;
-use tokio::{signal::unix, time::sleep};
-use tokio_tun::TunBuilder;
-use tracing::{debug, error, info, metadata::LevelFilter, trace};
+use futures::future::OptionFuture;
+use ipnetwork::Ipv4Network;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::signal::unix;
+use tracing::{error, info, metadata::LevelFilter};
 use tracing_log::LogTracer;
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
 pub mod cni;
+pub mod firecracker;
 
-/// Copy init binary, image inspect JSON, and guest config JSON
-#[tracing::instrument(err, skip_all)]
-fn setup_init_fs(
-    temp_dir: &Path,
-    init_bin_path: String,
-    inspect_output: Image,
-    guest_conf: GuestConfig,
-) -> anyhow::Result<PathBuf> {
-    serde_json::to_writer(
-        &File::create(temp_dir.join("image_inspect.json"))?,
-        &json!([inspect_output]), //Image::parse_from_json_file expects data wrapped in an array for some reason
-    )?;
-    serde_json::to_writer(
-        &File::create(temp_dir.join("guest_config.json"))?,
-        &guest_conf,
-    )?;
-
-    let user = std::env::var("USER")?;
-
-    run_cmd!(
-        cd $temp_dir;
-        fallocate -l 64M initfs;
-        mkfs.ext2 initfs;
-        mkdir initmount;
-        sudo mount -o loop,noatime initfs initmount;
-        sudo chown $user:$user initmount;
-        mkdir initmount/flow;
-        cp $init_bin_path initmount/flow/init;
-        cp $temp_dir/image_inspect.json initmount/flow/image_inspect.json;
-        cp $temp_dir/guest_config.json initmount/flow/guest_config.json;
-        sudo umount initmount;
-    )?;
-
-    let init_fs = temp_dir.join("initfs");
-    let init_fs_str = init_fs.display().to_string();
-    debug!(init_fs = init_fs_str, "Boot filesystem setup");
-
-    Ok(init_fs)
-}
-
-/// NOTE: This logic will eventually be replaced by containerd,
-/// there were just too many moving pieces to get that working correctly
-/// in addition to everything else
-#[tracing::instrument(err, skip_all)]
-async fn setup_root_fs(temp_dir: &Path, image_name: String) -> anyhow::Result<PathBuf> {
-    let docker = bollard::Docker::connect_with_local_defaults()?;
-    let container = docker
-        .create_container::<String, String>(
-            None,
-            bollard::container::Config {
-                image: Some(image_name),
-                ..Default::default()
-            },
-        )
-        .await?;
-
-    let container_id = container.id;
-
-    run_cmd!(
-        cd $temp_dir;
-        docker export $container_id --output="rootfs.tar";
-        sudo virt-make-fs --type=ext4 rootfs.tar rootfs.ext4;
-    )?;
-
-    docker
-        .remove_container(
-            container_id.as_ref(),
-            Some(RemoveContainerOptions {
-                force: true,
-                ..Default::default()
-            }),
-        )
-        .await?;
-
-    let root_fs = temp_dir.join("rootfs.ext4");
-    let root_fs_str = root_fs.display().to_string();
-    debug!(root_fs = root_fs_str, "Root filesystem setup");
-
-    Ok(root_fs)
-}
-
-#[tracing::instrument(err, skip_all)]
-async fn get_image_config(image: String) -> anyhow::Result<Image> {
-    let inspect_res = bollard::Docker::connect_with_local_defaults()?
-        .inspect_image(image.as_ref())
-        .await?;
-
-    let img_config = inspect_res
-        .config
-        .ok_or(anyhow::anyhow!("Missing image config for {}", image))?;
-
-    let mut img = Image {
-        config: ImageConfig {
-            cmd: img_config.cmd,
-            entrypoint: img_config.entrypoint,
-            _env: img_config.env.unwrap_or_default(),
-            labels: img_config.labels.unwrap_or_default(),
-            working_dir: img_config.working_dir,
-            user: img_config.user,
-            env: HashMap::new(),
-        },
-        repo_tags: inspect_res.repo_tags.unwrap_or(vec![]),
-    };
-    img.parse_env();
-
-    debug!(image_name = image, "Image inspected");
-
-    Ok(img)
-}
-
-const NAT_TABLE_NAME: &str = "flow-firecracker-nat";
-const NAT_CHAIN_NAME: &str = "nat";
-
-#[tracing::instrument(err, skip_all)]
-async fn get_default_route_device_name() -> anyhow::Result<String> {
-    // Get WAN device by issuing the equivalent to `ip route show`
-    let (connection, handle, _) = rtnetlink::new_connection().unwrap();
-    tokio::spawn(connection);
-
-    let res: Vec<rtnetlink::packet::RouteMessage> = handle
-        .route()
-        .get(rtnetlink::IpVersion::V4)
-        .execute()
-        .try_collect()
-        .await?;
-
-    let default = res
-        .iter()
-        .find(|&msg| {
-            msg.nlas
-                .iter()
-                .find(|nla| {
-                    if let rtnetlink::packet::route::Nla::Destination(_) = nla {
-                        true
-                    } else {
-                        false
-                    }
-                })
-                .is_none()
-                && msg.destination_prefix().is_none()
-        })
-        .ok_or(anyhow!("Unable to find default route"))?;
-
-    let output_interface_id = default
-        .nlas
-        .iter()
-        .find_map(|nla| {
-            if let rtnetlink::packet::route::Nla::Oif(oif) = nla {
-                Some(oif)
-            } else {
-                None
-            }
-        })
-        .ok_or(anyhow!("Default route has no output interface"))?;
-
-    // We could do this by calling `if_indextoname`, but that's scary and this isn't that bad
-    let all_interfaces = nix::net::if_::if_nameindex()?;
-    let interface_name = all_interfaces
-        .iter()
-        .find_map(|iface| {
-            if iface.index().eq(output_interface_id) {
-                Some(iface.name().to_str())
-            } else {
-                None
-            }
-        })
-        .ok_or(anyhow!(
-            "Could not find name for interface {output_interface_id}"
-        ))??;
-
-    debug!(device = interface_name, "Default gateway device determined");
-
-    Ok(interface_name.to_owned())
-}
-
-fn socket_recv<'a>(socket: &mnl::Socket, buf: &'a mut [u8]) -> anyhow::Result<Option<&'a [u8]>> {
-    let ret = socket.recv(buf)?;
-    trace!("Read {} bytes from netlink", ret);
-    if ret > 0 {
-        Ok(Some(&buf[..ret]))
-    } else {
-        Ok(None)
-    }
-}
-
-#[tracing::instrument(err, skip_all)]
-fn send_and_process_netfilter(batch: &FinalizedBatch) -> anyhow::Result<()> {
-    let socket = mnl::Socket::new(mnl::Bus::Netfilter)?;
-    socket.send_all(batch)?;
-
-    let portid = socket.portid();
-    let mut buffer = vec![0; nftnl::nft_nlmsg_maxsize() as usize];
-
-    let seq = 0;
-    while let Some(message) = socket_recv(&socket, &mut buffer[..])? {
-        match mnl::cb_run(message, seq, portid)? {
-            mnl::CbResult::Stop => {
-                trace!("cb_run STOP");
-                break;
-            }
-            mnl::CbResult::Ok => trace!("cb_run OK"),
-        };
-    }
-    Ok(())
-}
-
-/*
-We end up adding a netfilter config that looks like:
-table inet flow-firecracker-nat {
-    chain nat-tun[xxxx] {
-            type nat hook postrouting priority srcnat; policy drop;
-            saddr [gateway] oifname "tun[xxxx]*" accept
-            iifname "tun[xxxx]*" oifname "enp1s0*" accept
-            ct state established,related accept
-            oifname "enp1s0*" masquerade
-    }
-}
-*/
-
-#[tracing::instrument(err, skip_all)]
-async fn setup_networking(id: &Uuid) -> anyhow::Result<(String, String, IPConfig)> {
-    let mut id_prefix = id.to_string();
-    id_prefix.truncate(4);
-
-    let netns_name = format!("ns-{id_prefix}");
-
-    rtnetlink::NetworkNamespace::add(netns_name.clone()).await?;
-
-    debug!(netns = netns_name, "Created network namespace");
-
-    let cni_path = "/home/js/cniplugins";
-    let cni_cfg = "fcnet";
-
-    let netns_path = format!("/var/run/netns/{netns_name}");
-
-    let res = run_fun!(CNI_PATH=$cni_path cnitool add $cni_cfg $netns_path)?;
-
-    let parsed = serde_json::from_str::<crate::cni::Result>(res.as_ref()).map_err(|e| {
-        error!("Failed to load JSON result from cnitool. Response: {res}");
-        e
-    })?;
-
-    // This is probably always going to be `tap0`, which is fine because this is
-    // the name of the interface INSIDE of the network namespace
-    let tap_iface = parsed
-        .interfaces
-        .iter()
-        .find(|iface| {
-            iface
-                .sandbox
-                .to_owned()
-                // the cnitool binary prefixes all of its ContainerIDs with cnitool
-                // note: This is dumb and we should either put in the work to write a
-                // Rust client to use cni plugins, or PR cnitool to support CNI_CONTAINERID env
-                .map(|sbx| sbx.starts_with("cnitool"))
-                .unwrap_or(false)
-        })
-        .ok_or(anyhow!("Unable to find name of tap interface"))?;
-
-    let ip = parsed
-        .ips
-        .first()
-        .ok_or(anyhow!("No IPs were created for some reason"))?;
-
-    Ok((
-        tap_iface.name.to_owned(),
-        netns_path.to_owned(),
-        IPConfig {
-            ip: ip.address,
-            gateway: IpNetwork::V4(match ip.gateway {
-                std::net::IpAddr::V4(v4ip) => Ipv4Network::new(v4ip, 0)?,
-                std::net::IpAddr::V6(v6ip) => {
-                    bail!("Got an unexpected IPV6 gateway from CNI: {v6ip}")
-                }
-            }),
-        },
-    ))
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+struct Args {
+    /// Path to a directory containing the CNI plugins needed to set up firecracker networking.
+    /// Currently these are: ptp, host-local, firewall, and tc-redirect-tap
+    #[clap(long = "cni-path", env = "CNI_PATH")]
+    cni_path: PathBuf,
+    /// Path to a built `flow-connector-init` binary to inject as the init program
+    #[clap(long = "init-program", env = "INIT_PROGRAM")]
+    init_program: PathBuf,
+    /// Path to an uncompressed linux kernel build
+    #[clap(long = "kernel", env = "KERNEL")]
+    kernel_path: PathBuf,
+    /// The name of the image to build and run, as understood by a docker-like registry
+    /// e.g `hello-world`, `quay.io/podman/hello`, etc
+    #[clap(long = "image-name", env = "IMAGE_NAME")]
+    image_name: String,
+    /// Allocate and assign VMs IPs from this range
+    #[clap(long = "subnet", env = "SUBNET")]
+    subnet: Ipv4Network,
+    /// Attach to VM logging
+    #[clap(long = "attach", env = "ATTACH", action)]
+    attach: bool,
 }
 
 #[tokio::main]
@@ -323,24 +60,32 @@ async fn main() -> Result<(), anyhow::Error> {
 
     LogTracer::init()?;
 
-    let image_name = "hello-world";
+    let args = Args::parse();
 
     let vm_id = Uuid::new_v4();
+    info!(?args, ?vm_id, "Starting!");
 
     let tempdir = tempfile::Builder::new()
-        // .prefix(&format!("vm-{}", vm_id_short))
         .rand_bytes(2)
         .tempdir_in("/tmp")
         .unwrap();
 
-    let image_conf = get_image_config(image_name.to_owned()).await?;
+    let image_conf = firecracker::get_image_config(args.image_name.to_owned()).await?;
 
-    let (tap_dev_name, netns_path, ip_config) = setup_networking(&vm_id).await?;
+    let (cleanup_handle, tap_dev_name, netns_path, ip_config) =
+        firecracker::FirecrackerNetworking::new(
+            vm_id.clone(),
+            tempdir.path().to_path_buf(),
+            args.cni_path,
+            args.subnet,
+        )
+        .setup_networking()
+        .await?;
 
     let guest_conf = GuestConfigBuilder::default()
         .root_device("/dev/vdb") // Assuming that the second disk becomes vdb...
-        .hostname("test-hello".to_owned())
-        .ip_configs(vec![ip_config])
+        .hostname(vm_id.to_string()[..5].to_string())
+        .ip_configs(vec![ip_config.clone()])
         .etc_resolv(EtcResolv {
             nameservers: vec!["8.8.8.8".to_owned()],
         })
@@ -352,17 +97,16 @@ async fn main() -> Result<(), anyhow::Error> {
         .build()
         .context("error building GuestConfig")?;
 
-    let init_fs = setup_init_fs(
-        &tempdir.path(),
-        "/home/js/estuary/flow/target/x86_64-unknown-linux-musl/release/flow-connector-init"
-            .to_owned(),
+    let init_fs = firecracker::setup_init_fs(
+        &tempdir.path().to_path_buf(),
+        &args.init_program,
         image_conf,
         guest_conf,
     )?;
 
-    let main_fs = setup_root_fs(&tempdir.path(), image_name.to_owned()).await?;
+    let main_fs = firecracker::setup_root_fs(&tempdir.path(), args.image_name.to_owned()).await?;
 
-    let kernel_args = "console=ttyS0 reboot=k panic=1 pci=off random.trust_cpu=on \
+    let kernel_args = "console=ttyS0 reboot=k panic=1 pci=off random.trust_cpu=on loglevel=3 \
         RUST_LOG=debug RUST_BACKTRACE=full LOG_LEVEL=debug \
         init=/flow/init -- \
             --firecracker \
@@ -371,10 +115,25 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let iface = Interface::new(tap_dev_name, "eth0");
 
-    let config = firec::config::Config::builder(Some(vm_id), Path::new("vmlinux-self-5.19.bin"))
+    let stdio = if args.attach {
+        firec::config::Stdio {
+            stdout: Some(Stdio::piped()),
+            stderr: Some(Stdio::piped()),
+            stdin: Some(Stdio::null()),
+        }
+    } else {
+        firec::config::Stdio {
+            stdout: Some(Stdio::null()),
+            stderr: Some(Stdio::null()),
+            stdin: Some(Stdio::null()),
+        }
+    };
+
+    let config = firec::config::Config::builder(Some(vm_id), args.kernel_path)
         .jailer_cfg()
         .chroot_base_dir(tempdir.path())
         .exec_file(Path::new("/usr/bin/firecracker"))
+        .mode(JailerMode::Attached(stdio))
         .build()
         .net_ns(netns_path)
         .kernel_args(kernel_args)
@@ -392,23 +151,72 @@ async fn main() -> Result<(), anyhow::Error> {
         .build();
     let mut machine = Machine::create(config).await?;
 
-    machine.start().await?;
+    let mut child = machine.start().await?;
+
+    let mut stdout_lines = child.stdout.take().map(|s| BufReader::new(s).lines());
+    let mut stderr_lines = child.stderr.take().map(|s| BufReader::new(s).lines());
+
+    // We have to drive child's future so data gets copied to its stdout and stderr streams
+    let handle = tokio::spawn(async move {
+        child
+            .wait_with_output()
+            .await
+            .expect("child process encountered an error");
+    });
+
+    if args.attach {
+        info!(?vm_id, "VM is running in attached mode. Output follows:");
+    } else {
+        info!(?vm_id, "VM is running in detached mode.");
+    }
+
+    info!(ip=?ip_config.ip, "VM was assigned IP");
 
     // Gracefully exit on either SIGINT (ctrl-c) or SIGTERM.
     let mut sigint = unix::signal(unix::SignalKind::interrupt()).unwrap();
     let mut sigterm = unix::signal(unix::SignalKind::terminate()).unwrap();
-    tokio::select! {
-        _ = sigint.recv() => (),
-        _ = sigterm.recv() => (),
+    loop {
+        let res: anyhow::Result<bool> = tokio::select! {
+            Some(maybe_line) = OptionFuture::from(stdout_lines.as_mut().map(|s|s.next_line())) => {
+                if let Some(line) = maybe_line? {
+                    info!(stream="stdout",line)
+                }
+                Ok(false)
+            }
+            Some(maybe_line) = OptionFuture::from(stderr_lines.as_mut().map(|s|s.next_line())) => {
+                if let Some(line) = maybe_line? {
+                    info!(stream="stdout",line)
+                }
+                Ok(false)
+            },
+            _ = sigint.recv() => Ok(true),
+            _ = sigterm.recv() => Ok(true)
+        };
+
+        match res {
+            Ok(true) => {
+                info!("Caught exit signal, shutting down");
+                break;
+            }
+            Ok(false) => {
+                // Successfully logged a line from stdout/stderr
+                continue;
+            }
+            Err(e) => {
+                error!("Error reading from process stdout/stderr: {e}");
+                break;
+            }
+        }
     }
 
-    info!("Caught exit signal, shutting down");
+    handle.abort();
 
     machine.force_shutdown().await?;
 
+    drop(cleanup_handle);
+
     Ok(())
 }
-
 //https://github.com/superfly/init-snapshot#usage
 /*
 Build image

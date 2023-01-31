@@ -32,10 +32,10 @@ rtnetlink = { workspace = true }
 nix = { workspace = true }
 
 tracing-log = { workspace = true }
+clap = { workspace = true }
 
 #-- Prune:
 anyhow = { workspace = true }
-clap = { workspace = true }
 itertools = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }

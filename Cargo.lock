@@ -1416,7 +1416,7 @@ dependencies = [
 [[package]]
 name = "firec"
 version = "0.2.0"
-source = "git+https://github.com/jshearer/firec.git?branch=main#65f3c927c203ac88b571d1d54eaaea79ed057109"
+source = "git+https://github.com/jshearer/firec.git?branch=main#d9ba7f3b90ab08888867eded48f3fe842e9303e0"
 dependencies = [
  "derivative",
  "futures-util",
