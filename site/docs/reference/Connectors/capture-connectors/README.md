@@ -14,6 +14,9 @@ These connectors are created by Estuary. We prioritize high-scale technology sys
 
 All Estuary connectors capture data in real time, as it appears in the source system
 
+* AlloyDB
+  * [Configuration](./alloydb.md)
+  * Package - ghcr.io/estuary/source-alloydb:dev
 * Alpaca
   * [Configuration](./alpaca.md)
   * Package - ghcr.io/estuary/source-alpaca:dev

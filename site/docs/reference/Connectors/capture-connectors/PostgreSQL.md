@@ -267,7 +267,7 @@ You can use this connector for PostgreSQL instances on Google Cloud SQL using th
         for additional details and a sample.
    :::
 
-2. Set [the `cloudsql.logical_decoding` flag to `on`](https://cloud.google.com/sql/docs/postgres/flags) to enable logical replication on your loud SQL PostgreSQL instance.
+2. Set [the `cloudsql.logical_decoding` flag to `on`](https://cloud.google.com/sql/docs/postgres/flags) to enable logical replication on your Cloud SQL PostgreSQL instance.
 
 3. In your PostgreSQL client, connect to your instance and issue the following commands to create a new user for the capture with appropriate permissions,
 and set up the watermarks table and publication.
