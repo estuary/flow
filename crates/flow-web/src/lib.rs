@@ -36,6 +36,7 @@ fn reduce_description(reduce: doc::inference::Reduction) -> &'static str {
         Reduction::Append => "append",
         Reduction::FirstWriteWins => "first-write-wins",
         Reduction::LastWriteWins => "last-write-wins",
+        Reduction::LastWriteWinsUnlessNull => "last-write-wins-unless-null",
         Reduction::Maximize => "maximize",
         Reduction::Merge => "merge",
         Reduction::Minimize => "minimize",

@@ -18,6 +18,9 @@ pub enum Strategy {
     FirstWriteWins,
     /// LastWriteWins takes the RHS value.
     LastWriteWins,
+    /// LastWriteWinsUnlessNull takes the RHS value unless it is null. If RHS is null, it takes the
+    /// LHS value.
+    LastWriteWinsUnlessNull,
     /// Maximize keeps the greater of the LHS & RHS.
     /// A provided key, if present, determines the relative ordering.
     /// If values are equal, they're deeply merged.
@@ -115,6 +118,7 @@ impl Strategy {
             Strategy::Append => Self::append(cur),
             Strategy::FirstWriteWins => Self::first_write_wins(cur),
             Strategy::LastWriteWins => Self::last_write_wins(cur),
+            Strategy::LastWriteWinsUnlessNull => Self::last_write_wins_unless_null(cur),
             Strategy::Maximize(max) => Self::maximize(cur, max),
             Strategy::Merge(merge) => Self::merge(cur, merge),
             Strategy::Minimize(min) => Self::minimize(cur, min),
@@ -188,6 +192,20 @@ impl Strategy {
         let rhs = cur.rhs.into_heap_node(cur.alloc);
         *cur.tape = &cur.tape[count_nodes_heap(&rhs)..];
         Ok(rhs)
+    }
+
+    fn last_write_wins_unless_null<'alloc, L: AsNode, R: AsNode>(
+        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
+    ) -> Result<HeapNode<'alloc>> {
+        let rhs = cur.rhs.into_heap_node(cur.alloc);
+
+        *cur.tape = &cur.tape[count_nodes_heap(&rhs)..];
+
+        if matches!(rhs, HeapNode::Null) {
+            Ok(cur.lhs.into_heap_node(cur.alloc))
+        } else {
+            Ok(rhs)
+        }
     }
 
     fn min_max_helper<'alloc, L: AsNode, R: AsNode>(
@@ -488,6 +506,27 @@ mod test {
                 Partial {
                     rhs: json!(null),
                     expect: Ok(json!("foo")),
+                },
+            ],
+        )
+    }
+
+    #[test]
+    fn test_last_write_wins_unless_null() {
+        run_reduce_cases(
+            json!({ "reduce": { "strategy": "lastWriteWinsUnlessNull" } }),
+            vec![
+                Partial {
+                    rhs: json!("foo"),
+                    expect: Ok(json!("foo")),
+                },
+                Partial {
+                    rhs: json!(null),
+                    expect: Ok(json!("foo")),
+                },
+                Partial {
+                    rhs: json!("bar"),
+                    expect: Ok(json!("bar")),
                 },
             ],
         )
