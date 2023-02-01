@@ -1,0 +1,16 @@
+import {
+    IDerivation,
+    OutputDocument,
+    Register,
+    {{#each this}}
+    From{{@key}}Source,
+    {{/each}}
+} from 'flow/ops/catalog-stats-L2/0';
+
+export class Derivation implements IDerivation {
+    {{#each this}}
+    from{{@key}}Publish(source: From{{@key}}Source, _register: Register, _previous: Register): OutputDocument[] {
+        return [source];
+    }
+    {{/each}}
+}
