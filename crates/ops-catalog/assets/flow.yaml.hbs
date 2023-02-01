@@ -1,5 +1,7 @@
 collections:
-  ops/TENANT/logs:
+{{#each level_1_derivations}}
+{{#each this}}
+  ops/{{this}}/logs:
     schema: ops-log-schema.json
     key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
     projections:
@@ -10,7 +12,7 @@ collections:
         location: /shard/name
         partition: true
 
-  ops/TENANT/stats:
+  ops/{{this}}/stats:
     schema: ops-stats-schema.json
     key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
     projections:
@@ -21,7 +23,31 @@ collections:
         location: /shard/name
         partition: true
 
-  ops/TENANT/catalog-stats:
+{{/each}}
+{{/each}}
+{{#each level_1_derivations}}
+  ops/catalog-stats-L1/{{@key}}:
+    schema: ops-catalog-stats-schema.json
+    key: [/catalogName, /grain, /ts]
+
+    derivation:
+      shards:
+        minTxnDuration: 5s
+      typescript: { module: "catalog-stats-{{@key}}.ts" }
+      transform:
+        {{#each this}}
+        from{{this}}Logs:
+          source:
+            name: ops/{{this}}/logs
+          publish: { lambda: typescript }
+        from{{this}}Stats:
+          source:
+            name: ops/{{this}}/stats
+          publish: { lambda: typescript }
+        {{/each}}
+
+{{/each}}
+  ops/catalog-stats-L2/0:
     schema: ops-catalog-stats-schema.json
     key: [/catalogName, /grain, /ts]
     projections:
@@ -39,23 +65,56 @@ collections:
       failures: /statsSummary/failures
 
     derivation:
-      shards:
-        minTxnDuration: 5s
-      typescript: { module: "catalog-stats.ts" }
+      typescript: { module: "catalog-stats-rollup.ts" }
       transform:
-        logs:
+        {{#each level_1_derivations}}
+        from{{@key}}:
           source:
-            name: ops/TENANT/logs
+            name: ops/catalog-stats-L1/{{@key}}
           publish: { lambda: typescript }
-        stats:
-          source:
-            name: ops/TENANT/stats
-          publish: { lambda: typescript }
+        {{/each}}
 
+materializations:
+  ops/stats-view:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/materialize-postgres:v4
+        {{#if local}}
+        config: stats-local-endpoint.sops.yaml
+        {{else}}
+        config: stats-production-endpoint.sops.yaml
+        {{/if}}
+
+
+    bindings:
+      - source: ops/catalog-stats-L2/0
+        resource:
+          table: catalog_stats
+        fields:
+          recommended: false
+          include:
+            catalog_name: {}
+            grain: {}
+            ts: {}
+            bytes_written_by_me: {}
+            docs_written_by_me: {}
+            bytes_read_by_me: {}
+            docs_read_by_me: {}
+            bytes_written_to_me: {}
+            docs_written_to_me: {}
+            bytes_read_from_me: {}
+            docs_read_from_me: {}
+            warnings: {}
+            errors: {}
+            failures: {}
+            flow_document: {}
+
+{{#if tests}}
+{{!-- Tests will only work if the set of tenants does not include the ops/ tenant. --}}
 tests:
-  ops/TENANT/tests/catalog-stats:
+  ops/estuary/tests/catalog-stats:
     - ingest:
-        collection: ops/TENANT/stats
+        collection: ops/estuary/stats
         documents:
           # Capture
           - shard:
@@ -138,7 +197,7 @@ tests:
             openSecondsTotal: 0.012
 
     - ingest:
-        collection: ops/TENANT/logs
+        collection: ops/estuary/logs
         documents:
           # Logs of the capture task
           - shard: &shard
@@ -169,8 +228,9 @@ tests:
             }
 
     - verify:
-        collection: ops/TENANT/catalog-stats
-        documents:
+        collection: ops/catalog-stats-L1/0
+        documents: &docs
+
           # Capture task
           - catalogName: "tenant/test/cap"
             grain: "daily"
@@ -333,6 +393,12 @@ tests:
             statsSummary:
               readFromMe: { bytesTotal: 30, docsTotal: 6 }
 
+    - verify:
+        # L2 derivation passed through docs as-is.
+        collection: ops/catalog-stats-L2/0
+        documents: *docs
+
 # TODO(johnny): this is used only for local testing with `flowctl-go` and can go away soon.
 storageMappings:
   "": { stores: [{ provider: S3, bucket: a-bucket }] }
+{{/if}}

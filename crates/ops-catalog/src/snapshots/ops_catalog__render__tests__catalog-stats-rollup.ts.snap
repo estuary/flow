@@ -1,0 +1,20 @@
+---
+source: crates/ops-catalog/src/render.rs
+expression: rendered
+---
+import {
+    IDerivation,
+    OutputDocument,
+    Register,
+    From0Source,
+    From1Source,
+} from 'flow/ops/catalog-stats-L2/0';
+
+export class Derivation implements IDerivation {
+    from0Publish(source: From0Source, _register: Register, _previous: Register): OutputDocument[] {
+        return [source];
+    }
+    from1Publish(source: From1Source, _register: Register, _previous: Register): OutputDocument[] {
+        return [source];
+    }
+}
