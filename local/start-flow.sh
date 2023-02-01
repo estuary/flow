@@ -26,6 +26,7 @@ set -e
 SESSION="flow-dev"
 
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && pwd 2> /dev/null; )";
+source "${SCRIPT_DIR}/common.sh"
 
 function log() {
     echo -e "$@" 1>&2
@@ -38,19 +39,6 @@ function bail() {
 
 # verify requirements here, before we get into the tmux session.
 command -v nc || bail "netcat must be installed (nc command was not found)"
-
-function copy_local_flowctl_config() {
-    local src="${SCRIPT_DIR}/local-flowctl-config.json"
-    local target="${HOME}/.config/flowctl/local.json"
-    if [[ "$(uname)" == 'Darwin' ]]; then
-        target="${HOME}/Library/Application Support/flowctl/local.json"
-    fi
-
-    if [[ ! -f "$target" ]]; then
-        log "copying local flowctl config from '${src}' to '${target}'"
-        cp "$src" "$target"
-    fi
-}
 
 function start_component() {
     local component="$1"
@@ -73,7 +61,7 @@ if tmux has -t "$SESSION"; then
     exit 0
 fi
 
-copy_local_flowctl_config
+copy_local_flowctl_config "local"
 # Exporting this variable means that all `flowctl` invocations from inside the tmux
 # session will use the local config by default, so you don't need to pass `--profile local`
 # every time.
@@ -84,7 +72,7 @@ log "Created new tmux session called '$SESSION'"
 # tmux seems to always create a window automatically
 tmux send-keys -t "=${SESSION}:=terminal" 'echo Use this terminal for whatever you want' Enter
 
-flow_components=("temp-data-plane" "control-plane" "ui" "control-plane-agent" "data-plane-gateway" "config-encryption" "oauth-edge" "schema-inference")
+flow_components=("temp-data-plane" "control-plane" "ui" "control-plane-agent" "data-plane-gateway" "config-encryption" "oauth-edge" "schema-inference" "ops-catalog")
 for component in "${flow_components[@]}"; do
     start_component "$component"
 done

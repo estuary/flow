@@ -175,6 +175,10 @@ ${RUST_MUSL_BIN}/flow-connector-init:
 ${RUST_MUSL_BIN}/flow-network-tunnel:
 	cargo build --target x86_64-unknown-linux-musl --release --locked -p network-tunnel
 
+.PHONY: ${RUST_MUSL_BIN}/flow-ops-catalog
+${RUST_MUSL_BIN}/flow-ops-catalog:
+	cargo build --target x86_64-unknown-linux-musl --release --locked -p ops-catalog
+
 .PHONY: ${RUST_MUSL_BIN}/flow-parser
 ${RUST_MUSL_BIN}/flow-parser:
 	cargo build --target x86_64-unknown-linux-musl --release --locked -p parser
@@ -201,6 +205,7 @@ GNU_TARGETS = \
 MUSL_TARGETS = \
 	${PKGDIR}/bin/flow-connector-init \
 	${PKGDIR}/bin/flow-network-tunnel \
+	${PKGDIR}/bin/flow-ops-catalog \
 	${PKGDIR}/bin/flow-parser \
 	${PKGDIR}/bin/flow-schema-inference \
 	${PKGDIR}/bin/flow-schemalate
@@ -210,9 +215,10 @@ linux-gnu-binaries: $(GNU_TARGETS)
 
 .PHONY: linux-musl-binaries
 linux-musl-binaries: | ${PKGDIR}
-	cargo build --target x86_64-unknown-linux-musl --release --locked -p connector-init -p network-tunnel -p parser -p schema-inference -p schemalate
+	cargo build --target x86_64-unknown-linux-musl --release --locked -p connector-init -p network-tunnel -p ops-catalog -p parser -p schema-inference -p schemalate
 	cp -f target/x86_64-unknown-linux-musl/release/flow-connector-init .build/package/bin/
 	cp -f target/x86_64-unknown-linux-musl/release/flow-network-tunnel .build/package/bin/
+	cp -f target/x86_64-unknown-linux-musl/release/flow-ops-catalog .build/package/bin/
 	cp -f target/x86_64-unknown-linux-musl/release/flow-parser .build/package/bin/
 	cp -f target/x86_64-unknown-linux-musl/release/flow-schema-inference .build/package/bin/
 	cp -f target/x86_64-unknown-linux-musl/release/flow-schemalate .build/package/bin/
@@ -240,6 +246,9 @@ ${PKGDIR}/bin/flow-network-tunnel: ${RUST_MUSL_BIN}/flow-network-tunnel | ${PKGD
 
 ${PKGDIR}/bin/flow-parser: ${RUST_MUSL_BIN}/flow-parser | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-parser $@
+
+${PKGDIR}/bin/flow-ops-catalog: ${RUST_MUSL_BIN}/flow-ops-catalog | ${PKGDIR}
+	cp ${RUST_MUSL_BIN}/flow-ops-catalog $@
 
 ${PKGDIR}/bin/flow-schema-inference: ${RUST_MUSL_BIN}/flow-schema-inference | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-schema-inference $@
