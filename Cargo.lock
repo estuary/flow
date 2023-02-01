@@ -4746,11 +4746,13 @@ dependencies = [
  "clap 3.2.22",
  "cmd_lib",
  "connector-init",
+ "fancy-regex",
  "firec",
  "futures",
  "futures-util",
  "ipnetwork",
  "itertools 0.10.5",
+ "lazy_static",
  "mnl",
  "nftnl",
  "nix 0.26.2",
@@ -4769,6 +4771,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid 1.2.2",
  "warp",
+ "which",
 ]
 
 [[package]]
@@ -5751,9 +5754,9 @@ dependencies = [
 
 [[package]]
 name = "which"
-version = "4.3.0"
+version = "4.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c831fbbee9e129a8cf93e7747a82da9d95ba8e16621cae60ec2cdc849bacb7b"
+checksum = "2441c784c52b289a054b7201fc93253e288f094e2f4be9058343127c4226a269"
 dependencies = [
  "either",
  "libc",

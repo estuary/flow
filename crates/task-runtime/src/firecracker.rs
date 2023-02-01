@@ -13,6 +13,8 @@ use tokio::runtime::Handle;
 use tracing::{debug, error};
 use uuid::Uuid;
 
+use crate::cni::PortMapping;
+
 /// Copy init binary, image inspect JSON, and guest config JSON
 #[tracing::instrument(err, skip_all)]
 pub fn setup_init_fs(
@@ -37,13 +39,13 @@ pub fn setup_init_fs(
         fallocate -l 64M initfs;
         mkfs.ext2 initfs;
         mkdir initmount;
-        sudo mount -o loop,noatime initfs initmount;
-        sudo chown $user:$user initmount;
+        mount -o loop,noatime initfs initmount;
+        chown $user:$user initmount;
         mkdir initmount/flow;
         cp $init_bin_path initmount/flow/init;
         cp $temp_dir/image_inspect.json initmount/flow/image_inspect.json;
         cp $temp_dir/guest_config.json initmount/flow/guest_config.json;
-        sudo umount initmount;
+        umount initmount;
     )?;
 
     let init_fs = temp_dir.join("initfs");
@@ -74,7 +76,7 @@ pub async fn setup_root_fs(temp_dir: &Path, image_name: String) -> anyhow::Resul
     run_cmd!(
         cd $temp_dir;
         docker export $container_id --output="rootfs.tar";
-        sudo virt-make-fs --type=ext4 rootfs.tar rootfs.ext4;
+        virt-make-fs --type=ext4 rootfs.tar rootfs.ext4;
     )?;
 
     docker
@@ -123,27 +125,40 @@ pub async fn get_image_config(image: String) -> anyhow::Result<Image> {
     Ok(img)
 }
 
-fn generate_cni_config(name: String, subnet: Ipv4Network) -> Result<String, serde_json::Error> {
+fn generate_cni_config(
+    name: String,
+    subnet: Ipv4Network,
+    port_mappings: bool,
+) -> Result<String, serde_json::Error> {
+    let mut plugins = vec![
+        json!({
+            "type": "ptp",
+            "ipMasq": true,
+            "ipam": {
+              "type": "host-local",
+              "subnet": subnet.to_string(),
+              "resolvConf": "/etc/resolv.conf"
+            }
+        }),
+        json!({
+            "type": "firewall"
+        }),
+        json!({
+            "type": "tc-redirect-tap"
+        }),
+    ];
+
+    if port_mappings {
+        plugins.push(json!({
+            "type": "portmap",
+            "capabilities": {"portMappings": true},
+        }))
+    }
+
     serde_json::to_string(&serde_json::json!({
         "name": name,
         "cniVersion": "1.0.0",
-        "plugins": [
-            {
-                "type": "ptp",
-                "ipMasq": true,
-                "ipam": {
-                  "type": "host-local",
-                  "subnet": subnet.to_string(),
-                  "resolvConf": "/etc/resolv.conf"
-                }
-            },
-            {
-                "type": "firewall"
-            },
-            {
-                "type": "tc-redirect-tap"
-            }
-        ]
+        "plugins": plugins
     }))
 }
 
@@ -153,6 +168,7 @@ pub struct FirecrackerNetworking {
     temp_dir: PathBuf,
     cni_plugins_path: PathBuf,
     guest_subnet: Ipv4Network,
+    port_mappings: Vec<PortMapping>,
 }
 
 pub struct FirecrackerNetworkingDropHandle {
@@ -183,12 +199,14 @@ impl FirecrackerNetworking {
         temp_dir: PathBuf,
         cni_plugins_path: PathBuf,
         guest_subnet: Ipv4Network,
+        ports: Option<Vec<PortMapping>>,
     ) -> Self {
         FirecrackerNetworking {
             vm_id: vm_id,
             temp_dir: temp_dir,
             cni_plugins_path: cni_plugins_path,
             guest_subnet: guest_subnet,
+            port_mappings: ports.unwrap_or(vec![]),
         }
     }
 
@@ -204,15 +222,26 @@ impl FirecrackerNetworking {
         debug!(netns = netns_name, "Created network namespace");
         let netns_path = format!("/var/run/netns/{netns_name}");
 
-        // let cni_path = "/home/js/cniplugins";
-        let cni_config = generate_cni_config(CNI_CFG_NAME.to_owned(), self.guest_subnet)?;
+        let cni_config = generate_cni_config(
+            CNI_CFG_NAME.to_owned(),
+            self.guest_subnet,
+            self.port_mappings.len() > 0,
+        )?;
         let cni_config_filename = self.temp_dir.join(format!("{CNI_CFG_NAME}.conflist"));
         std::fs::write(cni_config_filename, cni_config)?;
 
         let confpath = self.temp_dir.display().to_string();
         let plugins_path = self.cni_plugins_path.clone();
 
-        let cni_response = run_fun!(CNI_PATH=$plugins_path NETCONFPATH=$confpath cnitool add $CNI_CFG_NAME $netns_path)?;
+        let cni_response = if self.port_mappings.len() > 0 {
+            let capability_args_val =
+                serde_json::to_string(&json!({"portMappings": self.port_mappings}))
+                    .context("Serializing port mappings")?;
+            // CAP_ARGS comes from here https://github.com/containernetworking/cni/blob/main/cnitool/cnitool.go#L33
+            run_fun!(CNI_PATH=$plugins_path NETCONFPATH=$confpath CAP_ARGS=$capability_args_val cnitool add $CNI_CFG_NAME $netns_path)?
+        } else {
+            run_fun!(CNI_PATH=$plugins_path NETCONFPATH=$confpath cnitool add $CNI_CFG_NAME $netns_path)?
+        };
 
         let parsed =
             serde_json::from_str::<crate::cni::Result>(cni_response.as_ref()).map_err(|e| {

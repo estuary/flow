@@ -1,3 +1,7 @@
+use std::str::FromStr;
+
+use anyhow::Context;
+use fancy_regex::Regex;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -20,4 +24,61 @@ pub struct Result {
     pub cni_version: String,
     pub interfaces: Vec<Interface>,
     pub ips: Vec<IPConfig>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum PortMappingProtocol {
+    TCP,
+    UDP,
+}
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PortMapping {
+    pub host_port: usize,
+    pub container_port: usize,
+    pub protocol: PortMappingProtocol,
+}
+
+lazy_static::lazy_static! {
+    static ref PORT_RE: Regex = Regex::new(r"^([0-9]{1,5}):([0-9]{1,5})(/(tcp|udp))?$").unwrap();
+}
+
+impl FromStr for PortMapping {
+    type Err = anyhow::Error;
+
+    /// https://docs.docker.com/config/containers/container-networking/#published-ports
+    /// 8080:80 - Map TCP port 80 in the guest to port 8080 on the host.
+    /// 8080:80/udp - Map UDP port 80 in the guest to port 8080 on the host.
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        let capture_groups = PORT_RE
+            .captures_iter(s)
+            .next()
+            .context(format!("Invalid port mapping {s}"))?
+            .context(format!("Invalid port mapping {s}"))?;
+
+        let host_port = capture_groups
+            .get(1)
+            .context(format!("Missing host port in port mapping: {s}"))?
+            .as_str()
+            .parse::<usize>()?;
+        let guest_port = capture_groups
+            .get(2)
+            .context(format!("Missing guest port in port mapping: {s}"))?
+            .as_str()
+            .parse::<usize>()?;
+        let protocol = capture_groups
+            .get(3)
+            .map(|proto| {
+                let val = proto.as_str();
+                serde_json::de::from_str::<PortMappingProtocol>(&format!(r#""{val}""#))
+            })
+            .unwrap_or(Ok(PortMappingProtocol::TCP))?;
+
+        Ok(Self {
+            host_port,
+            container_port: guest_port,
+            protocol,
+        })
+    }
 }

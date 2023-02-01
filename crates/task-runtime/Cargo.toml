@@ -33,6 +33,9 @@ nix = { workspace = true }
 
 tracing-log = { workspace = true }
 clap = { workspace = true }
+which = { workspace = true }
+lazy_static = { workspace = true }
+fancy-regex = { workspace = true }
 
 #-- Prune:
 anyhow = { workspace = true }

@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::Context;
 use clap::Parser;
+use cni::PortMapping;
 use connector_init::config::{EtcHost, EtcResolv, GuestConfigBuilder};
 use firec::{
     config::{network::Interface, JailerMode},
@@ -15,7 +16,6 @@ use ipnetwork::Ipv4Network;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::signal::unix;
 use tracing::{error, info, metadata::LevelFilter};
-use tracing_log::LogTracer;
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
@@ -29,6 +29,9 @@ struct Args {
     /// Currently these are: ptp, host-local, firewall, and tc-redirect-tap
     #[clap(long = "cni-path", env = "CNI_PATH")]
     cni_path: PathBuf,
+    /// Path to the firecracker binary. If not specified, PATH will be searched
+    #[clap(long = "firecracker-path", env = "FIRECRACKER_PATH")]
+    firecracker_path: Option<PathBuf>,
     /// Path to a built `flow-connector-init` binary to inject as the init program
     #[clap(long = "init-program", env = "INIT_PROGRAM")]
     init_program: PathBuf,
@@ -39,6 +42,11 @@ struct Args {
     /// e.g `hello-world`, `quay.io/podman/hello`, etc
     #[clap(long = "image-name", env = "IMAGE_NAME")]
     image_name: String,
+    /// Ports to expose from the guest to the host, in the format of:
+    /// 8080:80 - Map TCP port 80 in the guest to port 8080 on the host.
+    /// 8080:80/udp - Map UDP port 80 in the guest to port 8080 on the host.
+    #[clap(short = 'p', action = clap::ArgAction::Append, required = false)]
+    port_mappings: Vec<PortMapping>,
     /// Allocate and assign VMs IPs from this range
     #[clap(long = "subnet", env = "SUBNET")]
     subnet: Ipv4Network,
@@ -58,7 +66,7 @@ async fn main() -> Result<(), anyhow::Error> {
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
 
-    LogTracer::init()?;
+    tracing_log::LogTracer::init()?;
 
     let args = Args::parse();
 
@@ -70,6 +78,12 @@ async fn main() -> Result<(), anyhow::Error> {
         .tempdir_in("/tmp")
         .unwrap();
 
+    // Is there a better way to do this?
+    let firecracker_path = match args.firecracker_path {
+        Some(path) => path,
+        None => which::which("firecracker").context("Finding firecracker executable")?,
+    };
+
     let image_conf = firecracker::get_image_config(args.image_name.to_owned()).await?;
 
     let (cleanup_handle, tap_dev_name, netns_path, ip_config) =
@@ -78,6 +92,7 @@ async fn main() -> Result<(), anyhow::Error> {
             tempdir.path().to_path_buf(),
             args.cni_path,
             args.subnet,
+            Some(args.port_mappings),
         )
         .setup_networking()
         .await?;
@@ -132,7 +147,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let config = firec::config::Config::builder(Some(vm_id), args.kernel_path)
         .jailer_cfg()
         .chroot_base_dir(tempdir.path())
-        .exec_file(Path::new("/usr/bin/firecracker"))
+        .exec_file(firecracker_path)
         .mode(JailerMode::Attached(stdio))
         .build()
         .net_ns(netns_path)
@@ -213,7 +228,10 @@ async fn main() -> Result<(), anyhow::Error> {
 
     machine.force_shutdown().await?;
 
+    // Clean up networking
     drop(cleanup_handle);
+    // Clean up filesystem
+    drop(tempdir);
 
     Ok(())
 }
