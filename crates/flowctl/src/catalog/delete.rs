@@ -2,10 +2,39 @@ use crate::{api_exec, catalog, draft, CliContext};
 use anyhow::Context;
 use serde::Serialize;
 
+// This `NameSelector` is essentially a copy of `catalog::NameSelector`, except that this
+// definition requires that either --name or --prefix are provided. Other commands will allow neither
+// arg to be provided, and will treat that as an implicit selectio of _everything_ the user has access to.
+// That's obviously a big foot-gun in the context of the delete subcommand, so we require that at least one
+// name selector is provided.
+/// Common selection criteria based on the spec name.
+#[derive(Default, Debug, Clone, clap::Args)]
+pub struct NameSelector {
+    /// Select a spec by name. May be provided multiple times.
+    #[clap(long, required_unless_present("prefix"))]
+    pub name: Vec<String>,
+    /// Select catalog items under the given prefix
+    ///
+    /// Selects all items whose name begins with the prefix.
+    /// Can be provided multiple times to select items under multiple
+    /// prefixes.
+    #[clap(long, conflicts_with = "name", required_unless_present("name"))]
+    pub prefix: Vec<String>,
+}
+
+impl Into<catalog::NameSelector> for NameSelector {
+    fn into(self) -> catalog::NameSelector {
+        catalog::NameSelector {
+            name: self.name,
+            prefix: self.prefix,
+        }
+    }
+}
+
 #[derive(Debug, clap::Args)]
 pub struct Delete {
     #[clap(flatten)]
-    pub name_selector: catalog::NameSelector,
+    pub name_selector: NameSelector,
     #[clap(flatten)]
     pub type_selector: catalog::SpecTypeSelector,
     /// Proceed with deletion without prompting for confirmation.
@@ -35,7 +64,7 @@ pub async fn do_delete(
 ) -> anyhow::Result<()> {
     let list_args = catalog::List {
         flows: false,
-        name_selector: name_selector.clone(),
+        name_selector: name_selector.clone().into(),
         type_selector: type_selector.clone(),
         deleted: false,
     };
