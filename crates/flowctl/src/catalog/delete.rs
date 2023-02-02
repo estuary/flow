@@ -42,6 +42,7 @@ pub struct Delete {
     /// Normally, delete will stop and ask for confirmation before it proceeds. This flag disables
     /// that confirmation. This is sometimes required in order to run flowctl non-interactively,
     /// such as in a shell script.
+    #[clap(long)]
     pub dangerous_auto_approve: bool,
 }
 
