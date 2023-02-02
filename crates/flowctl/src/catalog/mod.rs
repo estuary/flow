@@ -80,7 +80,7 @@ pub enum Command {
 #[derive(Default, Debug, Clone, clap::Args)]
 pub struct NameSelector {
     /// Select a spec by name. May be provided multiple times.
-    #[clap(long)]
+    #[clap(long, required = true)]
     pub name: Vec<String>,
     /// Select catalog items under the given prefix
     ///
