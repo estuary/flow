@@ -121,9 +121,6 @@ function start_control_plane_agent() {
     cd "$(project_dir 'flow')"
     # Start building immediately, since it could take a while
     must_run cargo build -p agent
-        
-    # Add the ops catalog template to the local database.
-    must_run ./ops-catalog/generate-migration.sh local | must_run psql 'postgresql://postgres:postgres@localhost:5432/postgres'
 
     # Now wait until the temp-data-plane is running. We need this in order to determine the builds
     # root when the agent starts. If it's not running, the agent will fail immediately.

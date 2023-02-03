@@ -46,7 +46,7 @@ pub async fn apply(
         )));
     }
 
-    let provisioned_tenant = agent_sql::directives::beta_onboard::provision_tenant(
+    agent_sql::directives::beta_onboard::provision_tenant(
         accounts_user_email,
         Some("applied via directive".to_string()),
         &requested_tenant,
@@ -56,7 +56,7 @@ pub async fn apply(
     .await
     .context("provision_tenant")?;
 
-    info!(%row.user_id, requested_tenant=%requested_tenant.as_str(), ops_publication_id=%provisioned_tenant.publication_id, "beta onboard");
+    info!(%row.user_id, requested_tenant=%requested_tenant.as_str(), "beta onboard");
     Ok(JobStatus::Success)
 }
 
