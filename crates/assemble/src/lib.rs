@@ -529,7 +529,6 @@ pub fn transform_spec(
         shuffle_key_ptrs,
         uses_source_key,
         shuffle_lambda,
-        deprecated_source_schema_uri: source.read_schema_uri.clone(),
         filter_r_clocks: update.is_none(),
         read_delay_seconds: read_delay.map(|d| d.as_secs() as u32).unwrap_or(0),
         priority: *priority,
@@ -670,7 +669,6 @@ pub fn materialization_shuffle(
         shuffle_key_ptrs: source.key_ptrs.clone(),
         uses_source_key: true,
         shuffle_lambda: None,
-        deprecated_source_schema_uri: source.read_schema_uri.clone(),
         // At all times, a given collection key must be exclusively owned by
         // a single materialization shard. Therefore we only subdivide
         // materialization shards on key, never on r-clock.
