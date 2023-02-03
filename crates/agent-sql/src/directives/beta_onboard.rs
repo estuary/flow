@@ -1,4 +1,3 @@
-use super::Id;
 use sqlx::types::Uuid;
 
 pub async fn is_user_provisioned(
@@ -51,33 +50,22 @@ pub async fn tenant_exists(
     Ok(illegal.is_some() || exists.is_some())
 }
 
-// ProvisionedTenant is the shape of a provisioned tenant.
-#[derive(Debug)]
-pub struct ProvisionedTenant {
-    /// The id of the publication that will create the ops catalog for this tenant.
-    pub publication_id: Id,
-}
-
 pub async fn provision_tenant(
     accounts_user_email: &str,
     detail: Option<String>,
     tenant: &str,
     tenant_user_id: Uuid,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<ProvisionedTenant> {
+) -> sqlx::Result<()> {
     let prefix = format!("{tenant}/");
 
-    let provisioned = sqlx::query_as!(
-        ProvisionedTenant,
+    sqlx::query!(
         r#"with
         accounts_root_user as (
             -- Precondition: the accounts root user must exist.
             -- Use a sub-select to select either one match or an explicit null row,
             -- which will then fail a not-null constraint.
             select (select id from auth.users where email = $4 limit 1) as accounts_id
-        ),
-        create_tenant as (
-            insert into tenants (tenant, detail) values ($2, $3)
         ),
         grant_user_admin_to_tenant as (
             insert into user_grants (user_id, object_role, capability, detail) values
@@ -97,14 +85,14 @@ pub async fn provision_tenant(
                 ('recovery/' || $2, '{"stores": [{"provider": "GCS", "bucket": "estuary-trial"}]}', $3)
             on conflict do nothing
         )
-        select internal.create_ops_publication($2, accounts_id) as "publication_id!: Id" from accounts_root_user;
+        insert into tenants (tenant, detail) values ($2, $3);
         "#,
         tenant_user_id as Uuid,
         &prefix as &str,
         detail.clone() as Option<String>,
         accounts_user_email as &str,
     )
-    .fetch_one(&mut *txn)
+    .execute(&mut *txn)
     .await?;
 
     // Create partition of catalog_stats which will home all stats of the tenant. We allow for the
@@ -118,5 +106,5 @@ pub async fn provision_tenant(
     .execute(&mut *txn)
     .await?;
 
-    Ok(provisioned)
+    Ok(())
 }
