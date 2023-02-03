@@ -32,6 +32,7 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
     let spec_rows = draft::upsert_draft_specs(client.clone(), &draft.id, &catalog).await?;
     println!("Will publish the following {} specs", spec_rows.len());
     ctx.write_all(spec_rows, ())?;
+    println!("");
 
     if !(args.auto_approve || prompt_to_continue().await) {
         println!("\nCancelling");
