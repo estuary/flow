@@ -11,6 +11,9 @@ In the future, other open-source materialization connectors from third parties c
 
 ## Available materialization connectors
 
+* AlloyDB
+  * [Configuration](./alloydb.md)
+  * Package - ghcr.io/estuary/materialize-alloydb:dev
 * Apache Parquet in S3
   * [Configuration](./Parquet.md)
   * Package — ghcr.io/estuary/materialize-s3-parquet:dev
