@@ -16,6 +16,15 @@ To use this connector, you'll need:
 
   If you haven't yet captured your data from its external source, start at the beginning of the [guide to create a dataflow](../../../guides/create-dataflow.md). You'll be referred back to this connector-specific documentation at the appropriate steps.
 
+:::caution
+For performance reasons, this connector is limited to 1 million cells per materialized sheet.
+If a bound collection has more than 1 million unique keys, the materialization will fail.
+
+If you plan to materialize a collection with an unbounded number of keys,
+you should first use a [derivation](../../../guides/flowctl/create-derivation.md) to summarize it
+into a collection with a bounded set of keys.
+:::
+
 * The URL of a Google spreadsheet that *does not* contain the output of a prior Flow materialization.
 
 :::caution
