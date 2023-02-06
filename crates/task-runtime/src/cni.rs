@@ -1,6 +1,7 @@
-use std::str::FromStr;
+use core::fmt;
+use std::{fmt::Display, str::FromStr};
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use fancy_regex::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +33,14 @@ pub enum PortMappingProtocol {
     TCP,
     UDP,
 }
+
+impl fmt::Display for PortMappingProtocol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let val = serde_plain::to_string(self).unwrap_or("unknown".to_owned());
+        write!(f, "{}", val)
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PortMapping {
@@ -41,7 +50,7 @@ pub struct PortMapping {
 }
 
 lazy_static::lazy_static! {
-    static ref PORT_RE: Regex = Regex::new(r"^([0-9]{1,5}):([0-9]{1,5})(/(tcp|udp))?$").unwrap();
+    static ref PORT_RE: Regex = Regex::new(r"^([0-9]{1,5}):([0-9]{1,5})(/(\w+))?$").unwrap();
 }
 
 impl FromStr for PortMapping {
@@ -68,11 +77,8 @@ impl FromStr for PortMapping {
             .as_str()
             .parse::<usize>()?;
         let protocol = capture_groups
-            .get(3)
-            .map(|proto| {
-                let val = proto.as_str();
-                serde_json::de::from_str::<PortMappingProtocol>(&format!(r#""{val}""#))
-            })
+            .get(4)
+            .map(|proto| serde_plain::from_str(proto.as_str()))
             .unwrap_or(Ok(PortMappingProtocol::TCP))?;
 
         Ok(Self {

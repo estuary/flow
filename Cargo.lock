@@ -4254,6 +4254,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_plain"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6018081315db179d0ce57b1fe4b62a12a0028c9cf9bbef868c9cf477b3c34ae"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "serde_repr"
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4756,12 +4765,15 @@ dependencies = [
  "mnl",
  "nftnl",
  "nix 0.26.2",
+ "ops",
  "rtnetlink",
  "schemars",
  "serde",
  "serde_json",
+ "serde_plain",
  "tempfile",
  "thiserror",
+ "time 0.3.14",
  "tokio",
  "tokio-tun",
  "tokio-util",

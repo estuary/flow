@@ -202,6 +202,7 @@ mnl = { version = "0.2.2", features = ["mnl-1-0-4"] }
 
 tracing-log = "0.1.3"
 which = "4.4.0"
+serde_plain = "1.0.1"
 
 [profile.release]
 incremental = true

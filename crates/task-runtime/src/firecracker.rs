@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use tokio::runtime::Handle;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 use uuid::Uuid;
 
 use crate::cni::PortMapping;
@@ -36,8 +36,8 @@ pub fn setup_init_fs(
 
     run_cmd!(
         cd $temp_dir;
-        fallocate -l 64M initfs;
-        mkfs.ext2 initfs;
+        dd if=/dev/zero of=initfs bs=512 count=125000;
+        mkfs.ext2 -q initfs;
         mkdir initmount;
         mount -o loop,noatime initfs initmount;
         chown $user:$user initmount;
@@ -234,6 +234,15 @@ impl FirecrackerNetworking {
         let plugins_path = self.cni_plugins_path.clone();
 
         let cni_response = if self.port_mappings.len() > 0 {
+            for PortMapping {
+                protocol,
+                host_port,
+                container_port,
+            } in self.port_mappings.iter()
+            {
+                info!("Binding host {protocol} port {host_port} to guest port {container_port} ")
+            }
+
             let capability_args_val =
                 serde_json::to_string(&json!({"portMappings": self.port_mappings}))
                     .context("Serializing port mappings")?;

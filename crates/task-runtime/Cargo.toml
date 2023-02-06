@@ -9,16 +9,18 @@ repository.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "test-firecracker"
+name = "flow-firecracker"
 path = "src/main.rs"
 
 [dependencies]
 connector-init = { path = "../connector-init" }
+ops = { path = "../ops" }
 
 cmd_lib = { workspace = true }
 uuid = { workspace = true }
 tempfile = { workspace = true }
 
+time = { workspace = true }
 async-trait = { workspace = true }
 firec = { workspace = true }
 bollard = { workspace = true }
@@ -36,6 +38,7 @@ clap = { workspace = true }
 which = { workspace = true }
 lazy_static = { workspace = true }
 fancy-regex = { workspace = true }
+serde_plain = { workspace = true }
 
 #-- Prune:
 anyhow = { workspace = true }

@@ -49,6 +49,8 @@ func (c imageSpec) Validate() error {
 	return nil
 }
 
+const runInFirecracker = true
+
 // NewDriver returns a new Driver implementation for the given EndpointType.
 func NewDriver(
 	ctx context.Context,
@@ -80,7 +82,14 @@ func NewDriver(
 		if err := pf.UnmarshalStrict(endpointSpec, parsedSpec); err != nil {
 			return nil, fmt.Errorf("parsing connector configuration: %w", err)
 		}
-		container, err := StartContainer(ctx, parsedSpec.Image, network, publisher)
+		var container *Container
+		var err error
+
+		if runInFirecracker {
+			container, err = StartFirecracker(ctx, parsedSpec.Image, publisher)
+		} else {
+			container, err = StartContainer(ctx, parsedSpec.Image, network, publisher)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("starting connector container: %w", err)
 		}
