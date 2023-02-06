@@ -57,12 +57,12 @@ Important top-level flowctl subcommands are described below.
 It's also how you provision Flow roles and users. Learn more about [authentication](../reference/authentication.md).
 
 * `catalog` allows you to work with your organization's current active catalog entities. You can investigate the current Data Flows,
-pull specifications for local editing, and test and publish specifications that you wrote or edited locally.
+pull specifications for local editing, test and publish specifications that you wrote or edited locally,
+and delete entities from the catalog.
 
 * `collections` allows you to work with your Flow collections. You can read the data from the collection and output it to stdout, or list the [journals](../concepts/advanced/journals.md) or journal fragments that comprise the collection. [Learn more about reading collections with flowctl](../concepts/collections.md#using-the-flowctl-cli).
 
 * `draft` provides an alternative method for many of the actions you'd normally perform with `catalog`, but common workflows have more steps.
-`draft` also allows you to delete Flow entities.
 
 You can access full documentation of all flowctl subcommands from the command line by passing the `--help` or `-h` flag, for example:
 
