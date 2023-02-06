@@ -259,8 +259,9 @@ async fn main() -> Result<(), anyhow::Error> {
         .add_drive("main", main_fs)
         .build()
         .add_network_interface(iface)
-        .socket_path(tempdir.path().join("firecracker.socket"))
+        .socket_path(Path::new("firecracker.socket"))
         .build();
+
     let mut machine = Machine::create(config).await?;
 
     let mut child = machine.start().await?;
@@ -340,7 +341,6 @@ async fn main() -> Result<(), anyhow::Error> {
     drop(cleanup_handle);
     // Clean up filesystem
     drop(tempdir);
-
     Ok(())
 }
 //https://github.com/superfly/init-snapshot#usage

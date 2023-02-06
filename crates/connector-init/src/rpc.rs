@@ -1,6 +1,5 @@
 use super::codec::{reader_to_message_stream, Codec};
 
-use anyhow::Context;
 use futures::{StreamExt, TryStreamExt};
 use std::collections::HashMap;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
@@ -222,8 +221,6 @@ mod test {
     use super::{bidi, process_logs, unary, Codec};
     use std::collections::HashMap;
 
-    use super::{bidi, decode_message, encode_message, reader_to_message_stream};
-    use super::{process_logs, unary};
     use futures::StreamExt;
     use proto_flow::flow::TestSpec;
 

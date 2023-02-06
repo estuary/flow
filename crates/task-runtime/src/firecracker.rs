@@ -76,7 +76,15 @@ pub async fn setup_root_fs(temp_dir: &Path, image_name: String) -> anyhow::Resul
     run_cmd!(
         cd $temp_dir;
         docker export $container_id --output="rootfs.tar";
-        virt-make-fs --type=ext4 rootfs.tar rootfs.ext4;
+    )?;
+
+    // We have to multiply the size by 2 because virt-make-fs apparently doesn't allocate enough
+    // space sometimes. This will go away when we use containerd for this in the future
+    let fs_size = std::fs::metadata(temp_dir.join("rootfs.tar"))?.len() * 2;
+
+    run_cmd!(
+        cd $temp_dir;
+        virt-make-fs --type=ext4 rootfs.tar rootfs.ext4 --size $fs_size;
     )?;
 
     docker
