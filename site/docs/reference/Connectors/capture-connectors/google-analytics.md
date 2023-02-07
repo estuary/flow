@@ -1,10 +1,12 @@
-# Google Analytics
+# Google Universal Analytics
 
-This connector captures data from a view in Google Analytics.
+This connector captures data from a view in Google Universal Analytics.
 
-:::caution
-This connector supports Universal Analytics.
-Support for Google Analytics 4 is coming soon.
+:::info
+This connector supports Universal Analytics, not Google Analytics 4.
+(We apologize for the misleading name of the Docker image below.)
+
+Google Analytics 4 is supported by a [separate connector](./google-analytics-4.md).
 :::
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-analytics-v4:dev`](https://ghcr.io/estuary/source-google-analytics-v4:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
@@ -105,7 +107,7 @@ The following properties reflect the Service Account Key authentication method. 
 You can include data beyond the [default data resources](#supported-data-resources) with Custom Reports.
 These replicate the functionality of [Custom Reports](https://support.google.com/analytics/answer/10445879?hl=en) in the Google Analytics Web console.
 
-To do so, fill out the Custom Reports property witha JSON array as a string with the following schema:
+To do so, fill out the Custom Reports property with a JSON array as a string with the following schema:
 
 ```json
 [{"name": string, "dimensions": [string], "metrics": [string]}]
@@ -138,6 +140,8 @@ You must include the `ga:date` dimension for proper data flow.
 |  | `ga:users` |
 
 ### Sample
+
+This sample reflects the manual authentication method.
 
 ```yaml
 captures:

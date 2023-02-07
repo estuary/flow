@@ -84,7 +84,10 @@ The versions made available in Flow have been adapted for compatibility.
 * Google Ads
   * [Configuration](./google-ads.md)
   * Package - ghcr.io/estuary/source-google-ads:dev
-* Google Analytics
+* Google Analytics 4
+  * [Configuration](./google-analytics-4.md)
+  * Package - ghcr.io/estuary/source-google-analytics-data-api:dev
+* Google Universal Analytics
   * [Configuration](./google-analytics.md)
   * Package - ghcr.io/estuary/source-google-analytics-v4:dev
 * Google Search Console
