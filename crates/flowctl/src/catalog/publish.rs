@@ -1,5 +1,9 @@
-use crate::{controlplane, draft, source, CliContext};
+use std::collections::HashMap;
+
+use crate::{api_exec, controlplane, draft, source, CliContext};
 use anyhow::Context;
+use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, clap::Args)]
 pub struct Publish {
@@ -13,6 +17,83 @@ pub struct Publish {
     pub auto_approve: bool,
 }
 
+// TODO(whb): Determine an appropriate limit. 100 is pretty arbitrary but might be close to correct.
+const MD5_PAGE_SIZE: usize = 100;
+
+pub async fn remove_unchanged(
+    client: &controlplane::Client,
+    input_catalog: models::Catalog,
+) -> anyhow::Result<models::Catalog> {
+    let models::Catalog {
+        mut collections,
+        mut captures,
+        mut materializations,
+        mut tests,
+        ..
+    } = input_catalog;
+
+    let all_names = collections
+        .keys()
+        .map(|n| n.as_str())
+        .chain(captures.keys().map(|n| n.as_str()))
+        .chain(materializations.keys().map(|n| n.as_str()))
+        .chain(tests.keys().map(|n| n.as_str()));
+
+    let mut spec_checksums: HashMap<String, String> = HashMap::new();
+
+    #[derive(Deserialize, Debug)]
+    struct SpecChecksumRow {
+        catalog_name: String,
+        md5: String,
+    }
+
+    for names in &all_names.into_iter().chunks(MD5_PAGE_SIZE) {
+        let builder = client
+            .from("live_specs_ext")
+            .select("catalog_name,md5")
+            .in_("catalog_name", names);
+
+        let rows: Vec<SpecChecksumRow> = api_exec(builder).await?;
+        let chunk_checksums = rows
+            .iter()
+            .map(|row| (row.catalog_name.clone(), row.md5.clone()))
+            .collect::<HashMap<String, String>>();
+
+        spec_checksums.extend(chunk_checksums);
+    }
+
+    collections.retain(|name, spec| filter_unchanged_catalog_items(&spec_checksums, name, spec));
+    captures.retain(|name, spec| filter_unchanged_catalog_items(&spec_checksums, name, spec));
+    materializations
+        .retain(|name, spec| filter_unchanged_catalog_items(&spec_checksums, name, spec));
+    tests.retain(|name, spec| filter_unchanged_catalog_items(&spec_checksums, name, spec));
+
+    Ok(models::Catalog {
+        collections,
+        captures,
+        materializations,
+        tests,
+        ..Default::default()
+    })
+}
+
+fn filter_unchanged_catalog_items(
+    existing_specs: &HashMap<String, String>,
+    new_catalog_name: &impl AsRef<str>,
+    new_catalog_spec: &impl Serialize,
+) -> bool {
+    if let Some(existing_spec_md5) = existing_specs.get(&new_catalog_name.as_ref().to_string()) {
+        let buf = serde_json::to_vec(new_catalog_spec).expect("new spec must be serializable");
+
+        let new_spec_md5 = format!("{:x}", md5::compute(buf));
+
+        return *existing_spec_md5 != new_spec_md5;
+    }
+
+    // Catalog name does not yet exist in live specs.
+    true
+}
+
 pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<()> {
     use crossterm::tty::IsTty;
 
@@ -24,7 +105,13 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
 
     anyhow::ensure!(args.auto_approve || std::io::stdin().is_tty(), "The publish command must be run interactively unless the `--auto-approve` flag is provided");
 
-    let catalog = crate::source::bundle(&args.source_args).await?;
+    let catalog =
+        remove_unchanged(&client, crate::source::bundle(&args.source_args).await?).await?;
+
+    if catalog.is_empty() {
+        println!("No specs would be changed by this publication, nothing to publish.");
+        return Ok(());
+    }
 
     let draft = draft::create_draft(client.clone()).await?;
     println!("Created draft: {}", &draft.id);
