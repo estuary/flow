@@ -34,6 +34,7 @@ futures = { workspace = true }
 humantime = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
+md5 = { workspace = true }
 
 # open is used for opening URLs in the user's browser
 open = { workspace = true }
