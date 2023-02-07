@@ -90,7 +90,40 @@ Follow the steps to [add a principal to a bucket level policy](https://cloud.goo
 
 #### Amazon S3 buckets
 
-Contact your Estuary account manager for instructions.
+:::info
+Your S3 bucket must be in the us-east-1 [region](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingBucket.html) for use with Flow.
+:::
+
+Follow the steps to [add a bucket policy](https://docs.aws.amazon.com/AmazonS3/latest/userguide/add-bucket-policy.html), pasting the policy below.
+Be sure to replace `YOUR-S3-BUCKET` with the actual name of your bucket.
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AllowUsersToAccessObjectsUnderPrefix",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "arn:aws:iam::789740162118:user/flow-aws"
+            },
+            "Action": [
+                "s3:GetObject",
+                "s3:PutObject"
+            ],
+            "Resource": "arn:aws:s3:::YOUR-S3-BUCKET/*"
+        },
+        {
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "arn:aws:iam::789740162118:user/flow-aws"
+            },
+            "Action": "s3:ListBucket",
+            "Resource": "arn:aws:s3:::YOUR-S3-BUCKET"
+        }
+    ]
+}
+```
 
 ## Self-hosting Flow
 
