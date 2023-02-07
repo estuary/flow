@@ -1,4 +1,5 @@
-use agent_sql::{CatalogType, Id};
+use agent_sql::{CatalogType, Id, TextJson};
+use serde_json::value::RawValue;
 use sqlx::{types::Uuid, Connection, Row};
 
 const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
@@ -312,4 +313,35 @@ async fn test_tenant_usage_quotas() {
             },
         ]
     "#);
+}
+
+#[tokio::test]
+async fn test_text_json_round_trip() {
+    let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+        .await
+        .expect("connect");
+
+    let mut txn = conn.begin().await.unwrap();
+
+    let json_string = r#"{"zzz":   "first",    "aaa":"second" }"#.to_string();
+    let raw = serde_json::value::RawValue::from_string(json_string.clone()).unwrap();
+
+    struct Res {
+        spec: Option<TextJson<Box<RawValue>>>,
+    }
+
+    let got: Res = sqlx::query_as!(
+        Res,
+        r#"
+        insert into live_specs(id, catalog_name, last_build_id, last_pub_id, spec_type, spec)
+        values ('aa00000000000000', 'acmeCo/testing', 'bb00000000000000', 'cc00000000000000', 'capture', $1)
+        returning spec as "spec: TextJson<Box<RawValue>>"
+        "#,
+        &Some(TextJson(raw.clone())) as &Option<TextJson<Box<RawValue>>>,
+    )
+    .fetch_one(&mut txn)
+    .await
+    .unwrap();
+
+    assert_eq!(json_string, got.spec.unwrap().get().to_string());
 }
