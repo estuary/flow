@@ -36,7 +36,7 @@ You can also capture [custom reports](#custom-reports).
 
 To use this connector, you'll need:
 
-* The Google Analytics Reporting API [enabled](https://support.google.com/googleapi/answer/6158841?hl=en) on your Google [project](https://cloud.google.com/storage/docs/projects) with which your Analytics property is associated.
+* The Google Analytics Data API [enabled](https://support.google.com/googleapi/answer/6158841?hl=en) on your Google [project](https://cloud.google.com/storage/docs/projects) with which your Analytics property is associated.
 (Unless you actively develop with Google Cloud, you'll likely just have one option).
 
 * Your Google Analytics 4 [property ID](https://developers.google.com/analytics/devguides/reporting/data/v1/property-id#what_is_my_property_id).

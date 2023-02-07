@@ -89,7 +89,7 @@ The versions made available in Flow have been adapted for compatibility.
   * Package - ghcr.io/estuary/source-google-analytics-data-api:dev
 * Google Universal Analytics
   * [Configuration](./google-analytics.md)
-  * Package - ghcr.io/estuary/source-google-analytics-v4:dev
+  * Package - ghcr.io/estuary/source-google-analytics-ua:dev
 * Google Search Console
   * [Configuration](./google-search-console.md)
   * Package - ghcr.io/estuary/source-google-search-console:dev

@@ -4,12 +4,11 @@ This connector captures data from a view in Google Universal Analytics.
 
 :::info
 This connector supports Universal Analytics, not Google Analytics 4.
-(We apologize for the misleading name of the Docker image below.)
 
 Google Analytics 4 is supported by a [separate connector](./google-analytics-4.md).
 :::
 
-It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-analytics-v4:dev`](https://ghcr.io/estuary/source-google-analytics-v4:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-google-analytics-ua:dev`](https://ghcr.io/estuary/source-google-analytics-ua:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/google-analytics-universal-analytics),
