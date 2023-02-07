@@ -33,19 +33,17 @@ impl<T> sqlx::postgres::PgHasArrayType for TextJson<T> {
     }
 }
 
-impl<T: Serialize> Encode<'_, postgres::Postgres> for TextJson<T> {
+// Encode and Decode pass through to the sqlx::types::Json implementation,
+// but are restricted to the JSON (and not JSONB) postgres types.
+impl<'q, T: Serialize> Encode<'q, postgres::Postgres> for TextJson<T> {
     fn encode_by_ref(&self, buf: &mut postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
-        buf.push(b' '); // Send as JSON (not JSONB).
-
-        serde_json::to_writer(&mut **buf, &self.0)
-            .expect("failed to serialize OrderedJson for transmission to database");
-
-        sqlx::encode::IsNull::No
+        <sqlx::types::Json<&Self> as Encode<'q, postgres::Postgres>>::encode(
+            sqlx::types::Json(self),
+            buf,
+        )
     }
 }
 
-// Decode passes-through to the sqlx::types::Json implementation,
-// but is restricted to the JSON (and not JSONB) postgres types.
 impl<'r, T: 'r> Decode<'r, postgres::Postgres> for TextJson<T>
 where
     T: Deserialize<'r>,
