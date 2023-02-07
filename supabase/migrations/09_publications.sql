@@ -53,6 +53,9 @@ create table live_specs (
   spec                  json,
   spec_type             catalog_spec_type,
   writes_to             text[],
+  -- JSON specs are encoded into the database with leading spaces which must be trimmed to compute
+  -- an accurate md5.
+  md5                   text generated always as (md5(trim(spec::text))) stored,
 
   constraint "spec and spec_type must be consistent" check (
     json_typeof(spec) is distinct from 'null' and (spec is null) = (spec_type is null)

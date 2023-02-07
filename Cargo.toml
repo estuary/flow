@@ -75,6 +75,7 @@ librocksdb-sys = { version = "6.20", default-features = false, features = [
 lz4 = "1.24.0"
 mime = "0.3"
 memchr = "2.5"
+md5 = "0.7.0"
 num-bigint = "0.4"
 
 open = "3"
