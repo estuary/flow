@@ -114,11 +114,10 @@ pub async fn get_image_config(image: String) -> anyhow::Result<Image> {
         .config
         .ok_or(anyhow::anyhow!("Missing image config for {}", image))?;
 
-    let mut img = Image {
+    let img = Image {
         config: ImageConfig {
             cmd: img_config.cmd,
             entrypoint: img_config.entrypoint,
-            _env: img_config.env.unwrap_or_default(),
             labels: img_config.labels.unwrap_or_default(),
             working_dir: img_config.working_dir,
             user: img_config.user,
@@ -126,7 +125,6 @@ pub async fn get_image_config(image: String) -> anyhow::Result<Image> {
         },
         repo_tags: inspect_res.repo_tags.unwrap_or(vec![]),
     };
-    img.parse_env();
 
     debug!(image_name = image, "Image inspected");
 

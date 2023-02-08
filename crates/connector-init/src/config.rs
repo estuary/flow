@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use ipnetwork::IpNetwork;
-use serde::{Deserialize, Serialize};
+use serde::{ser::SerializeSeq, Deserialize, Serialize};
 
 /// Image is the object returned by `docker inspect` over an image.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -11,15 +11,47 @@ pub struct Image {
     pub repo_tags: Vec<String>,
 }
 
+fn deserialize_env_var<'de, D>(deserializer: D) -> Result<HashMap<String, String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let buf = Vec::<String>::deserialize(deserializer)?;
+
+    let res = buf
+        .iter()
+        .map(|e| {
+            let mut splitted = e.splitn(2, "=");
+            (
+                splitted.next().unwrap().to_owned(),
+                splitted.next().unwrap().to_owned(),
+            )
+        })
+        .collect();
+
+    Ok(res)
+}
+
+fn serialize_env_var<S>(x: &HashMap<String, String>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let mut seq = s.serialize_seq(Some(x.len()))?;
+    for (key, val) in x.iter() {
+        seq.serialize_element(&format!("{}={}", key, val))?;
+    }
+    seq.end()
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "PascalCase")]
 pub struct ImageConfig {
     pub cmd: Option<Vec<String>>,
     pub entrypoint: Option<Vec<String>>,
     pub labels: HashMap<String, String>,
-    #[serde(rename = "env")]
-    pub _env: Vec<String>,
-    #[serde(skip)]
+    #[serde(
+        serialize_with = "serialize_env_var",
+        deserialize_with = "deserialize_env_var"
+    )]
     pub env: HashMap<String, String>,
     pub working_dir: Option<String>,
     pub user: Option<String>,
@@ -28,23 +60,7 @@ pub struct ImageConfig {
 impl Image {
     pub fn parse_from_json_file(path: &str) -> anyhow::Result<Self> {
         let [mut out] = serde_json::from_slice::<[Image; 1]>(&std::fs::read(path)?)?;
-        out.parse_env();
         Ok(out)
-    }
-
-    pub fn parse_env(&mut self) {
-        self.config.env = self
-            .config
-            ._env
-            .iter()
-            .map(|e| {
-                let mut splitted = e.splitn(2, "=");
-                (
-                    splitted.next().unwrap().to_owned(),
-                    splitted.next().unwrap().to_owned(),
-                )
-            })
-            .collect();
     }
 
     /// Find the arguments required to invoke the connector,
