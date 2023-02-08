@@ -132,10 +132,11 @@ struct Args {
 async fn main() -> Result<(), anyhow::Error> {
     let args = Args::parse();
 
-    let env_filter_layer = EnvFilter::builder()
-        .with_default_directive(Directive::INFO.into())
-        .from_env()
-        .or_else(|| EnvFilter::new("cmd_lib::child=warn,info"))?;
+    // EnvFilter::builder().from_env() doesn't return an error if the env isn't specified
+    // despite what its docstring claims. Instead, it proceeds with an empty string
+    let filter_val =
+        std::env::var(EnvFilter::DEFAULT_ENV).unwrap_or("info,cmd_lib::child=warn".to_string());
+    let env_filter_layer = EnvFilter::new(filter_val);
 
     let output_layer = match args.log_format {
         LogFormat::Default => tracing_subscriber::fmt::layer()
@@ -293,24 +294,37 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let mut stdout = tokio::io::stdout();
     let mut stderr = tokio::io::stderr();
+
+    // Hack to avoid passing through a log from Firecracker. Ideally we'd just raise the
+    // log level to ERROR, but firecracker doesn't let you do that unless you also
+    // configure logging to a file, which the `firec` crate doesn't support.
+    // Log to filter:
+    // 2023-02-08T16:00:05.095519611 [96ef1bcf-21cf-4070-97ef-28f73e77c616:main:WARN:src/devices/src/legacy/serial.rs:257] Failed to register serial input fd: event_manager: failed to manage epoll file descriptor: Operation not permitted (os error 1)
+    let hacky_error_msg_filter = Regex::new("Failed to register serial input fd")?;
+
     loop {
         let res: anyhow::Result<bool> = tokio::select! {
             Some(maybe_line) = OptionFuture::from(stdout_lines.as_mut().map(|s|s.next_line())) => {
                 if let Some(line) = maybe_line? {
-                    if args.raw_vm_logs  {
-                        stdout.write_all(format!("{line}\n").as_ref()).await?;
-                    } else {
-                        info!(stream="stdout",line)
+                    // `if let foo = bar && bool` syntax isn't stable yet :(
+                    if !hacky_error_msg_filter.is_match(&line)? {
+                        if args.raw_vm_logs  {
+                            stdout.write_all(format!("{line}\n").as_ref()).await?;
+                        } else {
+                            info!(stream="stdout",line)
+                        }
                     }
                 }
                 Ok(false)
             }
             Some(maybe_line) = OptionFuture::from(stderr_lines.as_mut().map(|s|s.next_line())) => {
                 if let Some(line) = maybe_line? {
-                    if args.raw_vm_logs  {
-                        stderr.write_all(format!("{line}\n").as_ref()).await?;
-                    } else {
-                        info!(stream="stdout",line)
+                    if !hacky_error_msg_filter.is_match(&line)? {
+                        if args.raw_vm_logs  {
+                            stderr.write_all(format!("{line}\n").as_ref()).await?;
+                        } else {
+                            info!(stream="stderr",line)
+                        }
                     }
                 }
                 Ok(false)
