@@ -9,7 +9,10 @@ use firec::{
 };
 use futures::future::OptionFuture;
 use ipnetwork::Ipv4Network;
-use std::{path::{PathBuf, Path}, process::Stdio};
+use std::{
+    path::{Path, PathBuf},
+    process::Stdio,
+};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::signal::unix;
 use tracing::{debug, error, info};
@@ -345,12 +348,5 @@ Set up firecracker VM
     Mount boot volume to /dev/vda
     Mount program volume to /dev/vdb
         Make sure to indicate the volume name in config.json, or use vdb as default
-    Attach vsock virtio device beecause init will communicate over it
 Specify init in kernel cmd line
-
-TODO:
-    - Flesh out init binary, including the server that communicates over vsock
-    - Build bare-bones host-side tooling to run all of this
-        Generating config json
-    - Build CLI to deal with bundling etc
 */
