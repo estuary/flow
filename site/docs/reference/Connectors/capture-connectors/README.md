@@ -47,6 +47,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 * PostgreSQL
   * [Configuration](./PostgreSQL.md)
   * Package — ghcr.io/estuary/source-postgres:dev
+* Salesforce (for real-time data)
+  * [Configuration](./salesforce-real-time.md)
+  * Package - ghcr.io/estuary/source-salesforce-next:dev
 
 
 ### Third party connectors
@@ -108,7 +111,7 @@ The versions made available in Flow have been adapted for compatibility.
 * Mailchimp
   * [Configuration](./mailchimp.md)
   * Package - ghcr.io/estuary/source-mailchimp:dev
-* Salesforce
+* Salesforce (For historical data)
   * [Configuration](./salesforce.md)
   * Package - ghcr.io/estuary/source-salesforce:dev
 * Notion
