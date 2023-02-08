@@ -1,7 +1,7 @@
 use core::fmt;
-use std::{fmt::Display, str::FromStr};
+use std::str::FromStr;
 
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use fancy_regex::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +20,7 @@ pub struct IPConfig {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct Result {
+pub struct Response {
     #[serde(rename = "cniVersion")]
     pub cni_version: String,
     pub interfaces: Vec<Interface>,

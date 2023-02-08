@@ -259,7 +259,7 @@ impl FirecrackerNetworking {
         };
 
         let parsed =
-            serde_json::from_str::<crate::cni::Result>(cni_response.as_ref()).map_err(|e| {
+            serde_json::from_str::<crate::cni::Response>(cni_response.as_ref()).map_err(|e| {
                 error!("Failed to load JSON result from cnitool. Response: {cni_response}");
                 e
             })?;

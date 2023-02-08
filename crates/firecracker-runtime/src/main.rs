@@ -1,14 +1,7 @@
-use std::{
-    fmt,
-    path::{Path, PathBuf},
-    process::Stdio,
-    str::FromStr,
-};
-
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use clap::Parser;
 use cni::PortMapping;
-use connector_init::config::{EtcHost, EtcResolv, GuestConfigBuilder};
+use connector_init::config::{EnvVar, EtcHost, EtcResolv, GuestConfigBuilder};
 use fancy_regex::Regex;
 use firec::{
     config::{network::Interface, JailerMode},
@@ -16,48 +9,17 @@ use firec::{
 };
 use futures::future::OptionFuture;
 use ipnetwork::Ipv4Network;
+use std::{path::{PathBuf, Path}, process::Stdio};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::signal::unix;
-use tracing::{debug, error, info, metadata::LevelFilter};
+use tracing::{debug, error, info};
 use tracing_subscriber::{
-    filter::Directive, fmt::format::Format, prelude::__tracing_subscriber_SubscriberExt, EnvFilter,
-    Layer,
+    fmt::format::Format, prelude::__tracing_subscriber_SubscriberExt, EnvFilter, Layer,
 };
 use uuid::Uuid;
 
 pub mod cni;
 pub mod firecracker;
-
-// There's probably a crate for this
-#[derive(Clone, Debug)]
-struct EnvVar {
-    key: String,
-    val: String,
-}
-
-impl FromStr for EnvVar {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut split = s.split("=");
-        let key = split
-            .next()
-            .ok_or(anyhow!("Invalid environment variable {s}"))?
-            .to_owned();
-        let val = split
-            .next()
-            .ok_or(anyhow!("Invalid environment variable {s}"))?
-            .to_owned();
-
-        Ok(Self { key, val })
-    }
-}
-
-impl fmt::Display for EnvVar {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}={}", self.key, self.val)
-    }
-}
 
 #[derive(Debug, Clone, clap::ValueEnum)]
 #[clap(rename_all = "lower")]

@@ -1,7 +1,9 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, str::FromStr};
 
 use ipnetwork::IpNetwork;
 use serde::{ser::SerializeSeq, Deserialize, Serialize};
+
+pub use crate::util::EnvVar;
 
 /// Image is the object returned by `docker inspect` over an image.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -11,27 +13,22 @@ pub struct Image {
     pub repo_tags: Vec<String>,
 }
 
-fn deserialize_env_var<'de, D>(deserializer: D) -> Result<HashMap<String, String>, D::Error>
+fn deserialize_env_vars<'de, D>(deserializer: D) -> Result<HashMap<String, String>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     let buf = Vec::<String>::deserialize(deserializer)?;
 
-    let res = buf
-        .iter()
+    buf.iter()
         .map(|e| {
-            let mut splitted = e.splitn(2, "=");
-            (
-                splitted.next().unwrap().to_owned(),
-                splitted.next().unwrap().to_owned(),
-            )
+            EnvVar::from_str(e)
+                .map_err(serde::de::Error::custom)
+                .map(|parsed| (parsed.key, parsed.val))
         })
-        .collect();
-
-    Ok(res)
+        .collect()
 }
 
-fn serialize_env_var<S>(x: &HashMap<String, String>, s: S) -> Result<S::Ok, S::Error>
+fn serialize_env_vars<S>(x: &HashMap<String, String>, s: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
@@ -49,8 +46,8 @@ pub struct ImageConfig {
     pub entrypoint: Option<Vec<String>>,
     pub labels: HashMap<String, String>,
     #[serde(
-        serialize_with = "serialize_env_var",
-        deserialize_with = "deserialize_env_var"
+        serialize_with = "serialize_env_vars",
+        deserialize_with = "deserialize_env_vars"
     )]
     pub env: HashMap<String, String>,
     pub working_dir: Option<String>,
@@ -59,7 +56,7 @@ pub struct ImageConfig {
 
 impl Image {
     pub fn parse_from_json_file(path: &str) -> anyhow::Result<Self> {
-        let [mut out] = serde_json::from_slice::<[Image; 1]>(&std::fs::read(path)?)?;
+        let [out] = serde_json::from_slice::<[Image; 1]>(&std::fs::read(path)?)?;
         Ok(out)
     }
 

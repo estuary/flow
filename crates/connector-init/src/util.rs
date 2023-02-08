@@ -1,21 +1,48 @@
-use std::fs;
 use std::io::{self, Write};
+use std::str::FromStr;
+use std::{fmt, fs};
 
-use anyhow::Error;
+use anyhow::{anyhow, Error};
 use futures::TryStreamExt;
-use ifstructs::ifreq;
 use ipnetwork::IpNetwork;
 use nix::mount::{mount as nix_mount, MsFlags};
-use nix::sys::socket::{AddressFamily, SockFlag, SockType};
 use nix::sys::stat::Mode;
-use nix::unistd::{
-    chdir as nix_chdir, chroot as nix_chroot, close, mkdir as nix_mkdir, symlinkat, Gid, Group,
-    Uid, User,
-};
-use nix::{ioctl_write_ptr_bad, sys, NixPath};
+use nix::unistd::{chdir as nix_chdir, chroot as nix_chroot, mkdir as nix_mkdir, symlinkat};
+use nix::NixPath;
 use tracing::{debug, info, warn};
 
-use crate::config::{GuestConfig, ImageConfig};
+use crate::config::GuestConfig;
+
+// There's probably a crate for this
+#[derive(Clone, Debug)]
+pub struct EnvVar {
+    pub key: String,
+    pub val: String,
+}
+
+impl FromStr for EnvVar {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut split = s.split("=");
+        let key = split
+            .next()
+            .ok_or(anyhow!("Invalid environment variable {s}"))?
+            .to_owned();
+        let val = split
+            .next()
+            .ok_or(anyhow!("Invalid environment variable {s}"))?
+            .to_owned();
+
+        Ok(Self { key, val })
+    }
+}
+
+impl fmt::Display for EnvVar {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}={}", self.key, self.val)
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum InitError {
@@ -50,11 +77,6 @@ pub enum InitError {
         #[source]
         error: nix::Error,
     },
-
-    #[error(r#"couldn't find user "{}""#, 0)]
-    UserNotFound(String),
-    #[error(r#"couldn't find group "{}""#, 0)]
-    GroupNotFound(String),
 
     #[error("an unhandled error occurred: {}", 0)]
     UnhandledNixError(#[from] nix::Error),
@@ -430,67 +452,6 @@ pub fn setup_rootfs(conf: &GuestConfig) -> Result<(), InitError> {
     chdir("/")?;
 
     Ok(())
-}
-
-pub fn setup_user_group(conf: &mut ImageConfig) -> Result<(Uid, Gid, String), InitError> {
-    let user = conf.user.clone().unwrap_or("root".to_owned());
-
-    let mut user_split = user.split(":");
-
-    let user = user_split
-        .next()
-        .expect("no user defined, this should not happen, please contact support!");
-    let group = user_split.next();
-
-    debug!("searching for user '{}", user);
-
-    let (uid, mut gid, home_dir) = match User::from_name(user) {
-        Ok(Some(u)) => (u.uid, u.gid, u.dir),
-        Ok(None) => {
-            if let Ok(uid) = user.parse::<u32>() {
-                match User::from_uid(Uid::from_raw(uid)) {
-                    Ok(Some(u)) => (u.uid, u.gid, u.dir),
-                    _ => (Uid::from_raw(uid), Gid::from_raw(uid), "/".into()),
-                }
-            } else {
-                return Err(InitError::UserNotFound(user.into()).into());
-            }
-        }
-        Err(e) => {
-            if user != "root" {
-                return Err(InitError::UserNotFound(user.into()).into());
-            }
-            debug!("error getting user '{}' by name => {}", user, e);
-            match User::from_name("root") {
-                Ok(Some(u)) => (u.uid, u.gid, u.dir),
-                _ => (Uid::from_raw(0), Gid::from_raw(0), "/root".into()),
-            }
-        }
-    };
-
-    if let Some(group) = group {
-        debug!("searching for group '{}'", group);
-        match Group::from_name(group) {
-            Err(_e) => {
-                return Err(InitError::GroupNotFound(group.into()).into());
-            }
-            Ok(Some(g)) => gid = g.gid,
-            Ok(None) => {
-                if let Ok(raw_gid) = group.parse::<u32>() {
-                    gid = Gid::from_raw(raw_gid);
-                } else {
-                    return Err(InitError::GroupNotFound(group.into()).into());
-                }
-            }
-        }
-    }
-
-    // if we have a PATH, set it on the OS to be able to find argv[0]
-    conf.env
-        .entry("HOME".to_owned())
-        .or_insert(home_dir.to_string_lossy().into_owned());
-
-    Ok((uid, gid, user.to_owned()))
 }
 
 pub async fn setup_networking(conf: &GuestConfig) -> Result<(), InitError> {
