@@ -20,7 +20,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::signal::unix;
 use tracing::{debug, error, info, metadata::LevelFilter};
 use tracing_subscriber::{
-    fmt::format::Format, prelude::__tracing_subscriber_SubscriberExt, EnvFilter, Layer,
+    filter::Directive, fmt::format::Format, prelude::__tracing_subscriber_SubscriberExt, EnvFilter,
+    Layer,
 };
 use uuid::Uuid;
 
@@ -132,8 +133,9 @@ async fn main() -> Result<(), anyhow::Error> {
     let args = Args::parse();
 
     let env_filter_layer = EnvFilter::builder()
-        .with_default_directive(LevelFilter::INFO.into())
-        .from_env_lossy();
+        .with_default_directive(Directive::INFO.into())
+        .from_env()
+        .or_else(|| EnvFilter::new("cmd_lib::child=warn,info"))?;
 
     let output_layer = match args.log_format {
         LogFormat::Default => tracing_subscriber::fmt::layer()

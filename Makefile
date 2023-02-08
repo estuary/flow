@@ -169,7 +169,7 @@ ${RUSTBIN}/flowctl:
 
 .PHONY: ${RUSTBIN}/flow-firecracker
 ${RUSTBIN}/flow-firecracker:
-	cargo build --release --locked -p task-runtime
+	cargo build --release --locked -p firecracker-runtime
 
 # Statically linked binaries using MUSL:
 

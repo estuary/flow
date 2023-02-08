@@ -1,5 +1,5 @@
 [package]
-name = "task-runtime"
+name = "firecracker-runtime"
 version.workspace = true
 rust-version.workspace = true
 edition.workspace = true
