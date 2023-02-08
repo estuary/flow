@@ -49,7 +49,7 @@ func (c imageSpec) Validate() error {
 	return nil
 }
 
-const runInFirecracker = true
+const runInFirecracker = false
 
 // NewDriver returns a new Driver implementation for the given EndpointType.
 func NewDriver(
