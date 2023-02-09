@@ -1,4 +1,4 @@
-use super::interface::Interface;
+use super::interface::{Interface, Method};
 use super::{build_mapper, camel_case, relative_path, relative_url};
 use itertools::Itertools;
 use serde_json::json;
@@ -101,7 +101,6 @@ export type OutputDocument = "#,
         derivation,
         methods,
         typescript_module,
-        transforms,
         ..
     } = match interface {
         None => {
@@ -144,7 +143,7 @@ export type Register = "#,
                 ..
             },
         ..
-    } in *transforms
+    } in Method::transforms(methods)
     {
         let source_export = format!("{}Source", camel_case(transform, true));
 
@@ -269,7 +268,6 @@ pub fn stubs_ts<'a>(
         methods,
         module_is_relative,
         module_import_path,
-        transforms,
         ..
     } in interfaces
     {
@@ -278,7 +276,7 @@ pub fn stubs_ts<'a>(
         }
         let mut w = String::with_capacity(4096);
 
-        let transform_sources = transforms
+        let transform_sources = Method::transforms(methods)
             .iter()
             .map(|transform| format!("{}Source", camel_case(&transform.transform, true)))
             .join(", ");

@@ -58,6 +58,18 @@ impl<'a> Method<'a> {
     pub fn method_name(&self) -> String {
         self.type_.method_name(&self.transform)
     }
+
+    pub fn transforms(v: &[Self]) -> Vec<&'a tables::Transform> {
+        let mut out: Vec<_> = v
+            .iter()
+            .map(|Method { transform, .. }| *transform)
+            .collect();
+
+        out.sort_by_key(|t| &t.transform);
+        out.dedup_by_key(|t| &t.transform);
+
+        out
+    }
 }
 
 pub struct Interface<'a> {
@@ -73,8 +85,6 @@ pub struct Interface<'a> {
     pub module_import_path: String,
     // Methods of the interface.
     pub methods: Vec<Method<'a>>,
-    // Transforms of this derivation.
-    pub transforms: &'a [tables::Transform],
 }
 
 impl<'a> Interface<'a> {
@@ -185,7 +195,6 @@ impl<'a> Interface<'a> {
                     module_is_relative,
                     module_import_path,
                     methods,
-                    transforms,
                 }),
             ));
         }
