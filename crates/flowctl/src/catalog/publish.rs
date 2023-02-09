@@ -17,7 +17,9 @@ pub struct Publish {
     pub auto_approve: bool,
 }
 
-// TODO(whb): Determine an appropriate limit. 100 is pretty arbitrary but might be close to correct.
+// TODO(whb): This page size is pretty arbitrary, but seemed to work fine during my tests. It needs
+// to be large enough to be reasonably efficient for large numbers of specs, but small enough to not
+// exceed query length limitations.
 const MD5_PAGE_SIZE: usize = 100;
 
 pub async fn remove_unchanged(
@@ -32,6 +34,7 @@ pub async fn remove_unchanged(
         ..
     } = input_catalog;
 
+    // TODO(whb): Replace with all_spec_names from models::Catalog?
     let all_names = collections
         .keys()
         .map(|n| n.as_str())
