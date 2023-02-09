@@ -147,6 +147,9 @@ func (m *LambdaSpec) Validate() error {
 	if m.Typescript != "" {
 		cnt++
 	}
+	if m.Sqlite != "" {
+		cnt++
+	}
 	if cnt != 1 {
 		return pb.NewValidationError("expected exactly one lambda type")
 	}
