@@ -1,0 +1,26 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/from-array-key#/collections/testing~1from-array-key/derivation/transform/withBar,
+        error: SQLite update lambda is invalid.
+        Available `source` columns are ["aKeyOne", "arr", "arr/0/aKey", "arr/1/aKey", "arr/2/aKey", "arr/3/aKey", "flow_document"]
+        
+        Caused by:
+            0: no such column: invalidColumn in select invalidColumn from source at offset 7
+            1: Error code 1: SQL error or missing database,
+    },
+    Error {
+        scope: test://example/from-array-key#/collections/testing~1from-array-key/derivation/transform/withBar,
+        error: SQLite publish lambda is invalid.
+        	Available `source` columns are ["aKeyOne", "arr", "arr/0/aKey", "arr/1/aKey", "arr/2/aKey", "arr/3/aKey", "flow_document"]
+        	Available `register` and `previous_register` columns are ["an-int", "nested", "nested/timestamp"]
+        
+        Caused by:
+            0: no such column: s.invalid in select s.invalid, r.column from source s, register r
+                at offset 7
+            1: Error code 1: SQL error or missing database,
+    },
+]

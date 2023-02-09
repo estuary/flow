@@ -379,13 +379,32 @@ test://example/from-array-key:
       key: [/someKey]
 
       derivation:
+        register:
+          schema:
+            type: object
+            properties:
+              an-int: { type: integer }
+              nested:
+                type: object
+                properties:
+                  timestamp:
+                    type: string
+                    format: date-time
+            required: [an-int, nested]
+          initial: { an-int: 42, nested: { timestamp: "2019-03-06T09:28:00Z" } }
         transform:
           # The shuffle keys of these transforms become projections
           # of the read collection.
           withBar:
             source: { name: testing/array-key }
             shuffle: { key: [/arr/2/aKey] }
-            publish: { lambda: { remote: https://an/api } }
+            update:
+              lambda:
+                sql: select aKeyOne as "an-int", json_object('timestamp', strftime('%Y-%m-%dT%H:%M:%SZ')) as two from source
+            publish:
+              lambda:
+                sql: |
+                  select s.aKeyOne, s.arr, s."arr/0/aKey", r."an-int", r."nested/timestamp" from source as s, register as r
 
           withFoo:
             source: { name: testing/array-key }

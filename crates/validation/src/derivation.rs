@@ -113,6 +113,34 @@ fn walk_derivation(
         Error::RegisterInitialInvalid(err).push(scope, errors);
     }
 
+    // Extract projections of the register.
+    let mut register_projections = register_schema
+        .fields
+        .iter()
+        .map(|(field, ptr)| {
+            let (inference, exists) = register_schema.shape.locate(&doc::Pointer::from_str(ptr));
+
+            flow::Projection {
+                field: field.clone(),
+                ptr: ptr.to_string(),
+                inference: Some(assemble::inference(inference, exists)),
+                ..Default::default()
+            }
+        })
+        .collect::<Vec<_>>();
+
+    // If the register has no fields (other than the root), then create a single "value" projection.
+    if register_projections.is_empty() {
+        register_projections.push(flow::Projection {
+            field: "value".to_string(),
+            inference: Some(assemble::inference(
+                &register_schema.shape,
+                doc::inference::Exists::Must,
+            )),
+            ..Default::default()
+        })
+    }
+
     // We'll collect TransformSpecs and types of each transform's shuffle key (if known).
     let mut built_transforms = Vec::new();
     let mut shuffle_types: Vec<(Vec<types::Set>, &tables::Transform)> = Vec::new();
@@ -123,6 +151,7 @@ fn walk_derivation(
     for transform in transforms {
         if let Some(type_set) = walk_transform(
             built_collections,
+            &register_projections,
             schema_shapes,
             transform,
             &mut built_transforms,
@@ -201,11 +230,13 @@ fn walk_derivation(
         built_transforms,
         recovery_stores,
         &register_schema.bundle,
+        register_projections,
     )
 }
 
 pub fn walk_transform(
     built_collections: &[tables::BuiltCollection],
+    register_projections: &[flow::Projection],
     schema_shapes: &[schema::Shape],
     transform: &tables::Transform,
     built_transforms: &mut Vec<flow::TransformSpec>,
@@ -237,13 +268,6 @@ pub fn walk_transform(
         errors,
     );
 
-    if update.is_none() && publish.is_none() {
-        Error::NoUpdateOrPublish {
-            transform: name.to_string(),
-        }
-        .push(scope, errors);
-    }
-
     // Dereference the transform's source. We can't continue without it.
     let source = match reference::walk_reference(
         scope,
@@ -257,6 +281,19 @@ pub fn walk_transform(
         Some(s) => s,
         None => return None,
     };
+
+    if update.is_none() && publish.is_none() {
+        Error::NoUpdateOrPublish {
+            transform: name.to_string(),
+        }
+        .push(scope, errors);
+    }
+    if let Some(update) = update {
+        walk_update_lambda(scope, update, &source, errors);
+    }
+    if let Some(publish) = publish {
+        walk_publish_lambda(scope, publish, &source, &register_projections, errors);
+    }
 
     if let Some(selector) = source_partitions {
         collection::walk_selector(scope, &source.spec, &selector, errors);
@@ -316,4 +353,63 @@ pub fn walk_transform(
     ));
 
     shuffle_types
+}
+
+pub fn walk_update_lambda(
+    scope: &url::Url,
+    update: &models::Update,
+    source: &tables::BuiltCollection,
+    errors: &mut tables::Errors,
+) {
+    match &update.lambda {
+        models::Lambda::Sql(query) => {
+            let source_columns: Vec<_> = source.spec.projections.iter().map(Into::into).collect();
+
+            if let Err(err) =
+                sqlite_lambda::Lambda::<serde_json::Value>::new(query, &source_columns, &[])
+            {
+                Error::SqliteUpdate {
+                    source_columns: source_columns.into_iter().map(|c| c.field).collect(),
+                    detail: err,
+                }
+                .push(scope, errors)
+            }
+        }
+        models::Lambda::Typescript => {}
+        models::Lambda::Remote(_addr) => {
+            // TODO(johnny): Ensure endpoint can be called?
+        }
+    };
+}
+
+pub fn walk_publish_lambda(
+    scope: &url::Url,
+    publish: &models::Publish,
+    source: &tables::BuiltCollection,
+    register_projections: &[flow::Projection],
+    errors: &mut tables::Errors,
+) {
+    match &publish.lambda {
+        models::Lambda::Sql(query) => {
+            let source_columns: Vec<_> = source.spec.projections.iter().map(Into::into).collect();
+            let register_columns: Vec<_> = register_projections.iter().map(Into::into).collect();
+
+            if let Err(err) = sqlite_lambda::Lambda::<serde_json::Value>::new(
+                query,
+                &source_columns,
+                &register_columns,
+            ) {
+                Error::SqlitePublish {
+                    source_columns: source_columns.into_iter().map(|c| c.field).collect(),
+                    register_columns: register_columns.into_iter().map(|c| c.field).collect(),
+                    detail: err,
+                }
+                .push(scope, errors)
+            }
+        }
+        models::Lambda::Typescript => {}
+        models::Lambda::Remote(_addr) => {
+            // TODO(johnny): Ensure endpoint can be called?
+        }
+    };
 }

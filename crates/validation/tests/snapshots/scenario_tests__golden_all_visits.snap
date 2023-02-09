@@ -2221,8 +2221,78 @@ All {
                     },
                 ),
                 register_schema_uri: "test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/register/schema",
-                register_schema_json: "{\"$id\":\"test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/register/schema\",\"allOf\":[true]}",
-                register_initial_json: "null",
+                register_schema_json: "{\"$id\":\"test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/register/schema\",\"properties\":{\"an-int\":{\"type\":\"integer\"},\"nested\":{\"properties\":{\"timestamp\":{\"format\":\"date-time\",\"type\":\"string\"}},\"type\":\"object\"}},\"required\":[\"an-int\",\"nested\"],\"type\":\"object\"}",
+                register_initial_json: "{\"an-int\":42,\"nested\":{\"timestamp\":\"2019-03-06T09:28:00Z\"}}",
+                register_projections: [
+                    Projection {
+                        ptr: "/an-int",
+                        field: "an-int",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "integer",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/nested",
+                        field: "nested",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "object",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/nested/timestamp",
+                        field: "nested/timestamp",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "",
+                                        is_base64: false,
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: May,
+                            },
+                        ),
+                    },
+                ],
                 transforms: [
                     TransformSpec {
                         derivation: "testing/from-array-key",
@@ -2256,17 +2326,229 @@ All {
                                 ],
                                 uses_source_key: false,
                                 shuffle_lambda: None,
-                                filter_r_clocks: true,
+                                filter_r_clocks: false,
                                 read_delay_seconds: 0,
                                 priority: 0,
                                 validate_schema_json: "{\"$id\":\"test://example/array-key.schema\",\"properties\":{\"arr\":{\"items\":{\"properties\":{\"aKey\":{\"type\":\"integer\"}},\"required\":[\"aKey\"],\"type\":\"object\"},\"minItems\":5,\"type\":\"array\"}},\"required\":[\"arr\"],\"type\":\"object\"}",
                             },
                         ),
-                        update_lambda: None,
+                        update_lambda: Some(
+                            LambdaSpec {
+                                typescript: "",
+                                remote: "",
+                                sqlite: "select aKeyOne as \"an-int\", json_object('timestamp', strftime('%Y-%m-%dT%H:%M:%SZ')) as two from source",
+                            },
+                        ),
                         publish_lambda: Some(
                             LambdaSpec {
                                 typescript: "",
-                                remote: "https://an/api",
+                                remote: "",
+                                sqlite: "select s.aKeyOne, s.arr, s.\"arr/0/aKey\", r.\"an-int\", r.\"nested/timestamp\" from source as s, register as r\n",
+                            },
+                        ),
+                        collection: Some(
+                            CollectionSpec {
+                                collection: "testing/array-key",
+                                write_schema_uri: "test://example/array-key.schema",
+                                write_schema_json: "{\"$id\":\"test://example/array-key.schema\",\"properties\":{\"arr\":{\"items\":{\"properties\":{\"aKey\":{\"type\":\"integer\"}},\"required\":[\"aKey\"],\"type\":\"object\"},\"minItems\":5,\"type\":\"array\"}},\"required\":[\"arr\"],\"type\":\"object\"}",
+                                read_schema_uri: "test://example/array-key.schema",
+                                read_schema_json: "",
+                                key_ptrs: [
+                                    "/arr/0/aKey",
+                                ],
+                                uuid_ptr: "/_meta/uuid",
+                                partition_fields: [],
+                                projections: [
+                                    Projection {
+                                        ptr: "/arr/1/aKey",
+                                        field: "aKeyOne",
+                                        explicit: true,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/arr",
+                                        field: "arr",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "array",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/arr/0/aKey",
+                                        field: "arr/0/aKey",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/arr/1/aKey",
+                                        field: "arr/1/aKey",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/arr/2/aKey",
+                                        field: "arr/2/aKey",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/arr/3/aKey",
+                                        field: "arr/3/aKey",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "",
+                                        field: "flow_document",
+                                        explicit: true,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "object",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                ],
+                                ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "testing/array-key",
+                                        replication: 3,
+                                        labels: Some(
+                                            LabelSet {
+                                                labels: [
+                                                    Label {
+                                                        name: "app.gazette.dev/managed-by",
+                                                        value: "estuary.dev/flow",
+                                                    },
+                                                    Label {
+                                                        name: "content-type",
+                                                        value: "application/x-ndjson",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/build",
+                                                        value: "a-build-id",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/collection",
+                                                        value: "testing/array-key",
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        fragment: Some(
+                                            Fragment {
+                                                length: 536870912,
+                                                compression_codec: Gzip,
+                                                stores: [
+                                                    "s3://data-bucket/",
+                                                ],
+                                                refresh_interval: Some(
+                                                    Duration {
+                                                        seconds: 300,
+                                                        nanos: 0,
+                                                    },
+                                                ),
+                                                retention: None,
+                                                flush_interval: None,
+                                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                                            },
+                                        ),
+                                        flags: 4,
+                                        max_append_rate: 4194304,
+                                    },
+                                ),
                             },
                         ),
                     },
@@ -2313,6 +2595,212 @@ All {
                             LambdaSpec {
                                 typescript: "",
                                 remote: "https://an/api",
+                                sqlite: "",
+                            },
+                        ),
+                        collection: Some(
+                            CollectionSpec {
+                                collection: "testing/array-key",
+                                write_schema_uri: "test://example/array-key.schema",
+                                write_schema_json: "{\"$id\":\"test://example/array-key.schema\",\"properties\":{\"arr\":{\"items\":{\"properties\":{\"aKey\":{\"type\":\"integer\"}},\"required\":[\"aKey\"],\"type\":\"object\"},\"minItems\":5,\"type\":\"array\"}},\"required\":[\"arr\"],\"type\":\"object\"}",
+                                read_schema_uri: "test://example/array-key.schema",
+                                read_schema_json: "",
+                                key_ptrs: [
+                                    "/arr/0/aKey",
+                                ],
+                                uuid_ptr: "/_meta/uuid",
+                                partition_fields: [],
+                                projections: [
+                                    Projection {
+                                        ptr: "/arr/1/aKey",
+                                        field: "aKeyOne",
+                                        explicit: true,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/arr",
+                                        field: "arr",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "array",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/arr/0/aKey",
+                                        field: "arr/0/aKey",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/arr/1/aKey",
+                                        field: "arr/1/aKey",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/arr/2/aKey",
+                                        field: "arr/2/aKey",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/arr/3/aKey",
+                                        field: "arr/3/aKey",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "",
+                                        field: "flow_document",
+                                        explicit: true,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "object",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                ],
+                                ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "testing/array-key",
+                                        replication: 3,
+                                        labels: Some(
+                                            LabelSet {
+                                                labels: [
+                                                    Label {
+                                                        name: "app.gazette.dev/managed-by",
+                                                        value: "estuary.dev/flow",
+                                                    },
+                                                    Label {
+                                                        name: "content-type",
+                                                        value: "application/x-ndjson",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/build",
+                                                        value: "a-build-id",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/collection",
+                                                        value: "testing/array-key",
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        fragment: Some(
+                                            Fragment {
+                                                length: 536870912,
+                                                compression_codec: Gzip,
+                                                stores: [
+                                                    "s3://data-bucket/",
+                                                ],
+                                                refresh_interval: Some(
+                                                    Duration {
+                                                        seconds: 300,
+                                                        nanos: 0,
+                                                    },
+                                                ),
+                                                retention: None,
+                                                flush_interval: None,
+                                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                                            },
+                                        ),
+                                        flags: 4,
+                                        max_append_rate: 4194304,
+                                    },
+                                ),
                             },
                         ),
                     },
@@ -2690,6 +3178,28 @@ All {
                 register_schema_uri: "test://example/int-halve?ptr=/collections/testing~1int-halve/derivation/register/schema",
                 register_schema_json: "{\"$id\":\"test://example/int-halve?ptr=/collections/testing~1int-halve/derivation/register/schema\",\"type\":\"integer\"}",
                 register_initial_json: "42",
+                register_projections: [
+                    Projection {
+                        ptr: "",
+                        field: "value",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "integer",
+                                ],
+                                string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                ],
                 transforms: [
                     TransformSpec {
                         derivation: "testing/int-halve",
@@ -2743,9 +3253,293 @@ All {
                             LambdaSpec {
                                 typescript: "",
                                 remote: "https://an/api",
+                                sqlite: "",
                             },
                         ),
                         publish_lambda: None,
+                        collection: Some(
+                            CollectionSpec {
+                                collection: "testing/int-string-rw",
+                                write_schema_uri: "test://example/int-string.schema",
+                                write_schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
+                                read_schema_uri: "test://example/int-string-len.schema",
+                                read_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                                key_ptrs: [
+                                    "/int",
+                                ],
+                                uuid_ptr: "/_meta/uuid",
+                                partition_fields: [
+                                    "bit",
+                                ],
+                                projections: [
+                                    Projection {
+                                        ptr: "/int",
+                                        field: "Int",
+                                        explicit: true,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/len",
+                                        field: "Len",
+                                        explicit: true,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/str",
+                                        field: "Str",
+                                        explicit: true,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "",
+                                                        content_encoding: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/arr",
+                                        field: "arr",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "array",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: May,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/bit",
+                                        field: "bit",
+                                        explicit: true,
+                                        is_partition_key: true,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/extra",
+                                        field: "extra",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: May,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "",
+                                        field: "flow_document",
+                                        explicit: true,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "object",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/int",
+                                        field: "int",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/len",
+                                        field: "len",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/str",
+                                        field: "str",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "",
+                                                        content_encoding: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                ],
+                                ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "testing/int-string-rw",
+                                        replication: 3,
+                                        labels: Some(
+                                            LabelSet {
+                                                labels: [
+                                                    Label {
+                                                        name: "app.gazette.dev/managed-by",
+                                                        value: "estuary.dev/flow",
+                                                    },
+                                                    Label {
+                                                        name: "content-type",
+                                                        value: "application/x-ndjson",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/build",
+                                                        value: "a-build-id",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/collection",
+                                                        value: "testing/int-string-rw",
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        fragment: Some(
+                                            Fragment {
+                                                length: 536870912,
+                                                compression_codec: Gzip,
+                                                stores: [
+                                                    "s3://data-bucket/",
+                                                ],
+                                                refresh_interval: Some(
+                                                    Duration {
+                                                        seconds: 300,
+                                                        nanos: 0,
+                                                    },
+                                                ),
+                                                retention: None,
+                                                flush_interval: None,
+                                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                                            },
+                                        ),
+                                        flags: 4,
+                                        max_append_rate: 4194304,
+                                    },
+                                ),
+                            },
+                        ),
                     },
                     TransformSpec {
                         derivation: "testing/int-halve",
@@ -2791,6 +3585,267 @@ All {
                             LambdaSpec {
                                 typescript: "/derive/testing/int-halve/halveSelf/Publish",
                                 remote: "",
+                                sqlite: "",
+                            },
+                        ),
+                        collection: Some(
+                            CollectionSpec {
+                                collection: "testing/int-halve",
+                                write_schema_uri: "test://example/int-string-len.schema",
+                                write_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                                read_schema_uri: "test://example/int-string-len.schema",
+                                read_schema_json: "",
+                                key_ptrs: [
+                                    "/int",
+                                ],
+                                uuid_ptr: "/_meta/uuid",
+                                partition_fields: [
+                                    "Len",
+                                ],
+                                projections: [
+                                    Projection {
+                                        ptr: "/extra",
+                                        field: "Extra",
+                                        explicit: true,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: May,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/len",
+                                        field: "Len",
+                                        explicit: true,
+                                        is_partition_key: true,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "",
+                                        field: "Root",
+                                        explicit: true,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "object",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/arr",
+                                        field: "arr",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "array",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: May,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/bit",
+                                        field: "bit",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/extra",
+                                        field: "extra",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: May,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/int",
+                                        field: "int",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/len",
+                                        field: "len",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/str",
+                                        field: "str",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "",
+                                                        content_encoding: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                ],
+                                ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "testing/int-halve",
+                                        replication: 3,
+                                        labels: Some(
+                                            LabelSet {
+                                                labels: [
+                                                    Label {
+                                                        name: "app.gazette.dev/managed-by",
+                                                        value: "estuary.dev/flow",
+                                                    },
+                                                    Label {
+                                                        name: "content-type",
+                                                        value: "application/x-ndjson",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/build",
+                                                        value: "a-build-id",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/collection",
+                                                        value: "testing/int-halve",
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        fragment: Some(
+                                            Fragment {
+                                                length: 11223344,
+                                                compression_codec: Gzip,
+                                                stores: [
+                                                    "s3://data-bucket/",
+                                                ],
+                                                refresh_interval: Some(
+                                                    Duration {
+                                                        seconds: 300,
+                                                        nanos: 0,
+                                                    },
+                                                ),
+                                                retention: None,
+                                                flush_interval: Some(
+                                                    Duration {
+                                                        seconds: 900,
+                                                        nanos: 0,
+                                                    },
+                                                ),
+                                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                                            },
+                                        ),
+                                        flags: 4,
+                                        max_append_rate: 4194304,
+                                    },
+                                ),
                             },
                         ),
                     },
@@ -3061,6 +4116,41 @@ All {
                 register_schema_uri: "test://example/int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema",
                 register_schema_json: "{\"$id\":\"test://example/int-reverse?ptr=/collections/testing~1int-reverse/derivation/register/schema\",\"allOf\":[true]}",
                 register_initial_json: "null",
+                register_projections: [
+                    Projection {
+                        ptr: "",
+                        field: "value",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "array",
+                                    "boolean",
+                                    "null",
+                                    "number",
+                                    "object",
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        is_base64: false,
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                ],
                 transforms: [
                     TransformSpec {
                         derivation: "testing/int-reverse",
@@ -3105,6 +4195,182 @@ All {
                             LambdaSpec {
                                 typescript: "/derive/testing/int-reverse/reverseIntString/Publish",
                                 remote: "",
+                                sqlite: "",
+                            },
+                        ),
+                        collection: Some(
+                            CollectionSpec {
+                                collection: "testing/int-string",
+                                write_schema_uri: "test://example/int-string.schema",
+                                write_schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
+                                read_schema_uri: "test://example/int-string.schema",
+                                read_schema_json: "",
+                                key_ptrs: [
+                                    "/int",
+                                ],
+                                uuid_ptr: "/_meta/uuid",
+                                partition_fields: [
+                                    "bit",
+                                ],
+                                projections: [
+                                    Projection {
+                                        ptr: "/int",
+                                        field: "Int",
+                                        explicit: true,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/bit",
+                                        field: "bit",
+                                        explicit: true,
+                                        is_partition_key: true,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "",
+                                        field: "flow_document",
+                                        explicit: true,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "object",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/int",
+                                        field: "int",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: true,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "integer",
+                                                ],
+                                                string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/str",
+                                        field: "str",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "",
+                                                        content_encoding: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                ],
+                                ack_json_template: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
+                                partition_template: Some(
+                                    JournalSpec {
+                                        name: "testing/int-string",
+                                        replication: 3,
+                                        labels: Some(
+                                            LabelSet {
+                                                labels: [
+                                                    Label {
+                                                        name: "app.gazette.dev/managed-by",
+                                                        value: "estuary.dev/flow",
+                                                    },
+                                                    Label {
+                                                        name: "content-type",
+                                                        value: "application/x-ndjson",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/build",
+                                                        value: "a-build-id",
+                                                    },
+                                                    Label {
+                                                        name: "estuary.dev/collection",
+                                                        value: "testing/int-string",
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                        fragment: Some(
+                                            Fragment {
+                                                length: 536870912,
+                                                compression_codec: Gzip,
+                                                stores: [
+                                                    "s3://data-bucket/",
+                                                ],
+                                                refresh_interval: Some(
+                                                    Duration {
+                                                        seconds: 300,
+                                                        nanos: 0,
+                                                    },
+                                                ),
+                                                retention: None,
+                                                flush_interval: None,
+                                                path_postfix_template: "utc_date={{.Spool.FirstAppendTime.Format \"2006-01-02\"}}/utc_hour={{.Spool.FirstAppendTime.Format \"15\"}}",
+                                            },
+                                        ),
+                                        flags: 4,
+                                        max_append_rate: 4194304,
+                                    },
+                                ),
                             },
                         ),
                     },
@@ -4463,7 +5729,12 @@ All {
             spec: {
               "register": {
                 "schema": false,
-                "initial": null
+                "initial": {
+                  "an-int": 42,
+                  "nested": {
+                    "timestamp": "2019-03-06T09:28:00Z"
+                  }
+                }
               },
               "transform": {}
             },
@@ -4870,17 +6141,57 @@ All {
             location: ,
             spec: Inference {
                 types: [
-                    "array",
-                    "boolean",
-                    "null",
-                    "number",
                     "object",
+                ],
+                string: None,
+                title: "",
+                description: "",
+                default_json: "",
+                secret: false,
+                exists: Must,
+            },
+        },
+        Inference {
+            schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/register/schema,
+            location: /an-int,
+            spec: Inference {
+                types: [
+                    "integer",
+                ],
+                string: None,
+                title: "",
+                description: "",
+                default_json: "",
+                secret: false,
+                exists: Must,
+            },
+        },
+        Inference {
+            schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/register/schema,
+            location: /nested,
+            spec: Inference {
+                types: [
+                    "object",
+                ],
+                string: None,
+                title: "",
+                description: "",
+                default_json: "",
+                secret: false,
+                exists: Must,
+            },
+        },
+        Inference {
+            schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/register/schema,
+            location: /nested/timestamp,
+            spec: Inference {
+                types: [
                     "string",
                 ],
                 string: Some(
                     String {
                         content_type: "",
-                        format: "",
+                        format: "date-time",
                         content_encoding: "",
                         is_base64: false,
                         max_length: 0,
@@ -4890,7 +6201,7 @@ All {
                 description: "",
                 default_json: "",
                 secret: false,
-                exists: Must,
+                exists: May,
             },
         },
         Inference {
@@ -5470,13 +6781,13 @@ All {
             resource: test://example/from-array-key,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"testing/from-array-key":{"derivation":{"transform":{"withBar":{"publish":{"lambda":{"remote":"https://an/api"}},"shuffle":{"key":["/arr/2/aKey"]},"source":{"name":"testing/array-key"}},"withFoo":{"publish":{"lambda":{"remote":"https://an/api"}},"shuffle":{"key":["/arr/3/aKey"]},"source":{"name":"testing/array-key"}}}},"key":["/someKey"],"schema":{"properties":{"someKey":{"type":"integer"}},"required":["someKey"],"type":"object"}}},"import":["test://example/array-key"]},
+            content_dom: {"collections":{"testing/from-array-key":{"derivation":{"register":{"initial":{"an-int":42,"nested":{"timestamp":"2019-03-06T09:28:00Z"}},"schema":{"properties":{"an-int":{"type":"integer"},"nested":{"properties":{"timestamp":{"format":"date-time","type":"string"}},"type":"object"}},"required":["an-int","nested"],"type":"object"}},"transform":{"withBar":{"publish":{"lambda":{"sql":"select s.aKeyOne, s.arr, s.\"arr/0/aKey\", r.\"an-int\", r.\"nested/timestamp\" from source as s, register as r\n"}},"shuffle":{"key":["/arr/2/aKey"]},"source":{"name":"testing/array-key"},"update":{"lambda":{"sql":"select aKeyOne as \"an-int\", json_object('timestamp', strftime('%Y-%m-%dT%H:%M:%SZ')) as two from source"}}},"withFoo":{"publish":{"lambda":{"remote":"https://an/api"}},"shuffle":{"key":["/arr/3/aKey"]},"source":{"name":"testing/array-key"}}}},"key":["/someKey"],"schema":{"properties":{"someKey":{"type":"integer"}},"required":["someKey"],"type":"object"}}},"import":["test://example/array-key"]},
         },
         Resource {
             resource: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/register/schema,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
-            content_dom: true,
+            content_dom: {"properties":{"an-int":{"type":"integer"},"nested":{"properties":{"timestamp":{"format":"date-time","type":"string"}},"type":"object"}},"required":["an-int","nested"],"type":"object"},
         },
         Resource {
             resource: test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema,
@@ -5616,7 +6927,27 @@ All {
         },
         SchemaDoc {
             schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/derivation/register/schema,
-            dom: true,
+            dom: {
+              "properties": {
+                "an-int": {
+                  "type": "integer"
+                },
+                "nested": {
+                  "properties": {
+                    "timestamp": {
+                      "format": "date-time",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "an-int",
+                "nested"
+              ],
+              "type": "object"
+            },
         },
         SchemaDoc {
             schema: test://example/from-array-key?ptr=/collections/testing~1from-array-key/schema,
@@ -5806,9 +7137,14 @@ All {
                   "/arr/2/aKey"
                 ]
               },
+              "update": {
+                "lambda": {
+                  "sql": "select aKeyOne as \"an-int\", json_object('timestamp', strftime('%Y-%m-%dT%H:%M:%SZ')) as two from source"
+                }
+              },
               "publish": {
                 "lambda": {
-                  "remote": "https://an/api"
+                  "sql": "select s.aKeyOne, s.arr, s.\"arr/0/aKey\", r.\"an-int\", r.\"nested/timestamp\" from source as s, register as r\n"
                 }
               }
             },

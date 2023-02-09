@@ -1198,6 +1198,29 @@ test://example/int-halve:
     insta::assert_debug_snapshot!(errors);
 }
 
+#[test]
+fn test_invalid_sqlite_lambdas() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/from-array-key:
+  collections:
+    testing/from-array-key:
+      derivation:
+        transform:
+          withBar:
+            update:
+              lambda:
+                sql: select invalidColumn from source
+            publish:
+              lambda:
+                sql: |
+                  select s.invalid, r.column from source s, register r
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MockDriverCalls {
