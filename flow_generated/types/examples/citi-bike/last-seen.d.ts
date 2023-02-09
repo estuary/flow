@@ -18,18 +18,3 @@ export type Document = {
 // The collection has one schema, used for both reads and writes.
 export type SourceDocument = Document;
 export type OutputDocument = Document;
-
-// Generated from derivation register schema examples/citi-bike/last-seen.flow.yaml?ptr=/collections/examples~1citi-bike~1last-seen/derivation/register/schema.
-// Referenced from examples/citi-bike/last-seen.flow.yaml#/collections/examples~1citi-bike~1last-seen/derivation.
-export type Register = unknown;
-
-// Generated from transform locationFromRide as a re-export of collection examples/citi-bike/rides.
-// Referenced from examples/citi-bike/last-seen.flow.yaml#/collections/examples~1citi-bike~1last-seen/derivation/transform/locationFromRide."
-import { SourceDocument as LocationFromRideSource } from './rides';
-export { SourceDocument as LocationFromRideSource } from './rides';
-
-// Generated from derivation examples/citi-bike/last-seen.flow.yaml#/collections/examples~1citi-bike~1last-seen/derivation.
-// Required to be implemented by examples/citi-bike/last-seen.flow.ts.
-export interface IDerivation {
-    locationFromRidePublish(source: LocationFromRideSource, register: Register, previous: Register): OutputDocument[];
-}

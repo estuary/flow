@@ -16,6 +16,5 @@ collections:
         locationFromRide:
           source: { name: examples/citi-bike/rides }
           publish:
-            lambda: typescript
-      typescript:
-        module: last-seen.flow.ts
+            lambda:
+              sql: select bike_id, end as last from source
