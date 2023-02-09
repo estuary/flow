@@ -2,8 +2,8 @@ import {
     IDerivation,
     Document,
     Register,
-    From{{this.1.0}}LogsSource,
-    From{{this.1.0}}StatsSource,
+    FromTenant{{hashed_tenant this.1.0}}LogsSource,
+    FromTenant{{hashed_tenant this.1.0}}StatsSource,
 } from 'flow/ops/catalog-stats-L1/{{this.0}}';
 
 // This allows for a general form of the specific types to be used for the many publish functions
@@ -11,16 +11,16 @@ import {
 // extension into a type, so it is disabled here.
 
 // eslint-disable-next-line
-interface LogsSource extends From{{this.1.0}}LogsSource { }
+interface LogsSource extends FromTenant{{hashed_tenant this.1.0}}LogsSource { }
 // eslint-disable-next-line
-interface StatsSource extends From{{this.1.0}}StatsSource { }
+interface StatsSource extends FromTenant{{hashed_tenant this.1.0}}StatsSource { }
 
 export class Derivation implements IDerivation {
     {{#each this.1}}
-    from{{this}}LogsPublish(source: LogsSource, _register: Register, _previous: Register): Document[] {
+    fromTenant{{hashed_tenant this}}LogsPublish(source: LogsSource, _register: Register, _previous: Register): Document[] {
         return logsPublish(source);
     }
-    from{{this}}StatsPublish(source: StatsSource, _register: Register, _previous: Register): Document[] {
+    fromTenant{{hashed_tenant this}}StatsPublish(source: StatsSource, _register: Register, _previous: Register): Document[] {
         return statsPublish(source);
     }
     {{/each}}

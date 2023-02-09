@@ -36,11 +36,11 @@ collections:
       typescript: { module: "catalog-stats-{{@key}}.ts" }
       transform:
         {{#each this}}
-        from{{this}}Logs:
+        fromTenant{{hashed_tenant this}}Logs:
           source:
             name: ops/{{this}}/logs
           publish: { lambda: typescript }
-        from{{this}}Stats:
+        fromTenant{{hashed_tenant this}}Stats:
           source:
             name: ops/{{this}}/stats
           publish: { lambda: typescript }
@@ -110,11 +110,14 @@ materializations:
             flow_document: {}
 
 {{#if tests}}
-{{!-- Tests will only work if the set of tenants does not include the ops/ tenant. --}}
+{{!-- Tests will only work if the set of tenants does not include the ops/ tenant. Currently tests
+will only be included in the template if running the Generate command for local testing. --}}
 tests:
-  ops/estuary/tests/catalog-stats:
+{{#each level_1_derivations}}
+{{#each this}}
+  ops/{{this}}/tests/catalog-stats:
     - ingest:
-        collection: ops/estuary/stats
+        collection: ops/{{this}}/stats
         documents:
           # Capture
           - shard:
@@ -197,7 +200,7 @@ tests:
             openSecondsTotal: 0.012
 
     - ingest:
-        collection: ops/estuary/logs
+        collection: ops/{{this}}/logs
         documents:
           # Logs of the capture task
           - shard: &shard
@@ -228,7 +231,7 @@ tests:
             }
 
     - verify:
-        collection: ops/catalog-stats-L1/0
+        collection: ops/catalog-stats-L1/{{@../key}}
         documents: &docs
 
           # Capture task
@@ -397,6 +400,8 @@ tests:
         # L2 derivation passed through docs as-is.
         collection: ops/catalog-stats-L2/0
         documents: *docs
+{{/each}}
+{{/each}}
 
 # TODO(johnny): this is used only for local testing with `flowctl-go` and can go away soon.
 storageMappings:
