@@ -37,9 +37,12 @@ collections:
           # Here we declare a lambda that will map a bank transfer document
           # into a balance update.
           # This declaration tells Flow to look for an associated TypeScript module.
-          publish: { lambda: typescript }
-      typescript:
-        module: acmeBank.flow.ts
+          publish:
+            lambda:
+              sql: |
+                select recipient as account, amount from source
+                union all
+                select sender, -amount from source
 
 # Uncomment when updating README:
 #

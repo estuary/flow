@@ -174,18 +174,6 @@
   },
   "additionalProperties": false,
   "definitions": {
-    "BucketType": {
-      "description": "BucketType is a provider of object storage buckets, which are used to durably storage journal fragments.",
-      "examples": [
-        "S3"
-      ],
-      "type": "string",
-      "enum": [
-        "GCS",
-        "S3",
-        "AZURE"
-      ]
-    },
     "Capture": {
       "description": "Capture names are paths of Unicode letters, numbers, '-', '_', or '.'. Each path component is separated by a slash '/', and a name may not begin or end in a '/'.",
       "examples": [
@@ -668,6 +656,9 @@
         "typescript",
         {
           "remote": "http://example/api"
+        },
+        {
+          "remote": "SELECT foo, bar FROM source;"
         }
       ],
       "oneOf": [
@@ -684,6 +675,18 @@
           ],
           "properties": {
             "remote": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "sql"
+          ],
+          "properties": {
+            "sql": {
               "type": "string"
             }
           },
@@ -1172,6 +1175,14 @@
         }
       }
     },
+    "StorageEndpoint": {
+      "description": "An address for a custom storage endpoint",
+      "examples": [
+        "storage.example.com"
+      ],
+      "type": "string",
+      "pattern": "^^(http://|https://)?[a-z0-9]+[a-z0-9\\.:-]*[a-z0-9]+$"
+    },
     "Store": {
       "description": "A Store into which Flow journal fragments may be written.\n\nThe persisted path of a journal fragment is determined by composing the Store's bucket and prefix with the journal name and a content-addressed fragment file name.\n\nEg, given a Store to S3 with bucket \"my-bucket\" and prefix \"a/prefix\", along with a collection \"example/events\" having a logical partition \"region\", then a complete persisted path might be:\n\ns3://my-bucket/a/prefix/example/events/region=EU/utc_date=2021-10-25/utc_hour=13/000123-000456-789abcdef.gzip",
       "examples": [
@@ -1181,34 +1192,169 @@
           "provider": "S3"
         }
       ],
-      "type": "object",
-      "required": [
-        "bucket",
-        "provider"
-      ],
-      "properties": {
-        "bucket": {
-          "description": "Bucket into which Flow will store data.",
-          "type": "string",
-          "pattern": "(^(([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])\\.)*([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])$)"
-        },
-        "prefix": {
-          "description": "Optional prefix of keys written to the bucket.",
-          "default": null,
-          "anyOf": [
+      "oneOf": [
+        {
+          "title": "Amazon Simple Storage Service.",
+          "examples": [
             {
-              "$ref": "#/definitions/Prefix"
-            },
-            {
-              "type": "null"
+              "bucket": "my-bucket",
+              "prefix": null
             }
-          ]
+          ],
+          "type": "object",
+          "required": [
+            "bucket",
+            "provider"
+          ],
+          "properties": {
+            "bucket": {
+              "description": "Bucket into which Flow will store data.",
+              "type": "string",
+              "pattern": "(^(([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])\\.)*([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])$)"
+            },
+            "prefix": {
+              "description": "Optional prefix of keys written to the bucket.",
+              "default": null,
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Prefix"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "provider": {
+              "type": "string",
+              "enum": [
+                "S3"
+              ]
+            }
+          }
         },
-        "provider": {
-          "description": "Cloud storage provider.",
-          "$ref": "#/definitions/BucketType"
+        {
+          "title": "Google Cloud Storage.",
+          "examples": [
+            {
+              "bucket": "my-bucket",
+              "prefix": null
+            }
+          ],
+          "type": "object",
+          "required": [
+            "bucket",
+            "provider"
+          ],
+          "properties": {
+            "bucket": {
+              "description": "Bucket into which Flow will store data.",
+              "type": "string",
+              "pattern": "(^(([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])\\.)*([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])$)"
+            },
+            "prefix": {
+              "description": "Optional prefix of keys written to the bucket.",
+              "default": null,
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Prefix"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "provider": {
+              "type": "string",
+              "enum": [
+                "GCS"
+              ]
+            }
+          }
+        },
+        {
+          "title": "Azure object storage service.",
+          "examples": [
+            {
+              "bucket": "my-bucket",
+              "prefix": null
+            }
+          ],
+          "type": "object",
+          "required": [
+            "bucket",
+            "provider"
+          ],
+          "properties": {
+            "bucket": {
+              "description": "Bucket into which Flow will store data.",
+              "type": "string",
+              "pattern": "(^(([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])\\.)*([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])$)"
+            },
+            "prefix": {
+              "description": "Optional prefix of keys written to the bucket.",
+              "default": null,
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Prefix"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "provider": {
+              "type": "string",
+              "enum": [
+                "AZURE"
+              ]
+            }
+          }
+        },
+        {
+          "title": "An S3-compatible endpoint",
+          "description": "Details of an s3-compatible storage endpoint, such as Minio or R2.",
+          "examples": [
+            {
+              "bucket": "my-bucket",
+              "endpoint": "storage.example.com"
+            }
+          ],
+          "type": "object",
+          "required": [
+            "bucket",
+            "endpoint",
+            "provider"
+          ],
+          "properties": {
+            "bucket": {
+              "description": "Bucket into which Flow will store data.",
+              "type": "string",
+              "pattern": "(^(([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])\\.)*([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])$)"
+            },
+            "endpoint": {
+              "description": "endpoint is required when provider is \"custom\", and specifies the address of an s3-compatible storage provider.",
+              "$ref": "#/definitions/StorageEndpoint"
+            },
+            "prefix": {
+              "description": "Optional prefix of keys written to the bucket.",
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Prefix"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "provider": {
+              "type": "string",
+              "enum": [
+                "CUSTOM"
+              ]
+            }
+          }
         }
-      }
+      ]
     },
     "Test": {
       "description": "Test names are paths of Unicode letters, numbers, '-', '_', or '.'. Each path component is separated by a slash '/', and a name may not begin or end in a '/'.",
