@@ -2,10 +2,6 @@ import { IDerivation, Document, Register, FromRidesSource } from 'flow/examples/
 
 // Implementation for derivation examples/citi-bike/rides-and-relocations.flow.yaml#/collections/examples~1citi-bike~1rides-and-relocations/derivation.
 export class Derivation implements IDerivation {
-    fromRidesUpdate(source: FromRidesSource): Register[] {
-        // Index last ride for this bike.
-        return [source.end];
-    }
     fromRidesPublish(source: FromRidesSource, _register: Register, previous: Register): Document[] {
         // Compare |previous| register value from before the update lambda was applied,
         // with the source document to determine if the bike mysteriously moved.

@@ -1,8 +1,5 @@
 {
   "files": [
-    "../examples/acmeBank.flow.ts",
-    "../examples/citi-bike/idle-bikes.flow.ts",
-    "../examples/citi-bike/last-seen.flow.ts",
     "../examples/citi-bike/rides-and-relocations.flow.ts",
     "../examples/citi-bike/stations.flow.ts",
     "../examples/citi-bike/transform-csv-rides.ts",

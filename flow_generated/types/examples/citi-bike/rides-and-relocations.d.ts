@@ -57,6 +57,5 @@ export { SourceDocument as FromRidesSource } from './rides';
 // Generated from derivation examples/citi-bike/rides-and-relocations.flow.yaml#/collections/examples~1citi-bike~1rides-and-relocations/derivation.
 // Required to be implemented by examples/citi-bike/rides-and-relocations.flow.ts.
 export interface IDerivation {
-    fromRidesUpdate(source: FromRidesSource): Register[];
     fromRidesPublish(source: FromRidesSource, register: Register, previous: Register): OutputDocument[];
 }

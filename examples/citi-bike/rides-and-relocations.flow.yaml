@@ -24,7 +24,8 @@ collections:
           source: { name: examples/citi-bike/rides }
           shuffle: { key: [/bike_id] }
           update:
-            lambda: typescript
+            lambda:
+              sql: select end as flow_document from source;
           publish:
             lambda: typescript
       typescript:
