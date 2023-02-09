@@ -26,22 +26,6 @@ pub async fn remove_unchanged(
     client: &controlplane::Client,
     input_catalog: models::Catalog,
 ) -> anyhow::Result<models::Catalog> {
-    let models::Catalog {
-        mut collections,
-        mut captures,
-        mut materializations,
-        mut tests,
-        ..
-    } = input_catalog;
-
-    // TODO(whb): Replace with all_spec_names from models::Catalog?
-    let all_names = collections
-        .keys()
-        .map(|n| n.as_str())
-        .chain(captures.keys().map(|n| n.as_str()))
-        .chain(materializations.keys().map(|n| n.as_str()))
-        .chain(tests.keys().map(|n| n.as_str()));
-
     let mut spec_checksums: HashMap<String, String> = HashMap::new();
 
     #[derive(Deserialize, Debug)]
@@ -50,7 +34,8 @@ pub async fn remove_unchanged(
         md5: String,
     }
 
-    for names in &all_names.into_iter().chunks(MD5_PAGE_SIZE) {
+    let spec_names = input_catalog.all_spec_names();
+    for names in &spec_names.into_iter().chunks(MD5_PAGE_SIZE) {
         let builder = client
             .from("live_specs_ext")
             .select("catalog_name,md5")
@@ -64,6 +49,14 @@ pub async fn remove_unchanged(
 
         spec_checksums.extend(chunk_checksums);
     }
+
+    let models::Catalog {
+        mut collections,
+        mut captures,
+        mut materializations,
+        mut tests,
+        ..
+    } = input_catalog;
 
     collections.retain(|name, spec| filter_unchanged_catalog_items(&spec_checksums, name, spec));
     captures.retain(|name, spec| filter_unchanged_catalog_items(&spec_checksums, name, spec));
