@@ -6,8 +6,8 @@ import {
     IDerivation,
     Document,
     Register,
-    FromopsLogsSource,
-    FromopsStatsSource,
+    FromTenant_02dbc5aee7fb2ff5c1faf682bd43a748_LogsSource,
+    FromTenant_02dbc5aee7fb2ff5c1faf682bd43a748_StatsSource,
 } from 'flow/ops/catalog-stats-L1/0';
 
 // This allows for a general form of the specific types to be used for the many publish functions
@@ -15,21 +15,21 @@ import {
 // extension into a type, so it is disabled here.
 
 // eslint-disable-next-line
-interface LogsSource extends FromopsLogsSource { }
+interface LogsSource extends FromTenant_02dbc5aee7fb2ff5c1faf682bd43a748_LogsSource { }
 // eslint-disable-next-line
-interface StatsSource extends FromopsStatsSource { }
+interface StatsSource extends FromTenant_02dbc5aee7fb2ff5c1faf682bd43a748_StatsSource { }
 
 export class Derivation implements IDerivation {
-    fromopsLogsPublish(source: LogsSource, _register: Register, _previous: Register): Document[] {
+    fromTenant_02dbc5aee7fb2ff5c1faf682bd43a748_LogsPublish(source: LogsSource, _register: Register, _previous: Register): Document[] {
         return logsPublish(source);
     }
-    fromopsStatsPublish(source: StatsSource, _register: Register, _previous: Register): Document[] {
+    fromTenant_02dbc5aee7fb2ff5c1faf682bd43a748_StatsPublish(source: StatsSource, _register: Register, _previous: Register): Document[] {
         return statsPublish(source);
     }
-    fromestuaryLogsPublish(source: LogsSource, _register: Register, _previous: Register): Document[] {
+    fromTenant_26474c71c3e9396165dc47ba85f3d5fe_LogsPublish(source: LogsSource, _register: Register, _previous: Register): Document[] {
         return logsPublish(source);
     }
-    fromestuaryStatsPublish(source: StatsSource, _register: Register, _previous: Register): Document[] {
+    fromTenant_26474c71c3e9396165dc47ba85f3d5fe_StatsPublish(source: StatsSource, _register: Register, _previous: Register): Document[] {
         return statsPublish(source);
     }
 }

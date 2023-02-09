@@ -3,7 +3,7 @@ source: crates/ops-catalog/src/render.rs
 expression: rendered
 ---
 collections:
-  ops/ops/logs:
+  ops/_..-weird-name1/logs:
     schema: ops-log-schema.json
     key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
     projections:
@@ -14,7 +14,7 @@ collections:
         location: /shard/name
         partition: true
 
-  ops/ops/stats:
+  ops/_..-weird-name1/stats:
     schema: ops-stats-schema.json
     key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
     projections:
@@ -25,7 +25,7 @@ collections:
         location: /shard/name
         partition: true
 
-  ops/estuary/logs:
+  ops/weird.name_2/logs:
     schema: ops-log-schema.json
     key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
     projections:
@@ -36,7 +36,7 @@ collections:
         location: /shard/name
         partition: true
 
-  ops/estuary/stats:
+  ops/weird.name_2/stats:
     schema: ops-stats-schema.json
     key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
     projections:
@@ -47,7 +47,7 @@ collections:
         location: /shard/name
         partition: true
 
-  ops/alice/logs:
+  ops/regularName/logs:
     schema: ops-log-schema.json
     key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
     projections:
@@ -58,7 +58,7 @@ collections:
         location: /shard/name
         partition: true
 
-  ops/alice/stats:
+  ops/regularName/stats:
     schema: ops-stats-schema.json
     key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
     projections:
@@ -78,21 +78,21 @@ collections:
         minTxnDuration: 5s
       typescript: { module: "catalog-stats-0.ts" }
       transform:
-        fromopsLogs:
+        fromTenant_02dbc5aee7fb2ff5c1faf682bd43a748_Logs:
           source:
-            name: ops/ops/logs
+            name: ops/_..-weird-name1/logs
           publish: { lambda: typescript }
-        fromopsStats:
+        fromTenant_02dbc5aee7fb2ff5c1faf682bd43a748_Stats:
           source:
-            name: ops/ops/stats
+            name: ops/_..-weird-name1/stats
           publish: { lambda: typescript }
-        fromestuaryLogs:
+        fromTenant_26474c71c3e9396165dc47ba85f3d5fe_Logs:
           source:
-            name: ops/estuary/logs
+            name: ops/weird.name_2/logs
           publish: { lambda: typescript }
-        fromestuaryStats:
+        fromTenant_26474c71c3e9396165dc47ba85f3d5fe_Stats:
           source:
-            name: ops/estuary/stats
+            name: ops/weird.name_2/stats
           publish: { lambda: typescript }
 
   ops/catalog-stats-L1/1:
@@ -104,13 +104,13 @@ collections:
         minTxnDuration: 5s
       typescript: { module: "catalog-stats-1.ts" }
       transform:
-        fromaliceLogs:
+        fromTenant_fc11822782bad3afedde81b8b336fa55_Logs:
           source:
-            name: ops/alice/logs
+            name: ops/regularName/logs
           publish: { lambda: typescript }
-        fromaliceStats:
+        fromTenant_fc11822782bad3afedde81b8b336fa55_Stats:
           source:
-            name: ops/alice/stats
+            name: ops/regularName/stats
           publish: { lambda: typescript }
 
   ops/catalog-stats-L2/0:

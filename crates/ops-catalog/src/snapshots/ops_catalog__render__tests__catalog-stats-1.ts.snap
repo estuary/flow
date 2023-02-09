@@ -6,8 +6,8 @@ import {
     IDerivation,
     Document,
     Register,
-    FromaliceLogsSource,
-    FromaliceStatsSource,
+    FromTenant_fc11822782bad3afedde81b8b336fa55_LogsSource,
+    FromTenant_fc11822782bad3afedde81b8b336fa55_StatsSource,
 } from 'flow/ops/catalog-stats-L1/1';
 
 // This allows for a general form of the specific types to be used for the many publish functions
@@ -15,15 +15,15 @@ import {
 // extension into a type, so it is disabled here.
 
 // eslint-disable-next-line
-interface LogsSource extends FromaliceLogsSource { }
+interface LogsSource extends FromTenant_fc11822782bad3afedde81b8b336fa55_LogsSource { }
 // eslint-disable-next-line
-interface StatsSource extends FromaliceStatsSource { }
+interface StatsSource extends FromTenant_fc11822782bad3afedde81b8b336fa55_StatsSource { }
 
 export class Derivation implements IDerivation {
-    fromaliceLogsPublish(source: LogsSource, _register: Register, _previous: Register): Document[] {
+    fromTenant_fc11822782bad3afedde81b8b336fa55_LogsPublish(source: LogsSource, _register: Register, _previous: Register): Document[] {
         return logsPublish(source);
     }
-    fromaliceStatsPublish(source: StatsSource, _register: Register, _previous: Register): Document[] {
+    fromTenant_fc11822782bad3afedde81b8b336fa55_StatsPublish(source: StatsSource, _register: Register, _previous: Register): Document[] {
         return statsPublish(source);
     }
 }
