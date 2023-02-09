@@ -2,6 +2,7 @@ use crate::source::Existing;
 use anyhow::Context;
 use serde_json::value::RawValue;
 use serde_json::Value;
+use std::collections::BTreeSet;
 use std::convert::AsRef;
 use std::path::Path;
 use tokio::io::AsyncWriteExt;
@@ -25,6 +26,10 @@ pub async fn unbundle(
     fs::create_dir_all(dir_path).await?;
     let flow_yaml_path = dir_path.join(spec_filename);
 
+    let new_spec_names = new_catalog
+        .all_spec_names()
+        .map(ToOwned::to_owned)
+        .collect::<BTreeSet<String>>();
     let maybe_catalog = resolve_catalog_to_write(&flow_yaml_path, new_catalog, existing).await?;
     let Some(mut new_catalog) = maybe_catalog else {
         return Ok(());
@@ -33,7 +38,15 @@ pub async fn unbundle(
     let serializer = Serializer { json };
     let ext = if json { "json" } else { "yaml" };
 
+    // First we'll write out any indirected parts of specs, like schemas, typescript modules, connector configs, etc.
+    // We only do this for specs that are included in the new, bundled catalog. We don't do this for specs that only exist
+    // in an existing catalog that has been merged with the new one, because those files may already be indirected.
+    // See: https://github.com/estuary/flow/issues/924
+
     for (name, collection) in new_catalog.collections.iter_mut() {
+        if !new_spec_names.contains(name.as_str()) {
+            continue;
+        }
         let base = base_name(name)?;
 
         // Potentially write out separate schema files for the collection
@@ -51,7 +64,14 @@ pub async fn unbundle(
         ] {
             let Some(schema) = schema else { continue };
 
-            maybe_indirect_schema(dir_path, &filename, &serializer, schema, existing).await?;
+            maybe_indirect_schema(
+                dir_path,
+                &filename,
+                &serializer,
+                schema,
+                convert_merge_to_overwrite(existing),
+            )
+            .await?;
         }
 
         if let Some(derivation) = &mut collection.derivation {
@@ -69,29 +89,54 @@ pub async fn unbundle(
                 let ts_filename = format!("{base}.ts");
                 let file_path = dir_path.join(&ts_filename);
 
-                write_file(&file_path, typescript.module.as_bytes(), existing).await?;
+                write_file(
+                    &file_path,
+                    typescript.module.as_bytes(),
+                    convert_merge_to_overwrite(existing),
+                )
+                .await?;
                 typescript.module = ts_filename;
             }
         }
     }
 
     for (name, capture) in new_catalog.captures.iter_mut() {
+        if !new_spec_names.contains(name.as_str()) {
+            continue;
+        }
         let base = base_name(name)?;
 
         if let models::CaptureEndpoint::Connector(connector) = &mut capture.endpoint {
             // Indirect the connector config to a file, and track its reference.
             let filename = format!("{base}.config.{ext}");
-            indirect_endpoint_config(connector, dir_path, filename, &serializer, existing).await?;
+            indirect_endpoint_config(
+                connector,
+                dir_path,
+                filename,
+                &serializer,
+                convert_merge_to_overwrite(existing),
+            )
+            .await?;
         }
     }
     for (name, materialization) in new_catalog.materializations.iter_mut() {
+        if !new_spec_names.contains(name.as_str()) {
+            continue;
+        }
         let base = base_name(name)?;
 
         if let models::MaterializationEndpoint::Connector(connector) = &mut materialization.endpoint
         {
             // Indirect the connector config to a file, and track its reference.
             let filename = format!("{base}.config.{ext}");
-            indirect_endpoint_config(connector, dir_path, filename, &serializer, existing).await?;
+            indirect_endpoint_config(
+                connector,
+                dir_path,
+                filename,
+                &serializer,
+                convert_merge_to_overwrite(existing),
+            )
+            .await?;
         }
     }
 
@@ -99,6 +144,13 @@ pub async fn unbundle(
     let spec_contents = serializer.to_vec(&new_catalog)?;
     write_file(&flow_yaml_path, &spec_contents, existing).await?;
     Ok(())
+}
+
+fn convert_merge_to_overwrite(existing: Existing) -> Existing {
+    match existing {
+        Existing::MergeSpec => Existing::Overwrite,
+        other => other,
+    }
 }
 
 /// Takes a `new_catalog` and determines how to handle its unbundling. Possible outcomes are:
@@ -139,12 +191,12 @@ async fn resolve_catalog_to_write(
         }
         (Ok(_), Existing::MergeSpec) => {
             tracing::info!(path = %flow_yaml_path.display(), "merging specs because it already exists and `--existing=merge-spec`");
-            let mut existing = parse_catalog_spec(flow_yaml_path).await.context(format!(
+            let mut existing_spec = parse_catalog_spec(flow_yaml_path).await.context(format!(
                 "reading existing catalog file: {}",
                 flow_yaml_path.display()
             ))?;
-            merge_catalog(new_catalog, &mut existing)?;
-            existing
+            merge_catalog(new_catalog, &mut existing_spec)?;
+            existing_spec
         }
         (Err(err), _) if err.kind() == std::io::ErrorKind::NotFound => new_catalog,
         (Err(err), _) => {
@@ -189,6 +241,7 @@ async fn try_write_file(path: &Path, contents: &[u8], existing: Existing) -> any
     };
     let result = fs::OpenOptions::new()
         .create_new(create_new)
+        .truncate(existing == Existing::Overwrite)
         .create(true)
         .write(true)
         .open(path)
