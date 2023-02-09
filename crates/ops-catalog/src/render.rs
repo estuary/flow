@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs, path};
 
 use anyhow::Context;
-use handlebars::Handlebars;
+use handlebars::{handlebars_helper, Handlebars};
 use rust_embed::RustEmbed;
 use serde::Serialize;
 
@@ -40,6 +40,11 @@ fn tenants_to_data(tenants: Vec<TenantInfo>, local: bool, tests: bool) -> Templa
     }
 }
 
+// Tenant names in the template outputs are represented as hex-encoded hashes of the actual tenant
+// name. This is done to ensure compatibility with Typescript function name requirements for the
+// transform lambdas..
+handlebars_helper!(hashed_tenant: |tenant: String| format!("{:x}", md5::compute(tenant) ));
+
 #[derive(RustEmbed)]
 #[folder = "assets/"]
 struct Assets;
@@ -63,6 +68,7 @@ impl Renderer<'_> {
     pub fn new(local: bool, tests: bool) -> anyhow::Result<Self> {
         let mut reg = Handlebars::new();
         reg.register_escape_fn(handlebars::no_escape);
+        reg.register_helper("hashed_tenant", Box::new(hashed_tenant));
 
         for (name, tmpl_path) in TEMPLATES.iter() {
             reg.register_template_string(
@@ -129,15 +135,15 @@ mod tests {
     fn render_output() {
         let tenants = vec![
             TenantInfo {
-                tenant: "ops/".to_string(),
+                tenant: "_..-weird-name1/".to_string(),
                 l1_stat_rollup: 0,
             },
             TenantInfo {
-                tenant: "estuary/".to_string(),
+                tenant: "weird.name_2/".to_string(),
                 l1_stat_rollup: 0,
             },
             TenantInfo {
-                tenant: "alice/".to_string(),
+                tenant: "regularName/".to_string(),
                 l1_stat_rollup: 1,
             },
         ];

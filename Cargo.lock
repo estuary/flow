@@ -2507,6 +2507,7 @@ dependencies = [
  "dirs",
  "handlebars",
  "insta",
+ "md5",
  "rust-embed",
  "serde",
  "serde_json",
