@@ -86,7 +86,6 @@ begin
 
   select * into rt from refresh_tokens where
     hash = crypt(refresh_token, hash) and
-    user_id = auth_uid() and
     (updated_at + valid_for) > now();
   if not found then
     raise 'invalid refresh token';
@@ -95,7 +94,8 @@ begin
   select sign(json_build_object(
     'exp', trunc(extract(epoch from (now() + interval '1 hour'))),
     'iat', trunc(extract(epoch from (now()))),
-    'sub', auth_uid()
+    'sub', rt.user_id,
+    'role', 'authenticated'
   ), internal.refresh_token_jwt_secret()) into access_token
   limit 1;
 
@@ -103,7 +103,7 @@ begin
     delete from refresh_tokens where id = rt.id;
     rt_new_id = internal.id_generator();
     insert into refresh_tokens (user_id, multi_use, valid_for, hash) values (
-      auth_uid(),
+      rt.user_id,
       rt.multi_use,
       rt.valid_for,
       crypt(rt_new_id::text, gen_salt('md5'))
