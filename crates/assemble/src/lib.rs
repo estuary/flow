@@ -465,6 +465,10 @@ fn lambda_spec(
             remote: addr.clone(),
             ..Default::default()
         },
+        models::Lambda::Sql(statement) => flow::LambdaSpec {
+            sqlite: statement.clone(),
+            ..Default::default()
+        },
     }
 }
 
@@ -545,6 +549,7 @@ pub fn transform_spec(
         publish_lambda: publish
             .as_ref()
             .map(|publish| lambda_spec(&publish.lambda, transform, "Publish")),
+        collection: Some(source.clone()),
     }
 }
 
@@ -555,6 +560,7 @@ pub fn derivation_spec(
     mut transforms: Vec<flow::TransformSpec>,
     recovery_stores: &[models::Store],
     register_schema_bundle: &serde_json::Value,
+    register_projections: Vec<flow::Projection>,
 ) -> flow::DerivationSpec {
     let tables::Derivation {
         scope: _,
@@ -589,6 +595,7 @@ pub fn derivation_spec(
         register_schema_uri: register_schema.to_string(),
         register_schema_json: register_schema_bundle.to_string(),
         register_initial_json: register_initial.to_string(),
+        register_projections,
         recovery_log_template: Some(recovery_log_template(
             build_config,
             name,

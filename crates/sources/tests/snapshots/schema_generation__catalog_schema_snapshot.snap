@@ -660,6 +660,9 @@ expression: "&schema"
         "typescript",
         {
           "remote": "http://example/api"
+        },
+        {
+          "remote": "SELECT foo, bar FROM source;"
         }
       ],
       "oneOf": [
@@ -676,6 +679,18 @@ expression: "&schema"
           ],
           "properties": {
             "remote": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "sql"
+          ],
+          "properties": {
+            "sql": {
               "type": "string"
             }
           },
