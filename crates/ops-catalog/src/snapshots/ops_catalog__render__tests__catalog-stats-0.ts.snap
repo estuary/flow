@@ -6,8 +6,8 @@ import {
     IDerivation,
     Document,
     Register,
-    FromTenant_02dbc5aee7fb2ff5c1faf682bd43a748_LogsSource,
-    FromTenant_02dbc5aee7fb2ff5c1faf682bd43a748_StatsSource,
+    FromTenant02dbc5aee7fb2ff5c1faf682bd43a748LogsSource,
+    FromTenant02dbc5aee7fb2ff5c1faf682bd43a748StatsSource,
 } from 'flow/ops/catalog-stats-L1/0';
 
 // This allows for a general form of the specific types to be used for the many publish functions
@@ -15,21 +15,21 @@ import {
 // extension into a type, so it is disabled here.
 
 // eslint-disable-next-line
-interface LogsSource extends FromTenant_02dbc5aee7fb2ff5c1faf682bd43a748_LogsSource { }
+interface LogsSource extends FromTenant02dbc5aee7fb2ff5c1faf682bd43a748LogsSource { }
 // eslint-disable-next-line
-interface StatsSource extends FromTenant_02dbc5aee7fb2ff5c1faf682bd43a748_StatsSource { }
+interface StatsSource extends FromTenant02dbc5aee7fb2ff5c1faf682bd43a748StatsSource { }
 
 export class Derivation implements IDerivation {
-    fromTenant_02dbc5aee7fb2ff5c1faf682bd43a748_LogsPublish(source: LogsSource, _register: Register, _previous: Register): Document[] {
+    fromTenant02dbc5aee7fb2ff5c1faf682bd43a748LogsPublish(source: LogsSource, _register: Register, _previous: Register): Document[] {
         return logsPublish(source);
     }
-    fromTenant_02dbc5aee7fb2ff5c1faf682bd43a748_StatsPublish(source: StatsSource, _register: Register, _previous: Register): Document[] {
+    fromTenant02dbc5aee7fb2ff5c1faf682bd43a748StatsPublish(source: StatsSource, _register: Register, _previous: Register): Document[] {
         return statsPublish(source);
     }
-    fromTenant_26474c71c3e9396165dc47ba85f3d5fe_LogsPublish(source: LogsSource, _register: Register, _previous: Register): Document[] {
+    fromTenant26474c71c3e9396165dc47ba85f3d5feLogsPublish(source: LogsSource, _register: Register, _previous: Register): Document[] {
         return logsPublish(source);
     }
-    fromTenant_26474c71c3e9396165dc47ba85f3d5fe_StatsPublish(source: StatsSource, _register: Register, _previous: Register): Document[] {
+    fromTenant26474c71c3e9396165dc47ba85f3d5feStatsPublish(source: StatsSource, _register: Register, _previous: Register): Document[] {
         return statsPublish(source);
     }
 }
@@ -226,3 +226,4 @@ const accumulateStats = (
 
     return returnedAccumulated;
 };
+

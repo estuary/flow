@@ -42,7 +42,7 @@ fn tenants_to_data(tenants: Vec<TenantInfo>, local: bool, tests: bool) -> Templa
 
 // Tenant names in the template outputs are represented as hex-encoded hashes of the actual tenant
 // name. This is done to ensure compatibility with Typescript function name requirements for the
-// transform lambdas..
+// transform lambdas regarding allowable characters and length of names.
 handlebars_helper!(hashed_tenant: |tenant: String| format!("{:x}", md5::compute(tenant) ));
 
 #[derive(RustEmbed)]
