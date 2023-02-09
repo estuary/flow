@@ -48,11 +48,7 @@ pub struct MonitorArgs {
 
 impl MonitorArgs {
     pub async fn run(&self) -> anyhow::Result<()> {
-        let bin_dir = std::fs::canonicalize(&self.bin_dir)
-            .context("canonicalize --bin-dir")?
-            .into_os_string()
-            .into_string()
-            .expect("os path must be utf8");
+        let bin_dir = path::Path::new(&self.bin_dir);
 
         let working_dir = path::Path::new(&self.working_dir);
 
@@ -78,8 +74,8 @@ impl MonitorArgs {
             .context("connecting to database")?;
 
         tracing::info!(
-            bin_dir,
-            working_dir = &working_dir.to_str().expect("working dir must be utf8"),
+            bin_dir = &self.bin_dir,
+            working_dir = &self.working_dir,
             flowctl_profile = &self.flowctl_profile,
             local = &self.local,
             "starting ops-catalog"
@@ -103,14 +99,14 @@ const MONITOR_FREQUENCY_SECS: u64 = 60;
 
 async fn monitor(
     pg_pool: sqlx::PgPool,
-    bin_dir: String,
+    bin_dir: &path::Path,
     working_dir: &path::Path,
     local: bool,
     profile: &str,
     access_token: &str,
 ) -> anyhow::Result<()> {
     let renderer = Renderer::new(local, false)?;
-    flowctl_auth(&bin_dir, profile, access_token)?;
+    flowctl_auth(bin_dir, profile, access_token)?;
 
     loop {
         let now = Instant::now();
@@ -120,7 +116,7 @@ async fn monitor(
                 .render(tenants, working_dir)
                 .context("rendering templates")?;
 
-            flowctl_publish(&bin_dir, profile, working_dir)
+            flowctl_publish(bin_dir, profile, working_dir)
                 .context("publishing updated ops specs")?;
         }
 
@@ -148,8 +144,8 @@ async fn get_tenants(pg_pool: sqlx::PgPool) -> anyhow::Result<Vec<TenantInfo>> {
     Ok(res)
 }
 
-fn flowctl_auth(bin_dir: &str, profile: &str, access_token: &str) -> anyhow::Result<()> {
-    info!(bin_dir, profile, "authenticating flowctl with access token");
+fn flowctl_auth(bin_dir: &path::Path, profile: &str, access_token: &str) -> anyhow::Result<()> {
+    info!(profile, "authenticating flowctl with access token");
 
     run_flowctl_cmd(
         bin_dir,
@@ -160,7 +156,11 @@ fn flowctl_auth(bin_dir: &str, profile: &str, access_token: &str) -> anyhow::Res
     )
 }
 
-fn flowctl_publish(bin_dir: &str, profile: &str, working_dir: &path::Path) -> anyhow::Result<()> {
+fn flowctl_publish(
+    bin_dir: &path::Path,
+    profile: &str,
+    working_dir: &path::Path,
+) -> anyhow::Result<()> {
     debug!("publishing ops catalog specs");
 
     run_flowctl_cmd(
@@ -179,13 +179,13 @@ fn flowctl_publish(bin_dir: &str, profile: &str, working_dir: &path::Path) -> an
 }
 
 fn run_flowctl_cmd(
-    bin_dir: &str,
+    bin_dir: &path::Path,
     profile: &str,
     current_dir: Option<&path::Path>,
     args: &[&str],
     log_args: bool,
 ) -> anyhow::Result<()> {
-    let mut cmd = std::process::Command::new(format!("{bin_dir}/flowctl"));
+    let mut cmd = std::process::Command::new(bin_dir.join("flowctl"));
 
     let args = [&["--profile", profile], args].concat();
     for &arg in args.iter() {
