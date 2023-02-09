@@ -115,22 +115,6 @@ mod test {
           ('cc00000000000000', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"requestedTenant":"TakenTeNaNt"}'),
           -- Success: creates AcmeTenant.
           ('cc00000000000000', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"requestedTenant":"AcmeTenant"}')
-        ),
-        p7 as (
-          update ops_catalog_template set bundled_catalog = '{
-            "collections": {
-              "ops/TENANT/fixture":{
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "k": {"type": "integer"}
-                  },
-                  "required": ["k"]
-                },
-                "key": ["/k"]
-              }
-            }
-          }'
         )
         select 1;
         "#,
@@ -250,14 +234,6 @@ mod test {
             -- Expect a storage mapping was created.
             select json_build_object('prefix', m.catalog_prefix, 'storageMapping', m.spec)
                 from storage_mappings m where m.catalog_prefix like '%AcmeTenant%'
-            union all
-            -- Expect a draft & publication was created.
-            select json_build_object('name', s.catalog_name, 'spec', s.spec)
-                from draft_specs s join drafts d on d.id = s.draft_id
-                where d.user_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
-            union all
-            select json_build_object('publication', true)
-                from publications p where p.user_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
             "#,
         )
         .fetch_all(&mut txn)
@@ -318,28 +294,6 @@ mod test {
                 }
               ]
             }
-          },
-          {
-            "name": "ops/AcmeTenant/fixture",
-            "spec": {
-              "key": [
-                "/k"
-              ],
-              "schema": {
-                "properties": {
-                  "k": {
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "k"
-                ],
-                "type": "object"
-              }
-            }
-          },
-          {
-            "publication": true
           }
         ]
         "###);
