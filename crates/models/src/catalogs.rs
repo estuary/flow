@@ -61,6 +61,17 @@ impl Catalog {
         let generator = schemars::gen::SchemaGenerator::new(settings);
         generator.into_root_schema_for::<Self>()
     }
+
+    /// Returns the names of all specs that are directly included within this catalog.
+    /// This does _not_ include specs from imported catalogs.
+    pub fn all_spec_names(&self) -> impl Iterator<Item = &str> {
+        self.collections
+            .keys()
+            .map(AsRef::<str>::as_ref)
+            .chain(self.captures.keys().map(AsRef::<str>::as_ref))
+            .chain(self.materializations.keys().map(AsRef::<str>::as_ref))
+            .chain(self.tests.keys().map(AsRef::<str>::as_ref))
+    }
 }
 
 fn collections_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
