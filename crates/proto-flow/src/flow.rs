@@ -37,6 +37,10 @@ pub struct LambdaSpec {
     /// E.x. '<https://my/external/api'.>
     #[prost(string, tag="2")]
     pub remote: ::prost::alloc::string::String,
+    /// If non-empty, this is a SQLite SELECT expression.
+    /// E.x. 'SELECT foo, bar FROM source;'.
+    #[prost(string, tag="3")]
+    pub sqlite: ::prost::alloc::string::String,
 }
 /// Shuffle is a description of a document shuffle, where each document
 /// is mapped into:
@@ -314,10 +318,13 @@ pub struct TransformSpec {
     /// Publish lambda of this transform, if any.
     #[prost(message, optional, tag="5")]
     pub publish_lambda: ::core::option::Option<LambdaSpec>,
+    /// Source collection which is read by this transform.
+    #[prost(message, optional, tag="6")]
+    pub collection: ::core::option::Option<CollectionSpec>,
 }
 /// DerivationSpec describes a collection, and it's means of derivation.
 ///
-/// Next tag: 8.
+/// Next tag: 9.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DerivationSpec {
     /// Derivations are collections.
@@ -334,6 +341,9 @@ pub struct DerivationSpec {
     /// JSON-encoded initial value of novel document registers.
     #[prost(string, tag="3")]
     pub register_initial_json: ::prost::alloc::string::String,
+    /// Implicit projections of the register schema.
+    #[prost(message, repeated, tag="8")]
+    pub register_projections: ::prost::alloc::vec::Vec<Projection>,
     /// Transforms of this derivation.
     #[prost(message, repeated, tag="4")]
     pub transforms: ::prost::alloc::vec::Vec<TransformSpec>,

@@ -56,6 +56,9 @@ message LambdaSpec {
   // If non-empty, this is a remote lambda and the field is its invocation URL.
   // E.x. 'https://my/external/api'.
   string remote = 2;
+  // If non-empty, this is a SQLite SELECT expression.
+  // E.x. 'SELECT foo, bar FROM source;'.
+  string sqlite = 3;
 }
 
 // Shuffle is a description of a document shuffle, where each document
@@ -272,11 +275,13 @@ message TransformSpec {
   LambdaSpec update_lambda = 4;
   // Publish lambda of this transform, if any.
   LambdaSpec publish_lambda = 5;
+  // Source collection which is read by this transform.
+  CollectionSpec collection = 6 [ (gogoproto.nullable) = false ];
 }
 
 // DerivationSpec describes a collection, and it's means of derivation.
 message DerivationSpec {
-  // Next tag: 8.
+  // Next tag: 9.
 
   // Derivations are collections.
   CollectionSpec collection = 1 [ (gogoproto.nullable) = false ];
@@ -292,6 +297,8 @@ message DerivationSpec {
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "registerInitial"
   ];
+  // Implicit projections of the register schema.
+  repeated Projection register_projections = 8 [ (gogoproto.nullable) = false ];
   // Transforms of this derivation.
   repeated TransformSpec transforms = 4 [ (gogoproto.nullable) = false ];
   // Template for shards of this derivation.
