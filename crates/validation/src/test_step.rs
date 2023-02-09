@@ -100,11 +100,16 @@ pub fn walk_test_step(
         Some(s) => s,
         None => return None,
     };
+
     // Pluck the collection schema Shape, which must exist but could be a placeholder.
-    let shape = &schema_shapes[schema_shapes
-        .equal_range_by_key(&collection.spec.write_schema_uri.as_str(), |s| {
-            s.schema.as_str()
-        })][0];
+    // Prefer to validate against its read-schema, if there is one.
+    let schema_uri = if !collection.spec.read_schema_uri.is_empty() {
+        collection.spec.read_schema_uri.as_str()
+    } else {
+        collection.spec.write_schema_uri.as_str()
+    };
+    let shape =
+        &schema_shapes[schema_shapes.equal_range_by_key(&schema_uri, |s| s.schema.as_str())][0];
 
     // Verify that any ingest documents conform to the collection schema.
     if shape.index.fetch(&shape.schema).is_none() {
