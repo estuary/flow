@@ -6,6 +6,8 @@ use futures::{future::LocalBoxFuture, FutureExt};
 use prost::Message;
 use proto_flow::flow::{self, derive_api};
 use serde_json::Value;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 // Invocation of a lambda which is in the process of building built.
@@ -18,24 +20,53 @@ pub enum Invocation {
         sources: Vec<u8>,
         registers: Vec<u8>,
     },
+    Sqlite {
+        lambda: Rc<RefCell<sqlite_lambda::Lambda<serde_json::Value>>>,
+        sources: Vec<Value>,
+        registers: Vec<Value>,
+        previous_registers: Vec<Option<Value>>,
+    },
     // Desired future Invocation variants:
     // WASM : accumulate within a WASM Memory for zero-copy transfer.
     // Deno : accumulate by deserializing directly into Deno V8 types -- which also resolves the present BigInt / number dilemma.
 }
 
 impl Invocation {
-    pub fn new(spec: Option<&flow::LambdaSpec>) -> Self {
+    pub fn new(
+        spec: Option<&flow::LambdaSpec>,
+        source_projections: &[flow::Projection],
+        register_projections: &[flow::Projection],
+    ) -> anyhow::Result<Self> {
         if let Some(spec) = spec {
             if spec.remote != "" || spec.typescript != "" {
-                Self::Trampoline {
+                Ok(Self::Trampoline {
                     sources: Vec::new(),
                     registers: Vec::new(),
-                }
+                })
+            } else if spec.sqlite != "" {
+                let lambda = sqlite_lambda::Lambda::new(
+                    &spec.sqlite,
+                    &source_projections
+                        .iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                    &register_projections
+                        .iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )?;
+
+                Ok(Self::Sqlite {
+                    lambda: Rc::new(RefCell::new(lambda)),
+                    sources: Vec::new(),
+                    registers: Vec::new(),
+                    previous_registers: Vec::new(),
+                })
             } else {
                 panic!("invalid lambda spec")
             }
         } else {
-            Invocation::Noop
+            Ok(Invocation::Noop)
         }
     }
 
@@ -50,6 +81,9 @@ impl Invocation {
                     buf.put_u8(b','); // Continue column.
                 }
                 buf.extend_from_slice(data); // Write document row.
+            }
+            Sqlite { sources, .. } => {
+                sources.push(serde_json::from_slice(data).unwrap());
             }
         }
     }
@@ -67,6 +101,9 @@ impl Invocation {
                 buf.put_u8(b'['); // Start a new register row.
                 serde_json::to_writer(buf.writer(), previous).unwrap();
             }
+            Sqlite { registers, .. } => {
+                registers.push(previous.clone());
+            }
         }
     }
 
@@ -80,6 +117,19 @@ impl Invocation {
                     serde_json::to_writer(buf.writer(), updated).unwrap();
                 }
                 buf.put_u8(b']'); // Complete register row.
+            }
+            Sqlite {
+                registers,
+                previous_registers,
+                ..
+            } => {
+                if let Some(updated) = updated {
+                    let r = registers.pop().unwrap();
+                    previous_registers.push(Some(r));
+                    registers.push(updated.clone());
+                } else {
+                    previous_registers.push(None);
+                }
             }
         }
     }
@@ -136,6 +186,59 @@ impl Invocation {
                     },
                 );
                 rx.map(|r| r.unwrap()).boxed_local()
+            }
+            Sqlite {
+                lambda,
+                sources,
+                registers,
+                previous_registers,
+            } => {
+                assert_eq!(registers.len(), previous_registers.len());
+                let mut lambda = lambda.borrow_mut();
+                let start = Instant::now();
+
+                let output = if registers.is_empty() {
+                    sources
+                        .iter()
+                        .map(|source| Ok(lambda.invoke(source, None, None)?))
+                        .collect::<anyhow::Result<Vec<Vec<Value>>>>()
+                } else {
+                    sources
+                        .iter()
+                        .zip(registers.iter().zip(previous_registers.iter()))
+                        .map(|(source, (register, previous_register))| {
+                            let previous_register = match previous_register.as_ref() {
+                                Some(r) => r,
+                                None => register,
+                            };
+
+                            Ok(lambda.invoke(source, Some(register), Some(previous_register))?)
+                        })
+                        .collect::<anyhow::Result<Vec<Vec<Value>>>>()
+                };
+
+                let total_duration = start.elapsed();
+
+                let output = output.map(|parsed| {
+                    let stats = InvokeStats {
+                        output: DocCounter::new(
+                            parsed.iter().map(Vec::len).sum::<usize>() as u32,
+                            // TODO(johnny): This is *super* gross -- we're serializing
+                            // these documents simply to know how long that serialization is
+                            // for stats. We quite literally would otherwise never serialize
+                            // these documents, since they're directly fed into registers or
+                            // the combiner.
+                            //
+                            // I'm going to hold my nose here because we plan to deprecate
+                            // this invocation mechanism as we enable V2 derivations.
+                            serde_json::to_vec(&parsed).unwrap().len() as u32,
+                        ),
+                        total_duration,
+                    };
+
+                    InvokeOutput { parsed, stats }
+                });
+                async { output }.boxed_local()
             }
 
             Noop => async { Ok(InvokeOutput::default()) }.boxed_local(),
@@ -217,10 +320,16 @@ mod test {
 
     #[test]
     fn test_trampoline() {
-        let mut inv = Invocation::new(Some(&flow::LambdaSpec {
-            typescript: "/a/lambda".to_owned(),
-            remote: String::new(),
-        }));
+        let mut inv = Invocation::new(
+            Some(&flow::LambdaSpec {
+                typescript: "/a/lambda".to_owned(),
+                remote: String::new(),
+                sqlite: String::new(),
+            }),
+            &[],
+            &[],
+        )
+        .unwrap();
 
         // An empty invocation immediately resolves when invoked.
         let trampoline = cgo::Trampoline::new();
@@ -275,7 +384,7 @@ mod test {
 
     #[test]
     fn test_noop() {
-        let mut inv = Invocation::new(None);
+        let mut inv = Invocation::new(None, &[], &[]).unwrap();
 
         // Add documents to the invocation.
         inv.add_source(json!({"a": "source"}).to_string().as_bytes());

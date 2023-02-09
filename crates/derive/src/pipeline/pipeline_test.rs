@@ -307,12 +307,13 @@ impl FixtureBuilder {
                     shuffle: None,
                     update_lambda: tf.update.as_ref().map(|_| LambdaSpec {
                         typescript: String::from("test-update-placeholder"),
-                        remote: String::new(),
+                        ..Default::default()
                     }),
                     publish_lambda: tf.publish.as_ref().map(|_| LambdaSpec {
                         typescript: String::from("test-publish-placeholder"),
-                        remote: String::new(),
+                        ..Default::default()
                     }),
+                    collection: None,
                 }
             })
             .collect();
@@ -335,6 +336,7 @@ impl FixtureBuilder {
                     partition_template: None,
                 }),
                 register_initial_json: String::from("{}"),
+                register_projections: Vec::new(),
                 shard_template: None,
                 recovery_log_template: None,
                 transforms: transform_specs,

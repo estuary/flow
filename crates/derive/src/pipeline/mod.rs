@@ -110,6 +110,7 @@ impl Pipeline {
             register_initial_json,
             register_schema_uri: _,
             register_schema_json,
+            register_projections,
             shard_template: _,
             recovery_log_template: _,
         } = derivation.unwrap_or_default();
@@ -147,11 +148,23 @@ impl Pipeline {
         let (updates_model, publishes_model): (Vec<_>, Vec<_>) = transforms
             .iter()
             .map(|tf| {
-                (
-                    Invocation::new(tf.update_lambda.as_ref()),
-                    Invocation::new(tf.publish_lambda.as_ref()),
-                )
+                let source_projections = tf
+                    .collection
+                    .as_ref()
+                    .map(|c| c.projections.as_slice())
+                    .unwrap_or(&[]);
+
+                Ok((
+                    Invocation::new(tf.update_lambda.as_ref(), source_projections, &[])?,
+                    Invocation::new(
+                        tf.publish_lambda.as_ref(),
+                        source_projections,
+                        &register_projections,
+                    )?,
+                ))
             })
+            .collect::<anyhow::Result<Vec<_>>>()?
+            .into_iter()
             .unzip();
 
         let first_block = Block::new(block_id, &updates_model, &publishes_model);
