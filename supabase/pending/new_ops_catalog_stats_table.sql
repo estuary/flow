@@ -1,7 +1,5 @@
--- This migration creates the tables needed for materialization
--- of task stats into the control plane.
-
-create type grain as enum ('monthly', 'daily', 'hourly');
+-- Copied from 11_stats.sql. Use this to re-create the catalog_stats table after the individual
+-- tenant reporting tasks have been deleted, and prior to deploying the new ops-catalog service.
 
 -- The `catalog_stats` table is _not_ identical to what the connector would have created.
 -- They have slightly different column types to make things a little more ergonomic and consistent.
@@ -64,14 +62,6 @@ Hourly grains start on the hour, at minute 0.
 ';
 comment on column catalog_stats.flow_document is
     'Aggregated statistics document for the given catalog name and grain';
-
-do $$
-begin
-    if not exists (select from pg_catalog.pg_roles where rolname = 'stats_loader') then
-        create role stats_loader with login password 'stats_loader_password' bypassrls;
-   end if;
-end
-$$;
 
 -- stats_loader loads directly to the catalog_stats table. We make catalog_stats owned by
 -- stats_loader instead of postgres to allow for new materializations to be applied for each tenant
