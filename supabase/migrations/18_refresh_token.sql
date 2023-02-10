@@ -4,6 +4,7 @@ create table refresh_tokens (
   user_id    uuid references auth.users(id) not null,
   multi_use  boolean default false,
   valid_for  interval not null,
+  uses       int default 0,
   hash       text not null
 );
 
@@ -11,81 +12,60 @@ create policy "Users can access only their own refreshed_tokens"
   on refresh_tokens as permissive
   using (user_id = auth.uid());
 
-grant select(id, user_id, multi_use, valid_for) on refresh_tokens to authenticated;
+grant select(id, created_at, detail, updated_at, user_id, multi_use, valid_for, uses) on refresh_tokens to authenticated;
+grant update(detail) on refresh_tokens to authenticated;
+grant delete on refresh_tokens to authenticated;
 
-create type refresh_token_response as (
-  refresh_token text
-);
-
--- Generate a new refresh_token
-create function gen_refresh_token(multi_use boolean, valid_for interval)
-returns refresh_token_response as $$
+-- Create a new refresh_token
+create function create_refresh_token(multi_use boolean, valid_for interval, detail text default null)
+returns json as $$
 declare
-  token text;
-  res refresh_token_response;
+  secret text;
+  refresh_token_row refresh_tokens;
 begin
-  token = internal.id_generator();
+  secret = gen_random_uuid();
 
-  insert into refresh_tokens (user_id, multi_use, valid_for, hash)
+  insert into refresh_tokens (detail, user_id, multi_use, valid_for, hash)
   values (
+    detail,
     auth_uid(),
     multi_use,
     valid_for,
-    crypt(token, gen_salt('md5'))
+    crypt(secret, gen_salt('bf'))
+  ) returning * into refresh_token_row;
+
+  return json_build_object(
+    'secret', secret,
+    'id', refresh_token_row.id
   );
-
-  res.refresh_token = token;
-  return res;
 commit;
-end
-$$ language plpgsql volatile security definer;
-
--- Revoke a refresh_token given the token itself
-create function revoke_refresh_token(token text)
-returns void as $$
-begin
-  delete from refresh_tokens where hash = crypt(token, hash) and user_id = auth_uid();
-end
-$$ language plpgsql volatile security definer;
-
--- Revoke a refresh_token given the token_id
-create function revoke_refresh_token(token_id flowid)
-returns void as $$
-begin
-  delete from refresh_tokens where refresh_tokens.id = token_id and user_id = auth_uid();
 end
 $$ language plpgsql volatile security definer;
 
 -- Returns the secret used for signing JWT tokens, with a default value for
 -- local env, taken from https://github.com/supabase/supabase-js/issues/25#issuecomment-1019935888
-create function internal.refresh_token_jwt_secret()
+create function internal.access_token_jwt_secret()
 returns text as $$
 
   select coalesce(current_setting('app.settings.jwt_secret', true), 'super-secret-jwt-token-with-at-least-32-characters-long') limit 1
 
 $$ language sql stable security definer;
 
--- When generating an access_token, if the refresh_token used is not multi-use,
--- then we will delete it and create a new one instead
-create type access_token_response as (
-  access_token text,
-  refresh_token text
-);
-
 -- Given a refresh_token, generates a new access_token
 -- if the refresh_token is not multi-use, it is deleted and a new
 -- refresh_token is also created. If the refresh_token is multi-use, we reset
 -- its validity period by updating its `updated_at` column
-create function gen_access_token(refresh_token text)
-returns access_token_response as $$
+create function generate_access_token(id flowid, secret text)
+returns json as $$
 declare
   rt refresh_tokens;
-  rt_new_id flowid;
+  rt_new_secret text;
   access_token text;
 begin
 
   select * into rt from refresh_tokens where
-    hash = crypt(refresh_token, hash) and
+    refresh_tokens.id = generate_access_token.id and
+    hash = crypt(secret, hash) and
     (updated_at + valid_for) > now();
   if not found then
     raise 'invalid refresh token';
@@ -96,24 +76,28 @@ begin
     'iat', trunc(extract(epoch from (now()))),
     'sub', rt.user_id,
     'role', 'authenticated'
-  ), internal.refresh_token_jwt_secret()) into access_token
+  ), internal.access_token_jwt_secret()) into access_token
   limit 1;
 
   if rt.multi_use = false then
-    delete from refresh_tokens where id = rt.id;
-    rt_new_id = internal.id_generator();
-    insert into refresh_tokens (user_id, multi_use, valid_for, hash) values (
-      rt.user_id,
-      rt.multi_use,
-      rt.valid_for,
-      crypt(rt_new_id::text, gen_salt('md5'))
-    );
+    rt_new_secret = gen_random_uuid();
+    update refresh_tokens
+      set
+        hash = crypt(rt_new_secret, gen_salt('bf')),
+        uses = (uses + 1)
+      where refresh_tokens.id = rt.id;
   else
     -- re-set the updated_at timer so the token's validity is refreshed
-    update refresh_tokens set updated_at = now() where id = rt.id;
+    update refresh_tokens set uses = (uses + 1) where refresh_tokens.id = rt.id;
   end if;
 
-  return (access_token, rt_new_id::text);
+  return json_build_object(
+    'access_token', access_token,
+    'refresh_token', json_build_object(
+      'id', rt.id,
+      'secret', rt_new_secret
+      )
+  );
 commit;
 end
 $$ language plpgsql volatile security definer;
