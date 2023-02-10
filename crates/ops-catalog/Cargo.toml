@@ -8,10 +8,6 @@ homepage.workspace = true
 repository.workspace = true
 license.workspace = true
 
-[[bin]]
-name = "flow-ops-catalog"
-path = "src/main.rs"
-
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
