@@ -7,11 +7,12 @@ drop function internal.create_ops_publication(tenant_prefix catalog_tenant, ops_
 alter table live_specs add md5 text generated always as (md5(trim(spec::text))) stored;
 alter table tenants add l1_stat_rollup integer not null default 0;
 
--- Prevent the deletion of the catalog_stats table by per-tenant stat materialization deletions
--- by temporarily changing the owner. We'll also manually clear out the materialized values so
--- the new single materialization can start from scratch successfully.
-alter table catalog_stats owner to postgres;
-truncate catalog_stats, flow_checkpoints_v1, flow_materializations_v2;
+-- Clear out the existing catalog_stats table and materialization metadata tables. The new
+-- ops-catalog materialization will create new metadata tables. The catalog_stats table should be
+-- created anew by re-running its migration prior to the new ops-catalog being deployed since the
+-- connector would create the table differently than we want.
+drop schema catalog_stat_partitions;
+drop table catalog_stats, flow_checkpoints_v1, flow_materializations_v2;
 
 -- Create a publication that will delete all the existing per-tenant ops catalogs.
 do $$
