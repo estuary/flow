@@ -95,16 +95,5 @@ pub async fn provision_tenant(
     .execute(&mut *txn)
     .await?;
 
-    // Create partition of catalog_stats which will home all stats of the tenant. We allow for the
-    // possibility of a stats partition for the tenant already existing.
-    sqlx::query(&format!(
-        r#"
-        create table if not exists catalog_stat_partitions."{tenant}_stats"
-            partition of public.catalog_stats for values in ('{prefix}');
-        "#
-    ))
-    .execute(&mut *txn)
-    .await?;
-
     Ok(())
 }
