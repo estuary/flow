@@ -54,7 +54,7 @@ impl Lambda {
         Self::Remote("http://example/api".to_string())
     }
     pub fn example_sqlite() -> Self {
-        Self::Remote("SELECT foo, bar FROM source;".to_string())
+        Self::Sql("SELECT foo, bar FROM source;".to_string())
     }
 }
 /// Partition selectors identify a desired subset of the
