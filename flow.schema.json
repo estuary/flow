@@ -658,7 +658,7 @@
           "remote": "http://example/api"
         },
         {
-          "remote": "SELECT foo, bar FROM source;"
+          "sql": "SELECT foo, bar FROM source;"
         }
       ],
       "oneOf": [
