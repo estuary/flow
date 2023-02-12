@@ -1,17 +1,20 @@
-create function tests.startup_auth_as_alice()
-returns setof text as $$
+-- Note that seed.sql installs fitures into auth.users (alice, bob, carol, dave)
+-- having UUIDs like 1111*, 2222*, 3333*, etc.
+create function set_authenticated_context(test_user_id uuid)
+returns void as $$
 begin
 
-  -- Note that seed.sql installs fitures into auth.users (alice, bob, carol)
-  -- as well as user_grants (to aliceCo/, bobCo/, carolCo/).
-  set request.jwt.claim.sub to '11111111-1111-1111-1111-111111111111';
+  set role postgres;
+  execute 'set session request.jwt.claim.sub to "' || test_user_id::text || '"';
+  set role authenticated;
 
-end;
+end
 $$ language plpgsql;
 
 -- Users can access their current authorization context.
 create function tests.test_auth_uid()
 returns setof text as $$
+  select set_authenticated_context('11111111-1111-1111-1111-111111111111');
   select is(auth_uid(), '11111111-1111-1111-1111-111111111111', 'we''re authorized as alice');
 $$ language sql;
 
@@ -25,7 +28,9 @@ returns setof text as $$
   insert into user_grants (user_id, object_role, capability) values
     ('11111111-1111-1111-1111-111111111111', 'aliceCo/', 'admin'),
     ('22222222-2222-2222-2222-222222222222', 'bobCo/', 'admin'),
-    ('33333333-3333-3333-3333-333333333333', 'carolCo/', 'read')
+    ('33333333-3333-3333-3333-333333333333', 'carolCo/', 'read'),
+    ('44444444-4444-4444-4444-444444444444', 'daveCo/', 'admin'),
+    ('44444444-4444-4444-4444-444444444444', 'aliceCo/dave-can-read/', 'read')
   ;
 
   delete from role_grants;
@@ -34,66 +39,84 @@ returns setof text as $$
     ('aliceCo/anvils/', 'carolCo/paper/', 'write'),
     ('aliceCo/duplicate/', 'carolCo/paper/', 'read'),
     ('aliceCo/stuff/', 'carolCo/shared/', 'read'),
-    ('carolCo/shared/', 'carolCo/hidden/', 'read')
+    ('bobCo/alice-vendor/', 'aliceCo/bob-shared/', 'admin'),
+    ('carolCo/shared/', 'carolCo/hidden/', 'read'),
+    ('daveCo/hidden/', 'carolCo/hidden/', 'admin')
   ;
 
+  -- Assert Alice's present roles.
+  select set_authenticated_context('11111111-1111-1111-1111-111111111111');
   select results_eq(
-    $i$ select role_prefix::text, capability::text
-        from auth_roles()
-        order by role_prefix, capability
-    $i$,
-    $i$ VALUES  ('aliceCo/','admin'),
+    $i$ select role_prefix::text, capability::text from auth_roles() $i$,
+    $i$ values  ('aliceCo/','admin'),
                 ('bobCo/burgers/','admin'),
-                ('carolCo/paper/','read'),
                 ('carolCo/paper/','write'),
                 ('carolCo/shared/', 'read')
     $i$,
     'alice roles'
   );
 
+  -- Assert Bob's roles.
+  select set_authenticated_context('22222222-2222-2222-2222-222222222222');
   select results_eq(
-    $i$ select role_prefix::text, capability::text from
-        internal.user_roles('22222222-2222-2222-2222-222222222222')
-        order by role_prefix, capability
-    $i$,
-    $i$ VALUES  ('bobCo/','admin')
-    $i$,
+    $i$ select role_prefix::text, capability::text from auth_roles() $i$,
+    $i$ values  ('aliceCo/bob-shared/','admin'), ('bobCo/','admin') $i$,
     'bob roles'
   );
 
+  -- Assert Carol's.
+  select set_authenticated_context('33333333-3333-3333-3333-333333333333');
   select results_eq(
-    $i$ select role_prefix::text, capability::text from
-        internal.user_roles('33333333-3333-3333-3333-333333333333')
-        order by role_prefix, capability
-    $i$,
-    $i$ VALUES  ('carolCo/','read') $i$,
+    $i$ select role_prefix::text, capability::text from auth_roles() $i$,
+    $i$ values  ('carolCo/','read') $i$,
     'carol roles'
   );
 
-  -- Make Carol an admin of caroCo/.
+  -- And Dave's.
+  select set_authenticated_context('44444444-4444-4444-4444-444444444444');
+  select results_eq(
+    $i$ select role_prefix::text, capability::text from auth_roles() $i$,
+    $i$ values  ('aliceCo/dave-can-read/','read'), ('carolCo/hidden/', 'admin'), ('daveCo/', 'admin') $i$,
+    'carol roles'
+  );
+
+  -- Make Carol an admin of carolCo/.
+  set role postgres;
   update user_grants
   set capability = 'admin'
   where object_role = 'carolCo/';
 
   -- Now Carol also receives the projected carolCo/hidden/ grant,
   -- which is technically redundant with her 'admin' grant.
+  select set_authenticated_context('33333333-3333-3333-3333-333333333333');
   select results_eq(
-    $i$ select role_prefix::text, capability::text from
-        internal.user_roles('33333333-3333-3333-3333-333333333333')
-        order by role_prefix, capability
-    $i$,
-    $i$ VALUES  ('carolCo/','admin'), ('carolCo/hidden/','read') $i$,
+    $i$ select role_prefix::text, capability::text from auth_roles() $i$,
+    $i$ values  ('carolCo/','admin'), ('carolCo/hidden/','read') $i$,
     'carol roles'
   );
 
-  select ok(auth_catalog('aliceCo/some/thing', 'write'));
-  select ok(auth_catalog('aliceCo/other/thing/', 'admin'));
-  select ok(auth_catalog('bobCo/burgers/time/', 'admin'));
-  select ok(auth_catalog('carolCo/paper/company', 'write'));
-  select ok(auth_catalog('carolCo/shared/thing', 'read'));
+  -- Assert Alice's user_grants visibility.
+  select set_authenticated_context('11111111-1111-1111-1111-111111111111');
+  select results_eq(
+    $i$ select user_id::text, object_role::text, capability::text from user_grants
+    $i$,
+    $i$ values  ('11111111-1111-1111-1111-111111111111','aliceCo/','admin'),
+                ('44444444-4444-4444-4444-444444444444','aliceCo/dave-can-read/','read')
+    $i$,
+    'alice user_grants visibility'
+  );
 
-  select ok(not auth_catalog('carolCo/shared/thing', 'write'));
-  select ok(not auth_catalog('carolCo/hidden/thing', 'read'));
-  select ok(not auth_catalog('carolCo/paper/company', 'admin'));
+  -- Assert Alice's role_grants visibility.
+  select results_eq(
+    $i$ select subject_role::text, object_role::text, capability::text from role_grants
+    $i$,
+    $i$ values  ('aliceCo/widgets/','bobCo/burgers/','admin'),
+                ('aliceCo/anvils/','carolCo/paper/','write'),
+                ('aliceCo/duplicate/','carolCo/paper/','read'),
+                ('aliceCo/stuff/','carolCo/shared/','read'),
+                ('bobCo/alice-vendor/','aliceCo/bob-shared/','admin')
+    $i$,
+    'alice role_grants visibility'
+  );
 
 $$ language sql;

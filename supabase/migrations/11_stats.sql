@@ -29,7 +29,9 @@ create index idx_catalog_stats_catalog_name_grain_ts on catalog_stats (catalog_n
 
 create policy "Users must be authorized to the catalog name"
   on catalog_stats as permissive for select
-  using (auth_catalog(catalog_name, 'read'));
+  using (exists(
+    select 1 from auth_roles('read') r where catalog_name ^@ r.role_prefix
+  ));
 grant select on catalog_stats to authenticated;
 
 comment on table catalog_stats is
