@@ -10,7 +10,9 @@ alter table storage_mappings enable row level security;
 
 create policy "Users must be authorized to the specification catalog prefix"
   on storage_mappings as permissive for select
-  using (auth_catalog(catalog_prefix, 'read'));
+  using (exists(
+    select 1 from auth_roles('read') r where catalog_prefix ^@ r.role_prefix
+  ));
 grant select on storage_mappings to authenticated;
 
 comment on table storage_mappings is

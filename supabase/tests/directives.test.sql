@@ -19,8 +19,7 @@ begin
     ('bobCo/', '{"type": "bob"}',   'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', null);
 
   -- We're authorized as Alice.
-  set role authenticated;
-  set request.jwt.claim.sub to '11111111-1111-1111-1111-111111111111';
+  perform set_authenticated_context('11111111-1111-1111-1111-111111111111');
 
   -- We see only Alice's directive (which we admin), and not Bob's (despite our read grant).
   return query select results_eq(
@@ -65,7 +64,7 @@ begin
   );
 
   -- Switch to the Bob user, and also turn a token on their behalf.
-  set request.jwt.claim.sub to '22222222-2222-2222-2222-222222222222';
+  perform set_authenticated_context('22222222-2222-2222-2222-222222222222');
 
   -- Bob turns in a token and updates their user claims.
   perform exchange_directive_token('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
@@ -84,7 +83,8 @@ begin
   );
 
   -- Switch back to Alice.
-  set request.jwt.claim.sub to '11111111-1111-1111-1111-111111111111';
+  perform set_authenticated_context('11111111-1111-1111-1111-111111111111');
+
   -- Alice can update directives, but it affects only Alice's directive and not Bob's.
   update directives set catalog_prefix = 'aliceCo/dir/', spec = '{"type": "alice.v2"}';
 
