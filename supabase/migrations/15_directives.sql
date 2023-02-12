@@ -15,7 +15,9 @@ alter table directives enable row level security;
 
 create policy "Users can access and change directives which they administer"
   on directives as permissive
-  using (auth_catalog(catalog_prefix, 'admin'));
+  using (exists(
+    select 1 from auth_roles('admin') r where catalog_prefix ^@ r.role_prefix
+  ));
 
 grant all on directives to authenticated;
 

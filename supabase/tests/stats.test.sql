@@ -89,8 +89,7 @@ begin
   );
 
   -- Drop priviledge to `authenticated` and authorize as Alice.
-  set role authenticated;
-  set request.jwt.claim.sub to '11111111-1111-1111-1111-111111111111';
+  perform set_authenticated_context('11111111-1111-1111-1111-111111111111');
 
   return query select results_eq(
     $i$ select catalog_name::text, grain::text, flow_document::text from catalog_stats $i$,
