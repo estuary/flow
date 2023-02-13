@@ -170,8 +170,8 @@ function start_schema_inference() {
 function start_ops_catalog() {
     local flow_bin_dir="$(project_dir 'flow')/.build/package/bin"
     local working_dir="$HOME/.flow/ops-catalog"
-    # Standard token for ops/ tenant on the local stack.
-    local ops_access_token="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNjc2MDczNzA2LCJzdWIiOiJmZmZmZmZmZi1mZmZmLWZmZmYtZmZmZi1mZmZmZmZmZmZmZmYiLCJlbWFpbCI6InN1cHBvcnRAZXN0dWFyeS5kZXYiLCJwaG9uZSI6IiIsImFwcF9tZXRhZGF0YSI6eyJwcm92aWRlciI6ImVtYWlsIiwicHJvdmlkZXJzIjpbImVtYWlsIl19LCJ1c2VyX21ldGFkYXRhIjp7fSwicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJzZXNzaW9uX2lkIjoiMWFhMDg4NjMtYTA2NS00Njg4LWIxMDMtOTEyOGJiMjQyMmFmIn0.ovMUNl0FuAjiEfdUSlBWJFyk_41Y6BvFaSIcYtkeyrk"
+    # Standard token for ops/ tenant on the local stack with an expiration date far into the future.
+    local ops_access_token="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoyMjgwMDY3NTAwLCJzdWIiOiJmZmZmZmZmZi1mZmZmLWZmZmYtZmZmZi1mZmZmZmZmZmZmZmYiLCJlbWFpbCI6InN1cHBvcnRAZXN0dWFyeS5kZXYiLCJyb2xlIjoiYXV0aGVudGljYXRlZCJ9.UeNY0Zc8HVgmppjlXeWxMU05uDbP_o1TJTe073A6sZ4"
     local profile="ops-catalog-monitor"
 
     # Create the flowctl profile used by the ops-catalog process.
