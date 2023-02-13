@@ -13,7 +13,7 @@ create policy "Users can access only their own refreshed_tokens"
   using (user_id = auth.uid());
 
 grant select(id, created_at, detail, updated_at, user_id, multi_use, valid_for, uses) on refresh_tokens to authenticated;
-grant update(detail) on refresh_tokens to authenticated;
+grant update(detail, valid_for, multi_use) on refresh_tokens to authenticated;
 grant delete on refresh_tokens to authenticated;
 
 -- Create a new refresh_token
@@ -52,10 +52,9 @@ returns text as $$
 $$ language sql stable security definer;
 
 -- Given a refresh_token, generates a new access_token
--- if the refresh_token is not multi-use, it is deleted and a new
--- refresh_token is also created. If the refresh_token is multi-use, we reset
--- its validity period by updating its `updated_at` column
-create function generate_access_token(id flowid, secret text)
+-- if the refresh_token is not multi-use, the token's secret is rotated.
+-- If the refresh_token is multi-use, we reset its validity period by updating its `updated_at` column
+create function generate_access_token(refresh_token_id flowid, secret text)
 returns json as $$
 declare
   rt refresh_tokens;
@@ -64,9 +63,10 @@ declare
 begin
 
   select * into rt from refresh_tokens where
-    refresh_tokens.id = generate_access_token.id and
+    refresh_tokens.id = refresh_token_id and
     hash = crypt(secret, hash) and
     (updated_at + valid_for) > now();
+
   if not found then
     raise 'invalid refresh token';
   end if;
@@ -84,11 +84,16 @@ begin
     update refresh_tokens
       set
         hash = crypt(rt_new_secret, gen_salt('bf')),
-        uses = (uses + 1)
+        uses = (uses + 1),
+        updated_at = now()
       where refresh_tokens.id = rt.id;
   else
     -- re-set the updated_at timer so the token's validity is refreshed
-    update refresh_tokens set uses = (uses + 1) where refresh_tokens.id = rt.id;
+    update refresh_tokens
+      set
+        uses = (uses + 1),
+        updated_at = now()
+      where refresh_tokens.id = rt.id;
   end if;
 
   return json_build_object(
