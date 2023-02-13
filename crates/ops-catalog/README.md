@@ -37,7 +37,7 @@ cause Flow test specs to be generated for each provided tenant, and these tests 
 
 Example command to generate templates with `generate`:
 ```bash
-echo '{"tenant": "tenant1/", "l1_stat_rollup": 0}\n{"tenant": "tenant2/", "l1_stat_rollup": 0}{"tenant": "tenant3/", "l1_stat_rollup": 1}' | cargo run generate --output-dir generated
+echo '{"tenant": "tenant1/", "l1_stat_rollup": 0}\n{"tenant": "tenant2/", "l1_stat_rollup": 0}\n{"tenant": "tenant3/", "l1_stat_rollup": 1}' | cargo run generate --output-dir generated
 ```
 
 Running tests on the generated templates:

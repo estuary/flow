@@ -1,5 +1,8 @@
--- Copied from 11_stats.sql. Use this to re-create the catalog_stats table after the individual
--- tenant reporting tasks have been deleted, and prior to deploying the new ops-catalog service.
+-- Everything below is copied from 11_stats.sql. Use this to re-create the catalog_stats table after
+-- the individual tenant reporting tasks have been deleted, and prior to deploying final version fo
+-- the ops-catalog which includes creating the materialization with its specs.
+
+
 
 -- The `catalog_stats` table is _not_ identical to what the connector would have created.
 -- They have slightly different column types to make things a little more ergonomic and consistent.

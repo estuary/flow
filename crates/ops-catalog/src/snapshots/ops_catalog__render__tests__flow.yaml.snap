@@ -173,6 +173,9 @@ materializations:
             failures: {}
             flow_document: {}
 
+    shards:
+      disable: true
+
 tests:
   ops/_..-weird-name1/tests/catalog-stats:
     - ingest:
