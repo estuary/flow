@@ -35,8 +35,8 @@ begin
   ) returning * into refresh_token_row;
 
   return json_build_object(
-    'secret', secret,
-    'id', refresh_token_row.id
+    'id', refresh_token_row.id,
+    'secret', secret
   );
 commit;
 end
@@ -63,12 +63,18 @@ declare
 begin
 
   select * into rt from refresh_tokens where
-    refresh_tokens.id = refresh_token_id and
-    hash = crypt(secret, hash) and
-    (updated_at + valid_for) > now();
+    refresh_tokens.id = refresh_token_id;
 
   if not found then
-    raise 'invalid refresh token';
+    raise 'could not find refresh_token with the given `refresh_token_id`';
+  end if;
+
+  if rt.hash <> crypt(secret, rt.hash) then
+    raise 'invalid secret provided';
+  end if;
+
+  if (rt.updated_at + rt.valid_for) < now() then
+    raise 'refresh_token has expired.';
   end if;
 
   select sign(json_build_object(
@@ -96,13 +102,19 @@ begin
       where refresh_tokens.id = rt.id;
   end if;
 
-  return json_build_object(
-    'access_token', access_token,
-    'refresh_token', json_build_object(
-      'id', rt.id,
-      'secret', rt_new_secret
-      )
-  );
+  if rt_new_secret is null then
+    return json_build_object(
+      'access_token', access_token
+    );
+  else
+    return json_build_object(
+      'access_token', access_token,
+      'refresh_token', json_build_object(
+        'id', rt.id,
+        'secret', rt_new_secret
+        )
+    );
+  end if;
 commit;
 end
 $$ language plpgsql volatile security definer;
