@@ -109,6 +109,12 @@ materializations:
             failures: {}
             flow_document: {}
 
+    {{!-- TODO: Enable this materialization when we are ready to switch over to the new stats
+    materialization. This will require clearing out the existing stats table, which this
+    materialization will then re-populate. --}}
+    shards:
+      disable: true
+
 {{#if tests}}
 {{!-- Tests will only work if the set of tenants does not include the ops/ tenant. Currently tests
 will only be included in the template if running the Generate command for local testing. --}}
