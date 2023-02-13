@@ -8,7 +8,7 @@ create table refresh_tokens (
   hash       text not null
 );
 
-create policy "Users can access only their own refreshed_tokens"
+create policy "Users can access their own refresh tokens"
   on refresh_tokens as permissive
   using (user_id = auth.uid());
 
@@ -42,6 +42,10 @@ commit;
 end
 $$ language plpgsql volatile security definer;
 
+comment on function create_refresh_token is '
+Create a new refresh token which can then be used to generate an access token using `generate_access_token` rpc.
+';
+
 -- Returns the secret used for signing JWT tokens, with a default value for
 -- local env, taken from https://github.com/supabase/supabase-js/issues/25#issuecomment-1019935888
 create function internal.access_token_jwt_secret()
@@ -49,11 +53,8 @@ returns text as $$
 
   select coalesce(current_setting('app.settings.jwt_secret', true), 'super-secret-jwt-token-with-at-least-32-characters-long') limit 1
 
-$$ language sql stable security definer;
+$$ language sql stable;
 
--- Given a refresh_token, generates a new access_token
--- if the refresh_token is not multi-use, the token's secret is rotated.
--- If the refresh_token is multi-use, we reset its validity period by updating its `updated_at` column
 create function generate_access_token(refresh_token_id flowid, secret text)
 returns json as $$
 declare
@@ -91,14 +92,14 @@ begin
       set
         hash = crypt(rt_new_secret, gen_salt('bf')),
         uses = (uses + 1),
-        updated_at = now()
+        updated_at = clock_timestamp()
       where refresh_tokens.id = rt.id;
   else
     -- re-set the updated_at timer so the token's validity is refreshed
     update refresh_tokens
       set
         uses = (uses + 1),
-        updated_at = now()
+        updated_at = clock_timestamp()
       where refresh_tokens.id = rt.id;
   end if;
 
@@ -118,3 +119,9 @@ begin
 commit;
 end
 $$ language plpgsql volatile security definer;
+
+comment on function generate_access_token is '
+Given a refresh_token, generates a new access_token.
+If the refresh_token is not multi-use, the token''s secret is rotated.
+If the refresh_token is multi-use, we reset its validity period by updating its `updated_at` column
+';

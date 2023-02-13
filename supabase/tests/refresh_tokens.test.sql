@@ -1,14 +1,3 @@
-create function tests.startup_refresh_tokens_as_alice()
-returns setof text as $$
-begin
-
-  -- Note that seed.sql installs fitures into auth.users (alice, bob, carol)
-  -- as well as user_grants (to aliceCo/, bobCo/, carolCo/).
-  set request.jwt.claim.sub to '11111111-1111-1111-1111-111111111111';
-
-end;
-$$ language plpgsql;
-
 create function tests.test_create_refresh_token()
 returns setof text as $$
 declare
@@ -53,13 +42,7 @@ begin
   select * into new_rt from refresh_tokens;
   return query select is(new_rt.uses, 1, 'refresh_tokens uses bumped');
   return query select is(new_rt.hash, rt.hash, 'refresh_token hash unchanged (multi-use)');
-
-  -- Unfortunately we can't run this test because `now()` refers to the
-  -- timestamp of the start of a transaction, and I haven't been able to find a
-  -- way to have multiple transactions in a plpgsql function
-  -- see https://www.postgresql.org/docs/current/plpgsql-transactions.html
-  --
-  -- return query select ok(rt.updated_at < (select updated_at from refresh_tokens), 'refresh_tokens updated_at bumped');
+  return query select ok(rt.updated_at < (select updated_at from refresh_tokens), 'refresh_tokens updated_at bumped');
 
   -- Single-use refresh_token used for this one, so expect an access_token
   -- and a new refresh_token secret in response. Expect an update to `updated_at` and `uses` of the
@@ -77,6 +60,7 @@ begin
 
   return query select is(new_rt.uses, 2, 'refresh_tokens uses bumped');
   return query select isnt(new_rt.hash, rt.hash, 'refresh_token hash changed');
+  return query select ok(rt.updated_at < (select updated_at from refresh_tokens), 'refresh_tokens updated_at bumped');
 end;
 $$ language plpgsql;
 
