@@ -1,0 +1,57 @@
+collections:
+  ops/TENANT/logs:
+    schema: ops-log-schema.json
+    key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
+    projections:
+      kind:
+        location: /shard/kind
+        partition: true
+      name:
+        location: /shard/name
+        partition: true
+
+  ops/TENANT/stats:
+    schema: ops-stats-schema.json
+    key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
+    projections:
+      kind:
+        location: /shard/kind
+        partition: true
+      name:
+        location: /shard/name
+        partition: true
+
+  ops/TENANT/catalog-stats:
+    schema: ops-catalog-stats-schema.json
+    key: [/catalogName, /grain, /ts]
+    projections:
+      catalog_name: /catalogName
+      bytes_written_by_me: /statsSummary/writtenByMe/bytesTotal
+      docs_written_by_me: /statsSummary/writtenByMe/docsTotal
+      bytes_read_by_me: /statsSummary/readByMe/bytesTotal
+      docs_read_by_me: /statsSummary/readByMe/docsTotal
+      bytes_written_to_me: /statsSummary/writtenToMe/bytesTotal
+      docs_written_to_me: /statsSummary/writtenToMe/docsTotal
+      bytes_read_from_me: /statsSummary/readFromMe/bytesTotal
+      docs_read_from_me: /statsSummary/readFromMe/docsTotal
+      warnings: /statsSummary/warnings
+      errors: /statsSummary/errors
+      failures: /statsSummary/failures
+
+    derivation:
+      shards:
+        minTxnDuration: 5s
+      typescript: { module: "catalog-stats.ts" }
+      transform:
+        logs:
+          source:
+            name: ops/TENANT/logs
+          publish: { lambda: typescript }
+        stats:
+          source:
+            name: ops/TENANT/stats
+          publish: { lambda: typescript }
+
+# TODO(johnny): this is used only for local testing with `flowctl-go` and can go away soon.
+storageMappings:
+  "": { stores: [{ provider: S3, bucket: a-bucket }] }
