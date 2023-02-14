@@ -10,9 +10,6 @@ set -e
 set -E
 set -o pipefail
 
-SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && pwd 2> /dev/null; )";
-source "${SCRIPT_DIR}/common.sh"
-
 BROKER_PORT=8080
 CONSUMER_PORT=9000
 INFERENCE_PORT=9090
@@ -167,22 +164,6 @@ function start_schema_inference() {
     must_run cargo run -p schema-inference -- serve --broker-url=$BROKER_ADDRESS --port=$INFERENCE_PORT
 }
 
-function start_ops_catalog() {
-    local flow_bin_dir="$(project_dir 'flow')/.build/package/bin"
-    local working_dir="$HOME/.flow/ops-catalog"
-    # Standard token for ops/ tenant on the local stack.
-    local ops_access_token="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNjc2MDczNzA2LCJzdWIiOiJmZmZmZmZmZi1mZmZmLWZmZmYtZmZmZi1mZmZmZmZmZmZmZmYiLCJlbWFpbCI6InN1cHBvcnRAZXN0dWFyeS5kZXYiLCJwaG9uZSI6IiIsImFwcF9tZXRhZGF0YSI6eyJwcm92aWRlciI6ImVtYWlsIiwicHJvdmlkZXJzIjpbImVtYWlsIl19LCJ1c2VyX21ldGFkYXRhIjp7fSwicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJzZXNzaW9uX2lkIjoiMWFhMDg4NjMtYTA2NS00Njg4LWIxMDMtOTEyOGJiMjQyMmFmIn0.ovMUNl0FuAjiEfdUSlBWJFyk_41Y6BvFaSIcYtkeyrk"
-    local profile="ops-catalog-monitor"
-
-    # Create the flowctl profile used by the ops-catalog process.
-    copy_local_flowctl_config "$profile"
-
-    cd "$(project_dir 'flow')"
-    must_run cargo build -p ops-catalog
-
-    must_run cargo run -p ops-catalog -- monitor --bin-dir "$flow_bin_dir" --working-dir "$working_dir" --flowctl-access-token "$ops_access_token" --flowctl-profile "$profile"
-}
-
 case "$1" in
     ui)
         start_ui
@@ -207,9 +188,6 @@ case "$1" in
         ;;
     schema-inference)
         start_schema_inference
-        ;;
-    ops-catalog)
-        start_ops_catalog
         ;;
     *)
         bail "Invalid argument: '$1'"

@@ -1,4 +1,0 @@
-address: supabase_db_flow.supabase_network_flow:5432
-database: postgres
-password: stats_loader_password
-user: stats_loader
