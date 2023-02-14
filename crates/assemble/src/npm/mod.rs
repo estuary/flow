@@ -280,9 +280,40 @@ fn relative_url(scope: &url::Url, package_dir: &path::Path) -> String {
 }
 
 fn relative_path(from: &models::Collection, to: &models::Collection) -> String {
-    let from = url::Url::parse(&format!("https://example/{}", from.as_str())).unwrap();
-    let to = url::Url::parse(&format!("https://example/{}", to.as_str())).unwrap();
-    make_relative(&from, &to).unwrap()
+    let (from_dirs, _) = from.split_at(from.rfind('/').unwrap());
+    let (to_dirs, to_filename) = to.split_at(to.rfind('/').unwrap());
+
+    let mut from_dirs = from_dirs.split('/').peekable();
+    let mut to_dirs = to_dirs.split('/').peekable();
+    let mut relative = String::new();
+
+    // Skip over the common prefix.
+    while from_dirs.peek().is_some() && from_dirs.peek() == to_dirs.peek() {
+        from_dirs.next();
+        to_dirs.next();
+    }
+
+    for _ in from_dirs {
+        if !relative.is_empty() {
+            relative.push('/');
+        }
+        relative.push_str("..");
+    }
+    for to_path in to_dirs {
+        if !relative.is_empty() {
+            relative.push('/');
+        }
+        relative.push_str(to_path);
+    }
+
+    // Note that to_filename includes a leading '/'.
+    if relative.is_empty() {
+        relative.push_str(&to_filename[1..]);
+    } else {
+        relative.push_str(to_filename);
+    }
+
+    relative
 }
 
 fn build_mapper<'a>(
@@ -365,97 +396,3 @@ lazy_static::lazy_static! {
 
 #[cfg(test)]
 mod scenario_test;
-
-// This is a verbatim copy of Url::make_relative, with one fix added from this still-open PR:
-// https://github.com/servo/rust-url/pull/754
-// This is also copied at: https://github.com/estuary/animated-carnival/blob/main/crates/flowctl/src/draft/develop.rs#L347-L349
-pub fn make_relative(self_: &url::Url, url: &url::Url) -> Option<String> {
-    if self_.cannot_be_a_base() {
-        return None;
-    }
-
-    // Scheme, host and port need to be the same
-    if self_.scheme() != url.scheme() || self_.host() != url.host() || self_.port() != url.port() {
-        return None;
-    }
-
-    // We ignore username/password at this point
-
-    // The path has to be transformed
-    let mut relative = String::new();
-
-    // Extract the filename of both URIs, these need to be handled separately
-    fn extract_path_filename(s: &str) -> (&str, &str) {
-        let last_slash_idx = s.rfind('/').unwrap_or(0);
-        let (path, filename) = s.split_at(last_slash_idx);
-        if filename.is_empty() {
-            (path, "")
-        } else {
-            (path, &filename[1..])
-        }
-    }
-
-    let (base_path, base_filename) = extract_path_filename(self_.path());
-    let (url_path, url_filename) = extract_path_filename(url.path());
-
-    let mut base_path = base_path.split('/').peekable();
-    let mut url_path = url_path.split('/').peekable();
-
-    // Skip over the common prefix
-    while base_path.peek().is_some() && base_path.peek() == url_path.peek() {
-        base_path.next();
-        url_path.next();
-    }
-
-    // Add `..` segments for the remainder of the base path
-    for base_path_segment in base_path {
-        // Skip empty last segments
-        if base_path_segment.is_empty() {
-            break;
-        }
-
-        if !relative.is_empty() {
-            relative.push('/');
-        }
-
-        relative.push_str("..");
-    }
-
-    // Append the remainder of the other URI
-    for url_path_segment in url_path {
-        if !relative.is_empty() {
-            relative.push('/');
-        }
-
-        relative.push_str(url_path_segment);
-    }
-
-    // Add the filename if they are not the same
-    if !relative.is_empty() || base_filename != url_filename {
-        // If the URIs filename is empty this means that it was a directory
-        // so we'll have to append a '/'.
-        //
-        // Otherwise append it directly as the new filename.
-        if url_filename.is_empty() {
-            relative.push('/');
-        } else {
-            if !relative.is_empty() {
-                relative.push('/');
-            }
-            relative.push_str(url_filename);
-        }
-    }
-
-    // Query and fragment are only taken from the other URI
-    if let Some(query) = url.query() {
-        relative.push('?');
-        relative.push_str(query);
-    }
-
-    if let Some(fragment) = url.fragment() {
-        relative.push('#');
-        relative.push_str(fragment);
-    }
-
-    Some(relative)
-}
