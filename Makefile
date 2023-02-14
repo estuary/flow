@@ -165,10 +165,6 @@ ${RUSTBIN}/agent:
 ${RUSTBIN}/flowctl:
 	cargo build --release --locked -p flowctl
 
-.PHONY: ${RUSTBIN}/ops-catalog
-${RUSTBIN}/ops-catalog:
-	cargo build --release --locked -p ops-catalog
-
 # Statically linked binaries using MUSL:
 
 .PHONY: ${RUST_MUSL_BIN}/flow-connector-init
@@ -201,7 +197,6 @@ GNU_TARGETS = \
 	${PKGDIR}/bin/gazette \
 	${PKGDIR}/bin/sops \
 	${PKGDIR}/bin/flowctl \
-	${PKGDIR}/bin/ops-catalog
 
 MUSL_TARGETS = \
 	${PKGDIR}/bin/flow-connector-init \
@@ -259,10 +254,6 @@ ${PKGDIR}/bin/flowctl: ${RUSTBIN}/flowctl | ${PKGDIR}
 
 ${PKGDIR}/bin/agent: ${RUSTBIN}/agent | ${PKGDIR}
 	cp ${RUSTBIN}/agent $@
-
-${PKGDIR}/bin/ops-catalog: ${RUSTBIN}/ops-catalog | ${PKGDIR}
-	cp ${RUSTBIN}/ops-catalog $@
-
 
 ##########################################################################
 # Make targets used by CI:
