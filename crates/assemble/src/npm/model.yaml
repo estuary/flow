@@ -8,6 +8,10 @@ test://example/catalog.yaml:
       schema: test://example/int-string.schema
       key: [/int]
 
+    unicode/lğmöm/name:
+      schema: test://example/int-string.schema
+      key: [/int]
+
 file:///package/sub/module.yaml:
   collections:
     local/derivation:
@@ -33,6 +37,10 @@ file:///package/sub/module.yaml:
           notTypeScript:
             source: { name: some/input }
             publish: { lambda: { remote: http://example.com/publish } }
+
+          unicode_lğmöm:
+            source: { name: unicode/lğmöm/name }
+            publish: { lambda: typescript }
 
     another/derivation:
       schema:
