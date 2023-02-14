@@ -1,7 +1,7 @@
 collections:
   # Collection of 💲 transfers between accounts:
   #   {id: 123, sender: alice, recipient: bob, amount: 32.50}
-  acmeBank/transfers:
+  acmeBänk/transfers:
     schema:
       # JSON Schema of collection's documents.
       type: object
@@ -15,7 +15,7 @@ collections:
 
   # Derived balances of each account:
   #   {account: alice, amount: 67.35}
-  acmeBank/balances:
+  acmeBänk/balances:
     schema:
       type: object
       properties:
@@ -32,7 +32,7 @@ collections:
     derivation:
       transform:
         fromTransfers:
-          source: { name: acmeBank/transfers }
+          source: { name: acmeBänk/transfers }
           # Lambdas are functions that map input documents into output documents.
           # Here we declare a lambda that will map a bank transfer document
           # into a balance update.
@@ -47,7 +47,7 @@ collections:
 # Uncomment when updating README:
 #
 #materializations:
-#  acmeBank/database:
+#  acmeBänk/database:
 #    endpoint:
 #      connector:
 #        # Use a Docker connector to materialize into a PostgreSQL database.
@@ -66,17 +66,17 @@ collections:
 #      # Create and materialize into table `account_balances`.
 #      - resource:
 #          table: account_balances
-#        source: acmeBank/balances
+#        source: acmeBänk/balances
 
 tests:
-  acmeBank/test/balancers-from-transfers:
+  acmeBänk/test/balancers-from-transfers:
     - ingest:
-        collection: acmeBank/transfers
+        collection: acmeBänk/transfers
         documents:
           - { id: 1, sender: alice, recipient: bob, amount: 32.50 }
           - { id: 2, sender: bob, recipient: carly, amount: 10.75 }
     - verify:
-        collection: acmeBank/balances
+        collection: acmeBänk/balances
         documents:
           - { account: alice, amount: -32.50 }
           - { account: bob, amount: 21.75 }

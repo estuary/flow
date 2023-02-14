@@ -1,5 +1,5 @@
-// Generated from collection schema examples/acmeBank.flow.yaml?ptr=/collections/acmeBank~1balances/schema.
-// Referenced from examples/acmeBank.flow.yaml#/collections/acmeBank~1balances.
+// Generated from collection schema examples/acmeBank.flow.yaml?ptr=/collections/acmeB%C3%A4nk~1balances/schema.
+// Referenced from examples/acmeBank.flow.yaml#/collections/acmeB%C3%A4nk~1balances.
 export type Document = {
     account: string;
     amount: number;
