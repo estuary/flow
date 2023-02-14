@@ -79,10 +79,10 @@ materializations:
     endpoint:
       connector:
         image: ghcr.io/estuary/materialize-postgres:v4
-        {{#if local}}
-        config: stats-local-endpoint.sops.yaml
-        {{else}}
+        {{#if prod}}
         config: stats-production-endpoint.sops.yaml
+        {{else}}
+        config: stats-local-endpoint.sops.yaml
         {{/if}}
 
 

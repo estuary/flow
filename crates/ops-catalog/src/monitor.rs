@@ -41,9 +41,9 @@ pub struct MonitorArgs {
     /// Profile used by flowctl.
     #[clap(long = "flowctl-profile", env = "FLOWCTL_PROFILE")]
     flowctl_profile: String,
-    /// Use the local materialization credentials. Used when running a local development stack.
-    #[clap(long = "local", env = "LOCAL", default_value = "true")]
-    local: bool,
+    /// Use the production materialization credentials. Applicable only when not running a local stack.
+    #[clap(long = "prod", env = "PROD")]
+    prod: bool,
 }
 
 impl MonitorArgs {
@@ -77,7 +77,7 @@ impl MonitorArgs {
             bin_dir = &self.bin_dir,
             working_dir = &self.working_dir,
             flowctl_profile = &self.flowctl_profile,
-            local = &self.local,
+            prod = &self.prod,
             "starting ops-catalog"
         );
 
@@ -85,7 +85,7 @@ impl MonitorArgs {
             pg_pool,
             bin_dir,
             working_dir,
-            self.local,
+            self.prod,
             &self.flowctl_profile,
             &self.flowctl_access_token,
         )
@@ -101,11 +101,11 @@ async fn monitor(
     pg_pool: sqlx::PgPool,
     bin_dir: &path::Path,
     working_dir: &path::Path,
-    local: bool,
+    prod: bool,
     profile: &str,
     access_token: &str,
 ) -> anyhow::Result<()> {
-    let renderer = Renderer::new(local, false)?;
+    let renderer = Renderer::new(prod, false)?;
     flowctl_auth(bin_dir, profile, access_token)?;
 
     loop {

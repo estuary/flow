@@ -18,7 +18,7 @@ impl GenerateArgs {
             tenants.push(serde_json::from_str(&line?)?);
         }
 
-        let r = Renderer::new(true, true)?;
+        let r = Renderer::new(false, true)?;
         r.render(tenants, output_dir)?;
 
         Ok(())

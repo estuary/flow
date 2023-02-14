@@ -10,14 +10,14 @@ use crate::TenantInfo;
 #[derive(Serialize, Debug, PartialEq)]
 struct TemplateData {
     level_1_derivations: HashMap<i32, Vec<String>>,
-    local: bool,
+    prod: bool,
     // The templated tests should normally not be rendered since every publication will include the
     // ops tenant collections and this causes the tests to fail. The only time tests will be
     // rendered is when running with Generate for local testing.
     tests: bool,
 }
 
-fn tenants_to_data(tenants: Vec<TenantInfo>, local: bool, tests: bool) -> TemplateData {
+fn tenants_to_data(tenants: Vec<TenantInfo>, prod: bool, tests: bool) -> TemplateData {
     let mut level_1_derivations: HashMap<i32, Vec<String>> = HashMap::new();
 
     for tenant in tenants.iter() {
@@ -35,7 +35,7 @@ fn tenants_to_data(tenants: Vec<TenantInfo>, local: bool, tests: bool) -> Templa
 
     TemplateData {
         level_1_derivations,
-        local,
+        prod,
         tests,
     }
 }
@@ -51,7 +51,7 @@ struct Assets;
 
 pub struct Renderer<'a> {
     reg: handlebars::Handlebars<'a>,
-    local: bool,
+    prod: bool,
     tests: bool,
 }
 
@@ -65,7 +65,7 @@ const TEMPLATES: [(&str, &str); 3] = [
 ];
 
 impl Renderer<'_> {
-    pub fn new(local: bool, tests: bool) -> anyhow::Result<Self> {
+    pub fn new(prod: bool, tests: bool) -> anyhow::Result<Self> {
         let mut reg = Handlebars::new();
         reg.register_escape_fn(handlebars::no_escape);
         reg.register_helper("hashed_tenant", Box::new(hashed_tenant));
@@ -84,11 +84,11 @@ impl Renderer<'_> {
             .context("registering template string")?;
         }
 
-        Ok(Self { reg, local, tests })
+        Ok(Self { reg, prod, tests })
     }
 
     pub fn render(&self, tenants: Vec<TenantInfo>, working_dir: &path::Path) -> anyhow::Result<()> {
-        let data = tenants_to_data(tenants, self.local, self.tests);
+        let data = tenants_to_data(tenants, self.prod, self.tests);
 
         if working_dir.is_dir() {
             fs::remove_dir_all(working_dir).context("clearing working dir")?;
@@ -149,7 +149,7 @@ mod tests {
         ];
 
         let tmp_dir = tempfile::TempDir::new().unwrap();
-        let r = Renderer::new(true, true).unwrap();
+        let r = Renderer::new(false, true).unwrap();
         r.render(tenants, tmp_dir.path()).unwrap();
 
         for entry in fs::read_dir(&tmp_dir).unwrap() {
