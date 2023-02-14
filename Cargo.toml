@@ -54,7 +54,6 @@ futures = "0.3"
 futures-core = "0.3"
 futures-util = "0.3"
 fxhash = "0.2"
-handlebars = "4.3.6"
 hex = "0.4.3"
 hexdump = "0.1"
 humantime = "2.1"
@@ -105,7 +104,6 @@ rocksdb = { version = "0.17", default-features = false, features = [
 rkyv = { version = "0.7", features = ["archive_le"] }
 rpassword = "7.2"
 rusqlite = { version = "0.28", features = ["bundled-full"] }
-rust-embed = { version = "6.4.2", features = ["debug-embed"] }
 schemars = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0.85", features = ["raw_value"] }

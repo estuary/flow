@@ -7,8 +7,7 @@ create table tenants (
   tenant                  catalog_tenant unique not null,
 
   tasks_quota             integer        not null default 10,
-  collections_quota       integer        not null default 100,
-  l1_stat_rollup          integer        not null default 0
+  collections_quota       integer        not null default 100
 );
 alter table tenants enable row level security;
 
