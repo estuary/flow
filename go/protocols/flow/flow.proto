@@ -94,6 +94,10 @@ message Shuffle {
   // Composite key over which shuffling occurs, specified as one or more
   // JSON-Pointers indicating a message location to extract.
   repeated string shuffle_key_ptrs = 5;
+  // Composite key over which shuffling occurs, specified as one or more
+  // partitioned projection fields. This field is set only when a shuffle
+  // key can be unambiguously extracted from just the partition value(s).
+  repeated string shuffle_key_partition_fields = 15;
   // uses_source_key is true if shuffle_key_ptr is the source's native key,
   // and false if it's some other key. When shuffling using the source's key,
   // we can minimize data movement by assigning a shard coordinator for each
