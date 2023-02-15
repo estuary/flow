@@ -411,40 +411,31 @@ pub fn journal_selector(
     }
 }
 
-/// The set of characters that must be percent-encoded when used as a URL path segment. This set
-/// matches the set of characters that must be percent encoded according to [RFC 3986 Section
-/// 3.3](https://datatracker.ietf.org/doc/html/rfc3986#section-3.3) This also matches the rules
-/// that are used in Go to encode partition fields.
-const PATH_SEGMENT_SET: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
-    .remove(b'-')
-    .remove(b'_')
-    .remove(b'.')
-    .remove(b'~')
-    .remove(b'$')
-    .remove(b'&')
-    .remove(b'+')
-    .remove(b':')
-    .remove(b'=')
-    .remove(b'@');
-
 /// Percent-encodes string values so that they can be used in Gazette label values.
 pub fn percent_encode_partition_value(s: &str) -> String {
-    percent_encoding::utf8_percent_encode(s, PATH_SEGMENT_SET).to_string()
+    // The set of characters that must be percent-encoded when used in partition
+    // values. It's nearly everything, aside from a few special cases.
+    const SET: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
+        .remove(b'-')
+        .remove(b'_')
+        .remove(b'.');
+    percent_encoding::utf8_percent_encode(s, SET).to_string()
 }
 
 // Flatten partition selector fields into a Vec<Label>.
 // JSON strings are percent-encoded but un-quoted.
-// Other JSON types map to their literal JSON strings.
+// Other JSON types map to their literal JSON strings prefixed with `%_`,
+// which is a production that percent-encoding will never produce.
 // *** This MUST match the Go-side behavior! ***
 fn push_partitions(fields: &BTreeMap<String, Vec<Value>>, out: &mut Vec<broker::Label>) {
     for (field, value) in fields {
         for value in value {
             let value = match value {
                 Value::String(s) => percent_encode_partition_value(s),
-                _ => serde_json::to_string(value).unwrap(),
+                _ => format!("%_{}", value),
             };
             out.push(broker::Label {
-                name: format!("estuary.dev/field/{}", field),
+                name: format!("{}{}", labels::FIELD_PREFIX, field),
                 value,
             });
         }
@@ -846,15 +837,42 @@ mod test {
     fn journal_selector_percent_encodes_values() {
         let mut include = BTreeMap::new();
         let mut exclude = BTreeMap::new();
+
+        include.insert("null".to_string(), vec![Value::Null]);
         include.insert(
-            String::from("foo"),
-            vec!["some/val-ue".into(), "a_whole:nother".into()],
+            "bool".to_string(),
+            vec![Value::Bool(true), Value::Bool(false)],
         );
         include.insert(
-            String::from("bar"),
-            vec![Value::from(123), Value::from(true)],
+            "integers".to_string(),
+            vec![
+                Value::from(123),
+                Value::from(i64::MIN),
+                Value::from(i64::MAX),
+                Value::from(u64::MAX),
+            ],
         );
-        exclude.insert(String::from("foo"), vec!["no&no@no$yes();".into()]);
+        include.insert(
+            String::from("strings"),
+            vec![
+                "simple".into(),
+                "hello, world!".into(),
+                "Baz!@\"Bing\"".into(),
+                "no.no&no-no@no$yes_yes();".into(),
+                "http://example/path?q1=v1&q2=v2;ex%20tra".into(),
+            ],
+        );
+        exclude.insert(
+            "naughty-strings".to_string(),
+            vec![
+                "null".into(),
+                "%_null".into(),
+                "123".into(),
+                "-456".into(),
+                "true".into(),
+                "false".into(),
+            ],
+        );
 
         let selector = models::PartitionSelector { include, exclude };
         let collection = models::Collection::new("the/collection");
