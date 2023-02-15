@@ -1081,7 +1081,7 @@ All {
             spec: CollectionSpec {
                 collection: "testing/int-halve",
                 write_schema_uri: "test://example/int-string-len.schema",
-                write_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                write_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"partitionString\":{\"type\":\"string\"},\"str\":{}},\"required\":[\"len\",\"partitionString\"]}",
                 read_schema_uri: "test://example/int-string-len.schema",
                 read_schema_json: "",
                 key_ptrs: [
@@ -1090,6 +1090,7 @@ All {
                 uuid_ptr: "/_meta/uuid",
                 partition_fields: [
                     "Len",
+                    "TheString",
                 ],
                 projections: [
                     Projection {
@@ -1144,6 +1145,34 @@ All {
                                     "object",
                                 ],
                                 string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/partitionString",
+                        field: "TheString",
+                        explicit: true,
+                        is_partition_key: true,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        is_base64: false,
+                                        max_length: 0,
+                                    },
+                                ),
                                 title: "",
                                 description: "",
                                 default_json: "",
@@ -1244,6 +1273,34 @@ All {
                                     "integer",
                                 ],
                                 string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/partitionString",
+                        field: "partitionString",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        is_base64: false,
+                                        max_length: 0,
+                                    },
+                                ),
                                 title: "",
                                 description: "",
                                 default_json: "",
@@ -1677,7 +1734,7 @@ All {
                 write_schema_uri: "test://example/int-string.schema",
                 write_schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
                 read_schema_uri: "test://example/int-string-len.schema",
-                read_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                read_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"partitionString\":{\"type\":\"string\"},\"str\":{}},\"required\":[\"len\",\"partitionString\"]}",
                 key_ptrs: [
                     "/int",
                 ],
@@ -1866,6 +1923,34 @@ All {
                                     "integer",
                                 ],
                                 string: None,
+                                title: "",
+                                description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/partitionString",
+                        field: "partitionString",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "",
+                                        content_encoding: "",
+                                        is_base64: false,
+                                        max_length: 0,
+                                    },
+                                ),
                                 title: "",
                                 description: "",
                                 default_json: "",
@@ -2324,6 +2409,7 @@ All {
                                 shuffle_key_ptrs: [
                                     "/arr/2/aKey",
                                 ],
+                                shuffle_key_partition_fields: [],
                                 uses_source_key: false,
                                 shuffle_lambda: None,
                                 filter_r_clocks: false,
@@ -2582,6 +2668,7 @@ All {
                                 shuffle_key_ptrs: [
                                     "/arr/3/aKey",
                                 ],
+                                shuffle_key_partition_fields: [],
                                 uses_source_key: false,
                                 shuffle_lambda: None,
                                 filter_r_clocks: true,
@@ -2919,7 +3006,7 @@ All {
                     CollectionSpec {
                         collection: "testing/int-halve",
                         write_schema_uri: "test://example/int-string-len.schema",
-                        write_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                        write_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"partitionString\":{\"type\":\"string\"},\"str\":{}},\"required\":[\"len\",\"partitionString\"]}",
                         read_schema_uri: "test://example/int-string-len.schema",
                         read_schema_json: "",
                         key_ptrs: [
@@ -2928,6 +3015,7 @@ All {
                         uuid_ptr: "/_meta/uuid",
                         partition_fields: [
                             "Len",
+                            "TheString",
                         ],
                         projections: [
                             Projection {
@@ -2982,6 +3070,34 @@ All {
                                             "object",
                                         ],
                                         string: None,
+                                        title: "",
+                                        description: "",
+                                        default_json: "",
+                                        secret: false,
+                                        exists: Must,
+                                    },
+                                ),
+                            },
+                            Projection {
+                                ptr: "/partitionString",
+                                field: "TheString",
+                                explicit: true,
+                                is_partition_key: true,
+                                is_primary_key: false,
+                                inference: Some(
+                                    Inference {
+                                        types: [
+                                            "string",
+                                        ],
+                                        string: Some(
+                                            String {
+                                                content_type: "",
+                                                format: "",
+                                                content_encoding: "",
+                                                is_base64: false,
+                                                max_length: 0,
+                                            },
+                                        ),
                                         title: "",
                                         description: "",
                                         default_json: "",
@@ -3082,6 +3198,34 @@ All {
                                             "integer",
                                         ],
                                         string: None,
+                                        title: "",
+                                        description: "",
+                                        default_json: "",
+                                        secret: false,
+                                        exists: Must,
+                                    },
+                                ),
+                            },
+                            Projection {
+                                ptr: "/partitionString",
+                                field: "partitionString",
+                                explicit: false,
+                                is_partition_key: false,
+                                is_primary_key: false,
+                                inference: Some(
+                                    Inference {
+                                        types: [
+                                            "string",
+                                        ],
+                                        string: Some(
+                                            String {
+                                                content_type: "",
+                                                format: "",
+                                                content_encoding: "",
+                                                is_base64: false,
+                                                max_length: 0,
+                                            },
+                                        ),
                                         title: "",
                                         description: "",
                                         default_json: "",
@@ -3239,14 +3383,15 @@ All {
                                 source_uuid_ptr: "/_meta/uuid",
                                 shuffle_key_ptrs: [
                                     "/len",
-                                    "/int",
+                                    "/str",
                                 ],
+                                shuffle_key_partition_fields: [],
                                 uses_source_key: false,
                                 shuffle_lambda: None,
                                 filter_r_clocks: false,
                                 read_delay_seconds: 0,
                                 priority: 0,
-                                validate_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                                validate_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"partitionString\":{\"type\":\"string\"},\"str\":{}},\"required\":[\"len\",\"partitionString\"]}",
                             },
                         ),
                         update_lambda: Some(
@@ -3263,7 +3408,7 @@ All {
                                 write_schema_uri: "test://example/int-string.schema",
                                 write_schema_json: "{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"}",
                                 read_schema_uri: "test://example/int-string-len.schema",
-                                read_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                                read_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"partitionString\":{\"type\":\"string\"},\"str\":{}},\"required\":[\"len\",\"partitionString\"]}",
                                 key_ptrs: [
                                     "/int",
                                 ],
@@ -3461,6 +3606,34 @@ All {
                                         ),
                                     },
                                     Projection {
+                                        ptr: "/partitionString",
+                                        field: "partitionString",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "",
+                                                        content_encoding: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
                                         ptr: "/str",
                                         field: "str",
                                         explicit: false,
@@ -3570,14 +3743,18 @@ All {
                                 source_uuid_ptr: "/_meta/uuid",
                                 shuffle_key_ptrs: [
                                     "/len",
-                                    "/int",
+                                    "/partitionString",
+                                ],
+                                shuffle_key_partition_fields: [
+                                    "Len",
+                                    "TheString",
                                 ],
                                 uses_source_key: false,
                                 shuffle_lambda: None,
                                 filter_r_clocks: true,
                                 read_delay_seconds: 0,
                                 priority: 0,
-                                validate_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                                validate_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"partitionString\":{\"type\":\"string\"},\"str\":{}},\"required\":[\"len\",\"partitionString\"]}",
                             },
                         ),
                         update_lambda: None,
@@ -3592,7 +3769,7 @@ All {
                             CollectionSpec {
                                 collection: "testing/int-halve",
                                 write_schema_uri: "test://example/int-string-len.schema",
-                                write_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                                write_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"partitionString\":{\"type\":\"string\"},\"str\":{}},\"required\":[\"len\",\"partitionString\"]}",
                                 read_schema_uri: "test://example/int-string-len.schema",
                                 read_schema_json: "",
                                 key_ptrs: [
@@ -3601,6 +3778,7 @@ All {
                                 uuid_ptr: "/_meta/uuid",
                                 partition_fields: [
                                     "Len",
+                                    "TheString",
                                 ],
                                 projections: [
                                     Projection {
@@ -3655,6 +3833,34 @@ All {
                                                     "object",
                                                 ],
                                                 string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/partitionString",
+                                        field: "TheString",
+                                        explicit: true,
+                                        is_partition_key: true,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "",
+                                                        content_encoding: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
                                                 title: "",
                                                 description: "",
                                                 default_json: "",
@@ -3755,6 +3961,34 @@ All {
                                                     "integer",
                                                 ],
                                                 string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/partitionString",
+                                        field: "partitionString",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "",
+                                                        content_encoding: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
                                                 title: "",
                                                 description: "",
                                                 default_json: "",
@@ -4182,6 +4416,7 @@ All {
                                 shuffle_key_ptrs: [
                                     "/int",
                                 ],
+                                shuffle_key_partition_fields: [],
                                 uses_source_key: true,
                                 shuffle_lambda: None,
                                 filter_r_clocks: true,
@@ -4707,6 +4942,7 @@ All {
                                 shuffle_key_ptrs: [
                                     "/int",
                                 ],
+                                shuffle_key_partition_fields: [],
                                 uses_source_key: true,
                                 shuffle_lambda: None,
                                 filter_r_clocks: false,
@@ -5058,6 +5294,7 @@ All {
                                 shuffle_key_ptrs: [
                                     "/int",
                                 ],
+                                shuffle_key_partition_fields: [],
                                 uses_source_key: true,
                                 shuffle_lambda: None,
                                 filter_r_clocks: false,
@@ -5077,7 +5314,7 @@ All {
                             CollectionSpec {
                                 collection: "testing/int-halve",
                                 write_schema_uri: "test://example/int-string-len.schema",
-                                write_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"str\":{}},\"required\":[\"len\"]}",
+                                write_schema_json: "{\"$defs\":{\"__flowInline1\":{\"$defs\":{\"anAnchor\":{\"$anchor\":\"AnAnchor\",\"properties\":{\"one\":{\"type\":\"string\"},\"two\":{\"type\":\"integer\"}},\"required\":[\"one\"],\"type\":\"object\"}},\"$id\":\"test://example/int-string.schema\",\"properties\":{\"bit\":{\"type\":\"boolean\"},\"int\":{\"type\":\"integer\"},\"str\":{\"type\":\"string\"}},\"required\":[\"int\",\"str\",\"bit\"],\"type\":\"object\"},\"otherAnchor\":{\"$anchor\":\"Other\",\"type\":\"integer\"}},\"$id\":\"test://example/canonical/int-string-len.schema\",\"$ref\":\"../int-string.schema\",\"additionalProperties\":{\"type\":\"boolean\"},\"properties\":{\"arr\":{\"additionalItems\":{\"$ref\":\"../int-string.schema#AnAnchor\"},\"type\":\"array\"},\"bit\":{},\"int\":{},\"len\":{\"type\":\"integer\"},\"partitionString\":{\"type\":\"string\"},\"str\":{}},\"required\":[\"len\",\"partitionString\"]}",
                                 read_schema_uri: "test://example/int-string-len.schema",
                                 read_schema_json: "",
                                 key_ptrs: [
@@ -5086,6 +5323,7 @@ All {
                                 uuid_ptr: "/_meta/uuid",
                                 partition_fields: [
                                     "Len",
+                                    "TheString",
                                 ],
                                 projections: [
                                     Projection {
@@ -5140,6 +5378,34 @@ All {
                                                     "object",
                                                 ],
                                                 string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/partitionString",
+                                        field: "TheString",
+                                        explicit: true,
+                                        is_partition_key: true,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "",
+                                                        content_encoding: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
                                                 title: "",
                                                 description: "",
                                                 default_json: "",
@@ -5240,6 +5506,34 @@ All {
                                                     "integer",
                                                 ],
                                                 string: None,
+                                                title: "",
+                                                description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/partitionString",
+                                        field: "partitionString",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "",
+                                                        content_encoding: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
                                                 title: "",
                                                 description: "",
                                                 default_json: "",
@@ -5376,6 +5670,7 @@ All {
                                 shuffle_key_ptrs: [
                                     "/int",
                                 ],
+                                shuffle_key_partition_fields: [],
                                 uses_source_key: true,
                                 shuffle_lambda: None,
                                 filter_r_clocks: false,
@@ -6369,6 +6664,29 @@ All {
         },
         Inference {
             schema: test://example/int-string-len.schema,
+            location: /partitionString,
+            spec: Inference {
+                types: [
+                    "string",
+                ],
+                string: Some(
+                    String {
+                        content_type: "",
+                        format: "",
+                        content_encoding: "",
+                        is_base64: false,
+                        max_length: 0,
+                    },
+                ),
+                title: "",
+                description: "",
+                default_json: "",
+                secret: false,
+                exists: Must,
+            },
+        },
+        Inference {
+            schema: test://example/int-string-len.schema,
             location: /str,
             spec: Inference {
                 types: [
@@ -6674,6 +6992,15 @@ All {
             spec: "",
         },
         Projection {
+            scope: test://example/int-halve#/collections/testing~1int-halve/projections/TheString,
+            collection: testing/int-halve,
+            field: TheString,
+            spec: {
+              "location": "/partitionString",
+              "partition": true
+            },
+        },
+        Projection {
             scope: test://example/int-reverse#/collections/testing~1int-reverse/projections/flow_document,
             collection: testing/int-reverse,
             field: flow_document,
@@ -6799,7 +7126,7 @@ All {
             resource: test://example/int-halve,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"testing/int-halve":{"derivation":{"register":{"initial":42,"schema":{"type":"integer"}},"shards":{"disable":true},"transform":{"halveIntString":{"shuffle":{"key":["/len","/int"]},"source":{"name":"testing/int-string-rw","partitions":{"exclude":{"bit":[false]},"include":{"bit":[true]}}},"update":{"lambda":{"remote":"https://an/api"}}},"halveSelf":{"publish":{"lambda":"typescript"},"shuffle":{"key":["/len","/int"]},"source":{"name":"testing/int-halve"}}},"typescript":{"module":"int-halve.ts"}},"journals":{"fragments":{"flushInterval":"15m","length":11223344}},"key":["/int"],"projections":{"Extra":"/extra","Len":{"location":"/len","partition":true},"Root":""},"schema":"test://example/int-string-len.schema"}}},
+            content_dom: {"collections":{"testing/int-halve":{"derivation":{"register":{"initial":42,"schema":{"type":"integer"}},"shards":{"disable":true},"transform":{"halveIntString":{"shuffle":{"key":["/len","/str"]},"source":{"name":"testing/int-string-rw","partitions":{"exclude":{"bit":[false]},"include":{"bit":[true]}}},"update":{"lambda":{"remote":"https://an/api"}}},"halveSelf":{"publish":{"lambda":"typescript"},"shuffle":{"key":["/len","/partitionString"]},"source":{"name":"testing/int-halve"}}},"typescript":{"module":"int-halve.ts"}},"journals":{"fragments":{"flushInterval":"15m","length":11223344}},"key":["/int"],"projections":{"Extra":"/extra","Len":{"location":"/len","partition":true},"Root":"","TheString":{"location":"/partitionString","partition":true}},"schema":"test://example/int-string-len.schema"}}},
         },
         Resource {
             resource: test://example/int-halve.ts,
@@ -6853,7 +7180,7 @@ All {
             resource: test://example/int-string-len.schema,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
-            content_dom: {"$defs":{"otherAnchor":{"$anchor":"Other","type":"integer"}},"$id":"test://example/canonical/int-string-len.schema","$ref":"../int-string.schema","additionalProperties":{"type":"boolean"},"properties":{"arr":{"additionalItems":{"$ref":"../int-string.schema#AnAnchor"},"type":"array"},"bit":{},"int":{},"len":{"type":"integer"},"str":{}},"required":["len"]},
+            content_dom: {"$defs":{"otherAnchor":{"$anchor":"Other","type":"integer"}},"$id":"test://example/canonical/int-string-len.schema","$ref":"../int-string.schema","additionalProperties":{"type":"boolean"},"properties":{"arr":{"additionalItems":{"$ref":"../int-string.schema#AnAnchor"},"type":"array"},"bit":{},"int":{},"len":{"type":"integer"},"partitionString":{"type":"string"},"str":{}},"required":["len","partitionString"]},
         },
         Resource {
             resource: test://example/int-string-tests,
@@ -6999,10 +7326,14 @@ All {
                 "len": {
                   "type": "integer"
                 },
+                "partitionString": {
+                  "type": "string"
+                },
                 "str": {}
               },
               "required": [
-                "len"
+                "len",
+                "partitionString"
               ]
             },
         },
@@ -7192,7 +7523,7 @@ All {
               "shuffle": {
                 "key": [
                   "/len",
-                  "/int"
+                  "/str"
                 ]
               },
               "update": {
@@ -7213,7 +7544,7 @@ All {
               "shuffle": {
                 "key": [
                   "/len",
-                  "/int"
+                  "/partitionString"
                 ]
               },
               "publish": {

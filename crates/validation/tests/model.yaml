@@ -194,6 +194,9 @@ test://example/int-halve:
         Len:
           location: /len
           partition: true
+        TheString:
+          location: /partitionString
+          partition: true
         # Not directly discovered from schema,
         # and instead inferred via additionalProperties.
         Extra: /extra
@@ -220,7 +223,7 @@ test://example/int-halve:
             shuffle:
               # Note that /len is defined in int-string-rw's readSchema,
               # but not its writeSchema.
-              key: [/len, /int]
+              key: [/len, /str]
             update:
               lambda:
                 remote: https://an/api
@@ -229,7 +232,8 @@ test://example/int-halve:
             source:
               name: testing/int-halve
             shuffle:
-              key: [/len, /int]
+              # Shuffle key is fully covered by logical partition fields.
+              key: [/len, /partitionString]
             publish: { lambda: typescript }
         shards:
           disable: true
@@ -262,6 +266,7 @@ test://example/int-string-len.schema:
     len: { type: integer }
     int: {}
     str: {}
+    partitionString: { type: string }
     bit: {}
     arr:
       type: array
@@ -269,7 +274,7 @@ test://example/int-string-len.schema:
         $ref: ../int-string.schema#AnAnchor
   additionalProperties:
     type: boolean
-  required: [len]
+  required: [len, partitionString]
 
   $defs:
     otherAnchor:
