@@ -74,6 +74,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 		Directory:  cmd.Directory,
 		FileRoot:   "/",
 		Network:    cmd.Network,
+		Dataplane:  "local",
 		Source:     cmd.Source,
 		SourceType: "catalog",
 		TSPackage:  true,

@@ -23,6 +23,7 @@ type apiBuild struct {
 	Directory   string                `long:"directory" default:"." description:"Build directory"`
 	FileRoot    string                `long:"fs-root" default:"/" description:"Filesystem root of fetched file:// resources"`
 	Network     string                `long:"network" description:"The Docker network that connector containers are given access to."`
+	Dataplane   string                `long:"dataplane" required:"true" description:"The name of the dataplane."`
 	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
 	SourceType  string                `long:"source-type" default:"catalog" choice:"catalog" choice:"jsonSchema" description:"Type of the source to build."`
 	TSCompile   bool                  `long:"ts-compile" description:"Should TypeScript modules be compiled and linted? Implies generation."`
@@ -54,6 +55,7 @@ func (cmd apiBuild) execute(ctx context.Context) error {
 			Source:           cmd.Source,
 			SourceType:       sourceType,
 			ConnectorNetwork: cmd.Network,
+			Dataplane:        cmd.Dataplane,
 
 			TypescriptGenerate: cmd.TSGenerate,
 			TypescriptCompile:  cmd.TSCompile,

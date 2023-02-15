@@ -74,16 +74,41 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 	var statsCollectionSpec *pf.CollectionSpec
 	var logsCollectionSpec *pf.CollectionSpec
 	if err = t.build.Extract(func(db *sql.DB) error {
-		if logsCollectionSpec, err = catalog.LoadCollection(db, ops.LogCollection(t.labels.TaskName).String()); err != nil {
-			return fmt.Errorf("loading collection: %w", err)
+		if logsCollectionSpec, err = catalog.LoadCollection(db, ops.LogsCollection(host.Config.Flow.Dataplane).String()); err != nil {
+			log.Info("could not find logs collection using new name, will try using old name")
+			if logsCollectionSpec, err = catalog.LoadCollection(db, ops.OldLogsCollection(t.labels.TaskName).String()); err != nil {
+				return fmt.Errorf("loading logs collection: %w", err)
+			}
 		}
-		if statsCollectionSpec, err = catalog.LoadCollection(db, ops.StatsCollection(t.labels.TaskName).String()); err != nil {
-			return fmt.Errorf("loading stats collection: %w", err)
+		if statsCollectionSpec, err = catalog.LoadCollection(db, ops.StatsCollection(host.Config.Flow.Dataplane).String()); err != nil {
+			log.Info("could not find stats collection using new name, will try using old name")
+			if statsCollectionSpec, err = catalog.LoadCollection(db, ops.OldStatsCollection(t.labels.TaskName).String()); err != nil {
+				return fmt.Errorf("loading stats collection: %w", err)
+			}
 		}
 		return nil
 	}); err != nil {
 		return err
 	}
+
+	log.WithFields(log.Fields{
+		"logs collection name":                     logsCollectionSpec.Collection.String(),
+		"stats collection name":                    statsCollectionSpec.Collection.String(),
+		"logs collection partition template name":  logsCollectionSpec.PartitionTemplate.Name.String(),
+		"stats collection partition template name": statsCollectionSpec.PartitionTemplate.Name.String(),
+	}).Info("loaded ops collections")
+
+	statsCollectionSpec.Collection = ops.StatsCollection(host.Config.Flow.Dataplane)
+	statsCollectionSpec.PartitionTemplate.Name = pb.Journal(ops.StatsCollection(host.Config.Flow.Dataplane).String())
+	logsCollectionSpec.Collection = ops.LogsCollection(host.Config.Flow.Dataplane)
+	logsCollectionSpec.PartitionTemplate.Name = pb.Journal(ops.LogsCollection(host.Config.Flow.Dataplane).String())
+
+	log.WithFields(log.Fields{
+		"logs collection":                          logsCollectionSpec.Collection.String(),
+		"stats collection":                         statsCollectionSpec.Collection.String(),
+		"logs collection partition template name":  logsCollectionSpec.PartitionTemplate.Name.String(),
+		"stats collection partition template name": statsCollectionSpec.PartitionTemplate.Name.String(),
+	}).Info("using ops collection names")
 
 	if t.opsPublisher, err = flow.NewOpsPublisher(
 		host.LogAppendService,

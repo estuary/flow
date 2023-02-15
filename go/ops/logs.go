@@ -26,8 +26,12 @@ type Log struct {
 	Spans     []Log           `json:"spans,omitempty"`
 }
 
-// LogCollection returns the collection to which logs of the given shard are written.
-func LogCollection(taskName string) pf.Collection {
+// LogsCollection returns the collection to which logs of the given shard are written.
+func LogsCollection(dataplane string) pf.Collection {
+	return pf.Collection(fmt.Sprintf("ops.%s/logs", strings.Split(dataplane, "/")[0]))
+}
+
+func OldLogsCollection(taskName string) pf.Collection {
 	return pf.Collection(fmt.Sprintf("ops/%s/logs", strings.Split(taskName, "/")[0]))
 }
 

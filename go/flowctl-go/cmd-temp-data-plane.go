@@ -197,6 +197,7 @@ func (cmd cmdTempDataPlane) consumerCmd(ctx context.Context, tempdir, buildsRoot
 		"--etcd.address", etcdAddr,
 		"--flow.builds-root", buildsRoot,
 		"--flow.test-apis",
+		"--flow.dataplane", "local",
 		"--log.format", cmd.Log.Format,
 		"--log.level", cmd.Log.Level,
 	}

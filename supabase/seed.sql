@@ -4,6 +4,8 @@ insert into auth.users (id, email) values
   -- Root account which provisions other accounts.
   -- It must exist for the agent to function.
   ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'support@estuary.dev'),
+  -- Account that owns the ops.$DATAPLANE collections for stats and logs.
+  ('00000000-0000-0000-0000-000000000000', 'ops@estuary.dev'),
   -- Accounts which are commonly used in tests.
   ('11111111-1111-1111-1111-111111111111', 'alice@example.com'),
   ('22222222-2222-2222-2222-222222222222', 'bob@example.com'),
@@ -49,6 +51,27 @@ insert into applied_directives (directive_id, user_id, user_claims)
   select d.id, a.accounts_id, '{"requestedTenant":"ops"}'
     from directives d, accounts_root_user a
     where catalog_prefix = 'ops/' and spec = '{"type":"betaOnboard"}';
+
+-- Provision the ops.$DATAPLANE tenant for the local stack. It will have a user grant to allow the
+-- normal ops/ tenant to administer its tasks, and role grants so that the ops/ tenant tasks can
+-- read from its collections.
+with accounts_root_user as (
+  select (select id from auth.users where email = 'ops@estuary.dev' limit 1) as accounts_id
+)
+insert into applied_directives (directive_id, user_id, user_claims)
+  select d.id, a.accounts_id, '{"requestedTenant":"ops.local"}'
+    from directives d, accounts_root_user a
+    where catalog_prefix = 'ops/' and spec = '{"type":"betaOnboard"}';
+
+with accounts_root_user as (
+  select (select id from auth.users where email = 'support@estuary.dev' limit 1) as accounts_id
+)
+insert into user_grants (user_id, object_role, capability)
+  select a.accounts_id, 'ops.local/', 'admin'
+    from accounts_root_user a;
+
+insert into role_grants (subject_role, object_role, capability) values
+  ('ops/', 'ops.local/', 'read');
 
 -- Seed a small number of connectors. This is a small list, separate from our
 -- production connectors, because each is pulled onto your dev machine.

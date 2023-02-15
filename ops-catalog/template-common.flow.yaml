@@ -1,0 +1,65 @@
+collections:
+  ops.DATAPLANE/logs:
+    schema: ops-log-schema.json
+    key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
+    projections:
+      kind:
+        location: /shard/kind
+        partition: true
+      name:
+        location: /shard/name
+        partition: true
+
+  ops.DATAPLANE/stats:
+    schema: ops-stats-schema.json
+    key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
+    projections:
+      kind:
+        location: /shard/kind
+        partition: true
+      name:
+        location: /shard/name
+        partition: true
+
+  ops.DATAPLANE/catalog-stats-L1:
+    schema: ops-catalog-stats-schema.json
+    key: [/catalogName, /grain, /ts]
+
+    derivation:
+      shards:
+        minTxnDuration: 5s
+      typescript: { module: "catalog-stats.ts" }
+      transform:
+        logs:
+          source:
+            name: ops.DATAPLANE/logs
+          publish: { lambda: typescript }
+        stats:
+          source:
+            name: ops.DATAPLANE/stats
+          publish: { lambda: typescript }
+
+  ops/catalog-stats-L2:
+    schema: ops-catalog-stats-schema.json
+    key: [/catalogName, /grain, /ts]
+    projections:
+      catalog_name: /catalogName
+      bytes_written_by_me: /statsSummary/writtenByMe/bytesTotal
+      docs_written_by_me: /statsSummary/writtenByMe/docsTotal
+      bytes_read_by_me: /statsSummary/readByMe/bytesTotal
+      docs_read_by_me: /statsSummary/readByMe/docsTotal
+      bytes_written_to_me: /statsSummary/writtenToMe/bytesTotal
+      docs_written_to_me: /statsSummary/writtenToMe/docsTotal
+      bytes_read_from_me: /statsSummary/readFromMe/bytesTotal
+      docs_read_from_me: /statsSummary/readFromMe/docsTotal
+      warnings: /statsSummary/warnings
+      errors: /statsSummary/errors
+      failures: /statsSummary/failures
+
+    derivation:
+      typescript: { module: "catalog-stats-rollup.ts" }
+      transform:
+        fromDATAPLANE:
+          source:
+            name: ops.DATAPLANE/catalog-stats-L1
+          publish: { lambda: typescript }

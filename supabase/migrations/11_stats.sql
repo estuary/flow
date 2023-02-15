@@ -22,7 +22,7 @@ create table catalog_stats (
     failures            integer      not null default 0,
     ts                  timestamptz  not null,
     flow_document       json         not null
-) partition by list (substring(catalog_name for position('/' in catalog_name)));
+);
 alter table catalog_stats enable row level security;
 
 create index idx_catalog_stats_catalog_name_grain_ts on catalog_stats (catalog_name, grain, ts desc);
@@ -81,7 +81,3 @@ $$;
 -- the target table. Materialization application will attempt to add comments to the target table &
 -- columns, and this will fail unless the table is owned by the acting user.
 alter table catalog_stats owner to stats_loader;
-
-create schema catalog_stat_partitions;
-comment on schema catalog_stat_partitions is
-    'Private schema which holds per-tenant partitions of catalog_stats.';
