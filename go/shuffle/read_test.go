@@ -23,7 +23,7 @@ import (
 func TestReadBuilding(t *testing.T) {
 	var (
 		allJournals, allShards, task = buildReadTestJournalsAndTransforms()
-		ranges                       = labels.MustParseRangeSpec(allShards[0].LabelSet)
+		ranges                       = labels.MustParseRangeSpec(allShards[1].LabelSet)
 		shuffles                     = task.TaskShuffles()
 		drainCh                      = make(chan struct{})
 		rb, rbErr                    = NewReadBuilder(
@@ -32,7 +32,7 @@ func TestReadBuilding(t *testing.T) {
 			flow.Journals{KeySpace: &keyspace.KeySpace{Root: allJournals.Root}},
 			localPublisher,
 			nil, // Service is not used.
-			allShards[0].Id,
+			allShards[1].Id,
 			shuffles,
 		)
 		existing = map[pb.Journal]*read{}
@@ -161,12 +161,12 @@ func TestReadBuilding(t *testing.T) {
 		"missing":                   9999,
 	})
 	require.NoError(t, err)
-	require.Equal(t, offsets, pb.Offsets{
+	require.Equal(t, pb.Offsets{
 		"foo/bar=1/baz=def/part=00;transform/der/baz-def": 12,
 		"foo/bar=2/baz=def/part=01;transform/der/baz-def": 34,
 		"foo/bar=1/baz=abc/part=01;transform/der/bar-one": 56,
 		"foo/bar=1/baz=def/part=00;transform/der/bar-one": 78,
-	})
+	}, offsets)
 	existing = added
 
 	// Begin to drain the ReadBuilder.
@@ -372,35 +372,42 @@ func TestWalkingReads(t *testing.T) {
 	var shuffles = task.TaskShuffles()
 
 	// Expect coordinators align with physical partitions of logical groups.
-	var expect = []struct {
-		journal     string
-		source      string
-		coordinator pc.ShardID
-	}{
-		{"foo/bar=1/baz=abc/part=00;transform/der/bar-one", "foo", "shard/2"}, // Honors journal range.
-		{"foo/bar=1/baz=abc/part=01;transform/der/bar-one", "foo", "shard/1"}, // Honors journal range.
-		{"foo/bar=1/baz=def/part=00;transform/der/bar-one", "foo", "shard/0"}, // Honors journal range.
-		{"foo/bar=1/baz=def/part=00;transform/der/baz-def", "foo", "shard/0"}, // Ignores journal range.
-		{"foo/bar=2/baz=def/part=00;transform/der/baz-def", "foo", "shard/1"}, // Ignores journal range.
-		{"foo/bar=2/baz=def/part=01;transform/der/baz-def", "foo", "shard/2"}, // Ignores journal range.
-	}
-	var err = walkReads(shards[0].Id, shards, journals, shuffles,
-		func(_ pf.RangeSpec, spec pb.JournalSpec, shuffle *pf.Shuffle, coordinator pc.ShardID) {
-			require.Equal(t, expect[0].journal, spec.Name.String())
-			require.Equal(t, expect[0].source, shuffle.SourceCollection.String())
-			require.Equal(t, expect[0].coordinator, coordinator)
-			expect = expect[1:]
-		})
-	require.NoError(t, err)
-	require.Empty(t, expect)
+	for index := range shards {
 
-	// Walk with shard/0 and shard/1 only, such that the 0xcccccccc to 0xffffffff
+		type expectRow struct {
+			journal     string
+			source      string
+			coordinator pc.ShardID
+		}
+
+		// Expect all shards see these identical reads:
+		var expect = []expectRow{
+			{"foo/bar=1/baz=abc/part=00;transform/der/bar-one", "foo", "shard/2"}, // Honors journal range.
+			{"foo/bar=1/baz=abc/part=01;transform/der/bar-one", "foo", "shard/1"}, // Honors journal range.
+			{"foo/bar=1/baz=def/part=00;transform/der/bar-one", "foo", "shard/0"}, // Honors journal range.
+			{"foo/bar=1/baz=def/part=00;transform/der/baz-def", "foo", "shard/0"}, // Ignores journal range.
+			{"foo/bar=2/baz=def/part=00;transform/der/baz-def", "foo", "shard/1"}, // Ignores journal range.
+			{"foo/bar=2/baz=def/part=01;transform/der/baz-def", "foo", "shard/2"}, // Ignores journal range.
+		}
+
+		var err = walkReads(shards[index].Id, shards, journals, shuffles,
+			func(_ pf.RangeSpec, spec pb.JournalSpec, shuffle *pf.Shuffle, coordinator pc.ShardID) {
+				require.Equal(t, expect[0].journal, spec.Name.String())
+				require.Equal(t, expect[0].source, shuffle.SourceCollection.String())
+				require.Equal(t, expect[0].coordinator, coordinator)
+				expect = expect[1:]
+			})
+		require.NoError(t, err)
+		require.Empty(t, expect)
+	}
+
+	// Walk with shard/0 and shard/1 only, such that the 0xaaaaaaaa to 0xffffffff
 	// portion of the key range is not covered by any shard.
 	// This results in an error when walking with shuffle "bar-one" which uses the source key.
-	err = walkReads(shards[0].Id, shards[0:2], journals, shuffles[:1],
+	var err = walkReads(shards[0].Id, shards[0:2], journals, shuffles[:1],
 		func(_ pf.RangeSpec, _ pb.JournalSpec, _ *pf.Shuffle, _ pc.ShardID) {})
 	require.EqualError(t, err,
-		"none of 2 shards overlap the key-range of journal foo/bar=1/baz=abc/part=00, cccccccc-ffffffff")
+		"none of 2 shards overlap the key-range of journal foo/bar=1/baz=abc/part=00, aaaaaaaa-ffffffff")
 	// But is not an error with shuffle "baz-def", which *doesn't* use the source key.
 	err = walkReads(shards[0].Id, shards[0:2], journals, shuffles[1:2],
 		func(_ pf.RangeSpec, _ pb.JournalSpec, _ *pf.Shuffle, _ pc.ShardID) {})
@@ -440,18 +447,18 @@ func TestShuffleMemberOrdering(t *testing.T) {
 		start, stop int
 	}{
 		// Exact matches of ranges.
-		{0xaaaaaaaa, 0xbbbbbbba, 0, 1},
-		{0xbbbbbbbb, 0xffffffff, 1, 3},
+		{0x00000000, 0x55555554, 0, 1},
+		{0x55555555, 0xffffffff, 1, 3},
 		// Partial overlap of single entry at list begin & end.
-		{0xa0000000, 0xb0000000, 0, 1},
+		{0x00000000, 0x40000000, 0, 1},
 		{0xeeeeeeee, 0xffffffff, 2, 3},
 		// Overlaps of multiple entries.
-		{0x00000000, 0xc0000000, 0, 2},
-		{0xc0000000, 0xd0000000, 1, 3},
+		{0x30000000, 0x80000000, 0, 2},
+		{0x90000000, 0xd0000000, 1, 3},
 	} {
 		var start, stop = rangeSpan(members, tc.begin, tc.end)
-		require.Equal(t, tc.start, start)
-		require.Equal(t, tc.stop, stop)
+		require.Equal(t, tc.start, start, tc)
+		require.Equal(t, tc.stop, stop, tc)
 	}
 
 	// Add an extra shard which is not strictly greater than it's left-hand sibling.
@@ -467,7 +474,7 @@ func TestShuffleMemberOrdering(t *testing.T) {
 	_, err = newShuffleMembers(withSplit)
 	require.EqualError(t, err,
 		"shard shard/3 range key:cccccccc-ffffffff;r-clock:11111111-99999999 is not "+
-			"less-than shard shard/2 range key:cccccccc-ffffffff;r-clock:00000000-88888888")
+			"less-than shard shard/2 range key:aaaaaaaa-ffffffff;r-clock:00000000-88888888")
 
 	// Now add a split-source label. Expect the shard is ignored.
 	withSplit[len(withSplit)-1].LabelSet.AddValue(labels.SplitSource, "foobar")
@@ -496,9 +503,9 @@ func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.D
 		end   string
 		part  int
 	}{
-		{"1", "abc", "cccccccc", "ffffffff", 0}, // foo/bar=1/baz=abc/part=00
-		{"1", "abc", "bbbbbbbb", "cccccccb", 1}, // foo/bar=1/baz=abc/part=01
-		{"1", "def", "aaaaaaaa", "bbbbbbba", 0}, // foo/bar=1/baz=def/part=00
+		{"1", "abc", "aaaaaaaa", "ffffffff", 0}, // foo/bar=1/baz=abc/part=00
+		{"1", "abc", "55555555", "aaaaaaa9", 1}, // foo/bar=1/baz=abc/part=01
+		{"1", "def", "00000000", "55555554", 0}, // foo/bar=1/baz=def/part=00
 		{"2", "def", "aaaaaaaa", "bbbbbbba", 0}, // foo/bar=2/baz=def/part=00
 		{"2", "def", "bbbbbbbb", "ffffffff", 1}, // foo/bar=2/baz=def/part=01
 	} {
@@ -522,17 +529,17 @@ func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.D
 	}
 	var shards = []*pc.ShardSpec{
 		{Id: "shard/0", LabelSet: pb.MustLabelSet(
-			labels.KeyBegin, "aaaaaaaa",
-			labels.KeyEnd, "bbbbbbba",
+			labels.KeyBegin, "00000000",
+			labels.KeyEnd, "55555554",
 			labels.RClockBegin, "00000000",
 			labels.RClockEnd, "ffffffff")},
 		{Id: "shard/1", LabelSet: pb.MustLabelSet(
-			labels.KeyBegin, "bbbbbbbb",
-			labels.KeyEnd, "cccccccb",
+			labels.KeyBegin, "55555555",
+			labels.KeyEnd, "aaaaaaa9",
 			labels.RClockBegin, "00000000",
 			labels.RClockEnd, "ffffffff")},
 		{Id: "shard/2", LabelSet: pb.MustLabelSet(
-			labels.KeyBegin, "cccccccc",
+			labels.KeyBegin, "aaaaaaaa",
 			labels.KeyEnd, "ffffffff",
 			labels.RClockBegin, "00000000",
 			labels.RClockEnd, "88888888")},
