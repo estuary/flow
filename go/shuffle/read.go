@@ -326,13 +326,13 @@ func (r *read) start(
 // indefinitely as this can cause a distributed read deadlock. Consider
 // shard A & B, and journals X & Y:
 //
-//  - A's channel reading from X is stuffed
-//  - B's channel reading from Y is stuffed
-//  - A must read a next (non-tailing) Y to proceed.
-//  - B must read a next (non-tailing) X to proceed, BUT
-//  - X is blocked sending to the (stuffed) A, and
-//  - Y is blocked sending to the (stuffed) B.
-//  - Result: deadlock.
+//   - A's channel reading from X is stuffed
+//   - B's channel reading from Y is stuffed
+//   - A must read a next (non-tailing) Y to proceed.
+//   - B must read a next (non-tailing) X to proceed, BUT
+//   - X is blocked sending to the (stuffed) A, and
+//   - Y is blocked sending to the (stuffed) B.
+//   - Result: deadlock.
 //
 // The strategy we employ to avoid this is to use exponential time delays
 // as the channel becomes full, up to the channel capacity, after which we
@@ -536,34 +536,63 @@ func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, allJournals flow.Journ
 				continue
 			}
 
-			// Extract owned key range from journal labels.
-			sourceBegin, err := labels.ParseHexU32Label(labels.KeyBegin, source.LabelSet)
-			if err != nil {
-				return fmt.Errorf("shuffle JournalSpec: %w", err)
-			}
-			sourceEnd, err := labels.ParseHexU32Label(labels.KeyEnd, source.LabelSet)
-			if err != nil {
-				return fmt.Errorf("shuffle JournalSpec: %w", err)
-			}
-
+			// start / stop is the range of `members` which are candidates for coordinating
+			// the read of this journal. We seek to select a start/stop range which minimizes
+			// data movement, making it as likely as possible that the coordinating shard will
+			// be directly responsible for handling documents of the journal.
 			var start, stop int
-			if shuffle.UsesSourceKey {
-				// This tranform uses the source's natural key, which means that the key ranges
+
+			if len(shuffle.ShuffleKeyPartitionFields) != 0 {
+				// This transform shuffles on a key which is covered by logical partitions.
+				// This means we can statically determine the (singular) shuffle key hash
+				// that we will encounter for every document within the journal.
+
+				var key, err = labels.DecodePartitionLabels(shuffle.ShuffleKeyPartitionFields, source.LabelSet)
+				if err != nil {
+					return fmt.Errorf("parsing shuffle key from partition fields: %w", err)
+				}
+				// Identify shards that cover the key's shuffle hash.
+				var keyHash = flow.PackedKeyHash_HH64(key.Pack())
+				start, stop = rangeSpan(members, keyHash, keyHash)
+
+				if index < start || index >= stop {
+					// We don't cover keyHash, meaning this journal cannot
+					// contain documents which shuffle into our range,
+					// and we can skip reading it altogether.
+					continue
+				}
+			} else if shuffle.UsesSourceKey {
+				// This transform uses the source's key, which means that the key ranges
 				// present on JournalSpecs refer to the same keys as ShardSpecs. As an optimization
-				// to reduce data movement, select only from ShardSpecs which overlap the journal.
+				// to reduce data movement, select only from ShardSpecs which overlap the's target
+				// key hash range. Note that the journal's target key range applies only to ongoing
+				// writes and it's possible the journal contains other key hashes, depending on its
+				// history over time.
+
+				// Extract owned key range from journal labels.
+				sourceBegin, err := labels.ParseHexU32Label(labels.KeyBegin, source.LabelSet)
+				if err != nil {
+					return fmt.Errorf("shuffle JournalSpec: %w", err)
+				}
+				sourceEnd, err := labels.ParseHexU32Label(labels.KeyEnd, source.LabelSet)
+				if err != nil {
+					return fmt.Errorf("shuffle JournalSpec: %w", err)
+				}
+				// Identify shards that cover this journal's range.
 				start, stop = rangeSpan(members, sourceBegin, sourceEnd)
+
+				if start == stop {
+					return fmt.Errorf("none of %d shards overlap the key-range of journal %s, %08x-%08x",
+						len(members), source.Name, sourceBegin, sourceEnd)
+				}
 			} else {
+				// Documents of this journal are equally likely to shuffle to any member.
 				start, stop = 0, len(members)
 			}
 
 			// Augment JournalSpec to capture the shuffle group name, as a Journal metadata path segment.
 			var copied = *source
 			copied.Name = pb.Journal(fmt.Sprintf("%s;%s", source.Name.String(), shuffle.GroupName))
-
-			if start == stop {
-				return fmt.Errorf("none of %d shards overlap the key-range of journal %s, %08x-%08x",
-					len(members), source.Name, sourceBegin, sourceEnd)
-			}
 
 			var m = pickHRW(hrwHash(copied.Name.String()), members, start, stop)
 			cb(members[index].range_, copied, shuffle, members[m].spec.Id)
