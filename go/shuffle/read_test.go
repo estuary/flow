@@ -146,6 +146,7 @@ func TestReadBuilding(t *testing.T) {
 		"foo/bar=1/baz=abc/part=01;transform/der/bar-one",
 		"foo/bar=1/baz=def/part=00;transform/der/bar-one",
 		"foo/bar=1/baz=def/part=00;transform/der/baz-def",
+		"foo/bar=1/baz=def/part=00;transform/der/partitions-cover",
 		"foo/bar=2/baz=def/part=00;transform/der/baz-def",
 		"foo/bar=2/baz=def/part=01;transform/der/baz-def",
 	}, toKeys(added))
@@ -162,10 +163,11 @@ func TestReadBuilding(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, pb.Offsets{
-		"foo/bar=1/baz=def/part=00;transform/der/baz-def": 12,
-		"foo/bar=2/baz=def/part=01;transform/der/baz-def": 34,
-		"foo/bar=1/baz=abc/part=01;transform/der/bar-one": 56,
-		"foo/bar=1/baz=def/part=00;transform/der/bar-one": 78,
+		"foo/bar=1/baz=def/part=00;transform/der/baz-def":          12,
+		"foo/bar=2/baz=def/part=01;transform/der/baz-def":          34,
+		"foo/bar=1/baz=abc/part=01;transform/der/bar-one":          56,
+		"foo/bar=1/baz=def/part=00;transform/der/bar-one":          78,
+		"foo/bar=1/baz=def/part=00;transform/der/partitions-cover": 78,
 	}, offsets)
 	existing = added
 
@@ -180,6 +182,7 @@ func TestReadBuilding(t *testing.T) {
 		"foo/bar=1/baz=abc/part=01;transform/der/bar-one",
 		"foo/bar=1/baz=def/part=00;transform/der/bar-one",
 		"foo/bar=1/baz=def/part=00;transform/der/baz-def",
+		"foo/bar=1/baz=def/part=00;transform/der/partitions-cover",
 		"foo/bar=2/baz=def/part=00;transform/der/baz-def",
 		"foo/bar=2/baz=def/part=01;transform/der/baz-def",
 	}, toKeys(drain))
@@ -196,8 +199,9 @@ func TestReadBuilding(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, offsets, pb.Offsets{
-		"foo/bar=1/baz=def/part=00;transform/der/baz-def": 12,
-		"foo/bar=1/baz=def/part=00;transform/der/bar-one": 78,
+		"foo/bar=1/baz=def/part=00;transform/der/baz-def":          12,
+		"foo/bar=1/baz=def/part=00;transform/der/bar-one":          78,
+		"foo/bar=1/baz=def/part=00;transform/der/partitions-cover": 78,
 	})
 }
 
@@ -390,6 +394,21 @@ func TestWalkingReads(t *testing.T) {
 			{"foo/bar=2/baz=def/part=01;transform/der/baz-def", "foo", "shard/2"}, // Ignores journal range.
 		}
 
+		// Partition-covered reads are different for each shard:
+		if index == 0 {
+			expect = append(expect, []expectRow{
+				{"foo/bar=1/baz=abc/part=00;transform/der/partitions-cover", "foo", "shard/0"},
+				{"foo/bar=1/baz=abc/part=01;transform/der/partitions-cover", "foo", "shard/0"},
+				{"foo/bar=2/baz=def/part=00;transform/der/partitions-cover", "foo", "shard/0"},
+				{"foo/bar=2/baz=def/part=01;transform/der/partitions-cover", "foo", "shard/0"},
+			}...)
+		} else if index == 1 {
+			expect = append(expect, []expectRow{
+				{"foo/bar=1/baz=def/part=00;transform/der/partitions-cover", "foo", "shard/1"},
+			}...)
+		}
+		// No additional reads for shard index == 2.
+
 		var err = walkReads(shards[index].Id, shards, journals, shuffles,
 			func(_ pf.RangeSpec, spec pb.JournalSpec, shuffle *pf.Shuffle, coordinator pc.ShardID) {
 				require.Equal(t, expect[0].journal, spec.Name.String())
@@ -581,6 +600,15 @@ func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.D
 					SourcePartitions: pb.LabelSelector{
 						Include: pb.MustLabelSet(labels.FieldPrefix+"baz", "other-value"),
 					},
+				},
+				Derivation: "der",
+			},
+			{
+				Transform: "partitions-cover",
+				Shuffle: pf.Shuffle{
+					GroupName:                 "transform/der/partitions-cover",
+					SourceCollection:          "foo",
+					ShuffleKeyPartitionFields: []string{"baz", "bar"},
 				},
 				Derivation: "der",
 			},
