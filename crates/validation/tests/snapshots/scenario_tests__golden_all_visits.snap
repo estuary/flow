@@ -3219,7 +3219,7 @@ All {
                                                     },
                                                     Label {
                                                         name: "estuary.dev/field/bit",
-                                                        value: "true",
+                                                        value: "%_true",
                                                     },
                                                 ],
                                             },
@@ -3229,7 +3229,7 @@ All {
                                                 labels: [
                                                     Label {
                                                         name: "estuary.dev/field/bit",
-                                                        value: "false",
+                                                        value: "%_false",
                                                     },
                                                 ],
                                             },
@@ -5042,7 +5042,7 @@ All {
                                                     },
                                                     Label {
                                                         name: "estuary.dev/field/bit",
-                                                        value: "true",
+                                                        value: "%_true",
                                                     },
                                                 ],
                                             },
@@ -5545,7 +5545,7 @@ All {
                                             },
                                             Label {
                                                 name: "estuary.dev/field/bit",
-                                                value: "true",
+                                                value: "%_true",
                                             },
                                         ],
                                     },
