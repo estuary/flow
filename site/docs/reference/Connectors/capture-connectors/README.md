@@ -41,6 +41,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 * MariaDB
   * [Configuration](./mariadb.md)
   * Package - ghcr.io/estuary/source-mariadb:dev
+* Microsoft SQL Server
+  * [Configuration](./sqlserver.md)
+  * Package - ghcr.io/estuary/source-sqlserver:dev
 * MySQL
   * [Configuration](./MySQL.md)
   * Package - ghcr.io/estuary/source-mysql:dev
