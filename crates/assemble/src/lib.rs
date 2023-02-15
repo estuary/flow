@@ -513,6 +513,19 @@ pub fn transform_spec(
         None => (true, source.key_ptrs.clone(), None),
     };
 
+    // Identify partition fields that cover the shuffle key, if there is one.
+    let shuffle_key_partition_fields = shuffle_key_ptrs
+        .iter()
+        .map(|ptr| {
+            source
+                .projections
+                .iter()
+                .find(|p| p.is_partition_key && p.ptr == *ptr)
+                .map(|p| p.field.clone())
+        })
+        .collect::<Option<Vec<_>>>()
+        .unwrap_or_default();
+
     let shuffle = flow::Shuffle {
         group_name: transform_group_name(transform),
         source_collection: source.collection.clone(),
@@ -522,6 +535,7 @@ pub fn transform_spec(
         )),
         source_uuid_ptr: source.uuid_ptr.clone(),
         shuffle_key_ptrs,
+        shuffle_key_partition_fields,
         uses_source_key,
         shuffle_lambda,
         filter_r_clocks: update.is_none(),
@@ -665,6 +679,7 @@ pub fn materialization_shuffle(
         source_uuid_ptr: source.uuid_ptr.clone(),
         // Materializations always group by the collection's key.
         shuffle_key_ptrs: source.key_ptrs.clone(),
+        shuffle_key_partition_fields: Vec::new(),
         uses_source_key: true,
         shuffle_lambda: None,
         // At all times, a given collection key must be exclusively owned by

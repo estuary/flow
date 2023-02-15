@@ -27,12 +27,4 @@ expression: errors
         scope: test://example/int-string#/collections/testing~1int-string.v2,
         error: location /int accepts "number", "object" in schema test://example/int-string?ptr=/collections/testing~1int-string.v2/schema, but "fractional", "object" is disallowed in locations used as keys (https://go.estuary.dev/CigSvN),
     },
-    Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
-        error: location /int accepts "number", "object" in schema test://example/int-string-len.schema, but "fractional", "object" is disallowed in locations used as keys (https://go.estuary.dev/CigSvN),
-    },
-    Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveSelf,
-        error: location /int accepts "number", "object" in schema test://example/int-string-len.schema, but "fractional", "object" is disallowed in locations used as keys (https://go.estuary.dev/CigSvN),
-    },
 ]
