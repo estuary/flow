@@ -34,6 +34,7 @@ on the database and the individual tables to be captured.
 
 * A user role with:
   * `SELECT` permissions on the CDC schema and the schemas that contain tables to be captured.
+  * Access to the change tables created as part of the SQL Server CDC process.
   * `SELECT` and `UPDATE` permissions on the watermarks table
 
 To meet these requirements, follow the steps for the your hosting type.
@@ -59,20 +60,26 @@ This assumes all tables to be captured are in the default schema, `dbo`.
 Add similar queries for any other schemas that contain tables you want to capture.*/
 GRANT SELECT ON SCHEMA :: dbo TO flow_capture;
 GRANT SELECT ON SCHEMA :: cdc TO flow_capture;
---Create the watermarks table, grant permissions, and enable CDC.
+--Create the watermarks table and grant permissions.
 CREATE TABLE dbo.flow_watermarks(slot INTEGER PRIMARY KEY, watermark TEXT);
 GRANT SELECT, UPDATE ON dbo.flow_watermarks TO flow_capture;
-EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_watermarks', @role_name = 'flow_capture', @capture_instance = 'dbo_flow_watermarks';
 --Add some data to watermarks table to ensure proper connector initiation.
 INSERT INTO dbo.flow_watermarks VALUES (0, 'dummy-value');
+/*Enable CDC on tables. The below query enables CDC the watermarks table ONLY.
+You should add similar query for all other tables you intend to capture.*/
+EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_watermarks', @role_name = 'flow_capture', @capture_instance = 'dbo_flow_watermarks';
+
 ```
 
-2. Set up an [SSH server for tunneling](../../../../guides/connect-network/).
+2. Allow secure connection to Estuary Flow from your hosting environment. Either:
+   * Set up an [SSH server for tunneling](../../../../guides/connect-network/).
 
-   When you fill out the [endpoint configuration](#endpoint),
-   include the additional `networkTunnel` configuration to enable the SSH tunnel.
-   See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-   for additional details and a sample.
+     When you fill out the [endpoint configuration](#endpoint),
+     include the additional `networkTunnel` configuration to enable the SSH tunnel.
+     See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+     for additional details and a sample.
+
+   * Whitelist the Estuary IP address, `34.121.207.128` in your firewall rules.
 
 ### Setup: Azure SQL Database
 
@@ -100,12 +107,14 @@ This assumes all tables to be captured are in the default schema, `dbo`.
 Add similar queries for any other schemas that contain tables you want to capture.*/
 GRANT SELECT ON SCHEMA :: dbo TO flow_capture;
 GRANT SELECT ON SCHEMA :: cdc TO flow_capture;
---Create the watermarks table, grant permissions, and enable CDC.
+--Create the watermarks table and grant permissions.
 CREATE TABLE dbo.flow_watermarks(slot INTEGER PRIMARY KEY, watermark TEXT);
 GRANT SELECT, UPDATE ON dbo.flow_watermarks TO flow_capture;
-EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_watermarks', @role_name = 'flow_capture', @capture_instance = 'dbo_flow_watermarks';
 --Add some data to watermarks table to ensure proper connector initiation.
 INSERT INTO dbo.flow_watermarks VALUES (0, 'dummy-value');
+/*Enable CDC on tables. The below query enables CDC the watermarks table ONLY.
+You should add similar query for all other tables you intend to capture.*/
+EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_watermarks', @role_name = 'flow_capture', @capture_instance = 'dbo_flow_watermarks';
 ```
 
 3. Note the following important items for configuration:
@@ -142,12 +151,14 @@ This assumes all tables to be captured are in the default schema, `dbo`.
 Add similar queries for any other schemas that contain tables you want to capture.*/
 GRANT SELECT ON SCHEMA :: dbo TO flow_capture;
 GRANT SELECT ON SCHEMA :: cdc TO flow_capture;
---Create the watermarks table, grant permissions, and enable CDC.
+--Create the watermarks table and grant permissions.
 CREATE TABLE dbo.flow_watermarks(slot INTEGER PRIMARY KEY, watermark TEXT);
 GRANT SELECT, UPDATE ON dbo.flow_watermarks TO flow_capture;
-EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_watermarks', @role_name = 'flow_capture', @capture_instance = 'dbo_flow_watermarks';
 --Add some data to watermarks table to ensure proper connector initiation.
 INSERT INTO dbo.flow_watermarks VALUES (0, 'dummy-value');
+/*Enable CDC on tables. The below query enables CDC the watermarks table ONLY.
+You should add similar query for all other tables you intend to capture.*/
+EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_watermarks', @role_name = 'flow_capture', @capture_instance = 'dbo_flow_watermarks';
 ```
 6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
 
@@ -177,12 +188,14 @@ This assumes all tables to be captured are in the default schema, `dbo`.
 Add similar queries for any other schemas that contain tables you want to capture.*/
 GRANT SELECT ON SCHEMA :: dbo TO flow_capture;
 GRANT SELECT ON SCHEMA :: cdc TO flow_capture;
---Create the watermarks table, grant permissions, and enable CDC.
+--Create the watermarks table and grant permissions.
 CREATE TABLE dbo.flow_watermarks(slot INTEGER PRIMARY KEY, watermark TEXT);
 GRANT SELECT, UPDATE ON dbo.flow_watermarks TO flow_capture;
-EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_watermarks', @role_name = 'flow_capture', @capture_instance = 'dbo_flow_watermarks';
 --Add some data to watermarks table to ensure proper connector initiation.
 INSERT INTO dbo.flow_watermarks VALUES (0, 'dummy-value');
+/*Enable CDC on tables. The below query enables CDC the watermarks table ONLY.
+You should add similar query for all other tables you intend to capture.*/
+EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_watermarks', @role_name = 'flow_capture', @capture_instance = 'dbo_flow_watermarks';
 ```
 
 3. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `1433`.
