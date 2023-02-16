@@ -87,7 +87,7 @@ create table user_grants (
 alter table user_grants enable row level security;
 
 -- Index that accelerates operator ^@ (starts-with) for combined_grants_ext view.
-create index idx_user_grants_object_role_spgist on user_grants using spgist (object_role);
+create index idx_user_grants_object_role_spgist on user_grants using spgist ((object_role::text));
 
 comment on table user_grants is
   'Roles and capabilities that the user has been granted';
@@ -112,8 +112,8 @@ create table role_grants (
 alter table role_grants enable row level security;
 
 -- Index that accelerates operator ^@ (starts-with) for internal.auth_roles() and combined_grants_ext.
-create index idx_role_grants_subject_role_spgist on role_grants using spgist (subject_role);
-create index idx_role_grants_object_role_spgist on role_grants using spgist (object_role);
+create index idx_role_grants_subject_role_spgist on role_grants using spgist ((subject_role::text));
+create index idx_role_grants_object_role_spgist on role_grants using spgist ((object_role::text));
 
 comment on table role_grants is
   'Roles and capabilities that roles have been granted to other roles';

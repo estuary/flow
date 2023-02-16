@@ -65,7 +65,7 @@ create table live_specs (
 alter table live_specs enable row level security;
 
 -- Index that accelerates operator ^@ (starts-with) for live_specs_ext view.
-create index idx_live_specs_catalog_name_spgist on live_specs using spgist (catalog_name);
+create index idx_live_specs_catalog_name_spgist on live_specs using spgist ((catalog_name::text));
 
 create index idx_live_specs_spec_type on live_specs (spec_type);
 create index idx_live_specs_updated_at on live_specs (updated_at desc nulls last);
