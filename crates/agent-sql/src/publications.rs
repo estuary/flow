@@ -540,7 +540,7 @@ pub async fn resolve_storage_mappings(
         where starts_with(n, m.catalog_prefix)
            or starts_with('recovery/' || n, m.catalog_prefix)
            -- TODO(johnny): hack until we better-integrate ops collections.
-           or m.catalog_prefix = 'ops/'
+           or m.catalog_prefix = 'ops.us-central1.v1/'
         group by m.id;
         "#,
         names as Vec<&str>,

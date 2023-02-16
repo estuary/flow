@@ -37,7 +37,7 @@ Sources {
     collections: [
         Collection {
             scope: test://foo.bar/collection,
-            collection: ops/acmeCo/logs,
+            collection: ops.test-dataplane/logs,
             spec: {
               "key": [
                 "/not/a/real/key"
@@ -48,21 +48,7 @@ Sources {
         },
         Collection {
             scope: builtin://flow/ops/generated/collections,
-            collection: ops/acmeCo/stats,
-            spec: {
-              "key": [
-                "/shard/name",
-                "/shard/keyBegin",
-                "/shard/rClockBegin",
-                "/ts"
-              ]
-            },
-            write_schema: builtin://flow/ops-stats-schema.json,
-            read_schema: builtin://flow/ops-stats-schema.json,
-        },
-        Collection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/gooble/logs,
+            collection: ops.us-central1.v1/logs,
             spec: {
               "key": [
                 "/shard/name",
@@ -76,63 +62,7 @@ Sources {
         },
         Collection {
             scope: builtin://flow/ops/generated/collections,
-            collection: ops/gooble/stats,
-            spec: {
-              "key": [
-                "/shard/name",
-                "/shard/keyBegin",
-                "/shard/rClockBegin",
-                "/ts"
-              ]
-            },
-            write_schema: builtin://flow/ops-stats-schema.json,
-            read_schema: builtin://flow/ops-stats-schema.json,
-        },
-        Collection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/justme/logs,
-            spec: {
-              "key": [
-                "/shard/name",
-                "/shard/keyBegin",
-                "/shard/rClockBegin",
-                "/ts"
-              ]
-            },
-            write_schema: builtin://flow/ops-log-schema.json,
-            read_schema: builtin://flow/ops-log-schema.json,
-        },
-        Collection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/justme/stats,
-            spec: {
-              "key": [
-                "/shard/name",
-                "/shard/keyBegin",
-                "/shard/rClockBegin",
-                "/ts"
-              ]
-            },
-            write_schema: builtin://flow/ops-stats-schema.json,
-            read_schema: builtin://flow/ops-stats-schema.json,
-        },
-        Collection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/shamazon/logs,
-            spec: {
-              "key": [
-                "/shard/name",
-                "/shard/keyBegin",
-                "/shard/rClockBegin",
-                "/ts"
-              ]
-            },
-            write_schema: builtin://flow/ops-log-schema.json,
-            read_schema: builtin://flow/ops-log-schema.json,
-        },
-        Collection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/shamazon/stats,
+            collection: ops.us-central1.v1/stats,
             spec: {
               "key": [
                 "/shard/name",
@@ -200,13 +130,13 @@ Sources {
     projections: [
         Projection {
             scope: builtin://flow/ops/generated/collections,
-            collection: ops/acmeCo/stats,
+            collection: ops.us-central1.v1/logs,
             field: flow_document,
             spec: "",
         },
         Projection {
             scope: builtin://flow/ops/generated/collections,
-            collection: ops/acmeCo/stats,
+            collection: ops.us-central1.v1/logs,
             field: kind,
             spec: {
               "location": "/shard/kind",
@@ -215,7 +145,7 @@ Sources {
         },
         Projection {
             scope: builtin://flow/ops/generated/collections,
-            collection: ops/acmeCo/stats,
+            collection: ops.us-central1.v1/logs,
             field: name,
             spec: {
               "location": "/shard/name",
@@ -224,13 +154,13 @@ Sources {
         },
         Projection {
             scope: builtin://flow/ops/generated/collections,
-            collection: ops/gooble/logs,
+            collection: ops.us-central1.v1/stats,
             field: flow_document,
             spec: "",
         },
         Projection {
             scope: builtin://flow/ops/generated/collections,
-            collection: ops/gooble/logs,
+            collection: ops.us-central1.v1/stats,
             field: kind,
             spec: {
               "location": "/shard/kind",
@@ -239,127 +169,7 @@ Sources {
         },
         Projection {
             scope: builtin://flow/ops/generated/collections,
-            collection: ops/gooble/logs,
-            field: name,
-            spec: {
-              "location": "/shard/name",
-              "partition": true
-            },
-        },
-        Projection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/gooble/stats,
-            field: flow_document,
-            spec: "",
-        },
-        Projection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/gooble/stats,
-            field: kind,
-            spec: {
-              "location": "/shard/kind",
-              "partition": true
-            },
-        },
-        Projection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/gooble/stats,
-            field: name,
-            spec: {
-              "location": "/shard/name",
-              "partition": true
-            },
-        },
-        Projection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/justme/logs,
-            field: flow_document,
-            spec: "",
-        },
-        Projection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/justme/logs,
-            field: kind,
-            spec: {
-              "location": "/shard/kind",
-              "partition": true
-            },
-        },
-        Projection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/justme/logs,
-            field: name,
-            spec: {
-              "location": "/shard/name",
-              "partition": true
-            },
-        },
-        Projection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/justme/stats,
-            field: flow_document,
-            spec: "",
-        },
-        Projection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/justme/stats,
-            field: kind,
-            spec: {
-              "location": "/shard/kind",
-              "partition": true
-            },
-        },
-        Projection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/justme/stats,
-            field: name,
-            spec: {
-              "location": "/shard/name",
-              "partition": true
-            },
-        },
-        Projection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/shamazon/logs,
-            field: flow_document,
-            spec: "",
-        },
-        Projection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/shamazon/logs,
-            field: kind,
-            spec: {
-              "location": "/shard/kind",
-              "partition": true
-            },
-        },
-        Projection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/shamazon/logs,
-            field: name,
-            spec: {
-              "location": "/shard/name",
-              "partition": true
-            },
-        },
-        Projection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/shamazon/stats,
-            field: flow_document,
-            spec: "",
-        },
-        Projection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/shamazon/stats,
-            field: kind,
-            spec: {
-              "location": "/shard/kind",
-              "partition": true
-            },
-        },
-        Projection {
-            scope: builtin://flow/ops/generated/collections,
-            collection: ops/shamazon/stats,
+            collection: ops.us-central1.v1/stats,
             field: name,
             spec: {
               "location": "/shard/name",
