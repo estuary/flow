@@ -84,7 +84,13 @@ fn build_from_shape(shape: &Shape) -> Result<ESFieldType, Error> {
 }
 
 fn build_from_object(shape: &ObjShape) -> Result<ESFieldType, Error> {
-    if !shape.additional.is_none() {
+    let addl_type = shape
+        .additional
+        .as_ref()
+        .map(|a| a.type_)
+        .unwrap_or(types::INVALID);
+
+    if addl_type != types::INVALID {
         return Err(Error::UnSupportedError {
             message: UNSUPPORTED_OBJECT_ADDITIONAL_FIELDS,
             shape: Box::new(shape.clone()),
@@ -222,6 +228,7 @@ mod tests {
                 "nested": {"type": "object", "required": [], "properties": {"nested_field": {"type": ["null", "integer"]}}}
 
             },
+            "additionalProperties": false,
             "required":["str"],
             "type":"object"
         });
