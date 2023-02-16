@@ -71,17 +71,8 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 		t.build = host.Builds.Open(t.labels.Build)
 	}
 
-	var statsCollectionSpec *pf.CollectionSpec
-	var logsCollectionSpec *pf.CollectionSpec
-	if err = t.build.Extract(func(db *sql.DB) error {
-		if logsCollectionSpec, err = catalog.LoadCollection(db, ops.LogCollection(t.labels.TaskName).String()); err != nil {
-			return fmt.Errorf("loading collection: %w", err)
-		}
-		if statsCollectionSpec, err = catalog.LoadCollection(db, ops.StatsCollection(t.labels.TaskName).String()); err != nil {
-			return fmt.Errorf("loading stats collection: %w", err)
-		}
-		return nil
-	}); err != nil {
+	logsCollectionSpec, statsCollectionSpec, err := resolveOpsCollections(t.build, t.labels.TaskName)
+	if err != nil {
 		return err
 	}
 
@@ -233,4 +224,64 @@ func signalOnSpecUpdate(ks *keyspace.KeySpace, shard consumer.Shard, spec *pf.Sh
 			return
 		}
 	}
+}
+
+// We have transitioned away from putting logs & stats documents into individual tenant collections.
+// We now put them in a single collection owned by the ops tenant, per dataplane. For historical
+// reasons the ops collections for logs & stats are added in during builds, currently via the
+// assemble crate. Builds that were done prior to switching away from per-tenant collections will
+// have their ops collections in the form of "ops/tenant/{logs,stats}", and builds after will have
+// their ops collections like "ops.dataplane/{logs,stats}"
+//
+// We resolve that difference here. Collections from the build are extracted perferentially by the
+// "new" form of the collection name and returned as-is if found. If the new ops collections aren't
+// in the build, we fall back to looking for the "old" form of the collections.
+//
+// New journals will be created automatically to partition the single logs/stats collections for
+// each task. We need to make sure that old builds with per-tenant ops collections have their
+// partitions created correctly for the new singular collections, so the relevant parts of the
+// retrieved ops specs for old builds are also updated here.
+func resolveOpsCollections(build *flow.Build, taskName string) (logs *pf.CollectionSpec, stats *pf.CollectionSpec, err error) {
+	logsCollectionName := "ops.us-central1.v1/logs"
+	statsCollectionsName := "ops.us-central1.v1/stats"
+
+	var mustUpdate bool
+
+	if err = build.Extract(func(db *sql.DB) error {
+		if logs, err = catalog.LoadCollection(db, logsCollectionName); err != nil {
+			// Fall back to looking for the old form of the collection if not found by the new one,
+			// and make sure the relevant parts of the spec are updated for the journal that may be
+			// created for it.
+			mustUpdate = true
+			if logs, err = catalog.LoadCollection(db, ops.LogCollection(taskName).String()); err != nil {
+				return fmt.Errorf("loading logs collection: %w", err)
+			}
+		}
+
+		if stats, err = catalog.LoadCollection(db, statsCollectionsName); err != nil {
+			mustUpdate = true
+			if stats, err = catalog.LoadCollection(db, ops.StatsCollection(taskName).String()); err != nil {
+				return fmt.Errorf("loading stats collection: %w", err)
+			}
+		}
+
+		return nil
+	}); err != nil {
+		return nil, nil, err
+	}
+
+	update := func(spec *pf.CollectionSpec, collectionName string) {
+		spec.Collection = pf.Collection(collectionName)
+		spec.PartitionTemplate.Name = pb.Journal(collectionName)
+		spec.PartitionTemplate.LabelSet.SetValue(labels.Collection, collectionName)
+	}
+
+	// If the ops collections were already the new form we won't force updates on them since they
+	// should already be correct, although it probably wouldn't hurt anything if we did.
+	if mustUpdate {
+		update(logs, logsCollectionName)
+		update(stats, statsCollectionsName)
+	}
+
+	return
 }
