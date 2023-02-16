@@ -57,8 +57,8 @@ Sources {
                 "/ts"
               ]
             },
-            write_schema: builtin://flow/ops-log-schema.json,
-            read_schema: builtin://flow/ops-log-schema.json,
+            write_schema: builtin://flow/ops-catalog/ops-log-schema.json,
+            read_schema: builtin://flow/ops-catalog/ops-log-schema.json,
         },
         Collection {
             scope: builtin://flow/ops/generated/collections,
@@ -71,8 +71,8 @@ Sources {
                 "/ts"
               ]
             },
-            write_schema: builtin://flow/ops-stats-schema.json,
-            read_schema: builtin://flow/ops-stats-schema.json,
+            write_schema: builtin://flow/ops-catalog/ops-stats-schema.json,
+            read_schema: builtin://flow/ops-catalog/ops-stats-schema.json,
         },
     ],
     derivations: [
@@ -99,14 +99,14 @@ Sources {
     fetches: [],
     imports: [
         Import {
-            scope: builtin://flow/ops-log-schema.json,
-            from_resource: builtin://flow/ops-log-schema.json,
-            to_resource: builtin://flow/ops-shard-schema.json,
+            scope: builtin://flow/ops-catalog/ops-log-schema.json,
+            from_resource: builtin://flow/ops-catalog/ops-log-schema.json,
+            to_resource: builtin://flow/ops-catalog/ops-shard-schema.json,
         },
         Import {
-            scope: builtin://flow/ops-stats-schema.json,
-            from_resource: builtin://flow/ops-stats-schema.json,
-            to_resource: builtin://flow/ops-shard-schema.json,
+            scope: builtin://flow/ops-catalog/ops-stats-schema.json,
+            from_resource: builtin://flow/ops-catalog/ops-stats-schema.json,
+            to_resource: builtin://flow/ops-catalog/ops-shard-schema.json,
         },
     ],
     materialization_bindings: [],
@@ -179,7 +179,7 @@ Sources {
     ],
     resources: [
         Resource {
-            resource: builtin://flow/ops-log-schema.json,
+            resource: builtin://flow/ops-catalog/ops-log-schema.json,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: {
@@ -197,6 +197,7 @@ Sources {
                     },
                     "level": {
                         "enum": [
+                            "trace",
                             "debug",
                             "info",
                             "warn",
@@ -222,7 +223,7 @@ Sources {
             },
         },
         Resource {
-            resource: builtin://flow/ops-shard-schema.json,
+            resource: builtin://flow/ops-catalog/ops-shard-schema.json,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: {
@@ -247,12 +248,12 @@ Sources {
                     "keyBegin": {
                         "description": "The inclusive beginning of the shard's assigned key range",
                         "type": "string",
-                        "pattern": "[0-9A-F]{8}"
+                        "pattern": "[0-9a-f]{8}"
                     },
                     "rClockBegin": {
                         "description": "The inclusive beginning of the shard's assigned rClock range",
                         "type": "string",
-                        "pattern": "[0-9A-F]{8}"
+                        "pattern": "[0-9a-f]{8}"
                     }
                 },
                 "required": [
@@ -264,7 +265,7 @@ Sources {
             },
         },
         Resource {
-            resource: builtin://flow/ops-stats-schema.json,
+            resource: builtin://flow/ops-catalog/ops-stats-schema.json,
             content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: {
@@ -353,11 +354,13 @@ Sources {
                             "docsTotal": {
                                 "description": "Total number of documents",
                                 "type": "integer",
+                                "default": 0,
                                 "reduce": {"strategy": "sum"}
                             },
                             "bytesTotal": {
                                 "description": "Total number of bytes representing the JSON encoded documents",
                                 "type": "integer",
+                                "default": 0,
                                 "reduce": {"strategy": "sum"}
                             }
                         },
@@ -389,6 +392,10 @@ Sources {
                         "description": "Stats for a specific transform of a derivation, which will have an update, publish, or both.",
                         "type": "object",
                         "properties": {
+                            "source": {
+                                "description": "The name of the collection that this transform sources from",
+                                "type": "string"
+                            },
                             "input": {
                                 "description": "The input documents that were fed into this transform.",
                                 "$ref": "#/$defs/docsAndBytes"
@@ -415,7 +422,7 @@ Sources {
     ],
     schema_docs: [
         SchemaDoc {
-            schema: builtin://flow/ops-log-schema.json,
+            schema: builtin://flow/ops-catalog/ops-log-schema.json,
             dom: {
               "$schema": "https://json-schema.org/draft-07/schema",
               "description": "Logs related to the processing of a Flow capture, derivation, or materialization",
@@ -427,6 +434,7 @@ Sources {
                 },
                 "level": {
                   "enum": [
+                    "trace",
                     "debug",
                     "info",
                     "warn",
@@ -456,14 +464,14 @@ Sources {
             },
         },
         SchemaDoc {
-            schema: builtin://flow/ops-shard-schema.json,
+            schema: builtin://flow/ops-catalog/ops-shard-schema.json,
             dom: {
               "$schema": "https://json-schema.org/draft-07/schema",
               "description": "Identifies a specific shard of a task, which may be the source of a log message or metrics",
               "properties": {
                 "keyBegin": {
                   "description": "The inclusive beginning of the shard's assigned key range",
-                  "pattern": "[0-9A-F]{8}",
+                  "pattern": "[0-9a-f]{8}",
                   "type": "string"
                 },
                 "kind": {
@@ -480,7 +488,7 @@ Sources {
                 },
                 "rClockBegin": {
                   "description": "The inclusive beginning of the shard's assigned rClock range",
-                  "pattern": "[0-9A-F]{8}",
+                  "pattern": "[0-9a-f]{8}",
                   "type": "string"
                 }
               },
@@ -495,12 +503,13 @@ Sources {
             },
         },
         SchemaDoc {
-            schema: builtin://flow/ops-stats-schema.json,
+            schema: builtin://flow/ops-catalog/ops-stats-schema.json,
             dom: {
               "$defs": {
                 "docsAndBytes": {
                   "properties": {
                     "bytesTotal": {
+                      "default": 0,
                       "description": "Total number of bytes representing the JSON encoded documents",
                       "reduce": {
                         "strategy": "sum"
@@ -508,6 +517,7 @@ Sources {
                       "type": "integer"
                     },
                     "docsTotal": {
+                      "default": 0,
                       "description": "Total number of documents",
                       "reduce": {
                         "strategy": "sum"
@@ -582,6 +592,10 @@ Sources {
                     "publish": {
                       "$ref": "#/$defs/invokeStats",
                       "description": "The outputs from publish lambda invocations."
+                    },
+                    "source": {
+                      "description": "The name of the collection that this transform sources from",
+                      "type": "string"
                     },
                     "update": {
                       "$ref": "#/$defs/invokeStats",

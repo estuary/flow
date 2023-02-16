@@ -1,11 +1,11 @@
-// Generated from collection schema builtin://flow/ops-log-schema.json.
+// Generated from collection schema builtin://flow/ops-catalog/ops-log-schema.json.
 // Referenced from builtin://flow/ops/generated/collections.
 export type Document =
     /* Flow task logs Logs related to the processing of a Flow capture, derivation, or materialization */ {
         fields?: /* Map of keys and values that are associated with this log entry. */ {
             [k: string]: unknown;
         };
-        level: 'debug' | 'error' | 'info' | 'warn';
+        level: 'debug' | 'error' | 'info' | 'trace' | 'warn';
         message: string;
         shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
             keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
