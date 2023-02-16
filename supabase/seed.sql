@@ -59,7 +59,7 @@ with accounts_root_user as (
   select (select id from auth.users where email = 'ops@estuary.dev' limit 1) as accounts_id
 )
 insert into applied_directives (directive_id, user_id, user_claims)
-  select d.id, a.accounts_id, '{"requestedTenant":"ops.local"}'
+  select d.id, a.accounts_id, '{"requestedTenant":"ops.us-central1-c.v1"}'
     from directives d, accounts_root_user a
     where catalog_prefix = 'ops/' and spec = '{"type":"betaOnboard"}';
 
@@ -67,11 +67,11 @@ with accounts_root_user as (
   select (select id from auth.users where email = 'support@estuary.dev' limit 1) as accounts_id
 )
 insert into user_grants (user_id, object_role, capability)
-  select a.accounts_id, 'ops.local/', 'admin'
+  select a.accounts_id, 'ops.us-central1-c.v1/', 'admin'
     from accounts_root_user a;
 
 insert into role_grants (subject_role, object_role, capability) values
-  ('ops/', 'ops.local/', 'read');
+  ('ops/', 'ops.us-central1-c.v1/', 'read');
 
 -- Seed a small number of connectors. This is a small list, separate from our
 -- production connectors, because each is pulled onto your dev machine.

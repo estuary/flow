@@ -122,7 +122,7 @@ where
         .await;
 
     let mut tables = loader.into_tables();
-    assemble::generate_ops_collections(&mut tables, &config.dataplane);
+    assemble::generate_ops_collections(&mut tables);
 
     let tables::Sources {
         capture_bindings,

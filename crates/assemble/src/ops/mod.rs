@@ -22,7 +22,7 @@ macro_rules! gen_schema {
 
 /// Adds ops collections to the given partial built catalog. The tables will be modified in place
 /// to add the resources required for the ops (logs and stats) collections.
-pub fn generate_ops_collections(tables: &mut tables::Sources, dataplane: &str) {
+pub fn generate_ops_collections(tables: &mut tables::Sources) {
     let shard_schema = gen_schema!("ops-shard-schema.json");
     let stats_schema = gen_schema!("ops-stats-schema.json");
     let log_schema = gen_schema!("ops-log-schema.json");
@@ -49,8 +49,8 @@ pub fn generate_ops_collections(tables: &mut tables::Sources, dataplane: &str) {
         .insert_row(&log_schema.url, &log_schema.url, &shard_schema.url);
 
     let mut added_any_collection = false;
-    let logs_collection_name = format!("ops.{}/logs", dataplane);
-    let stats_collection_name = format!("ops.{}/stats", dataplane);
+    let logs_collection_name = format!("ops.us-central1-c.v1/logs");
+    let stats_collection_name = format!("ops.us-central1-c.v1/stats");
 
     if !has_collection(&*tables, &logs_collection_name) {
         add_ops_collection(logs_collection_name, log_schema.url.clone(), tables);
@@ -226,7 +226,7 @@ mod test {
             &schema_url,
         );
 
-        generate_ops_collections(&mut tables, "test-dataplane");
+        generate_ops_collections(&mut tables);
 
         insta::assert_debug_snapshot!(&tables);
     }

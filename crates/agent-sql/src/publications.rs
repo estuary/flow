@@ -527,7 +527,6 @@ pub struct StorageRow {
 
 pub async fn resolve_storage_mappings(
     names: Vec<&str>,
-    dataplane: &str,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<Vec<StorageRow>> {
     sqlx::query_as!(
@@ -541,11 +540,10 @@ pub async fn resolve_storage_mappings(
         where starts_with(n, m.catalog_prefix)
            or starts_with('recovery/' || n, m.catalog_prefix)
            -- TODO(johnny): hack until we better-integrate ops collections.
-           or m.catalog_prefix = 'ops.' || $2 || '/'
+           or m.catalog_prefix = 'ops.us-central1-c.v1/'
         group by m.id;
         "#,
         names as Vec<&str>,
-        dataplane,
     )
     .fetch_all(&mut *txn)
     .await

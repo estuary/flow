@@ -7,12 +7,11 @@ use anyhow::Context;
 pub async fn inject_mappings(
     names: impl Iterator<Item = &str>,
     catalog: &mut models::Catalog,
-    dataplane: &str,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<Vec<Error>> {
     let names: Vec<&str> = names.collect();
 
-    let mappings = agent_sql::publications::resolve_storage_mappings(names, dataplane, txn)
+    let mappings = agent_sql::publications::resolve_storage_mappings(names, txn)
         .await
         .context("selecting storage mappings")?;
 

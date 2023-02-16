@@ -28,7 +28,6 @@ pub struct PublishHandler {
     broker_address: url::Url,
     builds_root: url::Url,
     connector_network: String,
-    dataplane: String,
     consumer_address: url::Url,
     logs_tx: logs::Tx,
 }
@@ -39,7 +38,6 @@ impl PublishHandler {
         broker_address: &url::Url,
         builds_root: &url::Url,
         connector_network: &str,
-        dataplane: &str,
         consumer_address: &url::Url,
         logs_tx: &logs::Tx,
     ) -> Self {
@@ -48,7 +46,6 @@ impl PublishHandler {
             broker_address: broker_address.clone(),
             builds_root: builds_root.clone(),
             connector_network: connector_network.to_string(),
-            dataplane: dataplane.to_string(),
             consumer_address: consumer_address.clone(),
             logs_tx: logs_tx.clone(),
         }
@@ -244,7 +241,6 @@ impl PublishHandler {
                 .map(|r| r.catalog_name.as_ref())
                 .chain(expanded_rows.iter().map(|r| r.catalog_name.as_ref())),
             &mut draft_catalog,
-            &self.dataplane,
             txn,
         )
         .await?;
@@ -263,7 +259,6 @@ impl PublishHandler {
             &self.builds_root,
             &draft_catalog,
             &self.connector_network,
-            &self.dataplane,
             &self.bindir,
             row.logs_token,
             &self.logs_tx,

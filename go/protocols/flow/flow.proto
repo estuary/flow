@@ -239,16 +239,14 @@ message CollectionSpec {
   // and which provides write-time reduction annotations.
   string write_schema_uri = 2;
   // Bundled write-time JSON Schema of the collection.
-  string write_schema_json = 8
-      [ (gogoproto.casttype) = "encoding/json.RawMessage" ];
+  string write_schema_json = 8 [ (gogoproto.casttype) = "encoding/json.RawMessage" ];
   // JSON Schema URI against which read collection documents are validated,
   // and which provides read-time reduction annotations.
   // Optional. If not set then `write_schema_uri` should be used.
   string read_schema_uri = 10;
   // Bundled read-time JSON Schema of the collection.
   // Optional. If not set then `write_schema_json` should be used.
-  string read_schema_json = 11
-      [ (gogoproto.casttype) = "encoding/json.RawMessage" ];
+  string read_schema_json = 11 [ (gogoproto.casttype) = "encoding/json.RawMessage" ];
   // Composite key of the collection, as JSON-Pointers.
   repeated string key_ptrs = 3;
   // JSON pointer locating the UUID of each collection document.
@@ -942,8 +940,6 @@ message BuildAPI {
     // The Docker network the connectors are given access to during catalog
     // builds.
     string connector_network = 8;
-    // Name of the dataplane.
-    string dataplane = 9;
   }
 
   message Fetch {

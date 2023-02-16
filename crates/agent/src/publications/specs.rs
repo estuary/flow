@@ -583,7 +583,7 @@ mod test {
         // Just in case anything gets through
         logs_rx.close();
 
-        let mut handler = PublishHandler::new("", &bs_url, &bs_url, "", "test", &bs_url, &logs_tx);
+        let mut handler = PublishHandler::new("", &bs_url, &bs_url, "", &bs_url, &logs_tx);
 
         let mut results: Vec<ScenarioResult> = vec![];
 

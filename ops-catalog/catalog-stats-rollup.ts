@@ -1,9 +1,8 @@
-import { IDerivation, OutputDocument, Register, FromDATAPLANESource } from 'flow/ops/catalog-stats-L2';
+import { IDerivation, OutputDocument, Register, FromOpsUsCentral1CV1Source } from 'flow/ops.us-central1-c.v1/catalog-stats-L2';
 
-// Implementation for derivation template-common.yaml#/collections/ops~1catalog-stats-L2/derivation.
 export class Derivation implements IDerivation {
-    fromDATAPLANEPublish(
-        source: FromDATAPLANESource,
+    fromOpsUsCentral1CV1Publish(
+        source: FromOpsUsCentral1CV1Source,
         _register: Register,
         _previous: Register,
     ): OutputDocument[] {

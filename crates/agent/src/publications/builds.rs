@@ -12,7 +12,6 @@ pub async fn build_catalog(
     builds_root: &url::Url,
     catalog: &models::Catalog,
     connector_network: &str,
-    dataplane: &str,
     bindir: &str,
     logs_token: Uuid,
     logs_tx: &logs::Tx,
@@ -50,8 +49,6 @@ pub async fn build_catalog(
             .arg(&builds_dir)
             .arg("--network")
             .arg(connector_network)
-            .arg("--dataplane")
-            .arg(dataplane)
             .arg("--source")
             .arg("file:///flow.json")
             .arg("--source-type")

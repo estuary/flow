@@ -30,7 +30,6 @@ type FlowConsumerConfig struct {
 	Flow struct {
 		BuildsRoot string `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
 		BrokerRoot string `long:"broker-root" required:"true" env:"BROKER_ROOT" default:"/gazette/cluster" description:"Broker Etcd base prefix"`
-		Dataplane  string `long:"dataplane" required:"true" description:"Name of the dataplane. Used for stats and logs collections."`
 		Network    string `long:"network" description:"The Docker network that connector containers are given access to, defaults to the bridge network"`
 		TestAPIs   bool   `long:"test-apis" description:"Enable APIs exclusively used while running catalog tests"`
 	} `group:"flow" namespace:"flow" env-namespace:"FLOW"`

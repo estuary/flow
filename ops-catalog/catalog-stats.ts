@@ -1,6 +1,5 @@
-import { IDerivation, Document, Register, LogsSource, StatsSource } from 'flow/ops.DATAPLANE/catalog-stats-L1';
+import { IDerivation, Document, Register, LogsSource, StatsSource } from 'flow/ops.us-central1-c.v1/catalog-stats-L1';
 
-// Implementation for derivation template-common.flow.yaml#/collections/ops~1TENANT~1catalog-stats/derivation.
 export class Derivation implements IDerivation {
     logsPublish(source: LogsSource, _register: Register, _previous: Register): Document[] {
         let stats: Document['statsSummary'] = {};

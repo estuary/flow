@@ -71,18 +71,21 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 		t.build = host.Builds.Open(t.labels.Build)
 	}
 
+	statsCollectionsName := "ops.us-central1-c.v1/stats"
+	logsCollectionName := "ops.us-central1-c.v1/logs"
+
 	var statsCollectionSpec *pf.CollectionSpec
 	var logsCollectionSpec *pf.CollectionSpec
 	if err = t.build.Extract(func(db *sql.DB) error {
-		if logsCollectionSpec, err = catalog.LoadCollection(db, ops.LogsCollection(host.Config.Flow.Dataplane).String()); err != nil {
+		if logsCollectionSpec, err = catalog.LoadCollection(db, logsCollectionName); err != nil {
 			log.Info("could not find logs collection using new name, will try using old name")
-			if logsCollectionSpec, err = catalog.LoadCollection(db, ops.OldLogsCollection(t.labels.TaskName).String()); err != nil {
+			if logsCollectionSpec, err = catalog.LoadCollection(db, ops.LogCollection(t.labels.TaskName).String()); err != nil {
 				return fmt.Errorf("loading logs collection: %w", err)
 			}
 		}
-		if statsCollectionSpec, err = catalog.LoadCollection(db, ops.StatsCollection(host.Config.Flow.Dataplane).String()); err != nil {
+		if statsCollectionSpec, err = catalog.LoadCollection(db, statsCollectionsName); err != nil {
 			log.Info("could not find stats collection using new name, will try using old name")
-			if statsCollectionSpec, err = catalog.LoadCollection(db, ops.OldStatsCollection(t.labels.TaskName).String()); err != nil {
+			if statsCollectionSpec, err = catalog.LoadCollection(db, ops.StatsCollection(t.labels.TaskName).String()); err != nil {
 				return fmt.Errorf("loading stats collection: %w", err)
 			}
 		}
@@ -98,10 +101,10 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 		"stats collection partition template name": statsCollectionSpec.PartitionTemplate.Name.String(),
 	}).Info("loaded ops collections")
 
-	statsCollectionSpec.Collection = ops.StatsCollection(host.Config.Flow.Dataplane)
-	statsCollectionSpec.PartitionTemplate.Name = pb.Journal(ops.StatsCollection(host.Config.Flow.Dataplane).String())
-	logsCollectionSpec.Collection = ops.LogsCollection(host.Config.Flow.Dataplane)
-	logsCollectionSpec.PartitionTemplate.Name = pb.Journal(ops.LogsCollection(host.Config.Flow.Dataplane).String())
+	statsCollectionSpec.Collection = pf.Collection(statsCollectionsName)
+	statsCollectionSpec.PartitionTemplate.Name = pb.Journal(statsCollectionsName)
+	logsCollectionSpec.Collection = pf.Collection(logsCollectionName)
+	logsCollectionSpec.PartitionTemplate.Name = pb.Journal(logsCollectionName)
 
 	log.WithFields(log.Fields{
 		"logs collection":                          logsCollectionSpec.Collection.String(),

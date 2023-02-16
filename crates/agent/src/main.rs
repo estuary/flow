@@ -37,9 +37,6 @@ struct Args {
     /// Docker network for connector invocations.
     #[clap(long = "connector-network", default_value = "bridge")]
     connector_network: String,
-    /// Name of the dataplane this agent is operating in.
-    #[clap(long = "dataplane")]
-    dataplane: String,
     /// Path to binaries like `flowctl`.
     #[clap(long = "bin-dir", env = "BIN_DIR")]
     bindir: String,
@@ -102,7 +99,6 @@ async fn main() -> Result<(), anyhow::Error> {
                 &args.broker_address,
                 &builds_root,
                 &args.connector_network,
-                &args.dataplane,
                 &args.consumer_address,
                 &logs_tx,
             )),

@@ -1,5 +1,5 @@
 collections:
-  ops.DATAPLANE/logs:
+  ops.us-central1-c.v1/logs:
     schema: ops-log-schema.json
     key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
     projections:
@@ -10,7 +10,7 @@ collections:
         location: /shard/name
         partition: true
 
-  ops.DATAPLANE/stats:
+  ops.us-central1-c.v1/stats:
     schema: ops-stats-schema.json
     key: [/shard/name, /shard/keyBegin, /shard/rClockBegin, /ts]
     projections:
@@ -21,7 +21,7 @@ collections:
         location: /shard/name
         partition: true
 
-  ops.DATAPLANE/catalog-stats-L1:
+  ops.us-central1-c.v1/catalog-stats-L1:
     schema: ops-catalog-stats-schema.json
     key: [/catalogName, /grain, /ts]
 
@@ -32,14 +32,14 @@ collections:
       transform:
         logs:
           source:
-            name: ops.DATAPLANE/logs
+            name: ops.us-central1-c.v1/logs
           publish: { lambda: typescript }
         stats:
           source:
-            name: ops.DATAPLANE/stats
+            name: ops.us-central1-c.v1/stats
           publish: { lambda: typescript }
 
-  ops/catalog-stats-L2:
+  ops.us-central1-c.v1/catalog-stats-L2:
     schema: ops-catalog-stats-schema.json
     key: [/catalogName, /grain, /ts]
     projections:
@@ -59,7 +59,7 @@ collections:
     derivation:
       typescript: { module: "catalog-stats-rollup.ts" }
       transform:
-        fromDATAPLANE:
+        fromOps.us-central1-c.v1:
           source:
-            name: ops.DATAPLANE/catalog-stats-L1
+            name: ops.us-central1-c.v1/catalog-stats-L1
           publish: { lambda: typescript }

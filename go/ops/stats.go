@@ -12,11 +12,7 @@ import (
 // moved from the runtime package, to here.
 
 // StatsCollection returns the collection to which stats for the given task name are written.
-func StatsCollection(dataplane string) pf.Collection {
-	return pf.Collection(fmt.Sprintf("ops.%s/stats", strings.Split(dataplane, "/")[0]))
-}
-
-func OldStatsCollection(taskName string) pf.Collection {
+func StatsCollection(taskName string) pf.Collection {
 	return pf.Collection(fmt.Sprintf("ops/%s/stats", strings.Split(taskName, "/")[0]))
 }
 
