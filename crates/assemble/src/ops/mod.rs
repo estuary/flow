@@ -49,16 +49,21 @@ pub fn generate_ops_collections(tables: &mut tables::Sources) {
         .insert_row(&log_schema.url, &log_schema.url, &shard_schema.url);
 
     let mut added_any_collection = false;
-    let logs_collection_name = format!("ops.us-central1.v1/logs");
-    let stats_collection_name = format!("ops.us-central1.v1/stats");
+    if !tables.captures.is_empty()
+        || !tables.materializations.is_empty()
+        || !tables.derivations.is_empty()
+    {
+        let logs_collection_name = format!("ops.us-central1.v1/logs");
+        let stats_collection_name = format!("ops.us-central1.v1/stats");
 
-    if !has_collection(&*tables, &logs_collection_name) {
-        add_ops_collection(logs_collection_name, log_schema.url.clone(), tables);
-        added_any_collection = true;
-    }
-    if !has_collection(&*tables, &stats_collection_name) {
-        add_ops_collection(stats_collection_name, stats_schema.url.clone(), tables);
-        added_any_collection = true;
+        if !has_collection(&*tables, &logs_collection_name) {
+            add_ops_collection(logs_collection_name, log_schema.url.clone(), tables);
+            added_any_collection = true;
+        }
+        if !has_collection(&*tables, &stats_collection_name) {
+            add_ops_collection(stats_collection_name, stats_schema.url.clone(), tables);
+            added_any_collection = true;
+        }
     }
 
     // Setup imports to allow derivations and materializations to reference these ops collections.
