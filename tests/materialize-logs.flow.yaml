@@ -17,13 +17,13 @@ materializations:
     bindings:
       - resource:
           table: flow_logs
-        source: ops/examples/logs
+        source: ops.us-central1.v1/logs
         partitions:
           # Exclude our own logs so we don't create an infinite loop.
           exclude: { "name": ["examples/stats"] }
       - resource:
           table: flow_stats
-        source: ops/examples/stats
+        source: ops.us-central1.v1/stats
         partitions:
           # Exclude our own stats so we don't create an infinite loop.
           exclude: { "name": ["examples/stats"] }
