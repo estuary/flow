@@ -46,7 +46,7 @@ with accounts_root_user as (
   select (select id from auth.users where email = 'support@estuary.dev' limit 1) as accounts_id
 )
 insert into applied_directives (directive_id, user_id, user_claims)
-  select d.id, a.accounts_id, '{"requestedTenant":"ops"}'
+  select d.id, a.accounts_id, '{"requestedTenant":"ops.us-central1.v1"}'
     from directives d, accounts_root_user a
     where catalog_prefix = 'ops/' and spec = '{"type":"betaOnboard"}';
 
