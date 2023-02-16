@@ -31,10 +31,14 @@ collections:
       typescript: { module: "catalog-stats.ts" }
       transform:
         logs:
+          shuffle:
+            key: [/shard/name]
           source:
             name: ops.us-central1.v1/logs
           publish: { lambda: typescript }
         stats:
+          shuffle:
+            key: [/shard/name]
           source:
             name: ops.us-central1.v1/stats
           publish: { lambda: typescript }

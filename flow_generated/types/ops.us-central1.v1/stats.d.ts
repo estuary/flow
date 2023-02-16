@@ -1,4 +1,4 @@
-// Generated from collection schema builtin://flow/ops-stats-schema.json.
+// Generated from collection schema builtin://flow/ops-catalog/ops-stats-schema.json.
 // Referenced from builtin://flow/ops/generated/collections.
 export type Document =
     /* Flow task stats Statistics related to the processing of a Flow capture, derivation, or materialization */ {
@@ -37,6 +37,7 @@ export type Document =
                         };
                         secondsTotal: number;
                     };
+                    source?: /* The name of the collection that this transform sources from */ string;
                     update?: /* The outputs from update lambda invocations, which were combined into registers. */ {
                         out: {
                             bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
