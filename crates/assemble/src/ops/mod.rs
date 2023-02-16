@@ -23,9 +23,9 @@ macro_rules! gen_schema {
 /// Adds ops collections to the given partial built catalog. The tables will be modified in place
 /// to add the resources required for the ops (logs and stats) collections.
 pub fn generate_ops_collections(tables: &mut tables::Sources) {
-    let shard_schema = gen_schema!("ops-shard-schema.json");
-    let stats_schema = gen_schema!("ops-stats-schema.json");
-    let log_schema = gen_schema!("ops-log-schema.json");
+    let shard_schema = gen_schema!("../../../../ops-catalog/ops-shard-schema.json");
+    let stats_schema = gen_schema!("../../../../ops-catalog/ops-stats-schema.json");
+    let log_schema = gen_schema!("../../../../ops-catalog/ops-log-schema.json");
 
     for schema in &[&shard_schema, &stats_schema, &log_schema] {
         tables.resources.insert_row(
