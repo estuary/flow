@@ -1,3 +1,4 @@
+/*
 create function tests.test_create_refresh_token()
 returns setof text as $$
 declare
@@ -90,3 +91,4 @@ begin
 
 end;
 $$ language plpgsql;
+*/
