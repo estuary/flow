@@ -75,7 +75,6 @@ pub async fn provision_tenant(
         grant_to_tenant as (
             insert into role_grants (subject_role, object_role, capability, detail) values
                 ($2, $2, 'write', $3),              -- Tenant specs may write to other tenant specs.
-                ($2, 'ops/' || $2, 'read', $3),     -- Tenant may read `ops/$tenant/...` collections.
                 ($2, 'estuary/public/', 'read', $3) -- Tenant may read `estuary/pubic/` collections.
             on conflict do nothing
         ),

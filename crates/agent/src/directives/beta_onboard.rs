@@ -266,10 +266,6 @@ mod test {
           },
           {
             "cap": "read",
-            "roleGrantObj": "ops/AcmeTenant/"
-          },
-          {
-            "cap": "read",
             "roleGrantObj": "estuary/public/"
           },
           {
