@@ -90,12 +90,12 @@ you can find it by filtering for `acmeCo*source-postgres`.
 
 **8:** Capture [statistics](./advanced/logs-stats.md#statistics). The **Data Written** column shows the total amount of data, in bytes and in [documents](./collections.md#documents),
 that the capture has written to its associated collections within a configurable time interval.
-Click the time interval in the header to select from **Today**, **Yesterday**, **This Week**, **Last Week**, **This Month**,
-or **Last Month**.
+Click the time interval in the header to select from **Today**, **Yesterday**, **This Week**, **Last Week**, **This Month**, or **Last Month**.
+Note that the time intervals are in UTC.
 
 **9:** Associated collections. The **Writes to** column shows all the collections to which the capture writes data. For captures with a large number of collections, hover over this column and scroll to view the full list.
 
-**10:** Publish time. Hover over this value to see the exact time the capture was first published.
+**10:** Publish time. Hover over this value to see the exact UTC time the capture was first published.
 
 **11:** Options. Choose to **View Details** or **Edit Specification**.
 
@@ -157,8 +157,8 @@ In the event that the server cannot be reached, the indicator will show "Unknown
 
 **2:** Collection [statistics](./advanced/logs-stats.md#statistics). The **Data Written** column shows the total amount of data, in bytes and in [documents](./collections.md#documents),
 that has been written to each collection from its associated capture or derivation within a configurable time interval.
-Click the time interval in the header to select from **Today**, **Yesterday**, **This Week**, **Last Week**, **This Month**,
-or **Last Month**.
+Click the time interval in the header to select from **Today**, **Yesterday**, **This Week**, **Last Week**, **This Month**, or **Last Month**.
+Note that the time intervals are in UTC.
 
 **3:** To reveal the **Specification** and **Data Preview** sections, expand **Details** next to a collection name.
 
@@ -204,12 +204,12 @@ Unlike capture names, materialization names don't contain the connector name, bu
 
 **7:** Materialization [statistics](./advanced/logs-stats.md#statistics). The **Data Read** column shows the total amount of data, in bytes and in [documents](./collections.md#documents),
 that the materialization has read from its associated collections within a configurable time interval.
-Click the time interval in the header to select from **Today**, **Yesterday**, **This Week**, **Last Week**, **This Month**,
-or **Last Month**.
+Click the time interval in the header to select from **Today**, **Yesterday**, **This Week**, **Last Week**, **This Month**, or **Last Month**.
+Note that the time intervals are in UTC.
 
 **8:** Associated collections. The **Reads from** column shows all the collections from which the materialization reads data. For materializations with a large number of collections, hover over this column and scroll to view the full list.
 
-**9:** Publish time. Hover over this value to see the exact time the materialization was first published.
+**9:** Publish time. Hover over this value to see the exact UTC time the materialization was first published.
 
 **10:** Options. Choose to **View Details** or **Edit Specification**.
 

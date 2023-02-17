@@ -37,7 +37,7 @@ on the database and the individual tables to be captured.
   * Access to the change tables created as part of the SQL Server CDC process.
   * `SELECT` and `UPDATE` permissions on the watermarks table
 
-To meet these requirements, follow the steps for the your hosting type.
+To meet these requirements, follow the steps for your hosting type.
 
 * [Self-hosted SQL Server](#setup-self-hosted-sql-server)
 * [Azure SQL Database](#setup-azure-sql-database)
