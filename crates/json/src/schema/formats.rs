@@ -162,7 +162,9 @@ impl Format {
             Self::Integer => {
                 ValidationResult::from(BigInt::parse_bytes(val.as_bytes(), 10).is_some())
             }
-            Self::Number => ValidationResult::from(BigDecimal::from_str(val).is_ok()),
+            Self::Number => {
+                ValidationResult::from(BigDecimal::from_str(val).is_ok() || ["NaN", "Infinity", "-Infinity"].contains(&val))
+            }
         }
     }
 }
@@ -232,6 +234,12 @@ mod test {
             ("number", "-1.234", true),
             ("number", " 1234", false),
             ("number", " 1.234", false),
+            ("number", "NaN", true),
+            ("number", "xNaN", false),
+            ("number", "nan", false),
+            ("number", "Infinity", true),
+            ("number", "-Infinity", true),
+            ("number", "infinity", false),
         ] {
             let format: Format =
                 serde_json::from_value(serde_json::Value::String(format.to_string())).unwrap();
