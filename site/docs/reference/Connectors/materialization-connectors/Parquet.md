@@ -6,9 +6,16 @@ sidebar_position: 2
 
 This connector materializes [delta updates](#delta-updates) of Flow collections into an S3 bucket in the Apache Parquet format.
 
-The delta updates are batched within Flow, converted to Parquet files, and the pushed to the S3 bucket at a time interval that you set.
+The delta updates are batched within Flow, converted to Parquet files, and then pushed to the S3 bucket at a time interval that you set.
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/materialize-s3-parquet:dev`](https://ghcr.io/estuary/materialize-s3-parquet:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
+
+## Supported field types
+
+All possible field types in Flow collections are materialized into Parquet by default, with the exception of arrays.
+By default, the connector makes its best effort to flatten fields of type object.
+
+[You can override the default and materialize arrays and objects as JSON strings](#materializing-arrays-and-objects).
 
 ## Prerequisites
 
@@ -80,3 +87,52 @@ materializations:
 
 This connector uses only [delta updates](../../../concepts/materialization.md#delta-updates) mode.
 Collection documents are converted to Parquet format and stored in their unmerged state.
+
+## Materializing arrays and objects
+
+If your collection contains array or object fields, by default, the connector will:
+
+* Skip arrays.
+* Attempt to flatten objects.
+
+Alternatively, you can materialize either of these field types as JSON strings.
+You do so by editing the materialization specification and adding **projected fields**.
+
+**Projections** are how Flow maps hierarchical JSON locations into fields.
+By listing projected fields to include, you override the connector's default behavior.
+
+[Learn more about how projected fields work](../../../concepts/materialization.md#projected-fields).
+
+To materialize an array or object as a JSON string, do the following:
+
+1. On the [collections page of the web app](https://dashboard.estuary.dev/collections),
+locate the collection to be materialized and view its specification.
+Note the names of arrays or objects you want to materialize as strings.
+
+  For example, the collection `estuary/public/wikipedia/recentchange` (visible to all users in the web app)
+  has many objects, but we want to materialize `"length"` and `"revision`" as strings.
+
+2. Begin to set up your S3 Parquet materialization. After you initiate the connection with S3, the **Specification Editor** becomes available.
+
+3. In the Specification Editor, locate the **binding** of the collection with the arrays or objects.
+
+4. Add the `"fields"` object to the binding and list the objects or arrays in the following format:
+
+```json
+"bindings": [
+    {
+      "resource": {
+        "pathPrefix": "recentchanges"
+      },
+      "source": "estuary/public/wikipedia/recentchange",
+      "fields": {
+        "include": {
+          "length": {},
+          "revision": {}
+        },
+        "recommended": true
+      }
+    }
+  ],
+```
+5. Proceed to save and publish the materialization as usual.
