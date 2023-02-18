@@ -125,6 +125,9 @@ function start_control_plane_agent() {
     wait_until_listening $BROKER_PORT 'Gazette broker'
     wait_until_listening $CONSUMER_PORT 'Flow reactor'
 
+    # Create the publication for the ops catalog.
+    must_run ./local/ops-publication.sh | must_run psql 'postgresql://postgres:postgres@localhost:5432/postgres'
+
     # Now we're finally ready to run this thing.
     # Use the resolved flow project directory to set the --bin-dir argument.
     # We're counting on `make package` to have completed successfully at this point, which should be
