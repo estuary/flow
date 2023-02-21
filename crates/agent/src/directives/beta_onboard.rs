@@ -266,7 +266,7 @@ mod test {
           },
           {
             "cap": "read",
-            "roleGrantObj": "estuary/public/"
+            "roleGrantObj": "demo/"
           },
           {
             "prefix": "AcmeTenant/",
