@@ -35,6 +35,7 @@ impl SchemaBuilder {
 pub fn to_schema(shape: &Shape) -> Schema {
     let mut schema_object = SchemaObject {
         instance_type: Some(shape_type_to_schema_type(shape.type_)),
+        format: shape.string.format.map(|f| f.to_string()),
         ..Default::default()
     };
 

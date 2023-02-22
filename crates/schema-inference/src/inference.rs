@@ -1,6 +1,9 @@
-use doc::inference::{ArrayShape, ObjProperty, ObjShape, Shape};
-use json::schema::types;
+use doc::inference::{ArrayShape, ObjProperty, ObjShape, StringShape, Shape};
+use json::schema::{types, formats::Format};
 use serde_json::Value as JsonValue;
+use bigdecimal::BigDecimal;
+use std::str::FromStr;
+use num_bigint::BigInt;
 
 use crate::shape;
 
@@ -35,9 +38,25 @@ fn infer_number(value: &serde_json::Number) -> Shape {
     }
 }
 
-fn infer_string(_value: &str) -> Shape {
+fn infer_string(value: &str) -> Shape {
+    let (format, additional_type) = if BigInt::parse_bytes(value.as_bytes(), 10).is_some() {
+        (Some(Format::Integer), Some(types::INTEGER))
+    } else if BigDecimal::from_str(value).is_ok() || ["NaN", "Infinity", "-Infinity"].contains(&value) {
+        (Some(Format::Number), Some(types::INT_OR_FRAC))
+    } else {
+        (None, None)
+    };
+
+    let string = StringShape {
+        format,
+        ..Default::default()
+    };
+
+    let type_ = additional_type.map(|t| types::STRING | t).unwrap_or(types::STRING);
+
     Shape {
-        type_: types::STRING,
+        type_,
+        string,
         ..Default::default()
     }
 }
@@ -113,6 +132,26 @@ mod test {
 
         let shape = infer_shape(&json!(null));
         assert_eq!(types::NULL, shape.type_);
+    }
+
+    #[test]
+    fn build_string_types() {
+        let shape = infer_shape(&json!("1"));
+        assert!(shape.type_.overlaps(types::STRING));
+        assert!(shape.type_.overlaps(types::INTEGER));
+        assert_eq!(Some(Format::Integer), shape.string.format);
+
+        let shape = infer_shape(&json!("1.0"));
+        assert!(shape.type_.overlaps(types::STRING));
+        assert!(shape.type_.overlaps(types::INT_OR_FRAC));
+        assert_eq!(Some(Format::Number), shape.string.format);
+
+        for t in ["NaN", "Infinity", "-Infinity"] {
+            let shape = infer_shape(&json!(t));
+            assert!(shape.type_.overlaps(types::STRING));
+            assert!(shape.type_.overlaps(types::INT_OR_FRAC));
+            assert_eq!(Some(Format::Number), shape.string.format);
+        }
     }
 
     #[test]

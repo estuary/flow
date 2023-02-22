@@ -3539,6 +3539,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "assemble",
+ "bigdecimal",
  "bytes",
  "bytesize",
  "clap 3.2.22",
@@ -3551,6 +3552,7 @@ dependencies = [
  "journal-client",
  "json",
  "models",
+ "num-bigint 0.4.3",
  "proto-gazette",
  "schemars",
  "serde",

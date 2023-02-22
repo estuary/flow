@@ -1,0 +1,19 @@
+---
+source: crates/schema-inference/src/analyze.rs
+expression: schema
+---
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "a"
+  ],
+  "properties": {
+    "a": {
+      "type": [
+        "integer",
+        "string"
+      ]
+    }
+  }
+}
