@@ -6,7 +6,7 @@ use anyhow::Context;
 /// and discoverable to users. There's also no need for any confirmation steps, since we're not
 /// actually modifying the published specs.
 pub async fn do_test(ctx: &mut CliContext, args: &source::SourceArgs) -> anyhow::Result<()> {
-    let client = ctx.controlplane_client()?;
+    let client = ctx.controlplane_client().await?;
 
     let catalog = crate::source::bundle(args).await?;
 

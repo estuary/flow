@@ -1,5 +1,5 @@
-use crate::config::Config;
-use crate::CliContext;
+use crate::config::{Config, RefreshToken};
+use crate::{CliContext, api_exec};
 
 use anyhow::Context;
 use serde::Deserialize;
@@ -31,15 +31,30 @@ impl Deref for Client {
     }
 }
 
+#[derive(Deserialize)]
+struct AccessTokenResponse {
+    access_token: String,
+}
+
 /// Creates a new client. **you should instead call `CliContext::controlplane_client(&mut Self)`**, which
 /// will re-use the existing client if possible.
-pub(crate) fn new_client(config: &Config) -> anyhow::Result<Client> {
-    match &config.api {
+pub(crate) async fn new_client(config: &mut Config) -> anyhow::Result<Client> {
+    match &mut config.api {
         Some(api) => {
-            // Try to give users a more friendly error message if we know their credentials are expired.
-            check_access_token(&api.access_token)?;
             let client = postgrest::Postgrest::new(api.endpoint.as_str());
             let client = client.insert_header("apikey", &api.public_token);
+
+            // Try to give users a more friendly error message if we know their credentials are expired.
+            if let Err(e) = check_access_token(&api.access_token) {
+                if let Some(refresh_token) = &api.refresh_token {
+                    let response = api_exec::<AccessTokenResponse>(
+                        client.rpc("generate_access_token", format!(r#"{{"refresh_token_id": "{}", "secret": "{}"}}"#, refresh_token.id, refresh_token.secret))
+                    ).await?;
+                    api.access_token = response.access_token;
+                } else {
+                    return Err(e)
+                }
+            }
             let client =
                 client.insert_header("Authorization", format!("Bearer {}", &api.access_token));
             Ok(Client(Arc::new(client)))
@@ -50,27 +65,38 @@ pub(crate) fn new_client(config: &Config) -> anyhow::Result<Client> {
     }
 }
 
-pub fn configure_new_access_token(ctx: &mut CliContext, token: String) -> anyhow::Result<()> {
+pub async fn configure_new_access_token(ctx: &mut CliContext, token: String) -> anyhow::Result<()> {
     // try to catch issues caused by missing or extra data that may have been accidentally copied
-    let email = check_access_token(&token)?;
+    let jwt = check_access_token(&token)?;
     ctx.config_mut().set_access_token(token);
-    println!("Configured access token for user: '{email}'");
+    let client = ctx.controlplane_client().await?;
+    let refresh_token = api_exec::<RefreshToken>(
+        client.rpc("create_refresh_token", r#"{"multi_use": true, "valid_for": "14d", "detail": "Created by flowctl"}"#)
+    ).await?;
+    ctx.config_mut().set_refresh_token(refresh_token);
+
+    let message = if let Some(email) = jwt.email {
+        format!("Configured access token for user '{email}'")
+    } else {
+        "Configured access token".to_string()
+    };
+    println!("{}", message);
     Ok(())
 }
 
-fn check_access_token(token: &str) -> anyhow::Result<String> {
+fn check_access_token(token: &str) -> anyhow::Result<JWT> {
     let jwt = parse_jwt(token).context("invalid access_token")?;
     // Try to give users a more friendly error message if we know their credentials are expired.
     if jwt.is_expired() {
         anyhow::bail!("access token is expired, please re-authenticate and then try again");
     }
-    Ok(jwt.email)
+    Ok(jwt)
 }
 
 #[derive(Deserialize)]
 struct JWT {
-    email: String,
     exp: i64,
+    email: Option<String>,
 }
 
 impl JWT {

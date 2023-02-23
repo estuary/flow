@@ -61,7 +61,7 @@ impl Auth {
         match &self.cmd {
             Command::Login => do_login(ctx).await,
             Command::Token(Token { token }) => {
-                controlplane::configure_new_access_token(ctx, token.clone())?;
+                controlplane::configure_new_access_token(ctx, token.clone()).await?;
                 println!("Configured access token.");
                 Ok(())
             }
@@ -85,7 +85,7 @@ async fn do_login(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
             .context("failed to read auth token")?;
         // copied credentials will often accidentally contain extra whitespace characters
         let token = token.trim().to_string();
-        ctx.config_mut().set_access_token(token);
+        controlplane::configure_new_access_token(ctx, token).await?;
         println!("\nConfigured access token.");
         Ok(())
     } else {

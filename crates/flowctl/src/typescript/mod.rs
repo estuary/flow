@@ -114,7 +114,7 @@ pub async fn do_generate(
             .is_some();
         let is_fetched = live_specs_catalog.collections.contains_key(source_name);
         if !is_included_in_sources && !is_fetched {
-            let resolved = try_resolve_collection(ctx.controlplane_client()?, source_name).await.with_context(|| {
+            let resolved = try_resolve_collection(ctx.controlplane_client().await?, source_name).await.with_context(|| {
                 anyhow::anyhow!("resolving the collection '{source_name}', referenced from the transform '{}' in derivation '{}'", transform_row.transform, transform_row.derivation)
             })?;
             live_specs_catalog
