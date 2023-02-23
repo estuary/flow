@@ -82,6 +82,13 @@ impl Config {
         }
     }
 
+    pub fn set_refresh_token(&mut self, refresh_token: RefreshToken) {
+        // Don't overwrite the other fields of api if they are already present.
+        if let Some(api) = self.api.as_mut() {
+            api.refresh_token = Some(refresh_token);
+        }
+    }
+
     pub fn get_dashboard_url(&self, path: &str) -> anyhow::Result<url::Url> {
         let base = self
             .dashboard_url
@@ -94,6 +101,12 @@ impl Config {
     }
 }
 
+#[derive(Deserialize, Serialize, Debug)]
+pub struct RefreshToken {
+    pub id: String,
+    pub secret: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct API {
     // URL endpoint of the Flow control-plane Rest API.
@@ -102,6 +115,8 @@ pub struct API {
     pub public_token: String,
     // Secret access token of the control-plane API.
     pub access_token: String,
+    // Secret refresh token of the control-plane API, used to generate access_token when it expires
+    pub refresh_token: Option<RefreshToken>,
 }
 
 impl API {
@@ -110,6 +125,7 @@ impl API {
             endpoint: url::Url::parse("https://eyrcnmuzzyriypdajwdk.supabase.co/rest/v1").unwrap(),
             public_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco".to_string(),
             access_token,
+            refresh_token: None,
         }
     }
 }

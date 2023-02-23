@@ -226,7 +226,7 @@ async fn do_list_fragments(
     args: &ListFragmentsArgs,
 ) -> Result<(), anyhow::Error> {
     let mut client = journal_client_for(
-        ctx.controlplane_client()?,
+        ctx.controlplane_client().await?,
         vec![args.selector.collection.clone()],
     )
     .await?;
@@ -269,7 +269,7 @@ async fn do_list_journals(
     args: &CollectionJournalSelector,
 ) -> Result<(), anyhow::Error> {
     let mut client =
-        journal_client_for(ctx.controlplane_client()?, vec![args.collection.clone()]).await?;
+        journal_client_for(ctx.controlplane_client().await?, vec![args.collection.clone()]).await?;
 
     let journals = list::list_journals(&mut client, &args.build_label_selector()).await?;
 

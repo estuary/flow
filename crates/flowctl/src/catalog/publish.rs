@@ -97,7 +97,7 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
     // in common error scenarios. For example, we don't create the draft until after bundling, because
     // then we'd have to clean up the empty draft if the bundling fails. The very first thing is to create the client,
     // since that can fail due to missing/expired credentials.
-    let client = ctx.controlplane_client()?;
+    let client = ctx.controlplane_client().await?;
 
     anyhow::ensure!(args.auto_approve || std::io::stdin().is_tty(), "The publish command must be run interactively unless the `--auto-approve` flag is provided");
 

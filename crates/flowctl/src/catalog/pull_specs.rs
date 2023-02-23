@@ -25,7 +25,7 @@ pub struct PullSpecs {
 }
 
 pub async fn do_pull_specs(ctx: &mut CliContext, args: &PullSpecs) -> anyhow::Result<()> {
-    let client = ctx.controlplane_client()?;
+    let client = ctx.controlplane_client().await?;
     let columns = vec![
         "catalog_name",
         "id",

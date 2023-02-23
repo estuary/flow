@@ -122,9 +122,9 @@ pub async fn do_author(
 ) -> anyhow::Result<()> {
     let cur_draft = ctx.config().cur_draft()?;
     let catalog = crate::source::bundle(source_args).await?;
-    let client = ctx.controlplane_client()?;
+    let client = ctx.controlplane_client().await?;
     clear_draft(client.clone(), &cur_draft).await?;
-    let rows = upsert_draft_specs(ctx.controlplane_client()?, &cur_draft, &catalog).await?;
+    let rows = upsert_draft_specs(ctx.controlplane_client().await?, &cur_draft, &catalog).await?;
 
     ctx.write_all(rows, ())
 }
