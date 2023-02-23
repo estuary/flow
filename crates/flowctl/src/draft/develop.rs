@@ -16,7 +16,7 @@ pub async fn do_develop(
 ) -> anyhow::Result<()> {
     let draft_id = ctx.config().cur_draft()?;
     let rows: Vec<DraftSpecRow> = api_exec(
-        ctx.controlplane_client()?
+        ctx.controlplane_client().await?
             .from("draft_specs")
             .select("catalog_name,spec,spec_type")
             .not("is", "spec_type", "null")

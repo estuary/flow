@@ -26,7 +26,7 @@ pub async fn get_collection_inferred_schema(
         anyhow::bail!("flowctl is not yet able to read from partitioned collections (coming soon)");
     }
 
-    let cp_client = ctx.controlplane_client()?;
+    let cp_client = ctx.controlplane_client().await?;
     let token = fetch_data_plane_access_token(cp_client, vec![args.selector.collection.clone()])
         .await
         .context("fetching data plane access token")?;
@@ -111,7 +111,7 @@ pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> an
         );
     }
 
-    let cp_client = ctx.controlplane_client()?;
+    let cp_client = ctx.controlplane_client().await?;
     let mut data_plane_client =
         dataplane::journal_client_for(cp_client, vec![args.selector.collection.clone()]).await?;
 

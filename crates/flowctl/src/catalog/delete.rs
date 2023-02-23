@@ -70,7 +70,7 @@ pub async fn do_delete(
         deleted: false,
     };
 
-    let client = ctx.controlplane_client()?;
+    let client = ctx.controlplane_client().await?;
     let specs = catalog::fetch_live_specs(
         client.clone(),
         &list_args,
@@ -125,7 +125,7 @@ pub async fn do_delete(
         .collect::<Vec<DraftSpec>>();
 
     api_exec::<Vec<serde_json::Value>>(
-        ctx.controlplane_client()?
+        ctx.controlplane_client().await?
             .from("draft_specs")
             //.select("catalog_name,spec_type")
             .upsert(serde_json::to_string(&draft_specs).unwrap())

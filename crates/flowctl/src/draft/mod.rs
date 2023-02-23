@@ -145,7 +145,7 @@ pub async fn delete_draft(client: Client, draft_id: &str) -> Result<DraftRow, an
 }
 
 async fn do_create(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-    let client = ctx.controlplane_client()?;
+    let client = ctx.controlplane_client().await?;
     let row = create_draft(client).await?;
 
     ctx.config_mut().draft = Some(row.id.clone());
@@ -170,7 +170,7 @@ async fn do_delete(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
             to_table_row(self, &["/id", "/updated_at"])
         }
     }
-    let client = ctx.controlplane_client()?;
+    let client = ctx.controlplane_client().await?;
     let draft_id = ctx.config().cur_draft()?;
     let row = delete_draft(client, &draft_id).await?;
 
@@ -212,7 +212,7 @@ async fn do_describe(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         }
     }
     let rows: Vec<Row> = api_exec(
-        ctx.controlplane_client()?
+        ctx.controlplane_client().await?
             .from("draft_specs_ext")
             .select(
                 vec![
@@ -257,7 +257,7 @@ async fn do_list(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         }
     }
     let rows: Vec<Row> = api_exec(
-        ctx.controlplane_client()?
+        ctx.controlplane_client().await?
             .from("drafts_ext")
             .select("created_at,detail,id,num_specs,updated_at"),
     )
@@ -281,7 +281,7 @@ async fn do_select(
     Select { id: select_id }: &Select,
 ) -> anyhow::Result<()> {
     let matched: Vec<serde_json::Value> = api_exec(
-        ctx.controlplane_client()?
+        ctx.controlplane_client().await?
             .from("drafts")
             .eq("id", select_id)
             .select("id"),
@@ -298,7 +298,7 @@ async fn do_select(
 
 async fn do_publish(ctx: &mut crate::CliContext, dry_run: bool) -> anyhow::Result<()> {
     let draft_id = ctx.config().cur_draft()?;
-    let client = ctx.controlplane_client()?;
+    let client = ctx.controlplane_client().await?;
 
     publish(client, dry_run, &draft_id).await?;
 
