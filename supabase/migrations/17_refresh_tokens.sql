@@ -8,6 +8,8 @@ create table refresh_tokens (
   hash       text not null
 );
 
+alter table refresh_tokens enable row level security;
+
 create policy "Users can access their own refresh tokens"
   on refresh_tokens as permissive
   using (user_id = auth.uid());
