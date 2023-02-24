@@ -20,10 +20,10 @@ import (
 
 // Port on which connector-init listens for requests.
 // This is the default, made explicit here.
-// Flow has an explicit validation to ensure that users
-// may not expose this port, so if you change this value
-// then you need to also update crates/validation/src/lib.rs.
-const CONNECTOR_INIT_PORT uint16 = 8080
+// This number was chosen because it seemed unlikely that a connector would try to use it.
+// The main thing is that we want to avoid any common port numbers, to avoid conflicts with
+// connectors.
+const CONNECTOR_INIT_PORT uint16 = 49092
 
 // Container is a connector running as a linux container.
 type Container struct {
