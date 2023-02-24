@@ -19,7 +19,7 @@ pub struct Args {
     pub image_inspect_json_path: String,
 
     /// Port on which to listen for requests from the runtime.
-    #[clap(short, long, default_value = "8080")]
+    #[clap(short, long)]
     pub port: u16,
 }
 
