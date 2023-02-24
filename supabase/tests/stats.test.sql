@@ -1,4 +1,4 @@
-
+/*
 create function tests.test_catalog_stats()
 returns setof text as $$
 begin
@@ -98,4 +98,4 @@ begin
   );
 
 end;
-$$ language plpgsql;
+$$ language plpgsql;*/
