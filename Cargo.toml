@@ -65,6 +65,7 @@ jemallocator = "0.3"
 jemalloc-ctl = "0.3"
 json-patch = "0.2"
 js-sys = "0.3.60"
+keyring = "1.2"
 lazy_static = "1.4"
 libc = "0.2"
 librocksdb-sys = { version = "6.20", default-features = false, features = [

@@ -1,3 +1,4 @@
+use keyring::Entry;
 use crate::config::{Config, RefreshToken};
 use crate::{CliContext, api_exec};
 
@@ -46,7 +47,7 @@ pub(crate) async fn new_client(config: &mut Config) -> anyhow::Result<Client> {
 
             // Try to give users a more friendly error message if we know their credentials are expired.
             if let Err(e) = check_access_token(&api.access_token) {
-                if let Some(refresh_token) = &api.refresh_token {
+                if let Ok(refresh_token) = retrieve_credentials(&api.endpoint, &api.user_id).await {
                     let response = api_exec::<AccessTokenResponse>(
                         client.rpc("generate_access_token", format!(r#"{{"refresh_token_id": "{}", "secret": "{}"}}"#, refresh_token.id, refresh_token.secret))
                     ).await?;
@@ -68,12 +69,15 @@ pub(crate) async fn new_client(config: &mut Config) -> anyhow::Result<Client> {
 pub async fn configure_new_access_token(ctx: &mut CliContext, token: String) -> anyhow::Result<()> {
     // try to catch issues caused by missing or extra data that may have been accidentally copied
     let jwt = check_access_token(&token)?;
-    ctx.config_mut().set_access_token(token);
+    ctx.config_mut().set_access_token(token, jwt.sub);
     let client = ctx.controlplane_client().await?;
     let refresh_token = api_exec::<RefreshToken>(
         client.rpc("create_refresh_token", r#"{"multi_use": true, "valid_for": "14d", "detail": "Created by flowctl"}"#)
     ).await?;
-    ctx.config_mut().set_refresh_token(refresh_token);
+
+    if let Some(api) = &ctx.config().api {
+        persist_credentials(&api.endpoint, &api.user_id, &refresh_token).await?;
+    }
 
     let message = if let Some(email) = jwt.email {
         format!("Configured access token for user '{email}'")
@@ -93,10 +97,67 @@ fn check_access_token(token: &str) -> anyhow::Result<JWT> {
     Ok(jwt)
 }
 
+async fn retrieve_credentials(
+    endpoint: &url::Url,
+    user_id: &str,
+) -> anyhow::Result<RefreshToken> {
+    let keychain_entry = keychain_auth_entry(endpoint, user_id)?;
+    let user_id = user_id.to_string(); // clone so we can use it in the closure
+                                             // We use spawn_blocking because accessing the keychain is a blocking call, which may prompt the user
+                                             // to allow the access. This could take quite some time, and we don't want to block the executor
+                                             // during that period. Note that creating the Entry explicitly does not try to access the keychain.
+    let handle = tokio::task::spawn_blocking::<_, anyhow::Result<RefreshToken>>(move || {
+        match keychain_entry.get_password() {
+            Err(keyring::Error::NoEntry) => {
+                // This is expected to be a common error case, so provide a helpful message.
+                anyhow::bail!("no credentials found for user '{user_id}', did you forget to run `flowctl auth login`?");
+            }
+            Ok(auth) => {
+                tracing::debug!("retrieved credentials from keychain");
+                let token = RefreshToken::from_base64(&auth)?;
+                Ok(token)
+            }
+            Err(err) => {
+                Err(anyhow::Error::new(err).context("retrieving user credentials from keychain"))
+            }
+        }
+    });
+    let cred = handle.await??;
+    Ok(cred)
+}
+
+async fn persist_credentials(
+    endpoint: &url::Url,
+    user_id: &str,
+    credential: &RefreshToken,
+) -> anyhow::Result<()> {
+    let entry = keychain_auth_entry(endpoint, user_id)?;
+    let token = credential.to_base64()?;
+    // See comment in `retrieve_credentials` for why we need to use `spawn_blocking`
+    let handle = tokio::task::spawn_blocking::<_, anyhow::Result<()>>(move || {
+        entry
+            .set_password(&token)
+            .context("persisting user credential to keychain")?;
+        tracing::info!("successfully persisted credential in keychain");
+        Ok(())
+    });
+    handle.await??;
+    Ok(())
+}
+
+fn keychain_auth_entry(endpoint: &url::Url, user_id: &str) -> anyhow::Result<Entry> {
+    let hostname = endpoint.domain().ok_or_else(|| {
+        anyhow::anyhow!("configured endpoint url '{}' is missing a domain", endpoint)
+    })?;
+    let entry_name = format!("estuary.dev-flowctl-{hostname}");
+    Ok(Entry::new(&entry_name, user_id))
+}
+
 #[derive(Deserialize)]
 struct JWT {
     exp: i64,
     email: Option<String>,
+    sub: String,
 }
 
 impl JWT {

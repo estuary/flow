@@ -38,6 +38,7 @@ md5 = { workspace = true }
 
 # open is used for opening URLs in the user's browser
 open = { workspace = true }
+keyring = { workspace = true }
 postgrest = { workspace = true }
 reqwest = { workspace = true }
 # rpassword is used for reading credentials from stdin
