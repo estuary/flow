@@ -73,19 +73,13 @@ impl Config {
         }
     }
 
-    pub fn set_access_token(&mut self, access_token: String) {
+    pub fn set_access_token(&mut self, access_token: String, user_id: String) {
         // Don't overwrite the other fields of api if they are already present.
         if let Some(api) = self.api.as_mut() {
             api.access_token = access_token;
+            api.user_id = user_id;
         } else {
-            self.api = Some(API::managed(access_token));
-        }
-    }
-
-    pub fn set_refresh_token(&mut self, refresh_token: RefreshToken) {
-        // Don't overwrite the other fields of api if they are already present.
-        if let Some(api) = self.api.as_mut() {
-            api.refresh_token = Some(refresh_token);
+            self.api = Some(API::managed(access_token, user_id));
         }
     }
 
@@ -104,7 +98,20 @@ impl Config {
 #[derive(Deserialize, Serialize, Debug)]
 pub struct RefreshToken {
     pub id: String,
-    pub secret: String,
+    pub secret: String
+}
+
+impl RefreshToken {
+    pub fn from_base64(encoded_token: &str) -> anyhow::Result<RefreshToken> {
+        let decoded = base64::decode(encoded_token).context("invalid base64")?;
+        let tk: RefreshToken = serde_json::from_slice(&decoded)?;
+        Ok(tk)
+    }
+
+    pub fn to_base64(&self) -> anyhow::Result<String> {
+        let ser = serde_json::to_vec(self)?;
+        Ok(base64::encode(&ser))
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -115,17 +122,17 @@ pub struct API {
     pub public_token: String,
     // Secret access token of the control-plane API.
     pub access_token: String,
-    // Secret refresh token of the control-plane API, used to generate access_token when it expires
-    pub refresh_token: Option<RefreshToken>,
+    // User identifier
+    pub user_id: String,
 }
 
 impl API {
-    fn managed(access_token: String) -> Self {
+    fn managed(access_token: String, user_id: String) -> Self {
         Self {
             endpoint: url::Url::parse("https://eyrcnmuzzyriypdajwdk.supabase.co/rest/v1").unwrap(),
             public_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco".to_string(),
             access_token,
-            refresh_token: None,
+            user_id,
         }
     }
 }
