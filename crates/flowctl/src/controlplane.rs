@@ -97,10 +97,16 @@ fn check_access_token(access_token: &str) -> anyhow::Result<JWT> {
     Ok(jwt)
 }
 
+const FLOW_AUTH_TOKEN: &str = "FLOW_AUTH_TOKEN";
+
 async fn retrieve_credentials(
     endpoint: &url::Url,
     user_id: &str,
 ) -> anyhow::Result<RefreshToken> {
+    if let Ok(env_token) = std::env::var(FLOW_AUTH_TOKEN) {
+        return RefreshToken::from_base64(&env_token);
+    }
+
     let keychain_entry = keychain_auth_entry(endpoint, user_id)?;
     let user_id = user_id.to_string(); // clone so we can use it in the closure
                                              // We use spawn_blocking because accessing the keychain is a blocking call, which may prompt the user
