@@ -30,6 +30,9 @@ You'll need:
 * ReplicaSet enabled on your database, see [Deploy a Replica
   Set](https://www.mongodb.com/docs/manual/tutorial/deploy-replica-set/).
 
+* If you are using MongoDB Atlas, or your MongoDB provider requires whitelisting
+  of IPs, you need to whitelist Estuary's IP `34.121.207.128`.
+
 ## Configuration
 
 You configure connectors either in the Flow web app, or by directly editing the Flow specification file.
