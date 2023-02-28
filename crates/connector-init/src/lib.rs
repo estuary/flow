@@ -1,12 +1,20 @@
+#[macro_use]
+extern crate derive_builder;
+
 use anyhow::Context;
 use codec::Codec;
 use tokio::signal::unix;
+use tracing::info;
+
+use firecracker_init::init_firecracker;
 
 mod capture;
 mod codec;
-mod inspect;
+pub mod config;
+mod firecracker_init;
 mod materialize;
 mod rpc;
+mod util;
 
 #[derive(clap::Parser, Debug)]
 #[clap(about = "Command to start connector proxies for Flow runtime.")]
@@ -20,11 +28,39 @@ pub struct Args {
     /// Port on which to listen for requests from the runtime.
     #[clap(short, long, default_value = "8080")]
     pub port: u16,
+
+    /// Whether or not we're running as the init program inside a firecracker VM
+    #[clap(
+        short,
+        long,
+        action,
+        default_value = "false",
+        requires = "guest_config_json_path"
+    )]
+    pub firecracker: bool,
+
+    /// The path to the JSON file that contains the [GuestConfig] for this task
+    #[clap(short, long)]
+    pub guest_config_json_path: Option<String>,
 }
 
 pub async fn run(args: Args) -> anyhow::Result<()> {
-    let image = inspect::Image::parse_from_json_file(&args.image_inspect_json_path)
+    let mut image = config::Image::parse_from_json_file(&args.image_inspect_json_path)
         .context("reading image inspect JSON")?;
+
+    if args.firecracker {
+        // NOTE: these JSON files will live on the initial /dev/vda device
+        // which we almost immediately chroot away from in `init_firecracker`
+        let guest_config = config::GuestConfig::parse_from_json_file(
+            &args
+                .guest_config_json_path
+                .expect("Must provide a guest config when running in firecracker mode"),
+        )
+        .context("reading guest config JSON")?;
+
+        init_firecracker(&mut image.config, &guest_config).await?;
+    }
+
     let mut entrypoint = image.get_argv()?;
 
     // TODO(johnny): Remove this in preference of always using the LOG_LEVEL variable.
@@ -39,11 +75,13 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     let capture = proto_grpc::capture::driver_server::DriverServer::new(capture::Driver {
         entrypoint: entrypoint.clone(),
         codec,
+        envs: image.config.env.clone(),
     });
     let materialize =
         proto_grpc::materialize::driver_server::DriverServer::new(materialize::Driver {
             entrypoint: entrypoint.clone(),
             codec,
+            envs: image.config.env.clone(),
         });
 
     let addr = format!("0.0.0.0:{}", args.port).parse().unwrap();
@@ -59,6 +97,9 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         }
         tracing::info!("caught signal to exit");
     };
+
+    let port = args.port;
+    info!("Listening for connections on 0.0.0.0:{port}");
 
     let () = tonic::transport::Server::builder()
         .add_service(capture)

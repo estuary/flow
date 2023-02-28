@@ -50,6 +50,8 @@ WORKDIR  = $(realpath .)/.build
 # Packaged build outputs.
 PKGDIR = ${WORKDIR}/package
 
+ASSETS_PATH = $(realpath .)/assets
+
 # Etcd release we pin within Flow distributions.
 ETCD_VERSION = v3.5.5
 
@@ -165,6 +167,10 @@ ${RUSTBIN}/agent:
 ${RUSTBIN}/flowctl:
 	cargo build --release --locked -p flowctl
 
+.PHONY: ${RUSTBIN}/flow-firecracker
+${RUSTBIN}/flow-firecracker:
+	cargo build --release --locked -p firecracker-runtime
+
 # Statically linked binaries using MUSL:
 
 .PHONY: ${RUST_MUSL_BIN}/flow-connector-init
@@ -197,6 +203,8 @@ GNU_TARGETS = \
 	${PKGDIR}/bin/gazette \
 	${PKGDIR}/bin/sops \
 	${PKGDIR}/bin/flowctl \
+	${PKGDIR}/bin/flow-firecracker \
+	${PKGDIR}/bin/vmlinux.bin \
 
 MUSL_TARGETS = \
 	${PKGDIR}/bin/flow-connector-init \
@@ -249,6 +257,12 @@ ${PKGDIR}/bin/flow-schemalate: ${RUST_MUSL_BIN}/flow-schemalate | ${PKGDIR}
 
 ${PKGDIR}/bin/flowctl: ${RUSTBIN}/flowctl | ${PKGDIR}
 	cp ${RUSTBIN}/flowctl $@
+
+${PKGDIR}/bin/flow-firecracker: ${RUSTBIN}/flow-firecracker | ${PKGDIR}
+	cp ${RUSTBIN}/flow-firecracker $@
+
+${PKGDIR}/bin/vmlinux.bin: ${ASSETS_PATH}/vmlinux.bin | ${PKGDIR}
+	cp ${ASSETS_PATH}/vmlinux.bin $@
 
 # Control-plane binaries
 

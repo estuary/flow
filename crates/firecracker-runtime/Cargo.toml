@@ -1,0 +1,43 @@
+[package]
+name = "firecracker-runtime"
+version = { workspace = true }
+rust-version = { workspace = true }
+edition = { workspace = true }
+authors = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+license = { workspace = true }
+
+[[bin]]
+name = "flow-firecracker"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+bollard = { workspace = true }
+clap = { workspace = true }
+cmd_lib = { workspace = true }
+connector-init = { path = "../connector-init" }
+fancy-regex = { workspace = true }
+firec = { workspace = true }
+futures = { workspace = true }
+ipnetwork = { workspace = true }
+lazy_static = { workspace = true }
+mnl = { workspace = true }
+nftnl = { workspace = true }
+nix = { workspace = true }
+ops = { path = "../ops" }
+rtnetlink = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_plain = { workspace = true }
+tempfile = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tokio-tun = { workspace = true }
+tracing = { workspace = true }
+tracing-log = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+which = { workspace = true }

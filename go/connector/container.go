@@ -225,8 +225,13 @@ func (c *Container) Stop() error {
 	c.cmdCancel()
 
 	waitErr = <-c.waitCh
-	rmErr1 = os.Remove(c.tmpProxy.Name())
-	rmErr2 = os.Remove(c.tmpInspect.Name())
+	if c.tmpProxy != nil {
+		rmErr1 = os.Remove(c.tmpProxy.Name())
+	}
+
+	if c.tmpInspect != nil {
+		rmErr2 = os.Remove(c.tmpInspect.Name())
+	}
 
 	for _, e := range []struct {
 		err error

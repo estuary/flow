@@ -17,7 +17,10 @@ connector-protocol = { path = "../connector-protocol" }
 ops = { path = "../ops" }
 proto-convert = { path = "../proto-convert" }
 proto-flow = { path = "../proto-flow" }
-proto-grpc = { path = "../proto-grpc", features = ["capture_server", "materialize_server"] }
+proto-grpc = { path = "../proto-grpc", features = [
+    "capture_server",
+    "materialize_server",
+] }
 
 anyhow = { workspace = true }
 clap = { workspace = true }
@@ -26,10 +29,23 @@ prost = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+warp = { workspace = true }
+libc = { workspace = true }
+nix = { workspace = true }
+procfs = { workspace = true }
+rlimit = { workspace = true }
+rtnetlink = { workspace = true }
+ipnetwork = { workspace = true }
+ifstructs = { workspace = true }
+pin-project = { workspace = true }
+os_pipe = { workspace = true }
+tokio-vsock = { workspace = true }
+derive_builder = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }

@@ -1,5 +1,7 @@
 use super::{codec::Codec, rpc};
 use futures::StreamExt;
+use std::collections::HashMap;
+
 use proto_flow::capture::{
     ApplyRequest, ApplyResponse, DiscoverRequest, DiscoverResponse, PullRequest, PullResponse,
     SpecRequest, SpecResponse, ValidateRequest, ValidateResponse,
@@ -8,6 +10,7 @@ use proto_flow::capture::{
 pub struct Driver {
     pub entrypoint: Vec<String>,
     pub codec: Codec,
+    pub envs: HashMap<String, String>,
 }
 
 #[tonic::async_trait]
@@ -16,8 +19,14 @@ impl proto_grpc::capture::driver_server::Driver for Driver {
         &self,
         request: tonic::Request<SpecRequest>,
     ) -> Result<tonic::Response<SpecResponse>, tonic::Status> {
-        let message =
-            rpc::unary(&self.entrypoint, self.codec, "spec", request.into_inner()).await?;
+        let message = rpc::unary(
+            &self.entrypoint,
+            self.codec,
+            &self.envs,
+            "spec",
+            request.into_inner(),
+        )
+        .await?;
         Ok(tonic::Response::new(message))
     }
 
@@ -28,6 +37,7 @@ impl proto_grpc::capture::driver_server::Driver for Driver {
         let message = rpc::unary(
             &self.entrypoint,
             self.codec,
+            &self.envs,
             "discover",
             request.into_inner(),
         )
@@ -42,6 +52,7 @@ impl proto_grpc::capture::driver_server::Driver for Driver {
         let message = rpc::unary(
             &self.entrypoint,
             self.codec,
+            &self.envs,
             "validate",
             request.into_inner(),
         )
@@ -56,6 +67,7 @@ impl proto_grpc::capture::driver_server::Driver for Driver {
         let message = rpc::unary(
             &self.entrypoint,
             self.codec,
+            &self.envs,
             "apply-upsert",
             request.into_inner(),
         )
@@ -74,7 +86,14 @@ impl proto_grpc::capture::driver_server::Driver for Driver {
             request.capture.as_mut().unwrap().bindings.clear();
         }
 
-        let message = rpc::unary(&self.entrypoint, self.codec, "apply-delete", request).await?;
+        let message = rpc::unary(
+            &self.entrypoint,
+            self.codec,
+            &self.envs,
+            "apply-delete",
+            request,
+        )
+        .await?;
         Ok(tonic::Response::new(message))
     }
 
@@ -89,6 +108,7 @@ impl proto_grpc::capture::driver_server::Driver for Driver {
             rpc::bidi::<PullRequest, PullResponse, _>(
                 &self.entrypoint,
                 self.codec,
+                &self.envs,
                 "pull",
                 request.into_inner(),
             )?
