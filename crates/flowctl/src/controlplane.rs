@@ -66,13 +66,13 @@ pub(crate) async fn new_client(config: &mut Config) -> anyhow::Result<Client> {
     }
 }
 
-pub async fn configure_new_access_token(ctx: &mut CliContext, token: String) -> anyhow::Result<()> {
+pub async fn configure_new_access_token(ctx: &mut CliContext, access_token: String) -> anyhow::Result<()> {
     // try to catch issues caused by missing or extra data that may have been accidentally copied
-    let jwt = check_access_token(&token)?;
-    ctx.config_mut().set_access_token(token, jwt.sub);
+    let jwt = check_access_token(&access_token)?;
+    ctx.config_mut().set_access_token(access_token, jwt.sub);
     let client = ctx.controlplane_client().await?;
     let refresh_token = api_exec::<RefreshToken>(
-        client.rpc("create_refresh_token", r#"{"multi_use": true, "valid_for": "14d", "detail": "Created by flowctl"}"#)
+        client.rpc("create_refresh_token", r#"{"multi_use": true, "valid_for": "90d", "detail": "Created by flowctl"}"#)
     ).await?;
 
     if let Some(api) = &ctx.config().api {
@@ -88,8 +88,8 @@ pub async fn configure_new_access_token(ctx: &mut CliContext, token: String) -> 
     Ok(())
 }
 
-fn check_access_token(token: &str) -> anyhow::Result<JWT> {
-    let jwt = parse_jwt(token).context("invalid access_token")?;
+fn check_access_token(access_token: &str) -> anyhow::Result<JWT> {
+    let jwt = parse_jwt(access_token).context("invalid access_token")?;
     // Try to give users a more friendly error message if we know their credentials are expired.
     if jwt.is_expired() {
         anyhow::bail!("access token is expired, please re-authenticate and then try again");
@@ -114,8 +114,8 @@ async fn retrieve_credentials(
             }
             Ok(auth) => {
                 tracing::debug!("retrieved credentials from keychain");
-                let token = RefreshToken::from_base64(&auth)?;
-                Ok(token)
+                let refresh_token = RefreshToken::from_base64(&auth)?;
+                Ok(refresh_token)
             }
             Err(err) => {
                 Err(anyhow::Error::new(err).context("retrieving user credentials from keychain"))
@@ -132,11 +132,11 @@ async fn persist_credentials(
     credential: &RefreshToken,
 ) -> anyhow::Result<()> {
     let entry = keychain_auth_entry(endpoint, user_id)?;
-    let token = credential.to_base64()?;
+    let refresh_token = credential.to_base64()?;
     // See comment in `retrieve_credentials` for why we need to use `spawn_blocking`
     let handle = tokio::task::spawn_blocking::<_, anyhow::Result<()>>(move || {
         entry
-            .set_password(&token)
+            .set_password(&refresh_token)
             .context("persisting user credential to keychain")?;
         tracing::info!("successfully persisted credential in keychain");
         Ok(())
