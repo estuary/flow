@@ -47,7 +47,9 @@ pub(crate) async fn new_client(config: &mut Config) -> anyhow::Result<Client> {
 
             // Try to give users a more friendly error message if we know their credentials are expired.
             if let Err(e) = check_access_token(&api.access_token) {
-                if let Ok(refresh_token) = retrieve_credentials(&api.endpoint, &api.user_id).await {
+                let user_id = api.user_id.clone().unwrap_or(parse_jwt(&api.access_token).context("invalid access_token")?.sub);
+
+                if let Ok(refresh_token) = retrieve_credentials(&api.endpoint, &user_id).await {
                     let response = api_exec::<AccessTokenResponse>(
                         client.rpc("generate_access_token", format!(r#"{{"refresh_token_id": "{}", "secret": "{}"}}"#, refresh_token.id, refresh_token.secret))
                     ).await?;
@@ -69,14 +71,14 @@ pub(crate) async fn new_client(config: &mut Config) -> anyhow::Result<Client> {
 pub async fn configure_new_access_token(ctx: &mut CliContext, access_token: String) -> anyhow::Result<()> {
     // try to catch issues caused by missing or extra data that may have been accidentally copied
     let jwt = check_access_token(&access_token)?;
-    ctx.config_mut().set_access_token(access_token, jwt.sub);
+    ctx.config_mut().set_access_token(access_token, jwt.sub.clone());
     let client = ctx.controlplane_client().await?;
     let refresh_token = api_exec::<RefreshToken>(
         client.rpc("create_refresh_token", r#"{"multi_use": true, "valid_for": "90d", "detail": "Created by flowctl"}"#)
     ).await?;
 
     if let Some(api) = &ctx.config().api {
-        persist_credentials(&api.endpoint, &api.user_id, &refresh_token).await?;
+        persist_credentials(&api.endpoint, &jwt.sub, &refresh_token).await?;
     }
 
     let message = if let Some(email) = jwt.email {

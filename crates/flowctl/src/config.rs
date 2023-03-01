@@ -77,7 +77,7 @@ impl Config {
         // Don't overwrite the other fields of api if they are already present.
         if let Some(api) = self.api.as_mut() {
             api.access_token = access_token;
-            api.user_id = user_id;
+            api.user_id = Some(user_id);
         } else {
             self.api = Some(API::managed(access_token, user_id));
         }
@@ -123,7 +123,7 @@ pub struct API {
     // Secret access token of the control-plane API.
     pub access_token: String,
     // User identifier
-    pub user_id: String,
+    pub user_id: Option<String>,
 }
 
 impl API {
@@ -132,7 +132,7 @@ impl API {
             endpoint: url::Url::parse("https://eyrcnmuzzyriypdajwdk.supabase.co/rest/v1").unwrap(),
             public_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco".to_string(),
             access_token,
-            user_id,
+            user_id: Some(user_id),
         }
     }
 }
