@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
@@ -36,6 +37,10 @@ type cmdDiscover struct {
 func (cmd cmdDiscover) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
 	mbp.InitLog(cmd.Log)
+
+	var ctx, cancelFunc = context.WithTimeout(context.Background(), time.Second*30)
+
+	defer cancelFunc()
 
 	log.WithFields(log.Fields{
 		"config":    cmd,
@@ -69,7 +74,7 @@ Creating a connector configuration stub at %s.
 Edit and update this file, and then run this command again.
 `, configPath)
 
-		if err = cmd.writeConfigStub(context.Background(), w); err != nil {
+		if err = cmd.writeConfigStub(ctx, w); err != nil {
 			_ = os.Remove(configPath) // Don't leave an empty file behind.
 		}
 		return err
@@ -85,7 +90,7 @@ Edit and update this file, and then run this command again.
 		Network:     cmd.Network,
 		Config:      configPath,
 		Output:      "", // Not required.
-	}.execute(context.Background())
+	}.execute(ctx)
 	if err != nil {
 		return err
 	} else if err := discovered.Validate(); err != nil {
