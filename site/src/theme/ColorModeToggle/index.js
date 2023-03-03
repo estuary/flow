@@ -4,7 +4,7 @@ import ColorModeToggle from '@theme-original/ColorModeToggle';
 const MESSAGE_TYPE = 'estuary.colorMode';
 
 export default function ColorModeToggleWrapper(props) {
-    const [listenerBound, setListenerBount] = useState(false);
+    const [listenerBound, setListenerBound] = useState(false);
     const { onChange } = props;
 
     useEffect(() => {
@@ -18,7 +18,7 @@ export default function ColorModeToggleWrapper(props) {
 
         if (!listenerBound) {
             window.addEventListener('message', handleMessageListener);
-            setListenerBount(true);
+            setListenerBound(true);
         }
 
         return () => {
