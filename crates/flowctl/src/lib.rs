@@ -91,16 +91,11 @@ impl CliContext {
     /// This function will return an error if the authentication credentials
     /// are missing, invalid, or expired.
     pub async fn controlplane_client(&mut self) -> anyhow::Result<controlplane::Client> {
-        let CliContext {
-            ref mut config,
-            ref mut controlplane_client,
-            ..
-        } = self;
-        if controlplane_client.is_none() {
-            let client = controlplane::new_client(config).await?;
-            *controlplane_client = Some(client.clone())
+        if self.controlplane_client.is_none() {
+            let client = controlplane::new_client(self).await?;
+            self.controlplane_client = Some(client.clone())
         }
-        Ok(controlplane_client.clone().unwrap())
+        Ok(self.controlplane_client.clone().unwrap())
     }
 
     pub fn config_mut(&mut self) -> &mut config::Config {
