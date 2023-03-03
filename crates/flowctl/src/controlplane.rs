@@ -1,5 +1,5 @@
 use keyring::Entry;
-use crate::config::{Config, RefreshToken};
+use crate::config::{RefreshToken, PUBLIC_TOKEN, ENDPOINT};
 use crate::{CliContext, api_exec};
 
 use anyhow::Context;
@@ -39,9 +39,9 @@ struct AccessTokenResponse {
 
 /// Creates a new client. **you should instead call `CliContext::controlplane_client(&mut Self)`**, which
 /// will re-use the existing client if possible.
-pub(crate) async fn new_client(config: &mut Config) -> anyhow::Result<Client> {
-    match &mut config.api {
-        Some(api) => {
+pub(crate) async fn new_client(ctx: &mut CliContext) -> anyhow::Result<Client> {
+    match ctx.config_mut().api {
+        Some(ref mut api) => {
             let client = postgrest::Postgrest::new(api.endpoint.as_str());
             let client = client.insert_header("apikey", &api.public_token);
 
@@ -63,7 +63,26 @@ pub(crate) async fn new_client(config: &mut Config) -> anyhow::Result<Client> {
             Ok(Client(Arc::new(client)))
         }
         None => {
-            anyhow::bail!("You must run `auth login` first")
+            // If there has been no prior login, but FLOW_AUTH_TOKEN is available, we use that to
+            // generate an access_token and automatically login the user
+            if let Ok(env_token) = std::env::var(FLOW_AUTH_TOKEN) {
+                let client = postgrest::Postgrest::new(ENDPOINT);
+                let client = client.insert_header("apikey", PUBLIC_TOKEN);
+
+                let refresh_token = RefreshToken::from_base64(&env_token)?;
+                let response = api_exec::<AccessTokenResponse>(
+                    client.rpc("generate_access_token", format!(r#"{{"refresh_token_id": "{}", "secret": "{}"}}"#, refresh_token.id, refresh_token.secret))
+                ).await?;
+
+                let jwt = check_access_token(&response.access_token)?;
+                ctx.config_mut().set_access_token(response.access_token.clone(), jwt.sub.clone());
+
+                let client =
+                    client.insert_header("Authorization", format!("Bearer {}", response.access_token));
+                Ok(Client(Arc::new(client)))
+            } else {
+                anyhow::bail!("You must run `auth login` first")
+            }
         }
     }
 }
