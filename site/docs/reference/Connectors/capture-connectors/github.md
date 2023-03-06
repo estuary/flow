@@ -65,18 +65,22 @@ There are two ways to authenticate with GitHub when capturing data into Flow: us
 Their prerequisites differ.
 
 OAuth is recommended for simplicity in the Flow web app;
-the access token method is the only supported method using the command line.
+the access token method is the only supported method using the command line. Which authentication method you choose depends on the policies of your organization. Github has special organization settings that need to be enabled in order for users to be able to access repos that are part of an organization. 
 
 ### Using OAuth2 to authenticate with GitHub in the Flow web app
 
 * A GitHub user account with access to the repositories of interest, and which is a member of organizations of interest.
 
-### Configuring the connector specification manually
+* User may need to request access in Github under the user's personal settings (not the organization settings) by going to Applications then Authorized OAuth Apps on Github. Click the app or the image next to the app and request access under "Organization access". After a user has made the request, the organization administrator can grant access on the "Third-party application access policy" page. See additional details on this [Github doc](https://docs.github.com/en/account-and-profile/setting-up-and-managing-your-personal-account-on-github/managing-your-membership-in-organizations/requesting-organization-approval-for-oauth-apps).
+
+### Configuring the connector specification manually using personal access token
 
 * A GitHub user account with access to the repositories of interest, and which is a member of organizations of interest.
 
 * A GitHub [personal access token](https://github.com/settings/tokens).
 You may use multiple tokens to balance the load on your API quota.
+
+* User may need to get the organization's administrator to grant access under "Third-party Access" then "Personal access tokens". 
 
 ## Configuration
 
