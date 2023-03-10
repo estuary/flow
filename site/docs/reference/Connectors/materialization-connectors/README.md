@@ -29,6 +29,9 @@ In the future, other open-source materialization connectors from third parties c
 * Google Cloud Pub/Sub
   * [Configuration](./google-pubsub.md)
   * Package - ghcr.io/estuary/materialize-google-pubsub:dev
+* MongoDB
+  * [Configuration](./mongodb.md)
+  * Package - ghcr.io/estuary/materialize-mongodb:dev
 * PostgreSQL
   * [Configuration](./PostgreSQL.md)
   * Package — ghcr.io/estuary/materialize-postgres:dev
