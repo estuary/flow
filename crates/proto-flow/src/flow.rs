@@ -37,6 +37,10 @@ pub struct LambdaSpec {
     /// E.x. '<https://my/external/api'.>
     #[prost(string, tag="2")]
     pub remote: ::prost::alloc::string::String,
+    /// If non-empty, this is a SQLite SELECT expression.
+    /// E.x. 'SELECT foo, bar FROM source;'.
+    #[prost(string, tag="3")]
+    pub sqlite: ::prost::alloc::string::String,
 }
 /// Shuffle is a description of a document shuffle, where each document
 /// is mapped into:
@@ -75,6 +79,11 @@ pub struct Shuffle {
     /// JSON-Pointers indicating a message location to extract.
     #[prost(string, repeated, tag="5")]
     pub shuffle_key_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Composite key over which shuffling occurs, specified as one or more
+    /// partitioned projection fields. This field is set only when a shuffle
+    /// key can be unambiguously extracted from just the partition value(s).
+    #[prost(string, repeated, tag="15")]
+    pub shuffle_key_partition_fields: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// uses_source_key is true if shuffle_key_ptr is the source's native key,
     /// and false if it's some other key. When shuffling using the source's key,
     /// we can minimize data movement by assigning a shard coordinator for each
@@ -85,10 +94,6 @@ pub struct Shuffle {
     /// and uses_source_key MUST be false.
     #[prost(message, optional, tag="7")]
     pub shuffle_lambda: ::core::option::Option<LambdaSpec>,
-    /// Schema against which shuffled documents are to be validated.
-    /// This will be removed.
-    #[prost(string, tag="8")]
-    pub deprecated_source_schema_uri: ::prost::alloc::string::String,
     /// filter_r_clocks is true if the shuffle coordinator should filter documents
     /// sent to each subscriber based on its covered r-clock ranges and the
     /// individual document clocks. If false, the subscriber's r-clock range is
@@ -318,10 +323,13 @@ pub struct TransformSpec {
     /// Publish lambda of this transform, if any.
     #[prost(message, optional, tag="5")]
     pub publish_lambda: ::core::option::Option<LambdaSpec>,
+    /// Source collection which is read by this transform.
+    #[prost(message, optional, tag="6")]
+    pub collection: ::core::option::Option<CollectionSpec>,
 }
 /// DerivationSpec describes a collection, and it's means of derivation.
 ///
-/// Next tag: 8.
+/// Next tag: 9.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DerivationSpec {
     /// Derivations are collections.
@@ -338,6 +346,9 @@ pub struct DerivationSpec {
     /// JSON-encoded initial value of novel document registers.
     #[prost(string, tag="3")]
     pub register_initial_json: ::prost::alloc::string::String,
+    /// Implicit projections of the register schema.
+    #[prost(message, repeated, tag="8")]
+    pub register_projections: ::prost::alloc::vec::Vec<Projection>,
     /// Transforms of this derivation.
     #[prost(message, repeated, tag="4")]
     pub transforms: ::prost::alloc::vec::Vec<TransformSpec>,
@@ -369,8 +380,6 @@ pub struct FieldSelection {
     pub field_config_json: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 /// CaptureSpec describes a collection and its capture from an endpoint.
-///
-/// Next tag: 8.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CaptureSpec {
     /// Name of this capture.
@@ -416,8 +425,6 @@ pub mod capture_spec {
 }
 /// MaterializationSpec describes a collection and its materialization to an
 /// endpoint.
-///
-/// Next tag: 7.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MaterializationSpec {
     /// Name of this materialization.
@@ -1116,6 +1123,8 @@ pub mod build_api {
         Done = 6,
         /// Build completed with errors (Rust -> Go).
         DoneWithErrors = 7,
+        /// Trampoline sub-type: start docker ispect of an image
+        TrampolineDockerInspect = 8,
         /// Generate catalog specification JSON schema (Go <-> Rust)
         CatalogSchema = 100,
     }
@@ -1134,6 +1143,7 @@ pub mod build_api {
                 Code::TrampolineValidateMaterialization => "TRAMPOLINE_VALIDATE_MATERIALIZATION",
                 Code::Done => "DONE",
                 Code::DoneWithErrors => "DONE_WITH_ERRORS",
+                Code::TrampolineDockerInspect => "TRAMPOLINE_DOCKER_INSPECT",
                 Code::CatalogSchema => "CATALOG_SCHEMA",
             }
         }
@@ -1187,6 +1197,93 @@ pub struct IngestResponse {
     /// Etcd header which describes current journal partitions.
     #[prost(message, optional, tag="2")]
     pub journal_etcd: ::core::option::Option<::proto_gazette::broker::header::Etcd>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TaskNetworkProxyRequest {
+    #[prost(message, optional, tag="1")]
+    pub open: ::core::option::Option<task_network_proxy_request::Open>,
+    #[prost(bytes="vec", tag="2")]
+    pub data: ::prost::alloc::vec::Vec<u8>,
+}
+/// Nested message and enum types in `TaskNetworkProxyRequest`.
+pub mod task_network_proxy_request {
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Open {
+        /// Header contains information about the shard resolution that was done by the client
+        #[prost(message, optional, tag="1")]
+        pub header: ::core::option::Option<::proto_gazette::broker::Header>,
+        #[prost(string, tag="2")]
+        pub shard_id: ::prost::alloc::string::String,
+        /// The port number inside the container that the client wishes to connect to.
+        #[prost(uint32, tag="3")]
+        pub target_port: u32,
+        /// The network address of the client that is establishing the connection.
+        #[prost(string, tag="4")]
+        pub client_addr: ::prost::alloc::string::String,
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TaskNetworkProxyResponse {
+    #[prost(message, optional, tag="1")]
+    pub open_response: ::core::option::Option<task_network_proxy_response::OpenResponse>,
+    #[prost(bytes="vec", tag="2")]
+    pub data: ::prost::alloc::vec::Vec<u8>,
+}
+/// Nested message and enum types in `TaskNetworkProxyResponse`.
+pub mod task_network_proxy_response {
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct OpenResponse {
+        #[prost(enumeration="Status", tag="1")]
+        pub status: i32,
+        #[prost(message, optional, tag="2")]
+        pub header: ::core::option::Option<::proto_gazette::broker::Header>,
+    }
+    /// Status represents the high-level response to an Open request. If OK, then
+    /// the connection may proceed. Any other status indicates the reason for refusal.
+    /// This enum is a superset of the consumer.Status enum used by the Shards service,
+    /// though some statuses have taken on broader meanings.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum Status {
+        Ok = 0,
+        /// The named shard does not exist.
+        ShardNotFound = 1,
+        /// There is no current primary consumer process for the shard. This is a
+        /// temporary condition which should quickly resolve, assuming sufficient
+        /// consumer capacity.
+        NoShardPrimary = 2,
+        /// The present consumer process is not the assigned primary for the shard,
+        /// and was not instructed to proxy the request.
+        NotShardPrimary = 3,
+        /// Used to indicate an error in the proxying machinery.
+        /// This corresponds to consumer.Status_ETCD_TRANSACTION_FAILED, which is considered
+        /// a specific case of the broader category of "internal" errors, since the proxy API
+        /// doesn't directly expose anything about etcd.
+        InternalError = 4,
+        /// Either the shard itself is stopped or failed, or else the container is.
+        ShardStopped = 5,
+        /// The client is not allowed to connect to the port given in the request.
+        /// This could be either because the port does not exist or for any other
+        /// reason, such as if we implement IP-based access policies.
+        PortNotAllowed = 1000,
+    }
+    impl Status {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Status::Ok => "OK",
+                Status::ShardNotFound => "SHARD_NOT_FOUND",
+                Status::NoShardPrimary => "NO_SHARD_PRIMARY",
+                Status::NotShardPrimary => "NOT_SHARD_PRIMARY",
+                Status::InternalError => "INTERNAL_ERROR",
+                Status::ShardStopped => "SHARD_STOPPED",
+                Status::PortNotAllowed => "PORT_NOT_ALLOWED",
+            }
+        }
+    }
 }
 /// EndpointType enumerates the endpoint types understood by Flow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]

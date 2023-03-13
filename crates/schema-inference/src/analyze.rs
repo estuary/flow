@@ -157,4 +157,126 @@ mod test {
         let schema = analyze(to_stream(vec![data_one, data_two, data_three])).unwrap();
         insta::assert_json_snapshot!(schema);
     }
+
+    #[test]
+    fn string_format_integer_merging() {
+        let data_one = json!({
+            "a": 1,
+        });
+        let data_two = json!({
+            "a": "2",
+        });
+
+        let schema = analyze(to_stream(vec![data_one, data_two])).unwrap();
+        insta::assert_json_snapshot!(schema);
+
+        let data_one = json!({
+            "a": "1",
+        });
+        let data_two = json!({
+            "a": 2,
+        });
+
+        let schema = analyze(to_stream(vec![data_one, data_two])).unwrap();
+        insta::assert_json_snapshot!(schema);
+    }
+
+    #[test]
+    fn string_format_number_merging() {
+        let data_one = json!({
+            "a": 1,
+        });
+        let data_two = json!({
+            "a": "2.1",
+        });
+
+        let schema = analyze(to_stream(vec![data_one, data_two])).unwrap();
+        insta::assert_json_snapshot!(schema);
+
+        let data_one = json!({
+            "a": 1.1,
+        });
+        let data_two = json!({
+            "a": "2",
+        });
+
+        let schema = analyze(to_stream(vec![data_one, data_two])).unwrap();
+        insta::assert_json_snapshot!(schema);
+
+        let data_one = json!({
+            "a": "1",
+        });
+        let data_two = json!({
+            "a": 2.1,
+        });
+
+        let schema = analyze(to_stream(vec![data_one, data_two])).unwrap();
+        insta::assert_json_snapshot!(schema);
+
+        let data_one = json!({
+            "a": "1.1",
+        });
+        let data_two = json!({
+            "a": 2,
+        });
+
+        let schema = analyze(to_stream(vec![data_one, data_two])).unwrap();
+        insta::assert_json_snapshot!(schema);
+    }
+
+    #[test]
+    fn string_format_number_back_to_string() {
+        let data_one = json!({
+            "a": 1,
+        });
+        let data_two = json!({
+            "a": "test"
+        });
+
+        let schema = analyze(to_stream(vec![data_one, data_two])).unwrap();
+        insta::assert_json_snapshot!(schema);
+
+        let data_one = json!({
+            "a": "a",
+        });
+        let data_two = json!({
+            "a": "1"
+        });
+
+        let schema = analyze(to_stream(vec![data_one, data_two])).unwrap();
+        insta::assert_json_snapshot!(schema);
+    }
+
+    #[test]
+    fn string_format_number_special_strings() {
+        let data_one = json!({
+            "a": 1,
+        });
+        let data_two = json!({
+            "a": "NaN"
+        });
+
+        let schema = analyze(to_stream(vec![data_one, data_two])).unwrap();
+        insta::assert_json_snapshot!(schema);
+
+        let data_one = json!({
+            "a": "Infinity",
+        });
+        let data_two = json!({
+            "a": "1"
+        });
+
+        let schema = analyze(to_stream(vec![data_one, data_two])).unwrap();
+        insta::assert_json_snapshot!(schema);
+
+        let data_one = json!({
+            "a": "-Infinity",
+        });
+        let data_two = json!({
+            "a": "1"
+        });
+
+        let schema = analyze(to_stream(vec![data_one, data_two])).unwrap();
+        insta::assert_json_snapshot!(schema);
+    }
 }

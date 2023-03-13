@@ -6,6 +6,7 @@ mod capture;
 mod codec;
 mod inspect;
 mod materialize;
+mod proxy;
 mod rpc;
 
 #[derive(clap::Parser, Debug)]
@@ -18,7 +19,7 @@ pub struct Args {
     pub image_inspect_json_path: String,
 
     /// Port on which to listen for requests from the runtime.
-    #[clap(short, long, default_value = "8080")]
+    #[clap(short, long)]
     pub port: u16,
 }
 
@@ -31,6 +32,8 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     if let Ok(log_level) = std::env::var("LOG_LEVEL") {
         entrypoint.push(format!("--log.level={log_level}"));
     }
+
+    let proxy_handler = proxy::ProxyHandler::new("localhost");
 
     let codec = match image.config.labels.get("FLOW_RUNTIME_CODEC") {
         Some(protocol) if protocol == "json" => Codec::Json,
@@ -45,6 +48,8 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
             entrypoint: entrypoint.clone(),
             codec,
         });
+
+    let proxy = proto_grpc::flow::network_proxy_server::NetworkProxyServer::new(proxy_handler);
 
     let addr = format!("0.0.0.0:{}", args.port).parse().unwrap();
 
@@ -63,6 +68,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     let () = tonic::transport::Server::builder()
         .add_service(capture)
         .add_service(materialize)
+        .add_service(proxy)
         .serve_with_shutdown(addr, signal)
         .await?;
 

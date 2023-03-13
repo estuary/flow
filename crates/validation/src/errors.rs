@@ -199,6 +199,23 @@ pub enum Error {
     SchemaShape(#[from] doc::inference::Error),
     #[error(transparent)]
     SerdeJson(#[from] serde_json::Error),
+    #[error("SQLite update lambda is invalid.\nAvailable `source` columns are {source_columns:?}")]
+    SqliteUpdate {
+        source_columns: Vec<String>,
+        #[source]
+        detail: rusqlite::Error,
+    },
+    #[error(
+        "SQLite publish lambda is invalid.\n\tAvailable `source` columns are {source_columns:?}\n\tAvailable `register` and `previous_register` columns are {register_columns:?}"
+    )]
+    SqlitePublish {
+        source_columns: Vec<String>,
+        register_columns: Vec<String>,
+        #[source]
+        detail: rusqlite::Error,
+    },
+    #[error("the docker image '{image}' could not be inspected: {error}")]
+    ImageInspectFailed { image: String, error: anyhow::Error },
 }
 
 impl Error {

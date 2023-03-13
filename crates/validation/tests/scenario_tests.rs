@@ -239,6 +239,10 @@ test://example/captures:
     # Illegal duplicates under naming collation.
     testing/some-source: *spec
     testing/SoMe-source: *spec
+driver:
+  imageInspections: { "an/image": {output: '[{"Config":{}}]' }}
+  materializations: {}
+  captures: {}
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -278,6 +282,10 @@ test://example/materializations:
     # Illegal duplicates under naming collation.
     testing/some-target: *spec
     testing/SoMe-target: *spec
+driver:
+  imageInspections: { "an/image": {output: '[{"Config":{}}]' }}
+  materializations: {}
+  captures: {}
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -360,6 +368,10 @@ test://example/catalog.yaml:
           documents: []
 
     testing/b/4/suffix: *test_spec
+driver:
+  imageInspections: { "an/image": {output: '[{"Config":{}}]' }}
+  materializations: {}
+  captures: {}
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -1198,9 +1210,33 @@ test://example/int-halve:
     insta::assert_debug_snapshot!(errors);
 }
 
+#[test]
+fn test_invalid_sqlite_lambdas() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/from-array-key:
+  collections:
+    testing/from-array-key:
+      derivation:
+        transform:
+          withBar:
+            update:
+              lambda:
+                sql: select invalidColumn from source
+            publish:
+              lambda:
+                sql: |
+                  select s.invalid, r.column from source s, register r
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MockDriverCalls {
+    image_inspections: HashMap<String, MockImageInspectCall>,
     materializations: HashMap<String, MockMaterializationValidateCall>,
     captures: HashMap<String, MockCaptureValidateCall>,
 }
@@ -1225,6 +1261,12 @@ struct MockMaterializationValidateCall {
     delta_updates: bool,
     #[serde(default)]
     error: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct MockImageInspectCall {
+    output: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -1353,6 +1395,22 @@ impl validation::Drivers for MockDriverCalls {
         }
         .boxed_local()
     }
+
+    fn inspect_image<'a>(
+        &'a self,
+        image: String,
+    ) -> LocalBoxFuture<'a, Result<Vec<u8>, anyhow::Error>> {
+        async move {
+            if let Some(call) = self.image_inspections.get(&image) {
+                Ok(call.output.clone().into_bytes())
+            } else {
+                Err(anyhow::anyhow!(
+                    "driver fixture not found for image: '{image}'"
+                ))
+            }
+        }
+        .boxed_local()
+    }
 }
 
 fn run_test(mut fixture: Value, config: &flow::build_api::Config) -> tables::All {
@@ -1389,6 +1447,7 @@ fn run_test(mut fixture: Value, config: &flow::build_api::Config) -> tables::All
         built_materializations,
         built_tests,
         errors: validation_errors,
+        image_inspections,
         inferences,
     } = futures::executor::block_on(validation::validate(
         config,
@@ -1423,6 +1482,7 @@ fn run_test(mut fixture: Value, config: &flow::build_api::Config) -> tables::All
         derivations,
         errors,
         fetches,
+        image_inspections,
         imports,
         inferences,
         materialization_bindings,

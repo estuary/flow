@@ -2,9 +2,15 @@ package labels
 
 import (
 	"fmt"
+	"strconv"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 )
+
+type PortConfig struct {
+	Protocol string
+	Public   bool
+}
 
 // ShardLabeling is a parsed and validated representation of the Flow
 // labels which are attached to Gazette ShardSpecs, that are understood
@@ -24,6 +30,15 @@ type ShardLabeling struct {
 	TaskName string
 	// Type of this task (capture, derivation, or materialization).
 	TaskType string
+
+	// TODO: comment and add test for parsing host and ports
+	Hostname string
+
+	// Ports is a map from port name to the combined configuration
+	// for the port. The runtime itself doesn't actually care
+	// about the alpn protocol, but it's there for the sake of
+	// completeness.
+	Ports map[uint16]*PortConfig `json:",omitempty"`
 }
 
 // ParseShardLabels parses and validates ShardLabels from their defined
@@ -55,6 +70,12 @@ func ParseShardLabels(set pf.LabelSet) (ShardLabeling, error) {
 		return out, err
 	}
 	if out.TaskType, err = ExpectOne(set, TaskType); err != nil {
+		return out, err
+	}
+	if out.Ports, err = parsePorts(set); err != nil {
+		return out, err
+	}
+	if out.Hostname, err = maybeOne(set, Hostname); err != nil {
 		return out, err
 	}
 
@@ -96,4 +117,29 @@ func maybeOne(set pf.LabelSet, name string) (string, error) {
 	} else {
 		return v[0], nil
 	}
+}
+
+func parsePorts(set pf.LabelSet) (map[uint16]*PortConfig, error) {
+	var out = make(map[uint16]*PortConfig)
+
+	for _, value := range set.ValuesOf(ExposePort) {
+		var portNumber, err = strconv.ParseUint(value, 10, 16)
+		if err != nil {
+			return nil, fmt.Errorf("parsing value '%s' of label '%s': %w", value, ExposePort, err)
+		}
+		if portNumber == 0 || portNumber > 65535 {
+			return nil, fmt.Errorf("invalid '%s' value: '%s'", ExposePort, value)
+		}
+
+		var config = new(PortConfig)
+		config.Protocol = set.ValueOf(PortProtoPrefix + value)
+		if publicVal := set.ValueOf(PortPublicPrefix + value); publicVal != "" {
+			config.Public, err = strconv.ParseBool(publicVal)
+			if err != nil {
+				return nil, fmt.Errorf("parsing '%s=%s': %w", PortPublicPrefix, publicVal, err)
+			}
+		}
+		out[uint16(portNumber)] = config
+	}
+	return out, nil
 }

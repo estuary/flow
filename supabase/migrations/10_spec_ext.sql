@@ -3,7 +3,8 @@ This source contains extended metadata views for a number of tables.
 We adopt a convention of always naming these tables `${table}_ext`,
 and including all columns of the base table with their original names.
 
-IMPORTANT: Do NOT "grant select" on views. Instead change the owner to `authenticated`.
+IMPORTANT: BE CAREFUL with "grant select" on views -- you MUST inline
+authorization checks. By default, prefer to change the owner to `authenticated`.
 Reason: when created, views are owned by the "postgres" user, to which
 row-level security policies don't apply. "grant select" then grants to
 `authenticated` the same access that "postgres" has. Changing the owner to
@@ -24,8 +25,8 @@ create view internal.user_profiles as
     coalesce(raw_user_meta_data->>'full_name', raw_user_meta_data->>'name') as full_name,
     coalesce(raw_user_meta_data->>'picture', raw_user_meta_data->>'avatar_url') as avatar_url from auth.users;
 
-GRANT SELECT ON TABLE internal.user_profiles TO authenticated;
-GRANT ALL ON TABLE internal.user_profiles TO postgres;
+grant select on table internal.user_profiles to authenticated;
+grant all on table internal.user_profiles to postgres;
 
 -- Provide API clients a way to map a User ID to a user profile.
 -- `bearer_user_id` is a UUID ID of the auth.users table and is treated as a bearer token:
@@ -46,6 +47,13 @@ comment on function view_user_profile is
 
 -- Extended view of combined `user_grants` and `role_grants`.
 create view combined_grants_ext as
+with admin_roles as (
+  -- Extract into CTE so it's evaluated once, not twice.
+  -- This is only required because of the union, which produces
+  -- entirely separate evaluation nodes within the query plan
+  -- that naievely don't share the auth_roles() result.
+  select role_prefix from auth_roles('admin')
+)
 select
   g.capability,
   g.created_at,
@@ -61,6 +69,11 @@ select
   null as user_full_name,
   null as user_id
 from role_grants g
+where g.id in (
+  -- User must admin subject or object role. Compare to select RLS policy.
+  select g.id from admin_roles r, role_grants g
+    where g.subject_role ^@ r.role_prefix or g.object_role ^@ r.role_prefix
+)
 union all
 select
   g.capability,
@@ -77,9 +90,15 @@ select
   u.full_name as user_full_name,
   g.user_id as user_id
 from user_grants g
-left outer join internal.user_profiles u on u.user_id = g.user_id;
+left outer join internal.user_profiles u on u.user_id = g.user_id
+where g.id in (
+  -- User must admin object role or be the user. Compare to select RLS policy.
+  select g.id from admin_roles r, user_grants g
+  where g.user_id = auth.uid() or g.object_role ^@ r.role_prefix
+)
 ;
-alter view combined_grants_ext owner to authenticated;
+-- combined_grants_ext includes its own authorization checks.
+grant select on combined_grants_ext to authenticated;
 
 comment on view combined_grants_ext is
   'Combined view of `role_grants` and `user_grants` extended with user metadata';
@@ -87,13 +106,6 @@ comment on view combined_grants_ext is
 
 -- Extended view of live catalog specifications.
 create view live_specs_ext as
-with user_read_access AS (
-    select
-        distinct role_prefix
-        from internal.user_roles(auth_uid())
-    where
-       capability >= 'read'
-)
 select
   l.*,
   c.external_url as connector_external_url,
@@ -114,15 +126,13 @@ left outer join publication_specs p on l.id = p.live_spec_id and l.last_pub_id =
 left outer join connectors c on c.image_name = l.connector_image_name
 left outer join connector_tags t on c.id = t.connector_id and l.connector_image_tag = t.image_tag
 left outer join internal.user_profiles u on u.user_id = p.user_id
-where exists(
-  select 1 from user_read_access r where starts_with(l.catalog_name, r.role_prefix)
+where l.id in (
+  -- User must admin catalog_name. Compare to select RLS policy.
+  select l.id from auth_roles('read') r, live_specs l
+    where l.catalog_name ^@ r.role_prefix
 )
 ;
--- Using `grant select` is discouraged because it allows the view to query the
--- table as the user 'postgres' which bypasses RLS policies. However in this
--- case, we are inlining the policy as a join in the query for performance
--- reasons, and the join with internal.user_roles ensures that the rows returned
--- are ones accessible by the authenticated user.
+-- live_specs_ext includes its own authorization checks.
 grant select on live_specs_ext to authenticated;
 
 comment on view live_specs_ext is

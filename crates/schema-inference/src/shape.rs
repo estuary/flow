@@ -1,6 +1,6 @@
-use doc::inference::{ArrayShape, ObjProperty, ObjShape, Shape};
+use doc::inference::{ArrayShape, ObjProperty, ObjShape, StringShape, Shape};
 use itertools::{EitherOrBoth, Itertools};
-use json::schema::types;
+use json::schema::{types, formats::Format};
 
 /// We _merge_ rather than _union_ Shapes together. This allows us to retain all
 /// inference information we've gathered up to that point, where _union_ would
@@ -8,6 +8,8 @@ use json::schema::types;
 /// more advanced json schema attributes are ignored, as we will never infer
 /// them from data.
 pub fn merge(lhs: Shape, rhs: Shape) -> Shape {
+    let string = merge_string_shapes(&lhs, &rhs);
+
     let array = match (
         lhs.type_.overlaps(types::ARRAY),
         rhs.type_.overlaps(types::ARRAY),
@@ -30,7 +32,40 @@ pub fn merge(lhs: Shape, rhs: Shape) -> Shape {
         type_: lhs.type_ | rhs.type_,
         array,
         object,
+        string,
         ..Default::default()
+    }
+}
+
+fn merge_string_shapes(lhs: &Shape, rhs: &Shape) -> StringShape {
+    match (lhs.string.format, rhs.string.format) {
+        (Some(lhs_format), Some(rhs_format)) => {
+            match (lhs_format, rhs_format) {
+                (a, b) if a == b => lhs.string.clone(),
+                (Format::Number, Format::Integer) => lhs.string.clone(),
+                (Format::Integer, Format::Number) => rhs.string.clone(),
+                _ => StringShape::default()
+            }
+        },
+        (Some(lhs_format), None) => {
+            if !rhs.type_.overlaps(types::INT_OR_FRAC) {
+                return StringShape::default();
+            }
+            match lhs_format {
+                Format::Integer if rhs.type_.overlaps(types::FRACTIONAL) => StringShape { format: Some(Format::Number), ..Default::default() },
+                _ => lhs.string.clone(),
+            }
+        },
+        (None, Some(rhs_format)) => {
+            if !lhs.type_.overlaps(types::INT_OR_FRAC) {
+                return StringShape::default();
+            }
+            match rhs_format {
+                Format::Integer if lhs.type_.overlaps(types::FRACTIONAL) => StringShape { format: Some(Format::Number), ..Default::default() },
+                _ => rhs.string.clone(),
+            }
+        },
+        (None, None) => StringShape::default(),
     }
 }
 

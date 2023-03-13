@@ -12,6 +12,7 @@ expression: "flows.iter().map(|r| -> serde_json::Value { r.get(0) }).collect::<V
     "id": "<redacted-id>",
     "last_build_id": "ee:ee:ee:ee:ee:ee:ee:ee",
     "last_pub_id": "ee:ee:ee:ee:ee:ee:ee:ee",
+    "md5": "c81e728d9d4c2f636f067f89cc14862c",
     "reads_from": [
       "reads/from"
     ],
@@ -31,6 +32,7 @@ expression: "flows.iter().map(|r| -> serde_json::Value { r.get(0) }).collect::<V
     "id": "<redacted-id>",
     "last_build_id": "ee:ee:ee:ee:ee:ee:ee:ee",
     "last_pub_id": "ee:ee:ee:ee:ee:ee:ee:ee",
+    "md5": "c81e728d9d4c2f636f067f89cc14862c",
     "reads_from": [
       "reads/from"
     ],
@@ -50,6 +52,7 @@ expression: "flows.iter().map(|r| -> serde_json::Value { r.get(0) }).collect::<V
     "id": "<redacted-id>",
     "last_build_id": "ee:ee:ee:ee:ee:ee:ee:ee",
     "last_pub_id": "ee:ee:ee:ee:ee:ee:ee:ee",
+    "md5": null,
     "reads_from": [
       "reads/from"
     ],
@@ -69,6 +72,7 @@ expression: "flows.iter().map(|r| -> serde_json::Value { r.get(0) }).collect::<V
     "id": "<redacted-id>",
     "last_build_id": "ee:ee:ee:ee:ee:ee:ee:ee",
     "last_pub_id": "ee:ee:ee:ee:ee:ee:ee:ee",
+    "md5": "c81e728d9d4c2f636f067f89cc14862c",
     "reads_from": [
       "reads/from"
     ],
@@ -88,6 +92,7 @@ expression: "flows.iter().map(|r| -> serde_json::Value { r.get(0) }).collect::<V
     "id": "<redacted-id>",
     "last_build_id": "bb:bb:bb:bb:bb:bb:bb:bb",
     "last_pub_id": "bb:bb:bb:bb:bb:bb:bb:bb",
+    "md5": "c4ca4238a0b923820dcc509a6f75849b",
     "reads_from": null,
     "spec": 1,
     "spec_type": "collection",
@@ -103,6 +108,7 @@ expression: "flows.iter().map(|r| -> serde_json::Value { r.get(0) }).collect::<V
     "id": "<redacted-id>",
     "last_build_id": "ee:ee:ee:ee:ee:ee:ee:ee",
     "last_pub_id": "ee:ee:ee:ee:ee:ee:ee:ee",
+    "md5": "c81e728d9d4c2f636f067f89cc14862c",
     "reads_from": [
       "reads/from"
     ],

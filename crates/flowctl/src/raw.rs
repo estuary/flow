@@ -117,7 +117,7 @@ impl Advanced {
 }
 
 async fn do_get(ctx: &mut crate::CliContext, Get { table, query }: &Get) -> anyhow::Result<()> {
-    let req = ctx.controlplane_client()?.from(table).build().query(query);
+    let req = ctx.controlplane_client().await?.from(table).build().query(query);
     tracing::debug!(?req, "built request to execute");
 
     println!("{}", req.send().await?.text().await?);
@@ -129,7 +129,7 @@ async fn do_update(
     Update { table, query, body }: &Update,
 ) -> anyhow::Result<()> {
     let req = ctx
-        .controlplane_client()?
+        .controlplane_client().await?
         .from(table)
         .update(body)
         .build()
@@ -149,7 +149,7 @@ async fn do_rpc(
     }: &Rpc,
 ) -> anyhow::Result<()> {
     let req = ctx
-        .controlplane_client()?
+        .controlplane_client().await?
         .rpc(function, body)
         .build()
         .query(query);

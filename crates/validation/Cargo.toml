@@ -15,6 +15,7 @@ json = { path = "../json" }
 labels = { path = "../labels" }
 models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
+sqlite-lambda = { path = "../sqlite-lambda" }
 tables = { path = "../tables" }
 
 anyhow = { workspace = true }
@@ -23,12 +24,14 @@ futures = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
 regex = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 strsim = { workspace = true }
 superslice = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
+rusqlite = { workspace = true }
 
 [dev-dependencies]
 sources = { path = "../sources" }
@@ -36,6 +39,5 @@ tables = { path = "../tables", features = ["persist"] }
 
 insta = { workspace = true }
 json-patch = { workspace = true }
-rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { workspace = true }

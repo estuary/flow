@@ -121,6 +121,9 @@ expression: intents
         '/derive/local/derivation/thereItIs/Update': __localDerivation.thereItIsUpdate.bind(
             __localDerivation,
         ) as Lambda,
+        '/derive/local/derivation/unicode_lğmöm/Publish': __localDerivation.unicodeLğmömPublish.bind(
+            __localDerivation,
+        ) as Lambda,
         '/derive/local/derivation/whoot/Publish': __localDerivation.whootPublish.bind(
             __localDerivation,
         ) as Lambda,
@@ -227,6 +230,7 @@ expression: intents
         "../flow_generated/types/local/derivation.d.ts",
         "../flow_generated/types/remote/derivation.d.ts",
         "../flow_generated/types/some/input.d.ts",
+        "../flow_generated/types/unicode/lğmöm/name.d.ts",
         "../sub/module.ts"
       ]
     },
@@ -290,6 +294,12 @@ expression: intents
     export type ThereItIsSource = SourceDocument;
     
     
+    // Generated from transform unicode_lğmöm as a re-export of collection unicode/lğmöm/name.
+    // Referenced from sub/module.yaml#/collections/local~1derivation/derivation/transform/unicode_l%C4%9Fm%C3%B6m."
+    import { SourceDocument as UnicodeLğmömSource } from "./../unicode/lğmöm/name";
+    export { SourceDocument as UnicodeLğmömSource } from "./../unicode/lğmöm/name";
+    
+    
     // Generated from transform whoot as a re-export of collection some/input.
     // Referenced from sub/module.yaml#/collections/local~1derivation/derivation/transform/whoot."
     import { SourceDocument as WhootSource } from "./../some/input";
@@ -302,6 +312,11 @@ expression: intents
         thereItIsUpdate(
             source: ThereItIsSource,
         ): Register[];
+        unicodeLğmömPublish(
+            source: UnicodeLğmömSource,
+            register: Register,
+            previous: Register,
+        ): OutputDocument[];
         whootPublish(
             source: WhootSource,
             register: Register,
@@ -391,6 +406,35 @@ expression: intents
     export type SourceDocument = Document;
     export type OutputDocument = Document;
     ,
+    "flow_generated/types/unicode/lğmöm/name.d.ts": Always:
+    
+    // Generated from $anchor schema test://example/int-string.schema#AnAnchor."
+    export type AnAnchor = {
+        one: string;
+        two?: number;
+    };
+    
+    
+    // Generated from $anchor schema test://example/int-string.schema#OtherAnchor."
+    export type OtherAnchor = {
+        anAnchor?: AnAnchor;
+        three: string;
+    };
+    
+    
+    // Generated from collection schema test://example/int-string.schema.
+    // Referenced from test://example/catalog.yaml#/collections/unicode~1l%C4%9Fm%C3%B6m~1name.
+    export type Document = {
+        anAnchor?: AnAnchor;
+        int: number;
+        str: string;
+    };
+    
+    
+    // The collection has one schema, used for both reads and writes.
+    export type SourceDocument = Document;
+    export type OutputDocument = Document;
+    ,
     "package.json": Always:
     {
       "dependencies": {
@@ -434,13 +478,20 @@ expression: intents
     }
     ,
     "sub/module.ts": IfNotExists:
-    import { IDerivation, OutputDocument, Register, ThereItIsSource, WhootSource } from 'flow/local/derivation';
+    import { IDerivation, OutputDocument, Register, ThereItIsSource, UnicodeLğmömSource, WhootSource } from 'flow/local/derivation';
     
     // Implementation for derivation sub/module.yaml#/collections/local~1derivation/derivation.
     export class Derivation implements IDerivation {
         thereItIsUpdate(
             _source: ThereItIsSource,
         ): Register[] {
+            throw new Error("Not implemented");
+        }
+        unicodeLğmömPublish(
+            _source: UnicodeLğmömSource,
+            _register: Register,
+            _previous: Register,
+        ): OutputDocument[] {
             throw new Error("Not implemented");
         }
         whootPublish(

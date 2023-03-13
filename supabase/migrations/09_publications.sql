@@ -53,28 +53,28 @@ create table live_specs (
   spec                  json,
   spec_type             catalog_spec_type,
   writes_to             text[],
+  -- JSON specs are encoded into the database with leading spaces which must be trimmed to compute
+  -- an accurate md5.
+  md5                   text generated always as (md5(trim(spec::text))) stored,
 
   constraint "spec and spec_type must be consistent" check (
     json_typeof(spec) is distinct from 'null' and (spec is null) = (spec_type is null)
-  )
+  ),
+  unique (catalog_name)
 );
 alter table live_specs enable row level security;
 
--- text_pattern_ops enables the index to accelerate prefix lookups.
--- starts_with() is common when comparing to role_grants,
--- and we don't use ordering operators ( >, >=, <) on catalog_names.
--- See: https://www.postgresql.org/docs/current/indexes-opclass.html
-create unique index idx_live_specs_catalog_name on live_specs
-  (catalog_name text_pattern_ops);
+-- Index that accelerates operator ^@ (starts-with) for live_specs_ext view.
+create index idx_live_specs_catalog_name_spgist on live_specs using spgist ((catalog_name::text));
 
-create index idx_live_specs_spec_type on live_specs
-  (spec_type);
-
+create index idx_live_specs_spec_type on live_specs (spec_type);
 create index idx_live_specs_updated_at on live_specs (updated_at desc nulls last);
 
 create policy "Users must be read-authorized to the specification catalog name"
   on live_specs as permissive for select
-  using (auth_catalog(catalog_name, 'read'));
+  using (exists(
+    select 1 from auth_roles('read') r where catalog_name ^@ r.role_prefix
+  ));
 grant select on live_specs to authenticated;
 
 comment on table live_specs is

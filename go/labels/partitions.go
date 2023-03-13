@@ -13,28 +13,55 @@ import (
 // EncodePartitionValue appends an encoding of |value| into the
 // []byte slice, returning the result. Encoded values are suitable
 // for embedding within Journal names as well as label values.
+//
+// * String values append their URL query-encoding.
+// * Booleans append either %_true or %_false
+// * Integers append their base-10 encoding with a `%_` prefix, as in `%_-1234`.
+// * Null appends %_null.
+//
+// Note that types *other* than strings all use a common %_ prefix, which can
+// never be produced by a query-encoded string and thus allows for unambiguously
+// mapping a partition value back into its JSON value.
 func EncodePartitionValue(b []byte, value tuple.TupleElement) []byte {
 	switch v := value.(type) {
 	case nil:
-		return append(b, "null"...)
+		return append(b, `%_null`...)
 	case bool:
 		if v {
-			return append(b, "true"...)
+			return append(b, `%_true`...)
 		}
-		return append(b, "false"...)
+		return append(b, `%_false`...)
 	case uint64:
-		return strconv.AppendUint(b, v, 10)
+		return strconv.AppendUint(append(b, `%_`...), v, 10)
 	case int64:
-		return strconv.AppendInt(b, v, 10)
+		return strconv.AppendInt(append(b, `%_`...), v, 10)
 	case int:
-		return strconv.AppendInt(b, int64(v), 10)
+		return strconv.AppendInt(append(b, `%_`...), int64(v), 10)
 	case string:
 		// Label values have a pretty restrictive set of allowed non-letter
 		// or digit characters. Use URL query escapes to encode an arbitrary
 		// string value into a label-safe (and name-safe) representation.
-		return append(b, url.QueryEscape(v)...)
+		return append(b, strings.ReplaceAll(url.QueryEscape(v), "+", "%20")...)
 	default:
 		panic(fmt.Sprintf("invalid element type: %#v", value))
+	}
+}
+
+// DecodePartitionValue maps a partition value encoding produced by
+// EncodePartitionValue back into its dynamic TupleElement type.
+func DecodePartitionValue(value string) (tuple.TupleElement, error) {
+	if value == "%_null" {
+		return nil, nil
+	} else if value == "%_true" {
+		return true, nil
+	} else if value == "%_false" {
+		return false, nil
+	} else if strings.HasPrefix(value, "%_-") {
+		return strconv.ParseInt(value[2:], 10, 64)
+	} else if strings.HasPrefix(value, "%_") {
+		return strconv.ParseUint(value[2:], 10, 64)
+	} else {
+		return url.QueryUnescape(value)
 	}
 }
 
@@ -55,6 +82,22 @@ func EncodePartitionLabels(fields []string, values tuple.Tuple, set pf.LabelSet)
 		)
 	}
 	return set
+}
+
+// DecodePartitionLabels decodes |fields| from a |set| of labels,
+// returning a Tuple having the same size and order as |fields|.
+func DecodePartitionLabels(fields []string, set pf.LabelSet) (tuple.Tuple, error) {
+	var out tuple.Tuple
+	for _, field := range fields {
+		if value, err := valueOf(set, FieldPrefix+field); err != nil {
+			return nil, err
+		} else if elem, err := DecodePartitionValue(value); err != nil {
+			return nil, fmt.Errorf("decoding field %s value %q: %w", field, value, err)
+		} else {
+			out = append(out, elem)
+		}
+	}
+	return out, nil
 }
 
 // PartitionSuffix returns the Journal name suffix that's implied by the LabelSet.

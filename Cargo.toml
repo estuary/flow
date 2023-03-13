@@ -65,6 +65,7 @@ jemallocator = "0.3"
 jemalloc-ctl = "0.3"
 json-patch = "0.2"
 js-sys = "0.3.60"
+keyring = "1.2"
 lazy_static = "1.4"
 libc = "0.2"
 librocksdb-sys = { version = "6.20", default-features = false, features = [
@@ -74,6 +75,7 @@ librocksdb-sys = { version = "6.20", default-features = false, features = [
 lz4 = "1.24.0"
 mime = "0.3"
 memchr = "2.5"
+md5 = "0.7.0"
 num-bigint = "0.4"
 
 open = "3"
@@ -102,7 +104,7 @@ rocksdb = { version = "0.17", default-features = false, features = [
 ] }
 rkyv = { version = "0.7", features = ["archive_le"] }
 rpassword = "7.2"
-rusqlite = { version = "0.27", features = ["bundled-full"] }
+rusqlite = { version = "0.28", features = ["bundled-full"] }
 schemars = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0.85", features = ["raw_value"] }

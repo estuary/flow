@@ -1,4 +1,3 @@
-use super::Id;
 use sqlx::types::Uuid;
 
 pub async fn is_user_provisioned(
@@ -51,33 +50,22 @@ pub async fn tenant_exists(
     Ok(illegal.is_some() || exists.is_some())
 }
 
-// ProvisionedTenant is the shape of a provisioned tenant.
-#[derive(Debug)]
-pub struct ProvisionedTenant {
-    /// The id of the publication that will create the ops catalog for this tenant.
-    pub publication_id: Id,
-}
-
 pub async fn provision_tenant(
     accounts_user_email: &str,
     detail: Option<String>,
     tenant: &str,
     tenant_user_id: Uuid,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<ProvisionedTenant> {
+) -> sqlx::Result<()> {
     let prefix = format!("{tenant}/");
 
-    let provisioned = sqlx::query_as!(
-        ProvisionedTenant,
+    sqlx::query!(
         r#"with
         accounts_root_user as (
             -- Precondition: the accounts root user must exist.
             -- Use a sub-select to select either one match or an explicit null row,
             -- which will then fail a not-null constraint.
             select (select id from auth.users where email = $4 limit 1) as accounts_id
-        ),
-        create_tenant as (
-            insert into tenants (tenant, detail) values ($2, $3)
         ),
         grant_user_admin_to_tenant as (
             insert into user_grants (user_id, object_role, capability, detail) values
@@ -86,9 +74,8 @@ pub async fn provision_tenant(
         ),
         grant_to_tenant as (
             insert into role_grants (subject_role, object_role, capability, detail) values
-                ($2, $2, 'write', $3),              -- Tenant specs may write to other tenant specs.
-                ($2, 'ops/' || $2, 'read', $3),     -- Tenant may read `ops/$tenant/...` collections.
-                ($2, 'estuary/public/', 'read', $3) -- Tenant may read `estuary/pubic/` collections.
+                ($2, $2, 'write', $3),      -- Tenant specs may write to other tenant specs.
+                ($2, 'demo/', 'read', $3)   -- Tenant may read `demo/` collections.
             on conflict do nothing
         ),
         create_storage_mappings as (
@@ -97,26 +84,15 @@ pub async fn provision_tenant(
                 ('recovery/' || $2, '{"stores": [{"provider": "GCS", "bucket": "estuary-trial"}]}', $3)
             on conflict do nothing
         )
-        select internal.create_ops_publication($2, accounts_id) as "publication_id!: Id" from accounts_root_user;
+        insert into tenants (tenant, detail) values ($2, $3);
         "#,
         tenant_user_id as Uuid,
         &prefix as &str,
         detail.clone() as Option<String>,
         accounts_user_email as &str,
     )
-    .fetch_one(&mut *txn)
-    .await?;
-
-    // Create partition of catalog_stats which will home all stats of the tenant. We allow for the
-    // possibility of a stats partition for the tenant already existing.
-    sqlx::query(&format!(
-        r#"
-        create table if not exists catalog_stat_partitions."{tenant}_stats"
-            partition of public.catalog_stats for values in ('{prefix}');
-        "#
-    ))
     .execute(&mut *txn)
     .await?;
 
-    Ok(provisioned)
+    Ok(())
 }

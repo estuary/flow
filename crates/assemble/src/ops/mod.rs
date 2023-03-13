@@ -4,7 +4,6 @@
 use models;
 use proto_flow::flow;
 use serde_json::{value::RawValue, Value};
-use std::collections::BTreeSet;
 use url::Url;
 
 struct GeneratedSchema {
@@ -24,10 +23,9 @@ macro_rules! gen_schema {
 /// Adds ops collections to the given partial built catalog. The tables will be modified in place
 /// to add the resources required for the ops (logs and stats) collections.
 pub fn generate_ops_collections(tables: &mut tables::Sources) {
-    let prefixes = all_top_level_prefixes(&*tables);
-    let shard_schema = gen_schema!("ops-shard-schema.json");
-    let stats_schema = gen_schema!("ops-stats-schema.json");
-    let log_schema = gen_schema!("ops-log-schema.json");
+    let shard_schema = gen_schema!("../../../../ops-catalog/ops-shard-schema.json");
+    let stats_schema = gen_schema!("../../../../ops-catalog/ops-stats-schema.json");
+    let log_schema = gen_schema!("../../../../ops-catalog/ops-log-schema.json");
 
     for schema in &[&shard_schema, &stats_schema, &log_schema] {
         tables.resources.insert_row(
@@ -51,9 +49,12 @@ pub fn generate_ops_collections(tables: &mut tables::Sources) {
         .insert_row(&log_schema.url, &log_schema.url, &shard_schema.url);
 
     let mut added_any_collection = false;
-    for prefix in prefixes {
-        let logs_collection_name = format!("ops/{}/logs", &prefix);
-        let stats_collection_name = format!("ops/{}/stats", &prefix);
+    if !tables.captures.is_empty()
+        || !tables.materializations.is_empty()
+        || !tables.derivations.is_empty()
+    {
+        let logs_collection_name = format!("ops.us-central1.v1/logs");
+        let stats_collection_name = format!("ops.us-central1.v1/stats");
 
         if !has_collection(&*tables, &logs_collection_name) {
             add_ops_collection(logs_collection_name, log_schema.url.clone(), tables);
@@ -149,31 +150,6 @@ fn add_ops_collection(name: String, schema_url: Url, tables: &mut tables::Source
     )
 }
 
-fn all_top_level_prefixes(tables: &tables::Sources) -> BTreeSet<String> {
-    let mut prefixes = BTreeSet::new();
-    let captures = tables.captures.iter().map(|c| c.capture.as_str());
-    let derivations = tables.derivations.iter().map(|d| d.derivation.as_str());
-    let materializations = tables
-        .materializations
-        .iter()
-        .map(|m| m.materialization.as_str());
-    let iter = captures.chain(derivations).chain(materializations);
-    for name in iter {
-        let tenant = first_path_component(name);
-        if !prefixes.contains(tenant) {
-            prefixes.insert(tenant.to_string());
-        }
-    }
-    prefixes
-}
-
-fn first_path_component(task_name: &str) -> &str {
-    match task_name.split_once('/') {
-        Some((first, _)) => first,
-        None => task_name,
-    }
-}
-
 fn builtin_url(name: &str) -> Url {
     Url::parse(&format!("builtin://flow/{}", name)).unwrap()
 }
@@ -249,7 +225,7 @@ mod test {
         };
         tables.collections.insert_row(
             dummy_url,
-            models::Collection::new("ops/acmeCo/logs"),
+            models::Collection::new("ops.test-dataplane/logs"),
             spec,
             &schema_url,
             &schema_url,

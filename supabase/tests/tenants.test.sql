@@ -13,8 +13,7 @@ begin
   insert into tenants (tenant) values ('aliceCo/'), ('bobCo/');
 
   -- Drop priviledge to `authenticated` and authorize as Alice.
-  set role authenticated;
-  set request.jwt.claim.sub to '11111111-1111-1111-1111-111111111111';
+  perform set_authenticated_context('11111111-1111-1111-1111-111111111111');
 
   return query select results_eq(
     $i$ select tenant::text from tenants $i$,

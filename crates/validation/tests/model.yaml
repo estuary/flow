@@ -194,6 +194,9 @@ test://example/int-halve:
         Len:
           location: /len
           partition: true
+        TheString:
+          location: /partitionString
+          partition: true
         # Not directly discovered from schema,
         # and instead inferred via additionalProperties.
         Extra: /extra
@@ -220,7 +223,7 @@ test://example/int-halve:
             shuffle:
               # Note that /len is defined in int-string-rw's readSchema,
               # but not its writeSchema.
-              key: [/len, /int]
+              key: [/len, /str]
             update:
               lambda:
                 remote: https://an/api
@@ -229,7 +232,8 @@ test://example/int-halve:
             source:
               name: testing/int-halve
             shuffle:
-              key: [/len, /int]
+              # Shuffle key is fully covered by logical partition fields.
+              key: [/len, /partitionString]
             publish: { lambda: typescript }
         shards:
           disable: true
@@ -262,6 +266,7 @@ test://example/int-string-len.schema:
     len: { type: integer }
     int: {}
     str: {}
+    partitionString: { type: string }
     bit: {}
     arr:
       type: array
@@ -269,7 +274,7 @@ test://example/int-string-len.schema:
         $ref: ../int-string.schema#AnAnchor
   additionalProperties:
     type: boolean
-  required: [len]
+  required: [len, partitionString]
 
   $defs:
     otherAnchor:
@@ -277,6 +282,23 @@ test://example/int-string-len.schema:
       type: integer
 
 driver:
+  imageInspections:
+    s3:
+      output: &imageInspect '[{
+          "Id": "foo",
+          "Config":{
+            "ExposedPorts": {"567/tcp":{}, "123/udp": {}, "789":{} },
+            "Labels":{"dev.estuary.port-public.567":"true","dev.estuary.port-proto.789":"h2"}
+          }
+        }]'
+    database:
+      output: *imageInspect
+    # documenting the absolute minimal valid output from `docker inspect` that we're able to accept
+    database/image:
+      output: '[{"Config":{}}]'
+    webhook/connector:
+      output: *imageInspect
+
   materializations:
     testing/webhook/deliveries:
       endpoint: FLOW_SINK
@@ -379,13 +401,32 @@ test://example/from-array-key:
       key: [/someKey]
 
       derivation:
+        register:
+          schema:
+            type: object
+            properties:
+              an-int: { type: integer }
+              nested:
+                type: object
+                properties:
+                  timestamp:
+                    type: string
+                    format: date-time
+            required: [an-int, nested]
+          initial: { an-int: 42, nested: { timestamp: "2019-03-06T09:28:00Z" } }
         transform:
           # The shuffle keys of these transforms become projections
           # of the read collection.
           withBar:
             source: { name: testing/array-key }
             shuffle: { key: [/arr/2/aKey] }
-            publish: { lambda: { remote: https://an/api } }
+            update:
+              lambda:
+                sql: select aKeyOne as "an-int", json_object('timestamp', strftime('%Y-%m-%dT%H:%M:%SZ')) as two from source
+            publish:
+              lambda:
+                sql: |
+                  select s.aKeyOne, s.arr, s."arr/0/aKey", r."an-int", r."nested/timestamp" from source as s, register as r
 
           withFoo:
             source: { name: testing/array-key }

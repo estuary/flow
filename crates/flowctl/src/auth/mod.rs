@@ -47,6 +47,21 @@ pub enum Command {
     /// Unlike 'read' or 'write', the subject of an 'admin' grant also inherits
     /// capabilities granted to the object role from still-other roles.
     Roles(roles::Roles),
+
+    /// Fetches and prints an auth token that can be used to access a Flow data plane.
+    ///
+    /// The returned token can be used to access the Flow data plane with 3rd party tools.
+    /// For example, you can use curl to access a private port of a running task by running:
+    /// ```ignore
+    /// curl -H "Authorization: Bearer $(flowctl auth data-plane-access-token --prefix myTenant/)" https://myPort.myHost.data-plane.example/
+    /// ```
+    DataPlaneAccessToken(DataPlaneAccessToken),
+}
+
+#[derive(Debug, clap::Args)]
+pub struct DataPlaneAccessToken {
+    #[clap(long, required = true)]
+    prefix: Vec<String>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -61,11 +76,12 @@ impl Auth {
         match &self.cmd {
             Command::Login => do_login(ctx).await,
             Command::Token(Token { token }) => {
-                controlplane::configure_new_access_token(ctx, token.clone())?;
+                controlplane::configure_new_access_token(ctx, token.clone()).await?;
                 println!("Configured access token.");
                 Ok(())
             }
             Command::Roles(roles) => roles.run(ctx).await,
+            Command::DataPlaneAccessToken(args) => do_data_plane_access_token(ctx, args).await,
         }
     }
 }
@@ -85,7 +101,7 @@ async fn do_login(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
             .context("failed to read auth token")?;
         // copied credentials will often accidentally contain extra whitespace characters
         let token = token.trim().to_string();
-        ctx.config_mut().set_access_token(token);
+        controlplane::configure_new_access_token(ctx, token).await?;
         println!("\nConfigured access token.");
         Ok(())
     } else {
@@ -97,4 +113,15 @@ async fn do_login(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
             by running `flowctl auth token --token <paste-token-here>`"
         );
     }
+}
+
+async fn do_data_plane_access_token(
+    ctx: &mut crate::CliContext,
+    args: &DataPlaneAccessToken,
+) -> anyhow::Result<()> {
+    let client = ctx.controlplane_client().await?;
+    let access =
+        crate::dataplane::fetch_data_plane_access_token(client, args.prefix.clone()).await?;
+    println!("{}", access.auth_token);
+    Ok(())
 }

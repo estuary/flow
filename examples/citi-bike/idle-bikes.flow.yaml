@@ -28,16 +28,19 @@ collections:
           source:
             name: examples/citi-bike/rides
           shuffle: { key: [/bike_id] }
-          update: { lambda: typescript }
+          update:
+            lambda:
+              sql: select "end/timestamp" as flow_document from source
 
         delayedRides:
           source:
             name: examples/citi-bike/rides
-          shuffle: { key:  [/bike_id] }
+          shuffle: { key: [/bike_id] }
           # Use a 2-day read delay, relative to the document's ingestion.
           # To see read delays in action within a short-lived
           # testing contexts, try using a smaller value (e.g., 2m).
           readDelay: "48h"
-          publish: { lambda: typescript }
-      typescript:
-        module: idle-bikes.flow.ts
+          publish:
+            lambda:
+              sql: |
+                select s.bike_id, s.end as station from source s, register r where r.value = s."end/timestamp"

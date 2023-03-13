@@ -139,6 +139,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		)
 	}
 
+	var configHandle = m.host.NetworkProxyServer.NetworkConfigHandle(m.shardSpec.Id, m.labels.Ports)
 	// Start driver and Transactions RPC client.
 	m.driver, err = connector.NewDriver(
 		shard.Context(),
@@ -146,6 +147,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		m.spec.EndpointType,
 		m.opsPublisher,
 		m.host.Config.Flow.Network,
+		configHandle,
 	)
 	if err != nil {
 		return pf.Checkpoint{}, fmt.Errorf("building endpoint driver: %w", err)
@@ -216,8 +218,8 @@ func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFo
 	return opAcknowledged
 }
 
-func (m *Materialize) materializationStats(statsPerBinding []*pf.CombineAPI_Stats) StatsEvent {
-	var stats = make(map[string]MaterializeBindingStats)
+func (m *Materialize) materializationStats(statsPerBinding []*pf.CombineAPI_Stats) ops.StatsEvent {
+	var stats = make(map[string]ops.MaterializeBindingStats)
 	for i, bindingStats := range statsPerBinding {
 		// Skip bindings that didn't participate
 		if bindingStats == nil {
@@ -227,10 +229,10 @@ func (m *Materialize) materializationStats(statsPerBinding []*pf.CombineAPI_Stat
 		// It's possible for multiple bindings to use the same collection, in which case the
 		// stats should be summed.
 		var prevStats = stats[name]
-		stats[name] = MaterializeBindingStats{
-			Left:  prevStats.Left.with(bindingStats.Left),
-			Right: prevStats.Right.with(bindingStats.Right),
-			Out:   prevStats.Out.with(bindingStats.Out),
+		stats[name] = ops.MaterializeBindingStats{
+			Left:  prevStats.Left.With(bindingStats.Left),
+			Right: prevStats.Right.With(bindingStats.Right),
+			Out:   prevStats.Out.With(bindingStats.Out),
 		}
 	}
 	var event = m.NewStatsEvent()

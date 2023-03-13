@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/labels"
+	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 )
@@ -53,17 +54,17 @@ func TestMaterializationStats(t *testing.T) {
 	}
 	var actual = subject.materializationStats(input)
 	assertEventMeta(t, actual, &materializationSpec, "materialization")
-	var expected = map[string]MaterializeBindingStats{
+	var expected = map[string]ops.MaterializeBindingStats{
 		"test/collectionA": {
-			Left: DocsAndBytes{
+			Left: ops.DocsAndBytes{
 				Docs:  3,
 				Bytes: 3333,
 			},
-			Right: DocsAndBytes{
+			Right: ops.DocsAndBytes{
 				Docs:  2,
 				Bytes: 2222,
 			},
-			Out: DocsAndBytes{
+			Out: ops.DocsAndBytes{
 				Docs:  4,
 				Bytes: 4444,
 			},
@@ -105,17 +106,17 @@ func TestMaterializationStats(t *testing.T) {
 	}
 	actual = subject.materializationStats(input)
 	assertEventMeta(t, actual, &materializationSpec, "materialization")
-	expected = map[string]MaterializeBindingStats{
+	expected = map[string]ops.MaterializeBindingStats{
 		"test/collectionA": {
-			Left: DocsAndBytes{
+			Left: ops.DocsAndBytes{
 				Docs:  5,
 				Bytes: 5555,
 			},
-			Right: DocsAndBytes{
+			Right: ops.DocsAndBytes{
 				Docs:  7,
 				Bytes: 7777,
 			},
-			Out: DocsAndBytes{
+			Out: ops.DocsAndBytes{
 				Docs:  9,
 				Bytes: 9999,
 			},
@@ -136,7 +137,7 @@ func testTxnStartTime() time.Time {
 	return ts
 }
 
-func assertEventMeta(t *testing.T, event StatsEvent, task pf.Task, expectKind string) {
+func assertEventMeta(t *testing.T, event ops.StatsEvent, task pf.Task, expectKind string) {
 	require.Equal(t, task.TaskName(), event.Shard.Name)
 	require.Equal(t, expectKind, event.Shard.Kind)
 	require.Equal(t, "00000000", event.Shard.KeyBegin)

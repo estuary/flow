@@ -255,7 +255,6 @@ ${PKGDIR}/bin/flowctl: ${RUSTBIN}/flowctl | ${PKGDIR}
 ${PKGDIR}/bin/agent: ${RUSTBIN}/agent | ${PKGDIR}
 	cp ${RUSTBIN}/agent $@
 
-
 ##########################################################################
 # Make targets used by CI:
 

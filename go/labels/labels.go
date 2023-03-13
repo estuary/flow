@@ -62,6 +62,18 @@ const (
 	SplitSource = "estuary.dev/split-source"
 	// LogLevel is the desired log level for publishing logs related to the catalog task.
 	LogLevel = "estuary.dev/log-level"
+
+	Hostname = "estuary.dev/hostname"
+
+	// ExposePort is the label key that is used to identify ports to be exposed by the container.
+	// The values must be non-zero unsigned 16 bit integers. There may be multiple values for
+	// this label, and all of them will be exposed. Each exposed port number may optionally
+	// also specify a protocol or public visibility by specifying the respective label prefix,
+	// suffixed by the port number. For example, `estuary.dev/port-proto/1883=mqtt` or
+	// `estuary.dev/port-public/1883=true`.
+	ExposePort       = "estuary.dev/expose-port"
+	PortProtoPrefix  = "estuary.dev/port-proto/"
+	PortPublicPrefix = "estuary.dev/port-public/"
 )
 
 // A re-exported subset of Gazette labels, defined in go.gazette.dev/core/labels/labels.go.

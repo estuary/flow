@@ -86,6 +86,9 @@ create table user_grants (
 );
 alter table user_grants enable row level security;
 
+-- Index that accelerates operator ^@ (starts-with) for combined_grants_ext view.
+create index idx_user_grants_object_role_spgist on user_grants using spgist ((object_role::text));
+
 comment on table user_grants is
   'Roles and capabilities that the user has been granted';
 comment on column user_grants.user_id is
@@ -102,16 +105,15 @@ create table role_grants (
 
   subject_role catalog_prefix   not null,
   object_role  catalog_prefix   not null,
-  capability   grant_capability not null
+  capability   grant_capability not null,
+
+  unique(subject_role, object_role)
 );
 alter table role_grants enable row level security;
 
--- text_pattern_ops enables the index to accelerate prefix lookups.
--- starts_with() is common when searching role_grants and we don't use
--- ordering operators ( >, >=, <) on subject or object roles.
--- See: https://www.postgresql.org/docs/current/indexes-opclass.html
-create unique index idx_role_grants_sub_obj on role_grants
-  (subject_role text_pattern_ops, object_role text_pattern_ops);
+-- Index that accelerates operator ^@ (starts-with) for internal.auth_roles() and combined_grants_ext.
+create index idx_role_grants_subject_role_spgist on role_grants using spgist ((subject_role::text));
+create index idx_role_grants_object_role_spgist on role_grants using spgist ((object_role::text));
 
 comment on table role_grants is
   'Roles and capabilities that roles have been granted to other roles';
@@ -123,74 +125,88 @@ comment on column role_grants.capability is
   'Capability which is granted to the subject role';
 
 
-create function internal.user_roles(target_user_id uuid)
+create function internal.user_roles(
+  target_user_id uuid,
+  min_capability grant_capability default 'x_00'
+)
 returns table (role_prefix catalog_prefix, capability grant_capability) as $$
 
   with recursive
   all_roles(role_prefix, capability) as (
       select object_role, capability from user_grants
       where user_id = target_user_id
+        and capability >= min_capability
     union
       -- Recursive case: for each object_role granted as 'admin',
       -- project through grants where object_role acts as the subject_role.
       select role_grants.object_role, role_grants.capability
       from role_grants, all_roles
-      where starts_with(role_grants.subject_role, all_roles.role_prefix)
+      where role_grants.subject_role ^@ all_roles.role_prefix
+        and role_grants.capability >= min_capability
         and all_roles.capability = 'admin'
   )
-  select role_prefix, capability from all_roles;
+  select role_prefix, max(capability) from all_roles
+  group by role_prefix
+  order by role_prefix;
 
-$$ language sql stable security definer;
+$$ language sql stable;
 
 
-create function auth_roles()
+create function auth_roles(min_capability grant_capability default 'x_00')
 returns table (role_prefix catalog_prefix, capability grant_capability) as $$
-  select role_prefix, capability from internal.user_roles(auth_uid())
+  select role_prefix, capability from internal.user_roles(auth_uid(), min_capability)
 $$ language sql stable security definer;
 comment on function auth_roles is
   'auth_roles returns all roles and associated capabilities of the user';
 
 
-create function auth_catalog(name_or_prefix text, min_cap grant_capability)
-returns boolean as $$
-  select exists(
-    select 1 from auth_roles() r
-    where starts_with(name_or_prefix, r.role_prefix) and r.capability >= min_cap
-  )
-$$ language sql stable;
-comment on function auth_catalog is
-  'auth_catalog returns true if the user has at least `min_cap` capability to the desired catalog `name_or_prefix`';
-
-
 -- Policy permissions for user_grants.
 create policy "Users select user grants they admin or are the subject"
   on user_grants as permissive for select
-  using (auth_catalog(object_role, 'admin') or user_id = auth.uid());
+  using (exists(
+    select 1 from auth_roles('admin') r where object_role ^@ r.role_prefix
+  ) or user_id = auth.uid());
 create policy "Users insert user grants they admin"
   on user_grants as permissive for insert
-  with check (auth_catalog(object_role, 'admin'));
+  with check (exists(
+    select 1 from auth_roles('admin') r where object_role ^@ r.role_prefix
+  ));
 create policy "Users update user grants they admin"
   on user_grants as permissive for update
-  using (auth_catalog(object_role, 'admin'));
+  using (exists(
+    select 1 from auth_roles('admin') r where object_role ^@ r.role_prefix
+  ));
 create policy "Users delete user grants they admin or are the subject"
   on user_grants as permissive for delete
-  using (auth_catalog(object_role, 'admin') or user_id = auth.uid());
+  using (exists(
+    select 1 from auth_roles('admin') r where object_role ^@ r.role_prefix
+  ) or user_id = auth.uid());
 
 grant all on user_grants to authenticated;
 
 
 -- Policy permissions for role_grants.
-create policy "Users select role grants they recieve or admin the object"
+create policy "Users select role grants where they admin the subject or object"
   on role_grants as permissive for select
-  using (auth_catalog(object_role, 'admin') or auth_catalog(subject_role, 'x_00'));
+  using (exists(
+    select 1 from auth_roles('admin') r
+    where (object_role ^@ r.role_prefix or subject_role ^@ r.role_prefix)
+  ));
 create policy "Users insert role grants where they admin the object"
   on role_grants as permissive for insert
-  with check (auth_catalog(object_role, 'admin'));
+  with check (exists(
+    select 1 from auth_roles('admin') r where object_role ^@ r.role_prefix
+  ));
 create policy "Users update role grants where they admin the object"
   on role_grants as permissive for update
-  using (auth_catalog(object_role, 'admin'));
+  using (exists(
+    select 1 from auth_roles('admin') r where object_role ^@ r.role_prefix
+  ));
 create policy "Users delete role grants where they admin the object or subject"
   on role_grants as permissive for delete
-  using (auth_catalog(object_role, 'admin') or auth_catalog(subject_role, 'admin'));
+  using (exists(
+    select 1 from auth_roles('admin') r
+    where (object_role ^@ r.role_prefix or subject_role ^@ r.role_prefix)
+  ));
 
 grant all on role_grants to authenticated;

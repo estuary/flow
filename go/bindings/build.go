@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os/exec"
 	"strings"
 
 	"github.com/estuary/flow/go/connector"
@@ -182,7 +183,31 @@ func BuildCatalog(args BuildArgs) error {
 				}
 				return out, err
 			},
-		})
+		},
+		trampolineHandler{
+			taskCode: uint32(pf.BuildAPI_TRAMPOLINE_DOCKER_INSPECT),
+			decode: func(request []byte) (interface{}, error) {
+				return string(request), nil
+			},
+			exec: func(ctx context.Context, i interface{}) ([]byte, error) {
+				var image = i.(string)
+				// We first need to pull the image, since it may not be available locally
+				if err := connector.PullImage(ctx, image); err != nil {
+					return nil, fmt.Errorf("pulling image: '%s': %w", image, err)
+				}
+
+				var cmd = exec.Command("docker", "inspect", image)
+				var result, err = cmd.Output()
+				if err != nil {
+					return nil, fmt.Errorf("invoking docker inspect: %w", err)
+				}
+
+				var out = make([]byte, taskResponseHeader+len(result))
+				copy(out[taskResponseHeader:], result)
+				return out, nil
+			},
+		},
+	)
 	defer trampoline.stop()
 
 	// mayPoll tracks whether we've resolved tasks since our last poll.

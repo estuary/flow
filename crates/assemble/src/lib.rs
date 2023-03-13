@@ -252,6 +252,17 @@ pub fn shard_id_base(task_name: &str, task_type: &str) -> String {
     format!("{}/{}", task_type, task_name)
 }
 
+/// Represents additional configuration about an exposed port.
+#[derive(Default)]
+pub struct PortConfig {
+    pub protocol: Option<String>,
+    pub public: bool,
+}
+
+/// Represents network ports that are meant to be exposed by the container of a running shard.
+/// An empty map indicates that no ports should be exposed.
+pub type PortMap = std::collections::BTreeMap<u16, PortConfig>;
+
 // shard_template returns a template ShardSpec for creating or updating
 // shards of the task.
 pub fn shard_template(
@@ -260,6 +271,7 @@ pub fn shard_template(
     task_type: &str,
     shard: &models::ShardTemplate,
     disable_wait_for_ack: bool,
+    ports: PortMap,
 ) -> consumer::ShardSpec {
     let models::ShardTemplate {
         disable,
@@ -291,8 +303,7 @@ pub fn shard_template(
     // If not set, the default read channel size is 128k.
     let read_channel_size = read_channel_size.unwrap_or(1 << 17);
 
-    // Labels must be in alphabetical order.
-    let labels = vec![
+    let mut labels = vec![
         broker::Label {
             name: labels::MANAGED_BY.to_string(),
             value: labels::MANAGED_BY_FLOW.to_string(),
@@ -315,6 +326,37 @@ pub fn shard_template(
         },
     ];
 
+    // Only add a hostname if the task actually exposes any ports.
+    if !ports.is_empty() {
+        labels.push(broker::Label {
+            name: labels::HOSTNAME.to_string(),
+            value: shard_hostname_label(task_name),
+        });
+    }
+    for (port_num, port_config) in ports {
+        // labels are a multiset, so we use the same label for all exposed port numbers.
+        labels.push(broker::Label {
+            name: labels::EXPOSE_PORT.to_string(),
+            value: port_num.to_string(),
+        });
+
+        // Only add these labels if they differ from the defaults
+        if port_config.public {
+            labels.push(broker::Label {
+                name: format!("{}{}", labels::PORT_PUBLIC_PREFIX, port_num),
+                value: "true".to_string(),
+            });
+        }
+        if let Some(proto) = port_config.protocol {
+            labels.push(broker::Label {
+                name: format!("{}{}", labels::PORT_PROTO_PREFIX, port_num),
+                value: proto,
+            });
+        }
+    }
+    // Labels must be in lexicographic order.
+    labels.sort_by(|l, r| l.name.cmp(&r.name));
+
     consumer::ShardSpec {
         id: shard_id_base(task_name, task_type),
         disable: *disable,
@@ -330,6 +372,17 @@ pub fn shard_template(
         ring_buffer_size,
         sources: Vec::new(),
     }
+}
+
+/// This function supplies a domain name label that identifies _all_ shards for a given task.
+/// To do this, we just hash the task name and convert it to a hexidecimal string.
+/// It's a bit janky, but the only idea I've liked better is pet-names, which we
+/// don't have yet. This also has the property of being pretty short (16 chars),
+/// which is nice because it leaves a little more headroom for other labels in the
+/// the full hostname.
+fn shard_hostname_label(task_name: &str) -> String {
+    let hash = fxhash::hash64(task_name);
+    format!("{:x}", hash)
 }
 
 pub fn collection_spec(
@@ -411,40 +464,31 @@ pub fn journal_selector(
     }
 }
 
-/// The set of characters that must be percent-encoded when used as a URL path segment. This set
-/// matches the set of characters that must be percent encoded according to [RFC 3986 Section
-/// 3.3](https://datatracker.ietf.org/doc/html/rfc3986#section-3.3) This also matches the rules
-/// that are used in Go to encode partition fields.
-const PATH_SEGMENT_SET: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
-    .remove(b'-')
-    .remove(b'_')
-    .remove(b'.')
-    .remove(b'~')
-    .remove(b'$')
-    .remove(b'&')
-    .remove(b'+')
-    .remove(b':')
-    .remove(b'=')
-    .remove(b'@');
-
 /// Percent-encodes string values so that they can be used in Gazette label values.
 pub fn percent_encode_partition_value(s: &str) -> String {
-    percent_encoding::utf8_percent_encode(s, PATH_SEGMENT_SET).to_string()
+    // The set of characters that must be percent-encoded when used in partition
+    // values. It's nearly everything, aside from a few special cases.
+    const SET: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
+        .remove(b'-')
+        .remove(b'_')
+        .remove(b'.');
+    percent_encoding::utf8_percent_encode(s, SET).to_string()
 }
 
 // Flatten partition selector fields into a Vec<Label>.
 // JSON strings are percent-encoded but un-quoted.
-// Other JSON types map to their literal JSON strings.
+// Other JSON types map to their literal JSON strings prefixed with `%_`,
+// which is a production that percent-encoding will never produce.
 // *** This MUST match the Go-side behavior! ***
 fn push_partitions(fields: &BTreeMap<String, Vec<Value>>, out: &mut Vec<broker::Label>) {
     for (field, value) in fields {
         for value in value {
             let value = match value {
                 Value::String(s) => percent_encode_partition_value(s),
-                _ => serde_json::to_string(value).unwrap(),
+                _ => format!("%_{}", value),
             };
             out.push(broker::Label {
-                name: format!("estuary.dev/field/{}", field),
+                name: format!("{}{}", labels::FIELD_PREFIX, field),
                 value,
             });
         }
@@ -463,6 +507,10 @@ fn lambda_spec(
         },
         models::Lambda::Remote(addr) => flow::LambdaSpec {
             remote: addr.clone(),
+            ..Default::default()
+        },
+        models::Lambda::Sql(statement) => flow::LambdaSpec {
+            sqlite: statement.clone(),
             ..Default::default()
         },
     }
@@ -518,6 +566,19 @@ pub fn transform_spec(
         None => (true, source.key_ptrs.clone(), None),
     };
 
+    // Identify partition fields that cover the shuffle key, if there is one.
+    let shuffle_key_partition_fields = shuffle_key_ptrs
+        .iter()
+        .map(|ptr| {
+            source
+                .projections
+                .iter()
+                .find(|p| p.is_partition_key && p.ptr == *ptr)
+                .map(|p| p.field.clone())
+        })
+        .collect::<Option<Vec<_>>>()
+        .unwrap_or_default();
+
     let shuffle = flow::Shuffle {
         group_name: transform_group_name(transform),
         source_collection: source.collection.clone(),
@@ -527,9 +588,9 @@ pub fn transform_spec(
         )),
         source_uuid_ptr: source.uuid_ptr.clone(),
         shuffle_key_ptrs,
+        shuffle_key_partition_fields,
         uses_source_key,
         shuffle_lambda,
-        deprecated_source_schema_uri: source.read_schema_uri.clone(),
         filter_r_clocks: update.is_none(),
         read_delay_seconds: read_delay.map(|d| d.as_secs() as u32).unwrap_or(0),
         priority: *priority,
@@ -546,6 +607,7 @@ pub fn transform_spec(
         publish_lambda: publish
             .as_ref()
             .map(|publish| lambda_spec(&publish.lambda, transform, "Publish")),
+        collection: Some(source.clone()),
     }
 }
 
@@ -556,6 +618,7 @@ pub fn derivation_spec(
     mut transforms: Vec<flow::TransformSpec>,
     recovery_stores: &[models::Store],
     register_schema_bundle: &serde_json::Value,
+    register_projections: Vec<flow::Projection>,
 ) -> flow::DerivationSpec {
     let tables::Derivation {
         scope: _,
@@ -590,6 +653,7 @@ pub fn derivation_spec(
         register_schema_uri: register_schema.to_string(),
         register_schema_json: register_schema_bundle.to_string(),
         register_initial_json: register_initial.to_string(),
+        register_projections,
         recovery_log_template: Some(recovery_log_template(
             build_config,
             name,
@@ -602,6 +666,7 @@ pub fn derivation_spec(
             labels::TASK_TYPE_DERIVATION,
             shards,
             disable_wait_for_ack,
+            PortMap::new(), // we aren't yet able to expose network ports for derivations
         )),
     }
 }
@@ -668,9 +733,9 @@ pub fn materialization_shuffle(
         source_uuid_ptr: source.uuid_ptr.clone(),
         // Materializations always group by the collection's key.
         shuffle_key_ptrs: source.key_ptrs.clone(),
+        shuffle_key_partition_fields: Vec::new(),
         uses_source_key: true,
         shuffle_lambda: None,
-        deprecated_source_schema_uri: source.read_schema_uri.clone(),
         // At all times, a given collection key must be exclusively owned by
         // a single materialization shard. Therefore we only subdivide
         // materialization shards on key, never on r-clock.
@@ -841,15 +906,42 @@ mod test {
     fn journal_selector_percent_encodes_values() {
         let mut include = BTreeMap::new();
         let mut exclude = BTreeMap::new();
+
+        include.insert("null".to_string(), vec![Value::Null]);
         include.insert(
-            String::from("foo"),
-            vec!["some/val-ue".into(), "a_whole:nother".into()],
+            "bool".to_string(),
+            vec![Value::Bool(true), Value::Bool(false)],
         );
         include.insert(
-            String::from("bar"),
-            vec![Value::from(123), Value::from(true)],
+            "integers".to_string(),
+            vec![
+                Value::from(123),
+                Value::from(i64::MIN),
+                Value::from(i64::MAX),
+                Value::from(u64::MAX),
+            ],
         );
-        exclude.insert(String::from("foo"), vec!["no&no@no$yes();".into()]);
+        include.insert(
+            String::from("strings"),
+            vec![
+                "simple".into(),
+                "hello, world!".into(),
+                "Baz!@\"Bing\"".into(),
+                "no.no&no-no@no$yes_yes();".into(),
+                "http://example/path?q1=v1&q2=v2;ex%20tra".into(),
+            ],
+        );
+        exclude.insert(
+            "naughty-strings".to_string(),
+            vec![
+                "null".into(),
+                "%_null".into(),
+                "123".into(),
+                "-456".into(),
+                "true".into(),
+                "false".into(),
+            ],
+        );
 
         let selector = models::PartitionSelector { include, exclude };
         let collection = models::Collection::new("the/collection");

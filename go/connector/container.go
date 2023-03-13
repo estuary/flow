@@ -18,6 +18,13 @@ import (
 	"google.golang.org/grpc"
 )
 
+// Port on which connector-init listens for requests.
+// This is the default, made explicit here.
+// This number was chosen because it seemed unlikely that a connector would try to use it.
+// The main thing is that we want to avoid any common port numbers, to avoid conflicts with
+// connectors.
+const CONNECTOR_INIT_PORT uint16 = 49092
+
 // Container is a connector running as a linux container.
 type Container struct {
 	cmd *exec.Cmd
@@ -32,6 +39,20 @@ type Container struct {
 	tmpProxy, tmpInspect *os.File
 	// waitCh receives the final result of an ongoing cmd.Wait.
 	waitCh chan error
+}
+
+// ExposePorts is a handle to a network configuration process that can expose
+// the ports for a running container. This is currently done by `runtime.ProxyServer`,
+// which proxies traffic throught the `grpc.ClientConn` to the container.
+type ExposePorts interface {
+	// Ports returns a map of named ports that should be exposed in the container.
+	// This is currently unused, but is left here because it seems likely
+	// Ports() map[uint16]*labels.PortConfig
+	// Starts exposing the ports returned by `Ports`.
+	Expose(*grpc.ClientConn, ops.Publisher)
+	// Stops exposing the ports. This function must be safe to call
+	// at any time (though at most once), even if `Expose` has never been called.
+	Unexpose()
 }
 
 // StartContainer starts a container of the specified connector image.
@@ -49,6 +70,7 @@ func StartContainer(
 	image string,
 	network string,
 	publisher ops.Publisher,
+	exposePorts ExposePorts,
 ) (*Container, error) {
 	// Don't undertake expensive operations if we're already shutting down.
 	if err := ctx.Err(); err != nil {
@@ -94,9 +116,6 @@ func StartContainer(
 		network = "bridge"
 	}
 
-	// Port on which connector-init listens for requests.
-	// This is the default, made explicit here.
-	const portInit = 8080
 	// Mapped and published connector-init port accessible from the host.
 	var portHost, err = GetFreePort()
 	if err != nil {
@@ -119,7 +138,7 @@ func StartContainer(
 		"--mount", fmt.Sprintf("type=bind,source=%s,target=/image-inspect.json", tmpInspect.Name()),
 		// Publish the flow-connector-init port through to a mapped host port.
 		// We use 0.0.0.0 instead of 127.0.0.1 for compatibility with GitHub CodeSpaces.
-		"--publish", fmt.Sprintf("0.0.0.0:%d:%d/tcp", portHost, portInit),
+		"--publish", fmt.Sprintf("0.0.0.0:%d:%d/tcp", portHost, CONNECTOR_INIT_PORT),
 		// Thread-through the logging configuration of the connector.
 		"--env", "LOG_FORMAT=json",
 		"--env", "LOG_LEVEL=" + labels.LogLevel.String(),
@@ -133,9 +152,10 @@ func StartContainer(
 		"--label", fmt.Sprintf("task-name=%s", labels.TaskName),
 		"--label", fmt.Sprintf("task-type=%s", labels.TaskType),
 		image,
+
 		// The following are arguments of connector-init, not docker.
 		"--image-inspect-json-path=/image-inspect.json",
-		"--port", fmt.Sprint(portInit),
+		"--port", fmt.Sprint(CONNECTOR_INIT_PORT),
 	}
 
 	// `cmdCtx` has a scope equal to the lifetime of the container.
@@ -170,6 +190,9 @@ func StartContainer(
 	go func(cmdCancel context.CancelFunc) {
 		var err = cmd.Wait()
 		cmdCancel()
+		if exposePorts != nil {
+			exposePorts.Unexpose()
+		}
 		waitCh <- err
 		close(waitCh)
 	}(cmdCancel)
@@ -192,12 +215,16 @@ func StartContainer(
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMessageSize), grpc.MaxCallSendMsgSize(maxMessageSize)),
 	)
 	if err != nil {
+		// TODO: is it actually guaranteed that receiving from waitCh will ever happen if we failed to dial?
 		if waitErr := <-waitCh; waitErr != nil {
 			err = fmt.Errorf("crashed with %w", waitErr)
 		}
 		return nil, fmt.Errorf("dialing container connector-init: %w", err)
 	}
 
+	if exposePorts != nil {
+		exposePorts.Expose(conn, publisher)
+	}
 	logrus.WithFields(logrus.Fields{"image": image, "portHost": portHost}).Info("started connector")
 
 	var out = &Container{

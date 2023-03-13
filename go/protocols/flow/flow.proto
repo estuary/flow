@@ -56,6 +56,9 @@ message LambdaSpec {
   // If non-empty, this is a remote lambda and the field is its invocation URL.
   // E.x. 'https://my/external/api'.
   string remote = 2;
+  // If non-empty, this is a SQLite SELECT expression.
+  // E.x. 'SELECT foo, bar FROM source;'.
+  string sqlite = 3;
 }
 
 // Shuffle is a description of a document shuffle, where each document
@@ -91,6 +94,10 @@ message Shuffle {
   // Composite key over which shuffling occurs, specified as one or more
   // JSON-Pointers indicating a message location to extract.
   repeated string shuffle_key_ptrs = 5;
+  // Composite key over which shuffling occurs, specified as one or more
+  // partitioned projection fields. This field is set only when a shuffle
+  // key can be unambiguously extracted from just the partition value(s).
+  repeated string shuffle_key_partition_fields = 15;
   // uses_source_key is true if shuffle_key_ptr is the source's native key,
   // and false if it's some other key. When shuffling using the source's key,
   // we can minimize data movement by assigning a shard coordinator for each
@@ -99,9 +106,6 @@ message Shuffle {
   // Computed shuffle lambda. If non-nil, then shuffle_key_ptr MUST be empty
   // and uses_source_key MUST be false.
   LambdaSpec shuffle_lambda = 7;
-  // Schema against which shuffled documents are to be validated.
-  // This will be removed.
-  string deprecated_source_schema_uri = 8;
   // filter_r_clocks is true if the shuffle coordinator should filter documents
   // sent to each subscriber based on its covered r-clock ranges and the
   // individual document clocks. If false, the subscriber's r-clock range is
@@ -275,11 +279,13 @@ message TransformSpec {
   LambdaSpec update_lambda = 4;
   // Publish lambda of this transform, if any.
   LambdaSpec publish_lambda = 5;
+  // Source collection which is read by this transform.
+  CollectionSpec collection = 6 [ (gogoproto.nullable) = false ];
 }
 
 // DerivationSpec describes a collection, and it's means of derivation.
 message DerivationSpec {
-  // Next tag: 8.
+  // Next tag: 9.
 
   // Derivations are collections.
   CollectionSpec collection = 1 [ (gogoproto.nullable) = false ];
@@ -295,6 +301,8 @@ message DerivationSpec {
     (gogoproto.casttype) = "encoding/json.RawMessage",
     json_name = "registerInitial"
   ];
+  // Implicit projections of the register schema.
+  repeated Projection register_projections = 8 [ (gogoproto.nullable) = false ];
   // Transforms of this derivation.
   repeated TransformSpec transforms = 4 [ (gogoproto.nullable) = false ];
   // Template for shards of this derivation.
@@ -334,8 +342,6 @@ message FieldSelection {
 
 // CaptureSpec describes a collection and its capture from an endpoint.
 message CaptureSpec {
-  // Next tag: 8.
-
   // Name of this capture.
   string capture = 1 [ (gogoproto.casttype) = "Capture" ];
   // Type of the captures's endpoint.
@@ -373,8 +379,6 @@ message CaptureSpec {
 // MaterializationSpec describes a collection and its materialization to an
 // endpoint.
 message MaterializationSpec {
-  // Next tag: 7.
-
   // Name of this materialization.
   string materialization = 1 [ (gogoproto.casttype) = "Materialization" ];
   // Type of the materialization's endpoint.
@@ -908,6 +912,8 @@ message BuildAPI {
     DONE = 6;
     // Build completed with errors (Rust -> Go).
     DONE_WITH_ERRORS = 7;
+    // Trampoline sub-type: start docker ispect of an image
+    TRAMPOLINE_DOCKER_INSPECT = 8;
     // Generate catalog specification JSON schema (Go <-> Rust)
     CATALOG_SCHEMA = 100;
   };
@@ -986,4 +992,63 @@ service Testing {
   rpc ResetState(ResetStateRequest) returns (ResetStateResponse);
   rpc AdvanceTime(AdvanceTimeRequest) returns (AdvanceTimeResponse);
   rpc Ingest(IngestRequest) returns (IngestResponse);
+}
+
+message TaskNetworkProxyRequest {
+  message Open {
+    // Header contains information about the shard resolution that was done by the client
+    protocol.Header header = 1;
+
+    string shard_id = 2 [ 
+      (gogoproto.casttype) = "go.gazette.dev/core/consumer/protocol.ShardID"
+    ];
+    // The port number inside the container that the client wishes to connect to.
+    uint32 target_port = 3;
+    // The network address of the client that is establishing the connection.
+    string client_addr = 4;
+
+  }
+  Open open = 1;
+  bytes data = 2;
+}
+
+message TaskNetworkProxyResponse {
+  // Status represents the high-level response to an Open request. If OK, then
+  // the connection may proceed. Any other status indicates the reason for refusal.
+  // This enum is a superset of the consumer.Status enum used by the Shards service,
+  // though some statuses have taken on broader meanings.
+  enum Status {
+    OK = 0;
+  	// The named shard does not exist.
+  	SHARD_NOT_FOUND = 1;
+  	// There is no current primary consumer process for the shard. This is a
+  	// temporary condition which should quickly resolve, assuming sufficient
+  	// consumer capacity.
+  	NO_SHARD_PRIMARY = 2;
+  	// The present consumer process is not the assigned primary for the shard,
+  	// and was not instructed to proxy the request.
+  	NOT_SHARD_PRIMARY = 3;
+    // Used to indicate an error in the proxying machinery.
+    // This corresponds to consumer.Status_ETCD_TRANSACTION_FAILED, which is considered
+    // a specific case of the broader category of "internal" errors, since the proxy API
+    // doesn't directly expose anything about etcd.
+    INTERNAL_ERROR = 4;
+    // Either the shard itself is stopped or failed, or else the container is.
+    SHARD_STOPPED = 5;
+
+    // The client is not allowed to connect to the port given in the request.
+    // This could be either because the port does not exist or for any other
+    // reason, such as if we implement IP-based access policies.
+    PORT_NOT_ALLOWED = 1000;
+  }
+  message OpenResponse {
+    Status status = 1;
+    protocol.Header header = 2;
+  }
+  OpenResponse open_response = 1;
+  bytes data = 2;
+}
+
+service NetworkProxy {
+  rpc Proxy(stream TaskNetworkProxyRequest) returns (stream TaskNetworkProxyResponse);
 }

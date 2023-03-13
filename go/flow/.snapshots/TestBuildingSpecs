@@ -1,6 +1,6 @@
 PARTITION:
 
-name: "example/collection/a_bool=true/a_str=the+str/pivot=00ab4130"
+name: "example/collection/a_bool=%_true/a_str=the%20str/pivot=00ab4130"
 replication: 3
 labels: <
   labels: <
@@ -21,11 +21,11 @@ labels: <
   >
   labels: <
     name: "estuary.dev/field/a_bool"
-    value: "true"
+    value: "%_true"
   >
   labels: <
     name: "estuary.dev/field/a_str"
-    value: "the+str"
+    value: "the%20str"
   >
   labels: <
     name: "estuary.dev/key-begin"

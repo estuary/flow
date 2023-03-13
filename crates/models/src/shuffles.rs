@@ -39,9 +39,11 @@ impl Shuffle {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "Lambda::example_typescript")]
 #[schemars(example = "Lambda::example_remote")]
+#[schemars(example = "Lambda::example_sqlite")]
 pub enum Lambda {
     Typescript,
     Remote(String),
+    Sql(String),
 }
 
 impl Lambda {
@@ -50,6 +52,9 @@ impl Lambda {
     }
     pub fn example_remote() -> Self {
         Self::Remote("http://example/api".to_string())
+    }
+    pub fn example_sqlite() -> Self {
+        Self::Sql("SELECT foo, bar FROM source;".to_string())
     }
 }
 /// Partition selectors identify a desired subset of the

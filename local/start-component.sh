@@ -65,15 +65,13 @@ function project_dir() {
 
 function start_config_encryption() {
     cd "$(project_dir 'config-encryption')"
-
-    # This is part of a hack to allow the oauth edge function to call the config-encryption service locally.
-    # The _other_ part of the hack is down in `start_oauth_edge`.
-    # This container exists to do nothing other than to attach to the supabase docker network and expose port 8765, which
-    # is what config-encryption listens on. The pause container exists for just these kinds of shennanigans.
-    # Per: https://stackoverflow.com/a/44739847 the `docker start` will return 0 if the container is already running
-    docker start config_encryption_hack_proxy || \
-         must_run docker run --rm --name config_encryption_hack_proxy -p 8765 --network supabase_network_flow --detach google/pause:latest
-    must_run cargo run -- --gcp-kms "$TEST_KMS_KEY"
+    # This is a "temporary" hack to work around the constrains of supabase edge functions and docker VMs on Macs.
+    # The oauth function needs to be able to call the config-encryption service, which is tricky because the oauth
+    # function is running within the supabase docker network. I couldn't find a way to bridge from that to the host
+    # network that works on Mac/Windows(WSL). So the workaround is to run config-encryption as a docker container,
+    # and attach it to the supabase docker network. Note that the --name given here matches the host of the URL
+    # passed to the oauth function.
+    must_run docker run --rm --name flow_config_encryption -v ~/.config/gcloud:/root/.config/gcloud -p 8765 --network supabase_network_flow --init --entrypoint=flow-config-encryption us-central1-docker.pkg.dev/estuary-control/cloud-run-source-deploy/config-encryption:latest --gcp-kms "$TEST_KMS_KEY"
 }
 
 function start_ui() {
@@ -121,14 +119,14 @@ function start_control_plane_agent() {
     cd "$(project_dir 'flow')"
     # Start building immediately, since it could take a while
     must_run cargo build -p agent
-        
-    # Add the ops catalog template to the local database.
-    must_run ./ops-catalog/generate-migration.sh local | must_run psql 'postgresql://postgres:postgres@localhost:5432/postgres'
 
     # Now wait until the temp-data-plane is running. We need this in order to determine the builds
     # root when the agent starts. If it's not running, the agent will fail immediately.
     wait_until_listening $BROKER_PORT 'Gazette broker'
     wait_until_listening $CONSUMER_PORT 'Flow reactor'
+
+    # Create the publication for the ops catalog.
+    must_run ./local/ops-publication.sh | must_run psql 'postgresql://postgres:postgres@localhost:5432/postgres'
 
     # Now we're finally ready to run this thing.
     # Use the resolved flow project directory to set the --bin-dir argument.
@@ -140,20 +138,9 @@ function start_control_plane_agent() {
 
 function start_oauth_edge() {
     cd "$(project_dir 'flow')"
-    # We need to do some weird crap to allow the oauth edge function to connect to the config-encryption
-    # service running on localhost (outside of docker). The hostname that's used for config-encyrption
-    # will be set to the gateway IP of the docker network. A dummy container, which is attached to that network
-    # and listening on port 8765, ensures that port 8765 will be exposed on the host at that address.
-    # Determine the gateway IP of the supabase docker network:
-    local gateway_ip="$(docker network inspect supabase_network_flow -f '{{ (index .IPAM.Config 0).Gateway }}' )"
-    # lol I guess this is a way to trim whitespace from a bash variable: https://stackoverflow.com/a/12973694
-    gateway_ip="$(echo "$gateway_ip" | xargs echo )"
-    if [[ -z "$gateway_ip" ]]; then
-        bail "unable to determine docker network gateway ip"
-    fi
     # put this file in /var/tmp/ because macs have issues mounting other files into a docker container, which is
     # what I _think_ supabase functions serve is doing?
-    echo "CONFIG_ENCRYPTION_URL=http://${gateway_ip}:8765/v1/encrypt-config" > /var/tmp/config-encryption-hack-proxy-addr
+    echo "CONFIG_ENCRYPTION_URL=http://flow_config_encryption:8765/v1/encrypt-config" > /var/tmp/config-encryption-hack-proxy-addr
     must_run supabase functions serve oauth --env-file /var/tmp/config-encryption-hack-proxy-addr
 
 }

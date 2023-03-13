@@ -72,6 +72,14 @@ impl Catalog {
             .chain(self.materializations.keys().map(AsRef::<str>::as_ref))
             .chain(self.tests.keys().map(AsRef::<str>::as_ref))
     }
+
+    /// Returns true if this catalog does not contain any specs.
+    pub fn is_empty(&self) -> bool {
+        self.collections.is_empty()
+            && self.materializations.is_empty()
+            && self.captures.is_empty()
+            && self.tests.is_empty()
+    }
 }
 
 fn collections_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {

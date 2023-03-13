@@ -4,9 +4,6 @@ export type Document = unknown;
 export type Lambda = (source: Document, register?: Document, previous?: Document) => Document[];
 
 // Import derivation classes from their implementation modules.
-import { Derivation as acmeBankBalances } from '../../examples/acmeBank.flow';
-import { Derivation as examplesCitiBikeIdleBikes } from '../../examples/citi-bike/idle-bikes.flow';
-import { Derivation as examplesCitiBikeLastSeen } from '../../examples/citi-bike/last-seen.flow';
 import { Derivation as examplesCitiBikeRides } from '../../examples/citi-bike/transform-csv-rides';
 import { Derivation as examplesCitiBikeRidesAndRelocations } from '../../examples/citi-bike/rides-and-relocations.flow';
 import { Derivation as examplesCitiBikeStations } from '../../examples/citi-bike/stations.flow';
@@ -35,9 +32,6 @@ import { Derivation as stockDailyStats } from '../../examples/stock-stats/flow';
 import { Derivation as temperatureAverages } from '../../examples/temp-sensors/flow';
 
 // Build instances of each class, which will be bound to this module's router.
-const __acmeBankBalances: acmeBankBalances = new acmeBankBalances();
-const __examplesCitiBikeIdleBikes: examplesCitiBikeIdleBikes = new examplesCitiBikeIdleBikes();
-const __examplesCitiBikeLastSeen: examplesCitiBikeLastSeen = new examplesCitiBikeLastSeen();
 const __examplesCitiBikeRides: examplesCitiBikeRides = new examplesCitiBikeRides();
 const __examplesCitiBikeRidesAndRelocations: examplesCitiBikeRidesAndRelocations =
     new examplesCitiBikeRidesAndRelocations();
@@ -69,22 +63,9 @@ const __temperatureAverages: temperatureAverages = new temperatureAverages();
 
 // Now build the router that's used for transformation lambda dispatch.
 const routes: { [path: string]: Lambda | undefined } = {
-    '/derive/acmeBank/balances/fromTransfers/Publish': __acmeBankBalances.fromTransfersPublish.bind(
-        __acmeBankBalances,
-    ) as Lambda,
-    '/derive/examples/citi-bike/idle-bikes/delayedRides/Publish': __examplesCitiBikeIdleBikes.delayedRidesPublish.bind(
-        __examplesCitiBikeIdleBikes,
-    ) as Lambda,
-    '/derive/examples/citi-bike/idle-bikes/liveRides/Update': __examplesCitiBikeIdleBikes.liveRidesUpdate.bind(
-        __examplesCitiBikeIdleBikes,
-    ) as Lambda,
-    '/derive/examples/citi-bike/last-seen/locationFromRide/Publish':
-        __examplesCitiBikeLastSeen.locationFromRidePublish.bind(__examplesCitiBikeLastSeen) as Lambda,
     '/derive/examples/citi-bike/rides/fromCsvRides/Publish': __examplesCitiBikeRides.fromCsvRidesPublish.bind(
         __examplesCitiBikeRides,
     ) as Lambda,
-    '/derive/examples/citi-bike/rides-and-relocations/fromRides/Update':
-        __examplesCitiBikeRidesAndRelocations.fromRidesUpdate.bind(__examplesCitiBikeRidesAndRelocations) as Lambda,
     '/derive/examples/citi-bike/rides-and-relocations/fromRides/Publish':
         __examplesCitiBikeRidesAndRelocations.fromRidesPublish.bind(__examplesCitiBikeRidesAndRelocations) as Lambda,
     '/derive/examples/citi-bike/stations/ridesAndMoves/Publish': __examplesCitiBikeStations.ridesAndMovesPublish.bind(

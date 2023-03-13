@@ -167,6 +167,15 @@ tables!(
         spec: proto_flow::flow::Inference,
     }
 
+    table ImageInspections (row ImageInspection, order_by [image], sql "image_inspections") {
+        // The full name of the image, e.g. "ghcr.io/estuary/source-postgres:v1"
+        image: String,
+        // The output of a successful image inspection
+        inspect_output: bytes::Bytes,
+        // An error that occurred during image inspection
+        inspect_error: Option<String>,
+    }
+
     table BuiltCaptures (row BuiltCapture, order_by [capture], sql "built_captures") {
         scope: url::Url,
         // Name of this capture.
@@ -247,6 +256,7 @@ pub struct Validations {
     pub built_materializations: BuiltMaterializations,
     pub built_tests: BuiltTests,
     pub errors: Errors,
+    pub image_inspections: ImageInspections,
     pub inferences: Inferences,
 }
 
@@ -266,6 +276,7 @@ pub struct All {
     pub derivations: Derivations,
     pub errors: Errors,
     pub fetches: Fetches,
+    pub image_inspections: ImageInspections,
     pub imports: Imports,
     pub inferences: Inferences,
     pub materialization_bindings: MaterializationBindings,
@@ -298,6 +309,7 @@ impl All {
             errors,
             fetches,
             imports,
+            image_inspections,
             inferences,
             materialization_bindings,
             materializations,
@@ -324,6 +336,7 @@ impl All {
             errors,
             fetches,
             imports,
+            image_inspections,
             inferences,
             materialization_bindings,
             materializations,
@@ -353,6 +366,7 @@ impl All {
             errors,
             fetches,
             imports,
+            image_inspections,
             inferences,
             materialization_bindings,
             materializations,
@@ -378,6 +392,7 @@ impl All {
             derivations,
             errors,
             fetches,
+            image_inspections,
             imports,
             inferences,
             materialization_bindings,

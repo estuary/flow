@@ -81,6 +81,6 @@ expression: errors
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
-        error: location /int is unknown in schema test://example/int-string-len.schema#DoesNotExist (https://go.estuary.dev/rdCMNB),
+        error: location /str is unknown in schema test://example/int-string-len.schema#DoesNotExist (https://go.estuary.dev/rdCMNB),
     },
 ]

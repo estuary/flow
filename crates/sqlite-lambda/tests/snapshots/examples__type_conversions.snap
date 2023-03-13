@@ -1,0 +1,76 @@
+---
+source: crates/sqlite-lambda/tests/examples.rs
+expression: output
+---
+[
+  [
+    {
+      "case": "true",
+      "output": 1
+    }
+  ],
+  [
+    {
+      "case": "false",
+      "output": 0
+    }
+  ],
+  [
+    {
+      "case": "string",
+      "output": "hello"
+    }
+  ],
+  [
+    {
+      "case": "pos-int",
+      "output": 123
+    }
+  ],
+  [
+    {
+      "case": "neg-int",
+      "output": -456
+    }
+  ],
+  [
+    {
+      "case": "array",
+      "output": [
+        1,
+        2,
+        "three"
+      ]
+    }
+  ],
+  [
+    {
+      "case": "obj",
+      "output": {
+        "four": 4
+      }
+    }
+  ],
+  [
+    {
+      "case": "invalid-array",
+      "output": "[1 2 \"three\"]"
+    }
+  ],
+  [
+    {
+      "case": "invalid-obj",
+      "output": "{four 4}"
+    }
+  ],
+  [
+    {
+      "blob_fixture": "YSByYXcgc3RyaW5n",
+      "case": "string-types",
+      "str_base64": "VGhpcyBpcyBiYXNlNjQ=",
+      "str_base64_text": "This is base64",
+      "str_int * 10": 120,
+      "str_num * 2.5": 18.75
+    }
+  ]
+]

@@ -255,7 +255,7 @@ func TestConvergence(t *testing.T) {
 
 		var _, err = CollectionChanges(collection, allPartitions, duplicated, aj[:1])
 		require.EqualError(t, err,
-			"duplicate desired partition journal example/collection/a_bool=true/a_str=a-val/pivot=10000000")
+			"duplicate desired partition journal example/collection/a_bool=%_true/a_str=a-val/pivot=10000000")
 	})
 
 	var desiredTasks = MapShardsToCurrentOrInitialSplits(allShards, 1234)

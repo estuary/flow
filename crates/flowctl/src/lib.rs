@@ -81,7 +81,6 @@ pub enum Command {
 
 #[derive(Debug)]
 pub struct CliContext {
-    config_dirty: bool,
     config: config::Config,
     output: output::Output,
     controlplane_client: Option<controlplane::Client>,
@@ -91,21 +90,15 @@ impl CliContext {
     /// Returns a client to the controlplane, creating a new one if necessary.
     /// This function will return an error if the authentication credentials
     /// are missing, invalid, or expired.
-    pub fn controlplane_client(&mut self) -> anyhow::Result<controlplane::Client> {
-        let CliContext {
-            ref config,
-            ref mut controlplane_client,
-            ..
-        } = self;
-        if controlplane_client.is_none() {
-            let client = controlplane::new_client(config)?;
-            *controlplane_client = Some(client.clone())
+    pub async fn controlplane_client(&mut self) -> anyhow::Result<controlplane::Client> {
+        if self.controlplane_client.is_none() {
+            let client = controlplane::new_client(self).await?;
+            self.controlplane_client = Some(client.clone())
         }
-        Ok(controlplane_client.clone().unwrap())
+        Ok(self.controlplane_client.clone().unwrap())
     }
 
     pub fn config_mut(&mut self) -> &mut config::Config {
-        self.config_dirty = true;
         &mut self.config
     }
 
@@ -151,7 +144,6 @@ impl Cli {
         let mut context = CliContext {
             config,
             output,
-            config_dirty: false,
             controlplane_client: None,
         };
 
@@ -166,9 +158,7 @@ impl Cli {
             Command::Raw(advanced) => advanced.run(&mut context).await,
         }?;
 
-        if context.config_dirty {
-            context.config().write(&self.profile)?;
-        }
+        context.config().write(&self.profile)?;
 
         Ok(())
     }

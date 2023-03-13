@@ -7,7 +7,8 @@ insert into auth.users (id, email) values
   -- Accounts which are commonly used in tests.
   ('11111111-1111-1111-1111-111111111111', 'alice@example.com'),
   ('22222222-2222-2222-2222-222222222222', 'bob@example.com'),
-  ('33333333-3333-3333-3333-333333333333', 'carol@example.com')
+  ('33333333-3333-3333-3333-333333333333', 'carol@example.com'),
+  ('44444444-4444-4444-4444-444444444444', 'dave@example.com')
 ;
 
 -- Tweak auth.users to conform with what a local Supabase install creates
@@ -45,7 +46,7 @@ with accounts_root_user as (
   select (select id from auth.users where email = 'support@estuary.dev' limit 1) as accounts_id
 )
 insert into applied_directives (directive_id, user_id, user_claims)
-  select d.id, a.accounts_id, '{"requestedTenant":"ops"}'
+  select d.id, a.accounts_id, '{"requestedTenant":"ops.us-central1.v1"}'
     from directives d, accounts_root_user a
     where catalog_prefix = 'ops/' and spec = '{"type":"betaOnboard"}';
 

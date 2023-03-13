@@ -3,6 +3,7 @@ package runtime
 import (
 	"testing"
 
+	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 )
@@ -115,23 +116,23 @@ func TestDeriveStats(t *testing.T) {
 	var actual = subject.deriveStats(&input)
 	assertEventMeta(t, actual, &derivationSpec, "derivation")
 
-	var expected = DeriveStats{
-		Transforms: map[string]DeriveTransformStats{
+	var expected = ops.DeriveStats{
+		Transforms: map[string]ops.DeriveTransformStats{
 			"transformA": {
 				Source: "collectionA",
-				Input: DocsAndBytes{
+				Input: ops.DocsAndBytes{
 					Docs:  6,
 					Bytes: 6666,
 				},
-				Publish: &InvokeStats{
-					Out: DocsAndBytes{
+				Publish: &ops.InvokeStats{
+					Out: ops.DocsAndBytes{
 						Docs:  2,
 						Bytes: 2222,
 					},
 					SecondsTotal: 2.0,
 				},
-				Update: &InvokeStats{
-					Out: DocsAndBytes{
+				Update: &ops.InvokeStats{
+					Out: ops.DocsAndBytes{
 						Docs:  3,
 						Bytes: 3333,
 					},
@@ -140,12 +141,12 @@ func TestDeriveStats(t *testing.T) {
 			},
 			"transformB": {
 				Source: "collectionA",
-				Input: DocsAndBytes{
+				Input: ops.DocsAndBytes{
 					Docs:  1,
 					Bytes: 1111,
 				},
-				Update: &InvokeStats{
-					Out: DocsAndBytes{
+				Update: &ops.InvokeStats{
+					Out: ops.DocsAndBytes{
 						Docs:  7,
 						Bytes: 7777,
 					},
@@ -154,12 +155,12 @@ func TestDeriveStats(t *testing.T) {
 			},
 			"transformC": {
 				Source: "collectionC",
-				Input: DocsAndBytes{
+				Input: ops.DocsAndBytes{
 					Docs:  8,
 					Bytes: 8888,
 				},
-				Publish: &InvokeStats{
-					Out: DocsAndBytes{
+				Publish: &ops.InvokeStats{
+					Out: ops.DocsAndBytes{
 						Docs:  9,
 						Bytes: 9999,
 					},
@@ -167,11 +168,11 @@ func TestDeriveStats(t *testing.T) {
 				},
 			},
 		},
-		Out: DocsAndBytes{
+		Out: ops.DocsAndBytes{
 			Docs:  5,
 			Bytes: 5555,
 		},
-		Registers: &DeriveRegisterStats{
+		Registers: &ops.DeriveRegisterStats{
 			CreatedTotal: 4,
 		},
 	}

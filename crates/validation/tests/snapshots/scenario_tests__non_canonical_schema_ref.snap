@@ -24,11 +24,15 @@ expression: errors
         error: location /len is unknown in schema test://example/int-halve?ptr=/collections/testing~1int-halve/schema (https://go.estuary.dev/rdCMNB),
     },
     Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve/projections/TheString,
+        error: location /partitionString is unknown in schema test://example/int-halve?ptr=/collections/testing~1int-halve/schema (https://go.estuary.dev/rdCMNB),
+    },
+    Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveSelf,
         error: location /len is unknown in schema test://example/int-halve?ptr=/collections/testing~1int-halve/schema (https://go.estuary.dev/rdCMNB),
     },
     Error {
         scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveSelf,
-        error: location /int is unknown in schema test://example/int-halve?ptr=/collections/testing~1int-halve/schema (https://go.estuary.dev/rdCMNB),
+        error: location /partitionString is unknown in schema test://example/int-halve?ptr=/collections/testing~1int-halve/schema (https://go.estuary.dev/rdCMNB),
     },
 ]

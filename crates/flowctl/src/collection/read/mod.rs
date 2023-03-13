@@ -26,7 +26,7 @@ pub async fn get_collection_inferred_schema(
         anyhow::bail!("flowctl is not yet able to read from partitioned collections (coming soon)");
     }
 
-    let cp_client = ctx.controlplane_client()?;
+    let cp_client = ctx.controlplane_client().await?;
     let token = fetch_data_plane_access_token(cp_client, vec![args.selector.collection.clone()])
         .await
         .context("fetching data plane access token")?;
@@ -111,14 +111,16 @@ pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> an
         );
     }
 
-    let cp_client = ctx.controlplane_client()?;
+    let cp_client = ctx.controlplane_client().await?;
     let mut data_plane_client =
         dataplane::journal_client_for(cp_client, vec![args.selector.collection.clone()]).await?;
 
     let selector = args.selector.build_label_selector();
     tracing::debug!(?selector, "build label selector");
 
-    let mut journals = list_journals(&mut data_plane_client, &selector).await?;
+    let mut journals = list_journals(&mut data_plane_client, &selector)
+        .await
+        .context("listing journals for collection read")?;
     tracing::debug!(journal_count = journals.len(), collection = %args.selector.collection, "listed journals");
     let maybe_journal = journals.pop();
     if !journals.is_empty() {

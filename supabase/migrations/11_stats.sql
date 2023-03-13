@@ -21,15 +21,16 @@ create table catalog_stats (
     errors              integer      not null default 0,
     failures            integer      not null default 0,
     ts                  timestamptz  not null,
-    flow_document       json         not null
-) partition by list (substring(catalog_name for position('/' in catalog_name)));
+    flow_document       json         not null,
+    primary key (catalog_name, grain, ts)
+);
 alter table catalog_stats enable row level security;
-
-create index idx_catalog_stats_catalog_name_grain_ts on catalog_stats (catalog_name, grain, ts desc);
 
 create policy "Users must be authorized to the catalog name"
   on catalog_stats as permissive for select
-  using (auth_catalog(catalog_name, 'read'));
+  using (exists(
+    select 1 from auth_roles('read') r where catalog_name ^@ r.role_prefix
+  ));
 grant select on catalog_stats to authenticated;
 
 comment on table catalog_stats is
@@ -79,7 +80,3 @@ $$;
 -- the target table. Materialization application will attempt to add comments to the target table &
 -- columns, and this will fail unless the table is owned by the acting user.
 alter table catalog_stats owner to stats_loader;
-
-create schema catalog_stat_partitions;
-comment on schema catalog_stat_partitions is
-    'Private schema which holds per-tenant partitions of catalog_stats.';

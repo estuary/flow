@@ -6,7 +6,7 @@ materializations:
     bindings:
       - resource:
           table: logs
-        source: ops/examples/logs
+        source: ops.us-central1.v1/logs
         partitions:
           # We exclude the stats of this materialization, because otherwise we'd
           # create an infinite loop where we materialize our own stats.
