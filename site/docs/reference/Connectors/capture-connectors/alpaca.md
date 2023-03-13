@@ -13,6 +13,9 @@ The Alpaca Market Data API comprises multiple APIs for stock trades, including
 the [Trades REST API](https://alpaca.markets/docs/api-references/market-data-api/stock-pricing-data/historical/) for historical trade data
 and [websocket streaming via the Data API](https://alpaca.markets/docs/api-references/market-data-api/stock-pricing-data/realtime/) for real-time trade data.
 
+Historical trade data is available from the Alpaca Market Data API starting 01-01-2016. As such, the
+connector configuration requires a start date for the backfill to be on or after 01-01-2016.
+
 This connector uses both APIs to capture historical and real-time data in parallel.
 It uses the Trades API to perform a historical backfill starting from the start date you specify and stopping when it reaches the present.
 At the same time, the connector uses websocket streaming to initiate a real-time stream of trade data starting at the present moment and continuing indefinitely until you stop the capture process.
@@ -61,7 +64,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | **`/api_key_id`** | Alpaca API Key ID | Your Alpaca API key ID. | string | Required |
 | **`/api_secret_key`** | Alpaca API Secret Key | Your Alpaca API Secret key. | string | Required |
 | **`/feed`** | Feed | The feed to pull market data from. [Choose from `iex` or `sip`](https://alpaca.markets/docs/market-data/#subscription-plans); set `iex` if using a free plan.| string | Required |
-| **`/start_date`** | Start Date | Get trades starting at this date. Has no effect if changed after the capture has started. | string | Required |
+| **`/start_date`** | Start Date | Get trades starting at this date. Has no effect if changed after the capture has started. Must be no earlier than 2016-01-01T00:00:00Z.| string | Required |
 | **`/symbols`** | Symbols | Comma separated list of symbols to monitor. | string | Required |
 
 #### Bindings
