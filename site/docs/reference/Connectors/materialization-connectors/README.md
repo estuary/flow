@@ -14,6 +14,9 @@ In the future, other open-source materialization connectors from third parties c
 * AlloyDB
   * [Configuration](./alloydb.md)
   * Package - ghcr.io/estuary/materialize-alloydb:dev
+* Amazon Redshift
+  * [Configuration](./amazon-redshift.md)
+  * Package - ghrc.io/estuary/materialize-redshift.dev
 * Apache Parquet in S3
   * [Configuration](./Parquet.md)
   * Package — ghcr.io/estuary/materialize-s3-parquet:dev
