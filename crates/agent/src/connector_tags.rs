@@ -128,12 +128,16 @@ impl TagHandler {
             oauth2_spec: Option<Box<RawValue>>,
         }
         let Spec {
-            documentation_url,
+            mut documentation_url,
             endpoint_spec_schema,
             protocol,
             resource_spec_schema,
             oauth2_spec,
         } = serde_json::from_slice(&spec.1).context("parsing connector spec output")?;
+
+        if let Some(doc_url_override) = row.documentation_url_override {
+            documentation_url = doc_url_override
+        }
 
         agent_sql::connector_tags::update_tag_fields(
             row.tag_id,

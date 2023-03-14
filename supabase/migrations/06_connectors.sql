@@ -57,12 +57,13 @@ grant select(id, detail, updated_at, created_at, image_name, external_url, title
 create table connector_tags (
   like internal._model_async including all,
 
-  connector_id          flowid not null references connectors(id),
-  documentation_url     text,     -- Job output.
-  endpoint_spec_schema  json_obj, -- Job output.
-  image_tag             text not null,
-  protocol              text,     -- Job output.
-  resource_spec_schema  json_obj, -- Job output.
+  connector_id                flowid not null references connectors(id),
+  documentation_url           text,     -- Job output.
+  endpoint_spec_schema        json_obj, -- Job output.
+  image_tag                   text not null,
+  protocol                    text,     -- Job output.
+  resource_spec_schema        json_obj, -- Job output.
+  documentation_url_override  text,
   unique(connector_id, image_tag),
   --
   constraint "image_tag must start with : (as in :latest) or @sha256:<hash>"
@@ -92,6 +93,8 @@ comment on column connector_tags.protocol is
   'Protocol of the connector';
 comment on column connector_tags.resource_spec_schema is
   'Resource specification JSON-Schema of the tagged connector';
+comment on column connector_tags.documentation_url_override is
+  'Alternative documentation URL to the one from the connector specification';
 
 -- authenticated may select all connector_tags without restrictions.
 grant select on table connector_tags to authenticated;

@@ -10,6 +10,7 @@ use sqlx::{types::Uuid, FromRow};
 pub struct Row {
     pub connector_id: Id,
     pub created_at: DateTime<Utc>,
+    pub documentation_url_override: Option<String>,
     pub external_url: String,
     pub image_name: String,
     pub image_tag: String,
@@ -26,6 +27,7 @@ pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::R
             c.external_url,
             c.image_name,
             t.created_at,
+            t.documentation_url_override,
             t.id as "tag_id: Id",
             t.image_tag,
             t.logs_token,
