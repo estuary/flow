@@ -176,6 +176,23 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 		return err
 	}
 
+	// Unassign any failed shards as a part of activating this publication.
+	if !cmd.DryRun {
+		ids := []pc.ShardID{}
+		for _, shard := range shards {
+			if shard.Upsert != nil {
+				ids = append(ids, shard.Upsert.Id)
+			}
+		}
+
+		if _, err := sc.Unassign(ctx, &pc.UnassignRequest{
+			Shards:     ids,
+			OnlyFailed: true,
+		}); err != nil {
+			return fmt.Errorf("unassigning failed shards: %w", err)
+		}
+	}
+
 	// Poll task shards, waiting for them to become ready.
 	for _, task := range tasks {
 
