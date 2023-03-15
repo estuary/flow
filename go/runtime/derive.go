@@ -111,6 +111,9 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 	}
 
 	cp, err = d.binding.RestoreCheckpoint()
+
+	removeOldOpsJournalAckIntents(cp.AckIntents)
+
 	return cp, err
 }
 
