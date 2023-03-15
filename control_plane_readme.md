@@ -1,4 +1,3 @@
-
 # Flow Control-Plane
 
 The Flow control-plane orchestrates the Flow data-plane, controlling the specifications which are running in the data-plane, their activations, deletions, and so on. It provides APIs through which users can draft changes to specifications, holistically test their drafts, publish them as live specifications into the data-plane, monitor their execution, and understand the history of specification changes over time.
@@ -47,45 +46,40 @@ The [Data Plane Gateway](https://github.com/estuary/data-plane-gateway) serves a
 
 The Control Plane issues access tokens via the `gateway_auth_token` function which grants users access to selected catalog prefixes.
 
+### EXPERIMENTAL Start private PG (instead of Supabase for local development):
 
-## Local Development Guide
-
-### Dependencies
-
-You'll need:
-
-* An installation of the [Supabase CLI](https://github.com/supabase/cli). Follow the installation instructions to install the latest version.
-* A local checkout of [github.com/estuary/flow](https://github.com/estuary/flow) upon which you've run `make package`. This creates a directory of binaries `${your_checkout}/.build/package/bin/` which the control-plane agent refers to as `--bin-dir` or `$BIN_DIR`.
-* A local checkout of [github.com/estuary/data-plane-gateway](https://github.com/estuary/data-plane-gateway).
-* A local checkout of [github.com/estuary/ui](https://github.com/estuary/ui).
-* A local checkout of [github.com/estuary/config-encryption](https://github.com/estuary/config-encryption).
-* A local checkout of this repository.
-
-### Bootstrap:
-
-Required build tools and libs:
-* clang
-* curl
-* g++
-* gcc
-* git
-* libreadline-dev
-* libsqlite3-dev
-* libssl-dev
-* make
-* musl-tools
-* openssl
-* pkg-config
-* protobuf-compiler
-
-Install rust and go:
+Start PG and apply init schema:
 ```console
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source "$HOME/.cargo/env"
-rustup target add x86_64-unknown-linux-musl
+echo '
+anon
+authenticated
+dashboard_user
+pgbouncer
+pgsodium_keyiduser
+service_role
+supabase_admin
+supabase_auth_admin
+supabase_storage_admin' | xargs -n1 -t createuser -U postgres -s
 
-curl -0L https://go.dev/dl/go1.19.1.linux-amd64.tar.gz | tar -xvzf -
-export PATH=$PATH:`pwd`/go/bin
+curl -0L https://raw.githubusercontent.com/supabase/cli/main/internal/utils/templates/initial_schemas/14.sql | psql -U postgres -w -d postgres -f -
+```
+
+Apply migrations from flow/supabase/migrations and seed test data:
+```console
+cd [flow dir]/supabase/migrations
+ls -1 *.sql | xargs -n1 -t psql -U postgres -w -d postgres -f
+cd [flow dir]/supabase
+psql -U postgres -w -d postgres -f seed.sql
+```
+
+### Seed oauth2 connectors
+
+We have connectors with their dev-specific oauth2 configuration available in an
+encrypted file in `supabase/oauth_seed.sql`. You can use this seed by
+unencrypting the file and feeding it to your postgres instance:
+
+```console
+sops --decrypt supabase/oauth_seed.sql | psql -U postgres -h localhost -d postgres
 ```
 
 ### Start Supabase:
@@ -123,42 +117,6 @@ Directly access your postgres database:
 
 ```console
 psql postgres://postgres:postgres@localhost:5432/postgres
-```
-
-### EXPERIMENTAL Start private PG (instead of Supabase for local development):
-
-Start PG and apply init schema:
-```console
-echo '
-anon
-authenticated
-dashboard_user
-pgbouncer
-pgsodium_keyiduser
-service_role
-supabase_admin
-supabase_auth_admin
-supabase_storage_admin' | xargs -n1 -t createuser -U postgres -s
-
-curl -0L https://raw.githubusercontent.com/supabase/cli/main/internal/utils/templates/initial_schemas/14.sql | psql -U postgres -w -d postgres -f -
-```
-
-Apply migrations from flow/supabase/migrations and seed test data:
-```console
-cd [flow dir]/supabase/migrations
-ls -1 *.sql | xargs -n1 -t psql -U postgres -w -d postgres -f
-cd [flow dir]/supabase
-psql -U postgres -w -d postgres -f seed.sql
-```
-
-### Seed oauth2 connectors
-
-We have connectors with their dev-specific oauth2 configuration available in an
-encrypted file in `supabase/oauth_seed.sql`. You can use this seed by
-unencrypting the file and feeding it to your postgres instance:
-
-```console
-sops --decrypt supabase/oauth_seed.sql | psql -U postgres -h localhost -d postgres
 ```
 
 ### Start `temp-data-plane`:
