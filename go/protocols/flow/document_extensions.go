@@ -101,4 +101,5 @@ var (
 	// within combined documents returned by Rust, that's then immediately replaced
 	// with a properly sequenced UUID by flow.Mapper prior to publishing.
 	DocumentUUIDPlaceholder = []byte("DocUUIDPlaceholder-329Bb50aa48EAa9ef")
+	DocumentUUIDClockPlaceholder = []byte{255,255,255,255,255,255,255,255}
 )

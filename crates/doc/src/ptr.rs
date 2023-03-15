@@ -127,6 +127,12 @@ impl Pointer {
         self
     }
 
+    // Pop a Token from the Pointer.
+    pub fn pop(&mut self) -> &mut Pointer {
+        self.0.pop();
+        self
+    }
+
     /// Iterate over pointer tokens.
     pub fn iter(&self) -> impl Iterator<Item = &Token> {
         self.0.iter()

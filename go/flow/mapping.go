@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/binary"
 	"fmt"
 	"math/bits"
 	"sort"
@@ -267,6 +268,15 @@ func (m Mappable) SetUUID(uuid message.UUID) {
 	// Replace it with the string-form UUID.
 	var str = uuid.String()
 	copy(m.Doc[ind:ind+36], str[0:36])
+
+	// Optionally set the uuid clock as well
+	ind = bytes.Index(m.Doc, pf.DocumentUUIDClockPlaceholder)
+	if ind > -1 {
+		// Replace it with the string-form UUID.
+		var clock = uuid.ClockSequence()
+		//copy(m.Doc[ind:ind+4], clock)
+		binary.BigEndian.PutUint64(m.Doc[ind:ind+8], uint64(clock))
+	}
 }
 
 // NewAcknowledgementMessage returns a new acknowledgement message for a journal of the given

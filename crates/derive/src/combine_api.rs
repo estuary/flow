@@ -1,7 +1,7 @@
-use crate::{new_validator, DocCounter, JsonError, StatsAccumulator};
+use crate::{new_validator, DocCounter, JsonError, StatsAccumulator, extract_api::extract_uuid_parts};
 use anyhow::Context;
 use bytes::Buf;
-use doc::AsNode;
+use doc::{AsNode, ptr::Token};
 use prost::Message;
 use proto_flow::flow::combine_api::{self, Code};
 use std::rc::Rc;
@@ -215,9 +215,16 @@ fn parse_node_with_placeholder<'m>(
     .map_err(|e| Error::Json(JsonError::new(data, e)))?;
 
     if let Some(ptr) = uuid_placeholder_ptr.as_ref() {
+        let mut clock_ptr = ptr.clone();
+        clock_ptr.pop().push(Token::Property("captured_at".to_string()));
+
         if let Some(node) = ptr.create_heap_node(&mut doc, memtable.alloc()) {
             *node =
                 doc::HeapNode::String(doc::BumpStr::from_str(UUID_PLACEHOLDER, memtable.alloc()));
+        }
+        if let Some(node) = clock_ptr.create_heap_node(&mut doc, memtable.alloc()) {
+            *node =
+                doc::HeapNode::PosInt(UUID_CLOCK_PLACEHOLDER);
         }
     }
     Ok(doc)
@@ -712,3 +719,4 @@ pub mod test {
 // This constant is shared between Rust and Go code.
 // See go/protocols/flow/document_extensions.go.
 pub const UUID_PLACEHOLDER: &str = "DocUUIDPlaceholder-329Bb50aa48EAa9ef";
+pub const UUID_CLOCK_PLACEHOLDER: u64 = u64::MAX;
