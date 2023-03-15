@@ -28,6 +28,18 @@ To use this connector, you'll need:
   [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for help finding
   these credentials.
 
+## String Lengths
+
+Redshift does not support arbitrary lengths for `string` fields. `string` fields are by default
+created as `VARCHAR(4096)` columns, which allows for strings up to `4096` bytes in length.
+Materializing a collection containing a `string` with a length longer than `4096` bytes will result
+in an error.
+
+For collections with long strings, the collection schema can be augmented with the [`maxLength`
+keyword](https://json-schema.org/understanding-json-schema/reference/string.html#length). If a
+`maxLength` is provided, the Redshift text column will be created with this length instead of the
+default `4096`. The maximum length allowable by Redshift is `65535`.
+
 ## Configuration
 
 Use the below properties to configure an Amazon Redshift materialization, which will direct one or
@@ -115,6 +127,20 @@ on a case-insensitive basis (ex: `myField` vs. `MyField`) the materialization wi
 
 If necessary, you can add [projections](../../../concepts/advanced/projections.md) to your
 collection specification to change field names.
+
+## Performance considerations
+
+For best performance there should at most one Redshift materialization active per Redshift schema.
+Additional collections to be materialized should be added as bindings to this single materialization
+rather than creating a separate materialization for each collection.
+
+In order to achieve exactly-once processing of collection documents, the materialization creates and
+uses metadata tables located in the schema configured by the endpoint `schema` property. To commit a
+transaction, a table-level lock is acquired on these metadata tables. If there are multiple
+materializations using the same metadata tables, they will need to take turns acquiring these locks.
+This locking behavior prevents "serializable isolation violation" errors in the case of multiple
+materializations sharing the same metadata tables at the expense of allowing only a single
+materialization to be actively committing a transaction.
 
 ## Delta updates
 
