@@ -6,36 +6,7 @@ import (
 	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
-	"go.gazette.dev/core/broker/protocol"
 )
-
-func TestRemoveOldOpsJournalAckIntents(t *testing.T) {
-	cp := pf.Checkpoint{
-		AckIntents: map[protocol.Journal][]byte{
-			protocol.Journal("a/good/journal"):                                                   []byte("keep1"),
-			protocol.Journal("ops/estuary/logs/kind=materialization/name=materialization"):       []byte("drop1"),
-			protocol.Journal("ops/estuary/stats/kind=capture/name=capture"):                      []byte("drop2"),
-			protocol.Journal("ops/some.tenant/logs/kind=derivation/name=something"):              []byte("drop3"),
-			protocol.Journal("ops/other-tenant/stats/kind=materialization/name=someting/else"):   []byte("drop4"),
-			protocol.Journal("ops.us-central1.v1/stats/kind=materialization/name=something"):     []byte("keep2"),
-			protocol.Journal("ops.us-central1.v1/logs/kind=capture/name=another"):                []byte("keep3"),
-			protocol.Journal("hello/ops/estuary/logs/kind=materialization/name=materialization"): []byte("keep4"),
-		},
-	}
-
-	removeOldOpsJournalAckIntents(cp.AckIntents)
-
-	want := pf.Checkpoint{
-		AckIntents: map[protocol.Journal][]byte{
-			protocol.Journal("a/good/journal"):                                                   []byte("keep1"),
-			protocol.Journal("ops.us-central1.v1/stats/kind=materialization/name=something"):     []byte("keep2"),
-			protocol.Journal("ops.us-central1.v1/logs/kind=capture/name=another"):                []byte("keep3"),
-			protocol.Journal("hello/ops/estuary/logs/kind=materialization/name=materialization"): []byte("keep4"),
-		},
-	}
-
-	require.Equal(t, want, cp)
-}
 
 func TestCaptureStats(t *testing.T) {
 	// Simulate a capture with two bindings, where only one of them participated in the transaction.

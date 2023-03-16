@@ -186,8 +186,6 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		checkpointSource = "recoveryLog"
 	}
 
-	removeOldOpsJournalAckIntents(cp.AckIntents)
-
 	return cp, nil
 }
 
