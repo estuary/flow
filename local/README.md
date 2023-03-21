@@ -83,6 +83,14 @@ The Flow UI should open in your browser automatically.
 
 To login locally, you need to use the "magic link" method. Oauth does not work locally. You can enter any email address you like, and all emails will be sent to [http://localhost:5434/monitor]. After it says "email sent", go to that address and click the link in the email to complete the login process.
 
+### Data-plane-gateway TLS certificates
+
+Data-plane-gateway requires TLS, even locally. `start-component.sh` will generate a self-signed certificate automatically and store it in the root of the data-plane-gateway local repository.
+In order for the UI to work correctly, you'll need to tell your browser to trust that certificate. To do that, navigate to (https://localhost:28318/) and click through the warnings to trust the certificate.
+As long as you don't delete and regenerate the certificates, you should only need to do this once per year (the certificate is valid for a year).
+
+Once you trust the certificate, you should start seeing shard statuses in the UI.
+
 ### Stopping Flow
 
 - Kill the tmux session (`crtl+b` `:` then type `kill-session` and hit enter)
