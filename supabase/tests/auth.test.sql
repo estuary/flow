@@ -120,3 +120,49 @@ returns setof text as $$
   );
 
 $$ language sql;
+
+
+-- We can resolve all roles granted with a minimum capability.
+-- This is commonly used for row-level security checks.
+create function tests.test_gateway_auth_token_generation()
+returns setof text as $$
+  select set_authenticated_context('11111111-1111-1111-1111-111111111111');
+
+  -- Replace seed grants with fixtures for this test.
+  delete from user_grants;
+  insert into user_grants (user_id, object_role, capability) values
+    ('11111111-1111-1111-1111-111111111111', 'aliceCo/', 'admin');
+
+  delete from role_grants;
+  insert into role_grants (subject_role, object_role, capability) values
+    ('aliceCo/widgets/', 'bobCo/foo/', 'admin'),
+    ('aliceCo/', 'carolCo/bar/', 'admin');
+
+  -- Request valid scopes, and assert that the prefixes of the token match what we requested
+  -- The duplication of aliceCo/a/ is here to exercise the deduplication logic, which was in place
+  -- prior to me refactoring that function. IDK if that's important, but it's still there.
+  select results_eq(
+    $i$ select t.gateway_url as gurl, v.payload->>'prefixes' as pres
+          from gateway_auth_token('aliceCo/a/', 'aliceCo/b/', 'bobCo/foo/', 'carolCo/bar/baz/', 'aliceCo/a/') t
+          cross join verify(t.token, 'supersecret') v
+    $i$,
+    $i$ values (
+          'https://localhost:28318/',
+          '["aliceCo/a/","aliceCo/b/","bobCo/foo/","carolCo/bar/baz/"]'
+        )
+    $i$,
+    'good gateway token'
+  );
+
+  -- Request invalid scopes, and expect an error
+  select throws_ok(
+    $i$ select * from gateway_auth_token('notauthorized/') $i$
+  );
+
+  -- Request a mix of valid and invalid scopes, and expect an error
+  select throws_ok(
+    $i$ select * from gateway_auth_token('aliceCo/a/', 'bobCo/notauthorized/') $i$
+  );
+
+$$ language sql;
+
