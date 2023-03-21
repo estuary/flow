@@ -31,7 +31,7 @@ pub async fn remove_unchanged(
     #[derive(Deserialize, Debug)]
     struct SpecChecksumRow {
         catalog_name: String,
-        md5: String,
+        md5: Option<String>,
     }
 
     let spec_names = input_catalog.all_spec_names();
@@ -44,7 +44,13 @@ pub async fn remove_unchanged(
         let rows: Vec<SpecChecksumRow> = api_exec(builder).await?;
         let chunk_checksums = rows
             .iter()
-            .map(|row| (row.catalog_name.clone(), row.md5.clone()))
+            .filter_map(|row| {
+                if let Some(md5) = row.md5.as_ref() {
+                    Some((row.catalog_name.clone(), md5.clone()))
+                } else {
+                    None
+                }
+            })
             .collect::<HashMap<String, String>>();
 
         spec_checksums.extend(chunk_checksums);
