@@ -105,7 +105,7 @@ function start_data_plane_gateway() {
     wait_until_listening $BROKER_PORT 'Gazette broker'
     wait_until_listening $CONSUMER_PORT 'Flow reactor'
     wait_until_listening $INFERENCE_PORT 'Schema inference'
-    must_run go run . --tls-certificate "${cert_path}" --tls-private-key "${key_path}" --log.level debug --inference-address "${INFERENCE_ADDRESS}"
+    must_run go run . --tls-certificate "${cert_path}" --tls-private-key "${key_path}" --log.level debug --inference-address "${INFERENCE_ADDRESS}" --control-plane-auth-url "http://localhost:3000"
 }
 
 function start_control_plane() {
