@@ -163,6 +163,14 @@ pub fn build_firebolt_queries_bundle(
     })
 }
 
+pub fn build_drop_query(
+    table: &Table,
+) -> Result<String, Error> {
+    Ok(DropTable {
+        table,
+    }.to_string())
+}
+
 fn projection_type_to_firebolt_type(shape: &Shape) -> Option<FireboltType> {
     if shape.type_.overlaps(types::STRING) {
         Some(FireboltType::Text)
