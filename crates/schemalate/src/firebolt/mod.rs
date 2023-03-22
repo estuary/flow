@@ -18,6 +18,8 @@ use prost::Message;
 use protocol::flow::MaterializationSpec;
 use protocol::materialize::{extra, validate_request};
 
+use self::firebolt_schema_builder::build_drop_query;
+
 #[derive(clap::Args, Debug)]
 pub struct Args {
     #[clap(subcommand)]
@@ -30,6 +32,7 @@ enum Action {
     ValidateExistingProjection,
     ValidateBindingAgainstConstraints,
     QueryBundle,
+    DropQuery,
 }
 
 pub fn run(args: Args) -> Result<(), anyhow::Error> {
@@ -44,6 +47,17 @@ pub fn run(args: Args) -> Result<(), anyhow::Error> {
 
             let result = build_firebolt_queries_bundle(spec)?;
             serde_json::to_string(&result)?
+        }
+        Action::DropQuery => {
+            let table = String::from_utf8(buf)?;
+
+            let result = build_drop_query(&firebolt_types::Table {
+                name: table,
+                r#type: firebolt_types::TableType::Fact,
+                schema: firebolt_types::TableSchema { columns: Vec::new() },
+            })?;
+
+            result
         }
         Action::ValidateNewProjection => {
             let projection = validate_request::Binding::decode(Cursor::new(buf))?;
