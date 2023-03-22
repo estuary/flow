@@ -71,6 +71,7 @@ pub async fn build_catalog(
         &logs_tx,
         logs_token,
         tokio::process::Command::new("gsutil")
+            .arg("-q")
             .arg("cp")
             .arg(&db_path)
             .arg(dest_url.to_string()),
