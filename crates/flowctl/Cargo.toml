@@ -12,13 +12,17 @@ license.workspace = true
 
 [dependencies]
 assemble = { path = "../assemble" }
+connector-init = { path = "../connector-init" }
+derive-typescript = { path = "../derive-typescript" }
 doc = { path = "../doc" }
-labels = { path = "../labels" }
 journal-client = { path = "../journal-client" }
-schema-inference = { path = "../schema-inference" }
+labels = { path = "../labels" }
 models = { path = "../models" }
+ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
+runtime = { path = "../runtime" }
+schema-inference = { path = "../schema-inference" }
 sources = { path = "../sources" }
 tables = { path = "../tables" }
 validation = { path = "../validation" }
@@ -35,10 +39,12 @@ humantime = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
 md5 = { workspace = true }
+pbjson-types = { workspace = true }
+prost = { workspace = true }
+tonic = { workspace = true }
 
 # open is used for opening URLs in the user's browser
 open = { workspace = true }
-keyring = { workspace = true }
 postgrest = { workspace = true }
 reqwest = { workspace = true }
 # rpassword is used for reading credentials from stdin

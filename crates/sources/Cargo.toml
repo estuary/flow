@@ -16,7 +16,6 @@ proto-flow = { path = "../proto-flow" }
 tables = { path = "../tables" }
 
 anyhow = { workspace = true }
-base64 = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
 schemars = { workspace = true }

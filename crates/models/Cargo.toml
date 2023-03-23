@@ -10,17 +10,10 @@ license.workspace = true
 
 [dependencies]
 # NOTE(johnny): DO NOT add proto-flow or proto-gazette to this crate.
-# Users shouldn't _have_ to bring in all of our protobuf types as well.
-# Instead, consider the `assemble` crate for models <=> protobuf conversions.
-doc = { path = "../doc" }
-json = { path = "../json" }
-labels = { path = "../labels" }
-
 
 caseless = { workspace = true }
 humantime-serde = { workspace = true }
 lazy_static = { workspace = true }
-pathfinding = { workspace = true }
 regex = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }

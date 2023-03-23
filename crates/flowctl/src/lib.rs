@@ -1,9 +1,7 @@
 use std::fmt::Debug;
 
-use anyhow::Context as _;
 use clap::AppSettings;
 use clap::Parser;
-use proto_flow::flow;
 
 mod auth;
 mod catalog;
@@ -12,12 +10,13 @@ mod config;
 mod controlplane;
 mod dataplane;
 mod draft;
+mod generate;
+mod local_specs;
 mod ops;
 mod output;
 mod poll;
+mod preview;
 mod raw;
-mod source;
-mod typescript;
 
 use output::{Output, OutputType};
 use poll::poll_while_queued;
@@ -55,6 +54,21 @@ pub enum Command {
     Catalog(catalog::Catalog),
     /// Work with Flow collections.
     Collections(collection::Collections),
+    /// Generate derivation project files and implementation stubs.
+    ///
+    /// Generate walks your local Flow catalog source file and its imports
+    /// to gather collections, derivations, and associated JSON schemas.
+    /// Your derivations generate associated project files and supplemental
+    /// type implementations which are then written into your project directory,
+    /// which is the top-level directory having a flow.yaml or flow.json file.
+    ///
+    /// You then edit the generated stubs in your preferred editor to fill
+    /// out implementations for your derivation transform lambdas.
+    Generate(generate::Generate),
+    /// Locally run and preview the output of a derivation.
+    ///
+    /// TODO(johnny): document me!
+    Preview(preview::Preview),
     /// Work with your Flow catalog drafts.
     ///
     /// Drafts are in-progress specifications which are not yet "live".
@@ -73,9 +87,7 @@ pub enum Command {
     /// that corresponds to the selected task. This command is essentially equivalent to the much longer:
     /// `flowctl collections read --collection ops/<tenant>/stats --include-partition estuary.dev/field/name=<task>`
     Stats(ops::Stats),
-    /// Develop TypeScript modules of your local Flow catalog source files.
-    Typescript(typescript::TypeScript),
-    /// Advanced and low-level commands which are less common.
+    /// Advanced, low-level, and experimental commands which are less common.
     Raw(raw::Advanced),
 }
 
@@ -151,10 +163,11 @@ impl Cli {
             Command::Auth(auth) => auth.run(&mut context).await,
             Command::Catalog(catalog) => catalog.run(&mut context).await,
             Command::Collections(collection) => collection.run(&mut context).await,
+            Command::Generate(generate) => generate.run(&mut context).await,
+            Command::Preview(preview) => preview.run(&mut context).await,
             Command::Draft(draft) => draft.run(&mut context).await,
             Command::Logs(logs) => logs.run(&mut context).await,
             Command::Stats(stats) => stats.run(&mut context).await,
-            Command::Typescript(typescript) => typescript.run(&mut context).await,
             Command::Raw(advanced) => advanced.run(&mut context).await,
         }?;
 
@@ -194,51 +207,6 @@ fn new_table(headers: Vec<&str>) -> comfy_table::Table {
 
     table.set_header(headers);
     table
-}
-
-/// Fetcher fetches resource URLs from the local filesystem or over the network.
-struct Fetcher;
-
-impl sources::Fetcher for Fetcher {
-    fn fetch<'a>(
-        &'a self,
-        // Resource to fetch.
-        resource: &'a url::Url,
-        // Expected content type of the resource.
-        content_type: flow::ContentType,
-    ) -> sources::FetchFuture<'a> {
-        tracing::debug!(%resource, ?content_type, "fetching resource");
-        let url = resource.clone();
-        Box::pin(fetch_async(url))
-    }
-}
-
-async fn fetch_async(resource: url::Url) -> Result<bytes::Bytes, anyhow::Error> {
-    match resource.scheme() {
-        "http" | "https" => {
-            let resp = reqwest::get(resource.as_str()).await?;
-            let status = resp.status();
-
-            if status.is_success() {
-                Ok(resp.bytes().await?)
-            } else {
-                let body = resp.text().await?;
-                anyhow::bail!("{status}: {body}");
-            }
-        }
-        "file" => {
-            let path = resource
-                .to_file_path()
-                .map_err(|err| anyhow::anyhow!("failed to convert file uri to path: {:?}", err))?;
-
-            let bytes =
-                std::fs::read(path).with_context(|| format!("failed to read {resource}"))?;
-            Ok(bytes.into())
-        }
-        _ => Err(anyhow::anyhow!(
-            "cannot fetch unsupported URI scheme: '{resource}'"
-        )),
-    }
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]

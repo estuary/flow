@@ -19,7 +19,7 @@ captures:
   examples/source-test-fail:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-test:dev
+        image: ghcr.io/estuary/source-test:d97009e
         config:
           greetings: 10
           fail_after: 10

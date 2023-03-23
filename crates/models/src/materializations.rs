@@ -1,7 +1,4 @@
-use super::{
-    Collection, ConnectorConfig, Field, Object, PartitionSelector, RelativeUrl, ShardTemplate,
-};
-
+use super::{ConnectorConfig, Field, RawValue, RelativeUrl, ShardTemplate, Source};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -21,14 +18,17 @@ pub struct MaterializationDef {
     pub shards: ShardTemplate,
 }
 
-impl MaterializationDef {
-    pub fn example() -> Self {
-        Self {
-            endpoint: MaterializationEndpoint::Connector(ConnectorConfig::example()),
-            bindings: vec![MaterializationBinding::example()],
-            shards: ShardTemplate::default(),
-        }
-    }
+/// An Endpoint connector used for Flow materializations.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub enum MaterializationEndpoint {
+    /// # A Connector.
+    #[serde(alias = "flowSink")]
+    Connector(ConnectorConfig),
+    /// # A SQLite database.
+    /// TODO(johnny): Remove.
+    #[schemars(skip)]
+    Sqlite(SqliteConfig),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
@@ -36,27 +36,12 @@ impl MaterializationDef {
 #[schemars(example = "MaterializationBinding::example")]
 pub struct MaterializationBinding {
     /// # Endpoint resource to materialize into.
-    pub resource: Object,
-    /// # Name of the collection to be materialized.
-    pub source: Collection,
-    /// # Selector over partitions of the source collection to read.
-    #[schemars(example = "PartitionSelector::example")]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub partitions: Option<PartitionSelector>,
+    pub resource: RawValue,
+    /// # The collection to be materialized.
+    pub source: Source,
     /// # Selected projections for this materialization.
     #[serde(default)]
     pub fields: MaterializationFields,
-}
-
-impl MaterializationBinding {
-    fn example() -> Self {
-        Self {
-            resource: json!({"table": "a_table"}).as_object().unwrap().clone(),
-            source: Collection::new("source/collection"),
-            partitions: None,
-            fields: MaterializationFields::default(),
-        }
-    }
 }
 
 /// MaterializationFields defines a selection of projections to materialize,
@@ -71,7 +56,7 @@ pub struct MaterializationFields {
     /// of the driver's schema generation or runtime behavior with respect
     /// to the field.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub include: BTreeMap<Field, Object>,
+    pub include: BTreeMap<Field, RawValue>,
     /// # Fields to exclude.
     /// This removes from recommended projections, where enabled.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -80,10 +65,30 @@ pub struct MaterializationFields {
     pub recommended: bool,
 }
 
+impl MaterializationDef {
+    pub fn example() -> Self {
+        Self {
+            endpoint: MaterializationEndpoint::Connector(ConnectorConfig::example()),
+            bindings: vec![MaterializationBinding::example()],
+            shards: ShardTemplate::default(),
+        }
+    }
+}
+
+impl MaterializationBinding {
+    fn example() -> Self {
+        Self {
+            resource: serde_json::from_value(json!({"table": "a_table"})).unwrap(),
+            source: Source::example(),
+            fields: MaterializationFields::default(),
+        }
+    }
+}
+
 impl MaterializationFields {
     pub fn example() -> Self {
         MaterializationFields {
-            include: vec![(Field::new("added"), Object::new())]
+            include: vec![(Field::new("added"), serde_json::from_str("{}").unwrap())]
                 .into_iter()
                 .collect(),
             exclude: vec![Field::new("removed")],
@@ -102,19 +107,8 @@ impl Default for MaterializationFields {
     }
 }
 
-/// An Endpoint connector used for Flow materializations.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub enum MaterializationEndpoint {
-    /// # A Connector.
-    #[serde(alias = "flowSink")]
-    Connector(ConnectorConfig),
-    /// # A SQLite database.
-    Sqlite(SqliteConfig),
-}
-
 /// Sqlite endpoint configuration.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SqliteConfig {
     /// # Path of the database, relative to this catalog source.
     /// The path may include query arguments. See:

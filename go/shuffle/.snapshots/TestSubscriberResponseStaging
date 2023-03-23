@@ -2,10 +2,10 @@ terminal_error: "an error"
 read_through: 1000
 write_head: 2000
 arena: "barbarACKACK"
-docs_json: <
+docs: <
   end: 3
 >
-docs_json: <
+docs: <
   begin: 6
   end: 9
 >
@@ -14,11 +14,11 @@ offsets: 201
 offsets: 400
 offsets: 401
 uuid_parts: <
-  producer_and_flags: 1
+  node: 1
   clock: 160000
 >
 uuid_parts: <
-  producer_and_flags: 2
+  node: 2
   clock: 160032
 >
 packed_key: <
@@ -33,10 +33,10 @@ terminal_error: "an error"
 read_through: 1000
 write_head: 2000
 arena: "qibqibACKACK"
-docs_json: <
+docs: <
   end: 3
 >
-docs_json: <
+docs: <
   begin: 6
   end: 9
 >
@@ -45,11 +45,11 @@ offsets: 301
 offsets: 400
 offsets: 401
 uuid_parts: <
-  producer_and_flags: 1
+  node: 1
   clock: 160016
 >
 uuid_parts: <
-  producer_and_flags: 2
+  node: 2
   clock: 160032
 >
 packed_key: <
@@ -64,10 +64,10 @@ terminal_error: "an error"
 read_through: 1000
 write_head: 2000
 arena: "ACKACKfoofoo"
-docs_json: <
+docs: <
   end: 3
 >
-docs_json: <
+docs: <
   begin: 6
   end: 9
 >
@@ -76,11 +76,11 @@ offsets: 401
 offsets: 500
 offsets: 501
 uuid_parts: <
-  producer_and_flags: 2
+  node: 2
   clock: 160032
 >
 uuid_parts: <
-  producer_and_flags: 1
+  node: 1
   clock: 160048
 >
 packed_key: <

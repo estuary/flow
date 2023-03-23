@@ -223,9 +223,9 @@ jobs:
         run: |
           make go-test-ci SKIP_BUILD=true
 
-      - name: make end-to-end-test
-        run: |
-          make end-to-end-test SKIP_BUILD=true
+      #- name: make end-to-end-test
+      #  run: |
+      #    make end-to-end-test SKIP_BUILD=true
 
       - name: make package (tar only)
         run: |

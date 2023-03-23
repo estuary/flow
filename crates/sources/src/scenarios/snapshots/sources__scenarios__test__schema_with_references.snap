@@ -3,22 +3,19 @@ source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 Sources {
-    capture_bindings: [],
     captures: [],
     collections: [
         Collection {
             scope: test://example/catalog.yaml#/collections/test,
             collection: test,
             spec: {
+              "schema": "test://external/a#/$defs/a",
               "key": [
                 "/a"
               ]
             },
-            write_schema: test://external/a#/$defs/a,
-            read_schema: test://external/a#/$defs/a,
         },
     ],
-    derivations: [],
     errors: [],
     fetches: [
         Fetch {
@@ -41,31 +38,18 @@ Sources {
     imports: [
         Import {
             scope: test://example/catalog.yaml#/collections/test/schema,
-            from_resource: test://example/catalog.yaml,
             to_resource: test://external/a,
         },
         Import {
             scope: test://external/a#/$defs/a/$ref,
-            from_resource: test://external/a,
             to_resource: test://external/b,
         },
         Import {
             scope: test://external/b#/$defs/c/$ref,
-            from_resource: test://external/b,
             to_resource: test://external/c,
         },
     ],
-    materialization_bindings: [],
     materializations: [],
-    npm_dependencies: [],
-    projections: [
-        Projection {
-            scope: test://example/catalog.yaml#/collections/test/projections/flow_document,
-            collection: test,
-            field: flow_document,
-            spec: "",
-        },
-    ],
     resources: [
         Resource {
             resource: test://example/catalog.yaml,
@@ -92,33 +76,6 @@ Sources {
             content_dom: true,
         },
     ],
-    schema_docs: [
-        SchemaDoc {
-            schema: test://external/a,
-            dom: {
-              "$defs": {
-                "a": {
-                  "$ref": "b#/$defs/c"
-                }
-              }
-            },
-        },
-        SchemaDoc {
-            schema: test://external/b,
-            dom: {
-              "$defs": {
-                "c": {
-                  "$ref": "c"
-                }
-              }
-            },
-        },
-        SchemaDoc {
-            schema: test://external/c,
-            dom: true,
-        },
-    ],
     storage_mappings: [],
-    test_steps: [],
-    transforms: [],
+    tests: [],
 }

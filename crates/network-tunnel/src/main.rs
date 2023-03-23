@@ -35,15 +35,10 @@ async fn run_and_cleanup(tunnel: &mut Box<dyn networktunnel::NetworkTunnel>) -> 
         //    sends out the "READY" signal after making sure the network tunnel is started and working properly.
         println!("READY");
 
-        future::ready(prep).and_then(|()| {
-            tunnel.start_serve()
-        }).await
+        future::ready(prep)
+            .and_then(|()| tunnel.start_serve())
+            .await
     };
-
-    // We must make sure we cleanup the child process. This is specially important
-    // as processes that are not `wait`ed on can end up as zombies in some operating
-    // systems (see https://doc.rust-lang.org/std/process/struct.Child.html#warning)
-    tunnel.cleanup().await?;
 
     tunnel_block
 }
@@ -59,28 +54,30 @@ async fn run() -> Result<(), Error> {
 mod test {
     use std::any::Any;
 
-    use async_trait::async_trait;
     use crate::errors::Error;
     use crate::networktunnel::NetworkTunnel;
+    use async_trait::async_trait;
 
     use crate::run_and_cleanup;
 
     #[derive(Debug)]
     struct TestTunnel {
-        cleanup_called: bool,
         error_in_prepare: bool,
         error_in_serve: bool,
     }
 
     #[async_trait]
     impl NetworkTunnel for TestTunnel {
-        fn adjust_endpoint_spec(&mut self, endpoint_spec: serde_json::Value) -> Result<serde_json::Value, Error> {
+        fn adjust_endpoint_spec(
+            &mut self,
+            endpoint_spec: serde_json::Value,
+        ) -> Result<serde_json::Value, Error> {
             Ok(endpoint_spec)
         }
 
         async fn prepare(&mut self) -> Result<(), Error> {
             if self.error_in_prepare {
-                return Err(Error::TunnelExitNonZero("prepare-error".to_string()))
+                return Err(Error::TunnelExitNonZero("prepare-error".to_string()));
             }
 
             Ok(())
@@ -88,14 +85,8 @@ mod test {
 
         async fn start_serve(&mut self) -> Result<(), Error> {
             if self.error_in_serve {
-                return Err(Error::TunnelExitNonZero("serve-error".to_string()))
+                return Err(Error::TunnelExitNonZero("serve-error".to_string()));
             }
-
-            Ok(())
-        }
-
-        async fn cleanup(&mut self) -> Result<(), Error> {
-            self.cleanup_called = true;
 
             Ok(())
         }
@@ -105,49 +96,36 @@ mod test {
         }
     }
 
-
     #[tokio::test]
     async fn test_cleanup_call_error_in_prepare() {
-        let mut tunnel : Box<dyn NetworkTunnel> = Box::new(TestTunnel {
-            cleanup_called: false,
+        let mut tunnel: Box<dyn NetworkTunnel> = Box::new(TestTunnel {
             error_in_prepare: true,
             error_in_serve: false,
         });
 
         let result = run_and_cleanup(&mut tunnel).await;
         assert!(result.is_err());
-
-        let test_tunnel = tunnel.as_any().downcast_ref::<TestTunnel>().unwrap();
-        assert!(test_tunnel.cleanup_called);
     }
 
     #[tokio::test]
     async fn test_cleanup_call_error_in_serve() {
-        let mut tunnel : Box<dyn NetworkTunnel> = Box::new(TestTunnel {
-            cleanup_called: false,
+        let mut tunnel: Box<dyn NetworkTunnel> = Box::new(TestTunnel {
             error_in_prepare: false,
             error_in_serve: true,
         });
 
         let result = run_and_cleanup(&mut tunnel).await;
         assert!(result.is_err());
-
-        let test_tunnel = tunnel.as_any().downcast_ref::<TestTunnel>().unwrap();
-        assert!(test_tunnel.cleanup_called);
     }
 
     #[tokio::test]
     async fn test_cleanup_call_success() {
-        let mut tunnel : Box<dyn NetworkTunnel> = Box::new(TestTunnel {
-            cleanup_called: false,
+        let mut tunnel: Box<dyn NetworkTunnel> = Box::new(TestTunnel {
             error_in_prepare: false,
             error_in_serve: false,
         });
 
         let result = run_and_cleanup(&mut tunnel).await;
         assert!(result.is_ok());
-
-        let test_tunnel = tunnel.as_any().downcast_ref::<TestTunnel>().unwrap();
-        assert!(test_tunnel.cleanup_called);
     }
 }

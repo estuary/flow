@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
+	po "github.com/estuary/flow/go/protocols/ops"
 	"github.com/estuary/flow/go/shuffle"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
@@ -75,14 +77,14 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 	var checkpointSource = "n/a"
 	defer func() {
 		if err == nil {
-			ops.PublishLog(m.opsPublisher, pf.LogLevel_debug,
+			ops.PublishLog(m.opsPublisher, po.Log_debug,
 				"initialized processing term",
 				"build", m.labels.Build,
 				"checkpoint", cp,
 				"checkpointSource", checkpointSource,
 			)
 		} else if !errors.Is(err, context.Canceled) {
-			ops.PublishLog(m.opsPublisher, pf.LogLevel_error,
+			ops.PublishLog(m.opsPublisher, po.Log_error,
 				"failed to initialize processing term",
 				"error", err,
 			)
@@ -114,7 +116,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 	if err != nil {
 		return pf.Checkpoint{}, err
 	}
-	ops.PublishLog(m.opsPublisher, pf.LogLevel_debug,
+	ops.PublishLog(m.opsPublisher, po.Log_debug,
 		"loaded specification",
 		"spec", m.spec, "build", m.labels.Build)
 
@@ -131,10 +133,10 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		}
 		return combiner, combiner.Configure(
 			shard.FQN(),
-			binding.Collection.Collection,
+			binding.Collection.Name,
 			binding.Collection.GetReadSchemaJson(),
 			"", // Don't generate UUID placeholders.
-			binding.Collection.KeyPtrs,
+			binding.Collection.Key,
 			binding.FieldValuePtrs(),
 		)
 	}
@@ -143,8 +145,8 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 	// Start driver and Transactions RPC client.
 	m.driver, err = connector.NewDriver(
 		shard.Context(),
-		m.spec.EndpointSpecJson,
-		m.spec.EndpointType,
+		m.spec.ConfigJson,
+		m.spec.ConnectorType.String(),
 		m.opsPublisher,
 		m.host.Config.Flow.Network,
 		configHandle,
@@ -173,10 +175,8 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 
 	// If the store provided a Flow checkpoint, prefer that over
 	// the `checkpoint` recovered from the local recovery log store.
-	if b := m.client.Opened().RuntimeCheckpoint; len(b) != 0 {
-		if err = cp.Unmarshal(b); err != nil {
-			return pf.Checkpoint{}, fmt.Errorf("unmarshal Opened.RuntimeCheckpoint: %w", err)
-		}
+	if m.client.Opened().RuntimeCheckpoint != nil {
+		cp = *m.client.Opened().RuntimeCheckpoint
 		checkpointSource = "driver"
 	} else {
 		// Otherwise restore locally persisted checkpoint.
@@ -191,12 +191,10 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 
 // StartCommit implements consumer.Store.StartCommit
 func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
-	driverCP, opAcknowledged, err := m.client.StartCommit(cp)
+	driverCP, opAcknowledged, err := m.client.StartCommit(&cp)
 	if err != nil {
 		return client.FinishedOperation(err)
-	} else if driverCP == nil {
-		// No update of driver checkpoint.
-	} else if err = updateDriverCheckpoint(m.store, *driverCP); err != nil {
+	} else if err = updateDriverCheckpoint(m.store, driverCP); err != nil {
 		return client.FinishedOperation(err)
 	}
 
@@ -209,7 +207,7 @@ func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFo
 		return client.FinishedOperation(err)
 	}
 
-	ops.PublishLog(m.opsPublisher, pf.LogLevel_debug, "started commit",
+	ops.PublishLog(m.opsPublisher, po.Log_debug, "started commit",
 		"runtimeCheckpoint", cp,
 		"driverCheckpoint", driverCP)
 
@@ -225,7 +223,7 @@ func (m *Materialize) materializationStats(statsPerBinding []*pf.CombineAPI_Stat
 		if bindingStats == nil {
 			continue
 		}
-		var name = m.spec.Bindings[i].Collection.Collection.String()
+		var name = m.spec.Bindings[i].Collection.Name.String()
 		// It's possible for multiple bindings to use the same collection, in which case the
 		// stats should be summed.
 		var prevStats = stats[name]
@@ -272,31 +270,24 @@ func (m *Materialize) ConsumeMessage(shard consumer.Shard, envelope message.Enve
 		return nil // We just ignore the ACK documents.
 	}
 
-	// Find *Shuffle with equal pointer.
-	var binding = -1 // Panic if no *Shuffle is matched.
+	var keyPacked = isr.Arena.Bytes(isr.PackedKey[isr.Index])
+	var keyJSON json.RawMessage // TODO(johnny).
+	var doc = isr.Arena.Bytes(isr.Docs[isr.Index])
 
-	for i := range m.spec.Bindings {
-		if &m.spec.Bindings[i].Shuffle == isr.Shuffle {
-			binding = i
-		}
-	}
-
-	var packedKey = isr.Arena.Bytes(isr.PackedKey[isr.Index])
-	var doc = isr.Arena.Bytes(isr.DocsJson[isr.Index])
-	return m.client.AddDocument(binding, packedKey, doc)
+	return m.client.AddDocument(isr.ShuffleIndex, keyPacked, keyJSON, doc)
 }
 
 func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error {
 	if err := m.client.Flush(); err != nil {
 		return err
 	}
-	ops.PublishLog(m.opsPublisher, pf.LogLevel_debug, "flushed loads")
+	ops.PublishLog(m.opsPublisher, po.Log_debug, "flushed loads")
 
 	var stats, err = m.client.Store()
 	if err != nil {
 		return err
 	}
-	ops.PublishLog(m.opsPublisher, pf.LogLevel_debug, "stored documents")
+	ops.PublishLog(m.opsPublisher, po.Log_debug, "stored documents")
 
 	var mapper = flow.NewMapper(shard.Context(), m.host.Service.Etcd, m.host.Journals, shard.FQN())
 	var statsEvent = m.materializationStats(stats)

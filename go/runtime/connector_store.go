@@ -40,16 +40,19 @@ func loadDriverCheckpoint(store *consumer.JSONFileStore) json.RawMessage {
 
 func updateDriverCheckpoint(
 	store *consumer.JSONFileStore,
-	driverCheckpoint pf.DriverCheckpoint,
+	driverCheckpoint *pf.ConnectorState,
 ) error {
-	var reduced = pf.DriverCheckpoint{
-		DriverCheckpointJson: store.State.(*storeState).DriverCheckpoint,
-		Rfc7396MergePatch:    false,
+	if driverCheckpoint == nil {
+		return nil
 	}
-	if err := reduced.Reduce(driverCheckpoint); err != nil {
+	var reduced = pf.ConnectorState{
+		UpdatedJson: store.State.(*storeState).DriverCheckpoint,
+		MergePatch:  false,
+	}
+	if err := reduced.Reduce(*driverCheckpoint); err != nil {
 		return fmt.Errorf("patching driver checkpoint: %w", err)
 	}
-	store.State.(*storeState).DriverCheckpoint = reduced.DriverCheckpointJson
+	store.State.(*storeState).DriverCheckpoint = reduced.UpdatedJson
 
 	return nil
 }

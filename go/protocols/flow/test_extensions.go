@@ -4,8 +4,8 @@ import pb "go.gazette.dev/core/broker/protocol"
 
 // Validate returns an error if the TestSpec is invalid
 func (m *TestSpec) Validate() error {
-	if m.Test == "" {
-		return pb.NewValidationError("missing Test")
+	if m.Name == "" {
+		return pb.NewValidationError("missing Name")
 	}
 	for i, step := range m.Steps {
 		if err := step.Validate(); err != nil {

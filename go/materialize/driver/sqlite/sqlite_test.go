@@ -21,6 +21,7 @@ import (
 	sqlDriver "github.com/estuary/flow/go/protocols/materialize/sql"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
+	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 func TestSQLGeneration(t *testing.T) {
@@ -31,7 +32,7 @@ func TestSQLGeneration(t *testing.T) {
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			BuildId:    "fixture",
-			Directory:  t.TempDir(),
+			BuildDb:    path.Join(t.TempDir(), "build.db"),
 			Source:     "file:///sql-gen.yaml",
 			SourceType: pf.ContentType_CATALOG,
 		},
@@ -39,7 +40,7 @@ func TestSQLGeneration(t *testing.T) {
 	require.NoError(t, bindings.BuildCatalog(args))
 
 	var spec *pf.MaterializationSpec
-	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+	require.NoError(t, catalog.Extract(args.BuildDb, func(db *sql.DB) (err error) {
 		spec, err = catalog.LoadMaterialization(db, "test/sqlite")
 		return err
 	}))
@@ -74,17 +75,6 @@ func TestSQLGeneration(t *testing.T) {
 	require.Equal(t, `DELETE FROM load.keys_123 ;`, keyTruncate)
 }
 
-func TestSpecification(t *testing.T) {
-	var resp, err = sqlite.NewSQLiteDriver().
-		Spec(context.Background(), &pm.SpecRequest{EndpointType: pf.EndpointType_AIRBYTE_SOURCE})
-	require.NoError(t, err)
-
-	formatted, err := json.MarshalIndent(resp, "", "  ")
-	require.NoError(t, err)
-
-	cupaloy.SnapshotT(t, formatted)
-}
-
 func TestSQLiteDriver(t *testing.T) {
 	pb.RegisterGRPCDispatcher("local")
 
@@ -93,7 +83,7 @@ func TestSQLiteDriver(t *testing.T) {
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			BuildId:    "fixture",
-			Directory:  t.TempDir(),
+			BuildDb:    path.Join(t.TempDir(), "build.db"),
 			Source:     "file:///driver-steps.yaml",
 			SourceType: pf.ContentType_CATALOG,
 		},
@@ -102,7 +92,7 @@ func TestSQLiteDriver(t *testing.T) {
 
 	// Model MaterializationSpec we'll *mostly* use, but vary slightly in this test.
 	var model *pf.MaterializationSpec
-	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+	require.NoError(t, catalog.Extract(args.BuildDb, func(db *sql.DB) (err error) {
 		model, err = catalog.LoadMaterialization(db, "a/materialization")
 		return err
 	}))
@@ -113,6 +103,9 @@ func TestSQLiteDriver(t *testing.T) {
 	var driver = server.Client()
 	var ctx = pb.WithDispatchDefault(context.Background())
 
+	transaction, err := driver.Materialize(ctx)
+	require.NoError(t, err)
+
 	// Config fixture which matches schema of ParseConfig.
 	var endpointConfig = struct {
 		Path string
@@ -120,35 +113,36 @@ func TestSQLiteDriver(t *testing.T) {
 	var endpointJSON, _ = json.Marshal(endpointConfig)
 
 	// Validate should return constraints for a non-existant materialization
-	var validateReq = pm.ValidateRequest{
-		Materialization:  model.Materialization,
-		EndpointType:     pf.EndpointType_SQLITE,
-		EndpointSpecJson: json.RawMessage(endpointJSON),
-		Bindings: []*pm.ValidateRequest_Binding{
+	var validateReq = pm.Request_Validate{
+		Name:          model.Name,
+		ConnectorType: pf.MaterializationSpec_SQLITE,
+		ConfigJson:    json.RawMessage(endpointJSON),
+		Bindings: []*pm.Request_Validate_Binding{
 			{
-				Collection:       model.Bindings[0].Collection,
-				ResourceSpecJson: model.Bindings[0].ResourceSpecJson,
+				Collection:         model.Bindings[0].Collection,
+				ResourceConfigJson: model.Bindings[0].ResourceConfigJson,
 			},
 		},
 	}
+	require.NoError(t, transaction.Send(&pm.Request{Validate: &validateReq}))
 
-	validateResp, err := driver.Validate(ctx, &validateReq)
+	validateResp, err := transaction.Recv()
 	require.NoError(t, err)
 	// There should be a constraint for every projection
-	require.Equal(t, &pm.ValidateResponse_Binding{
-		Constraints: map[string]*pm.Constraint{
-			"array":         {Type: pm.Constraint_FIELD_OPTIONAL, Reason: "This field is able to be materialized"},
-			"bool":          {Type: pm.Constraint_LOCATION_RECOMMENDED, Reason: "The projection has a single scalar type"},
-			"flow_document": {Type: pm.Constraint_LOCATION_REQUIRED, Reason: "The root document must be materialized"},
-			"int":           {Type: pm.Constraint_LOCATION_RECOMMENDED, Reason: "The projection has a single scalar type"},
-			"number":        {Type: pm.Constraint_LOCATION_RECOMMENDED, Reason: "The projection has a single scalar type"},
-			"object":        {Type: pm.Constraint_FIELD_OPTIONAL, Reason: "This field is able to be materialized"},
-			"string":        {Type: pm.Constraint_LOCATION_RECOMMENDED, Reason: "The projection has a single scalar type"},
-			"theKey":        {Type: pm.Constraint_LOCATION_REQUIRED, Reason: "All Locations that are part of the collections key are required"},
+	require.Equal(t, &pm.Response_Validated_Binding{
+		Constraints: map[string]*pm.Response_Validated_Constraint{
+			"array":         {Type: pm.Response_Validated_Constraint_FIELD_OPTIONAL, Reason: "This field is able to be materialized"},
+			"bool":          {Type: pm.Response_Validated_Constraint_LOCATION_RECOMMENDED, Reason: "The projection has a single scalar type"},
+			"flow_document": {Type: pm.Response_Validated_Constraint_LOCATION_REQUIRED, Reason: "The root document must be materialized"},
+			"int":           {Type: pm.Response_Validated_Constraint_LOCATION_RECOMMENDED, Reason: "The projection has a single scalar type"},
+			"number":        {Type: pm.Response_Validated_Constraint_LOCATION_RECOMMENDED, Reason: "The projection has a single scalar type"},
+			"object":        {Type: pm.Response_Validated_Constraint_FIELD_OPTIONAL, Reason: "This field is able to be materialized"},
+			"string":        {Type: pm.Response_Validated_Constraint_LOCATION_RECOMMENDED, Reason: "The projection has a single scalar type"},
+			"theKey":        {Type: pm.Response_Validated_Constraint_LOCATION_REQUIRED, Reason: "All Locations that are part of the collections key are required"},
 		},
 		DeltaUpdates: false,
 		ResourcePath: model.Bindings[0].ResourcePath,
-	}, validateResp.Bindings[0])
+	}, validateResp.Validated.Bindings[0])
 
 	// Select some fields and Apply the materialization
 	var fields = pf.FieldSelection{
@@ -156,51 +150,47 @@ func TestSQLiteDriver(t *testing.T) {
 		Values:   []string{"bool", "int", "string"}, // intentionally missing "number" field
 		Document: "flow_document",
 	}
-	var applyReq = pm.ApplyRequest{
+	var applyReq = pm.Request_Apply{
 		Materialization: &pf.MaterializationSpec{
-			Materialization:  model.Materialization,
-			EndpointType:     pf.EndpointType_SQLITE,
-			EndpointSpecJson: json.RawMessage(endpointJSON),
+			Name:          model.Name,
+			ConnectorType: pf.MaterializationSpec_SQLITE,
+			ConfigJson:    json.RawMessage(endpointJSON),
 			Bindings: []*pf.MaterializationSpec_Binding{
 				{
-					Collection:       model.Bindings[0].Collection,
-					FieldSelection:   fields,
-					ResourcePath:     model.Bindings[0].ResourcePath,
-					ResourceSpecJson: model.Bindings[0].ResourceSpecJson,
-					DeltaUpdates:     false,
-					Shuffle:          model.Bindings[0].Shuffle,
+					Collection:         model.Bindings[0].Collection,
+					FieldSelection:     fields,
+					ResourcePath:       model.Bindings[0].ResourcePath,
+					ResourceConfigJson: model.Bindings[0].ResourceConfigJson,
+					DeltaUpdates:       false,
+					PartitionSelector:  model.Bindings[0].PartitionSelector,
 				},
 			},
 			ShardTemplate:       model.ShardTemplate,
 			RecoveryLogTemplate: model.RecoveryLogTemplate,
 		},
 		Version: "the-version",
-		DryRun:  true,
 	}
+	require.NoError(t, transaction.Send(&pm.Request{Apply: &applyReq}))
 
-	applyResp, err := driver.ApplyUpsert(ctx, &applyReq)
+	applyResp, err := transaction.Recv()
 	require.NoError(t, err)
-	require.NotEmpty(t, applyResp.ActionDescription)
-
-	applyReq.DryRun = false
-	applyResp, err = driver.ApplyUpsert(ctx, &applyReq)
-	require.NoError(t, err)
-	require.NotEmpty(t, applyResp.ActionDescription)
+	require.NotEmpty(t, applyResp.Applied.ActionDescription)
 
 	// Now that we've applied, call Validate again to ensure the existing fields are accounted for
-	validateResp, err = driver.Validate(ctx, &validateReq)
+	require.NoError(t, transaction.Send(&pm.Request{Validate: &validateReq}))
+	validateResp, err = transaction.Recv()
 	require.NoError(t, err)
 
 	// Expect a constraint was returned for each projection.
 	require.Equal(t,
 		len(model.Bindings[0].Collection.Projections),
-		len(validateResp.Bindings[0].Constraints))
+		len(validateResp.Validated.Bindings[0].Constraints))
 
 	for _, field := range fields.AllFields() {
-		var actual = validateResp.Bindings[0].Constraints[field].Type
+		var actual = validateResp.Validated.Bindings[0].Constraints[field].Type
 		require.Equal(
 			t,
-			pm.Constraint_FIELD_REQUIRED,
+			pm.Response_Validated_Constraint_FIELD_REQUIRED,
 			actual,
 			"wrong constraint for field: %s, expected FIELD_REQUIRED, got %s",
 			field,
@@ -209,7 +199,8 @@ func TestSQLiteDriver(t *testing.T) {
 	}
 	// The "number" field should be forbidden because it was not included in the FieldSelection that
 	// was applied.
-	require.Equal(t, pm.Constraint_FIELD_FORBIDDEN, validateResp.Bindings[0].Constraints["number"].Type)
+	require.Equal(t, pm.Response_Validated_Constraint_FIELD_FORBIDDEN,
+		validateResp.Validated.Bindings[0].Constraints["number"].Type)
 
 	// Insert a fixture into the `flow_checkpoints` table which we'll fence
 	// and draw a checkpoint from, and then insert a more-specific checkpoint
@@ -218,29 +209,33 @@ func TestSQLiteDriver(t *testing.T) {
 		var db, err = sql.Open("sqlite3", endpointConfig.Path)
 		require.NoError(t, err)
 
+		var cp = &pf.Checkpoint{
+			Sources: map[pf.Journal]pc.Checkpoint_Source{"a/journal": {ReadThrough: 1}},
+		}
+		var cpBytes, _ = cp.Marshal()
+
 		_, err = db.Exec(`INSERT INTO flow_checkpoints_v1
 			(materialization, key_begin, key_end, fence, checkpoint)
 			VALUES (?, 0, ?, 5, ?)
 		;`,
-			applyReq.Materialization.Materialization,
+			applyReq.Materialization.Name,
 			math.MaxUint32,
-			base64.StdEncoding.EncodeToString([]byte("initial checkpoint fixture")),
+			base64.StdEncoding.EncodeToString(cpBytes),
 		)
 		require.NoError(t, err)
 		require.NoError(t, db.Close())
 	}
 
-	transaction, err := driver.Transactions(ctx)
-	require.NoError(t, err)
-
 	// Send open.
-	err = transaction.Send(&pm.TransactionRequest{
-		Open: &pm.TransactionRequest_Open{
-			Materialization:      applyReq.Materialization,
-			Version:              "the-version",
-			KeyBegin:             100,
-			KeyEnd:               200,
-			DriverCheckpointJson: nil,
+	err = transaction.Send(&pm.Request{
+		Open: &pm.Request_Open{
+			Materialization: applyReq.Materialization,
+			Version:         "the-version",
+			Range: &pf.RangeSpec{
+				KeyBegin: 100,
+				KeyEnd:   200,
+			},
+			StateJson: nil,
 		},
 	})
 	require.NoError(t, err)
@@ -248,13 +243,11 @@ func TestSQLiteDriver(t *testing.T) {
 	// Receive Opened.
 	opened, err := transaction.Recv()
 	require.NoError(t, err)
-	require.Equal(t, &pm.TransactionResponse_Opened{
-		RuntimeCheckpoint: []byte("initial checkpoint fixture"),
-	}, opened.Opened)
+	require.Contains(t, opened.Opened.RuntimeCheckpoint.Sources, pb.Journal("a/journal"))
 
 	// Send & receive Acknowledge.
-	require.NoError(t, transaction.Send(&pm.TransactionRequest{
-		Acknowledge: &pm.TransactionRequest_Acknowledge{},
+	require.NoError(t, transaction.Send(&pm.Request{
+		Acknowledge: &pm.Request_Acknowledge{},
 	}))
 	acknowledged, err := transaction.Recv()
 	require.NoError(t, err)
@@ -263,20 +256,13 @@ func TestSQLiteDriver(t *testing.T) {
 	// Test Load with keys that don't exist yet
 	var key1 = tuple.Tuple{"key1Value"}
 	var key2 = tuple.Tuple{"key2Value"}
-	err = transaction.Send(&pm.TransactionRequest{
-		Load: newLoadReq(key1.Pack(), key2.Pack()),
-	})
-	require.NoError(t, err)
 	var key3 = tuple.Tuple{"key3Value"}
-	err = transaction.Send(&pm.TransactionRequest{
-		Load: newLoadReq(key3.Pack()),
-	})
-	require.NoError(t, err)
+	transaction.Send(&pm.Request{Load: &pm.Request_Load{KeyPacked: key1.Pack()}})
+	transaction.Send(&pm.Request{Load: &pm.Request_Load{KeyPacked: key2.Pack()}})
+	transaction.Send(&pm.Request{Load: &pm.Request_Load{KeyPacked: key3.Pack()}})
 
 	// Send Flush, which ends the Load phase.
-	err = transaction.Send(&pm.TransactionRequest{
-		Flush: &pm.TransactionRequest_Flush{},
-	})
+	err = transaction.Send(&pm.Request{Flush: &pm.Request_Flush{}})
 	require.NoError(t, err)
 
 	// Receive Flushed, which indicates that none of the documents exist
@@ -289,35 +275,31 @@ func TestSQLiteDriver(t *testing.T) {
 	var doc2 = `{ "theKey": "key2Value", "string": "bar", "bool": false, "int": 88, "number": 56.78 }`
 	var doc3 = `{ "theKey": "key3Value", "string": "baz", "bool": false, "int": 99, "number": 0 }`
 
-	var store1 = pm.TransactionRequest_Store{}
-	store1.DocsJson = store1.Arena.AddAll([]byte(doc1), []byte(doc2))
-	store1.PackedKeys = store1.Arena.AddAll(key1.Pack(), key2.Pack())
-	store1.PackedValues = store1.Arena.AddAll(
-		tuple.Tuple{"foo", true, 77}.Pack(),
-		tuple.Tuple{"bar", false, 88}.Pack(),
-	)
-	store1.Exists = []bool{false, false}
-	err = transaction.Send(&pm.TransactionRequest{
-		Store: &store1,
-	})
-	require.NoError(t, err)
-
-	var store2 = pm.TransactionRequest_Store{}
-	store2.DocsJson = store2.Arena.AddAll([]byte(doc3))
-	store2.PackedKeys = store2.Arena.AddAll(key3.Pack())
-	store2.PackedValues = store2.Arena.AddAll(
-		tuple.Tuple{"baz", false, 99}.Pack(),
-	)
-	store2.Exists = []bool{false}
-	err = transaction.Send(&pm.TransactionRequest{
-		Store: &store2,
-	})
-	require.NoError(t, err)
+	transaction.Send(&pm.Request{Store: &pm.Request_Store{
+		KeyPacked:    key1.Pack(),
+		ValuesPacked: tuple.Tuple{"foo", true, 77}.Pack(),
+		DocJson:      []byte(doc1),
+		Exists:       false,
+	}})
+	transaction.Send(&pm.Request{Store: &pm.Request_Store{
+		KeyPacked:    key2.Pack(),
+		ValuesPacked: tuple.Tuple{"bar", false, 88}.Pack(),
+		DocJson:      []byte(doc2),
+		Exists:       false,
+	}})
+	transaction.Send(&pm.Request{Store: &pm.Request_Store{
+		KeyPacked:    key3.Pack(),
+		ValuesPacked: tuple.Tuple{"baz", false, 99}.Pack(),
+		DocJson:      []byte(doc3),
+		Exists:       false,
+	}})
 
 	// Send StartCommit and receive StartedCommit.
-	var checkpoint1 = []byte("first checkpoint value")
-	err = transaction.Send(&pm.TransactionRequest{
-		StartCommit: &pm.TransactionRequest_StartCommit{
+	var checkpoint1 = &pf.Checkpoint{
+		Sources: map[pf.Journal]pc.Checkpoint_Source{"a/journal": {ReadThrough: 111}},
+	}
+	err = transaction.Send(&pm.Request{
+		StartCommit: &pm.Request_StartCommit{
 			RuntimeCheckpoint: checkpoint1,
 		},
 	})
@@ -328,34 +310,25 @@ func TestSQLiteDriver(t *testing.T) {
 	require.NotNil(t, startedCommit.StartedCommit)
 
 	// Send & receive Acknowledge.
-	require.NoError(t, transaction.Send(&pm.TransactionRequest{
-		Acknowledge: &pm.TransactionRequest_Acknowledge{},
-	}))
+	require.NoError(t, transaction.Send(&pm.Request{Acknowledge: &pm.Request_Acknowledge{}}))
 	acknowledged, err = transaction.Recv()
 	require.NoError(t, err)
 	require.NotNil(t, acknowledged.Acknowledged, acknowledged)
 
 	// Next transaction. Send some loads.
-	err = transaction.Send(&pm.TransactionRequest{
-		Load: newLoadReq(key1.Pack(), key2.Pack(), key3.Pack()),
-	})
-	require.NoError(t, err)
+	transaction.Send(&pm.Request{Load: &pm.Request_Load{KeyPacked: key1.Pack()}})
+	transaction.Send(&pm.Request{Load: &pm.Request_Load{KeyPacked: key2.Pack()}})
+	transaction.Send(&pm.Request{Load: &pm.Request_Load{KeyPacked: key3.Pack()}})
 
 	// Send Flush to drain the load phase.
-	err = transaction.Send(&pm.TransactionRequest{
-		Flush: &pm.TransactionRequest_Flush{},
-	})
+	err = transaction.Send(&pm.Request{Flush: &pm.Request_Flush{}})
 	require.NoError(t, err)
 
 	// Receive Loaded response, which is expected to contain our 3 documents.
-	loaded, err := transaction.Recv()
-	require.NoError(t, err)
-	require.NotNil(t, loaded.Loaded)
-	require.Equal(t, 3, len(loaded.Loaded.DocsJson))
-
-	for i, expected := range []string{doc1, doc2, doc3} {
-		var actual = loaded.Loaded.Arena.Bytes(loaded.Loaded.DocsJson[i])
-		require.Equal(t, expected, string(actual))
+	for _, expected := range []string{doc1, doc2, doc3} {
+		loaded, err := transaction.Recv()
+		require.NoError(t, err)
+		require.Equal(t, expected, string(loaded.Loaded.DocJson))
 	}
 
 	// Receive Flushed
@@ -368,24 +341,25 @@ func TestSQLiteDriver(t *testing.T) {
 	var key4 = tuple.Tuple{"key4Value"}
 	var doc4 = `{ "theKey": "key4Value" }`
 
-	var storeReq = pm.TransactionRequest_Store{}
-	storeReq.Exists = []bool{true, false}
-	storeReq.PackedKeys = storeReq.Arena.AddAll(key1.Pack(), key4.Pack())
-	storeReq.PackedValues = storeReq.Arena.AddAll(
-		tuple.Tuple{"totally different", false, 33}.Pack(),
-		tuple.Tuple{nil, nil, nil}.Pack(),
-	)
-	storeReq.DocsJson = storeReq.Arena.AddAll([]byte(newDoc1), []byte(doc4))
-
-	err = transaction.Send(&pm.TransactionRequest{
-		Store: &storeReq,
-	})
-	require.NoError(t, err)
+	transaction.Send(&pm.Request{Store: &pm.Request_Store{
+		KeyPacked:    key1.Pack(),
+		ValuesPacked: tuple.Tuple{"totally different", false, 33}.Pack(),
+		DocJson:      []byte(newDoc1),
+		Exists:       true,
+	}})
+	transaction.Send(&pm.Request{Store: &pm.Request_Store{
+		KeyPacked:    key4.Pack(),
+		ValuesPacked: tuple.Tuple{nil, nil, nil}.Pack(),
+		DocJson:      []byte(doc4),
+		Exists:       false,
+	}})
 
 	// Commit transaction and assert we get a Committed.
-	var checkpoint2 = []byte("second checkpoint value")
-	err = transaction.Send(&pm.TransactionRequest{
-		StartCommit: &pm.TransactionRequest_StartCommit{
+	var checkpoint2 = &pf.Checkpoint{
+		Sources: map[pf.Journal]pc.Checkpoint_Source{"a/journal": {ReadThrough: 222}},
+	}
+	err = transaction.Send(&pm.Request{
+		StartCommit: &pm.Request_StartCommit{
 			RuntimeCheckpoint: checkpoint2,
 		},
 	})
@@ -396,34 +370,27 @@ func TestSQLiteDriver(t *testing.T) {
 	require.NotNil(t, startedCommit.StartedCommit)
 
 	// Send & receive Acknowledge.
-	require.NoError(t, transaction.Send(&pm.TransactionRequest{
-		Acknowledge: &pm.TransactionRequest_Acknowledge{},
+	require.NoError(t, transaction.Send(&pm.Request{
+		Acknowledge: &pm.Request_Acknowledge{},
 	}))
 	acknowledged, err = transaction.Recv()
 	require.NoError(t, err)
 	require.NotNil(t, acknowledged.Acknowledged, acknowledged)
 
 	// One more transaction just to verify the updated documents
-	err = transaction.Send(&pm.TransactionRequest{
-		Load: newLoadReq(key1.Pack(), key2.Pack(), key3.Pack(), key4.Pack()),
-	})
-	require.NoError(t, err)
+	for _, key := range []tuple.Tuple{key1, key2, key3, key4} {
+		transaction.Send(&pm.Request{Load: &pm.Request_Load{KeyPacked: key.Pack()}})
+	}
 
 	// Send Flush.
-	err = transaction.Send(&pm.TransactionRequest{
-		Flush: &pm.TransactionRequest_Flush{},
-	})
+	err = transaction.Send(&pm.Request{Flush: &pm.Request_Flush{}})
 	require.NoError(t, err)
 
 	// Receive loads, and expect it contains 4 documents.
-	loaded, err = transaction.Recv()
-	require.NoError(t, err)
-	require.NotNil(t, loaded.Loaded)
-	require.Equal(t, 4, len(loaded.Loaded.DocsJson))
-
-	for i, expected := range []string{newDoc1, doc2, doc3, doc4} {
-		var actual = loaded.Loaded.Arena.Bytes(loaded.Loaded.DocsJson[i])
-		require.Equal(t, expected, string(actual))
+	for _, expected := range []string{newDoc1, doc2, doc3, doc4} {
+		loaded, err := transaction.Recv()
+		require.NoError(t, err)
+		require.Equal(t, expected, string(loaded.Loaded.DocJson))
 	}
 
 	// Receive Flushed
@@ -432,9 +399,11 @@ func TestSQLiteDriver(t *testing.T) {
 	require.NotNil(t, flushed.Flushed, "unexpected message: %v+", flushed)
 
 	// Send and receive StartCommit / StartedCommit.
-	var checkpoint3 = []byte("third checkpoint value")
-	require.NoError(t, transaction.Send(&pm.TransactionRequest{
-		StartCommit: &pm.TransactionRequest_StartCommit{
+	var checkpoint3 = &pf.Checkpoint{
+		Sources: map[pf.Journal]pc.Checkpoint_Source{"a/journal": {ReadThrough: 333}},
+	}
+	require.NoError(t, transaction.Send(&pm.Request{
+		StartCommit: &pm.Request_StartCommit{
 			RuntimeCheckpoint: checkpoint3,
 		},
 	}))
@@ -443,8 +412,8 @@ func TestSQLiteDriver(t *testing.T) {
 	require.NotNil(t, startedCommit.StartedCommit)
 
 	// Send & receive a final Acknowledge.
-	require.NoError(t, transaction.Send(&pm.TransactionRequest{
-		Acknowledge: &pm.TransactionRequest_Acknowledge{},
+	require.NoError(t, transaction.Send(&pm.Request{
+		Acknowledge: &pm.Request_Acknowledge{},
 	}))
 	acknowledged, err = transaction.Recv()
 	require.NoError(t, err)
@@ -485,14 +454,6 @@ func TestSQLiteDriver(t *testing.T) {
 
 	// Precondition: table states exist.
 	verifyTableStatus(nil)
-
-	// Apply a delete of the materialization.
-	applyResp, err = driver.ApplyDelete(ctx, &applyReq)
-	require.NoError(t, err)
-	require.NotEmpty(t, applyResp.ActionDescription)
-
-	// Postcondition: all tables cleaned up.
-	verifyTableStatus(sql.ErrNoRows)
 }
 
 func dumpTables(t *testing.T, uri string, tables ...*sqlDriver.Table) string {
@@ -505,13 +466,4 @@ func dumpTables(t *testing.T, uri string, tables ...*sqlDriver.Table) string {
 	require.NoError(t, err)
 
 	return out
-}
-
-func newLoadReq(keys ...[]byte) *pm.TransactionRequest_Load {
-	var arena pf.Arena
-	var packedKeys = arena.AddAll(keys...)
-	return &pm.TransactionRequest_Load{
-		Arena:      arena,
-		PackedKeys: packedKeys,
-	}
 }

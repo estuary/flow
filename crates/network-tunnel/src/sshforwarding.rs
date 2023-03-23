@@ -1,5 +1,4 @@
 use std::any::Any;
-use std::io::ErrorKind;
 use std::os::unix::prelude::PermissionsExt;
 use std::process::Stdio;
 
@@ -10,8 +9,6 @@ use async_trait::async_trait;
 use rand::Rng;
 use schemars::JsonSchema;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Child;
-use tokio::process::Command;
 
 use serde::{Deserialize, Serialize};
 
@@ -65,7 +62,7 @@ fn private_key_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::sc
 
 pub struct SshForwarding {
     config: SshForwardingConfig,
-    process: Option<Child>,
+    process: Option<async_process::Child>,
 }
 
 fn split_host_port(hostport: String) -> Option<(String, u16)> {
@@ -184,10 +181,13 @@ impl NetworkTunnel for SshForwarding {
         ];
 
         tracing::debug!("spawning ssh tunnel: {}", args.join(" "));
-        let mut child = Command::new("ssh")
+        let mut child: async_process::Child = async_process::Command::new("ssh")
             .args(args)
             .stderr(Stdio::piped())
-            .spawn()?;
+            .spawn()?
+            .into();
+
+        child.kill_on_drop(true);
 
         // Read stderr of SSH until we find a signal message that
         // the ports are open and we are ready to serve requests
@@ -231,7 +231,7 @@ impl NetworkTunnel for SshForwarding {
 
     async fn start_serve(&mut self) -> Result<(), Error> {
         tracing::debug!("awaiting ssh tunnel process");
-        let exit_status = self.process.as_mut().unwrap().wait().await?;
+        let exit_status = self.process.take().unwrap().wait().await?;
         if !exit_status.success() {
             tracing::error!(
                 exit_code = ?exit_status.code(),
@@ -239,19 +239,6 @@ impl NetworkTunnel for SshForwarding {
             );
 
             return Err(Error::TunnelExitNonZero(format!("{:#?}", exit_status)));
-        }
-
-        Ok(())
-    }
-
-    async fn cleanup(&mut self) -> Result<(), Error> {
-        if let Some(process) = self.process.as_mut() {
-            match process.kill().await {
-                // InvalidInput means the process has already exited, in which case
-                // we do not need to cleanup the process
-                Err(e) if e.kind() == ErrorKind::InvalidInput => Ok(()),
-                a => a,
-            }?;
         }
 
         Ok(())

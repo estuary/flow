@@ -1,0 +1,233 @@
+syntax = "proto3";
+
+package derive;
+option go_package = "github.com/estuary/flow/go/protocols/derive";
+
+import "consumer/protocol/protocol.proto";
+import "go/protocols/flow/flow.proto";
+import "gogoproto/gogo.proto";
+import "google/protobuf/any.proto";
+
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.protosizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+option (gogoproto.goproto_getters_all) = false;
+
+service Connector {
+  rpc Derive(stream Request) returns (stream Response);
+}
+
+message Request {
+  // Spec requests the specification definition of this connector.
+  // Notably this includes its configuration JSON schemas.
+  message Spec {
+    // Connector type addressed by this request.
+    flow.CollectionSpec.Derivation.ConnectorType connector_type = 1;
+    // Connector configuration, as an encoded JSON object.
+    // This may be a partial specification (for example, a Docker image),
+    // providing only enough information to fetch the remainder of the
+    // specification schema.
+    string config_json = 2 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "config"
+    ];
+  }
+  Spec spec = 1;
+
+  // Validate a derivation configuration and proposed transforms.
+  // Validate is run out-of-band with ongoing connector invocations.
+  // It's purpose is to confirm that the proposed configuration
+  // is likely to succeed if applied and run, or to report any
+  // potential issues for the user to address.
+  message Validate {
+    // Connector type addressed by this request.
+    flow.CollectionSpec.Derivation.ConnectorType connector_type = 1;
+    // Connector configuration, as an encoded JSON object.
+    string config_json = 2 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "config"
+    ];
+    // Collection to be derived.
+    flow.CollectionSpec collection = 3 [ (gogoproto.nullable) = false ];
+
+    message Transform {
+      // Stable name of this transform.
+      string name = 1;
+      // Sourced collection of this transform.
+      flow.CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
+      // JSON-encoded object which specifies the shuffle lambda configuration.
+      // If this transform has no shuffle lambda, this is empty.
+      string shuffle_lambda_config_json = 3 [
+        (gogoproto.casttype) = "encoding/json.RawMessage",
+        json_name = "shuffleLambdaConfig"
+      ];
+      // JSON-encoded object which specifies the lambda configuration.
+      string lambda_config_json = 4 [
+        (gogoproto.casttype) = "encoding/json.RawMessage",
+        json_name = "lambdaConfig"
+      ];
+    }
+    repeated Transform transforms = 4;
+    // JSON types of shuffle key components extracted by the transforms of this derivation.
+    repeated flow.CollectionSpec.Derivation.ShuffleType shuffle_key_types = 5;
+    // URL which roots the current Flow project.
+    //
+    // Derivation connectors should use this URL to generate any project-level
+    // files which are returned with Response.Validated.generated_files.
+    string project_root = 6;
+    // Map of relative JSON pointers to the derivation specification,
+    // and the absolute URL from which the location's content was resolved.
+    // Connectors may use this for generating more helpful errors which are
+    // framed to the user's filesystem, rather than the filesystem within
+    // the connector.
+    map<string, string> import_map = 7;
+    // Network ports of this proposed derivation.
+    repeated flow.NetworkPort network_ports = 8;
+  }
+  Validate validate = 2;
+
+  // Open a derivation stream.
+  message Open {
+    // Collection to be derived.
+    flow.CollectionSpec collection = 1;
+    // Version of the opened MaterializationSpec.
+    // The driver may want to require that this match the version last
+    // provided to a successful Apply RPC. It's possible that it won't,
+    // due to expected propagation races in Flow's distributed runtime.
+    string version = 2;
+    // Range of documents to be processed by this invocation.
+    flow.RangeSpec range = 3;
+    // Last-persisted connector checkpoint state from a previous invocation.
+    string state_json = 5 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "state"
+    ];
+  }
+  Open open = 3;
+
+  // Read a document for one of the Opened transforms.
+  message Read {
+    // Index of the Open transform for which this document was read.
+    uint32 transform = 1;
+    // Deconstructed document UUID.
+    flow.UUIDParts uuid = 2;
+    // Shuffle under which this document was mapped.
+    message Shuffle {
+      // Shuffle key, as an array of key components.
+      // Ordering matches `keys` of the materialization's field selection.
+      string key_json = 1 [
+        (gogoproto.casttype) = "encoding/json.RawMessage",
+        json_name = "key"
+      ];
+      // Packed tuple of the document's shuffled key.
+      bytes packed = 2;
+      // Stable hash of this document's shuffle key, which falls within
+      // `key_begin` and `key_end` of the Request.Open.
+      uint32 hash = 3;
+    }
+    Shuffle shuffle = 3;
+    // JSON document which was read.
+    string doc_json = 4 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "doc"
+    ];
+  }
+  Read read = 4;
+
+  // Flush tells the connector it should immediately complete any deferred
+  // work and respond with Published documents for all previously Read
+  // documents, and then respond with Flushed.
+  message Flush {}
+  Flush flush = 5;
+
+  // StartCommit indicates that the Flow runtime is beginning to commit.
+  // The checkpoint is purely advisory and the connector is not required to touch it.
+  // The connector responds with StartedCommit.
+  message StartCommit {
+    // Flow runtime checkpoint associated with this transaction.
+    consumer.Checkpoint runtime_checkpoint = 1;
+  }
+  StartCommit start_commit = 6;
+
+  // Reset any internal state, as if the derivation were just initialized.
+  // This is used only when running Flow tests, and clears the effects of
+  // one test before running the next.
+  message Reset {}
+  Reset reset = 7;
+
+  // Reserved for internal use.
+  google.protobuf.Any internal = 100;
+}
+
+message Response {
+  // Spec responds to Request.Spec.
+  message Spec {
+    // Protocol version must be 3032023.
+    uint32 protocol = 1;
+    // JSON schema of the connector's configuration.
+    string config_schema_json = 2 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "configSchema"
+    ];
+    // JSON schema of the connecor's lambda configuration.
+    string lambda_config_schema_json = 3 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "lambdaConfigSchema"
+    ];
+    // URL for connector's documention.
+    string documentation_url = 4;
+  }
+  Spec spec = 1;
+
+  // Validated responds to Request.Validate.
+  message Validated {
+    message Transform {
+      // Is this transform known to be read-only?
+      bool read_only = 1;
+    }
+    repeated Transform transforms = 1;
+    // Generated files returned by the connector.
+    // Keys are absolute URLs of the generated resource, and values are its
+    // generated file content.
+    //
+    // This can include project-level files, which should be underneath
+    // Request.Validate.project_root.
+    //
+    // When run in certain contexts within a user's local development environment,
+    // reads of Flow specifications use a relaxed handling for missing configuration
+    // files: rather than failing due to a missing file, the config file is instead
+    // resolved into an absolute URL of where the file is *expected* to live.
+    // The connector should handle these missing configs by generating and returning
+    // stub implementations of these files at those URLs.
+    map<string, string> generated_files = 2;
+  }
+  Validated validated = 2;
+
+  // Opened responds to Request.Open.
+  message Opened {}
+  Opened opened = 3;
+
+  message Published {
+    // Published JSON document.
+    string doc_json = 1 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "doc"
+    ];
+  }
+  Published published = 4;
+
+  // Flushed responds to Request.Flush, and indicates that all documents
+  // have been published.
+  message Flushed {}
+  Flushed flushed = 5;
+
+  // StartedCommit responds to a Request.StartCommit, and includes an optional
+  // connector state update.
+  message StartedCommit {
+    flow.ConnectorState state = 1;
+  }
+  StartedCommit started_commit = 6;
+
+  // Reserved for internal use.
+  google.protobuf.Any internal = 100;
+}

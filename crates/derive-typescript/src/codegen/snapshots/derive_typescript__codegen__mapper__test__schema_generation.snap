@@ -1,0 +1,44 @@
+---
+source: crates/derive-typescript/src/codegen/mapper.rs
+expression: w
+---
+Schema for test/collection-anchor with CURI test://example/catalog.yaml#/collections/test~1collection-anchor/schema with anchors:
+DocOtherAnchor
+
+Schema for test/collection-anchor with CURI test://example/catalog.yaml#/collections/test~1collection-anchor/schema without anchors:
+{
+    anAnchor?: {
+        one: string;
+        two?: number;
+    } | ("array!")[];
+    three: string;
+}
+
+Schema for test/collection-dir with CURI test://example/schema.json with anchors:
+{
+    anAnchor?: DocAnAnchor;
+    int: number;
+    lğmöm?: [number, true, ...("extra")[]];
+    other?: 42 | "hello";
+    str: string;
+}
+
+Schema for test/collection-dir with CURI test://example/schema.json without anchors:
+{
+    anAnchor?: {
+        one: string;
+        two?: number;
+    } | ("array!")[];
+    int: number;
+    lğmöm?: [number, true, ...("extra")[]];
+    other?: 42 | "hello";
+    str: string;
+}
+
+Schema for test/collection-ref with CURI test://example/catalog.yaml#/collections/test~1collection-ref/schema with anchors:
+string
+
+Schema for test/collection-ref with CURI test://example/catalog.yaml#/collections/test~1collection-ref/schema without anchors:
+string
+
+

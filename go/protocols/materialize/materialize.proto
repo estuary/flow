@@ -3,196 +3,109 @@ syntax = "proto3";
 package materialize;
 option go_package = "github.com/estuary/flow/go/protocols/materialize";
 
+import "consumer/protocol/protocol.proto";
 import "go/protocols/flow/flow.proto";
 import "gogoproto/gogo.proto";
+import "google/protobuf/any.proto";
 
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 option (gogoproto.goproto_getters_all) = false;
 
-// Constraint constrains the use of a flow.Projection within a materialization.
-message Constraint {
-  // Type encodes a constraint type for this flow.Projection.
-  enum Type {
-    // This specific projection must be present.
-    FIELD_REQUIRED = 0;
-    // At least one projection with this location pointer must be present.
-    LOCATION_REQUIRED = 1;
-    // A projection with this location is recommended, and should be included by
-    // default.
-    LOCATION_RECOMMENDED = 2;
-    // This projection may be included, but should be omitted by default.
-    FIELD_OPTIONAL = 3;
-    // This projection must not be present in the materialization.
-    FIELD_FORBIDDEN = 4;
-    // This specific projection is required but is also unacceptable (e.x.,
-    // because it uses an incompatible type with a previous applied version).
-    UNSATISFIABLE = 5;
-  }
-  Type type = 2;
-  // Optional human readable reason for the given constraint.
-  // Implementations are strongly encouraged to supply a descriptive message.
-  string reason = 3;
+service Connector {
+  rpc Materialize(stream Request) returns (stream Response);
 }
 
-// Driver is the service implemented by a materialization connector.
-service Driver {
-  // Spec returns the specification definition of this driver.
-  // Notably this includes its endpoint and resource configuration JSON schema.
-  rpc Spec(SpecRequest) returns (SpecResponse);
-  // Validate that store resources and proposed collection bindings are
-  // compatible, and return constraints over the projections of each binding.
-  rpc Validate(ValidateRequest) returns (ValidateResponse);
-  // ApplyUpsert applies a new or updated materialization to the store.
-  rpc ApplyUpsert(ApplyRequest) returns (ApplyResponse);
-  // ApplyDelete deletes an existing materialization from the store.
-  rpc ApplyDelete(ApplyRequest) returns (ApplyResponse);
-  // Transactions is a very long lived RPC through which the Flow runtime and a
-  // Driver cooperatively execute an unbounded number of transactions.
-  rpc Transactions(stream TransactionRequest)
-      returns (stream TransactionResponse);
-}
-
-// SpecRequest is the request type of the Spec RPC.
-message SpecRequest {
-  // Endpoint type addressed by this request.
-  flow.EndpointType endpoint_type = 1;
-  // Driver specification, as an encoded JSON object.
-  // This may be a partial specification (for example, a Docker image),
-  // providing only enough information to fetch the remainder of the
-  // specification schema.
-  string endpoint_spec_json = 2 [
-    (gogoproto.casttype) = "encoding/json.RawMessage",
-    json_name = "endpointSpec"
-  ];
-}
-
-// SpecResponse is the response type of the Spec RPC.
-message SpecResponse {
-  // JSON schema of an endpoint specification.
-  string endpoint_spec_schema_json = 1 [
-    (gogoproto.casttype) = "encoding/json.RawMessage",
-    json_name = "endpointSpecSchema"
-  ];
-  // JSON schema of a resource specification.
-  string resource_spec_schema_json = 2 [
-    (gogoproto.casttype) = "encoding/json.RawMessage",
-    json_name = "resourceSpecSchema"
-  ];
-  // URL for connector's documention.
-  string documentation_url = 3;
-
-  // OAuth2 spec
-  flow.OAuth2Spec oauth2_spec = 4;
-}
-
-// ValidateRequest is the request type of the Validate RPC.
-message ValidateRequest {
-  // Name of the materialization being validated.
-  string materialization = 1
-      [ (gogoproto.casttype) =
-            "github.com/estuary/flow/go/protocols/flow.Materialization" ];
-  // Endpoint type addressed by this request.
-  flow.EndpointType endpoint_type = 2;
-  // Driver specification, as an encoded JSON object.
-  string endpoint_spec_json = 3 [
-    (gogoproto.casttype) = "encoding/json.RawMessage",
-    json_name = "endpointSpec"
-  ];
-  // Bindings of endpoint resources and collections from which they would be
-  // materialized. Bindings are ordered and unique on the bound collection name.
-  message Binding {
-    // JSON-encoded object which specifies the endpoint resource to be
-    // materialized.
-    string resource_spec_json = 1 [
+message Request {
+  // Spec requests the specification definition of this connector.
+  // Notably this includes its configuration JSON schemas.
+  message Spec {
+    // Connector type addressed by this request.
+    flow.MaterializationSpec.ConnectorType connector_type = 1;
+    // Connector configuration, as an encoded JSON object.
+    // This may be a partial specification (for example, a Docker image),
+    // providing only enough information to fetch the remainder of the
+    // specification schema.
+    string config_json = 2 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
-      json_name = "resourceSpec"
-    ];
-    // Collection to be materialized.
-    flow.CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
-    // Projection configuration, keyed by the projection field name,
-    // with JSON-encoded and driver-defined configuration objects.
-    map<string, string> field_config_json = 3 [
-      (gogoproto.castvalue) = "encoding/json.RawMessage",
-      json_name = "fieldConfig"
+      json_name = "config"
     ];
   }
-  repeated Binding bindings = 4;
-}
+  Spec spec = 1;
 
-// ValidateResponse is the response type of the Validate RPC.
-message ValidateResponse {
-  // Validation responses for each binding of the request, and matching the
-  // request ordering. Each Binding must have a unique resource_path.
-  message Binding {
-    // Constraints over collection projections imposed by the Driver,
-    // keyed by the projection field name. Projections of the CollectionSpec
-    // which are missing from constraints are implicitly forbidden.
-    map<string, Constraint> constraints = 1;
-    // Components of the resource path which fully qualify the resource
-    // identified by this binding.
-    // - For an RDBMS, this might be []{dbname, schema, table}.
-    // - For Kafka, this might be []{topic}.
-    // - For Redis, this might be []{key_prefix}.
-    repeated string resource_path = 2;
-    // Materialize combined delta updates of documents rather than full
-    // reductions.
-    //
-    // When set, the Flow runtime will not attempt to load documents via
-    // TransactionRequest.Load, and also disables re-use of cached documents
-    // stored in prior transactions. Each stored document is exclusively
-    // combined from updates processed by the runtime within the current
-    // transaction only.
-    //
-    // This is appropriate for drivers over streams, WebHooks, and append-only
-    // files.
-    //
-    // For example, given a collection which reduces a sum count for each key,
-    // its materialization will produce a stream of delta updates to the count,
-    // such that a reader of the stream will arrive at the correct total count.
-    bool delta_updates = 3;
+  // Validate a materialization configuration and proposed bindings.
+  // Validate is run out-of-band with ongoing capture invocations.
+  // It's purpose is to confirm that the proposed configuration
+  // is likely to succeed if applied and run, or to report any
+  // potential issues for the user to address.
+  message Validate {
+    // Name of the materialization being validated.
+    string name = 1
+        [ (gogoproto.casttype) =
+              "github.com/estuary/flow/go/protocols/flow.Materialization" ];
+    // Connector type addressed by this request.
+    flow.MaterializationSpec.ConnectorType connector_type = 2;
+    // Connector configuration, as an encoded JSON object.
+    string config_json = 3 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "config"
+    ];
+    // Bindings of endpoint resources and collections from which they would be
+    // materialized. Bindings are ordered and unique on the bound collection name.
+    message Binding {
+      // JSON-encoded object which specifies the endpoint resource to be materialized.
+      string resource_config_json = 1 [
+        (gogoproto.casttype) = "encoding/json.RawMessage",
+        json_name = "resourceConfig"
+      ];
+      // Collection to be materialized.
+      flow.CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
+      // Projection configuration, keyed by the projection field name,
+      // with JSON-encoded and driver-defined configuration objects.
+      map<string, string> field_config_json_map = 3 [
+        (gogoproto.castvalue) = "encoding/json.RawMessage",
+        json_name = "fieldConfig"
+      ];
+    }
+    repeated Binding bindings = 4;
+    // Network ports of this proposed materialization.
+    repeated flow.NetworkPort network_ports = 5;
   }
-  repeated Binding bindings = 1;
-}
+  Validate validate = 2;
 
-// ApplyRequest is the request type of the ApplyUpsert and ApplyDelete RPCs.
-message ApplyRequest {
-  // Materialization to be applied.
-  flow.MaterializationSpec materialization = 1;
-  // Version of the MaterializationSpec being applied.
-  string version = 2;
-  // Is this Apply a dry-run? If so, no action is undertaken and Apply will
-  // report only what would have happened.
-  bool dry_run = 3;
-}
+  // Apply a materialization configuration and bindings to its endpoint.
+  // Apply is run out-of-band with ongoing connector invocations,
+  // and may be run many times for a single materialization name,
+  // where each invocation has varying bindings, or even no bindings.
+  // The connector performs any required setup or cleanup.
+  message Apply {
+    // Materialization to be applied.
+    flow.MaterializationSpec materialization = 1;
+    // Version of the MaterializationSpec being applied.
+    string version = 2;
+    // Is this Apply a dry-run? If so, no action is undertaken and Apply will
+    // report only what would have happened.
+    bool dry_run = 3;
+  }
+  Apply apply = 3;
 
-// ApplyResponse is the response type of the ApplyUpsert and ApplyDelete RPCs.
-message ApplyResponse {
-  // Human-readable description of the action that the Driver took (or, if
-  // dry_run, would have taken). If empty, this Apply is to be considered a
-  // "no-op".
-  string action_description = 1;
-}
-
-// TransactionRequest is the request type of a Transaction RPC.
-// It will have exactly one top-level field set, which represents its message
-// type.
-message TransactionRequest {
-  // Open a transaction stream.
+  // Open a materialization stream.
   //
   // If the Flow recovery log is authoritative:
-  // The driver is given its last committed driver checkpoint in this request.
-  // It MAY return a Flow checkpoint in its opened response -- perhaps an older
+  // The driver is given its last committed checkpoint state in this request.
+  // It MAY return a runtime checkpoint in its opened response -- perhaps an older
   // Flow checkpoint which was previously embedded within its driver checkpoint.
   //
   // If the remote store is authoritative:
   // The driver MUST fence off other streams of this materialization that
   // overlap the provided [key_begin, key_end) range, such that those streams
-  // cannot issue further commits. The driver MUST return its stored checkpoint
-  // for this materialization and range [key_begin, key_end] in its Opened
-  // response.
+  // cannot issue further commits. The driver MUST return its stored runtime
+  // checkpoint for this materialization and range [key_begin, key_end]
+  // in its Opened response.
   //
+  // After Open, the runtime will send only Load, Flush, Store,
+  // StartCommit, and Acknowledge.
   message Open {
     // Materialization to be transacted.
     flow.MaterializationSpec materialization = 1;
@@ -201,77 +114,181 @@ message TransactionRequest {
     // provided to a successful Apply RPC. It's possible that it won't,
     // due to expected propagation races in Flow's distributed runtime.
     string version = 2;
-    // [begin, end] inclusive range of keys processed by this transaction
-    // stream. Ranges are with respect to a 32-bit hash of a packed document
-    // key.
-    fixed32 key_begin = 3;
-    fixed32 key_end = 4;
-    // Last-persisted driver checkpoint committed in the Flow runtime recovery
-    // log. Or empty, if the driver has cleared or never set its checkpoint.
-    bytes driver_checkpoint_json = 5 [
+    // Range of documents to be processed by this invocation.
+    flow.RangeSpec range = 3;
+    // Last-persisted connector checkpoint state from a previous invocation.
+    string state_json = 4 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
-      json_name = "driverCheckpoint"
+      json_name = "state"
     ];
   }
-  Open open = 1;
+  Open open = 4;
 
-  // Load one or more documents identified by key.
-  // Keys may included documents which have never before been stored,
+  // Load a document identified by its key. The given key may have never before been stored,
   // but a given key will be sent in a transaction Load just one time.
   message Load {
-    // The materialization binding for documents of this Load request.
+    // Index of the Open binding for which this document is to be loaded.
     uint32 binding = 1;
-    // Byte arena of the request.
-    bytes arena = 2 [ (gogoproto.casttype) =
-                          "github.com/estuary/flow/go/protocols/flow.Arena" ];
-    // Packed tuples of collection keys, enumerating the documents to load.
-    repeated flow.Slice packed_keys = 3 [ (gogoproto.nullable) = false ];
+    // key tuple, as an array of key components.
+    // Ordering matches `keys` of the materialization's field selection.
+    string key_json = 2 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "key"
+    ];
+    // Packed tuple of the document key to load.
+    bytes key_packed = 3;
   }
-  Load load = 2;
+  Load load = 5;
 
   // Flush loads. No further Loads will be sent in this transaction,
-  // and the runtime will await the driver's remaining Loaded responses
-  // followed by one Flushed response.
+  // and the runtime will await the connectors's remaining Loaded
+  // responses followed by one Flushed response.
   message Flush {}
-  Flush flush = 3;
+  Flush flush = 6;
 
-  // Store documents of this transaction commit.
+  // Store documents updated by the current transaction.
   message Store {
-    // The materialization binding for documents of this Store request.
+    // Index of the Open binding for which this document is to be stored.
     uint32 binding = 1;
-    // Byte arena of the request.
-    bytes arena = 2 [ (gogoproto.casttype) =
-                          "github.com/estuary/flow/go/protocols/flow.Arena" ];
-    // Packed tuples holding keys of each document.
-    repeated flow.Slice packed_keys = 3 [ (gogoproto.nullable) = false ];
-    // Packed tuples holding values for each document.
-    repeated flow.Slice packed_values = 4 [ (gogoproto.nullable) = false ];
-    // JSON documents.
-    repeated flow.Slice docs_json = 5 [ (gogoproto.nullable) = false ];
-    // Exists is true if this document as previously been loaded or stored.
-    repeated bool exists = 6;
+    // Key tuple, as an array of key components.
+    // Ordering matches `keys` of the materialization's field selection.
+    string key_json = 2 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "key"
+    ];
+    // Packed FoundationDB tuple of the document key to store.
+    bytes key_packed = 3;
+    // Values tuple, as an array of value components.
+    // Ordering matches `values` of the materialization's field selection.
+    string values_json = 4 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "values"
+    ];
+    // Packed FoundationDB tuple of the document values to store.
+    bytes values_packed = 5;
+    // JSON document to store.
+    string doc_json = 6 [
+        (gogoproto.casttype) = "encoding/json.RawMessage",
+        json_name = "doc"
+    ];
+    // Exists is true if this document has previously been loaded or stored.
+    bool exists = 7;
   }
-  Store store = 4;
+  Store store = 7;
 
   // Mark the end of the Store phase, and if the remote store is authoritative,
   // instruct it to start committing its transaction.
   message StartCommit {
     // Flow runtime checkpoint to commit with this transaction.
-    bytes runtime_checkpoint = 1;
+    consumer.Checkpoint runtime_checkpoint = 1;
   }
-  StartCommit start_commit = 5;
+  StartCommit start_commit = 8;
 
-  // Notify the driver that the previous transaction has committed to the Flow
-  // runtime's recovery log.
+  // Acknowledge to the connector that the previous transaction
+  // has committed to the Flow runtime's recovery log.
   message Acknowledge {}
-  Acknowledge acknowledge = 6;
+  Acknowledge acknowledge = 9;
+
+  // Reserved for internal use.
+  google.protobuf.Any internal = 100;
 }
 
-// TransactionResponse is the response type of a Transaction RPC.
-// It will have exactly one top-level field set, which represents its message
-// type.
-message TransactionResponse {
-  // Opened responds to TransactionRequest.Open of the client.
+message Response {
+  // Spec responds to Request.Spec.
+  message Spec {
+    // Protocol version must be 3032023.
+    uint32 protocol = 1;
+    // JSON schema of the connector's configuration.
+    string config_schema_json = 2 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "configSchema"
+    ];
+    // JSON schema of the connecor's resource configuration.
+    string resource_config_schema_json = 3 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "resourceConfigSchema"
+    ];
+    // URL for connector's documention.
+    string documentation_url = 4;
+    // Optional OAuth2 configuration.
+    flow.OAuth2 oauth2 = 5;
+  }
+  Spec spec = 1;
+
+  // Validated responds to Request.Validate.
+  message Validated {
+    // Constraint constrains the use of a flow.Projection within a materialization.
+    message Constraint {
+      // Type encodes a constraint type for this flow.Projection.
+      enum Type {
+        INVALID = 0;
+        // This specific projection must be present.
+        FIELD_REQUIRED = 1;
+        // At least one projection with this location pointer must be present.
+        LOCATION_REQUIRED = 2;
+        // A projection with this location is recommended, and should be included by
+        // default.
+        LOCATION_RECOMMENDED = 3;
+        // This projection may be included, but should be omitted by default.
+        FIELD_OPTIONAL = 4;
+        // This projection must not be present in the materialization.
+        FIELD_FORBIDDEN = 5;
+        // This specific projection is required but is also unacceptable (e.x.,
+        // because it uses an incompatible type with a previous applied version).
+        UNSATISFIABLE = 6;
+      }
+      Type type = 2;
+      // Optional human readable reason for the given constraint.
+      // Implementations are strongly encouraged to supply a descriptive message.
+      string reason = 3;
+    }
+    // Validation responses for each binding of the request, and matching the
+    // request ordering. Each Binding must have a unique resource_path.
+    message Binding {
+      // Constraints over collection projections imposed by the Driver,
+      // keyed by the projection field name. Projections of the CollectionSpec
+      // which are missing from constraints are implicitly forbidden.
+      map<string, Constraint> constraints = 1;
+      // Components of the resource path which fully qualify the resource
+      // identified by this binding.
+      // - For an RDBMS, this might be []{dbname, schema, table}.
+      // - For Kafka, this might be []{topic}.
+      // - For Redis, this might be []{key_prefix}.
+      repeated string resource_path = 2;
+      // Materialize combined delta updates of documents rather than full
+      // reductions.
+      //
+      // When set, the Flow runtime will not attempt to load documents via
+      // Request.Load, and also disables re-use of cached documents
+      // stored in prior transactions. Each stored document is exclusively
+      // combined from updates processed by the runtime within the current
+      // transaction only.
+      //
+      // This is appropriate for drivers over streams, WebHooks, and append-only
+      // files.
+      //
+      // For example, given a collection which reduces a sum count for each key,
+      // its materialization will produce a stream of delta updates to the count,
+      // such that a reader of the stream will arrive at the correct total count.
+      bool delta_updates = 3;
+    }
+    repeated Binding bindings = 1;
+  }
+  Validated validated = 2;
+
+  // Applied responds to Request.Apply.
+  message Applied {
+    // Human-readable description of the action that the Driver took (or, if
+    // dry_run, would have taken). If empty, this Apply is to be considered a
+    // "no-op".
+    string action_description = 1;
+  }
+  Applied applied = 3;
+
+  // Opened responds to Request.Open.
+  // After Opened, the connector sends only Loaded, Flushed,
+  // StartedCommit, and Acknowledged as per the materialization
+  // protocol.
   message Opened {
     // Flow runtime checkpoint to begin processing from.
     // If empty, the most recent checkpoint of the Flow recovery log is used.
@@ -280,65 +297,65 @@ message TransactionResponse {
     // to explicitly begin processing from a zero-valued checkpoint, effectively
     // rebuilding the materialization from scratch. This sentinel is a trivial
     // encoding of the max-value 2^29-1 protobuf tag with boolean true.
-    bytes runtime_checkpoint = 1;
+    consumer.Checkpoint runtime_checkpoint = 1;
   }
-  Opened opened = 1;
+  Opened opened = 4;
 
-  // Loaded responds to TransactionRequest.Loads of the client.
+  // Loaded responds to Request.Load.
   // It returns documents of requested keys which have previously been stored.
   // Keys not found in the store MUST be omitted. Documents may be in any order,
   // both within and across Loaded response messages, but a document of a given
   // key MUST be sent at most one time in a Transaction.
   message Loaded {
-    // The materialization binding for documents of this Loaded response.
+    // Index of the Open binding for which this document was loaded.
     uint32 binding = 1;
-    // Byte arena of the request.
-    bytes arena = 2 [ (gogoproto.casttype) =
-                          "github.com/estuary/flow/go/protocols/flow.Arena" ];
-    // Loaded JSON documents.
-    repeated flow.Slice docs_json = 3 [ (gogoproto.nullable) = false ];
+    // Loaded JSON document.
+    string doc_json = 2 [
+        (gogoproto.casttype) = "encoding/json.RawMessage",
+        json_name = "doc"
+    ];
   }
-  Loaded loaded = 2;
+  Loaded loaded = 5;
 
-  // Flushed responds to a TransactionRequest.Flush of the client.
+  // Flushed responds to a Request.Flush.
   // The driver will send no further Loaded responses.
   message Flushed {}
-  Flushed flushed = 3;
+  Flushed flushed = 6;
 
-  // StartedCommit responds to a TransactionRequest.StartCommit of the client.
+  // StartedCommit responds to a Request.StartCommit.
   // The driver has processed all Store requests, it has started to commit its
   // transaction (if it has one), and it is now ready for the runtime to start
   // committing to its own recovery log.
   message StartedCommit {
-    flow.DriverCheckpoint driver_checkpoint = 1;
+    flow.ConnectorState state = 1;
   }
-  StartedCommit started_commit = 4;
+  StartedCommit started_commit = 7;
 
   // Notify the runtime that the previous driver transaction has committed
   // to the endpoint store (where applicable). On receipt, the runtime may
   // begin to flush, store, and commit a next (pipelined) transaction.
   //
-  // Acknowledged is _not_ a direct response to TransactionRequest.Acknowledge,
+  // Acknowledged is _not_ a direct response to Request.Acknowledge,
   // and Acknowledge vs Acknowledged may be written in either order.
   message Acknowledged {}
-  Acknowledged acknowledged = 5;
+  Acknowledged acknowledged = 8;
+
+  // Reserved for internal use.
+  google.protobuf.Any internal = 100;
 }
 
 // Extra messages used by connectors
+// TODO(johnny): Do we still need this?
 message Extra {
   message ValidateExistingProjectionRequest {
-    // Existing Materialization Binding
     flow.MaterializationSpec.Binding existing_binding = 1;
 
-    // Proposed ValidateRequest Binding
-    ValidateRequest.Binding proposed_binding = 2;
+    Request.Validate.Binding proposed_binding = 2;
   }
 
   message ValidateBindingAgainstConstraints {
-    // Materialization Binding
     flow.MaterializationSpec.Binding binding = 1;
 
-    // Constraints map
-    map<string, Constraint> constraints = 2;
+    map<string, Response.Validated.Constraint> constraints = 2;
   }
 }

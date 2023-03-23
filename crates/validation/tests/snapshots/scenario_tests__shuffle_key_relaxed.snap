@@ -1,6 +1,0 @@
----
-source: crates/validation/tests/scenario_tests.rs
-expression: errors
-
----
-[]

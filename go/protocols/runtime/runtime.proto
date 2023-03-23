@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package runtime;
+option go_package = "github.com/estuary/flow/go/protocols/runtime";
+
+import "consumer/protocol/protocol.proto";
+import "go/protocols/ops/ops.proto";
+import "gogoproto/gogo.proto";
+
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.protosizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+option (gogoproto.goproto_getters_all) = false;
+
+message TaskServiceConfig {
+  int32 log_file_fd = 1;
+  string task_name = 2;
+  string uds_path = 3;
+}
+
+message RocksDBDescriptor {
+    // Instrumented RocksDB environment which should be opened.
+    fixed64 rocksdb_env_memptr = 1;
+    // Path to the RocksDB directory to be opened.
+    string rocksdb_path = 2;
+}
+
+message DeriveRequestExt {
+  message Open {
+    // Configured log level.
+    ops.Log.Level log_level = 1;
+    // URL with a registered SQLite VFS which should be opened.
+    string sqlite_vfs_uri = 2;
+    // RocksDB descriptor which should be opened.
+    RocksDBDescriptor rocksdb_descriptor = 3;
+  }
+  Open open = 1;
+}
+
+message DeriveResponseExt {
+  message Opened {
+    consumer.Checkpoint runtime_checkpoint = 1;
+  }
+  Opened opened = 1;
+
+  message Published {
+      // Maximum UUID Clock of sourced document clocks which lead to this published document.
+      fixed64 max_clock = 1;
+      // Packed key extracted from the published document.
+      bytes key_packed = 2;
+      // Packed partition values extracted from the published document.
+      bytes partitions_packed = 3;
+  }
+  Published published = 2;
+
+  message Flushed {
+    ops.Stats stats = 1;
+  }
+  Flushed flushed = 3;
+}

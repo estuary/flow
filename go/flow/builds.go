@@ -5,9 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
-	"io/ioutil"
-	"net"
-	"net/http"
 	"net/url"
 	"os"
 	"runtime"
@@ -23,7 +20,7 @@ import (
 type BuildService struct {
 	baseURL  *url.URL                // URL to which buildIDs are joined.
 	builds   map[string]*sharedBuild // All active builds.
-	gsClient *storage.Client         // Google storage client which is initalized on first use.
+	gsClient *storage.Client         // Google storage client which is initialized on first use.
 	mu       sync.Mutex
 }
 
@@ -43,11 +40,6 @@ type sharedBuild struct {
 	dbTempfile  *os.File
 	dbErr       error
 	dbOnce      sync.Once
-
-	tsWorker *JSWorker
-	tsClient *http.Client
-	tsErr    error
-	tsOnce   sync.Once
 }
 
 // NewBuildService returns a new *BuildService.
@@ -116,14 +108,6 @@ func (b *Build) Extract(fn func(*sql.DB) error) error {
 	return fn(b.db)
 }
 
-// TypeScriptLocalSocket returns the TypeScript Unix Domain Socket of this Catalog.
-// If a TypeScript worker isn't running, one is started
-// and will be stopped on a future call to Build.Close().
-func (b *Build) TypeScriptClient() (*http.Client, error) {
-	b.tsOnce.Do(func() { _ = b.initTypeScript() })
-	return b.tsClient, b.tsErr
-}
-
 // Close the Build. If this is the last remaining reference,
 // then all allocated resources are cleaned up.
 func (b *Build) Close() error {
@@ -184,46 +168,6 @@ func (b *Build) dbInit() (err error) {
 	return nil
 }
 
-func (b *Build) initTypeScript() (err error) {
-	defer func() { b.tsErr = err }()
-
-	var npmPackage []byte
-	if err = b.Extract(func(d *sql.DB) error {
-		npmPackage, err = catalog.LoadNPMPackage(b.db)
-		return err
-	}); err != nil {
-		return fmt.Errorf("loading NPM package: %w", err)
-	}
-
-	tsWorker, err := NewJSWorker(npmPackage)
-	if err != nil {
-		return fmt.Errorf("starting worker: %w", err)
-	}
-	b.tsWorker = tsWorker
-
-	// HTTP/S client which dials the TypeScript server over the loopback
-	// for both cleartext and (fake) HTTPS connections.
-	// The latter is a requirement for HTTP/2 support over unix domain sockets.
-	// See also: https://www.mailgun.com/blog/http-2-cleartext-h2c-client-example-go/
-	b.tsClient = &http.Client{
-		Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", tsWorker.socketPath)
-			},
-			DialTLSContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", tsWorker.socketPath)
-			},
-			// Compression isn't desired over a local UDS transport.
-			DisableCompression: true,
-			// MaxConnsPerHost is the maximum concurrency with which
-			// we'll drive the lambda server.
-			MaxConnsPerHost: 8,
-		},
-	}
-
-	return nil
-}
-
 func (b *sharedBuild) destroy() error {
 	if b.db == nil {
 		// Nothing to close.
@@ -237,12 +181,6 @@ func (b *sharedBuild) destroy() error {
 		return fmt.Errorf("closing DB tempfile: %w", err)
 	} else if err = os.Remove(b.dbLocalPath); err != nil {
 		return fmt.Errorf("removing DB tempfile: %w", err)
-	}
-
-	if b.tsWorker == nil {
-		// Nothing to stop.
-	} else if err := b.tsWorker.Stop(); err != nil {
-		return fmt.Errorf("stopping typescript worker: %w", err)
 	}
 
 	return nil
@@ -273,7 +211,7 @@ func fetchResource(svc *BuildService, resource *url.URL) (path string, tempfile 
 		}
 		defer r.Close()
 
-		if tempfile, err = ioutil.TempFile("", "build"); err != nil {
+		if tempfile, err = os.CreateTemp("", "build"); err != nil {
 			return "", nil, err
 		}
 		if _, err = io.Copy(tempfile, r); err != nil {

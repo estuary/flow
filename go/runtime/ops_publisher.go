@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -10,6 +11,8 @@ import (
 	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	po "github.com/estuary/flow/go/protocols/ops"
+	"github.com/gogo/protobuf/jsonpb"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/message"
 )
@@ -96,23 +99,23 @@ func (p *OpsPublisher) PublishLog(log ops.Log) {
 		log.Shard.Name,
 		log.Shard.KeyBegin,
 		log.Shard.RClockBegin,
-		log.Timestamp.Format(time.RFC3339),
+		time.Unix(log.Timestamp.Seconds, int64(log.Timestamp.Nanos)).Format(time.RFC3339),
 	}
 	var partitions = tuple.Tuple{
-		log.Shard.Kind,
+		log.Shard.Kind.String(),
 		log.Shard.Name,
 	}
 	// flow.Mappable replaces this sentinel in the marshalled JSON bytes.
-	log.Meta.UUID = string(pf.DocumentUUIDPlaceholder)
+	log.Meta = &po.Meta{Uuid: string(pf.DocumentUUIDPlaceholder)}
 
-	var buf, err = json.Marshal(log)
-	if err != nil {
+	var buf bytes.Buffer
+	if err := (&jsonpb.Marshaler{}).Marshal(&buf, &log); err != nil {
 		panic(fmt.Errorf("marshal of ops.Log should always succeed but: %w", err))
 	}
 
 	var mappable = flow.Mappable{
 		Spec:       p.opsLogsSpec,
-		Doc:        json.RawMessage(buf),
+		Doc:        json.RawMessage(buf.Bytes()),
 		Partitions: partitions,
 		PackedKey:  key.Pack(),
 	}
@@ -143,9 +146,9 @@ func NewStatsFormatter(
 		return nil, err
 	}
 	return &StatsFormatter{
-		partitions:      tuple.Tuple{labeling.TaskType, labeling.TaskName},
+		partitions:      tuple.Tuple{labeling.TaskType.String(), labeling.TaskName},
 		statsCollection: statsCollection,
-		shard:           ops.NewShardRef(labeling),
+		shard:           *ops.NewShardRef(labeling),
 	}, nil
 }
 

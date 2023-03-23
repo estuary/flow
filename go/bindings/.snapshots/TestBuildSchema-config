@@ -1,1 +1,0 @@
-(flow.BuildAPI_Config) build_id:"fixture" directory:"/stable/path" source:"file:///b.schema.yaml" source_type:JSON_SCHEMA 

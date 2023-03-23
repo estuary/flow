@@ -1,0 +1,165 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+expression: tables
+---
+Sources {
+    captures: [],
+    collections: [
+        Collection {
+            scope: test://example/catalog.yaml#/collections/d1~1collection,
+            collection: d1/collection,
+            spec: {
+              "schema": {"$id":"test://example/a-schema.json","allOf":[true]},
+              "key": [
+                "/d1-key"
+              ],
+              "derive": {
+                "using": {
+                  "typescript": {
+                    "module": "a typescript module placeholder that's fairly \"long\", at least long enough to not be inline\n"
+                  }
+                },
+                "transforms": [
+                  {
+                    "name": "some-name",
+                    "source": {
+                      "name": "src/collection",
+                      "partitions": {
+                        "include": {
+                          "a_field": [
+                            "foo",
+                            42
+                          ]
+                        },
+                        "exclude": {
+                          "other_field": [
+                            false
+                          ]
+                        }
+                      }
+                    },
+                    "shuffle": {
+                      "key": [
+                        "/shuffle",
+                        "/key"
+                      ]
+                    },
+                    "priority": 32,
+                    "readDelay": "1h"
+                  }
+                ]
+              }
+            },
+        },
+        Collection {
+            scope: test://example/catalog.yaml#/collections/d2~1collection,
+            collection: d2/collection,
+            spec: {
+              "schema": {"$id":"test://example/a-schema.json","allOf":[true]},
+              "key": [
+                "/d2-key"
+              ],
+              "journals": {
+                "fragments": {
+                  "compressionCodec": "ZSTANDARD",
+                  "flushInterval": "15m"
+                }
+              },
+              "derive": {
+                "using": {
+                  "connector": {
+                    "image": "some/image:tag",
+                    "config": {"remote":"https://example/api"}
+                  }
+                },
+                "transforms": [
+                  {
+                    "name": "do-the-thing",
+                    "source": "src/collection",
+                    "lambda": 42
+                  }
+                ],
+                "shards": {
+                  "disable": true,
+                  "minTxnDuration": "15s",
+                  "maxTxnDuration": "6m",
+                  "hotStandbys": 2,
+                  "ringBufferSize": 12345,
+                  "readChannelSize": 6789
+                }
+              }
+            },
+        },
+        Collection {
+            scope: test://example/catalog.yaml#/collections/d3~1collection,
+            collection: d3/collection,
+            spec: {
+              "writeSchema": {"$id":"test://example/a-schema.json","allOf":[true]},
+              "readSchema": {"$anchor":"foobar","$id":"test://example/other-schema.json","properties":{"d1-key":{"type":"string"},"key":{"description":"the key description","title":"the key title","type":"integer"},"moar":{"type":"number"},"shuffle":{"type":"integer"}},"type":"object"},
+              "key": [
+                "/some/key"
+              ],
+              "derive": {
+                "using": {
+                  "sqlite": {
+                    "migrations": [
+                      "create table foo(bar int);\n",
+                      "alter table baz add column value text not null;\ndrop table other_thing;\n"
+                    ]
+                  }
+                },
+                "transforms": [
+                  {
+                    "name": "frob",
+                    "source": "src/collection",
+                    "shuffle": {
+                      "lambda": "select a whole bunch of fields and stuff from source documents to shuffle upon;\n"
+                    },
+                    "lambda": "select 'a long string which makes this a larger lambda' * from foo;\n"
+                  }
+                ],
+                "shuffleKeyTypes": [
+                  "string",
+                  "integer"
+                ]
+              }
+            },
+        },
+    ],
+    errors: [],
+    fetches: [],
+    imports: [
+        Import {
+            scope: test://example/catalog.yaml#/collections/d1~1collection/derive/using/typescript/module,
+            to_resource: test://example/catalog.ts,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d1~1collection/schema,
+            to_resource: test://example/a-schema.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d2~1collection/schema,
+            to_resource: test://example/a-schema.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d3~1collection/derive/transforms/0/shuffle/lambda,
+            to_resource: test://example/sql/shuffle_lambda.sql,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d3~1collection/derive/using/sqlite/migrations/1,
+            to_resource: test://example/sql/migration_two.sql,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d3~1collection/readSchema,
+            to_resource: test://example/other-schema.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d3~1collection/writeSchema,
+            to_resource: test://example/a-schema.json,
+        },
+    ],
+    materializations: [],
+    resources: [],
+    storage_mappings: [],
+    tests: [],
+}

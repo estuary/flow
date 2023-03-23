@@ -5,6 +5,8 @@ import (
 	"strconv"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/flow/go/protocols/ops"
+	po "github.com/estuary/flow/go/protocols/ops"
 )
 
 type PortConfig struct {
@@ -18,8 +20,15 @@ type PortConfig struct {
 type ShardLabeling struct {
 	// Catalog build identifier which the task uses.
 	Build string
+	// Network-addressable hostname of this task shard.
+	Hostname string
 	// Logging level of the task.
-	LogLevel pf.LogLevel
+	LogLevel po.Log_Level
+	// Ports is a map from port name to the combined configuration
+	// for the port. The runtime itself doesn't actually care
+	// about the alpn protocol, but it's there for the sake of
+	// completeness.
+	Ports map[uint16]*PortConfig `json:",omitempty"`
 	// Key and R-Clock range of the shard.
 	Range pf.RangeSpec
 	// If non-empty, the shard which this task is splitting from.
@@ -29,16 +38,7 @@ type ShardLabeling struct {
 	// Name of the shard's task.
 	TaskName string
 	// Type of this task (capture, derivation, or materialization).
-	TaskType string
-
-	// TODO: comment and add test for parsing host and ports
-	Hostname string
-
-	// Ports is a map from port name to the combined configuration
-	// for the port. The runtime itself doesn't actually care
-	// about the alpn protocol, but it's there for the sake of
-	// completeness.
-	Ports map[uint16]*PortConfig `json:",omitempty"`
+	TaskType po.Shard_Kind
 }
 
 // ParseShardLabels parses and validates ShardLabels from their defined
@@ -49,10 +49,10 @@ func ParseShardLabels(set pf.LabelSet) (ShardLabeling, error) {
 
 	if levelStr, err := ExpectOne(set, LogLevel); err != nil {
 		return out, err
-	} else if mapped, ok := pf.LogLevel_value[levelStr]; !ok {
+	} else if mapped, ok := po.Log_Level_value[levelStr]; !ok {
 		return out, fmt.Errorf("%q is not a valid log level", levelStr)
 	} else {
-		out.LogLevel = pf.LogLevel(mapped)
+		out.LogLevel = po.Log_Level(mapped)
 	}
 	if out.Range, err = ParseRangeSpec(set); err != nil {
 		return out, err
@@ -69,21 +69,20 @@ func ParseShardLabels(set pf.LabelSet) (ShardLabeling, error) {
 	if out.TaskName, err = ExpectOne(set, TaskName); err != nil {
 		return out, err
 	}
-	if out.TaskType, err = ExpectOne(set, TaskType); err != nil {
+
+	taskType, err := ExpectOne(set, TaskType)
+	if err != nil {
 		return out, err
+	} else if kind, ok := po.Shard_Kind_value[taskType]; !ok {
+		return out, fmt.Errorf("unknown task type %q", taskType)
+	} else {
+		out.TaskType = ops.Shard_Kind(kind)
 	}
 	if out.Ports, err = parsePorts(set); err != nil {
 		return out, err
 	}
 	if out.Hostname, err = maybeOne(set, Hostname); err != nil {
 		return out, err
-	}
-
-	switch out.TaskType {
-	case TaskTypeCapture, TaskTypeDerivation, TaskTypeMaterialization:
-		// Pass.
-	default:
-		return out, fmt.Errorf("unknown task type %q", out.TaskType)
 	}
 
 	if out.SplitSource != "" && out.SplitTarget != "" {

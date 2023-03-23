@@ -12,6 +12,7 @@ license.workspace = true
 
 [dependencies]
 agent-sql = { path = "../agent-sql" }
+async-process = { path = "../async-process" }
 doc = { path = "../doc" }
 models = { path = "../models" }
 tables = { path = "../tables", features = ["persist"] }

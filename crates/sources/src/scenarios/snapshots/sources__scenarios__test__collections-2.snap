@@ -1,0 +1,93 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+expression: tables
+---
+Sources {
+    captures: [],
+    collections: [
+        Collection {
+            scope: test://example/catalog.yaml#/collections/test~1collection,
+            collection: test/collection,
+            spec: {
+              "schema": {"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"},
+              "key": [
+                "/key/1",
+                "/key/0"
+              ],
+              "projections": {
+                "field_a": {
+                  "location": "/a/a",
+                  "partition": true
+                },
+                "field_b": {
+                  "location": "/b/b",
+                  "partition": false
+                }
+              }
+            },
+        },
+        Collection {
+            scope: test://example/catalog.yaml#/collections/test~1collection-no-schema,
+            collection: test/collection-no-schema,
+            spec: {
+              "key": [
+                "/key"
+              ]
+            },
+        },
+        Collection {
+            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read,
+            collection: test/collection-with-write-and-read,
+            spec: {
+              "writeSchema": {"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"},
+              "readSchema": {"$defs":{"__flowInline1":{"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"}},"$id":"test://example/catalog.yaml?ptr=/collections/test~1collection-with-write-and-read/readSchema","$ref":"schema.json#/properties/a"},
+              "key": [
+                "/key/1",
+                "/key/0"
+              ]
+            },
+        },
+        Collection {
+            scope: test://example/catalog.yaml#/collections/test~1collection~1with-journals,
+            collection: test/collection/with-journals,
+            spec: {
+              "schema": {"$defs":{"__flowInline1":{"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"}},"$id":"test://example/catalog.yaml?ptr=/collections/test~1collection~1with-journals/schema","$ref":"schema.json#foobar"},
+              "key": [
+                "/a/key"
+              ],
+              "journals": {
+                "fragments": {
+                  "length": 12345,
+                  "compressionCodec": "GZIP_OFFLOAD_DECOMPRESSION",
+                  "retention": "13days 8h",
+                  "flushInterval": "15m"
+                }
+              }
+            },
+        },
+    ],
+    errors: [],
+    fetches: [],
+    imports: [
+        Import {
+            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read/readSchema,
+            to_resource: test://example/schema.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read/writeSchema,
+            to_resource: test://example/schema.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/test~1collection/schema,
+            to_resource: test://example/schema.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/test~1collection~1with-journals/schema,
+            to_resource: test://example/schema.json,
+        },
+    ],
+    materializations: [],
+    resources: [],
+    storage_mappings: [],
+    tests: [],
+}

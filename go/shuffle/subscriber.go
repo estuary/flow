@@ -33,8 +33,8 @@ func (s *subscriber) stageDoc(response *pf.ShuffleResponse, doc int) {
 	var offset = response.Offsets[2*doc]
 
 	if offset >= s.Offset && (s.EndOffset == 0 || offset < s.EndOffset) {
-		s.staged.DocsJson = append(s.staged.DocsJson,
-			s.staged.Arena.Add(response.Arena.Bytes(response.DocsJson[doc])))
+		s.staged.Docs = append(s.staged.Docs,
+			s.staged.Arena.Add(response.Arena.Bytes(response.Docs[doc])))
 		s.staged.Offsets = append(s.staged.Offsets, offset, response.Offsets[2*doc+1])
 		s.staged.UuidParts = append(s.staged.UuidParts, response.UuidParts[doc])
 		s.staged.PackedKey = append(s.staged.PackedKey,
@@ -120,7 +120,7 @@ func (s subscribers) stageResponses(from *pf.ShuffleResponse) {
 		s[i].staged.WriteHead = from.WriteHead
 	}
 	for doc, uuid := range from.UuidParts {
-		if message.Flags(uuid.ProducerAndFlags) == message.Flag_ACK_TXN {
+		if message.Flags(uuid.Node) == message.Flag_ACK_TXN {
 			// ACK documents are always broadcast to every subscriber.
 			for i := range s {
 				s[i].stageDoc(from, doc)
@@ -255,7 +255,7 @@ func newStagedResponse(arenaEstimate, docsEstimate int) *pf.ShuffleResponse {
 
 	return &pf.ShuffleResponse{
 		Arena:     make([]byte, 0, arenaCap),
-		DocsJson:  make([]pf.Slice, 0, docsCap),
+		Docs:      make([]pf.Slice, 0, docsCap),
 		Offsets:   make([]int64, 0, 2*docsCap),
 		UuidParts: make([]pf.UUIDParts, 0, docsCap),
 		PackedKey: make([]pf.Slice, 0, docsCap),

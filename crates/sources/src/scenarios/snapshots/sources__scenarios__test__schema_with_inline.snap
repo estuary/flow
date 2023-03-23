@@ -3,22 +3,19 @@ source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 Sources {
-    capture_bindings: [],
     captures: [],
     collections: [
         Collection {
             scope: test://example/catalog.yaml#/collections/test,
             collection: test,
             spec: {
+              "schema": {"additionalProperties":true,"type":"object"},
               "key": [
                 "/some-key"
               ]
             },
-            write_schema: test://example/catalog.yaml?ptr=/collections/test/schema,
-            read_schema: test://example/catalog.yaml?ptr=/collections/test/schema,
         },
     ],
-    derivations: [],
     errors: [],
     fetches: [
         Fetch {
@@ -26,24 +23,8 @@ Sources {
             resource: test://example/catalog.yaml,
         },
     ],
-    imports: [
-        Import {
-            scope: test://example/catalog.yaml#/collections/test/schema,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.yaml?ptr=/collections/test/schema,
-        },
-    ],
-    materialization_bindings: [],
+    imports: [],
     materializations: [],
-    npm_dependencies: [],
-    projections: [
-        Projection {
-            scope: test://example/catalog.yaml#/collections/test/projections/flow_document,
-            collection: test,
-            field: flow_document,
-            spec: "",
-        },
-    ],
     resources: [
         Resource {
             resource: test://example/catalog.yaml,
@@ -51,23 +32,7 @@ Sources {
             content: ".. binary ..",
             content_dom: {"collections":{"test":{"key":["/some-key"],"schema":{"additionalProperties":true,"type":"object"}}}},
         },
-        Resource {
-            resource: test://example/catalog.yaml?ptr=/collections/test/schema,
-            content_type: "JSON_SCHEMA",
-            content: ".. binary ..",
-            content_dom: {"additionalProperties":true,"type":"object"},
-        },
-    ],
-    schema_docs: [
-        SchemaDoc {
-            schema: test://example/catalog.yaml?ptr=/collections/test/schema,
-            dom: {
-              "additionalProperties": true,
-              "type": "object"
-            },
-        },
     ],
     storage_mappings: [],
-    test_steps: [],
-    transforms: [],
+    tests: [],
 }

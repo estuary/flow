@@ -16,8 +16,7 @@ path = "src/main.rs"
 doc = { path = "../doc" }
 flow_cli_common = { path = "../flow_cli_common" }
 json = { path = "../json" }
-protocol = { path = "../protocol" }
-typescript = { path = "../typescript" }
+proto-flow = { path = "../proto-flow" }
 
 anyhow = { workspace = true }
 bytes = { workspace = true }

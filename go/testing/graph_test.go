@@ -12,31 +12,34 @@ import (
 )
 
 func transformFixture(source pf.Collection, transform pf.Transform,
-	derivation pf.Collection, readDelay uint32) pf.TransformSpec {
+	derivation pf.Collection, readDelay uint32) pf.CollectionSpec_Derivation_Transform {
 
-	return pf.TransformSpec{
-		Derivation: derivation,
-		Transform:  transform,
-		Shuffle: pf.Shuffle{
-			SourceCollection: source,
-			GroupName:        fmt.Sprintf("derive/%s/%s", derivation, transform),
-			ReadDelaySeconds: readDelay,
-		},
+	return pf.CollectionSpec_Derivation_Transform{
+		Name:              transform,
+		Collection:        pf.CollectionSpec{Name: source},
+		ReadDelaySeconds:  readDelay,
+		JournalReadSuffix: fmt.Sprintf("derive/%s/%s", derivation, transform),
+
+		// This is merely a place to retain `derivation` so we can group these
+		// later, and has no semantic association with an actual shuffle key.
+		ShuffleKey: []string{derivation.String()},
 	}
 }
 
-func derivationsFixture(transforms ...pf.TransformSpec) []*pf.DerivationSpec {
-	var grouped = make(map[pf.Collection][]pf.TransformSpec)
+func derivationsFixture(transforms ...pf.CollectionSpec_Derivation_Transform) []*pf.CollectionSpec {
+	var grouped = make(map[string][]pf.CollectionSpec_Derivation_Transform)
 	for _, t := range transforms {
-		grouped[t.Derivation] = append(grouped[t.Derivation], t)
+		grouped[t.ShuffleKey[0]] = append(grouped[t.ShuffleKey[0]], t)
 	}
 
-	var out []*pf.DerivationSpec
-	for _, group := range grouped {
-		out = append(out, &pf.DerivationSpec{
-			Collection:    pf.CollectionSpec{Collection: group[0].Derivation},
-			Transforms:    group,
-			ShardTemplate: &pc.ShardSpec{Disable: false},
+	var out []*pf.CollectionSpec
+	for name, group := range grouped {
+		out = append(out, &pf.CollectionSpec{
+			Name: pf.Collection(name),
+			Derivation: &pf.CollectionSpec_Derivation{
+				Transforms:    group,
+				ShardTemplate: &pc.ShardSpec{Disable: false},
+			},
 		})
 	}
 	return out
@@ -253,56 +256,48 @@ func TestReadyStats(t *testing.T) {
 func TestTaskIndexing(t *testing.T) {
 	var captures = []*pf.CaptureSpec{
 		{
-			Capture: "a/capture/task",
+			Name: "a/capture/task",
 			Bindings: []*pf.CaptureSpec_Binding{
-				{Collection: pf.CollectionSpec{Collection: "a/capture/one"}},
-				{Collection: pf.CollectionSpec{Collection: "a/capture/two"}},
+				{Collection: pf.CollectionSpec{Name: "a/capture/one"}},
+				{Collection: pf.CollectionSpec{Name: "a/capture/two"}},
 			},
 			ShardTemplate: &pc.ShardSpec{Disable: false},
 		},
 	}
-	var derivations = []*pf.DerivationSpec{
+	var derivations = []*pf.CollectionSpec{
 		{
-			Collection: pf.CollectionSpec{Collection: "a/derivation"},
-			Transforms: []pf.TransformSpec{
-				{
-					Shuffle: pf.Shuffle{
-						SourceCollection: "a/capture/one",
-						GroupName:        "derive/A",
+			Name: "a/derivation",
+			Derivation: &pf.CollectionSpec_Derivation{
+				Transforms: []pf.CollectionSpec_Derivation_Transform{
+					{
+						Collection:        pf.CollectionSpec{Name: "a/capture/one"},
+						JournalReadSuffix: "derive/A",
+					},
+					{
+						Collection:        pf.CollectionSpec{Name: "a/capture/one"},
+						JournalReadSuffix: "derive/AA",
+						ReadDelaySeconds:  5,
+					},
+					{
+						Collection:        pf.CollectionSpec{Name: "a/capture/two"},
+						JournalReadSuffix: "derive/B",
 					},
 				},
-				{
-					Shuffle: pf.Shuffle{
-						SourceCollection: "a/capture/one",
-						GroupName:        "derive/AA",
-						ReadDelaySeconds: 5,
-					},
-				},
-				{
-					Shuffle: pf.Shuffle{
-						SourceCollection: "a/capture/two",
-						GroupName:        "derive/B",
-					},
-				},
+				ShardTemplate: &pc.ShardSpec{Disable: false},
 			},
-			ShardTemplate: &pc.ShardSpec{Disable: false},
 		},
 	}
 	var materializations = []*pf.MaterializationSpec{
 		{
-			Materialization: "a/materialization",
+			Name: "a/materialization",
 			Bindings: []*pf.MaterializationSpec_Binding{
 				{
-					Shuffle: pf.Shuffle{
-						SourceCollection: "a/derivation",
-						GroupName:        "mat/1",
-					},
+					Collection:        pf.CollectionSpec{Name: "a/derivation"},
+					JournalReadSuffix: "mat/1",
 				},
 				{
-					Shuffle: pf.Shuffle{
-						SourceCollection: "a/capture/two",
-						GroupName:        "mat/2",
-					},
+					Collection:        pf.CollectionSpec{Name: "a/capture/two"},
+					JournalReadSuffix: "mat/2",
 				},
 			},
 			ShardTemplate: &pc.ShardSpec{Disable: false},

@@ -5,15 +5,13 @@ package capture
 
 import (
 	context "context"
-	encoding_binary "encoding/binary"
 	encoding_json "encoding/json"
 	fmt "fmt"
 	flow "github.com/estuary/flow/go/protocols/flow"
 	github_com_estuary_flow_go_protocols_flow "github.com/estuary/flow/go/protocols/flow"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
-	protocol "go.gazette.dev/core/broker/protocol"
-	protocol1 "go.gazette.dev/core/consumer/protocol"
+	types "github.com/gogo/protobuf/types"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -33,32 +31,80 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
-// SpecRequest is the request type of the Spec RPC.
-type SpecRequest struct {
-	// Endpoint type addressed by this request.
-	EndpointType flow.EndpointType `protobuf:"varint,1,opt,name=endpoint_type,json=endpointType,proto3,enum=flow.EndpointType" json:"endpoint_type,omitempty"`
-	// Driver specification, as an encoded JSON object.
+type Request struct {
+	Spec        *Request_Spec        `protobuf:"bytes,1,opt,name=spec,proto3" json:"spec,omitempty"`
+	Discover    *Request_Discover    `protobuf:"bytes,2,opt,name=discover,proto3" json:"discover,omitempty"`
+	Validate    *Request_Validate    `protobuf:"bytes,3,opt,name=validate,proto3" json:"validate,omitempty"`
+	Apply       *Request_Apply       `protobuf:"bytes,4,opt,name=apply,proto3" json:"apply,omitempty"`
+	Open        *Request_Open        `protobuf:"bytes,5,opt,name=open,proto3" json:"open,omitempty"`
+	Acknowledge *Request_Acknowledge `protobuf:"bytes,6,opt,name=acknowledge,proto3" json:"acknowledge,omitempty"`
+	// Reserved for internal use.
+	Internal             *types.Any `protobuf:"bytes,100,opt,name=internal,proto3" json:"internal,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}   `json:"-"`
+	XXX_unrecognized     []byte     `json:"-"`
+	XXX_sizecache        int32      `json:"-"`
+}
+
+func (m *Request) Reset()         { *m = Request{} }
+func (m *Request) String() string { return proto.CompactTextString(m) }
+func (*Request) ProtoMessage()    {}
+func (*Request) Descriptor() ([]byte, []int) {
+	return fileDescriptor_841a70e6e6288f13, []int{0}
+}
+func (m *Request) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Request) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Request.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Request) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Request.Merge(m, src)
+}
+func (m *Request) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Request) XXX_DiscardUnknown() {
+	xxx_messageInfo_Request.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Request proto.InternalMessageInfo
+
+// Spec requests the specification definition of this connector.
+// Notably this includes its configuration JSON schemas.
+type Request_Spec struct {
+	// Connector type addressed by this request.
+	ConnectorType flow.CaptureSpec_ConnectorType `protobuf:"varint,1,opt,name=connector_type,json=connectorType,proto3,enum=flow.CaptureSpec_ConnectorType" json:"connector_type,omitempty"`
+	// Connector configuration, as an encoded JSON object.
 	// This may be a partial specification (for example, a Docker image),
 	// providing only enough information to fetch the remainder of the
 	// specification schema.
-	EndpointSpecJson     encoding_json.RawMessage `protobuf:"bytes,2,opt,name=endpoint_spec_json,json=endpointSpec,proto3,casttype=encoding/json.RawMessage" json:"endpoint_spec_json,omitempty"`
+	ConfigJson           encoding_json.RawMessage `protobuf:"bytes,2,opt,name=config_json,json=config,proto3,casttype=encoding/json.RawMessage" json:"config_json,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
 	XXX_unrecognized     []byte                   `json:"-"`
 	XXX_sizecache        int32                    `json:"-"`
 }
 
-func (m *SpecRequest) Reset()         { *m = SpecRequest{} }
-func (m *SpecRequest) String() string { return proto.CompactTextString(m) }
-func (*SpecRequest) ProtoMessage()    {}
-func (*SpecRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{0}
+func (m *Request_Spec) Reset()         { *m = Request_Spec{} }
+func (m *Request_Spec) String() string { return proto.CompactTextString(m) }
+func (*Request_Spec) ProtoMessage()    {}
+func (*Request_Spec) Descriptor() ([]byte, []int) {
+	return fileDescriptor_841a70e6e6288f13, []int{0, 0}
 }
-func (m *SpecRequest) XXX_Unmarshal(b []byte) error {
+func (m *Request_Spec) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *SpecRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *Request_Spec) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_SpecRequest.Marshal(b, m, deterministic)
+		return xxx_messageInfo_Request_Spec.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -68,89 +114,41 @@ func (m *SpecRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) 
 		return b[:n], nil
 	}
 }
-func (m *SpecRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_SpecRequest.Merge(m, src)
+func (m *Request_Spec) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Request_Spec.Merge(m, src)
 }
-func (m *SpecRequest) XXX_Size() int {
+func (m *Request_Spec) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *SpecRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_SpecRequest.DiscardUnknown(m)
+func (m *Request_Spec) XXX_DiscardUnknown() {
+	xxx_messageInfo_Request_Spec.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_SpecRequest proto.InternalMessageInfo
+var xxx_messageInfo_Request_Spec proto.InternalMessageInfo
 
-// SpecResponse is the response type of the Spec RPC.
-type SpecResponse struct {
-	// JSON schema of an endpoint specification.
-	EndpointSpecSchemaJson encoding_json.RawMessage `protobuf:"bytes,1,opt,name=endpoint_spec_schema_json,json=endpointSpecSchema,proto3,casttype=encoding/json.RawMessage" json:"endpoint_spec_schema_json,omitempty"`
-	// JSON schema of a resource specification.
-	ResourceSpecSchemaJson encoding_json.RawMessage `protobuf:"bytes,2,opt,name=resource_spec_schema_json,json=resourceSpecSchema,proto3,casttype=encoding/json.RawMessage" json:"resource_spec_schema_json,omitempty"`
-	// URL for connector's documention.
-	DocumentationUrl string `protobuf:"bytes,3,opt,name=documentation_url,json=documentationUrl,proto3" json:"documentation_url,omitempty"`
-	// OAuth2 spec
-	Oauth2Spec           *flow.OAuth2Spec `protobuf:"bytes,4,opt,name=oauth2_spec,json=oauth2Spec,proto3" json:"oauth2_spec,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}         `json:"-"`
-	XXX_unrecognized     []byte           `json:"-"`
-	XXX_sizecache        int32            `json:"-"`
-}
-
-func (m *SpecResponse) Reset()         { *m = SpecResponse{} }
-func (m *SpecResponse) String() string { return proto.CompactTextString(m) }
-func (*SpecResponse) ProtoMessage()    {}
-func (*SpecResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{1}
-}
-func (m *SpecResponse) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *SpecResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_SpecResponse.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *SpecResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_SpecResponse.Merge(m, src)
-}
-func (m *SpecResponse) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *SpecResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_SpecResponse.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_SpecResponse proto.InternalMessageInfo
-
-// DiscoverRequest is the request type of the Discover RPC.
-type DiscoverRequest struct {
-	// Endpoint type addressed by this request.
-	EndpointType flow.EndpointType `protobuf:"varint,1,opt,name=endpoint_type,json=endpointType,proto3,enum=flow.EndpointType" json:"endpoint_type,omitempty"`
-	// Driver specification, as an encoded JSON object.
-	EndpointSpecJson     encoding_json.RawMessage `protobuf:"bytes,2,opt,name=endpoint_spec_json,json=endpointSpec,proto3,casttype=encoding/json.RawMessage" json:"endpoint_spec_json,omitempty"`
+// Discover returns the set of resources available from this connector.
+type Request_Discover struct {
+	// Connector type addressed by this request.
+	ConnectorType flow.CaptureSpec_ConnectorType `protobuf:"varint,1,opt,name=connector_type,json=connectorType,proto3,enum=flow.CaptureSpec_ConnectorType" json:"connector_type,omitempty"`
+	// Connector configuration, as an encoded JSON object.
+	ConfigJson           encoding_json.RawMessage `protobuf:"bytes,2,opt,name=config_json,json=config,proto3,casttype=encoding/json.RawMessage" json:"config_json,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
 	XXX_unrecognized     []byte                   `json:"-"`
 	XXX_sizecache        int32                    `json:"-"`
 }
 
-func (m *DiscoverRequest) Reset()         { *m = DiscoverRequest{} }
-func (m *DiscoverRequest) String() string { return proto.CompactTextString(m) }
-func (*DiscoverRequest) ProtoMessage()    {}
-func (*DiscoverRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{2}
+func (m *Request_Discover) Reset()         { *m = Request_Discover{} }
+func (m *Request_Discover) String() string { return proto.CompactTextString(m) }
+func (*Request_Discover) ProtoMessage()    {}
+func (*Request_Discover) Descriptor() ([]byte, []int) {
+	return fileDescriptor_841a70e6e6288f13, []int{0, 1}
 }
-func (m *DiscoverRequest) XXX_Unmarshal(b []byte) error {
+func (m *Request_Discover) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *DiscoverRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *Request_Discover) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_DiscoverRequest.Marshal(b, m, deterministic)
+		return xxx_messageInfo_Request_Discover.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -160,136 +158,50 @@ func (m *DiscoverRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, err
 		return b[:n], nil
 	}
 }
-func (m *DiscoverRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_DiscoverRequest.Merge(m, src)
+func (m *Request_Discover) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Request_Discover.Merge(m, src)
 }
-func (m *DiscoverRequest) XXX_Size() int {
+func (m *Request_Discover) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *DiscoverRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_DiscoverRequest.DiscardUnknown(m)
+func (m *Request_Discover) XXX_DiscardUnknown() {
+	xxx_messageInfo_Request_Discover.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_DiscoverRequest proto.InternalMessageInfo
+var xxx_messageInfo_Request_Discover proto.InternalMessageInfo
 
-// DiscoverResponse is the response type of the Discover RPC.
-type DiscoverResponse struct {
-	Bindings             []*DiscoverResponse_Binding `protobuf:"bytes,1,rep,name=bindings,proto3" json:"bindings,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}                    `json:"-"`
-	XXX_unrecognized     []byte                      `json:"-"`
-	XXX_sizecache        int32                       `json:"-"`
-}
-
-func (m *DiscoverResponse) Reset()         { *m = DiscoverResponse{} }
-func (m *DiscoverResponse) String() string { return proto.CompactTextString(m) }
-func (*DiscoverResponse) ProtoMessage()    {}
-func (*DiscoverResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{3}
-}
-func (m *DiscoverResponse) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *DiscoverResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_DiscoverResponse.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *DiscoverResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_DiscoverResponse.Merge(m, src)
-}
-func (m *DiscoverResponse) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *DiscoverResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_DiscoverResponse.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_DiscoverResponse proto.InternalMessageInfo
-
-// Potential bindings which the capture could provide.
-// Bindings may be returned in any order.
-type DiscoverResponse_Binding struct {
-	// The recommended name for this discovered binding,
-	// which is appended to a catalog prefix of the proposed capture
-	// to form the name of its recommended collection.
-	RecommendedName github_com_estuary_flow_go_protocols_flow.Collection `protobuf:"bytes,1,opt,name=recommended_name,json=recommendedName,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Collection" json:"recommended_name,omitempty"`
-	// JSON-encoded object which specifies the endpoint resource to be captured.
-	ResourceSpecJson encoding_json.RawMessage `protobuf:"bytes,2,opt,name=resource_spec_json,json=resourceSpec,proto3,casttype=encoding/json.RawMessage" json:"resource_spec_json,omitempty"`
-	// JSON schema of documents produced by this binding.
-	DocumentSchemaJson encoding_json.RawMessage `protobuf:"bytes,3,opt,name=document_schema_json,json=documentSchema,proto3,casttype=encoding/json.RawMessage" json:"document_schema_json,omitempty"`
-	// Composite key of documents (if known), as JSON-Pointers.
-	KeyPtrs              []string `protobuf:"bytes,4,rep,name=key_ptrs,json=keyPtrs,proto3" json:"key_ptrs,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *DiscoverResponse_Binding) Reset()         { *m = DiscoverResponse_Binding{} }
-func (m *DiscoverResponse_Binding) String() string { return proto.CompactTextString(m) }
-func (*DiscoverResponse_Binding) ProtoMessage()    {}
-func (*DiscoverResponse_Binding) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{3, 0}
-}
-func (m *DiscoverResponse_Binding) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *DiscoverResponse_Binding) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_DiscoverResponse_Binding.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *DiscoverResponse_Binding) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_DiscoverResponse_Binding.Merge(m, src)
-}
-func (m *DiscoverResponse_Binding) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *DiscoverResponse_Binding) XXX_DiscardUnknown() {
-	xxx_messageInfo_DiscoverResponse_Binding.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_DiscoverResponse_Binding proto.InternalMessageInfo
-
-// ValidateRequest is the request type of the Validate RPC.
-type ValidateRequest struct {
+// Validate a capture configuration and proposed bindings.
+// Validate is run out-of-band with ongoing capture invocations.
+// It's purpose is to confirm that the proposed configuration
+// is likely to succeed if applied and run, or to report any
+// potential issues for the user to address.
+type Request_Validate struct {
 	// Name of the capture being validated.
-	Capture github_com_estuary_flow_go_protocols_flow.Capture `protobuf:"bytes,1,opt,name=capture,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Capture" json:"capture,omitempty"`
-	// Endpoint type addressed by this request.
-	EndpointType flow.EndpointType `protobuf:"varint,2,opt,name=endpoint_type,json=endpointType,proto3,enum=flow.EndpointType" json:"endpoint_type,omitempty"`
-	// Driver specification, as an encoded JSON object.
-	EndpointSpecJson     encoding_json.RawMessage   `protobuf:"bytes,3,opt,name=endpoint_spec_json,json=endpointSpec,proto3,casttype=encoding/json.RawMessage" json:"endpoint_spec_json,omitempty"`
-	Bindings             []*ValidateRequest_Binding `protobuf:"bytes,4,rep,name=bindings,proto3" json:"bindings,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}                   `json:"-"`
-	XXX_unrecognized     []byte                     `json:"-"`
-	XXX_sizecache        int32                      `json:"-"`
+	Name github_com_estuary_flow_go_protocols_flow.Capture `protobuf:"bytes,1,opt,name=name,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Capture" json:"name,omitempty"`
+	// Connector type addressed by this request.
+	ConnectorType flow.CaptureSpec_ConnectorType `protobuf:"varint,2,opt,name=connector_type,json=connectorType,proto3,enum=flow.CaptureSpec_ConnectorType" json:"connector_type,omitempty"`
+	// Connector configuration, as an encoded JSON object.
+	ConfigJson encoding_json.RawMessage    `protobuf:"bytes,3,opt,name=config_json,json=config,proto3,casttype=encoding/json.RawMessage" json:"config_json,omitempty"`
+	Bindings   []*Request_Validate_Binding `protobuf:"bytes,4,rep,name=bindings,proto3" json:"bindings,omitempty"`
+	// Network ports of this proposed capture.
+	NetworkPorts         []*flow.NetworkPort `protobuf:"bytes,5,rep,name=network_ports,json=networkPorts,proto3" json:"network_ports,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}            `json:"-"`
+	XXX_unrecognized     []byte              `json:"-"`
+	XXX_sizecache        int32               `json:"-"`
 }
 
-func (m *ValidateRequest) Reset()         { *m = ValidateRequest{} }
-func (m *ValidateRequest) String() string { return proto.CompactTextString(m) }
-func (*ValidateRequest) ProtoMessage()    {}
-func (*ValidateRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{4}
+func (m *Request_Validate) Reset()         { *m = Request_Validate{} }
+func (m *Request_Validate) String() string { return proto.CompactTextString(m) }
+func (*Request_Validate) ProtoMessage()    {}
+func (*Request_Validate) Descriptor() ([]byte, []int) {
+	return fileDescriptor_841a70e6e6288f13, []int{0, 2}
 }
-func (m *ValidateRequest) XXX_Unmarshal(b []byte) error {
+func (m *Request_Validate) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *ValidateRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *Request_Validate) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_ValidateRequest.Marshal(b, m, deterministic)
+		return xxx_messageInfo_Request_Validate.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -299,23 +211,23 @@ func (m *ValidateRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, err
 		return b[:n], nil
 	}
 }
-func (m *ValidateRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ValidateRequest.Merge(m, src)
+func (m *Request_Validate) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Request_Validate.Merge(m, src)
 }
-func (m *ValidateRequest) XXX_Size() int {
+func (m *Request_Validate) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *ValidateRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_ValidateRequest.DiscardUnknown(m)
+func (m *Request_Validate) XXX_DiscardUnknown() {
+	xxx_messageInfo_Request_Validate.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_ValidateRequest proto.InternalMessageInfo
+var xxx_messageInfo_Request_Validate proto.InternalMessageInfo
 
 // Bindings of endpoint resources and collections to which they would be
 // captured. Bindings are ordered and unique on the bound collection name.
-type ValidateRequest_Binding struct {
+type Request_Validate_Binding struct {
 	// JSON-encoded object which specifies the endpoint resource to be captured.
-	ResourceSpecJson encoding_json.RawMessage `protobuf:"bytes,1,opt,name=resource_spec_json,json=resourceSpec,proto3,casttype=encoding/json.RawMessage" json:"resource_spec_json,omitempty"`
+	ResourceConfigJson encoding_json.RawMessage `protobuf:"bytes,1,opt,name=resource_config_json,json=resourceConfig,proto3,casttype=encoding/json.RawMessage" json:"resource_config_json,omitempty"`
 	// Collection to be captured.
 	Collection           flow.CollectionSpec `protobuf:"bytes,2,opt,name=collection,proto3" json:"collection"`
 	XXX_NoUnkeyedLiteral struct{}            `json:"-"`
@@ -323,18 +235,18 @@ type ValidateRequest_Binding struct {
 	XXX_sizecache        int32               `json:"-"`
 }
 
-func (m *ValidateRequest_Binding) Reset()         { *m = ValidateRequest_Binding{} }
-func (m *ValidateRequest_Binding) String() string { return proto.CompactTextString(m) }
-func (*ValidateRequest_Binding) ProtoMessage()    {}
-func (*ValidateRequest_Binding) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{4, 0}
+func (m *Request_Validate_Binding) Reset()         { *m = Request_Validate_Binding{} }
+func (m *Request_Validate_Binding) String() string { return proto.CompactTextString(m) }
+func (*Request_Validate_Binding) ProtoMessage()    {}
+func (*Request_Validate_Binding) Descriptor() ([]byte, []int) {
+	return fileDescriptor_841a70e6e6288f13, []int{0, 2, 0}
 }
-func (m *ValidateRequest_Binding) XXX_Unmarshal(b []byte) error {
+func (m *Request_Validate_Binding) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *ValidateRequest_Binding) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *Request_Validate_Binding) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_ValidateRequest_Binding.Marshal(b, m, deterministic)
+		return xxx_messageInfo_Request_Validate_Binding.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -344,108 +256,24 @@ func (m *ValidateRequest_Binding) XXX_Marshal(b []byte, deterministic bool) ([]b
 		return b[:n], nil
 	}
 }
-func (m *ValidateRequest_Binding) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ValidateRequest_Binding.Merge(m, src)
+func (m *Request_Validate_Binding) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Request_Validate_Binding.Merge(m, src)
 }
-func (m *ValidateRequest_Binding) XXX_Size() int {
+func (m *Request_Validate_Binding) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *ValidateRequest_Binding) XXX_DiscardUnknown() {
-	xxx_messageInfo_ValidateRequest_Binding.DiscardUnknown(m)
+func (m *Request_Validate_Binding) XXX_DiscardUnknown() {
+	xxx_messageInfo_Request_Validate_Binding.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_ValidateRequest_Binding proto.InternalMessageInfo
+var xxx_messageInfo_Request_Validate_Binding proto.InternalMessageInfo
 
-// ValidateResponse is the response type of the Validate RPC.
-type ValidateResponse struct {
-	Bindings             []*ValidateResponse_Binding `protobuf:"bytes,1,rep,name=bindings,proto3" json:"bindings,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}                    `json:"-"`
-	XXX_unrecognized     []byte                      `json:"-"`
-	XXX_sizecache        int32                       `json:"-"`
-}
-
-func (m *ValidateResponse) Reset()         { *m = ValidateResponse{} }
-func (m *ValidateResponse) String() string { return proto.CompactTextString(m) }
-func (*ValidateResponse) ProtoMessage()    {}
-func (*ValidateResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{5}
-}
-func (m *ValidateResponse) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *ValidateResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_ValidateResponse.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *ValidateResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ValidateResponse.Merge(m, src)
-}
-func (m *ValidateResponse) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *ValidateResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_ValidateResponse.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_ValidateResponse proto.InternalMessageInfo
-
-// Validation responses for each binding of the request, and matching the
-// request ordering. Each Binding must have a unique resource_path.
-type ValidateResponse_Binding struct {
-	// Components of the resource path which fully qualify the resource
-	// identified by this binding.
-	// - For an RDBMS, this might be []{dbname, schema, table}.
-	// - For Kafka, this might be []{topic}.
-	// - For Redis, this might be []{key_prefix}.
-	ResourcePath         []string `protobuf:"bytes,1,rep,name=resource_path,json=resourcePath,proto3" json:"resource_path,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *ValidateResponse_Binding) Reset()         { *m = ValidateResponse_Binding{} }
-func (m *ValidateResponse_Binding) String() string { return proto.CompactTextString(m) }
-func (*ValidateResponse_Binding) ProtoMessage()    {}
-func (*ValidateResponse_Binding) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{5, 0}
-}
-func (m *ValidateResponse_Binding) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *ValidateResponse_Binding) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_ValidateResponse_Binding.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *ValidateResponse_Binding) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ValidateResponse_Binding.Merge(m, src)
-}
-func (m *ValidateResponse_Binding) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *ValidateResponse_Binding) XXX_DiscardUnknown() {
-	xxx_messageInfo_ValidateResponse_Binding.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_ValidateResponse_Binding proto.InternalMessageInfo
-
-// ApplyRequest is the request type of the ApplyUpsert and ApplyDelete RPCs.
-type ApplyRequest struct {
+// Apply a capture configuration and bindings to its endpoint.
+// Apply is run out-of-band with ongoing connector invocations,
+// and may be run many times for a single capture name,
+// where each invocation has varying bindings, or even no bindings.
+// The connector performs any required setup or cleanup.
+type Request_Apply struct {
 	// Capture to be applied.
 	Capture *flow.CaptureSpec `protobuf:"bytes,1,opt,name=capture,proto3" json:"capture,omitempty"`
 	// Version of the CaptureSpec being applied.
@@ -458,18 +286,18 @@ type ApplyRequest struct {
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *ApplyRequest) Reset()         { *m = ApplyRequest{} }
-func (m *ApplyRequest) String() string { return proto.CompactTextString(m) }
-func (*ApplyRequest) ProtoMessage()    {}
-func (*ApplyRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{6}
+func (m *Request_Apply) Reset()         { *m = Request_Apply{} }
+func (m *Request_Apply) String() string { return proto.CompactTextString(m) }
+func (*Request_Apply) ProtoMessage()    {}
+func (*Request_Apply) Descriptor() ([]byte, []int) {
+	return fileDescriptor_841a70e6e6288f13, []int{0, 3}
 }
-func (m *ApplyRequest) XXX_Unmarshal(b []byte) error {
+func (m *Request_Apply) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *ApplyRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *Request_Apply) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_ApplyRequest.Marshal(b, m, deterministic)
+		return xxx_messageInfo_Request_Apply.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -479,20 +307,398 @@ func (m *ApplyRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error)
 		return b[:n], nil
 	}
 }
-func (m *ApplyRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ApplyRequest.Merge(m, src)
+func (m *Request_Apply) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Request_Apply.Merge(m, src)
 }
-func (m *ApplyRequest) XXX_Size() int {
+func (m *Request_Apply) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *ApplyRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_ApplyRequest.DiscardUnknown(m)
+func (m *Request_Apply) XXX_DiscardUnknown() {
+	xxx_messageInfo_Request_Apply.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_ApplyRequest proto.InternalMessageInfo
+var xxx_messageInfo_Request_Apply proto.InternalMessageInfo
 
-// ApplyResponse is the response type of the ApplyUpsert and ApplyDelete RPCs.
-type ApplyResponse struct {
+// Open a capture for reading documents from the endpoint.
+// Unless the connector requests explicit acknowledgements,
+// Open is the last message which will be sent to the connector.
+type Request_Open struct {
+	// CaptureSpec to be pulled.
+	Capture *flow.CaptureSpec `protobuf:"bytes,1,opt,name=capture,proto3" json:"capture,omitempty"`
+	// Version of the opened CaptureSpec.
+	// The connector may want to require that this match the version last
+	// provided to a successful Apply RPC. It's possible that it won't,
+	// due to expected propagation races in Flow's distributed runtime.
+	Version string `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
+	// Range of documents to be processed by this invocation.
+	Range *flow.RangeSpec `protobuf:"bytes,3,opt,name=range,proto3" json:"range,omitempty"`
+	// Last-persisted connector checkpoint state from a previous invocation.
+	StateJson            encoding_json.RawMessage `protobuf:"bytes,4,opt,name=state_json,json=state,proto3,casttype=encoding/json.RawMessage" json:"state_json,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
+	XXX_unrecognized     []byte                   `json:"-"`
+	XXX_sizecache        int32                    `json:"-"`
+}
+
+func (m *Request_Open) Reset()         { *m = Request_Open{} }
+func (m *Request_Open) String() string { return proto.CompactTextString(m) }
+func (*Request_Open) ProtoMessage()    {}
+func (*Request_Open) Descriptor() ([]byte, []int) {
+	return fileDescriptor_841a70e6e6288f13, []int{0, 4}
+}
+func (m *Request_Open) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Request_Open) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Request_Open.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Request_Open) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Request_Open.Merge(m, src)
+}
+func (m *Request_Open) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Request_Open) XXX_DiscardUnknown() {
+	xxx_messageInfo_Request_Open.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Request_Open proto.InternalMessageInfo
+
+// Tell the connector that some number of its preceding Checkpoints have
+// committed to the Flow recovery log.
+//
+// Acknowledge is sent only if the connector set
+// Response.Opened.explicit_acknowledgements.
+type Request_Acknowledge struct {
+	// Number of preceeding Response.Checkpoint messages which have
+	// committed and are being acknowledged. Always one or more.
+	Checkpoints          uint32   `protobuf:"varint,1,opt,name=checkpoints,proto3" json:"checkpoints,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *Request_Acknowledge) Reset()         { *m = Request_Acknowledge{} }
+func (m *Request_Acknowledge) String() string { return proto.CompactTextString(m) }
+func (*Request_Acknowledge) ProtoMessage()    {}
+func (*Request_Acknowledge) Descriptor() ([]byte, []int) {
+	return fileDescriptor_841a70e6e6288f13, []int{0, 5}
+}
+func (m *Request_Acknowledge) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Request_Acknowledge) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Request_Acknowledge.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Request_Acknowledge) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Request_Acknowledge.Merge(m, src)
+}
+func (m *Request_Acknowledge) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Request_Acknowledge) XXX_DiscardUnknown() {
+	xxx_messageInfo_Request_Acknowledge.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Request_Acknowledge proto.InternalMessageInfo
+
+type Response struct {
+	Spec       *Response_Spec       `protobuf:"bytes,1,opt,name=spec,proto3" json:"spec,omitempty"`
+	Discovered *Response_Discovered `protobuf:"bytes,2,opt,name=discovered,proto3" json:"discovered,omitempty"`
+	Validated  *Response_Validated  `protobuf:"bytes,3,opt,name=validated,proto3" json:"validated,omitempty"`
+	Applied    *Response_Applied    `protobuf:"bytes,4,opt,name=applied,proto3" json:"applied,omitempty"`
+	Opened     *Response_Opened     `protobuf:"bytes,5,opt,name=opened,proto3" json:"opened,omitempty"`
+	Captured   *Response_Captured   `protobuf:"bytes,6,opt,name=captured,proto3" json:"captured,omitempty"`
+	Checkpoint *Response_Checkpoint `protobuf:"bytes,7,opt,name=checkpoint,proto3" json:"checkpoint,omitempty"`
+	// Reserved for internal use.
+	Internal             *types.Any `protobuf:"bytes,100,opt,name=internal,proto3" json:"internal,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}   `json:"-"`
+	XXX_unrecognized     []byte     `json:"-"`
+	XXX_sizecache        int32      `json:"-"`
+}
+
+func (m *Response) Reset()         { *m = Response{} }
+func (m *Response) String() string { return proto.CompactTextString(m) }
+func (*Response) ProtoMessage()    {}
+func (*Response) Descriptor() ([]byte, []int) {
+	return fileDescriptor_841a70e6e6288f13, []int{1}
+}
+func (m *Response) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Response) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Response.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Response) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response.Merge(m, src)
+}
+func (m *Response) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Response) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Response proto.InternalMessageInfo
+
+// Spec responds to Request.Spec.
+type Response_Spec struct {
+	// Protocol version must be 3032023.
+	Protocol uint32 `protobuf:"varint,1,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	// JSON schema of the connector's configuration.
+	ConfigSchemaJson encoding_json.RawMessage `protobuf:"bytes,2,opt,name=config_schema_json,json=configSchema,proto3,casttype=encoding/json.RawMessage" json:"config_schema_json,omitempty"`
+	// JSON schema of the connecor's resource configuration.
+	ResourceConfigSchemaJson encoding_json.RawMessage `protobuf:"bytes,3,opt,name=resource_config_schema_json,json=resourceConfigSchema,proto3,casttype=encoding/json.RawMessage" json:"resource_config_schema_json,omitempty"`
+	// URL for connector's documention.
+	DocumentationUrl string `protobuf:"bytes,4,opt,name=documentation_url,json=documentationUrl,proto3" json:"documentation_url,omitempty"`
+	// Optional OAuth2 configuration.
+	Oauth2               *flow.OAuth2 `protobuf:"bytes,5,opt,name=oauth2,proto3" json:"oauth2,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
+	XXX_unrecognized     []byte       `json:"-"`
+	XXX_sizecache        int32        `json:"-"`
+}
+
+func (m *Response_Spec) Reset()         { *m = Response_Spec{} }
+func (m *Response_Spec) String() string { return proto.CompactTextString(m) }
+func (*Response_Spec) ProtoMessage()    {}
+func (*Response_Spec) Descriptor() ([]byte, []int) {
+	return fileDescriptor_841a70e6e6288f13, []int{1, 0}
+}
+func (m *Response_Spec) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Response_Spec) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Response_Spec.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Response_Spec) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response_Spec.Merge(m, src)
+}
+func (m *Response_Spec) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Response_Spec) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response_Spec.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Response_Spec proto.InternalMessageInfo
+
+// Discovered responds to Request.Discover.
+type Response_Discovered struct {
+	Bindings             []*Response_Discovered_Binding `protobuf:"bytes,1,rep,name=bindings,proto3" json:"bindings,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                       `json:"-"`
+	XXX_unrecognized     []byte                         `json:"-"`
+	XXX_sizecache        int32                          `json:"-"`
+}
+
+func (m *Response_Discovered) Reset()         { *m = Response_Discovered{} }
+func (m *Response_Discovered) String() string { return proto.CompactTextString(m) }
+func (*Response_Discovered) ProtoMessage()    {}
+func (*Response_Discovered) Descriptor() ([]byte, []int) {
+	return fileDescriptor_841a70e6e6288f13, []int{1, 1}
+}
+func (m *Response_Discovered) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Response_Discovered) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Response_Discovered.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Response_Discovered) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response_Discovered.Merge(m, src)
+}
+func (m *Response_Discovered) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Response_Discovered) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response_Discovered.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Response_Discovered proto.InternalMessageInfo
+
+// Potential bindings which the capture could provide.
+// Bindings may be returned in any order.
+type Response_Discovered_Binding struct {
+	// The recommended name for this discovered binding,
+	// which is appended to a catalog prefix of the proposed capture
+	// to form the name of its recommended collection.
+	RecommendedName github_com_estuary_flow_go_protocols_flow.Collection `protobuf:"bytes,1,opt,name=recommended_name,json=recommendedName,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Collection" json:"recommended_name,omitempty"`
+	// JSON-encoded object which specifies the captured resource configuration.
+	ResourceConfigJson encoding_json.RawMessage `protobuf:"bytes,2,opt,name=resource_config_json,json=resourceConfig,proto3,casttype=encoding/json.RawMessage" json:"resource_config_json,omitempty"`
+	// JSON schema of documents produced by this binding.
+	DocumentSchemaJson encoding_json.RawMessage `protobuf:"bytes,3,opt,name=document_schema_json,json=documentSchema,proto3,casttype=encoding/json.RawMessage" json:"document_schema_json,omitempty"`
+	// Composite key of documents (if known), as JSON-Pointers.
+	Key                  []string `protobuf:"bytes,4,rep,name=key,proto3" json:"key,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *Response_Discovered_Binding) Reset()         { *m = Response_Discovered_Binding{} }
+func (m *Response_Discovered_Binding) String() string { return proto.CompactTextString(m) }
+func (*Response_Discovered_Binding) ProtoMessage()    {}
+func (*Response_Discovered_Binding) Descriptor() ([]byte, []int) {
+	return fileDescriptor_841a70e6e6288f13, []int{1, 1, 0}
+}
+func (m *Response_Discovered_Binding) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Response_Discovered_Binding) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Response_Discovered_Binding.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Response_Discovered_Binding) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response_Discovered_Binding.Merge(m, src)
+}
+func (m *Response_Discovered_Binding) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Response_Discovered_Binding) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response_Discovered_Binding.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Response_Discovered_Binding proto.InternalMessageInfo
+
+// Validated responds to Request.Validate.
+type Response_Validated struct {
+	Bindings             []*Response_Validated_Binding `protobuf:"bytes,1,rep,name=bindings,proto3" json:"bindings,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                      `json:"-"`
+	XXX_unrecognized     []byte                        `json:"-"`
+	XXX_sizecache        int32                         `json:"-"`
+}
+
+func (m *Response_Validated) Reset()         { *m = Response_Validated{} }
+func (m *Response_Validated) String() string { return proto.CompactTextString(m) }
+func (*Response_Validated) ProtoMessage()    {}
+func (*Response_Validated) Descriptor() ([]byte, []int) {
+	return fileDescriptor_841a70e6e6288f13, []int{1, 2}
+}
+func (m *Response_Validated) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Response_Validated) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Response_Validated.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Response_Validated) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response_Validated.Merge(m, src)
+}
+func (m *Response_Validated) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Response_Validated) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response_Validated.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Response_Validated proto.InternalMessageInfo
+
+// Validation responses for each binding of the request, and matching the
+// request ordering. Each Binding must have a unique resource_path.
+type Response_Validated_Binding struct {
+	// Components of the resource path which fully qualify the resource
+	// identified by this binding.
+	// - For an RDBMS, this might be []{dbname, schema, table}.
+	// - For Kafka, this might be []{topic}.
+	// - For Redis, this might be []{key_prefix}.
+	ResourcePath         []string `protobuf:"bytes,1,rep,name=resource_path,json=resourcePath,proto3" json:"resource_path,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *Response_Validated_Binding) Reset()         { *m = Response_Validated_Binding{} }
+func (m *Response_Validated_Binding) String() string { return proto.CompactTextString(m) }
+func (*Response_Validated_Binding) ProtoMessage()    {}
+func (*Response_Validated_Binding) Descriptor() ([]byte, []int) {
+	return fileDescriptor_841a70e6e6288f13, []int{1, 2, 0}
+}
+func (m *Response_Validated_Binding) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Response_Validated_Binding) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Response_Validated_Binding.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Response_Validated_Binding) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response_Validated_Binding.Merge(m, src)
+}
+func (m *Response_Validated_Binding) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Response_Validated_Binding) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response_Validated_Binding.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Response_Validated_Binding proto.InternalMessageInfo
+
+// Applied responds to Request.Apply.
+type Response_Applied struct {
 	// Human-readable description of the action that the Driver took (or, if
 	// dry_run, would have taken). If empty, this Apply is to be considered a
 	// "no-op".
@@ -502,18 +708,18 @@ type ApplyResponse struct {
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *ApplyResponse) Reset()         { *m = ApplyResponse{} }
-func (m *ApplyResponse) String() string { return proto.CompactTextString(m) }
-func (*ApplyResponse) ProtoMessage()    {}
-func (*ApplyResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{7}
+func (m *Response_Applied) Reset()         { *m = Response_Applied{} }
+func (m *Response_Applied) String() string { return proto.CompactTextString(m) }
+func (*Response_Applied) ProtoMessage()    {}
+func (*Response_Applied) Descriptor() ([]byte, []int) {
+	return fileDescriptor_841a70e6e6288f13, []int{1, 3}
 }
-func (m *ApplyResponse) XXX_Unmarshal(b []byte) error {
+func (m *Response_Applied) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *ApplyResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *Response_Applied) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_ApplyResponse.Marshal(b, m, deterministic)
+		return xxx_messageInfo_Response_Applied.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -523,278 +729,42 @@ func (m *ApplyResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error
 		return b[:n], nil
 	}
 }
-func (m *ApplyResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ApplyResponse.Merge(m, src)
+func (m *Response_Applied) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response_Applied.Merge(m, src)
 }
-func (m *ApplyResponse) XXX_Size() int {
+func (m *Response_Applied) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *ApplyResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_ApplyResponse.DiscardUnknown(m)
+func (m *Response_Applied) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response_Applied.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_ApplyResponse proto.InternalMessageInfo
+var xxx_messageInfo_Response_Applied proto.InternalMessageInfo
 
-// Documents is a set of documents drawn from a binding of the capture.
-type Documents struct {
-	// The capture binding for documents of this message.
-	Binding uint32 `protobuf:"varint,1,opt,name=binding,proto3" json:"binding,omitempty"`
-	// Byte arena of the response.
-	Arena github_com_estuary_flow_go_protocols_flow.Arena `protobuf:"bytes,2,opt,name=arena,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Arena" json:"arena,omitempty"`
-	// Captured JSON documents.
-	DocsJson             []flow.Slice `protobuf:"bytes,3,rep,name=docs_json,json=docsJson,proto3" json:"docs_json"`
-	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
-	XXX_unrecognized     []byte       `json:"-"`
-	XXX_sizecache        int32        `json:"-"`
-}
-
-func (m *Documents) Reset()         { *m = Documents{} }
-func (m *Documents) String() string { return proto.CompactTextString(m) }
-func (*Documents) ProtoMessage()    {}
-func (*Documents) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{8}
-}
-func (m *Documents) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *Documents) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_Documents.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *Documents) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Documents.Merge(m, src)
-}
-func (m *Documents) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *Documents) XXX_DiscardUnknown() {
-	xxx_messageInfo_Documents.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_Documents proto.InternalMessageInfo
-
-// Acknowledge is a notification that a Checkpoint has committed to the
-// Flow runtime's recovery log.
-type Acknowledge struct {
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *Acknowledge) Reset()         { *m = Acknowledge{} }
-func (m *Acknowledge) String() string { return proto.CompactTextString(m) }
-func (*Acknowledge) ProtoMessage()    {}
-func (*Acknowledge) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{9}
-}
-func (m *Acknowledge) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *Acknowledge) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_Acknowledge.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *Acknowledge) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Acknowledge.Merge(m, src)
-}
-func (m *Acknowledge) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *Acknowledge) XXX_DiscardUnknown() {
-	xxx_messageInfo_Acknowledge.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_Acknowledge proto.InternalMessageInfo
-
-// PullRequest is the request type of a Driver.Pull RPC.
-// It will have exactly one top-level field set, which represents its message
-// type.
-type PullRequest struct {
-	Open *PullRequest_Open `protobuf:"bytes,1,opt,name=open,proto3" json:"open,omitempty"`
-	// Tell the driver that its Checkpoint has committed to the Flow recovery log.
-	// Acknowledgments are sent iff PullResponse.Opened.explicit_acknowledgements is true.
-	Acknowledge          *Acknowledge `protobuf:"bytes,2,opt,name=acknowledge,proto3" json:"acknowledge,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
-	XXX_unrecognized     []byte       `json:"-"`
-	XXX_sizecache        int32        `json:"-"`
-}
-
-func (m *PullRequest) Reset()         { *m = PullRequest{} }
-func (m *PullRequest) String() string { return proto.CompactTextString(m) }
-func (*PullRequest) ProtoMessage()    {}
-func (*PullRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{10}
-}
-func (m *PullRequest) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *PullRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_PullRequest.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *PullRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_PullRequest.Merge(m, src)
-}
-func (m *PullRequest) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *PullRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_PullRequest.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_PullRequest proto.InternalMessageInfo
-
-// Open opens a Pull of the driver, and is sent exactly once as the first
-// message of the stream.
-type PullRequest_Open struct {
-	// CaptureSpec to be pulled.
-	Capture *flow.CaptureSpec `protobuf:"bytes,1,opt,name=capture,proto3" json:"capture,omitempty"`
-	// Version of the opened CaptureSpec.
-	// The driver may want to require that this match the version last
-	// provided to a successful Apply RPC. It's possible that it won't,
-	// due to expected propagation races in Flow's distributed runtime.
-	Version string `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
-	// [key_begin, key_end] inclusive range of keys processed by this
-	// transaction stream. Ranges reflect the disjoint chunks of ownership
-	// specific to each instance of a scale-out capture implementation.
-	KeyBegin uint32 `protobuf:"fixed32,3,opt,name=key_begin,json=keyBegin,proto3" json:"key_begin,omitempty"`
-	KeyEnd   uint32 `protobuf:"fixed32,4,opt,name=key_end,json=keyEnd,proto3" json:"key_end,omitempty"`
-	// Last-persisted driver checkpoint from a previous capture stream.
-	// Or empty, if the driver has cleared or never set its checkpoint.
-	DriverCheckpointJson encoding_json.RawMessage `protobuf:"bytes,5,opt,name=driver_checkpoint_json,json=driverCheckpoint,proto3,casttype=encoding/json.RawMessage" json:"driver_checkpoint_json,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
-	XXX_unrecognized     []byte                   `json:"-"`
-	XXX_sizecache        int32                    `json:"-"`
-}
-
-func (m *PullRequest_Open) Reset()         { *m = PullRequest_Open{} }
-func (m *PullRequest_Open) String() string { return proto.CompactTextString(m) }
-func (*PullRequest_Open) ProtoMessage()    {}
-func (*PullRequest_Open) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{10, 0}
-}
-func (m *PullRequest_Open) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *PullRequest_Open) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_PullRequest_Open.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *PullRequest_Open) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_PullRequest_Open.Merge(m, src)
-}
-func (m *PullRequest_Open) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *PullRequest_Open) XXX_DiscardUnknown() {
-	xxx_messageInfo_PullRequest_Open.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_PullRequest_Open proto.InternalMessageInfo
-
-// PullResponse is the response type of a Driver.Pull RPC.
-// It will have exactly one top-level field set, which represents its message
-// type.
-type PullResponse struct {
-	Opened *PullResponse_Opened `protobuf:"bytes,1,opt,name=opened,proto3" json:"opened,omitempty"`
-	// Captured documents of the stream.
-	Documents *Documents `protobuf:"bytes,2,opt,name=documents,proto3" json:"documents,omitempty"`
-	// Checkpoint all preceeding Documents of this stream.
-	Checkpoint           *flow.DriverCheckpoint `protobuf:"bytes,3,opt,name=checkpoint,proto3" json:"checkpoint,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}               `json:"-"`
-	XXX_unrecognized     []byte                 `json:"-"`
-	XXX_sizecache        int32                  `json:"-"`
-}
-
-func (m *PullResponse) Reset()         { *m = PullResponse{} }
-func (m *PullResponse) String() string { return proto.CompactTextString(m) }
-func (*PullResponse) ProtoMessage()    {}
-func (*PullResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{11}
-}
-func (m *PullResponse) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *PullResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_PullResponse.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *PullResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_PullResponse.Merge(m, src)
-}
-func (m *PullResponse) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *PullResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_PullResponse.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_PullResponse proto.InternalMessageInfo
-
-// Opened responds to PullRequest.Open of the runtime,
-// and is sent exactly once as the first message of the stream.
-type PullResponse_Opened struct {
-	// If true then the runtime will send one PullRequest.Acknowledge
-	// for each PullResponse.DriverCheckpoint sent by the connector,
-	// upon that DriverCheckpoint having fully committed.
+// Opened responds to Request.Open.
+// After Opened, the connector beings sending Captured and Checkpoint.
+type Response_Opened struct {
+	// If true then the runtime will send one Request.Acknowledge
+	// for each Response.Checkpoint sent by the connector,
+	// upon that Checkpoint having fully committed.
 	ExplicitAcknowledgements bool     `protobuf:"varint,1,opt,name=explicit_acknowledgements,json=explicitAcknowledgements,proto3" json:"explicit_acknowledgements,omitempty"`
 	XXX_NoUnkeyedLiteral     struct{} `json:"-"`
 	XXX_unrecognized         []byte   `json:"-"`
 	XXX_sizecache            int32    `json:"-"`
 }
 
-func (m *PullResponse_Opened) Reset()         { *m = PullResponse_Opened{} }
-func (m *PullResponse_Opened) String() string { return proto.CompactTextString(m) }
-func (*PullResponse_Opened) ProtoMessage()    {}
-func (*PullResponse_Opened) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{11, 0}
+func (m *Response_Opened) Reset()         { *m = Response_Opened{} }
+func (m *Response_Opened) String() string { return proto.CompactTextString(m) }
+func (*Response_Opened) ProtoMessage()    {}
+func (*Response_Opened) Descriptor() ([]byte, []int) {
+	return fileDescriptor_841a70e6e6288f13, []int{1, 4}
 }
-func (m *PullResponse_Opened) XXX_Unmarshal(b []byte) error {
+func (m *Response_Opened) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *PullResponse_Opened) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *Response_Opened) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_PullResponse_Opened.Marshal(b, m, deterministic)
+		return xxx_messageInfo_Response_Opened.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -804,193 +774,43 @@ func (m *PullResponse_Opened) XXX_Marshal(b []byte, deterministic bool) ([]byte,
 		return b[:n], nil
 	}
 }
-func (m *PullResponse_Opened) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_PullResponse_Opened.Merge(m, src)
+func (m *Response_Opened) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response_Opened.Merge(m, src)
 }
-func (m *PullResponse_Opened) XXX_Size() int {
+func (m *Response_Opened) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *PullResponse_Opened) XXX_DiscardUnknown() {
-	xxx_messageInfo_PullResponse_Opened.DiscardUnknown(m)
+func (m *Response_Opened) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response_Opened.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_PullResponse_Opened proto.InternalMessageInfo
+var xxx_messageInfo_Response_Opened proto.InternalMessageInfo
 
-// PushRequest is the request message of the Runtime.Push RPC.
-type PushRequest struct {
-	Open *PushRequest_Open `protobuf:"bytes,1,opt,name=open,proto3" json:"open,omitempty"`
-	// Captured documents of the stream.
-	Documents *Documents `protobuf:"bytes,2,opt,name=documents,proto3" json:"documents,omitempty"`
-	// Checkpoint all preceeding Documents of this stream.
-	Checkpoint           *flow.DriverCheckpoint `protobuf:"bytes,3,opt,name=checkpoint,proto3" json:"checkpoint,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}               `json:"-"`
-	XXX_unrecognized     []byte                 `json:"-"`
-	XXX_sizecache        int32                  `json:"-"`
-}
-
-func (m *PushRequest) Reset()         { *m = PushRequest{} }
-func (m *PushRequest) String() string { return proto.CompactTextString(m) }
-func (*PushRequest) ProtoMessage()    {}
-func (*PushRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{12}
-}
-func (m *PushRequest) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *PushRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_PushRequest.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *PushRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_PushRequest.Merge(m, src)
-}
-func (m *PushRequest) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *PushRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_PushRequest.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_PushRequest proto.InternalMessageInfo
-
-// Open opens a Push of the runtime, and is sent exactly once as the first
-// message of the stream.
-type PushRequest_Open struct {
-	// Header identifies a specific Shard and Route to which this stream is
-	// directed. It's optional, and is typically attached by a proxying peer.
-	Header *protocol.Header `protobuf:"bytes,1,opt,name=header,proto3" json:"header,omitempty"`
-	// Name of the capture under which we're pushing.
-	Capture              github_com_estuary_flow_go_protocols_flow.Capture `protobuf:"bytes,2,opt,name=capture,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Capture" json:"capture,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}                                          `json:"-"`
-	XXX_unrecognized     []byte                                            `json:"-"`
-	XXX_sizecache        int32                                             `json:"-"`
-}
-
-func (m *PushRequest_Open) Reset()         { *m = PushRequest_Open{} }
-func (m *PushRequest_Open) String() string { return proto.CompactTextString(m) }
-func (*PushRequest_Open) ProtoMessage()    {}
-func (*PushRequest_Open) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{12, 0}
-}
-func (m *PushRequest_Open) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *PushRequest_Open) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_PushRequest_Open.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *PushRequest_Open) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_PushRequest_Open.Merge(m, src)
-}
-func (m *PushRequest_Open) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *PushRequest_Open) XXX_DiscardUnknown() {
-	xxx_messageInfo_PushRequest_Open.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_PushRequest_Open proto.InternalMessageInfo
-
-// PushResponse is the response message of the Runtime.Push RPC.
-type PushResponse struct {
-	Opened *PushResponse_Opened `protobuf:"bytes,1,opt,name=opened,proto3" json:"opened,omitempty"`
-	// Tell the driver that its Checkpoint has committed to the Flow recovery log.
-	// Unlike PullRequest.Acknowledge, which is only sent if explicitly opted into,
-	// PushResponse.Acknowledge is always sent.
-	Acknowledge          *Acknowledge `protobuf:"bytes,2,opt,name=acknowledge,proto3" json:"acknowledge,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
-	XXX_unrecognized     []byte       `json:"-"`
-	XXX_sizecache        int32        `json:"-"`
-}
-
-func (m *PushResponse) Reset()         { *m = PushResponse{} }
-func (m *PushResponse) String() string { return proto.CompactTextString(m) }
-func (*PushResponse) ProtoMessage()    {}
-func (*PushResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{13}
-}
-func (m *PushResponse) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *PushResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_PushResponse.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *PushResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_PushResponse.Merge(m, src)
-}
-func (m *PushResponse) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *PushResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_PushResponse.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_PushResponse proto.InternalMessageInfo
-
-// Opened responds to PushRequest.Open of the driver,
-// and is sent exactly once as the first message of the stream.
-type PushResponse_Opened struct {
-	// Status of the Push open.
-	Status protocol1.Status `protobuf:"varint,1,opt,name=status,proto3,enum=consumer.Status" json:"status,omitempty"`
-	// Header of the response.
-	Header protocol.Header `protobuf:"bytes,2,opt,name=header,proto3" json:"header"`
-	// CaptureSpec to be pushed.
-	Capture *flow.CaptureSpec `protobuf:"bytes,3,opt,name=capture,proto3" json:"capture,omitempty"`
-	// Version of the opened CaptureSpec.
-	// The driver may want to require that this match the version last
-	// provided to a successful Apply RPC. It's possible that it won't,
-	// due to expected propagation races in Flow's distributed runtime.
-	Version string `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
-	// [key_begin, key_end] inclusive range of keys processed by this
-	// transaction stream. Ranges reflect the disjoint chunks of ownership
-	// specific to each instance of a scale-out capture implementation.
-	KeyBegin uint32 `protobuf:"fixed32,5,opt,name=key_begin,json=keyBegin,proto3" json:"key_begin,omitempty"`
-	KeyEnd   uint32 `protobuf:"fixed32,6,opt,name=key_end,json=keyEnd,proto3" json:"key_end,omitempty"`
-	// Last-persisted driver checkpoint from a previous capture stream.
-	// Or empty, if the driver has cleared or never set its checkpoint.
-	DriverCheckpointJson encoding_json.RawMessage `protobuf:"bytes,7,opt,name=driver_checkpoint_json,json=driverCheckpoint,proto3,casttype=encoding/json.RawMessage" json:"driver_checkpoint_json,omitempty"`
+// Document captured by this connector invocation.
+// Emitted documents are pending, and are not committed to their bound collection
+// until a following Checkpoint is emitted.
+type Response_Captured struct {
+	// Index of the Open binding for which this document is captured.
+	Binding uint32 `protobuf:"varint,1,opt,name=binding,proto3" json:"binding,omitempty"`
+	// Published JSON document.
+	DocJson              encoding_json.RawMessage `protobuf:"bytes,2,opt,name=doc_json,json=doc,proto3,casttype=encoding/json.RawMessage" json:"doc_json,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
 	XXX_unrecognized     []byte                   `json:"-"`
 	XXX_sizecache        int32                    `json:"-"`
 }
 
-func (m *PushResponse_Opened) Reset()         { *m = PushResponse_Opened{} }
-func (m *PushResponse_Opened) String() string { return proto.CompactTextString(m) }
-func (*PushResponse_Opened) ProtoMessage()    {}
-func (*PushResponse_Opened) Descriptor() ([]byte, []int) {
-	return fileDescriptor_841a70e6e6288f13, []int{13, 0}
+func (m *Response_Captured) Reset()         { *m = Response_Captured{} }
+func (m *Response_Captured) String() string { return proto.CompactTextString(m) }
+func (*Response_Captured) ProtoMessage()    {}
+func (*Response_Captured) Descriptor() ([]byte, []int) {
+	return fileDescriptor_841a70e6e6288f13, []int{1, 5}
 }
-func (m *PushResponse_Opened) XXX_Unmarshal(b []byte) error {
+func (m *Response_Captured) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *PushResponse_Opened) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *Response_Captured) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_PushResponse_Opened.Marshal(b, m, deterministic)
+		return xxx_messageInfo_Response_Captured.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -1000,40 +820,80 @@ func (m *PushResponse_Opened) XXX_Marshal(b []byte, deterministic bool) ([]byte,
 		return b[:n], nil
 	}
 }
-func (m *PushResponse_Opened) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_PushResponse_Opened.Merge(m, src)
+func (m *Response_Captured) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response_Captured.Merge(m, src)
 }
-func (m *PushResponse_Opened) XXX_Size() int {
+func (m *Response_Captured) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *PushResponse_Opened) XXX_DiscardUnknown() {
-	xxx_messageInfo_PushResponse_Opened.DiscardUnknown(m)
+func (m *Response_Captured) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response_Captured.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_PushResponse_Opened proto.InternalMessageInfo
+var xxx_messageInfo_Response_Captured proto.InternalMessageInfo
+
+// Checkpoint all preceding documents of this invocation since the last checkpoint.
+// The Flow runtime may begin to commit documents in a transaction.
+// Note that the runtime may include more than one checkpoint in a single transaction.
+type Response_Checkpoint struct {
+	State                *flow.ConnectorState `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
+	XXX_unrecognized     []byte               `json:"-"`
+	XXX_sizecache        int32                `json:"-"`
+}
+
+func (m *Response_Checkpoint) Reset()         { *m = Response_Checkpoint{} }
+func (m *Response_Checkpoint) String() string { return proto.CompactTextString(m) }
+func (*Response_Checkpoint) ProtoMessage()    {}
+func (*Response_Checkpoint) Descriptor() ([]byte, []int) {
+	return fileDescriptor_841a70e6e6288f13, []int{1, 6}
+}
+func (m *Response_Checkpoint) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Response_Checkpoint) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Response_Checkpoint.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Response_Checkpoint) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response_Checkpoint.Merge(m, src)
+}
+func (m *Response_Checkpoint) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Response_Checkpoint) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response_Checkpoint.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Response_Checkpoint proto.InternalMessageInfo
 
 func init() {
-	proto.RegisterType((*SpecRequest)(nil), "capture.SpecRequest")
-	proto.RegisterType((*SpecResponse)(nil), "capture.SpecResponse")
-	proto.RegisterType((*DiscoverRequest)(nil), "capture.DiscoverRequest")
-	proto.RegisterType((*DiscoverResponse)(nil), "capture.DiscoverResponse")
-	proto.RegisterType((*DiscoverResponse_Binding)(nil), "capture.DiscoverResponse.Binding")
-	proto.RegisterType((*ValidateRequest)(nil), "capture.ValidateRequest")
-	proto.RegisterType((*ValidateRequest_Binding)(nil), "capture.ValidateRequest.Binding")
-	proto.RegisterType((*ValidateResponse)(nil), "capture.ValidateResponse")
-	proto.RegisterType((*ValidateResponse_Binding)(nil), "capture.ValidateResponse.Binding")
-	proto.RegisterType((*ApplyRequest)(nil), "capture.ApplyRequest")
-	proto.RegisterType((*ApplyResponse)(nil), "capture.ApplyResponse")
-	proto.RegisterType((*Documents)(nil), "capture.Documents")
-	proto.RegisterType((*Acknowledge)(nil), "capture.Acknowledge")
-	proto.RegisterType((*PullRequest)(nil), "capture.PullRequest")
-	proto.RegisterType((*PullRequest_Open)(nil), "capture.PullRequest.Open")
-	proto.RegisterType((*PullResponse)(nil), "capture.PullResponse")
-	proto.RegisterType((*PullResponse_Opened)(nil), "capture.PullResponse.Opened")
-	proto.RegisterType((*PushRequest)(nil), "capture.PushRequest")
-	proto.RegisterType((*PushRequest_Open)(nil), "capture.PushRequest.Open")
-	proto.RegisterType((*PushResponse)(nil), "capture.PushResponse")
-	proto.RegisterType((*PushResponse_Opened)(nil), "capture.PushResponse.Opened")
+	proto.RegisterType((*Request)(nil), "capture.Request")
+	proto.RegisterType((*Request_Spec)(nil), "capture.Request.Spec")
+	proto.RegisterType((*Request_Discover)(nil), "capture.Request.Discover")
+	proto.RegisterType((*Request_Validate)(nil), "capture.Request.Validate")
+	proto.RegisterType((*Request_Validate_Binding)(nil), "capture.Request.Validate.Binding")
+	proto.RegisterType((*Request_Apply)(nil), "capture.Request.Apply")
+	proto.RegisterType((*Request_Open)(nil), "capture.Request.Open")
+	proto.RegisterType((*Request_Acknowledge)(nil), "capture.Request.Acknowledge")
+	proto.RegisterType((*Response)(nil), "capture.Response")
+	proto.RegisterType((*Response_Spec)(nil), "capture.Response.Spec")
+	proto.RegisterType((*Response_Discovered)(nil), "capture.Response.Discovered")
+	proto.RegisterType((*Response_Discovered_Binding)(nil), "capture.Response.Discovered.Binding")
+	proto.RegisterType((*Response_Validated)(nil), "capture.Response.Validated")
+	proto.RegisterType((*Response_Validated_Binding)(nil), "capture.Response.Validated.Binding")
+	proto.RegisterType((*Response_Applied)(nil), "capture.Response.Applied")
+	proto.RegisterType((*Response_Opened)(nil), "capture.Response.Opened")
+	proto.RegisterType((*Response_Captured)(nil), "capture.Response.Captured")
+	proto.RegisterType((*Response_Checkpoint)(nil), "capture.Response.Checkpoint")
 }
 
 func init() {
@@ -1041,86 +901,80 @@ func init() {
 }
 
 var fileDescriptor_841a70e6e6288f13 = []byte{
-	// 1256 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xcc, 0x57, 0x41, 0x8f, 0xdb, 0xc4,
-	0x17, 0xaf, 0x93, 0x34, 0xd9, 0xbc, 0xec, 0xb6, 0xe9, 0xa8, 0xff, 0xfe, 0xb3, 0xa1, 0xda, 0x0d,
-	0xe6, 0x12, 0xa9, 0xd4, 0xdb, 0xa6, 0xa5, 0x45, 0x50, 0x8a, 0x36, 0xdd, 0x22, 0xa8, 0x44, 0xb7,
-	0x9a, 0xa5, 0x1c, 0xb8, 0x44, 0x5e, 0xfb, 0x91, 0x98, 0x75, 0x3c, 0xc6, 0x63, 0xb7, 0xe4, 0xd8,
-	0x0f, 0x00, 0x07, 0x4e, 0x5c, 0x90, 0x7a, 0xe6, 0x00, 0xe2, 0x5b, 0x54, 0x9c, 0x90, 0xb8, 0xaf,
-	0x44, 0xf9, 0x04, 0x48, 0x70, 0xd9, 0x13, 0x9a, 0xf1, 0xd8, 0x9e, 0x78, 0xb7, 0x25, 0x5b, 0x2a,
-	0xc4, 0x65, 0xd7, 0x9e, 0xf7, 0xde, 0xcf, 0xef, 0xfd, 0xde, 0xef, 0xcd, 0x4c, 0xc0, 0x1c, 0xb3,
-	0x8d, 0x30, 0x62, 0x31, 0x73, 0x98, 0xcf, 0x37, 0x1c, 0x3b, 0x8c, 0x93, 0x08, 0xb3, 0xff, 0x96,
-	0xb4, 0x90, 0x86, 0x7a, 0xed, 0xae, 0xed, 0x46, 0x6c, 0x0f, 0xa3, 0x3c, 0x20, 0x7f, 0x48, 0x1d,
-	0xbb, 0x3d, 0x87, 0x05, 0x3c, 0x99, 0x3e, 0xc7, 0xe3, 0xfc, 0xdc, 0xe7, 0x3e, 0xf5, 0xd9, 0x43,
-	0xf9, 0x47, 0x59, 0xcf, 0x8e, 0xd9, 0x98, 0xc9, 0xc7, 0x0d, 0xf1, 0x94, 0xae, 0x9a, 0x5f, 0x19,
-	0xd0, 0xda, 0x09, 0xd1, 0xa1, 0xf8, 0x79, 0x82, 0x3c, 0x26, 0xd7, 0x61, 0x05, 0x03, 0x37, 0x64,
-	0x5e, 0x10, 0x8f, 0xe2, 0x59, 0x88, 0x1d, 0xa3, 0x67, 0xf4, 0x4f, 0x0d, 0x88, 0x25, 0x91, 0x6e,
-	0x2b, 0xd3, 0x47, 0xb3, 0x10, 0xe9, 0x32, 0x6a, 0x6f, 0xe4, 0x3d, 0x20, 0x79, 0x20, 0x0f, 0xd1,
-	0x19, 0x7d, 0xc6, 0x59, 0xd0, 0xa9, 0xf4, 0x8c, 0x7e, 0x73, 0x78, 0xfe, 0x60, 0x7f, 0xbd, 0x83,
-	0x81, 0xc3, 0x5c, 0x2f, 0x18, 0x6f, 0x08, 0x83, 0x45, 0xed, 0x87, 0x1f, 0x22, 0xe7, 0xf6, 0x58,
-	0xc3, 0x11, 0x79, 0x98, 0xdf, 0x54, 0x60, 0x39, 0x4d, 0x88, 0x87, 0x2c, 0xe0, 0x48, 0x76, 0x60,
-	0x75, 0x1e, 0x98, 0x3b, 0x13, 0x9c, 0xda, 0x29, 0xbe, 0xb1, 0x00, 0x3e, 0xd1, 0xf1, 0x77, 0x64,
-	0xb0, 0x00, 0x8d, 0x90, 0xb3, 0x24, 0x72, 0xf0, 0x30, 0xe8, 0x22, 0x49, 0x93, 0x2c, 0x5c, 0x03,
-	0xbd, 0x00, 0x67, 0x5c, 0xe6, 0x24, 0x53, 0x0c, 0x62, 0x3b, 0xf6, 0x58, 0x30, 0x4a, 0x22, 0xbf,
-	0x53, 0x15, 0x60, 0xb4, 0x3d, 0x67, 0xb8, 0x1f, 0xf9, 0xe4, 0x32, 0xb4, 0x98, 0x9d, 0xc4, 0x93,
-	0x81, 0xfc, 0x7e, 0xa7, 0xd6, 0x33, 0xfa, 0xad, 0x41, 0x3b, 0xa5, 0x79, 0x7b, 0x53, 0x18, 0x24,
-	0x0b, 0x90, 0x3a, 0x49, 0x6a, 0xbe, 0x36, 0xe0, 0xf4, 0x96, 0xc7, 0x1d, 0xf6, 0x00, 0xa3, 0xff,
-	0x4c, 0xbf, 0x7e, 0xaf, 0x40, 0xbb, 0x48, 0x4a, 0xf5, 0xec, 0x1d, 0x58, 0xda, 0xf5, 0x02, 0x11,
-	0xcd, 0x3b, 0x46, 0xaf, 0xda, 0x6f, 0x0d, 0x5e, 0xb5, 0x32, 0xd9, 0x97, 0x9d, 0xad, 0x61, 0xea,
-	0x49, 0xf3, 0x90, 0xee, 0xb7, 0x15, 0x68, 0xa8, 0x55, 0xe2, 0x40, 0x3b, 0x42, 0x87, 0x4d, 0xa7,
-	0x18, 0xb8, 0xe8, 0x8e, 0x02, 0x7b, 0x8a, 0xaa, 0xeb, 0x6f, 0x1e, 0xec, 0xaf, 0x5f, 0x1d, 0x7b,
-	0xf1, 0x24, 0xd9, 0xb5, 0x1c, 0x36, 0xdd, 0x40, 0x1e, 0x27, 0x76, 0x34, 0x4b, 0x85, 0x7f, 0x68,
-	0x14, 0xac, 0x5b, 0xcc, 0xf7, 0xd1, 0x11, 0xf4, 0xd3, 0xd3, 0x1a, 0xe2, 0x5d, 0x7b, 0x2a, 0xc9,
-	0x98, 0x97, 0xc3, 0xe2, 0x64, 0xe8, 0x3a, 0x20, 0x77, 0xe0, 0x6c, 0xd6, 0xe8, 0x39, 0x45, 0x55,
-	0x17, 0x40, 0x3a, 0x95, 0x45, 0x2a, 0x35, 0xad, 0xc2, 0xd2, 0x1e, 0xce, 0x46, 0x61, 0x1c, 0xf1,
-	0x4e, 0xad, 0x57, 0xed, 0x37, 0x69, 0x63, 0x0f, 0x67, 0xf7, 0xe2, 0x88, 0x9b, 0x3f, 0x56, 0xe1,
-	0xf4, 0xc7, 0xb6, 0xef, 0xb9, 0x76, 0x8c, 0x99, 0x10, 0xb6, 0x21, 0xdb, 0x49, 0x14, 0x3d, 0x6f,
-	0x1c, 0xec, 0xaf, 0x5f, 0x3e, 0x06, 0x3d, 0x69, 0x30, 0xcd, 0x50, 0x0e, 0x2b, 0xab, 0xf2, 0x8f,
-	0x94, 0x55, 0x3d, 0xae, 0xb2, 0xc8, 0x0d, 0x4d, 0x44, 0x35, 0x29, 0xa2, 0x5e, 0x2e, 0xa2, 0x52,
-	0xf5, 0x47, 0x68, 0xe8, 0x4b, 0xa3, 0xd0, 0xd0, 0xd1, 0xed, 0x35, 0x8e, 0xdd, 0xde, 0xb7, 0x00,
-	0x9c, 0x5c, 0x45, 0x92, 0x8f, 0xd6, 0xe0, 0xac, 0x55, 0x52, 0x97, 0xf0, 0x1c, 0xd6, 0x9e, 0xec,
-	0xaf, 0x9f, 0xa0, 0x9a, 0xb7, 0xf9, 0xc8, 0x80, 0x76, 0x91, 0xf5, 0x02, 0x73, 0x52, 0x76, 0x3e,
-	0xa2, 0x46, 0xab, 0x28, 0xf1, 0x35, 0x58, 0xc9, 0x4b, 0x0c, 0xed, 0x78, 0x22, 0xe1, 0x9a, 0x45,
-	0xfe, 0xf7, 0xec, 0x78, 0x62, 0x06, 0xb0, 0xbc, 0x19, 0x86, 0xfe, 0x2c, 0xd3, 0xcc, 0x85, 0x79,
-	0xcd, 0xb4, 0x06, 0x67, 0x2c, 0x5d, 0x0b, 0x72, 0x03, 0xca, 0xf5, 0xd0, 0x81, 0xc6, 0x03, 0x8c,
-	0x78, 0x56, 0x79, 0x93, 0x66, 0xaf, 0xe4, 0xff, 0xd0, 0x70, 0xa3, 0xd9, 0x28, 0x4a, 0xd2, 0x2e,
-	0x2f, 0xd1, 0xba, 0x1b, 0xcd, 0x68, 0x12, 0x98, 0x37, 0x61, 0x45, 0x7d, 0x4f, 0xd5, 0x7b, 0x11,
-	0x88, 0x2d, 0xe9, 0x18, 0xb9, 0xc8, 0x9d, 0xc8, 0x0b, 0x25, 0x91, 0xb2, 0x11, 0xf4, 0x4c, 0x6a,
-	0xd9, 0x2a, 0x0c, 0xe6, 0x63, 0x03, 0x9a, 0x5b, 0x6a, 0x2a, 0xb8, 0x48, 0x40, 0x55, 0x2e, 0x23,
-	0x56, 0x68, 0xf6, 0x4a, 0x3e, 0x80, 0x93, 0x76, 0x84, 0x81, 0x2d, 0x13, 0x5b, 0x1e, 0x5e, 0x39,
-	0xd8, 0x5f, 0xdf, 0x58, 0x5c, 0xf9, 0x9b, 0x22, 0x94, 0xa6, 0x08, 0xc4, 0x82, 0xa6, 0xcb, 0x1c,
-	0x9e, 0x69, 0x56, 0xb4, 0xa4, 0x95, 0x92, 0xb2, 0xe3, 0x7b, 0x0e, 0xaa, 0xc6, 0x2e, 0x09, 0x9f,
-	0x3b, 0x9c, 0x05, 0xe6, 0x0a, 0xb4, 0x36, 0x9d, 0xbd, 0x80, 0x3d, 0xf4, 0xd1, 0x1d, 0xa3, 0xf9,
-	0x53, 0x05, 0x5a, 0xf7, 0x12, 0xdf, 0xcf, 0x18, 0xbe, 0x08, 0x35, 0x16, 0x62, 0xa0, 0xe8, 0x5d,
-	0xcd, 0x9b, 0xab, 0xf9, 0x58, 0xdb, 0x21, 0x06, 0x54, 0xba, 0x91, 0x6b, 0xd0, 0xb2, 0x0b, 0xb4,
-	0x5c, 0x61, 0x59, 0x94, 0xf6, 0x25, 0xaa, 0x3b, 0x76, 0x7f, 0x31, 0xa0, 0x26, 0x60, 0x5e, 0x56,
-	0x47, 0x5f, 0x81, 0xa6, 0xd8, 0x7b, 0x76, 0x71, 0xec, 0xa5, 0x3d, 0x6d, 0x50, 0xb1, 0x19, 0x0d,
-	0xc5, 0xbb, 0x68, 0xb7, 0x30, 0x62, 0xe0, 0xca, 0x53, 0xab, 0x41, 0xeb, 0x7b, 0x38, 0xbb, 0x1d,
-	0xb8, 0xe4, 0x2e, 0x9c, 0x73, 0x23, 0xef, 0x01, 0x46, 0x23, 0x67, 0x82, 0xce, 0x5e, 0xba, 0x03,
-	0x48, 0x22, 0x4f, 0xca, 0xbe, 0x3c, 0x7f, 0xd4, 0xda, 0x69, 0xec, 0xad, 0x3c, 0xd4, 0xfc, 0xd3,
-	0x80, 0xe5, 0x94, 0x28, 0x25, 0x9f, 0xab, 0x50, 0x17, 0x34, 0xa1, 0xab, 0x8a, 0x3b, 0x5f, 0xe2,
-	0x53, 0x0d, 0xca, 0xb6, 0xf4, 0xa1, 0xca, 0x97, 0x5c, 0x92, 0x2d, 0x4d, 0x45, 0xa4, 0x28, 0x25,
-	0xc5, 0x69, 0x94, 0x59, 0x68, 0xe1, 0x44, 0xae, 0x01, 0x14, 0x15, 0xc8, 0xfa, 0x5b, 0x83, 0x73,
-	0x29, 0x91, 0x5b, 0xa5, 0x24, 0xa9, 0xe6, 0xd9, 0xbd, 0x0d, 0xf5, 0xf4, 0xdb, 0xe4, 0x6d, 0x58,
-	0xc5, 0x2f, 0x42, 0xdf, 0x73, 0xbc, 0x78, 0xa4, 0x35, 0x2a, 0xcd, 0xc1, 0x90, 0x43, 0xd2, 0xc9,
-	0x1c, 0x36, 0x4b, 0x76, 0xf3, 0x3b, 0x29, 0x22, 0x3e, 0xf9, 0x7b, 0x11, 0xe5, 0x3e, 0xba, 0x88,
-	0xfe, 0xbd, 0x7a, 0x1f, 0x65, 0xb2, 0xeb, 0x43, 0x7d, 0x82, 0xb6, 0x8b, 0x91, 0xca, 0xb1, 0x6d,
-	0xe5, 0x57, 0xd3, 0xf7, 0xe5, 0x3a, 0x55, 0x76, 0xfd, 0x98, 0xaa, 0xbc, 0x8c, 0x63, 0xca, 0xfc,
-	0xbe, 0x2a, 0x44, 0x22, 0x88, 0x58, 0x40, 0x24, 0x85, 0x5b, 0x59, 0x24, 0x2f, 0x3a, 0x79, 0x3f,
-	0x54, 0xf2, 0x9e, 0xf7, 0xa1, 0xce, 0x63, 0x3b, 0x4e, 0xb8, 0xba, 0x83, 0xb5, 0xad, 0xec, 0xc6,
-	0x6e, 0xed, 0xc8, 0x75, 0xaa, 0xec, 0xc4, 0xca, 0xe9, 0xaa, 0x1c, 0x4d, 0x97, 0xda, 0x66, 0x32,
-	0xd2, 0xb4, 0xa9, 0xae, 0x1e, 0x67, 0xaa, 0x6b, 0xcf, 0x99, 0xea, 0x93, 0xcf, 0x9e, 0xea, 0xfa,
-	0x82, 0x53, 0xdd, 0x78, 0x91, 0xa9, 0x1e, 0xfc, 0x51, 0x81, 0x7a, 0xaa, 0x2a, 0x72, 0x05, 0x6a,
-	0xf2, 0x5c, 0x2d, 0x78, 0xd6, 0x7e, 0x8a, 0x74, 0xff, 0x57, 0x5a, 0x55, 0xfd, 0x7d, 0x17, 0x96,
-	0xb2, 0x2b, 0x24, 0xe9, 0x1c, 0x71, 0xab, 0x4c, 0x83, 0x57, 0x9f, 0x79, 0xdf, 0x14, 0x00, 0xd9,
-	0xd9, 0xaa, 0x01, 0x94, 0x6e, 0x14, 0x1a, 0xc0, 0xa1, 0x53, 0xfb, 0x06, 0xb4, 0xe4, 0xb1, 0x76,
-	0x3f, 0xe4, 0x18, 0xc5, 0xa4, 0xc8, 0x53, 0x3f, 0x5c, 0xbb, 0xe7, 0xca, 0xcb, 0xa5, 0xe8, 0x2d,
-	0xf4, 0x31, 0xc6, 0xe3, 0x46, 0x5f, 0x87, 0x9a, 0xd8, 0xeb, 0x34, 0xca, 0xb4, 0xa3, 0x44, 0xa3,
-	0x4c, 0xdf, 0x10, 0xfb, 0xc6, 0x25, 0x63, 0x30, 0x84, 0x06, 0x4d, 0x82, 0xd8, 0x9b, 0x2a, 0x0c,
-	0x3e, 0x99, 0xc3, 0xc8, 0x77, 0x92, 0x39, 0x8c, 0x62, 0x5e, 0x04, 0xc6, 0xf0, 0xe6, 0x93, 0x5f,
-	0xd7, 0x4e, 0x3c, 0x79, 0xba, 0x66, 0xfc, 0xfc, 0x74, 0xcd, 0x78, 0xfc, 0xdb, 0x9a, 0xf1, 0xc9,
-	0xeb, 0x0b, 0x4d, 0xae, 0x02, 0xdc, 0xad, 0xcb, 0xa5, 0x2b, 0x7f, 0x05, 0x00, 0x00, 0xff, 0xff,
-	0x0c, 0xbe, 0xbe, 0x96, 0x18, 0x0f, 0x00, 0x00,
+	// 1162 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xcc, 0x56, 0xcd, 0x6e, 0xdc, 0x54,
+	0x14, 0xae, 0xe7, 0xd7, 0x73, 0x26, 0x49, 0x93, 0xab, 0x00, 0x8e, 0x1b, 0x25, 0xa5, 0x2d, 0x52,
+	0x69, 0x8b, 0x27, 0x4c, 0x68, 0x49, 0xf9, 0x69, 0xc9, 0x0f, 0x95, 0xa8, 0x44, 0x53, 0xdd, 0xf0,
+	0x23, 0xd8, 0x8c, 0x9c, 0xeb, 0x1b, 0x8f, 0x89, 0xe7, 0x5e, 0x63, 0x7b, 0x12, 0x46, 0xe2, 0x05,
+	0x58, 0xb0, 0x60, 0x83, 0x58, 0xf2, 0x02, 0x3c, 0x00, 0x6f, 0x90, 0x25, 0x3b, 0x76, 0x91, 0x68,
+	0x57, 0xbc, 0x42, 0x56, 0xc8, 0xf7, 0xc7, 0xe3, 0xc4, 0x4d, 0x35, 0xad, 0xba, 0x60, 0x33, 0xe3,
+	0x7b, 0xcf, 0xf7, 0x1d, 0xdf, 0x73, 0xce, 0x3d, 0xdf, 0x31, 0x5c, 0xf1, 0x79, 0x27, 0x8a, 0x79,
+	0xca, 0x09, 0x0f, 0x93, 0x0e, 0x71, 0xa3, 0x74, 0x18, 0x53, 0xfd, 0xef, 0x08, 0x0b, 0x6a, 0xaa,
+	0xa5, 0xbd, 0x78, 0x0a, 0xbc, 0x17, 0xf2, 0x43, 0xf1, 0x23, 0x61, 0xf6, 0xbc, 0xcf, 0x7d, 0x2e,
+	0x1e, 0x3b, 0xd9, 0x93, 0xda, 0x5d, 0xf0, 0x39, 0xf7, 0x43, 0x2a, 0x79, 0xbb, 0xc3, 0xbd, 0x8e,
+	0xcb, 0x46, 0xd2, 0x74, 0xe5, 0xcf, 0x36, 0x34, 0x31, 0xfd, 0x7e, 0x48, 0x93, 0x14, 0xbd, 0x0d,
+	0xb5, 0x24, 0xa2, 0xc4, 0x32, 0x2e, 0x1b, 0xd7, 0xdb, 0xdd, 0xd7, 0x1c, 0x7d, 0x02, 0x65, 0x77,
+	0x76, 0x22, 0x4a, 0xb0, 0x80, 0xa0, 0xdb, 0x60, 0x7a, 0x41, 0x42, 0xf8, 0x01, 0x8d, 0xad, 0x8a,
+	0x80, 0x2f, 0x94, 0xe0, 0x5b, 0x0a, 0x80, 0x73, 0x68, 0x46, 0x3b, 0x70, 0xc3, 0xc0, 0x73, 0x53,
+	0x6a, 0x55, 0xcf, 0xa1, 0x7d, 0xa5, 0x00, 0x38, 0x87, 0xa2, 0x5b, 0x50, 0x77, 0xa3, 0x28, 0x1c,
+	0x59, 0x35, 0xc1, 0x79, 0xbd, 0xc4, 0x59, 0xcf, 0xac, 0x58, 0x82, 0xb2, 0x30, 0x78, 0x44, 0x99,
+	0x55, 0x3f, 0x27, 0x8c, 0xed, 0x88, 0x32, 0x2c, 0x20, 0xe8, 0x1e, 0xb4, 0x5d, 0xb2, 0xcf, 0xf8,
+	0x61, 0x48, 0x3d, 0x9f, 0x5a, 0x0d, 0xc1, 0x58, 0x2c, 0xbb, 0x1f, 0x63, 0x70, 0x91, 0x80, 0x56,
+	0xc0, 0x0c, 0x58, 0x4a, 0x63, 0xe6, 0x86, 0x96, 0x27, 0xc8, 0xf3, 0x8e, 0xcc, 0xb5, 0xa3, 0x73,
+	0xed, 0xac, 0xb3, 0x11, 0xce, 0x51, 0xf6, 0x4f, 0x06, 0xd4, 0xb2, 0x3c, 0xa2, 0x07, 0x30, 0x43,
+	0x38, 0x63, 0x94, 0xa4, 0x3c, 0xee, 0xa5, 0xa3, 0x88, 0x8a, 0xb4, 0xcf, 0x74, 0x97, 0x1d, 0x51,
+	0xce, 0x4d, 0x79, 0x84, 0x0c, 0xea, 0x6c, 0x6a, 0xdc, 0x17, 0xa3, 0x88, 0xe2, 0x69, 0x52, 0x5c,
+	0xa2, 0xbb, 0xd0, 0x26, 0x9c, 0xed, 0x05, 0x7e, 0xef, 0xbb, 0x84, 0x33, 0x51, 0x8c, 0xd6, 0xc6,
+	0xe2, 0xc9, 0xf1, 0xb2, 0x45, 0x19, 0xe1, 0x5e, 0xc0, 0xfc, 0x4e, 0x66, 0x70, 0xb0, 0x7b, 0xf8,
+	0x39, 0x4d, 0x12, 0xd7, 0xa7, 0xb8, 0x21, 0x09, 0xf6, 0xcf, 0x06, 0x98, 0xba, 0x48, 0xff, 0x87,
+	0xf3, 0x3c, 0xad, 0x82, 0xa9, 0xab, 0x8f, 0x3e, 0x83, 0x1a, 0x73, 0x07, 0xf2, 0x14, 0xad, 0x8d,
+	0xdb, 0x27, 0xc7, 0xcb, 0xef, 0xfa, 0x41, 0xda, 0x1f, 0xee, 0x3a, 0x84, 0x0f, 0x3a, 0x34, 0x49,
+	0x87, 0x6e, 0x3c, 0x92, 0xf7, 0xbf, 0xd4, 0x11, 0xfa, 0xb4, 0x58, 0xb8, 0x78, 0x46, 0x68, 0x95,
+	0x57, 0x11, 0x5a, 0x75, 0xf2, 0xd0, 0xd0, 0xc7, 0x60, 0xee, 0x06, 0x2c, 0x83, 0x24, 0x56, 0xed,
+	0x72, 0xf5, 0x7a, 0xbb, 0xfb, 0xe6, 0xb9, 0x17, 0xdf, 0xd9, 0x90, 0x48, 0x9c, 0x53, 0xd0, 0x1d,
+	0x98, 0x66, 0x34, 0x3d, 0xe4, 0xf1, 0x7e, 0x2f, 0xe2, 0x71, 0x9a, 0x58, 0x75, 0xe1, 0x63, 0x4e,
+	0x06, 0xf0, 0x48, 0x9a, 0x1e, 0xf3, 0x38, 0xc5, 0x53, 0x6c, 0xbc, 0x48, 0xec, 0x5f, 0x0c, 0x68,
+	0x2a, 0x6f, 0xe8, 0x21, 0xcc, 0xc7, 0x34, 0xe1, 0xc3, 0x98, 0xd0, 0x5e, 0x31, 0x0c, 0x63, 0x82,
+	0x30, 0x66, 0x34, 0x73, 0x53, 0x86, 0xf3, 0x01, 0x00, 0xe1, 0x61, 0x48, 0x49, 0x1a, 0xa8, 0x1a,
+	0x67, 0x37, 0x5f, 0x66, 0x33, 0xdf, 0xcf, 0x12, 0xba, 0x51, 0x3b, 0x3a, 0x5e, 0xbe, 0x80, 0x0b,
+	0x68, 0xdb, 0x87, 0xba, 0x68, 0x57, 0x74, 0x13, 0xb4, 0xa8, 0x29, 0xc5, 0x99, 0x2b, 0xd5, 0x03,
+	0x6b, 0x04, 0xb2, 0xa0, 0x79, 0x40, 0xe3, 0x44, 0xbf, 0xae, 0x85, 0xf5, 0x12, 0xbd, 0x01, 0x4d,
+	0x2f, 0x1e, 0xf5, 0xe2, 0xa1, 0xac, 0x88, 0x89, 0x1b, 0x5e, 0x3c, 0xc2, 0x43, 0x66, 0xff, 0x61,
+	0x40, 0x2d, 0xeb, 0xf5, 0x57, 0xf5, 0xa2, 0xb7, 0xa0, 0x1e, 0xbb, 0xcc, 0xd7, 0xca, 0x75, 0x51,
+	0x3a, 0xc1, 0xd9, 0x96, 0x70, 0x21, 0xad, 0xe8, 0x7d, 0x80, 0x24, 0x75, 0x53, 0x2a, 0xb3, 0x5b,
+	0x9b, 0x20, 0xbb, 0x75, 0x81, 0xb7, 0x3b, 0xd0, 0x2e, 0x08, 0x0d, 0xba, 0x0c, 0x6d, 0xd2, 0xa7,
+	0x64, 0x3f, 0xe2, 0x01, 0x4b, 0x13, 0x71, 0xf2, 0x69, 0x5c, 0xdc, 0xba, 0xf2, 0x77, 0x1b, 0x4c,
+	0x4c, 0x93, 0x88, 0xb3, 0x84, 0xa2, 0x1b, 0xa7, 0xc4, 0xbb, 0x28, 0x91, 0x12, 0x50, 0x54, 0xef,
+	0x8f, 0x00, 0xb4, 0x24, 0x53, 0x4f, 0x95, 0x6f, 0xb1, 0xcc, 0xd8, 0xca, 0x31, 0xb8, 0x80, 0x47,
+	0x77, 0xa1, 0xa5, 0x95, 0xd9, 0x53, 0xb9, 0xb8, 0x54, 0x26, 0xeb, 0xdb, 0xec, 0xe1, 0x31, 0x1a,
+	0xad, 0x42, 0x33, 0xd3, 0xe8, 0x80, 0x7a, 0x4a, 0xca, 0x17, 0xca, 0xc4, 0x75, 0x09, 0xc0, 0x1a,
+	0x89, 0x56, 0xa0, 0x91, 0x89, 0x35, 0xf5, 0x94, 0xa2, 0x5b, 0x65, 0xce, 0xb6, 0xb0, 0x63, 0x85,
+	0x43, 0x77, 0xc0, 0x54, 0x10, 0x4f, 0x69, 0xba, 0x5d, 0xe6, 0xa8, 0xea, 0x7b, 0x38, 0xc7, 0x66,
+	0x79, 0x19, 0xe7, 0xd7, 0x6a, 0x9e, 0x97, 0x97, 0xcd, 0x1c, 0x83, 0x0b, 0xf8, 0x97, 0x18, 0x06,
+	0xbf, 0x56, 0xd4, 0x30, 0xb0, 0xc1, 0xd4, 0x0a, 0xa6, 0x0a, 0x9d, 0xaf, 0xd1, 0x03, 0x40, 0xaa,
+	0x5d, 0x13, 0xd2, 0xa7, 0x03, 0x77, 0x72, 0x5d, 0x9d, 0x92, 0xbc, 0x1d, 0x41, 0x43, 0x5f, 0xc3,
+	0xa5, 0xb3, 0xfd, 0x5f, 0x74, 0x38, 0x89, 0x9a, 0xcd, 0x9f, 0x96, 0x01, 0xe5, 0xf8, 0x26, 0xcc,
+	0x79, 0x9c, 0x0c, 0x07, 0x94, 0xa5, 0x6e, 0xd6, 0xe1, 0xbd, 0x61, 0x1c, 0xca, 0x7b, 0x8f, 0x67,
+	0x4f, 0x19, 0xbe, 0x8c, 0x43, 0x74, 0x0d, 0x1a, 0xdc, 0x1d, 0xa6, 0xfd, 0xae, 0x2a, 0xe6, 0x94,
+	0xec, 0xa2, 0xed, 0xf5, 0x6c, 0x0f, 0x2b, 0x9b, 0xfd, 0x6f, 0x05, 0x60, 0x7c, 0xfb, 0xd0, 0x27,
+	0x05, 0xf5, 0x34, 0x84, 0xf2, 0x5d, 0x7b, 0xde, 0x6d, 0x2d, 0x0b, 0xa8, 0xfd, 0x5b, 0x65, 0x2c,
+	0x84, 0x04, 0x66, 0x63, 0x4a, 0xf8, 0x60, 0x40, 0x99, 0x47, 0xbd, 0x5e, 0x61, 0xca, 0xac, 0x9d,
+	0x1c, 0x2f, 0xbf, 0xf7, 0x02, 0x53, 0x26, 0x17, 0x35, 0x7c, 0xb1, 0xe0, 0xf1, 0x51, 0x36, 0x73,
+	0xce, 0x53, 0xdb, 0xca, 0x4b, 0xa8, 0xed, 0x43, 0x98, 0xd7, 0x79, 0x7c, 0xe1, 0x92, 0xcd, 0x68,
+	0xa6, 0x2a, 0xd6, 0x2c, 0x54, 0xf7, 0xe9, 0x48, 0xcc, 0xa0, 0x16, 0xce, 0x1e, 0xed, 0x1f, 0xa1,
+	0x95, 0xf7, 0x2a, 0xba, 0x5f, 0xca, 0xf4, 0xd5, 0xe7, 0xb4, 0xf6, 0x33, 0x12, 0xed, 0x8c, 0xf3,
+	0x7c, 0x15, 0xa6, 0xf3, 0x14, 0x44, 0x6e, 0xda, 0x17, 0x0e, 0x5b, 0x78, 0x4a, 0x6f, 0x3e, 0x76,
+	0xd3, 0xbe, 0xbd, 0x06, 0x4d, 0xd5, 0xf0, 0xe8, 0x1d, 0x40, 0xae, 0xc8, 0x66, 0xcf, 0xa3, 0x09,
+	0x89, 0x83, 0x48, 0x0c, 0x17, 0x51, 0x19, 0x3c, 0x27, 0x2d, 0x5b, 0x63, 0x83, 0xfd, 0x29, 0x34,
+	0x64, 0xdb, 0xa3, 0x0f, 0x61, 0x81, 0xfe, 0x10, 0x85, 0x01, 0x09, 0xd2, 0x5e, 0xe1, 0xeb, 0x2c,
+	0x8b, 0x5a, 0xea, 0xa6, 0x89, 0x2d, 0x0d, 0x58, 0x3f, 0x63, 0xb7, 0xbf, 0x01, 0x53, 0x2b, 0x41,
+	0xa6, 0xfd, 0x2a, 0x10, 0xd5, 0x85, 0x7a, 0x89, 0x56, 0xc1, 0xf4, 0x38, 0x99, 0xbc, 0x84, 0x55,
+	0x8f, 0x13, 0x7b, 0x0d, 0x60, 0x2c, 0x15, 0xe8, 0x06, 0x48, 0x9d, 0x57, 0x0a, 0x9d, 0x8f, 0x4b,
+	0xf5, 0x85, 0xb1, 0x93, 0xd9, 0xd4, 0x28, 0xe8, 0xde, 0x87, 0x56, 0x6e, 0x40, 0x5d, 0x68, 0xaa,
+	0x13, 0xa2, 0xd9, 0xb3, 0x1f, 0x0d, 0xf6, 0x5c, 0xa9, 0x3c, 0xd7, 0x8d, 0x15, 0x63, 0xe3, 0xde,
+	0xd1, 0x3f, 0x4b, 0x17, 0x8e, 0x9e, 0x2c, 0x19, 0x7f, 0x3d, 0x59, 0x32, 0x7e, 0x7f, 0xba, 0x64,
+	0x7c, 0x7b, 0x6b, 0xa2, 0x7b, 0xad, 0x9c, 0xed, 0x36, 0xc4, 0xd6, 0xea, 0x7f, 0x01, 0x00, 0x00,
+	0xff, 0xff, 0x6e, 0x2e, 0x02, 0xd0, 0x9b, 0x0c, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -1131,590 +985,103 @@ var _ grpc.ClientConn
 // is compatible with the grpc package it is being compiled against.
 const _ = grpc.SupportPackageIsVersion4
 
-// DriverClient is the client API for Driver service.
+// ConnectorClient is the client API for Connector service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
-type DriverClient interface {
-	// Spec returns the specification definition of this driver.
-	// Notably this includes its endpoint and resource configuration JSON schema.
-	Spec(ctx context.Context, in *SpecRequest, opts ...grpc.CallOption) (*SpecResponse, error)
-	// Discover returns the set of resources available from this Driver.
-	Discover(ctx context.Context, in *DiscoverRequest, opts ...grpc.CallOption) (*DiscoverResponse, error)
-	// Validate that store resources and proposed collection bindings are
-	// compatible.
-	Validate(ctx context.Context, in *ValidateRequest, opts ...grpc.CallOption) (*ValidateResponse, error)
-	// ApplyUpsert applies a new or updated capture to the store.
-	ApplyUpsert(ctx context.Context, in *ApplyRequest, opts ...grpc.CallOption) (*ApplyResponse, error)
-	// ApplyDelete deletes an existing capture from the store.
-	ApplyDelete(ctx context.Context, in *ApplyRequest, opts ...grpc.CallOption) (*ApplyResponse, error)
-	// Pull is a very long lived RPC through which the Flow runtime and a
-	// Driver cooperatively execute an unbounded number of transactions.
-	//
-	// The Pull workflow pulls streams of documents into capturing Flow
-	// collections. Streams are incremental and resume-able, with resumption
-	// semantics defined by the driver. The Flow Runtime uses a transactional
-	// recovery log to support this workflow, and the driver may persist arbitrary
-	// driver checkpoints into that log as part of the RPC lifecycle,
-	// to power its chosen resumption semantics.
-	//
-	// Pull tasks are split-able, and many concurrent invocations of the RPC
-	// may collectively capture from a source, where each task split has an
-	// identified range of keys it's responsible for. The meaning of a "key",
-	// and it's application within the remote store being captured from, is up
-	// to the driver. The driver might map partitions or shards into the keyspace,
-	// and from there to a covering task split. Or, it might map distinct files,
-	// or some other unit of scaling.
-	//
-	// RPC Lifecycle
-	// =============
-	//
-	// :PullRequest.Open:
-	//    - The Flow runtime opens the pull stream.
-	// :PullResponse.Opened:
-	//    - The driver responds with Opened.
-	//
-	// PullRequest.Open and PullRequest.Opened are sent only once, at the
-	// commencement of the stream. Thereafter the protocol loops:
-	//
-	// :PullResponse.Documents:
-	//    - The driver tells the runtime of some documents, which are pending a
-	//      future Checkpoint.
-	//    - If the driver sends multiple Documents messages without an
-	//      interleaving Checkpoint, the Flow runtime MUST commit
-	//      documents of all such messages in a single transaction.
-	// :PullResponse.Checkpoint:
-	//    - The driver tells the runtime of a checkpoint: a watermark in the
-	//      captured documents stream which is eligble to be used as a
-	//      transaction commit boundary.
-	//    - Whether the checkpoint becomes a commit boundary is at the
-	//      discretion of the Flow runtime. It may combine multiple checkpoints
-	//      into a single transaction.
-	// :PullRequest.Acknowledge:
-	//    - The Flow runtime tells the driver that its Checkpoint has committed.
-	//    - The runtime sends one ordered Acknowledge for each Checkpoint.
-	//
-	Pull(ctx context.Context, opts ...grpc.CallOption) (Driver_PullClient, error)
+type ConnectorClient interface {
+	Capture(ctx context.Context, opts ...grpc.CallOption) (Connector_CaptureClient, error)
 }
 
-type driverClient struct {
+type connectorClient struct {
 	cc *grpc.ClientConn
 }
 
-func NewDriverClient(cc *grpc.ClientConn) DriverClient {
-	return &driverClient{cc}
+func NewConnectorClient(cc *grpc.ClientConn) ConnectorClient {
+	return &connectorClient{cc}
 }
 
-func (c *driverClient) Spec(ctx context.Context, in *SpecRequest, opts ...grpc.CallOption) (*SpecResponse, error) {
-	out := new(SpecResponse)
-	err := c.cc.Invoke(ctx, "/capture.Driver/Spec", in, out, opts...)
+func (c *connectorClient) Capture(ctx context.Context, opts ...grpc.CallOption) (Connector_CaptureClient, error) {
+	stream, err := c.cc.NewStream(ctx, &_Connector_serviceDesc.Streams[0], "/capture.Connector/Capture", opts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
-}
-
-func (c *driverClient) Discover(ctx context.Context, in *DiscoverRequest, opts ...grpc.CallOption) (*DiscoverResponse, error) {
-	out := new(DiscoverResponse)
-	err := c.cc.Invoke(ctx, "/capture.Driver/Discover", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *driverClient) Validate(ctx context.Context, in *ValidateRequest, opts ...grpc.CallOption) (*ValidateResponse, error) {
-	out := new(ValidateResponse)
-	err := c.cc.Invoke(ctx, "/capture.Driver/Validate", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *driverClient) ApplyUpsert(ctx context.Context, in *ApplyRequest, opts ...grpc.CallOption) (*ApplyResponse, error) {
-	out := new(ApplyResponse)
-	err := c.cc.Invoke(ctx, "/capture.Driver/ApplyUpsert", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *driverClient) ApplyDelete(ctx context.Context, in *ApplyRequest, opts ...grpc.CallOption) (*ApplyResponse, error) {
-	out := new(ApplyResponse)
-	err := c.cc.Invoke(ctx, "/capture.Driver/ApplyDelete", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *driverClient) Pull(ctx context.Context, opts ...grpc.CallOption) (Driver_PullClient, error) {
-	stream, err := c.cc.NewStream(ctx, &_Driver_serviceDesc.Streams[0], "/capture.Driver/Pull", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &driverPullClient{stream}
+	x := &connectorCaptureClient{stream}
 	return x, nil
 }
 
-type Driver_PullClient interface {
-	Send(*PullRequest) error
-	Recv() (*PullResponse, error)
+type Connector_CaptureClient interface {
+	Send(*Request) error
+	Recv() (*Response, error)
 	grpc.ClientStream
 }
 
-type driverPullClient struct {
+type connectorCaptureClient struct {
 	grpc.ClientStream
 }
 
-func (x *driverPullClient) Send(m *PullRequest) error {
+func (x *connectorCaptureClient) Send(m *Request) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *driverPullClient) Recv() (*PullResponse, error) {
-	m := new(PullResponse)
+func (x *connectorCaptureClient) Recv() (*Response, error) {
+	m := new(Response)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
-// DriverServer is the server API for Driver service.
-type DriverServer interface {
-	// Spec returns the specification definition of this driver.
-	// Notably this includes its endpoint and resource configuration JSON schema.
-	Spec(context.Context, *SpecRequest) (*SpecResponse, error)
-	// Discover returns the set of resources available from this Driver.
-	Discover(context.Context, *DiscoverRequest) (*DiscoverResponse, error)
-	// Validate that store resources and proposed collection bindings are
-	// compatible.
-	Validate(context.Context, *ValidateRequest) (*ValidateResponse, error)
-	// ApplyUpsert applies a new or updated capture to the store.
-	ApplyUpsert(context.Context, *ApplyRequest) (*ApplyResponse, error)
-	// ApplyDelete deletes an existing capture from the store.
-	ApplyDelete(context.Context, *ApplyRequest) (*ApplyResponse, error)
-	// Pull is a very long lived RPC through which the Flow runtime and a
-	// Driver cooperatively execute an unbounded number of transactions.
-	//
-	// The Pull workflow pulls streams of documents into capturing Flow
-	// collections. Streams are incremental and resume-able, with resumption
-	// semantics defined by the driver. The Flow Runtime uses a transactional
-	// recovery log to support this workflow, and the driver may persist arbitrary
-	// driver checkpoints into that log as part of the RPC lifecycle,
-	// to power its chosen resumption semantics.
-	//
-	// Pull tasks are split-able, and many concurrent invocations of the RPC
-	// may collectively capture from a source, where each task split has an
-	// identified range of keys it's responsible for. The meaning of a "key",
-	// and it's application within the remote store being captured from, is up
-	// to the driver. The driver might map partitions or shards into the keyspace,
-	// and from there to a covering task split. Or, it might map distinct files,
-	// or some other unit of scaling.
-	//
-	// RPC Lifecycle
-	// =============
-	//
-	// :PullRequest.Open:
-	//    - The Flow runtime opens the pull stream.
-	// :PullResponse.Opened:
-	//    - The driver responds with Opened.
-	//
-	// PullRequest.Open and PullRequest.Opened are sent only once, at the
-	// commencement of the stream. Thereafter the protocol loops:
-	//
-	// :PullResponse.Documents:
-	//    - The driver tells the runtime of some documents, which are pending a
-	//      future Checkpoint.
-	//    - If the driver sends multiple Documents messages without an
-	//      interleaving Checkpoint, the Flow runtime MUST commit
-	//      documents of all such messages in a single transaction.
-	// :PullResponse.Checkpoint:
-	//    - The driver tells the runtime of a checkpoint: a watermark in the
-	//      captured documents stream which is eligble to be used as a
-	//      transaction commit boundary.
-	//    - Whether the checkpoint becomes a commit boundary is at the
-	//      discretion of the Flow runtime. It may combine multiple checkpoints
-	//      into a single transaction.
-	// :PullRequest.Acknowledge:
-	//    - The Flow runtime tells the driver that its Checkpoint has committed.
-	//    - The runtime sends one ordered Acknowledge for each Checkpoint.
-	//
-	Pull(Driver_PullServer) error
+// ConnectorServer is the server API for Connector service.
+type ConnectorServer interface {
+	Capture(Connector_CaptureServer) error
 }
 
-// UnimplementedDriverServer can be embedded to have forward compatible implementations.
-type UnimplementedDriverServer struct {
+// UnimplementedConnectorServer can be embedded to have forward compatible implementations.
+type UnimplementedConnectorServer struct {
 }
 
-func (*UnimplementedDriverServer) Spec(ctx context.Context, req *SpecRequest) (*SpecResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Spec not implemented")
-}
-func (*UnimplementedDriverServer) Discover(ctx context.Context, req *DiscoverRequest) (*DiscoverResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Discover not implemented")
-}
-func (*UnimplementedDriverServer) Validate(ctx context.Context, req *ValidateRequest) (*ValidateResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Validate not implemented")
-}
-func (*UnimplementedDriverServer) ApplyUpsert(ctx context.Context, req *ApplyRequest) (*ApplyResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ApplyUpsert not implemented")
-}
-func (*UnimplementedDriverServer) ApplyDelete(ctx context.Context, req *ApplyRequest) (*ApplyResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ApplyDelete not implemented")
-}
-func (*UnimplementedDriverServer) Pull(srv Driver_PullServer) error {
-	return status.Errorf(codes.Unimplemented, "method Pull not implemented")
+func (*UnimplementedConnectorServer) Capture(srv Connector_CaptureServer) error {
+	return status.Errorf(codes.Unimplemented, "method Capture not implemented")
 }
 
-func RegisterDriverServer(s *grpc.Server, srv DriverServer) {
-	s.RegisterService(&_Driver_serviceDesc, srv)
+func RegisterConnectorServer(s *grpc.Server, srv ConnectorServer) {
+	s.RegisterService(&_Connector_serviceDesc, srv)
 }
 
-func _Driver_Spec_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SpecRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DriverServer).Spec(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/capture.Driver/Spec",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DriverServer).Spec(ctx, req.(*SpecRequest))
-	}
-	return interceptor(ctx, in, info, handler)
+func _Connector_Capture_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ConnectorServer).Capture(&connectorCaptureServer{stream})
 }
 
-func _Driver_Discover_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DiscoverRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DriverServer).Discover(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/capture.Driver/Discover",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DriverServer).Discover(ctx, req.(*DiscoverRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Driver_Validate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ValidateRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DriverServer).Validate(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/capture.Driver/Validate",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DriverServer).Validate(ctx, req.(*ValidateRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Driver_ApplyUpsert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ApplyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DriverServer).ApplyUpsert(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/capture.Driver/ApplyUpsert",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DriverServer).ApplyUpsert(ctx, req.(*ApplyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Driver_ApplyDelete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ApplyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DriverServer).ApplyDelete(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/capture.Driver/ApplyDelete",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DriverServer).ApplyDelete(ctx, req.(*ApplyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Driver_Pull_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(DriverServer).Pull(&driverPullServer{stream})
-}
-
-type Driver_PullServer interface {
-	Send(*PullResponse) error
-	Recv() (*PullRequest, error)
+type Connector_CaptureServer interface {
+	Send(*Response) error
+	Recv() (*Request, error)
 	grpc.ServerStream
 }
 
-type driverPullServer struct {
+type connectorCaptureServer struct {
 	grpc.ServerStream
 }
 
-func (x *driverPullServer) Send(m *PullResponse) error {
+func (x *connectorCaptureServer) Send(m *Response) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *driverPullServer) Recv() (*PullRequest, error) {
-	m := new(PullRequest)
+func (x *connectorCaptureServer) Recv() (*Request, error) {
+	m := new(Request)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
-var _Driver_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "capture.Driver",
-	HandlerType: (*DriverServer)(nil),
-	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "Spec",
-			Handler:    _Driver_Spec_Handler,
-		},
-		{
-			MethodName: "Discover",
-			Handler:    _Driver_Discover_Handler,
-		},
-		{
-			MethodName: "Validate",
-			Handler:    _Driver_Validate_Handler,
-		},
-		{
-			MethodName: "ApplyUpsert",
-			Handler:    _Driver_ApplyUpsert_Handler,
-		},
-		{
-			MethodName: "ApplyDelete",
-			Handler:    _Driver_ApplyDelete_Handler,
-		},
-	},
-	Streams: []grpc.StreamDesc{
-		{
-			StreamName:    "Pull",
-			Handler:       _Driver_Pull_Handler,
-			ServerStreams: true,
-			ClientStreams: true,
-		},
-	},
-	Metadata: "go/protocols/capture/capture.proto",
-}
-
-// RuntimeClient is the client API for Runtime service.
-//
-// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
-type RuntimeClient interface {
-	// Push may be a short or very long lived RPC through which the Flow runtime
-	// and a driver cooperatively execute an unbounded number of transactions.
-	//
-	// The Push workflow pushes streams of documents into capturing Flow
-	// collections. The driver is responsible for initiation and resumption of
-	// push streams. The Flow runtime uses a transactional recovery log to support
-	// this workflow, and the driver may persist arbitrary driver checkpoints into
-	// that log as part of the RPC lifecycle, to power its chosen resumption
-	// semantics.
-	//
-	// A push RPC is evaluated against a specific task shard split, which is
-	// encoded in the PushRequest.Open.Header. A driver may perform its own load
-	// balancing by obtain a shard listing and embedding a selected shard into
-	// that header. Or, it may leave it empty and an arbitary shard will be
-	// randomly chosen for it.
-	//
-	// RPC Lifecycle
-	// =============
-	//
-	// :PushRequest.Open:
-	//    - The driver opens the push stream, naming its capture and
-	//      optional routing header.
-	// :PushResponse.Opened:
-	//    - The Flow runtime responds with Opened, which tells the driver
-	//      of the specific CaptureSpec and [key_begin, key_end] range of
-	//      this RPC, as well as the last driver checkpoint.
-	//    - The semantics and treatment of the key range is up to the driver.
-	//
-	// PushRequest.Open and PushRequest.Opened are sent only once, at the
-	// commencement of the stream. Thereafter the protocol loops:
-	//
-	// :PushRequest.Documents:
-	//    - The driver tells the runtime of some documents, which are pending a
-	//      future Checkpoint.
-	//    - If the driver sends multiple Documents messages without an
-	//      interleaving Checkpoint, the Flow runtime MUST commit
-	//      documents of all such messages in a single transaction.
-	// :PushRequest.Checkpoint:
-	//    - The driver tells the runtime of a checkpoint: a watermark in the
-	//      captured documents stream which is eligble to be used as a
-	//      transaction commit boundary.
-	//    - Whether the checkpoint becomes a commit boundary is at the
-	//      discretion of the Flow runtime. It may combine multiple checkpoints
-	//      into a single transaction.
-	// :PushResponse.Acknowledge:
-	//    - The Flow runtime tells the driver that its Checkpoint has committed.
-	//    - The runtime sends one ordered Acknowledge for each Checkpoint.
-	//
-	Push(ctx context.Context, opts ...grpc.CallOption) (Runtime_PushClient, error)
-}
-
-type runtimeClient struct {
-	cc *grpc.ClientConn
-}
-
-func NewRuntimeClient(cc *grpc.ClientConn) RuntimeClient {
-	return &runtimeClient{cc}
-}
-
-func (c *runtimeClient) Push(ctx context.Context, opts ...grpc.CallOption) (Runtime_PushClient, error) {
-	stream, err := c.cc.NewStream(ctx, &_Runtime_serviceDesc.Streams[0], "/capture.Runtime/Push", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &runtimePushClient{stream}
-	return x, nil
-}
-
-type Runtime_PushClient interface {
-	Send(*PushRequest) error
-	Recv() (*PushResponse, error)
-	grpc.ClientStream
-}
-
-type runtimePushClient struct {
-	grpc.ClientStream
-}
-
-func (x *runtimePushClient) Send(m *PushRequest) error {
-	return x.ClientStream.SendMsg(m)
-}
-
-func (x *runtimePushClient) Recv() (*PushResponse, error) {
-	m := new(PushResponse)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-// RuntimeServer is the server API for Runtime service.
-type RuntimeServer interface {
-	// Push may be a short or very long lived RPC through which the Flow runtime
-	// and a driver cooperatively execute an unbounded number of transactions.
-	//
-	// The Push workflow pushes streams of documents into capturing Flow
-	// collections. The driver is responsible for initiation and resumption of
-	// push streams. The Flow runtime uses a transactional recovery log to support
-	// this workflow, and the driver may persist arbitrary driver checkpoints into
-	// that log as part of the RPC lifecycle, to power its chosen resumption
-	// semantics.
-	//
-	// A push RPC is evaluated against a specific task shard split, which is
-	// encoded in the PushRequest.Open.Header. A driver may perform its own load
-	// balancing by obtain a shard listing and embedding a selected shard into
-	// that header. Or, it may leave it empty and an arbitary shard will be
-	// randomly chosen for it.
-	//
-	// RPC Lifecycle
-	// =============
-	//
-	// :PushRequest.Open:
-	//    - The driver opens the push stream, naming its capture and
-	//      optional routing header.
-	// :PushResponse.Opened:
-	//    - The Flow runtime responds with Opened, which tells the driver
-	//      of the specific CaptureSpec and [key_begin, key_end] range of
-	//      this RPC, as well as the last driver checkpoint.
-	//    - The semantics and treatment of the key range is up to the driver.
-	//
-	// PushRequest.Open and PushRequest.Opened are sent only once, at the
-	// commencement of the stream. Thereafter the protocol loops:
-	//
-	// :PushRequest.Documents:
-	//    - The driver tells the runtime of some documents, which are pending a
-	//      future Checkpoint.
-	//    - If the driver sends multiple Documents messages without an
-	//      interleaving Checkpoint, the Flow runtime MUST commit
-	//      documents of all such messages in a single transaction.
-	// :PushRequest.Checkpoint:
-	//    - The driver tells the runtime of a checkpoint: a watermark in the
-	//      captured documents stream which is eligble to be used as a
-	//      transaction commit boundary.
-	//    - Whether the checkpoint becomes a commit boundary is at the
-	//      discretion of the Flow runtime. It may combine multiple checkpoints
-	//      into a single transaction.
-	// :PushResponse.Acknowledge:
-	//    - The Flow runtime tells the driver that its Checkpoint has committed.
-	//    - The runtime sends one ordered Acknowledge for each Checkpoint.
-	//
-	Push(Runtime_PushServer) error
-}
-
-// UnimplementedRuntimeServer can be embedded to have forward compatible implementations.
-type UnimplementedRuntimeServer struct {
-}
-
-func (*UnimplementedRuntimeServer) Push(srv Runtime_PushServer) error {
-	return status.Errorf(codes.Unimplemented, "method Push not implemented")
-}
-
-func RegisterRuntimeServer(s *grpc.Server, srv RuntimeServer) {
-	s.RegisterService(&_Runtime_serviceDesc, srv)
-}
-
-func _Runtime_Push_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(RuntimeServer).Push(&runtimePushServer{stream})
-}
-
-type Runtime_PushServer interface {
-	Send(*PushResponse) error
-	Recv() (*PushRequest, error)
-	grpc.ServerStream
-}
-
-type runtimePushServer struct {
-	grpc.ServerStream
-}
-
-func (x *runtimePushServer) Send(m *PushResponse) error {
-	return x.ServerStream.SendMsg(m)
-}
-
-func (x *runtimePushServer) Recv() (*PushRequest, error) {
-	m := new(PushRequest)
-	if err := x.ServerStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-var _Runtime_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "capture.Runtime",
-	HandlerType: (*RuntimeServer)(nil),
+var _Connector_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "capture.Connector",
+	HandlerType: (*ConnectorServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "Push",
-			Handler:       _Runtime_Push_Handler,
+			StreamName:    "Capture",
+			Handler:       _Connector_Capture_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},
@@ -1722,7 +1089,7 @@ var _Runtime_serviceDesc = grpc.ServiceDesc{
 	Metadata: "go/protocols/capture/capture.proto",
 }
 
-func (m *SpecRequest) Marshal() (dAtA []byte, err error) {
+func (m *Request) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1732,12 +1099,12 @@ func (m *SpecRequest) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *SpecRequest) MarshalTo(dAtA []byte) (int, error) {
+func (m *Request) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *SpecRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Request) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -1746,48 +1113,47 @@ func (m *SpecRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	if len(m.EndpointSpecJson) > 0 {
-		i -= len(m.EndpointSpecJson)
-		copy(dAtA[i:], m.EndpointSpecJson)
-		i = encodeVarintCapture(dAtA, i, uint64(len(m.EndpointSpecJson)))
-		i--
-		dAtA[i] = 0x12
-	}
-	if m.EndpointType != 0 {
-		i = encodeVarintCapture(dAtA, i, uint64(m.EndpointType))
-		i--
-		dAtA[i] = 0x8
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *SpecResponse) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *SpecResponse) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *SpecResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if m.Oauth2Spec != nil {
+	if m.Internal != nil {
 		{
-			size, err := m.Oauth2Spec.MarshalToSizedBuffer(dAtA[:i])
+			size, err := m.Internal.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x6
+		i--
+		dAtA[i] = 0xa2
+	}
+	if m.Acknowledge != nil {
+		{
+			size, err := m.Acknowledge.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x32
+	}
+	if m.Open != nil {
+		{
+			size, err := m.Open.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x2a
+	}
+	if m.Apply != nil {
+		{
+			size, err := m.Apply.MarshalToSizedBuffer(dAtA[:i])
 			if err != nil {
 				return 0, err
 			}
@@ -1797,31 +1163,46 @@ func (m *SpecResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x22
 	}
-	if len(m.DocumentationUrl) > 0 {
-		i -= len(m.DocumentationUrl)
-		copy(dAtA[i:], m.DocumentationUrl)
-		i = encodeVarintCapture(dAtA, i, uint64(len(m.DocumentationUrl)))
+	if m.Validate != nil {
+		{
+			size, err := m.Validate.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
+		}
 		i--
 		dAtA[i] = 0x1a
 	}
-	if len(m.ResourceSpecSchemaJson) > 0 {
-		i -= len(m.ResourceSpecSchemaJson)
-		copy(dAtA[i:], m.ResourceSpecSchemaJson)
-		i = encodeVarintCapture(dAtA, i, uint64(len(m.ResourceSpecSchemaJson)))
+	if m.Discover != nil {
+		{
+			size, err := m.Discover.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
+		}
 		i--
 		dAtA[i] = 0x12
 	}
-	if len(m.EndpointSpecSchemaJson) > 0 {
-		i -= len(m.EndpointSpecSchemaJson)
-		copy(dAtA[i:], m.EndpointSpecSchemaJson)
-		i = encodeVarintCapture(dAtA, i, uint64(len(m.EndpointSpecSchemaJson)))
+	if m.Spec != nil {
+		{
+			size, err := m.Spec.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
+		}
 		i--
 		dAtA[i] = 0xa
 	}
 	return len(dAtA) - i, nil
 }
 
-func (m *DiscoverRequest) Marshal() (dAtA []byte, err error) {
+func (m *Request_Spec) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1831,12 +1212,12 @@ func (m *DiscoverRequest) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *DiscoverRequest) MarshalTo(dAtA []byte) (int, error) {
+func (m *Request_Spec) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *DiscoverRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Request_Spec) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -1845,22 +1226,22 @@ func (m *DiscoverRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	if len(m.EndpointSpecJson) > 0 {
-		i -= len(m.EndpointSpecJson)
-		copy(dAtA[i:], m.EndpointSpecJson)
-		i = encodeVarintCapture(dAtA, i, uint64(len(m.EndpointSpecJson)))
+	if len(m.ConfigJson) > 0 {
+		i -= len(m.ConfigJson)
+		copy(dAtA[i:], m.ConfigJson)
+		i = encodeVarintCapture(dAtA, i, uint64(len(m.ConfigJson)))
 		i--
 		dAtA[i] = 0x12
 	}
-	if m.EndpointType != 0 {
-		i = encodeVarintCapture(dAtA, i, uint64(m.EndpointType))
+	if m.ConnectorType != 0 {
+		i = encodeVarintCapture(dAtA, i, uint64(m.ConnectorType))
 		i--
 		dAtA[i] = 0x8
 	}
 	return len(dAtA) - i, nil
 }
 
-func (m *DiscoverResponse) Marshal() (dAtA []byte, err error) {
+func (m *Request_Discover) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1870,12 +1251,12 @@ func (m *DiscoverResponse) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *DiscoverResponse) MarshalTo(dAtA []byte) (int, error) {
+func (m *Request_Discover) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *DiscoverResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Request_Discover) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -1884,81 +1265,22 @@ func (m *DiscoverResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	if len(m.Bindings) > 0 {
-		for iNdEx := len(m.Bindings) - 1; iNdEx >= 0; iNdEx-- {
-			{
-				size, err := m.Bindings[iNdEx].MarshalToSizedBuffer(dAtA[:i])
-				if err != nil {
-					return 0, err
-				}
-				i -= size
-				i = encodeVarintCapture(dAtA, i, uint64(size))
-			}
-			i--
-			dAtA[i] = 0xa
-		}
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *DiscoverResponse_Binding) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *DiscoverResponse_Binding) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *DiscoverResponse_Binding) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if len(m.KeyPtrs) > 0 {
-		for iNdEx := len(m.KeyPtrs) - 1; iNdEx >= 0; iNdEx-- {
-			i -= len(m.KeyPtrs[iNdEx])
-			copy(dAtA[i:], m.KeyPtrs[iNdEx])
-			i = encodeVarintCapture(dAtA, i, uint64(len(m.KeyPtrs[iNdEx])))
-			i--
-			dAtA[i] = 0x22
-		}
-	}
-	if len(m.DocumentSchemaJson) > 0 {
-		i -= len(m.DocumentSchemaJson)
-		copy(dAtA[i:], m.DocumentSchemaJson)
-		i = encodeVarintCapture(dAtA, i, uint64(len(m.DocumentSchemaJson)))
-		i--
-		dAtA[i] = 0x1a
-	}
-	if len(m.ResourceSpecJson) > 0 {
-		i -= len(m.ResourceSpecJson)
-		copy(dAtA[i:], m.ResourceSpecJson)
-		i = encodeVarintCapture(dAtA, i, uint64(len(m.ResourceSpecJson)))
+	if len(m.ConfigJson) > 0 {
+		i -= len(m.ConfigJson)
+		copy(dAtA[i:], m.ConfigJson)
+		i = encodeVarintCapture(dAtA, i, uint64(len(m.ConfigJson)))
 		i--
 		dAtA[i] = 0x12
 	}
-	if len(m.RecommendedName) > 0 {
-		i -= len(m.RecommendedName)
-		copy(dAtA[i:], m.RecommendedName)
-		i = encodeVarintCapture(dAtA, i, uint64(len(m.RecommendedName)))
+	if m.ConnectorType != 0 {
+		i = encodeVarintCapture(dAtA, i, uint64(m.ConnectorType))
 		i--
-		dAtA[i] = 0xa
+		dAtA[i] = 0x8
 	}
 	return len(dAtA) - i, nil
 }
 
-func (m *ValidateRequest) Marshal() (dAtA []byte, err error) {
+func (m *Request_Validate) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1968,12 +1290,12 @@ func (m *ValidateRequest) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *ValidateRequest) MarshalTo(dAtA []byte) (int, error) {
+func (m *Request_Validate) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *ValidateRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Request_Validate) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -1981,6 +1303,20 @@ func (m *ValidateRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	if m.XXX_unrecognized != nil {
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.NetworkPorts) > 0 {
+		for iNdEx := len(m.NetworkPorts) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.NetworkPorts[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintCapture(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x2a
+		}
 	}
 	if len(m.Bindings) > 0 {
 		for iNdEx := len(m.Bindings) - 1; iNdEx >= 0; iNdEx-- {
@@ -1996,29 +1332,29 @@ func (m *ValidateRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			dAtA[i] = 0x22
 		}
 	}
-	if len(m.EndpointSpecJson) > 0 {
-		i -= len(m.EndpointSpecJson)
-		copy(dAtA[i:], m.EndpointSpecJson)
-		i = encodeVarintCapture(dAtA, i, uint64(len(m.EndpointSpecJson)))
+	if len(m.ConfigJson) > 0 {
+		i -= len(m.ConfigJson)
+		copy(dAtA[i:], m.ConfigJson)
+		i = encodeVarintCapture(dAtA, i, uint64(len(m.ConfigJson)))
 		i--
 		dAtA[i] = 0x1a
 	}
-	if m.EndpointType != 0 {
-		i = encodeVarintCapture(dAtA, i, uint64(m.EndpointType))
+	if m.ConnectorType != 0 {
+		i = encodeVarintCapture(dAtA, i, uint64(m.ConnectorType))
 		i--
 		dAtA[i] = 0x10
 	}
-	if len(m.Capture) > 0 {
-		i -= len(m.Capture)
-		copy(dAtA[i:], m.Capture)
-		i = encodeVarintCapture(dAtA, i, uint64(len(m.Capture)))
+	if len(m.Name) > 0 {
+		i -= len(m.Name)
+		copy(dAtA[i:], m.Name)
+		i = encodeVarintCapture(dAtA, i, uint64(len(m.Name)))
 		i--
 		dAtA[i] = 0xa
 	}
 	return len(dAtA) - i, nil
 }
 
-func (m *ValidateRequest_Binding) Marshal() (dAtA []byte, err error) {
+func (m *Request_Validate_Binding) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -2028,12 +1364,12 @@ func (m *ValidateRequest_Binding) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *ValidateRequest_Binding) MarshalTo(dAtA []byte) (int, error) {
+func (m *Request_Validate_Binding) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *ValidateRequest_Binding) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Request_Validate_Binding) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -2052,17 +1388,17 @@ func (m *ValidateRequest_Binding) MarshalToSizedBuffer(dAtA []byte) (int, error)
 	}
 	i--
 	dAtA[i] = 0x12
-	if len(m.ResourceSpecJson) > 0 {
-		i -= len(m.ResourceSpecJson)
-		copy(dAtA[i:], m.ResourceSpecJson)
-		i = encodeVarintCapture(dAtA, i, uint64(len(m.ResourceSpecJson)))
+	if len(m.ResourceConfigJson) > 0 {
+		i -= len(m.ResourceConfigJson)
+		copy(dAtA[i:], m.ResourceConfigJson)
+		i = encodeVarintCapture(dAtA, i, uint64(len(m.ResourceConfigJson)))
 		i--
 		dAtA[i] = 0xa
 	}
 	return len(dAtA) - i, nil
 }
 
-func (m *ValidateResponse) Marshal() (dAtA []byte, err error) {
+func (m *Request_Apply) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -2072,89 +1408,12 @@ func (m *ValidateResponse) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *ValidateResponse) MarshalTo(dAtA []byte) (int, error) {
+func (m *Request_Apply) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *ValidateResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if len(m.Bindings) > 0 {
-		for iNdEx := len(m.Bindings) - 1; iNdEx >= 0; iNdEx-- {
-			{
-				size, err := m.Bindings[iNdEx].MarshalToSizedBuffer(dAtA[:i])
-				if err != nil {
-					return 0, err
-				}
-				i -= size
-				i = encodeVarintCapture(dAtA, i, uint64(size))
-			}
-			i--
-			dAtA[i] = 0xa
-		}
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *ValidateResponse_Binding) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *ValidateResponse_Binding) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *ValidateResponse_Binding) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if len(m.ResourcePath) > 0 {
-		for iNdEx := len(m.ResourcePath) - 1; iNdEx >= 0; iNdEx-- {
-			i -= len(m.ResourcePath[iNdEx])
-			copy(dAtA[i:], m.ResourcePath[iNdEx])
-			i = encodeVarintCapture(dAtA, i, uint64(len(m.ResourcePath[iNdEx])))
-			i--
-			dAtA[i] = 0xa
-		}
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *ApplyRequest) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *ApplyRequest) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *ApplyRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Request_Apply) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -2195,7 +1454,7 @@ func (m *ApplyRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *ApplyResponse) Marshal() (dAtA []byte, err error) {
+func (m *Request_Open) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -2205,12 +1464,12 @@ func (m *ApplyResponse) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *ApplyResponse) MarshalTo(dAtA []byte) (int, error) {
+func (m *Request_Open) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *ApplyResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Request_Open) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -2219,123 +1478,16 @@ func (m *ApplyResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	if len(m.ActionDescription) > 0 {
-		i -= len(m.ActionDescription)
-		copy(dAtA[i:], m.ActionDescription)
-		i = encodeVarintCapture(dAtA, i, uint64(len(m.ActionDescription)))
+	if len(m.StateJson) > 0 {
+		i -= len(m.StateJson)
+		copy(dAtA[i:], m.StateJson)
+		i = encodeVarintCapture(dAtA, i, uint64(len(m.StateJson)))
 		i--
-		dAtA[i] = 0xa
+		dAtA[i] = 0x22
 	}
-	return len(dAtA) - i, nil
-}
-
-func (m *Documents) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *Documents) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *Documents) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if len(m.DocsJson) > 0 {
-		for iNdEx := len(m.DocsJson) - 1; iNdEx >= 0; iNdEx-- {
-			{
-				size, err := m.DocsJson[iNdEx].MarshalToSizedBuffer(dAtA[:i])
-				if err != nil {
-					return 0, err
-				}
-				i -= size
-				i = encodeVarintCapture(dAtA, i, uint64(size))
-			}
-			i--
-			dAtA[i] = 0x1a
-		}
-	}
-	if len(m.Arena) > 0 {
-		i -= len(m.Arena)
-		copy(dAtA[i:], m.Arena)
-		i = encodeVarintCapture(dAtA, i, uint64(len(m.Arena)))
-		i--
-		dAtA[i] = 0x12
-	}
-	if m.Binding != 0 {
-		i = encodeVarintCapture(dAtA, i, uint64(m.Binding))
-		i--
-		dAtA[i] = 0x8
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *Acknowledge) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *Acknowledge) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *Acknowledge) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *PullRequest) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *PullRequest) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *PullRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if m.Acknowledge != nil {
+	if m.Range != nil {
 		{
-			size, err := m.Acknowledge.MarshalToSizedBuffer(dAtA[:i])
+			size, err := m.Range.MarshalToSizedBuffer(dAtA[:i])
 			if err != nil {
 				return 0, err
 			}
@@ -2343,65 +1495,7 @@ func (m *PullRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			i = encodeVarintCapture(dAtA, i, uint64(size))
 		}
 		i--
-		dAtA[i] = 0x12
-	}
-	if m.Open != nil {
-		{
-			size, err := m.Open.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintCapture(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *PullRequest_Open) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *PullRequest_Open) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *PullRequest_Open) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if len(m.DriverCheckpointJson) > 0 {
-		i -= len(m.DriverCheckpointJson)
-		copy(dAtA[i:], m.DriverCheckpointJson)
-		i = encodeVarintCapture(dAtA, i, uint64(len(m.DriverCheckpointJson)))
-		i--
-		dAtA[i] = 0x2a
-	}
-	if m.KeyEnd != 0 {
-		i -= 4
-		encoding_binary.LittleEndian.PutUint32(dAtA[i:], uint32(m.KeyEnd))
-		i--
-		dAtA[i] = 0x25
-	}
-	if m.KeyBegin != 0 {
-		i -= 4
-		encoding_binary.LittleEndian.PutUint32(dAtA[i:], uint32(m.KeyBegin))
-		i--
-		dAtA[i] = 0x1d
+		dAtA[i] = 0x1a
 	}
 	if len(m.Version) > 0 {
 		i -= len(m.Version)
@@ -2425,7 +1519,7 @@ func (m *PullRequest_Open) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *PullResponse) Marshal() (dAtA []byte, err error) {
+func (m *Request_Acknowledge) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -2435,12 +1529,12 @@ func (m *PullResponse) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *PullResponse) MarshalTo(dAtA []byte) (int, error) {
+func (m *Request_Acknowledge) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *PullResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Request_Acknowledge) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -2448,6 +1542,52 @@ func (m *PullResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	if m.XXX_unrecognized != nil {
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Checkpoints != 0 {
+		i = encodeVarintCapture(dAtA, i, uint64(m.Checkpoints))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Response) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Response) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Response) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Internal != nil {
+		{
+			size, err := m.Internal.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x6
+		i--
+		dAtA[i] = 0xa2
 	}
 	if m.Checkpoint != nil {
 		{
@@ -2459,11 +1599,59 @@ func (m *PullResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			i = encodeVarintCapture(dAtA, i, uint64(size))
 		}
 		i--
+		dAtA[i] = 0x3a
+	}
+	if m.Captured != nil {
+		{
+			size, err := m.Captured.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x32
+	}
+	if m.Opened != nil {
+		{
+			size, err := m.Opened.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x2a
+	}
+	if m.Applied != nil {
+		{
+			size, err := m.Applied.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x22
+	}
+	if m.Validated != nil {
+		{
+			size, err := m.Validated.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
+		}
+		i--
 		dAtA[i] = 0x1a
 	}
-	if m.Documents != nil {
+	if m.Discovered != nil {
 		{
-			size, err := m.Documents.MarshalToSizedBuffer(dAtA[:i])
+			size, err := m.Discovered.MarshalToSizedBuffer(dAtA[:i])
 			if err != nil {
 				return 0, err
 			}
@@ -2473,9 +1661,9 @@ func (m *PullResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x12
 	}
-	if m.Opened != nil {
+	if m.Spec != nil {
 		{
-			size, err := m.Opened.MarshalToSizedBuffer(dAtA[:i])
+			size, err := m.Spec.MarshalToSizedBuffer(dAtA[:i])
 			if err != nil {
 				return 0, err
 			}
@@ -2488,7 +1676,7 @@ func (m *PullResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *PullResponse_Opened) Marshal() (dAtA []byte, err error) {
+func (m *Response_Spec) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -2498,12 +1686,286 @@ func (m *PullResponse_Opened) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *PullResponse_Opened) MarshalTo(dAtA []byte) (int, error) {
+func (m *Response_Spec) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *PullResponse_Opened) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Response_Spec) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Oauth2 != nil {
+		{
+			size, err := m.Oauth2.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x2a
+	}
+	if len(m.DocumentationUrl) > 0 {
+		i -= len(m.DocumentationUrl)
+		copy(dAtA[i:], m.DocumentationUrl)
+		i = encodeVarintCapture(dAtA, i, uint64(len(m.DocumentationUrl)))
+		i--
+		dAtA[i] = 0x22
+	}
+	if len(m.ResourceConfigSchemaJson) > 0 {
+		i -= len(m.ResourceConfigSchemaJson)
+		copy(dAtA[i:], m.ResourceConfigSchemaJson)
+		i = encodeVarintCapture(dAtA, i, uint64(len(m.ResourceConfigSchemaJson)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if len(m.ConfigSchemaJson) > 0 {
+		i -= len(m.ConfigSchemaJson)
+		copy(dAtA[i:], m.ConfigSchemaJson)
+		i = encodeVarintCapture(dAtA, i, uint64(len(m.ConfigSchemaJson)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Protocol != 0 {
+		i = encodeVarintCapture(dAtA, i, uint64(m.Protocol))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Response_Discovered) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Response_Discovered) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Response_Discovered) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.Bindings) > 0 {
+		for iNdEx := len(m.Bindings) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Bindings[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintCapture(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0xa
+		}
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Response_Discovered_Binding) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Response_Discovered_Binding) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Response_Discovered_Binding) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.Key) > 0 {
+		for iNdEx := len(m.Key) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.Key[iNdEx])
+			copy(dAtA[i:], m.Key[iNdEx])
+			i = encodeVarintCapture(dAtA, i, uint64(len(m.Key[iNdEx])))
+			i--
+			dAtA[i] = 0x22
+		}
+	}
+	if len(m.DocumentSchemaJson) > 0 {
+		i -= len(m.DocumentSchemaJson)
+		copy(dAtA[i:], m.DocumentSchemaJson)
+		i = encodeVarintCapture(dAtA, i, uint64(len(m.DocumentSchemaJson)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if len(m.ResourceConfigJson) > 0 {
+		i -= len(m.ResourceConfigJson)
+		copy(dAtA[i:], m.ResourceConfigJson)
+		i = encodeVarintCapture(dAtA, i, uint64(len(m.ResourceConfigJson)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.RecommendedName) > 0 {
+		i -= len(m.RecommendedName)
+		copy(dAtA[i:], m.RecommendedName)
+		i = encodeVarintCapture(dAtA, i, uint64(len(m.RecommendedName)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Response_Validated) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Response_Validated) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Response_Validated) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.Bindings) > 0 {
+		for iNdEx := len(m.Bindings) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.Bindings[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintCapture(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0xa
+		}
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Response_Validated_Binding) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Response_Validated_Binding) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Response_Validated_Binding) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.ResourcePath) > 0 {
+		for iNdEx := len(m.ResourcePath) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.ResourcePath[iNdEx])
+			copy(dAtA[i:], m.ResourcePath[iNdEx])
+			i = encodeVarintCapture(dAtA, i, uint64(len(m.ResourcePath[iNdEx])))
+			i--
+			dAtA[i] = 0xa
+		}
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Response_Applied) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Response_Applied) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Response_Applied) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.ActionDescription) > 0 {
+		i -= len(m.ActionDescription)
+		copy(dAtA[i:], m.ActionDescription)
+		i = encodeVarintCapture(dAtA, i, uint64(len(m.ActionDescription)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Response_Opened) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Response_Opened) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Response_Opened) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -2525,7 +1987,7 @@ func (m *PullResponse_Opened) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *PushRequest) Marshal() (dAtA []byte, err error) {
+func (m *Response_Captured) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -2535,12 +1997,12 @@ func (m *PushRequest) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *PushRequest) MarshalTo(dAtA []byte) (int, error) {
+func (m *Response_Captured) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *PushRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Response_Captured) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -2549,218 +2011,56 @@ func (m *PushRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	if m.Checkpoint != nil {
-		{
-			size, err := m.Checkpoint.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintCapture(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0x1a
-	}
-	if m.Documents != nil {
-		{
-			size, err := m.Documents.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintCapture(dAtA, i, uint64(size))
-		}
+	if len(m.DocJson) > 0 {
+		i -= len(m.DocJson)
+		copy(dAtA[i:], m.DocJson)
+		i = encodeVarintCapture(dAtA, i, uint64(len(m.DocJson)))
 		i--
 		dAtA[i] = 0x12
 	}
-	if m.Open != nil {
-		{
-			size, err := m.Open.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintCapture(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *PushRequest_Open) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *PushRequest_Open) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *PushRequest_Open) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if len(m.Capture) > 0 {
-		i -= len(m.Capture)
-		copy(dAtA[i:], m.Capture)
-		i = encodeVarintCapture(dAtA, i, uint64(len(m.Capture)))
-		i--
-		dAtA[i] = 0x12
-	}
-	if m.Header != nil {
-		{
-			size, err := m.Header.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintCapture(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *PushResponse) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *PushResponse) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *PushResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if m.Acknowledge != nil {
-		{
-			size, err := m.Acknowledge.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintCapture(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0x12
-	}
-	if m.Opened != nil {
-		{
-			size, err := m.Opened.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintCapture(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *PushResponse_Opened) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *PushResponse_Opened) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *PushResponse_Opened) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if len(m.DriverCheckpointJson) > 0 {
-		i -= len(m.DriverCheckpointJson)
-		copy(dAtA[i:], m.DriverCheckpointJson)
-		i = encodeVarintCapture(dAtA, i, uint64(len(m.DriverCheckpointJson)))
-		i--
-		dAtA[i] = 0x3a
-	}
-	if m.KeyEnd != 0 {
-		i -= 4
-		encoding_binary.LittleEndian.PutUint32(dAtA[i:], uint32(m.KeyEnd))
-		i--
-		dAtA[i] = 0x35
-	}
-	if m.KeyBegin != 0 {
-		i -= 4
-		encoding_binary.LittleEndian.PutUint32(dAtA[i:], uint32(m.KeyBegin))
-		i--
-		dAtA[i] = 0x2d
-	}
-	if len(m.Version) > 0 {
-		i -= len(m.Version)
-		copy(dAtA[i:], m.Version)
-		i = encodeVarintCapture(dAtA, i, uint64(len(m.Version)))
-		i--
-		dAtA[i] = 0x22
-	}
-	if m.Capture != nil {
-		{
-			size, err := m.Capture.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintCapture(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0x1a
-	}
-	{
-		size, err := m.Header.MarshalToSizedBuffer(dAtA[:i])
-		if err != nil {
-			return 0, err
-		}
-		i -= size
-		i = encodeVarintCapture(dAtA, i, uint64(size))
-	}
-	i--
-	dAtA[i] = 0x12
-	if m.Status != 0 {
-		i = encodeVarintCapture(dAtA, i, uint64(m.Status))
+	if m.Binding != 0 {
+		i = encodeVarintCapture(dAtA, i, uint64(m.Binding))
 		i--
 		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Response_Checkpoint) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Response_Checkpoint) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Response_Checkpoint) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.State != nil {
+		{
+			size, err := m.State.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintCapture(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
 	}
 	return len(dAtA) - i, nil
 }
@@ -2776,16 +2076,56 @@ func encodeVarintCapture(dAtA []byte, offset int, v uint64) int {
 	dAtA[offset] = uint8(v)
 	return base
 }
-func (m *SpecRequest) ProtoSize() (n int) {
+func (m *Request) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	if m.EndpointType != 0 {
-		n += 1 + sovCapture(uint64(m.EndpointType))
+	if m.Spec != nil {
+		l = m.Spec.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
 	}
-	l = len(m.EndpointSpecJson)
+	if m.Discover != nil {
+		l = m.Discover.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.Validate != nil {
+		l = m.Validate.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.Apply != nil {
+		l = m.Apply.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.Open != nil {
+		l = m.Open.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.Acknowledge != nil {
+		l = m.Acknowledge.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.Internal != nil {
+		l = m.Internal.ProtoSize()
+		n += 2 + l + sovCapture(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Request_Spec) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.ConnectorType != 0 {
+		n += 1 + sovCapture(uint64(m.ConnectorType))
+	}
+	l = len(m.ConfigJson)
 	if l > 0 {
 		n += 1 + l + sovCapture(uint64(l))
 	}
@@ -2795,44 +2135,16 @@ func (m *SpecRequest) ProtoSize() (n int) {
 	return n
 }
 
-func (m *SpecResponse) ProtoSize() (n int) {
+func (m *Request_Discover) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	l = len(m.EndpointSpecSchemaJson)
-	if l > 0 {
-		n += 1 + l + sovCapture(uint64(l))
+	if m.ConnectorType != 0 {
+		n += 1 + sovCapture(uint64(m.ConnectorType))
 	}
-	l = len(m.ResourceSpecSchemaJson)
-	if l > 0 {
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	l = len(m.DocumentationUrl)
-	if l > 0 {
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	if m.Oauth2Spec != nil {
-		l = m.Oauth2Spec.ProtoSize()
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *DiscoverRequest) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.EndpointType != 0 {
-		n += 1 + sovCapture(uint64(m.EndpointType))
-	}
-	l = len(m.EndpointSpecJson)
+	l = len(m.ConfigJson)
 	if l > 0 {
 		n += 1 + l + sovCapture(uint64(l))
 	}
@@ -2842,14 +2154,31 @@ func (m *DiscoverRequest) ProtoSize() (n int) {
 	return n
 }
 
-func (m *DiscoverResponse) ProtoSize() (n int) {
+func (m *Request_Validate) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
+	l = len(m.Name)
+	if l > 0 {
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.ConnectorType != 0 {
+		n += 1 + sovCapture(uint64(m.ConnectorType))
+	}
+	l = len(m.ConfigJson)
+	if l > 0 {
+		n += 1 + l + sovCapture(uint64(l))
+	}
 	if len(m.Bindings) > 0 {
 		for _, e := range m.Bindings {
+			l = e.ProtoSize()
+			n += 1 + l + sovCapture(uint64(l))
+		}
+	}
+	if len(m.NetworkPorts) > 0 {
+		for _, e := range m.NetworkPorts {
 			l = e.ProtoSize()
 			n += 1 + l + sovCapture(uint64(l))
 		}
@@ -2860,72 +2189,13 @@ func (m *DiscoverResponse) ProtoSize() (n int) {
 	return n
 }
 
-func (m *DiscoverResponse_Binding) ProtoSize() (n int) {
+func (m *Request_Validate_Binding) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	l = len(m.RecommendedName)
-	if l > 0 {
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	l = len(m.ResourceSpecJson)
-	if l > 0 {
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	l = len(m.DocumentSchemaJson)
-	if l > 0 {
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	if len(m.KeyPtrs) > 0 {
-		for _, s := range m.KeyPtrs {
-			l = len(s)
-			n += 1 + l + sovCapture(uint64(l))
-		}
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *ValidateRequest) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.Capture)
-	if l > 0 {
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	if m.EndpointType != 0 {
-		n += 1 + sovCapture(uint64(m.EndpointType))
-	}
-	l = len(m.EndpointSpecJson)
-	if l > 0 {
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	if len(m.Bindings) > 0 {
-		for _, e := range m.Bindings {
-			l = e.ProtoSize()
-			n += 1 + l + sovCapture(uint64(l))
-		}
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *ValidateRequest_Binding) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.ResourceSpecJson)
+	l = len(m.ResourceConfigJson)
 	if l > 0 {
 		n += 1 + l + sovCapture(uint64(l))
 	}
@@ -2937,43 +2207,7 @@ func (m *ValidateRequest_Binding) ProtoSize() (n int) {
 	return n
 }
 
-func (m *ValidateResponse) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if len(m.Bindings) > 0 {
-		for _, e := range m.Bindings {
-			l = e.ProtoSize()
-			n += 1 + l + sovCapture(uint64(l))
-		}
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *ValidateResponse_Binding) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if len(m.ResourcePath) > 0 {
-		for _, s := range m.ResourcePath {
-			l = len(s)
-			n += 1 + l + sovCapture(uint64(l))
-		}
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *ApplyRequest) ProtoSize() (n int) {
+func (m *Request_Apply) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -2996,7 +2230,209 @@ func (m *ApplyRequest) ProtoSize() (n int) {
 	return n
 }
 
-func (m *ApplyResponse) ProtoSize() (n int) {
+func (m *Request_Open) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Capture != nil {
+		l = m.Capture.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	l = len(m.Version)
+	if l > 0 {
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.Range != nil {
+		l = m.Range.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	l = len(m.StateJson)
+	if l > 0 {
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Request_Acknowledge) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Checkpoints != 0 {
+		n += 1 + sovCapture(uint64(m.Checkpoints))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Response) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Spec != nil {
+		l = m.Spec.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.Discovered != nil {
+		l = m.Discovered.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.Validated != nil {
+		l = m.Validated.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.Applied != nil {
+		l = m.Applied.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.Opened != nil {
+		l = m.Opened.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.Captured != nil {
+		l = m.Captured.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.Checkpoint != nil {
+		l = m.Checkpoint.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.Internal != nil {
+		l = m.Internal.ProtoSize()
+		n += 2 + l + sovCapture(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Response_Spec) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Protocol != 0 {
+		n += 1 + sovCapture(uint64(m.Protocol))
+	}
+	l = len(m.ConfigSchemaJson)
+	if l > 0 {
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	l = len(m.ResourceConfigSchemaJson)
+	if l > 0 {
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	l = len(m.DocumentationUrl)
+	if l > 0 {
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.Oauth2 != nil {
+		l = m.Oauth2.ProtoSize()
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Response_Discovered) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if len(m.Bindings) > 0 {
+		for _, e := range m.Bindings {
+			l = e.ProtoSize()
+			n += 1 + l + sovCapture(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Response_Discovered_Binding) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.RecommendedName)
+	if l > 0 {
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	l = len(m.ResourceConfigJson)
+	if l > 0 {
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	l = len(m.DocumentSchemaJson)
+	if l > 0 {
+		n += 1 + l + sovCapture(uint64(l))
+	}
+	if len(m.Key) > 0 {
+		for _, s := range m.Key {
+			l = len(s)
+			n += 1 + l + sovCapture(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Response_Validated) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if len(m.Bindings) > 0 {
+		for _, e := range m.Bindings {
+			l = e.ProtoSize()
+			n += 1 + l + sovCapture(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Response_Validated_Binding) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if len(m.ResourcePath) > 0 {
+		for _, s := range m.ResourcePath {
+			l = len(s)
+			n += 1 + l + sovCapture(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Response_Applied) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -3012,118 +2448,7 @@ func (m *ApplyResponse) ProtoSize() (n int) {
 	return n
 }
 
-func (m *Documents) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.Binding != 0 {
-		n += 1 + sovCapture(uint64(m.Binding))
-	}
-	l = len(m.Arena)
-	if l > 0 {
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	if len(m.DocsJson) > 0 {
-		for _, e := range m.DocsJson {
-			l = e.ProtoSize()
-			n += 1 + l + sovCapture(uint64(l))
-		}
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *Acknowledge) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *PullRequest) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.Open != nil {
-		l = m.Open.ProtoSize()
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	if m.Acknowledge != nil {
-		l = m.Acknowledge.ProtoSize()
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *PullRequest_Open) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.Capture != nil {
-		l = m.Capture.ProtoSize()
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	l = len(m.Version)
-	if l > 0 {
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	if m.KeyBegin != 0 {
-		n += 5
-	}
-	if m.KeyEnd != 0 {
-		n += 5
-	}
-	l = len(m.DriverCheckpointJson)
-	if l > 0 {
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *PullResponse) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.Opened != nil {
-		l = m.Opened.ProtoSize()
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	if m.Documents != nil {
-		l = m.Documents.ProtoSize()
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	if m.Checkpoint != nil {
-		l = m.Checkpoint.ProtoSize()
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *PullResponse_Opened) ProtoSize() (n int) {
+func (m *Response_Opened) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -3138,41 +2463,16 @@ func (m *PullResponse_Opened) ProtoSize() (n int) {
 	return n
 }
 
-func (m *PushRequest) ProtoSize() (n int) {
+func (m *Response_Captured) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	if m.Open != nil {
-		l = m.Open.ProtoSize()
-		n += 1 + l + sovCapture(uint64(l))
+	if m.Binding != 0 {
+		n += 1 + sovCapture(uint64(m.Binding))
 	}
-	if m.Documents != nil {
-		l = m.Documents.ProtoSize()
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	if m.Checkpoint != nil {
-		l = m.Checkpoint.ProtoSize()
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *PushRequest_Open) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.Header != nil {
-		l = m.Header.ProtoSize()
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	l = len(m.Capture)
+	l = len(m.DocJson)
 	if l > 0 {
 		n += 1 + l + sovCapture(uint64(l))
 	}
@@ -3182,53 +2482,14 @@ func (m *PushRequest_Open) ProtoSize() (n int) {
 	return n
 }
 
-func (m *PushResponse) ProtoSize() (n int) {
+func (m *Response_Checkpoint) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	if m.Opened != nil {
-		l = m.Opened.ProtoSize()
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	if m.Acknowledge != nil {
-		l = m.Acknowledge.ProtoSize()
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *PushResponse_Opened) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.Status != 0 {
-		n += 1 + sovCapture(uint64(m.Status))
-	}
-	l = m.Header.ProtoSize()
-	n += 1 + l + sovCapture(uint64(l))
-	if m.Capture != nil {
-		l = m.Capture.ProtoSize()
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	l = len(m.Version)
-	if l > 0 {
-		n += 1 + l + sovCapture(uint64(l))
-	}
-	if m.KeyBegin != 0 {
-		n += 5
-	}
-	if m.KeyEnd != 0 {
-		n += 5
-	}
-	l = len(m.DriverCheckpointJson)
-	if l > 0 {
+	if m.State != nil {
+		l = m.State.ProtoSize()
 		n += 1 + l + sovCapture(uint64(l))
 	}
 	if m.XXX_unrecognized != nil {
@@ -3243,7 +2504,7 @@ func sovCapture(x uint64) (n int) {
 func sozCapture(x uint64) (n int) {
 	return sovCapture(uint64((x << 1) ^ uint64((int64(x) >> 63))))
 }
-func (m *SpecRequest) Unmarshal(dAtA []byte) error {
+func (m *Request) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -3266,213 +2527,15 @@ func (m *SpecRequest) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: SpecRequest: wiretype end group for non-group")
+			return fmt.Errorf("proto: Request: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: SpecRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EndpointType", wireType)
-			}
-			m.EndpointType = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.EndpointType |= flow.EndpointType(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EndpointSpecJson", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.EndpointSpecJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipCapture(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *SpecResponse) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowCapture
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: SpecResponse: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: SpecResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: Request: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EndpointSpecSchemaJson", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.EndpointSpecSchemaJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ResourceSpecSchemaJson", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.ResourceSpecSchemaJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DocumentationUrl", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.DocumentationUrl = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 4:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Oauth2Spec", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Spec", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -3499,169 +2562,16 @@ func (m *SpecResponse) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.Oauth2Spec == nil {
-				m.Oauth2Spec = &flow.OAuth2Spec{}
+			if m.Spec == nil {
+				m.Spec = &Request_Spec{}
 			}
-			if err := m.Oauth2Spec.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.Spec.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipCapture(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *DiscoverRequest) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowCapture
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: DiscoverRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: DiscoverRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EndpointType", wireType)
-			}
-			m.EndpointType = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.EndpointType |= flow.EndpointType(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
 		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EndpointSpecJson", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.EndpointSpecJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipCapture(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *DiscoverResponse) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowCapture
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: DiscoverResponse: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: DiscoverResponse: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Bindings", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Discover", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -3688,131 +2598,18 @@ func (m *DiscoverResponse) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Bindings = append(m.Bindings, &DiscoverResponse_Binding{})
-			if err := m.Bindings[len(m.Bindings)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if m.Discover == nil {
+				m.Discover = &Request_Discover{}
+			}
+			if err := m.Discover.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipCapture(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *DiscoverResponse_Binding) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowCapture
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: Binding: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: Binding: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field RecommendedName", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.RecommendedName = github_com_estuary_flow_go_protocols_flow.Collection(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ResourceSpecJson", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.ResourceSpecJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 3:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DocumentSchemaJson", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Validate", wireType)
 			}
-			var stringLen uint64
+			var msglen int
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowCapture
@@ -3822,29 +2619,33 @@ func (m *DiscoverResponse_Binding) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
+				msglen |= int(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
+			if msglen < 0 {
 				return ErrInvalidLengthCapture
 			}
-			postIndex := iNdEx + intStringLen
+			postIndex := iNdEx + msglen
 			if postIndex < 0 {
 				return ErrInvalidLengthCapture
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.DocumentSchemaJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
+			if m.Validate == nil {
+				m.Validate = &Request_Validate{}
+			}
+			if err := m.Validate.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
 			iNdEx = postIndex
 		case 4:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field KeyPtrs", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Apply", wireType)
 			}
-			var stringLen uint64
+			var msglen int
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowCapture
@@ -3854,23 +2655,135 @@ func (m *DiscoverResponse_Binding) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
+				msglen |= int(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
+			if msglen < 0 {
 				return ErrInvalidLengthCapture
 			}
-			postIndex := iNdEx + intStringLen
+			postIndex := iNdEx + msglen
 			if postIndex < 0 {
 				return ErrInvalidLengthCapture
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.KeyPtrs = append(m.KeyPtrs, string(dAtA[iNdEx:postIndex]))
+			if m.Apply == nil {
+				m.Apply = &Request_Apply{}
+			}
+			if err := m.Apply.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Open", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Open == nil {
+				m.Open = &Request_Open{}
+			}
+			if err := m.Open.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Acknowledge", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Acknowledge == nil {
+				m.Acknowledge = &Request_Acknowledge{}
+			}
+			if err := m.Acknowledge.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 100:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Internal", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Internal == nil {
+				m.Internal = &types.Any{}
+			}
+			if err := m.Internal.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -3894,7 +2807,7 @@ func (m *DiscoverResponse_Binding) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
+func (m *Request_Spec) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -3917,15 +2830,34 @@ func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: ValidateRequest: wiretype end group for non-group")
+			return fmt.Errorf("proto: Spec: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ValidateRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: Spec: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ConnectorType", wireType)
+			}
+			m.ConnectorType = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ConnectorType |= flow.CaptureSpec_ConnectorType(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Capture", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field ConfigJson", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -3953,13 +2885,64 @@ func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Capture = github_com_estuary_flow_go_protocols_flow.Capture(dAtA[iNdEx:postIndex])
+			m.ConfigJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 2:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EndpointType", wireType)
+		default:
+			iNdEx = preIndex
+			skippy, err := skipCapture(dAtA[iNdEx:])
+			if err != nil {
+				return err
 			}
-			m.EndpointType = 0
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Request_Discover) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowCapture
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Discover: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Discover: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ConnectorType", wireType)
+			}
+			m.ConnectorType = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowCapture
@@ -3969,14 +2952,148 @@ func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.EndpointType |= flow.EndpointType(b&0x7F) << shift
+				m.ConnectorType |= flow.CaptureSpec_ConnectorType(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ConfigJson", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ConfigJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipCapture(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Request_Validate) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowCapture
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Validate: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Validate: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Name", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Name = github_com_estuary_flow_go_protocols_flow.Capture(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ConnectorType", wireType)
+			}
+			m.ConnectorType = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ConnectorType |= flow.CaptureSpec_ConnectorType(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
 		case 3:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EndpointSpecJson", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field ConfigJson", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -4004,7 +3121,7 @@ func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.EndpointSpecJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
+			m.ConfigJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 4:
 			if wireType != 2 {
@@ -4035,8 +3152,42 @@ func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Bindings = append(m.Bindings, &ValidateRequest_Binding{})
+			m.Bindings = append(m.Bindings, &Request_Validate_Binding{})
 			if err := m.Bindings[len(m.Bindings)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field NetworkPorts", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.NetworkPorts = append(m.NetworkPorts, &flow.NetworkPort{})
+			if err := m.NetworkPorts[len(m.NetworkPorts)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -4062,7 +3213,7 @@ func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *ValidateRequest_Binding) Unmarshal(dAtA []byte) error {
+func (m *Request_Validate_Binding) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -4093,7 +3244,7 @@ func (m *ValidateRequest_Binding) Unmarshal(dAtA []byte) error {
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ResourceSpecJson", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field ResourceConfigJson", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -4121,7 +3272,7 @@ func (m *ValidateRequest_Binding) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.ResourceSpecJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
+			m.ResourceConfigJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 2:
 			if wireType != 2 {
@@ -4178,7 +3329,7 @@ func (m *ValidateRequest_Binding) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *ValidateResponse) Unmarshal(dAtA []byte) error {
+func (m *Request_Apply) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -4201,178 +3352,10 @@ func (m *ValidateResponse) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: ValidateResponse: wiretype end group for non-group")
+			return fmt.Errorf("proto: Apply: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ValidateResponse: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Bindings", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Bindings = append(m.Bindings, &ValidateResponse_Binding{})
-			if err := m.Bindings[len(m.Bindings)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipCapture(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *ValidateResponse_Binding) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowCapture
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: Binding: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: Binding: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ResourcePath", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.ResourcePath = append(m.ResourcePath, string(dAtA[iNdEx:postIndex]))
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipCapture(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *ApplyRequest) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowCapture
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: ApplyRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ApplyRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: Apply: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -4485,402 +3468,7 @@ func (m *ApplyRequest) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *ApplyResponse) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowCapture
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: ApplyResponse: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ApplyResponse: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ActionDescription", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.ActionDescription = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipCapture(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *Documents) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowCapture
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: Documents: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: Documents: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Binding", wireType)
-			}
-			m.Binding = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.Binding |= uint32(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
-			}
-			var byteLen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				byteLen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if byteLen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + byteLen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Arena = append(m.Arena[:0], dAtA[iNdEx:postIndex]...)
-			if m.Arena == nil {
-				m.Arena = []byte{}
-			}
-			iNdEx = postIndex
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DocsJson", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.DocsJson = append(m.DocsJson, flow.Slice{})
-			if err := m.DocsJson[len(m.DocsJson)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipCapture(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *Acknowledge) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowCapture
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: Acknowledge: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: Acknowledge: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		default:
-			iNdEx = preIndex
-			skippy, err := skipCapture(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *PullRequest) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowCapture
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: PullRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: PullRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Open", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.Open == nil {
-				m.Open = &PullRequest_Open{}
-			}
-			if err := m.Open.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Acknowledge", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.Acknowledge == nil {
-				m.Acknowledge = &Acknowledge{}
-			}
-			if err := m.Acknowledge.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipCapture(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *PullRequest_Open) Unmarshal(dAtA []byte) error {
+func (m *Request_Open) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -4978,30 +3566,10 @@ func (m *PullRequest_Open) Unmarshal(dAtA []byte) error {
 			m.Version = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 3:
-			if wireType != 5 {
-				return fmt.Errorf("proto: wrong wireType = %d for field KeyBegin", wireType)
-			}
-			m.KeyBegin = 0
-			if (iNdEx + 4) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.KeyBegin = uint32(encoding_binary.LittleEndian.Uint32(dAtA[iNdEx:]))
-			iNdEx += 4
-		case 4:
-			if wireType != 5 {
-				return fmt.Errorf("proto: wrong wireType = %d for field KeyEnd", wireType)
-			}
-			m.KeyEnd = 0
-			if (iNdEx + 4) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.KeyEnd = uint32(encoding_binary.LittleEndian.Uint32(dAtA[iNdEx:]))
-			iNdEx += 4
-		case 5:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DriverCheckpointJson", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Range", wireType)
 			}
-			var byteLen int
+			var msglen int
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowCapture
@@ -5011,25 +3579,59 @@ func (m *PullRequest_Open) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				byteLen |= int(b&0x7F) << shift
+				msglen |= int(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if byteLen < 0 {
+			if msglen < 0 {
 				return ErrInvalidLengthCapture
 			}
-			postIndex := iNdEx + byteLen
+			postIndex := iNdEx + msglen
 			if postIndex < 0 {
 				return ErrInvalidLengthCapture
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.DriverCheckpointJson = append(m.DriverCheckpointJson[:0], dAtA[iNdEx:postIndex]...)
-			if m.DriverCheckpointJson == nil {
-				m.DriverCheckpointJson = []byte{}
+			if m.Range == nil {
+				m.Range = &flow.RangeSpec{}
 			}
+			if err := m.Range.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field StateJson", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.StateJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -5053,7 +3655,7 @@ func (m *PullRequest_Open) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *PullResponse) Unmarshal(dAtA []byte) error {
+func (m *Request_Acknowledge) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -5076,13 +3678,227 @@ func (m *PullResponse) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: PullResponse: wiretype end group for non-group")
+			return fmt.Errorf("proto: Acknowledge: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: PullResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: Acknowledge: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Checkpoints", wireType)
+			}
+			m.Checkpoints = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Checkpoints |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipCapture(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Response) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowCapture
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Response: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Response: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Spec", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Spec == nil {
+				m.Spec = &Response_Spec{}
+			}
+			if err := m.Spec.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Discovered", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Discovered == nil {
+				m.Discovered = &Response_Discovered{}
+			}
+			if err := m.Discovered.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Validated", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Validated == nil {
+				m.Validated = &Response_Validated{}
+			}
+			if err := m.Validated.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Applied", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Applied == nil {
+				m.Applied = &Response_Applied{}
+			}
+			if err := m.Applied.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 5:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Opened", wireType)
 			}
@@ -5112,15 +3928,15 @@ func (m *PullResponse) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.Opened == nil {
-				m.Opened = &PullResponse_Opened{}
+				m.Opened = &Response_Opened{}
 			}
 			if err := m.Opened.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
-		case 2:
+		case 6:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Documents", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Captured", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -5147,14 +3963,14 @@ func (m *PullResponse) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.Documents == nil {
-				m.Documents = &Documents{}
+			if m.Captured == nil {
+				m.Captured = &Response_Captured{}
 			}
-			if err := m.Documents.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.Captured.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
-		case 3:
+		case 7:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Checkpoint", wireType)
 			}
@@ -5184,9 +4000,45 @@ func (m *PullResponse) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.Checkpoint == nil {
-				m.Checkpoint = &flow.DriverCheckpoint{}
+				m.Checkpoint = &Response_Checkpoint{}
 			}
 			if err := m.Checkpoint.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 100:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Internal", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Internal == nil {
+				m.Internal = &types.Any{}
+			}
+			if err := m.Internal.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -5212,7 +4064,724 @@ func (m *PullResponse) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *PullResponse_Opened) Unmarshal(dAtA []byte) error {
+func (m *Response_Spec) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowCapture
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Spec: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Spec: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Protocol", wireType)
+			}
+			m.Protocol = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Protocol |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ConfigSchemaJson", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ConfigSchemaJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ResourceConfigSchemaJson", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ResourceConfigSchemaJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DocumentationUrl", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DocumentationUrl = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Oauth2", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Oauth2 == nil {
+				m.Oauth2 = &flow.OAuth2{}
+			}
+			if err := m.Oauth2.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipCapture(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Response_Discovered) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowCapture
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Discovered: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Discovered: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Bindings", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Bindings = append(m.Bindings, &Response_Discovered_Binding{})
+			if err := m.Bindings[len(m.Bindings)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipCapture(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Response_Discovered_Binding) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowCapture
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Binding: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Binding: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RecommendedName", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.RecommendedName = github_com_estuary_flow_go_protocols_flow.Collection(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ResourceConfigJson", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ResourceConfigJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DocumentSchemaJson", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DocumentSchemaJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Key", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Key = append(m.Key, string(dAtA[iNdEx:postIndex]))
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipCapture(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Response_Validated) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowCapture
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Validated: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Validated: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Bindings", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Bindings = append(m.Bindings, &Response_Validated_Binding{})
+			if err := m.Bindings[len(m.Bindings)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipCapture(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Response_Validated_Binding) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowCapture
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Binding: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Binding: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ResourcePath", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ResourcePath = append(m.ResourcePath, string(dAtA[iNdEx:postIndex]))
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipCapture(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Response_Applied) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowCapture
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Applied: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Applied: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ActionDescription", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowCapture
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthCapture
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ActionDescription = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipCapture(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Response_Opened) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -5283,7 +4852,7 @@ func (m *PullResponse_Opened) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *PushRequest) Unmarshal(dAtA []byte) error {
+func (m *Response_Captured) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -5306,418 +4875,17 @@ func (m *PushRequest) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: PushRequest: wiretype end group for non-group")
+			return fmt.Errorf("proto: Captured: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: PushRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Open", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.Open == nil {
-				m.Open = &PushRequest_Open{}
-			}
-			if err := m.Open.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Documents", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.Documents == nil {
-				m.Documents = &Documents{}
-			}
-			if err := m.Documents.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Checkpoint", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.Checkpoint == nil {
-				m.Checkpoint = &flow.DriverCheckpoint{}
-			}
-			if err := m.Checkpoint.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipCapture(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *PushRequest_Open) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowCapture
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: Open: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: Open: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Header", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.Header == nil {
-				m.Header = &protocol.Header{}
-			}
-			if err := m.Header.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Capture", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Capture = github_com_estuary_flow_go_protocols_flow.Capture(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipCapture(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *PushResponse) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowCapture
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: PushResponse: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: PushResponse: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Opened", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.Opened == nil {
-				m.Opened = &PushResponse_Opened{}
-			}
-			if err := m.Opened.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Acknowledge", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.Acknowledge == nil {
-				m.Acknowledge = &Acknowledge{}
-			}
-			if err := m.Acknowledge.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipCapture(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *PushResponse_Opened) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowCapture
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: Opened: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: Opened: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: Captured: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Status", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Binding", wireType)
 			}
-			m.Status = 0
+			m.Binding = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowCapture
@@ -5727,83 +4895,14 @@ func (m *PushResponse_Opened) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.Status |= protocol1.Status(b&0x7F) << shift
+				m.Binding |= uint32(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
 		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Header", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if err := m.Header.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Capture", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowCapture
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthCapture
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthCapture
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.Capture == nil {
-				m.Capture = &flow.CaptureSpec{}
-			}
-			if err := m.Capture.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 4:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Version", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field DocJson", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -5831,33 +4930,64 @@ func (m *PushResponse_Opened) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Version = string(dAtA[iNdEx:postIndex])
+			m.DocJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 5:
-			if wireType != 5 {
-				return fmt.Errorf("proto: wrong wireType = %d for field KeyBegin", wireType)
+		default:
+			iNdEx = preIndex
+			skippy, err := skipCapture(dAtA[iNdEx:])
+			if err != nil {
+				return err
 			}
-			m.KeyBegin = 0
-			if (iNdEx + 4) > l {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthCapture
+			}
+			if (iNdEx + skippy) > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.KeyBegin = uint32(encoding_binary.LittleEndian.Uint32(dAtA[iNdEx:]))
-			iNdEx += 4
-		case 6:
-			if wireType != 5 {
-				return fmt.Errorf("proto: wrong wireType = %d for field KeyEnd", wireType)
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Response_Checkpoint) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowCapture
 			}
-			m.KeyEnd = 0
-			if (iNdEx + 4) > l {
+			if iNdEx >= l {
 				return io.ErrUnexpectedEOF
 			}
-			m.KeyEnd = uint32(encoding_binary.LittleEndian.Uint32(dAtA[iNdEx:]))
-			iNdEx += 4
-		case 7:
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Checkpoint: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Checkpoint: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DriverCheckpointJson", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field State", wireType)
 			}
-			var byteLen int
+			var msglen int
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowCapture
@@ -5867,24 +4997,26 @@ func (m *PushResponse_Opened) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				byteLen |= int(b&0x7F) << shift
+				msglen |= int(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if byteLen < 0 {
+			if msglen < 0 {
 				return ErrInvalidLengthCapture
 			}
-			postIndex := iNdEx + byteLen
+			postIndex := iNdEx + msglen
 			if postIndex < 0 {
 				return ErrInvalidLengthCapture
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.DriverCheckpointJson = append(m.DriverCheckpointJson[:0], dAtA[iNdEx:postIndex]...)
-			if m.DriverCheckpointJson == nil {
-				m.DriverCheckpointJson = []byte{}
+			if m.State == nil {
+				m.State = &flow.ConnectorState{}
+			}
+			if err := m.State.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
 			}
 			iNdEx = postIndex
 		default:

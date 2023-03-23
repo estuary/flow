@@ -3,20 +3,22 @@ package materialize
 import (
 	"context"
 	"io"
-	"io/ioutil"
+	"os"
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
+	pb "go.gazette.dev/core/broker/protocol"
+	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 //go:generate flowctl-go api build --build-id temp.db --directory testdata/ --source testdata/flow.yaml
 //go:generate sqlite3 file:testdata/temp.db "SELECT WRITEFILE('testdata/materialization.proto', spec) FROM built_materializations WHERE materialization = 'test/sqlite';"
 
 func TestStreamLifecycle(t *testing.T) {
-	var specBytes, err = ioutil.ReadFile("testdata/materialization.proto")
+	var specBytes, err = os.ReadFile("testdata/materialization.proto")
 	require.NoError(t, err)
 	var spec pf.MaterializationSpec
 	require.NoError(t, spec.Unmarshal(specBytes))
@@ -25,17 +27,20 @@ func TestStreamLifecycle(t *testing.T) {
 	var srvRPC = &srvStream{stream: stream}
 	var cliRPC = &clientStream{stream: stream}
 
-	txRequest, err := WriteOpen(cliRPC, &TransactionRequest_Open{
+	txRequest, err := WriteOpen(cliRPC, &Request_Open{
 		Materialization: &spec,
 		Version:         "someVersion",
 	})
 	require.NoError(t, err)
 
-	rxRequest, err := ReadOpen(srvRPC)
-	require.NoError(t, err)
+	var rxRequest Request
+	require.NoError(t, srvRPC.RecvMsg(&rxRequest))
+	require.NotNil(t, rxRequest.Open)
 
-	txResponse, err := WriteOpened(srvRPC, &TransactionResponse_Opened{
-		RuntimeCheckpoint: []byte(`recovered-runtime-checkpoint`),
+	txResponse, err := WriteOpened(srvRPC, &Response_Opened{
+		RuntimeCheckpoint: &pc.Checkpoint{
+			Sources: map[pb.Journal]pc.Checkpoint_Source{"a/journal": {ReadThrough: 111}},
+		},
 	})
 	require.NoError(t, err)
 
@@ -50,11 +55,11 @@ func TestStreamLifecycle(t *testing.T) {
 	require.NoError(t, ReadAcknowledged(cliRPC, &rxResponse))
 
 	// Runtime sends multiple Loads, then Flush.
-	require.NoError(t, WriteLoad(cliRPC, &txRequest, 0, tuple.Tuple{"key-1"}.Pack()))
-	require.NoError(t, WriteLoad(cliRPC, &txRequest, 1, tuple.Tuple{2}.Pack()))
-	require.NoError(t, WriteLoad(cliRPC, &txRequest, 1, tuple.Tuple{-3}.Pack()))
-	require.NoError(t, WriteLoad(cliRPC, &txRequest, 1, tuple.Tuple{"four"}.Pack()))
-	require.NoError(t, WriteLoad(cliRPC, &txRequest, 0, tuple.Tuple{[]byte("five")}.Pack()))
+	require.NoError(t, WriteLoad(cliRPC, &txRequest, 0, tuple.Tuple{"key-1"}.Pack(), []byte("[1]")))
+	require.NoError(t, WriteLoad(cliRPC, &txRequest, 1, tuple.Tuple{2}.Pack(), []byte("[2]")))
+	require.NoError(t, WriteLoad(cliRPC, &txRequest, 1, tuple.Tuple{-3}.Pack(), []byte("[3]")))
+	require.NoError(t, WriteLoad(cliRPC, &txRequest, 1, tuple.Tuple{"four"}.Pack(), []byte("[4]")))
+	require.NoError(t, WriteLoad(cliRPC, &txRequest, 0, tuple.Tuple{[]byte("five")}.Pack(), []byte("[5]")))
 	require.NoError(t, WriteFlush(cliRPC, &txRequest))
 
 	// Driver reads Loads.
@@ -83,11 +88,15 @@ func TestStreamLifecycle(t *testing.T) {
 	loaded, err := ReadLoaded(cliRPC, &rxResponse)
 	require.NoError(t, err)
 	require.Equal(t, 0, int(loaded.Binding))
-	require.Equal(t, 2, len(loaded.DocsJson))
+	require.Equal(t, "loaded-1", string(loaded.DocJson))
+	loaded, err = ReadLoaded(cliRPC, &rxResponse)
+	require.NoError(t, err)
+	require.Equal(t, 0, int(loaded.Binding))
+	require.Equal(t, "loaded-2", string(loaded.DocJson))
 	loaded, err = ReadLoaded(cliRPC, &rxResponse)
 	require.NoError(t, err)
 	require.Equal(t, 2, int(loaded.Binding))
-	require.Equal(t, 1, len(loaded.DocsJson))
+	require.Equal(t, "loaded-3", string(loaded.DocJson))
 	loaded, err = ReadLoaded(cliRPC, &rxResponse)
 	require.NoError(t, err)
 	require.Nil(t, loaded) // Indicates end of Loaded responses.
@@ -97,13 +106,14 @@ func TestStreamLifecycle(t *testing.T) {
 
 	// Runtime sends Store, then StartCommit with runtime checkpoint.
 	require.NoError(t, WriteStore(cliRPC, &txRequest,
-		0, tuple.Tuple{"key-1"}.Pack(), tuple.Tuple{false}.Pack(), []byte(`doc-1`), true))
+		0, tuple.Tuple{"key-1"}.Pack(), []byte("[1]"), tuple.Tuple{false}.Pack(), []byte("[11]"), []byte(`doc-1`), true))
 	require.NoError(t, WriteStore(cliRPC, &txRequest,
-		0, tuple.Tuple{"key", 2}.Pack(), tuple.Tuple{"two"}.Pack(), []byte(`doc-2`), false))
+		0, tuple.Tuple{"key", 2}.Pack(), []byte("[2]"), tuple.Tuple{"two"}.Pack(), []byte("[22]"), []byte(`doc-2`), false))
 	require.NoError(t, WriteStore(cliRPC, &txRequest,
-		1, tuple.Tuple{"three"}.Pack(), tuple.Tuple{true}.Pack(), []byte(`doc-3`), true))
-	require.NoError(t, WriteStartCommit(cliRPC, &txRequest, pf.Checkpoint{
-		AckIntents: map[pf.Journal][]byte{"a-checkpoint": nil}}))
+		1, tuple.Tuple{"three"}.Pack(), []byte("[3]"), tuple.Tuple{true}.Pack(), []byte("[33]"), []byte(`doc-3`), true))
+	require.NoError(t, WriteStartCommit(cliRPC, &txRequest, &pc.Checkpoint{
+		Sources: map[pb.Journal]pc.Checkpoint_Source{"a/journal": {ReadThrough: 222}},
+	}))
 
 	// Driver reads stores.
 	var sit = &StoreIterator{stream: srvRPC, request: &rxRequest}
@@ -138,12 +148,12 @@ func TestStreamLifecycle(t *testing.T) {
 
 	// Driver sends StartedCommit.
 	require.NoError(t, WriteStartedCommit(srvRPC, &txResponse,
-		&pf.DriverCheckpoint{DriverCheckpointJson: []byte(`checkpoint`)}))
+		&pf.ConnectorState{UpdatedJson: []byte(`checkpoint`)}))
 
 	// Runtime reads StartedCommit.
 	driverCP, err := ReadStartedCommit(cliRPC, &rxResponse)
 	require.NoError(t, err)
-	require.Equal(t, "checkpoint", string(driverCP.DriverCheckpointJson))
+	require.Equal(t, "checkpoint", string(driverCP.UpdatedJson))
 
 	// Write Acknowledge and read Acknowledged.
 	require.NoError(t, WriteAcknowledge(cliRPC, &txRequest))
@@ -158,9 +168,9 @@ func TestStreamLifecycle(t *testing.T) {
 
 type stream struct {
 	reqInd  int
-	req     []TransactionRequest
+	req     []Request
 	respInd int
-	resp    []TransactionResponse
+	resp    []Response
 }
 
 func (s stream) Context() context.Context { return context.Background() }
@@ -168,12 +178,12 @@ func (s stream) Context() context.Context { return context.Background() }
 type clientStream struct{ *stream }
 type srvStream struct{ *stream }
 
-func (s *clientStream) Send(r *TransactionRequest) error {
+func (s *clientStream) Send(r *Request) error {
 	s.req = append(s.req, *r)
 	return nil
 }
 
-func (s *srvStream) Send(r *TransactionResponse) error {
+func (s *srvStream) Send(r *Response) error {
 	s.resp = append(s.resp, *r)
 	return nil
 }
@@ -183,7 +193,7 @@ func (s *clientStream) RecvMsg(out interface{}) error {
 		return io.EOF
 	}
 
-	*out.(*TransactionResponse) = s.resp[s.respInd]
+	*out.(*Response) = s.resp[s.respInd]
 	s.respInd += 1
 	return nil
 }
@@ -193,7 +203,7 @@ func (s *srvStream) RecvMsg(out interface{}) error {
 		return io.EOF
 	}
 
-	*out.(*TransactionRequest) = s.req[s.reqInd]
+	*out.(*Request) = s.req[s.reqInd]
 	s.reqInd += 1
 	return nil
 }

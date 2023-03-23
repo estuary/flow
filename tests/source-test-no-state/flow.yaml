@@ -19,7 +19,7 @@ captures:
   examples/source-test-no-state:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-test:dev
+        image: ghcr.io/estuary/source-test:d97009e
         config:
           # Number of greeting documents to produce
           # [integer] (required)

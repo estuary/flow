@@ -1,9 +1,4 @@
 test://example/catalog.yaml:
-  resources:
-    test://example/malformed-config.yaml:
-      content: abcd1234
-      contentType: CONFIG
-
   captures:
     first/capture:
       endpoint:
@@ -21,37 +16,31 @@ test://example/catalog.yaml:
 
     capture/second:
       endpoint:
-        # Continue support for deprecated `airbyteSource`.
-        airbyteSource:
+        connector:
           image: another/image
           config: referenced/config.yaml
       interval: 3m
       bindings:
         - target: third/collection
-          resource: {}
+          resource: referenced/resource.yaml
       shards:
         maxTxnDuration: 30s
         logLevel: debug
-
-    capture/ingest:
-      endpoint:
-        ingest: {}
-      bindings:
-        - target: third/collection
-          resource: {}
 
     capture/config-missing:
       endpoint:
         connector:
           image: another/image
           config: config/not/found.yaml
-      bindings: []
+      bindings:
+        - target: some/collection
+          resource: resource/not/found.yaml
 
-    capture/config-parse-error:
+    capture/config-raw:
       endpoint:
         connector:
           image: another/image
-          config: malformed-config.yaml
+          config: raw-config.foo
       bindings: []
 
   materializations:
@@ -66,10 +55,11 @@ test://example/catalog.yaml:
         - source: source/collection
           resource: { table: "table_one" }
         # Explicit selector and fields.
-        - source: other/source/collection
-          partitions:
-            include: { "a_field": ["some-val"] }
-            exclude: { "other": [42] }
+        - source:
+            name: other/source/collection
+            partitions:
+              include: { "a_field": ["some-val"] }
+              exclude: { "other": [42] }
           resource: { table: "table_two" }
           fields:
             include:
@@ -79,11 +69,12 @@ test://example/catalog.yaml:
 
     materialization/with-config:
       endpoint:
-        # Continue support for deprecated `flowSink`.
-        flowSink:
+        connector:
           image: materialization/another:image
           config: referenced/config.yaml
-      bindings: []
+      bindings:
+        - source: some/source/collection
+          resource: referenced/resource.yaml
 
     materialization/with-config-fragment:
       endpoint:
@@ -97,7 +88,9 @@ test://example/catalog.yaml:
         connector:
           image: materialization/image
           config: config/not/found.yaml
-      bindings: []
+      bindings:
+        - source: other/source/collection
+          resource: referenced/not/found.yaml
 
     to/sqlite:
       endpoint:
@@ -110,4 +103,13 @@ test://example/catalog.yaml:
         ringBufferSize: 12345
 
 test://example/referenced/config.yaml:
-  referenced: config
+  referenced: config that's fairly long and does not inline
+
+test://example/referenced/resource.yaml:
+  referenced: resource that's fairly long and does not inline
+
+test://example/raw-config.foo: |
+  fn main() {
+    do_the_thing();
+    do_another_really_long_thing_that_does_stuff_boy_this_is_running_on_huh()?;
+  }

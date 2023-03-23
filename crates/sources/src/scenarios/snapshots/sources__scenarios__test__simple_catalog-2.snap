@@ -1,0 +1,50 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+expression: tables
+---
+Sources {
+    captures: [],
+    collections: [
+        Collection {
+            scope: test://example/catalog.yaml#/collections/a~1collection,
+            collection: a/collection,
+            spec: {
+              "schema": {"$id":"test://example/schema","allOf":[true]},
+              "key": [
+                "/key"
+              ],
+              "projections": {
+                "baz": {
+                  "location": "/bing",
+                  "partition": true
+                },
+                "foo": "/bar"
+              }
+            },
+        },
+    ],
+    errors: [],
+    fetches: [],
+    imports: [
+        Import {
+            scope: test://example/catalog.yaml#/collections/a~1collection/schema,
+            to_resource: test://example/schema,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/0,
+            to_resource: test://example/sibling,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/1,
+            to_resource: test://example/sibling#/bad/fragment,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/2,
+            to_resource: test://not/found,
+        },
+    ],
+    materializations: [],
+    resources: [],
+    storage_mappings: [],
+    tests: [],
+}

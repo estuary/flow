@@ -81,7 +81,7 @@ func TestReadBuilding(t *testing.T) {
 				Range:  ranges,
 				Offset: 1122,
 			},
-			resp:      pf.IndexedShuffleResponse{Shuffle: shuffles[0]},
+			resp:      pf.IndexedShuffleResponse{ShuffleIndex: 0},
 			readDelay: 60e7 << 4, // 60 seconds as a message.Clock.
 		},
 	}, added)
@@ -114,7 +114,7 @@ func TestReadBuilding(t *testing.T) {
 			Offset:    1000,
 			EndOffset: 2000,
 		},
-		resp:      pf.IndexedShuffleResponse{Shuffle: shuffles[0]},
+		resp:      pf.IndexedShuffleResponse{ShuffleIndex: 0},
 		readDelay: 0,
 	}, r)
 
@@ -410,9 +410,9 @@ func TestWalkingReads(t *testing.T) {
 		// No additional reads for shard index == 2.
 
 		var err = walkReads(shards[index].Id, shards, journals, shuffles,
-			func(_ pf.RangeSpec, spec pb.JournalSpec, shuffle *pf.Shuffle, coordinator pc.ShardID) {
+			func(_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID) {
 				require.Equal(t, expect[0].journal, spec.Name.String())
-				require.Equal(t, expect[0].source, shuffle.SourceCollection.String())
+				require.Equal(t, expect[0].source, shuffles[shuffleIndex].SourceCollection.String())
 				require.Equal(t, expect[0].coordinator, coordinator)
 				expect = expect[1:]
 			})
@@ -424,17 +424,17 @@ func TestWalkingReads(t *testing.T) {
 	// portion of the key range is not covered by any shard.
 	// This results in an error when walking with shuffle "bar-one" which uses the source key.
 	var err = walkReads(shards[0].Id, shards[0:2], journals, shuffles[:1],
-		func(_ pf.RangeSpec, _ pb.JournalSpec, _ *pf.Shuffle, _ pc.ShardID) {})
+		func(_ pf.RangeSpec, _ pb.JournalSpec, _ int, _ pc.ShardID) {})
 	require.EqualError(t, err,
 		"none of 2 shards overlap the key-range of journal foo/bar=1/baz=abc/part=00, aaaaaaaa-ffffffff")
 	// But is not an error with shuffle "baz-def", which *doesn't* use the source key.
 	err = walkReads(shards[0].Id, shards[0:2], journals, shuffles[1:2],
-		func(_ pf.RangeSpec, _ pb.JournalSpec, _ *pf.Shuffle, _ pc.ShardID) {})
+		func(_ pf.RangeSpec, _ pb.JournalSpec, _ int, _ pc.ShardID) {})
 	require.NoError(t, err)
 
 	// Case: shard doesn't exist.
 	err = walkReads("shard/deleted", shards, journals, shuffles,
-		func(_ pf.RangeSpec, _ pb.JournalSpec, _ *pf.Shuffle, _ pc.ShardID) {})
+		func(_ pf.RangeSpec, _ pb.JournalSpec, _ int, _ pc.ShardID) {})
 	require.EqualError(t, err, "shard shard/deleted not found among shuffle members")
 }
 
@@ -511,7 +511,7 @@ func TestShuffleMemberOrdering(t *testing.T) {
 		"shard shard/3: expected estuary.dev/key-begin to be a 4-byte, hex encoded integer; got whoops")
 }
 
-func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.DerivationSpec) {
+func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.CollectionSpec) {
 	var journals = flow.Journals{
 		KeySpace: &keyspace.KeySpace{Root: "/the/root"}}
 
@@ -565,52 +565,49 @@ func buildReadTestJournalsAndTransforms() (flow.Journals, []*pc.ShardSpec, *pf.D
 	}
 
 	// Derivation fixture reading partitions of "foo" into derivation "der".
-	var task = &pf.DerivationSpec{
-		Transforms: []pf.TransformSpec{
-			{
-				Transform: "bar-one",
-				Shuffle: pf.Shuffle{
-					GroupName:        "transform/der/bar-one",
-					UsesSourceKey:    true,
+	var task = &pf.CollectionSpec{
+		Name: "der",
+		Derivation: &pf.CollectionSpec_Derivation{
+			Transforms: []pf.CollectionSpec_Derivation_Transform{
+				{
+					Name:             "bar-one",
 					ReadDelaySeconds: 60,
-					SourceCollection: "foo",
-					SourcePartitions: pb.LabelSelector{
+					Collection:       pf.CollectionSpec{Name: "foo"},
+					PartitionSelector: pb.LabelSelector{
 						Include: pb.MustLabelSet(labels.FieldPrefix+"bar", "1"),
 					},
+					JournalReadSuffix: "transform/der/bar-one",
 				},
-				Derivation: "der",
-			},
-			{
-				Transform: "baz-def",
-				Shuffle: pf.Shuffle{
-					GroupName:        "transform/der/baz-def",
-					UsesSourceKey:    false,
-					SourceCollection: "foo",
-					SourcePartitions: pb.LabelSelector{
+				{
+					Name:       "baz-def",
+					ShuffleKey: []string{"/key"},
+					Collection: pf.CollectionSpec{Name: "foo"},
+					PartitionSelector: pb.LabelSelector{
 						Include: pb.MustLabelSet(labels.FieldPrefix+"baz", "def"),
 					},
+					JournalReadSuffix: "transform/der/baz-def",
 				},
-				Derivation: "der",
-			},
-			{
-				Transform: "unmatched",
-				Shuffle: pf.Shuffle{
-					GroupName:        "transform/der/unmatched",
-					SourceCollection: "foo",
-					SourcePartitions: pb.LabelSelector{
+				{
+					Name:       "unmatched",
+					ShuffleKey: []string{"/key"},
+					Collection: pf.CollectionSpec{Name: "foo"},
+					PartitionSelector: pb.LabelSelector{
 						Include: pb.MustLabelSet(labels.FieldPrefix+"baz", "other-value"),
 					},
+					JournalReadSuffix: "transform/der/unmatched",
 				},
-				Derivation: "der",
-			},
-			{
-				Transform: "partitions-cover",
-				Shuffle: pf.Shuffle{
-					GroupName:                 "transform/der/partitions-cover",
-					SourceCollection:          "foo",
-					ShuffleKeyPartitionFields: []string{"baz", "bar"},
+				{
+					Name:       "partitions-cover",
+					ShuffleKey: []string{"/baz", "/bar"},
+					Collection: pf.CollectionSpec{
+						Name: "foo",
+						Projections: []pf.Projection{
+							{Ptr: "/bar", Field: "bar", IsPartitionKey: true},
+							{Ptr: "/baz", Field: "baz", IsPartitionKey: true},
+						},
+					},
+					JournalReadSuffix: "transform/der/partitions-cover",
 				},
-				Derivation: "der",
 			},
 		},
 	}

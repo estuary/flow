@@ -9,9 +9,10 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
+	pc "go.gazette.dev/core/consumer/protocol"
 )
 
-// Transactor is a store-agnostic interface for a materialization driver
+// Transactor is a store-agnostic interface for a materialization connector
 // that implements Flow materialization protocol transactions.
 type Transactor interface {
 	// Load implements the transaction load phase by consuming Load requests
@@ -37,7 +38,7 @@ type Transactor interface {
 	// a StartCommitFunc which is used to commit the stored transaction.
 	// StartCommitFunc may be nil, which indicate that commits are a
 	// no-op -- for example, as in an at-least-once materialization that
-	// doesn't use a DriverCheckpoint.
+	// doesn't use a ConnectorState checkpoint.
 	Store(*StoreIterator) (StartCommitFunc, error)
 	// Destroy the Transactor, releasing any held resources.
 	Destroy()
@@ -56,45 +57,38 @@ type Transactor interface {
 //
 // # When using the "Recovery Log is Authoritative with Idempotent Apply" pattern:
 //
-// StartCommitFunc must return a DriverCheckpoint which encodes the staged
+// StartCommitFunc must return a ConnectorState checkpoint which encodes the staged
 // application. It must begin an asynchronous application of this staged
 // update, immediately returning its OpFuture.
 //
 // That async application MUST await a future signal of `runtimeAckCh`
-// before taking action, however, to ensure that the DriverCheckpoint returned
+// before taking action, however, to ensure that the ConnectorState returned
 // by StartCommit has been durably committed to the runtime recovery log.
 // `runtimeAckCh` is closed when an Acknowledge request is received from
-// the runtime, indicating that the transaction and its DriverCheckpoint
+// the runtime, indicating that the transaction and its ConnectorState
 // have been committed to the runtime recovery log.
 //
-// Note it's possible that the DriverCheckpoint may commit to the log,
+// Note it's possible that the ConnectorState may commit to the log,
 // but then the runtime or this Transactor may crash before the application
 // is able to complete. For this reason, on initialization a Transactor must
-// take care to (re-)apply a staged update in the opened DriverCheckpoint.
+// take care to (re-)apply a staged update in the opened ConnectorState.
 //
 // If StartCommitFunc fails, it should return a pre-resolved OpFuture
 // which carries its error (for example, via FinishedOperation()).
 type StartCommitFunc = func(
 	_ context.Context,
-	runtimeCheckpoint []byte,
+	runtimeCheckpoint *pc.Checkpoint,
 	runtimeAckCh <-chan struct{},
-) (*pf.DriverCheckpoint, pf.OpFuture)
+) (*pf.ConnectorState, pf.OpFuture)
 
 // RunTransactions processes materialization protocol transactions
-// over the established stream against a Driver.
+// over the established stream against a Connector.
 func RunTransactions(
-	stream Driver_TransactionsServer,
-	newTransactor func(context.Context, TransactionRequest_Open) (Transactor, *TransactionResponse_Opened, error),
+	stream Connector_MaterializeServer,
+	open Request_Open,
+	opened Response_Opened,
+	transactor Transactor,
 ) (_err error) {
-
-	var rxRequest, err = ReadOpen(stream)
-	if err != nil {
-		return err
-	}
-	transactor, opened, err := newTransactor(stream.Context(), *rxRequest.Open)
-	if err != nil {
-		return err
-	}
 
 	defer func() {
 		if _err != nil {
@@ -105,7 +99,14 @@ func RunTransactions(
 		transactor.Destroy()
 	}()
 
-	txResponse, err := WriteOpened(stream, opened)
+	if err := open.Validate(); err != nil {
+		return fmt.Errorf("open is invalid: %w", err)
+	} else if err := opened.Validate(); err != nil {
+		return fmt.Errorf("opened is invalid: %w", err)
+	}
+
+	var rxRequest = Request{Open: &open}
+	var txResponse, err = WriteOpened(stream, &opened)
 	if err != nil {
 		return err
 	}
@@ -196,8 +197,16 @@ func RunTransactions(
 			// Prefer the iterator's error over `err` as it's earlier in the chain
 			// of dependency and is likely causal of (or equal to) `err`.
 			return it.err
+		} else if err != nil {
+			return err
+		} else if awaitDoneCh != nil {
+			// If a loaded() callback didn't already await and clear `awaitDoneCh`
+			// do it now. This isn't strictly necessary for the runtime, since it doesn't
+			// send Flush (breaking the Load iterator loop) until Acknowledged has
+			// been sent, but does make ordering consistent in test fixtures.
+			<-awaitDoneCh
 		}
-		return err
+		return nil
 	}
 
 	// ourCommitOp is a future for the last async startCommit().
@@ -266,15 +275,15 @@ func RunTransactions(
 		}
 		logrus.WithFields(logrus.Fields{"round": round, "stored": storeIt.total}).Debug("Store finished")
 
-		var runtimeCheckpoint []byte
+		var runtimeCheckpoint *pc.Checkpoint
 		if runtimeCheckpoint, err = ReadStartCommit(&rxRequest); err != nil {
 			return err
 		}
 
 		// `startCommit` may be nil to indicate a no-op commit.
-		var driverCheckpoint *pf.DriverCheckpoint
+		var connectorCheckpoint *pf.ConnectorState
 		if startCommit != nil {
-			driverCheckpoint, ourCommitOp = startCommit(
+			connectorCheckpoint, ourCommitOp = startCommit(
 				stream.Context(), runtimeCheckpoint, runtimeCommitCh)
 		}
 		// As a convenience, map a nil OpFuture to a pre-resolved one so the
@@ -284,7 +293,7 @@ func RunTransactions(
 		}
 
 		// If startCommit returned a pre-resolved error, fail-fast and don't
-		// send StartedCommit to the runtime, as `driverCheckpoint` may be invalid.
+		// send StartedCommit to the runtime, as `connectorCheckpoint` may be invalid.
 		select {
 		case <-ourCommitOp.Done():
 			if err = ourCommitOp.Err(); err != nil {
@@ -293,7 +302,7 @@ func RunTransactions(
 		default:
 		}
 
-		if err = WriteStartedCommit(stream, &txResponse, driverCheckpoint); err != nil {
+		if err = WriteStartedCommit(stream, &txResponse, connectorCheckpoint); err != nil {
 			return err
 		}
 	}

@@ -15,8 +15,8 @@ collections:
 captures:
   acmeCo/source-test:
     endpoint:
-      airbyteSource:
-        image: ghcr.io/estuary/source-test:dev
+      connector:
+        image: ghcr.io/estuary/source-test:d97009e
         config:
           greetings: 100
           # Number of greeting documents to produce when running in non-tailing mode

@@ -24,26 +24,15 @@ tables!(
         content_type: proto_flow::flow::ContentType,
         // Byte content of this resource.
         content: bytes::Bytes,
-        // Document dontent of this resource, or 'null' if not a document.
-        content_dom: Box<serde_json::value::RawValue>,
+        // Document content of this resource.
+        content_dom: models::RawValue,
     }
 
-    table Imports (row Import, order_by [from_resource to_resource], sql "imports") {
+    table Imports (row Import, order_by [scope to_resource], sql "imports") {
+        // Scope is the referring resource and fragment location which caused the import.
         scope: url::Url,
-        // Resource which does the importing.
-        from_resource: url::Url,
-        // Resource which is imported.
+        // Resource which is imported. Never has a fragment.
         to_resource: url::Url,
-    }
-
-    table NPMDependencies (row NPMDependency, order_by [derivation package], sql "npm_dependencies") {
-        scope: url::Url,
-        // Derivation to which this NPM package dependency belongs.
-        derivation: models::Collection,
-        // NPM package name.
-        package: String,
-        // NPM package semver.
-        version: String,
     }
 
     table StorageMappings (row StorageMapping, order_by [prefix], sql "storage_mappings") {
@@ -60,43 +49,6 @@ tables!(
         collection: models::Collection,
         // Specification of this collection.
         spec: models::CollectionDef,
-        // Schema against which collection documents are validated and reduced on write.
-        write_schema: url::Url,
-        // Schema against which collection documents are validated and reduced on read.
-        read_schema: url::Url,
-    }
-
-    table Projections (row Projection, order_by [collection field], sql "projections") {
-        scope: url::Url,
-        // Collection to which this projection belongs.
-        collection: models::Collection,
-        // Field of this projection.
-        field: models::Field,
-        // Specification of this projection.
-        spec: models::Projection,
-    }
-
-    table Derivations (row Derivation, order_by [derivation], sql "derivations") {
-        scope: url::Url,
-        // Collection which this derivation derives.
-        derivation: models::Collection,
-        // Derivation specification.
-        spec: models::Derivation,
-        // JSON Schema against which derivation register documents are validated,
-        // and which provides document annotations.
-        register_schema: url::Url,
-        // Typescript module implementing lambdas of the derivation.
-        typescript_module: Option<url::Url>,
-    }
-
-    table Transforms (row Transform, order_by [derivation transform], sql "transforms") {
-        scope: url::Url,
-        // Derivation to which this transform belongs.
-        derivation: models::Collection,
-        // Name of this transform, scoped to the owning derivation.
-        transform: models::Transform,
-        // Specification of this transform.
-        spec: models::TransformDef,
     }
 
     table Captures (row Capture, order_by [capture], sql "captures") {
@@ -105,18 +57,6 @@ tables!(
         capture: models::Capture,
         // Capture specification.
         spec: models::CaptureDef,
-        // Endpoint configuration of the capture.
-        endpoint_config: Option<url::Url>,
-    }
-
-    table CaptureBindings (row CaptureBinding, order_by [capture capture_index], sql "capture_bindings") {
-        scope: url::Url,
-        // Capture to which this binding belongs.
-        capture: models::Capture,
-        // Index of this binding within the Capture.
-        capture_index: u32,
-        // Specification of the capture binding.
-        spec: models::CaptureBinding,
     }
 
     table Materializations (row Materialization, order_by [materialization], sql "materializations") {
@@ -125,61 +65,22 @@ tables!(
         materialization: models::Materialization,
         // Materialization specification.
         spec: models::MaterializationDef,
-        // Endpoint configuration of the materialization.
-        endpoint_config: Option<url::Url>,
     }
 
-    table MaterializationBindings (row MaterializationBinding, order_by [materialization materialization_index], sql "materialization_bindings") {
+    table Tests (row Test, order_by [test], sql "tests") {
         scope: url::Url,
-        // Materialization to which this binding belongs.
-        materialization: models::Materialization,
-        // Index of this binding within the Materialization.
-        materialization_index: u32,
-        // Specification of the materialization binding.
-        spec: models::MaterializationBinding,
-    }
-
-    table TestSteps (row TestStep, order_by [test step_index], sql "test_steps") {
-        scope: url::Url,
-        // Name of the owning test case.
+        // Name of the test.
         test: models::Test,
-        // Enumerated index of this test step.
-        step_index: u32,
-        // Specification of the test step.
-        spec: models::TestStep,
-        // Documents ingested or verified by this step.
-        documents: url::Url,
-    }
-
-    table SchemaDocs (row SchemaDoc, order_by [schema], sql "schema_docs") {
-        schema: url::Url,
-        // JSON document model of the schema.
-        dom: serde_json::Value,
-    }
-
-    table Inferences (row Inference, order_by [schema location], sql "inferences") {
-        // URL of the schema which is inferred, inclusive of any fragment pointer.
-        schema: url::Url,
-        // A location within a document verified by this schema,
-        // relative to the schema's root.
-        location: models::JsonPointer,
-        // Inference at this schema location.
-        spec: proto_flow::flow::Inference,
-    }
-
-    table ImageInspections (row ImageInspection, order_by [image], sql "image_inspections") {
-        // The full name of the image, e.g. "ghcr.io/estuary/source-postgres:v1"
-        image: String,
-        // The output of a successful image inspection
-        inspect_output: bytes::Bytes,
-        // An error that occurred during image inspection
-        inspect_error: Option<String>,
+        // Specification of the test.
+        spec: Vec<models::TestStep>,
     }
 
     table BuiltCaptures (row BuiltCapture, order_by [capture], sql "built_captures") {
         scope: url::Url,
         // Name of this capture.
         capture: String,
+        // Validated response which was used to build this spec.
+        validated: proto_flow::capture::response::Validated,
         // Built specification for this capture.
         spec: proto_flow::flow::CaptureSpec,
     }
@@ -188,6 +89,8 @@ tables!(
         scope: url::Url,
         // Name of this collection.
         collection: models::Collection,
+        // Validated response which was used to build this spec.
+        validated: Option<proto_flow::derive::response::Validated>,
         // Built specification for this collection.
         spec: proto_flow::flow::CollectionSpec,
     }
@@ -196,16 +99,10 @@ tables!(
         scope: url::Url,
         // Name of this materialization.
         materialization: String,
+        // Validated response which was used to build this spec.
+        validated: proto_flow::materialize::response::Validated,
         // Built specification for this materialization.
         spec: proto_flow::flow::MaterializationSpec,
-    }
-
-    table BuiltDerivations (row BuiltDerivation, order_by [derivation], sql "built_derivations") {
-        scope: url::Url,
-        // Name of this derivation.
-        derivation: models::Collection,
-        // Built specification for this derivation.
-        spec: proto_flow::flow::DerivationSpec,
     }
 
     table BuiltTests (row BuiltTest, order_by [test], sql "built_tests") {
@@ -229,22 +126,15 @@ tables!(
 /// Sources are tables which are populated by catalog loads of the `sources` crate.
 #[derive(Default, Debug)]
 pub struct Sources {
-    pub capture_bindings: CaptureBindings,
     pub captures: Captures,
     pub collections: Collections,
-    pub derivations: Derivations,
     pub errors: Errors,
     pub fetches: Fetches,
     pub imports: Imports,
-    pub materialization_bindings: MaterializationBindings,
     pub materializations: Materializations,
-    pub npm_dependencies: NPMDependencies,
-    pub projections: Projections,
     pub resources: Resources,
-    pub schema_docs: SchemaDocs,
     pub storage_mappings: StorageMappings,
-    pub test_steps: TestSteps,
-    pub transforms: Transforms,
+    pub tests: Tests,
 }
 
 /// Validations are tables populated by catalog validations of the `validation` crate.
@@ -252,12 +142,9 @@ pub struct Sources {
 pub struct Validations {
     pub built_captures: BuiltCaptures,
     pub built_collections: BuiltCollections,
-    pub built_derivations: BuiltDerivations,
     pub built_materializations: BuiltMaterializations,
     pub built_tests: BuiltTests,
     pub errors: Errors,
-    pub image_inspections: ImageInspections,
-    pub inferences: Inferences,
 }
 
 /// All combines Sources and Validations:
@@ -267,28 +154,18 @@ pub struct Validations {
 pub struct All {
     pub built_captures: BuiltCaptures,
     pub built_collections: BuiltCollections,
-    pub built_derivations: BuiltDerivations,
     pub built_materializations: BuiltMaterializations,
     pub built_tests: BuiltTests,
-    pub capture_bindings: CaptureBindings,
     pub captures: Captures,
     pub collections: Collections,
-    pub derivations: Derivations,
     pub errors: Errors,
     pub fetches: Fetches,
-    pub image_inspections: ImageInspections,
     pub imports: Imports,
-    pub inferences: Inferences,
-    pub materialization_bindings: MaterializationBindings,
     pub materializations: Materializations,
     pub meta: Meta,
-    pub npm_dependencies: NPMDependencies,
-    pub projections: Projections,
     pub resources: Resources,
-    pub schema_docs: SchemaDocs,
     pub storage_mappings: StorageMappings,
-    pub test_steps: TestSteps,
-    pub transforms: Transforms,
+    pub tests: Tests,
 }
 
 #[cfg(feature = "persist")]
@@ -299,55 +176,35 @@ impl All {
         let Self {
             built_captures,
             built_collections,
-            built_derivations,
             built_materializations,
             built_tests,
-            capture_bindings,
             captures,
             collections,
-            derivations,
             errors,
             fetches,
             imports,
-            image_inspections,
-            inferences,
-            materialization_bindings,
             materializations,
             meta,
-            npm_dependencies,
-            projections,
             resources,
-            schema_docs,
             storage_mappings,
-            test_steps,
-            transforms,
+            tests,
         } = self;
 
         vec![
             built_captures,
             built_collections,
-            built_derivations,
             built_materializations,
             built_tests,
-            capture_bindings,
             captures,
             collections,
-            derivations,
             errors,
             fetches,
             imports,
-            image_inspections,
-            inferences,
-            materialization_bindings,
             materializations,
             meta,
-            npm_dependencies,
-            projections,
             resources,
-            schema_docs,
             storage_mappings,
-            test_steps,
-            transforms,
+            tests,
         ]
     }
 
@@ -356,55 +213,35 @@ impl All {
         let Self {
             built_captures,
             built_collections,
-            built_derivations,
             built_materializations,
             built_tests,
-            capture_bindings,
             captures,
             collections,
-            derivations,
             errors,
             fetches,
             imports,
-            image_inspections,
-            inferences,
-            materialization_bindings,
             materializations,
             meta,
-            npm_dependencies,
-            projections,
             resources,
-            schema_docs,
             storage_mappings,
-            test_steps,
-            transforms,
+            tests,
         } = self;
 
         vec![
             built_captures,
             built_collections,
-            built_derivations,
             built_materializations,
             built_tests,
-            capture_bindings,
             captures,
             collections,
-            derivations,
             errors,
             fetches,
-            image_inspections,
             imports,
-            inferences,
-            materialization_bindings,
             materializations,
             meta,
-            npm_dependencies,
-            projections,
             resources,
-            schema_docs,
             storage_mappings,
-            test_steps,
-            transforms,
+            tests,
         ]
     }
 }
@@ -444,38 +281,30 @@ impl Column for u32 {}
 string_wrapper_types!(
     models::Capture,
     models::Collection,
-    models::Field,
-    models::JsonPointer,
     models::Materialization,
     models::Prefix,
     models::Test,
-    models::Transform,
 );
 
 json_sql_types!(
-    Box<serde_json::value::RawValue>,
     Vec<models::Store>,
-    models::CaptureBinding,
+    Vec<models::TestStep>,
     models::CaptureDef,
     models::CollectionDef,
-    models::Derivation,
-    models::MaterializationBinding,
     models::MaterializationDef,
-    models::Projection,
-    models::TestStep,
-    models::TransformDef,
+    models::RawValue,
     proto_flow::flow::ContentType,
-    serde_json::Value,
 );
 
 proto_sql_types!(
+    proto_flow::capture::response::Validated,
+    proto_flow::derive::response::Validated,
     proto_flow::flow::CaptureSpec,
     proto_flow::flow::CollectionSpec,
-    proto_flow::flow::DerivationSpec,
-    proto_flow::flow::Inference,
     proto_flow::flow::MaterializationSpec,
     proto_flow::flow::TestSpec,
     proto_flow::flow::build_api::Config,
+    proto_flow::materialize::response::Validated,
 );
 
 // Modules that extend tables with additional implementations.
@@ -543,7 +372,7 @@ mod test {
     );
 
     #[test]
-    fn test_indexing() {
+    fn test_insert_indexing() {
         let mut tbl = Foos::new();
         tbl.insert_row(1);
         tbl.insert_row(0);

@@ -14,6 +14,7 @@ pub struct ImageConfig {
     pub cmd: Option<Vec<String>>,
     pub entrypoint: Option<Vec<String>>,
     pub labels: HashMap<String, String>,
+    pub env: Vec<String>,
 }
 
 impl Image {
@@ -32,5 +33,20 @@ impl Image {
         } else {
             anyhow::bail!("image config has neither entrypoint nor cmd")
         }
+    }
+
+    /// Fetch the value of a LABEL or ENV of the image which has the given name.
+    pub fn get_label_or_env(&self, name: &str) -> Option<&str> {
+        if let Some(value) = self.config.labels.get(name) {
+            return Some(value);
+        }
+        let env_prefix = format!("{name}=");
+
+        for env in self.config.env.iter() {
+            if env.starts_with(&env_prefix) {
+                return Some(&env[env_prefix.len()..]);
+            }
+        }
+        None
     }
 }

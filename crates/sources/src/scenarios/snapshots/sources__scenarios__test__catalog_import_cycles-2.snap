@@ -1,0 +1,48 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+expression: tables
+---
+Sources {
+    captures: [],
+    collections: [],
+    errors: [],
+    fetches: [],
+    imports: [
+        Import {
+            scope: test://example/A#/import/0,
+            to_resource: test://example/C,
+        },
+        Import {
+            scope: test://example/A#/import/1,
+            to_resource: test://example/B,
+        },
+        Import {
+            scope: test://example/B#/import/0,
+            to_resource: test://example/C,
+        },
+        Import {
+            scope: test://example/B#/import/1,
+            to_resource: test://example/A,
+        },
+        Import {
+            scope: test://example/C#/import/0,
+            to_resource: test://example/catalog.yaml,
+        },
+        Import {
+            scope: test://example/C#/import/1,
+            to_resource: test://example/B,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/0,
+            to_resource: test://example/A,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/1,
+            to_resource: test://example/B,
+        },
+    ],
+    materializations: [],
+    resources: [],
+    storage_mappings: [],
+    tests: [],
+}

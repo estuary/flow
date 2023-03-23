@@ -180,7 +180,7 @@ pub fn create<S: Service>(log_level: i32, log_dest_fd: i32) -> *mut Channel {
         };
         let handler =
             ops::new_encoded_json_write_handler(sync::Arc::new(sync::Mutex::new(log_dest)));
-        let layer = ops::tracing::Layer::new(handler, time::OffsetDateTime::now_utc);
+        let layer = ops::tracing::Layer::new(handler, std::time::SystemTime::now);
 
         tracing_subscriber::registry()
             .with(layer.with_filter(env_filter))

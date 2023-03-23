@@ -11,6 +11,7 @@ fn main() {
         .expect("failed to compile protobuf");
 
     pbjson_build::Builder::new()
+        //.out_dir(&b.src_dir) // Uncomment to debug code generation.
         .register_descriptors(&std::fs::read(b.descriptor_path).expect("read descriptors"))
         .unwrap()
         .build(&[".protocol", ".consumer", ".recoverylog"])

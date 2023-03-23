@@ -1,7 +1,7 @@
 mod utils;
 
 use doc::inference::{Exists, Reduction, Shape};
-use doc::{Annotation, Schema, SchemaIndexBuilder};
+use doc::Annotation;
 use json::schema;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;

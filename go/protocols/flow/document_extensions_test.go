@@ -27,8 +27,8 @@ func TestUUIDPartsRoundTrip(t *testing.T) {
 
 	var parts = NewUUIDParts(message.BuildUUID(producer, clock, message.Flag_ACK_TXN))
 	require.Equal(t, UUIDParts{
-		ProducerAndFlags: 0x0806070503090000 + 0x02, // Producer + flags.
-		Clock:            0x1eac6a39f2952f32,
+		Node:  0x0806070503090000 + 0x02, // Producer + flags.
+		Clock: 0x1eac6a39f2952f32,
 	}, parts)
 
 	var uuid = parts.Pack()
