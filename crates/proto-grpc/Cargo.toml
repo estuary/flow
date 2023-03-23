@@ -31,8 +31,16 @@ capture_server = ["proto-flow"]
 consumer_client = []
 consumer_server = []
 
+derive_client = ["proto-flow"]
+derive_server = ["proto-flow"]
+
+# TODO(johnny): Refactor shuffle service into runtime.proto
+# flow.proto should be types only, and not have gRPC services.
 flow_client = ["proto-flow"]
 flow_server = ["proto-flow"]
 
 materialize_client = ["proto-flow"]
 materialize_server = ["proto-flow"]
+
+runtime_client = ["proto-flow"]
+runtime_server = ["proto-flow"]

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path"
 	"testing"
 
 	"github.com/estuary/flow/go/bindings"
@@ -15,6 +16,7 @@ import (
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	po "github.com/estuary/flow/go/protocols/ops"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -30,28 +32,32 @@ import (
 )
 
 func TestAPIIntegrationWithFixtures(t *testing.T) {
+	var dir = t.TempDir()
 	var args = bindings.BuildArgs{
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			BuildId:    "a-build-id",
-			Directory:  t.TempDir(),
+			BuildDb:    path.Join(dir, "a-build-db"),
 			Source:     "file:///ab.flow.yaml",
 			SourceType: pf.ContentType_CATALOG,
 		}}
 	require.NoError(t, bindings.BuildCatalog(args))
 
-	var derivation *pf.DerivationSpec
-	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
-		derivation, err = catalog.LoadDerivation(db, "a/derivation")
+	var derivation *pf.CollectionSpec
+	require.NoError(t, catalog.Extract(args.BuildDb, func(db *sql.DB) (err error) {
+		derivation, err = catalog.LoadCollection(db, "a/derivation")
 		return err
 	}))
+
+	// TODO(johnny): update the fixture to make it validate as readOnly (SQL SELECT).
+	derivation.Derivation.Transforms[0].ReadOnly = true
 
 	var backgroundCtx = pb.WithDispatchDefault(context.Background())
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
 
-	var builds, err = flow.NewBuildService("file://" + args.Directory + "/")
+	var builds, err = flow.NewBuildService("file://" + dir + "/")
 	require.NoError(t, err)
 	var bk = brokertest.NewBroker(t, etcd, "local", "broker")
 	var journalSpec = brokertest.Journal(pb.JournalSpec{
@@ -80,7 +86,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	var shuffle = pf.JournalShuffle{
 		Journal:     "a/journal",
 		Coordinator: "the-coordinator",
-		Shuffle:     &derivation.Transforms[0].Shuffle,
+		Shuffle:     derivation.TaskShuffles()[0],
 		BuildId:     "a-build-id",
 	}
 
@@ -180,7 +186,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 			AA string
 			B  string
 		}
-		require.NoError(t, json.Unmarshal(msg.Arena.Bytes(msg.DocsJson[msg.Index]), &record))
+		require.NoError(t, json.Unmarshal(msg.Arena.Bytes(msg.Docs[msg.Index]), &record))
 
 		require.Equal(t, 1, record.A)
 		require.Equal(t, "1", record.AA)
@@ -196,7 +202,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 
 	// Interlude: Another read, this time with an invalid schema.
 	var badShuffle = shuffle
-	badShuffle.ValidateSchemaJson = `{"invalid":"keyword"}`
+	badShuffle.ValidateSchema = `{"invalid":"keyword"}`
 
 	var badRead = &read{
 		publisher: localPublisher,
@@ -227,7 +233,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	out, err = tailStream.Recv()
 	require.NoError(t, err)
 	require.Len(t, out.UuidParts, 1)
-	require.True(t, message.Flags(out.UuidParts[0].ProducerAndFlags)&message.Flag_ACK_TXN != 0)
+	require.True(t, message.Flags(out.UuidParts[0].Node)&message.Flag_ACK_TXN != 0)
 
 	// Cancel the server-side API context, then do a GracefulStop() (*not* a BoundedGracefulStop)
 	// of the server. This will hang if the API doesn't properly unwind our in-flight tailing RPC.
@@ -245,7 +251,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 var localPublisher = ops.NewLocalPublisher(
 	labels.ShardLabeling{
 		Build:    "the-build",
-		LogLevel: pf.LogLevel_debug,
+		LogLevel: po.Log_debug,
 		Range: pf.RangeSpec{
 			KeyBegin:    0x00001111,
 			KeyEnd:      0x11110000,
@@ -253,6 +259,6 @@ var localPublisher = ops.NewLocalPublisher(
 			RClockEnd:   0x22220000,
 		},
 		TaskName: "some-tenant/task/name",
-		TaskType: labels.TaskTypeDerivation,
+		TaskType: po.Shard_derivation,
 	},
 )

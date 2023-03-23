@@ -85,7 +85,7 @@ impl TagHandler {
                 "pull",
                 &self.logs_tx,
                 row.logs_token,
-                tokio::process::Command::new("docker")
+                async_process::Command::new("docker")
                     .arg("pull")
                     .arg(&image_composed),
             )
@@ -101,7 +101,7 @@ impl TagHandler {
             "spec",
             &self.logs_tx,
             row.logs_token,
-            tokio::process::Command::new(format!("{}/flowctl-go", &self.bindir))
+            async_process::Command::new(format!("{}/flowctl-go", &self.bindir))
                 .arg("api")
                 .arg("spec")
                 .arg("--image")

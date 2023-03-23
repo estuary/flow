@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -16,6 +15,7 @@ import (
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	po "github.com/estuary/flow/go/protocols/ops"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -52,7 +52,7 @@ func NewFlowTesting(inner *FlowConsumer, ajc *client.AppendService) *FlowTesting
 func (f *FlowTesting) ResetState(ctx context.Context, _ *pf.ResetStateRequest) (*pf.ResetStateResponse, error) {
 	var listing, err = consumer.ShardList(ctx, f.Service, &pc.ListRequest{
 		Selector: pb.LabelSelector{
-			Include: pb.MustLabelSet(labels.TaskType, labels.TaskTypeDerivation),
+			Include: pb.MustLabelSet(labels.TaskType, po.Shard_derivation.String()),
 		},
 	})
 	if err != nil {
@@ -119,7 +119,7 @@ func (f *FlowTesting) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.In
 	var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
 		Build:    req.BuildId,
 		TaskName: req.Collection.String(),
-		TaskType: labels.TaskTypeCapture,
+		TaskType: po.Shard_capture,
 	})
 
 	// Build a combiner of documents for this collection.
@@ -130,20 +130,19 @@ func (f *FlowTesting) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.In
 	defer combiner.Destroy()
 
 	if err := combiner.Configure(
-		collection.Collection.String(),
-		collection.Collection,
+		collection.Name.String(),
+		collection.Name,
 		collection.WriteSchemaJson,
 		collection.UuidPtr,
-		collection.KeyPtrs,
+		collection.Key,
 		flow.PartitionPointers(collection),
 	); err != nil {
 		return nil, fmt.Errorf("configuring combiner: %w", err)
 	}
 
 	// Feed fixture documents into the combiner.
-	var documents = bytes.Split([]byte(req.DocsJsonLines), []byte{'\n'})
-	for d := range documents {
-		var err = combiner.CombineRight(json.RawMessage(documents[d]))
+	for d := range req.DocsJsonVec {
+		var err = combiner.CombineRight(json.RawMessage(req.DocsJsonVec[d]))
 		if err != nil {
 			return nil, fmt.Errorf("combine-right failed: %w", err)
 		}

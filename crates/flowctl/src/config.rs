@@ -73,13 +73,19 @@ impl Config {
         }
     }
 
-    pub fn set_access_token(&mut self, access_token: String, user_id: String) {
+    pub fn set_access_token(&mut self, access_token: String) {
         // Don't overwrite the other fields of api if they are already present.
         if let Some(api) = self.api.as_mut() {
             api.access_token = access_token;
-            api.user_id = Some(user_id);
         } else {
-            self.api = Some(API::managed(access_token, user_id));
+            self.api = Some(API::managed(access_token));
+        }
+    }
+
+    pub fn set_refresh_token(&mut self, refresh_token: RefreshToken) {
+        // Don't overwrite the other fields of api if they are already present.
+        if let Some(api) = self.api.as_mut() {
+            api.refresh_token = Some(refresh_token);
         }
     }
 
@@ -98,7 +104,7 @@ impl Config {
 #[derive(Deserialize, Serialize, Debug)]
 pub struct RefreshToken {
     pub id: String,
-    pub secret: String
+    pub secret: String,
 }
 
 impl RefreshToken {
@@ -122,8 +128,8 @@ pub struct API {
     pub public_token: String,
     // Secret access token of the control-plane API.
     pub access_token: String,
-    // User identifier
-    pub user_id: Option<String>,
+    // Secret refresh token of the control-plane API, used to generate access_token when it expires.
+    pub refresh_token: Option<RefreshToken>,
 }
 
 pub const PUBLIC_TOKEN: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco";
@@ -131,12 +137,12 @@ pub const PUBLIC_TOKEN: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ
 pub const ENDPOINT: &str = "https://eyrcnmuzzyriypdajwdk.supabase.co/rest/v1";
 
 impl API {
-    fn managed(access_token: String, user_id: String) -> Self {
+    fn managed(access_token: String) -> Self {
         Self {
             endpoint: url::Url::parse(ENDPOINT).unwrap(),
             public_token: PUBLIC_TOKEN.to_string(),
             access_token,
-            user_id: Some(user_id),
+            refresh_token: None,
         }
     }
 }

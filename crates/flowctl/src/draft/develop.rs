@@ -1,53 +1,62 @@
-use crate::{api_exec, catalog, source, typescript};
-use anyhow::Context;
+use crate::{api_exec, catalog, local_specs};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct Develop {
-    #[clap(flatten)]
-    local_specs: source::LocalSpecsArgs,
+    /// Root flow specification to create or update.
+    #[clap(long, default_value = "flow.yaml")]
+    target: String,
+    /// Should existing specs be over-written by specs from the Flow control plane?
+    #[clap(long)]
+    overwrite: bool,
+    /// Should specs be written to the single specification file, or written in the canonical layout?
+    #[clap(long)]
+    flat: bool,
 }
 
 pub async fn do_develop(
     ctx: &mut crate::CliContext,
-    Develop { local_specs }: &Develop,
+    Develop {
+        target,
+        overwrite,
+        flat,
+    }: &Develop,
 ) -> anyhow::Result<()> {
     let draft_id = ctx.config().cur_draft()?;
+    let client = ctx.controlplane_client().await?;
     let rows: Vec<DraftSpecRow> = api_exec(
-        ctx.controlplane_client().await?
+        client
             .from("draft_specs")
             .select("catalog_name,spec,spec_type")
             .not("is", "spec_type", "null")
             .eq("draft_id", draft_id),
     )
     .await?;
-    let rows_len = rows.len();
 
-    let bundled_catalog = catalog::collect_specs(rows)?;
-    source::write_local_specs(bundled_catalog, local_specs).await?;
+    let target = local_specs::arg_source_to_url(&target, true)?;
+    let mut sources = local_specs::surface_errors(local_specs::load(&target).await)?;
 
-    tracing::info!(dir = %local_specs.output_dir.display(), "wrote root catalog");
-
-    let source_args = crate::source::SourceArgs {
-        source_dir: vec![local_specs.output_dir.display().to_string()],
-        ..Default::default()
-    };
-    typescript::do_generate(
-        ctx,
-        &typescript::Generate {
-            root_dir: local_specs.output_dir.clone(),
-            source: source_args,
-        },
-    )
-    .await
-    .context("generating TypeScript project")?;
-
-    println!(
-        "Wrote {rows_len} specifications under {}.",
-        local_specs.output_dir.display()
+    let count = local_specs::extend_from_catalog(
+        &mut sources,
+        catalog::collect_specs(rows)?,
+        local_specs::pick_policy(*overwrite, *flat),
     );
+    let sources = local_specs::indirect_and_write_resources(sources)?;
+
+    println!("Wrote {count} specifications under {target}.");
+
+    // Validate to generate associated files.
+    let ((sources, validations), errors) = local_specs::inline_and_validate(client, sources).await;
+    local_specs::write_generated_files(&sources, &validations)?;
+
+    if !errors.is_empty() {
+        tracing::warn!(
+            "The written Flow specifications have {} errors. Run `test` to review",
+            errors.len()
+        );
+    }
     Ok(())
 }
 

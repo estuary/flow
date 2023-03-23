@@ -6,7 +6,7 @@ pub struct DiscoveredBinding {
     /// A recommended display name for this discovered binding.
     pub recommended_name: String,
     /// JSON-encoded object which specifies the endpoint resource to be captured.
-    pub resource_spec: models::Object,
+    pub resource_spec: models::RawValue,
     /// JSON schema of documents produced by this binding.
     pub document_schema: models::Schema,
     /// Composite key of documents (if known), as JSON-Pointers.
@@ -38,7 +38,7 @@ pub fn parse_response(
     Ok((
         models::CaptureEndpoint::Connector(models::ConnectorConfig {
             image: image_composed,
-            config: endpoint_config.to_owned(),
+            config: endpoint_config.to_owned().into(),
         }),
         bindings,
     ))
@@ -146,8 +146,9 @@ pub fn merge_collections(
                     read_schema: None,
                     key: models::CompositeKey::new(Vec::new()),
                     projections: Default::default(),
-                    derivation: None,
                     journals: Default::default(),
+                    derive: None,
+                    derivation: None,
                 });
 
         if collection.read_schema.is_some() {
@@ -244,7 +245,10 @@ mod tests {
                     "schema": false,
                     "key": ["/old"],
                     "projections": {"field": "/ptr"},
-                    "derivation": { "transform": {} },
+                    "derive": {
+                        "using": {"sqlite": {}},
+                        "transforms": [],
+                    },
                     "journals": {"fragments": {"length": 1234}},
                 },
                 "case/3": {
@@ -268,7 +272,7 @@ mod tests {
 
         let out = super::merge_collections(discovered_bindings, fetched_collections, targets);
 
-        insta::assert_json_snapshot!(out);
+        insta::assert_display_snapshot!(serde_json::to_string_pretty(&out).unwrap());
     }
 
     #[test]

@@ -1,10 +1,10 @@
-import { IDerivation, Document, Register, FromTicksSource } from 'flow/stock/daily-stats';
+import { IDerivation, Document, SourceFromTicks } from 'flow/stock/daily-stats.ts';
+import moment from "https://deno.land/x/momentjs@2.29.1-deno/mod.ts";
 
-import * as moment from 'moment';
-
-// Implementation for derivation examples/stock-stats/flow.yaml#/collections/stock~1daily-stats/derivation.
-export class Derivation implements IDerivation {
-    fromTicksPublish(tick: FromTicksSource, _register: Register, _previous: Register): Document[] {
+// Implementation for derivation stock/daily-stats.
+export class Derivation extends IDerivation {
+    fromTicks(source: { doc: SourceFromTicks }): Document[] {
+        const tick = source.doc;
         // Current bid/ask price spread of the tick.
         const spread = tick.ask.price - tick.bid.price;
         // Truncate full UTC timestamp to current date.

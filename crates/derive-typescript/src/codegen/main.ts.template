@@ -1,0 +1,88 @@
+import { Derivation } from './module.ts';
+import { BufWriter } from "https://deno.land/std@0.178.0/io/buf_writer.ts";
+import { readLines } from "https://deno.land/std@0.178.0/io/mod.ts";
+
+const stdin = readLines(Deno.stdin);
+const stdout = new BufWriter(Deno.stdout);
+
+// Build a helper for emitting protocol responses.
+const encoder = new TextEncoder();
+async function emit(response: {
+    opened?: {
+    }
+    published?: {
+        doc: unknown,
+    }
+    flushed?: Record<string, never>,
+    startedCommit?: {
+        state?: {
+            updated: unknown,
+            mergePatch: boolean,
+        }
+    }
+}) {
+    await stdout.write(encoder.encode(JSON.stringify(response)));
+    await stdout.write(encoder.encode("\n"));
+
+    if (response.opened || response.flushed || response.startedCommit) {
+        await stdout.flush();
+    }
+}
+
+// Fixup console to not write to stdout.
+console.log = console.error;
+console.debug = console.error;
+console.info = console.error;
+
+const open = JSON.parse((await stdin.next()).value as string) as {
+    open: {
+        state: unknown,
+    },
+};
+const derivation: Derivation = new Derivation(open.open);
+
+// Index transformation lambdas of the derivation instance.
+type Lambda = (source: unknown) => unknown[];
+const transforms: Array<Lambda> = [
+    TRANSFORMS
+];
+
+console.error("deno read open and writing opened");
+await emit({ opened: {} });
+
+for await (const line of stdin) {
+    const request = JSON.parse(line) as {
+        read?: {
+            transform: number,
+            shuffleHash: number,
+            doc: unknown,
+        },
+        flush?: Record<string, never>,
+        startCommit?: {
+            runtimeCheckpoint: any,
+        }
+    };
+
+    if (request.read) {
+        let transform = request.read.transform || 0;
+
+        if (transform >= transforms.length) {
+            throw new Error(`lambda index ${transform} is not valid`);
+        }
+        const published = transforms[transform](request.read)
+
+        for (let i = 0; i != published.length; i++) {
+            await emit({ published: { doc: published[i] } });
+        }
+    } else if (request.flush) {
+        const published = await derivation.flush();
+
+        for (let i = 0; i != published.length; i++) {
+            await emit({ published: { doc: published[i] } });
+        }
+        await emit({ flushed: {} });
+    } else if (request.startCommit) {
+        const startedCommit = derivation.startCommit(request.startCommit);
+        await emit({ startedCommit: startedCommit })
+    }
+}

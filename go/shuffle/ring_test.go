@@ -76,8 +76,8 @@ func TestReadingDocuments(t *testing.T) {
 	for out := range ch {
 		require.Equal(t, "", out.TerminalError)
 
-		if l := len(out.DocsJson); l > 0 {
-			require.Equal(t, record, out.Arena.Bytes(out.DocsJson[0]), record)
+		if l := len(out.Docs); l > 0 {
+			require.Equal(t, record, out.Arena.Bytes(out.Docs[0]), record)
 			count -= l
 		}
 		// The final ShuffleResponse (only) should have the Tailing bit set.
@@ -106,7 +106,7 @@ func TestReadingDocuments(t *testing.T) {
 
 	var out = <-ch
 	require.Equal(t, "", out.TerminalError)
-	require.Equal(t, [][]byte{record}, out.Arena.AllBytes(out.DocsJson...))
+	require.Equal(t, [][]byte{record}, out.Arena.AllBytes(out.Docs...))
 	require.Equal(t, []pb.Offset{app.Response.Commit.Begin, app.Response.Commit.End}, out.Offsets)
 	require.Equal(t, app.Response.Commit.End, out.ReadThrough)
 	require.Equal(t, app.Response.Commit.End, out.WriteHead)
@@ -122,7 +122,7 @@ func TestReadingDocuments(t *testing.T) {
 
 	out = <-ch
 	require.Equal(t, "unexpected EOF", out.TerminalError)
-	require.Equal(t, [][]byte{record[:20]}, out.Arena.AllBytes(out.DocsJson...))
+	require.Equal(t, [][]byte{record[:20]}, out.Arena.AllBytes(out.Docs...))
 	require.Equal(t, []pb.Offset{0, 20}, out.Offsets)
 	require.Equal(t, int64(20), out.ReadThrough)
 	require.Equal(t, app.Response.Commit.End, out.WriteHead)
@@ -145,13 +145,13 @@ func TestDocumentExtraction(t *testing.T) {
 	})
 
 	var staged pf.ShuffleResponse
-	staged.DocsJson = staged.Arena.AddAll([]byte("doc-1\n"), []byte("doc-2\n"))
+	staged.Docs = staged.Arena.AddAll([]byte("doc-1\n"), []byte("doc-2\n"))
 
 	// Case: extraction fails.
 	r.onExtract(&staged, nil, nil, fmt.Errorf("an error"))
 	require.Equal(t, pf.ShuffleResponse{
 		Arena:         pf.Arena([]byte("doc-1\ndoc-2\n")),
-		DocsJson:      []pf.Slice{{Begin: 0, End: 6}, {Begin: 6, End: 12}},
+		Docs:          []pf.Slice{{Begin: 0, End: 6}, {Begin: 6, End: 12}},
 		TerminalError: "an error",
 	}, staged)
 	staged.TerminalError = "" // Reset.
@@ -168,7 +168,7 @@ func TestDocumentExtraction(t *testing.T) {
 
 	require.Equal(t, pf.ShuffleResponse{
 		Arena:     pf.Arena([]byte("doc-1\ndoc-2\n\025*\002some-string\000")),
-		DocsJson:  []pf.Slice{{Begin: 0, End: 6}, {Begin: 6, End: 12}},
+		Docs:      []pf.Slice{{Begin: 0, End: 6}, {Begin: 6, End: 12}},
 		UuidParts: []pf.UUIDParts{{Clock: 123}, {Clock: 456}},
 		PackedKey: []pf.Slice{{Begin: 12, End: 14}, {Begin: 14, End: 27}},
 	}, staged)

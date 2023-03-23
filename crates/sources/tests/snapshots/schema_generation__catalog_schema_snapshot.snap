@@ -10,10 +10,7 @@ expression: "&schema"
   "properties": {
     "$schema": {
       "title": "JSON-Schema against which the Catalog is validated.",
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "captures": {
       "title": "Captures of this Catalog.",
@@ -53,7 +50,17 @@ expression: "&schema"
             "key": [
               "/json/ptr"
             ],
-            "schema": "../path/to/local.yaml"
+            "schema": {
+              "properties": {
+                "bar": {
+                  "const": 42
+                },
+                "foo": {
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            }
           }
         }
       ],
@@ -67,10 +74,10 @@ expression: "&schema"
     },
     "import": {
       "title": "Import other Flow catalog sources.",
-      "description": "By importing another Flow catalog source, the collections, schemas, and derivations it defines become usable within this Catalog source. Each import is an absolute URI, or a URI which is relative to this source location.",
+      "description": "By importing another Flow catalog source, its collections, schemas, and derivations are bundled into the publication context of this specification. Imports are relative or absolute URLs, relative to this specification's location.",
       "type": "array",
       "items": {
-        "$ref": "#/definitions/Import"
+        "$ref": "#/definitions/RelativeUrl"
       }
     },
     "materializations": {
@@ -102,28 +109,6 @@ expression: "&schema"
       "patternProperties": {
         "^[\\p{Letter}\\p{Number}\\-_\\.]+(/[\\p{Letter}\\p{Number}\\-_\\.]+)*$": {
           "$ref": "#/definitions/MaterializationDef"
-        }
-      },
-      "additionalProperties": false
-    },
-    "storageMappings": {
-      "examples": [
-        {
-          "acmeCo/widgets/": {
-            "stores": [
-              {
-                "bucket": "my-bucket",
-                "prefix": null,
-                "provider": "S3"
-              }
-            ]
-          }
-        }
-      ],
-      "type": "object",
-      "patternProperties": {
-        "^([\\p{Letter}\\p{Number}\\-_\\.]+/)*$": {
-          "$ref": "#/definitions/StorageDef"
         }
       },
       "additionalProperties": false
@@ -202,9 +187,7 @@ expression: "&schema"
       ],
       "properties": {
         "resource": {
-          "title": "Endpoint resource to capture from.",
-          "type": "object",
-          "additionalProperties": true
+          "title": "Endpoint resource to capture from."
         },
         "target": {
           "title": "Name of the collection to capture into.",
@@ -249,7 +232,7 @@ expression: "&schema"
       "additionalProperties": false
     },
     "CaptureEndpoint": {
-      "description": "An Endpoint connector used for Flow captures.",
+      "description": "An endpoint from which Flow will capture.",
       "oneOf": [
         {
           "title": "A Connector.",
@@ -260,19 +243,6 @@ expression: "&schema"
           "properties": {
             "connector": {
               "$ref": "#/definitions/ConnectorConfig"
-            }
-          },
-          "additionalProperties": false
-        },
-        {
-          "title": "A push ingestion.",
-          "type": "object",
-          "required": [
-            "ingest"
-          ],
-          "properties": {
-            "ingest": {
-              "$ref": "#/definitions/IngestConfig"
             }
           },
           "additionalProperties": false
@@ -294,7 +264,17 @@ expression: "&schema"
           "key": [
             "/json/ptr"
           ],
-          "schema": "../path/to/local.yaml"
+          "schema": {
+            "properties": {
+              "bar": {
+                "const": 42
+              },
+              "foo": {
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          }
         }
       ],
       "type": "object",
@@ -322,16 +302,8 @@ expression: "&schema"
         "key"
       ],
       "properties": {
-        "derivation": {
-          "title": "Derivation which builds this collection from others.",
-          "anyOf": [
-            {
-              "$ref": "#/definitions/Derivation"
-            },
-            {
-              "type": "null"
-            }
-          ]
+        "derive": {
+          "$ref": "#/definitions/Derivation"
         },
         "journals": {
           "title": "Template for journals of this collection.",
@@ -362,39 +334,18 @@ expression: "&schema"
         },
         "readSchema": {
           "title": "Schema against which collection documents are validated and reduced on read.",
-          "anyOf": [
-            {
-              "$ref": "#/definitions/Schema"
-            },
-            {
-              "type": "null"
-            }
-          ]
+          "$ref": "#/definitions/Schema"
         },
         "schema": {
           "title": "Schema against which collection documents are validated and reduced on write and read.",
           "examples": [
             "../path/to/schema#/$defs/subPath"
           ],
-          "anyOf": [
-            {
-              "$ref": "#/definitions/Schema"
-            },
-            {
-              "type": "null"
-            }
-          ]
+          "$ref": "#/definitions/Schema"
         },
         "writeSchema": {
           "title": "Schema against which collection documents are validated and reduced on write.",
-          "anyOf": [
-            {
-              "$ref": "#/definitions/Schema"
-            },
-            {
-              "type": "null"
-            }
-          ]
+          "$ref": "#/definitions/Schema"
         }
       },
       "additionalProperties": false
@@ -434,26 +385,7 @@ expression: "&schema"
       ],
       "properties": {
         "config": {
-          "title": "Configuration of the connector.",
-          "description": "A configuration which is either defined inline, or is a relative or absolute URI to a configuration file.",
-          "examples": [
-            "http://example/config",
-            "../path/to/config.yaml",
-            {
-              "config_key": "value"
-            }
-          ],
-          "anyOf": [
-            {
-              "description": "Relative URL to a configuration file.",
-              "$ref": "#/definitions/RelativeUrl"
-            },
-            {
-              "description": "Inline configuration.",
-              "type": "object",
-              "additionalProperties": true
-            }
-          ]
+          "title": "Configuration of the connector."
         },
         "image": {
           "title": "Image of the connector.",
@@ -461,65 +393,132 @@ expression: "&schema"
         }
       }
     },
-    "ContentType": {
-      "description": "ContentType is the type of an imported resource's content.",
-      "examples": [
-        "CATALOG"
-      ],
-      "type": "string",
-      "enum": [
-        "CATALOG",
-        "JSON_SCHEMA",
-        "TYPESCRIPT_MODULE",
-        "CONFIG",
-        "DOCUMENTS_FIXTURE"
-      ]
-    },
     "Derivation": {
-      "description": "A derivation specifies how a collection is derived from other collections. A collection without a derivation is a \"captured\" collection, into which documents are directly ingested.",
+      "description": "Derive specifies how a collection is derived from other collections.",
       "type": "object",
       "required": [
-        "transform"
+        "transforms",
+        "using"
       ],
       "properties": {
-        "register": {
-          "title": "Register configuration of this derivation.",
-          "$ref": "#/definitions/Register"
-        },
         "shards": {
           "title": "Template for shards of this derivation task.",
           "$ref": "#/definitions/ShardTemplate"
         },
-        "transform": {
+        "shuffleKeyTypes": {
+          "title": "Key component types of the shuffle keys used by derivation lambdas.",
+          "description": "Typically you omit this and Flow infers it from your transform shuffle keys. In some circumstances, Flow may require that you explicitly tell it of your shuffled key types.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ShuffleType"
+          }
+        },
+        "transforms": {
           "title": "Transforms which make up this derivation.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TransformDef"
+          }
+        },
+        "using": {
+          "title": "The selected runtime for this derivation.",
+          "$ref": "#/definitions/DeriveUsing"
+        }
+      },
+      "additionalProperties": false
+    },
+    "DeriveUsing": {
+      "description": "A derivation runtime implementation.",
+      "oneOf": [
+        {
+          "title": "A Connector.",
           "type": "object",
-          "patternProperties": {
-            "^[\\p{Letter}\\p{Number}\\-_\\.]+$": {
-              "$ref": "#/definitions/TransformDef"
+          "required": [
+            "connector"
+          ],
+          "properties": {
+            "connector": {
+              "$ref": "#/definitions/ConnectorConfig"
             }
           },
-          "additionalProperties": false,
-          "example": [
-            {
-              "nameOfTransform": {
-                "publish": {
-                  "lambda": "typescript"
-                },
-                "source": {
-                  "name": "source/collection"
-                }
-              }
-            }
-          ]
+          "additionalProperties": false
         },
-        "typescript": {
-          "title": "TypeScript module which implements lambda functions of this derivation.",
-          "anyOf": [
+        {
+          "title": "A SQLite derivation.",
+          "type": "object",
+          "required": [
+            "sqlite"
+          ],
+          "properties": {
+            "sqlite": {
+              "$ref": "#/definitions/DeriveUsingSqlite"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "title": "A TypeScript derivation.",
+          "type": "object",
+          "required": [
+            "typescript"
+          ],
+          "properties": {
+            "typescript": {
+              "$ref": "#/definitions/DeriveUsingTypescript"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "DeriveUsingSqlite": {
+      "type": "object",
+      "properties": {
+        "migrations": {
+          "title": "Ordered migrations which are used to initialize the database.",
+          "description": "Migrations may be provided as an inline string, or as a relative URL to a file containing the migration SQL.",
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "description": "A URL identifying a resource, which may be a relative local path with respect to the current resource (i.e, ../path/to/flow.yaml), or may be an external absolute URL (i.e., http://example/flow.yaml).",
+                "examples": [
+                  "https://example/resource"
+                ],
+                "type": "string",
+                "pattern": "^[^ ]+$"
+              },
+              {
+                "type": "string",
+                "contentMediaType": "text/x.sql"
+              }
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "DeriveUsingTypescript": {
+      "type": "object",
+      "required": [
+        "module"
+      ],
+      "properties": {
+        "module": {
+          "title": "TypeScript module implementing this derivation.",
+          "description": "Module is either a relative URL of a TypeScript module file, or is an inline representation of a Typescript module. The module must have a exported Derivation variable which is an instance implementing the corresponding Derivation interface.",
+          "oneOf": [
             {
-              "$ref": "#/definitions/TypescriptModule"
+              "description": "A URL identifying a resource, which may be a relative local path with respect to the current resource (i.e, ../path/to/flow.yaml), or may be an external absolute URL (i.e., http://example/flow.yaml).",
+              "examples": [
+                "https://example/resource"
+              ],
+              "type": "string",
+              "pattern": "^[^ ]+$"
             },
             {
-              "type": "null"
+              "type": "string",
+              "contentMediaType": "text/x.typescript"
             }
           ]
         }
@@ -546,14 +545,7 @@ expression: "&schema"
       "properties": {
         "compressionCodec": {
           "title": "Codec used to compress Journal Fragments.",
-          "anyOf": [
-            {
-              "$ref": "#/definitions/CompressionCodec"
-            },
-            {
-              "type": "null"
-            }
-          ]
+          "$ref": "#/definitions/CompressionCodec"
         },
         "flushInterval": {
           "title": "Maximum flush delay before in-progress fragments are closed and persisted",
@@ -567,10 +559,7 @@ expression: "&schema"
         "length": {
           "title": "Desired content length of each fragment, in megabytes before compression.",
           "description": "When a collection journal fragment reaches this threshold, it will be closed off and pushed to cloud storage. If not set, a default of 512MB is used.",
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": "integer",
           "format": "uint32",
           "maximum": 4096.0,
           "minimum": 32.0
@@ -587,42 +576,44 @@ expression: "&schema"
       },
       "additionalProperties": false
     },
-    "Import": {
-      "description": "Import a referenced Resource into the catalog.",
+    "FullSource": {
+      "description": "A source collection and details of how it's read.",
       "examples": [
-        "./a/flow.yaml",
         {
-          "contentType": "JSON_SCHEMA",
-          "url": "https://example/schema.json"
+          "name": "source/collection"
         }
       ],
-      "anyOf": [
-        {
-          "$ref": "#/definitions/RelativeUrl"
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "title": "Name of the collection to be read.",
+          "$ref": "#/definitions/Collection"
         },
-        {
-          "type": "object",
-          "required": [
-            "contentType",
-            "url"
-          ],
-          "properties": {
-            "contentType": {
-              "title": "The content-type of the imported resource.",
-              "$ref": "#/definitions/ContentType"
-            },
-            "url": {
-              "title": "The resource to import.",
-              "$ref": "#/definitions/RelativeUrl"
+        "partitions": {
+          "title": "Selector over partition of the source collection to read.",
+          "examples": [
+            {
+              "exclude": {
+                "other_partition": [
+                  32,
+                  64
+                ]
+              },
+              "include": {
+                "a_partition": [
+                  "A",
+                  "B"
+                ]
+              }
             }
-          },
-          "additionalProperties": false
+          ],
+          "$ref": "#/definitions/PartitionSelector"
         }
-      ]
-    },
-    "IngestConfig": {
-      "description": "Ingest source specification.",
-      "type": "object"
+      },
+      "additionalProperties": false
     },
     "JournalTemplate": {
       "description": "A JournalTemplate configures the journals which make up the physical partitions of a collection.",
@@ -653,50 +644,6 @@ expression: "&schema"
       ],
       "type": "string",
       "pattern": "^(/([^/~]|(~[01]))+)*$"
-    },
-    "Lambda": {
-      "description": "Lambdas are user functions which are invoked by the Flow runtime to process and transform source collection documents into derived collections. Flow supports multiple lambda run-times, with a current focus on TypeScript and remote HTTP APIs.\n\nTypeScript lambdas are invoked within on-demand run-times, which are automatically started and scaled by Flow's task distribution in order to best co-locate data and processing, as well as to manage fail-over.\n\nRemote lambdas may be called from many Flow tasks, and are up to the API provider to provision and scale.",
-      "examples": [
-        "typescript",
-        {
-          "remote": "http://example/api"
-        },
-        {
-          "sql": "SELECT foo, bar FROM source;"
-        }
-      ],
-      "oneOf": [
-        {
-          "type": "string",
-          "enum": [
-            "typescript"
-          ]
-        },
-        {
-          "type": "object",
-          "required": [
-            "remote"
-          ],
-          "properties": {
-            "remote": {
-              "type": "string"
-            }
-          },
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "required": [
-            "sql"
-          ],
-          "properties": {
-            "sql": {
-              "type": "string"
-            }
-          },
-          "additionalProperties": false
-        }
-      ]
     },
     "Materialization": {
       "description": "Materialization names are paths of Unicode letters, numbers, '-', '_', or '.'. Each path component is separated by a slash '/', and a name may not begin or end in a '/'.",
@@ -731,41 +678,12 @@ expression: "&schema"
           },
           "$ref": "#/definitions/MaterializationFields"
         },
-        "partitions": {
-          "title": "Selector over partitions of the source collection to read.",
-          "examples": [
-            {
-              "exclude": {
-                "other_partition": [
-                  32,
-                  64
-                ]
-              },
-              "include": {
-                "a_partition": [
-                  "A",
-                  "B"
-                ]
-              }
-            }
-          ],
-          "anyOf": [
-            {
-              "$ref": "#/definitions/PartitionSelector"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "resource": {
-          "title": "Endpoint resource to materialize into.",
-          "type": "object",
-          "additionalProperties": true
+          "title": "Endpoint resource to materialize into."
         },
         "source": {
-          "title": "Name of the collection to be materialized.",
-          "$ref": "#/definitions/Collection"
+          "title": "The collection to be materialized.",
+          "$ref": "#/definitions/Source"
         }
       },
       "additionalProperties": false
@@ -811,19 +729,6 @@ expression: "&schema"
             }
           },
           "additionalProperties": false
-        },
-        {
-          "title": "A SQLite database.",
-          "type": "object",
-          "required": [
-            "sqlite"
-          ],
-          "properties": {
-            "sqlite": {
-              "$ref": "#/definitions/SqliteConfig"
-            }
-          },
-          "additionalProperties": false
         }
       ]
     },
@@ -857,10 +762,7 @@ expression: "&schema"
           "title": "Fields to include.",
           "description": "This supplements any recommended fields, where enabled. Values are passed through to the driver, e.x. for customization of the driver's schema generation or runtime behavior with respect to the field.",
           "type": "object",
-          "additionalProperties": {
-            "type": "object",
-            "additionalProperties": true
-          }
+          "additionalProperties": true
         },
         "recommended": {
           "title": "Should recommended projections for the endpoint be used?",
@@ -910,14 +812,6 @@ expression: "&schema"
       },
       "additionalProperties": false
     },
-    "Prefix": {
-      "description": "Prefixes are paths of Unicode letters, numbers, '-', '_', or '.'. Each path component is separated by a slash '/'. Prefixes may not begin in a '/', but must end in one.",
-      "examples": [
-        "acmeCo/widgets/"
-      ],
-      "type": "string",
-      "pattern": "^([\\p{Letter}\\p{Number}\\-_\\.]+/)*$"
-    },
     "Projection": {
       "description": "Projections are named locations within a collection document which may be used for logical partitioning or directly exposed to databases into which collections are materialized.",
       "anyOf": [
@@ -944,44 +838,6 @@ expression: "&schema"
         }
       ]
     },
-    "Publish": {
-      "description": "Publish lambdas take a source document, a current register and (if there is also an \"update\" lambda) a previous register, and transform them into one or more documents to be published into a derived collection.",
-      "examples": [
-        {
-          "lambda": "typescript"
-        }
-      ],
-      "type": "object",
-      "required": [
-        "lambda"
-      ],
-      "properties": {
-        "lambda": {
-          "title": "Lambda invoked by the publish.",
-          "$ref": "#/definitions/Lambda"
-        }
-      },
-      "additionalProperties": false
-    },
-    "Register": {
-      "description": "Registers are the internal states of a derivation, which can be read and updated by all of its transformations. They're an important building block for joins, aggregations, and other complex stateful workflows.\n\nRegisters are implemented using JSON-Schemas, often ones with reduction annotations. When reading source documents, every distinct shuffle key by which the source collection is read is mapped to a corresponding register value (or, if no shuffle key is defined, the source collection's key is used instead).\n\nThen, an \"update\" lambda of the transformation produces updates which are reduced into the register, and a \"publish\" lambda reads the current (and previous, if updated) register value.",
-      "type": "object",
-      "required": [
-        "schema"
-      ],
-      "properties": {
-        "initial": {
-          "title": "Initial value of a keyed register which has never been updated.",
-          "description": "If not specified, the default is \"null\".",
-          "default": null
-        },
-        "schema": {
-          "title": "Schema which validates and reduces register documents.",
-          "$ref": "#/definitions/Schema"
-        }
-      },
-      "additionalProperties": false
-    },
     "RelativeUrl": {
       "description": "A URL identifying a resource, which may be a relative local path with respect to the current resource (i.e, ../path/to/flow.yaml), or may be an external absolute URL (i.e., http://example/flow.yaml).",
       "examples": [
@@ -1005,35 +861,6 @@ expression: "&schema"
             }
           },
           "type": "object"
-        },
-        {
-          "properties": {
-            "foo_count": {
-              "reduce": {
-                "strategy": "sum"
-              },
-              "type": "integer"
-            }
-          },
-          "reduce": {
-            "strategy": "merge"
-          },
-          "type": "object"
-        }
-      ],
-      "anyOf": [
-        {
-          "description": "Relative URL to a schema file.",
-          "$ref": "#/definitions/RelativeUrl"
-        },
-        {
-          "description": "Inline schema document.",
-          "type": "object",
-          "additionalProperties": true
-        },
-        {
-          "description": "Inline schema document (alternate boolean form).",
-          "type": "boolean"
         }
       ]
     },
@@ -1054,20 +881,14 @@ expression: "&schema"
         "hotStandbys": {
           "title": "Number of hot standbys to keep for each task shard.",
           "description": "Hot standbys of a shard actively replicate the shard's state to another machine, and are able to be quickly promoted to take over processing for the shard should its current primary fail. If not set, then no hot standbys are maintained. EXPERIMENTAL: this field MAY be removed.",
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": "integer",
           "format": "uint32",
           "minimum": 0.0
         },
         "logLevel": {
           "title": "Log level of this tasks's shards.",
           "description": "Log levels may currently be \"error\", \"warn\", \"info\", \"debug\", or \"trace\". If not set, the effective log level is \"info\".",
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": "string"
         },
         "maxTxnDuration": {
           "title": "Maximum duration of task transactions.",
@@ -1090,20 +911,14 @@ expression: "&schema"
         "readChannelSize": {
           "title": "Size of the reader channel used for decoded documents.",
           "description": "Larger values are recommended for tasks having more than one shard split and long, bursty transaction durations. If not set, a reasonable default (currently 65,536) is used. EXPERIMENTAL: this field is LIKELY to be removed.",
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": "integer",
           "format": "uint32",
           "minimum": 0.0
         },
         "ringBufferSize": {
           "title": "Size of the ring buffer used to sequence documents for exactly-once semantics.",
           "description": "The ring buffer is a performance optimization only: catalog tasks will replay portions of journals as needed when messages aren't available in the buffer. It can remain small if upstream task transactions are small, but larger transactions will achieve better performance with a larger ring. If not set, a reasonable default (currently 65,536) is used. EXPERIMENTAL: this field is LIKELY to be removed.",
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": "integer",
           "format": "uint32",
           "minimum": 0.0
         }
@@ -1121,7 +936,7 @@ expression: "&schema"
       ],
       "oneOf": [
         {
-          "description": "Shuffle by extracting the given fields.",
+          "title": "Key which identifies fields of sourced documents to extract and shuffle upon.",
           "type": "object",
           "required": [
             "key"
@@ -1134,229 +949,39 @@ expression: "&schema"
           "additionalProperties": false
         },
         {
-          "description": "Invoke the lambda for each source document, and shuffle on its returned key.",
+          "title": "Lambda which extracts a shuffle key from the sourced documents of this transform.",
+          "description": "Lambdas may be provided inline, or as a relative URL to a file containing the lambda.",
           "type": "object",
           "required": [
             "lambda"
           ],
           "properties": {
-            "lambda": {
-              "$ref": "#/definitions/Lambda"
-            }
+            "lambda": true
           },
           "additionalProperties": false
         }
       ]
     },
-    "SqliteConfig": {
-      "description": "Sqlite endpoint configuration.",
-      "type": "object",
-      "required": [
-        "path"
-      ],
-      "properties": {
-        "path": {
-          "title": "Path of the database, relative to this catalog source.",
-          "description": "The path may include query arguments. See: https://github.com/mattn/go-sqlite3#connection-string",
-          "$ref": "#/definitions/RelativeUrl"
-        }
-      }
-    },
-    "StorageDef": {
-      "description": "Storage defines the backing cloud storage for journals.",
-      "type": "object",
-      "required": [
-        "stores"
-      ],
-      "properties": {
-        "stores": {
-          "title": "Stores for journal fragments under this prefix.",
-          "description": "Multiple stores may be specified, and all stores are periodically scanned to index applicable journal fragments. New fragments are always persisted to the first store in the list.\n\nThis can be helpful in performing bucket migrations: adding a new store to the front of the list causes ongoing data to be written to that location, while historical data continues to be read and served from the prior stores.\n\nWhen running `flowctl test`, stores are ignored and a local temporary directory is used instead.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/Store"
-          }
-        }
-      }
-    },
-    "StorageEndpoint": {
-      "description": "An address for a custom storage endpoint",
-      "examples": [
-        "storage.example.com"
-      ],
+    "ShuffleType": {
+      "description": "Type of a shuffled key component.",
       "type": "string",
-      "pattern": "^^(http://|https://)?[a-z0-9]+[a-z0-9\\.:-]*[a-z0-9]+$"
+      "enum": [
+        "boolean",
+        "integer",
+        "string"
+      ]
     },
-    "Store": {
-      "description": "A Store into which Flow journal fragments may be written.\n\nThe persisted path of a journal fragment is determined by composing the Store's bucket and prefix with the journal name and a content-addressed fragment file name.\n\nEg, given a Store to S3 with bucket \"my-bucket\" and prefix \"a/prefix\", along with a collection \"example/events\" having a logical partition \"region\", then a complete persisted path might be:\n\ns3://my-bucket/a/prefix/example/events/region=EU/utc_date=2021-10-25/utc_hour=13/000123-000456-789abcdef.gzip",
+    "Source": {
+      "description": "A source collection and details of how it's read.",
       "examples": [
-        {
-          "bucket": "my-bucket",
-          "prefix": null,
-          "provider": "S3"
-        }
+        "source/collection"
       ],
-      "oneOf": [
+      "anyOf": [
         {
-          "title": "Amazon Simple Storage Service.",
-          "examples": [
-            {
-              "bucket": "my-bucket",
-              "prefix": null
-            }
-          ],
-          "type": "object",
-          "required": [
-            "bucket",
-            "provider"
-          ],
-          "properties": {
-            "bucket": {
-              "description": "Bucket into which Flow will store data.",
-              "type": "string",
-              "pattern": "(^(([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])\\.)*([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])$)"
-            },
-            "prefix": {
-              "description": "Optional prefix of keys written to the bucket.",
-              "default": null,
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/Prefix"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "provider": {
-              "type": "string",
-              "enum": [
-                "S3"
-              ]
-            }
-          }
+          "$ref": "#/definitions/FullSource"
         },
         {
-          "title": "Google Cloud Storage.",
-          "examples": [
-            {
-              "bucket": "my-bucket",
-              "prefix": null
-            }
-          ],
-          "type": "object",
-          "required": [
-            "bucket",
-            "provider"
-          ],
-          "properties": {
-            "bucket": {
-              "description": "Bucket into which Flow will store data.",
-              "type": "string",
-              "pattern": "(^(([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])\\.)*([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])$)"
-            },
-            "prefix": {
-              "description": "Optional prefix of keys written to the bucket.",
-              "default": null,
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/Prefix"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "provider": {
-              "type": "string",
-              "enum": [
-                "GCS"
-              ]
-            }
-          }
-        },
-        {
-          "title": "Azure object storage service.",
-          "examples": [
-            {
-              "bucket": "my-bucket",
-              "prefix": null
-            }
-          ],
-          "type": "object",
-          "required": [
-            "bucket",
-            "provider"
-          ],
-          "properties": {
-            "bucket": {
-              "description": "Bucket into which Flow will store data.",
-              "type": "string",
-              "pattern": "(^(([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])\\.)*([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])$)"
-            },
-            "prefix": {
-              "description": "Optional prefix of keys written to the bucket.",
-              "default": null,
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/Prefix"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "provider": {
-              "type": "string",
-              "enum": [
-                "AZURE"
-              ]
-            }
-          }
-        },
-        {
-          "title": "An S3-compatible endpoint",
-          "description": "Details of an s3-compatible storage endpoint, such as Minio or R2.",
-          "examples": [
-            {
-              "bucket": "my-bucket",
-              "endpoint": "storage.example.com"
-            }
-          ],
-          "type": "object",
-          "required": [
-            "bucket",
-            "endpoint",
-            "provider"
-          ],
-          "properties": {
-            "bucket": {
-              "description": "Bucket into which Flow will store data.",
-              "type": "string",
-              "pattern": "(^(([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])\\.)*([a-z0-9]|[a-z0-9][a-z0-9\\-]*[a-z0-9])$)"
-            },
-            "endpoint": {
-              "description": "endpoint is required when provider is \"custom\", and specifies the address of an s3-compatible storage provider.",
-              "$ref": "#/definitions/StorageEndpoint"
-            },
-            "prefix": {
-              "description": "Optional prefix of keys written to the bucket.",
-              "anyOf": [
-                {
-                  "$ref": "#/definitions/Prefix"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "provider": {
-              "type": "string",
-              "enum": [
-                "CUSTOM"
-              ]
-            }
-          }
+          "$ref": "#/definitions/Collection"
         }
       ]
     },
@@ -1380,20 +1005,6 @@ expression: "&schema"
             "another": "document"
           }
         ]
-      ],
-      "anyOf": [
-        {
-          "description": "Relative URL to a file of documents.",
-          "$ref": "#/definitions/RelativeUrl"
-        },
-        {
-          "description": "An inline array of documents.",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": true
-          }
-        }
       ]
     },
     "TestStep": {
@@ -1518,8 +1129,8 @@ expression: "&schema"
       ],
       "properties": {
         "collection": {
-          "title": "Collection into which the test will ingest.",
-          "$ref": "#/definitions/Collection"
+          "title": "Collection from which the test will verify.",
+          "$ref": "#/definitions/Source"
         },
         "description": {
           "title": "Description of this test verification.",
@@ -1529,33 +1140,6 @@ expression: "&schema"
           "title": "Documents to verify.",
           "description": "Each document may contain only a portion of the matched document's properties, and any properties present in the actual document but not in this document fixture are ignored. All other values must match or the test will fail.",
           "$ref": "#/definitions/TestDocuments"
-        },
-        "partitions": {
-          "title": "Selector over partitions to verify.",
-          "examples": [
-            {
-              "exclude": {
-                "other_partition": [
-                  32,
-                  64
-                ]
-              },
-              "include": {
-                "a_partition": [
-                  "A",
-                  "B"
-                ]
-              }
-            }
-          ],
-          "anyOf": [
-            {
-              "$ref": "#/definitions/PartitionSelector"
-            },
-            {
-              "type": "null"
-            }
-          ]
         }
       },
       "additionalProperties": false
@@ -1572,41 +1156,31 @@ expression: "&schema"
       "description": "A Transform reads and shuffles documents of a source collection, and processes each document through either one or both of a register \"update\" lambda and a derived document \"publish\" lambda.",
       "examples": [
         {
-          "publish": {
-            "lambda": "typescript"
-          },
-          "source": {
-            "name": "source/collection"
-          }
+          "name": "my-transform",
+          "source": "some/source/collection"
         }
       ],
       "type": "object",
       "required": [
+        "name",
         "source"
       ],
       "properties": {
+        "lambda": {
+          "title": "Lambda applied to the sourced documents of this transform.",
+          "description": "Lambdas may be provided inline, or as a relative URL to a file containing the lambda."
+        },
+        "name": {
+          "title": "Name of this transformation.",
+          "description": "The names of transforms within a derivation must be unique and stable.",
+          "$ref": "#/definitions/Transform"
+        },
         "priority": {
           "title": "Priority applied to documents processed by this transform.",
           "description": "When all transforms are of equal priority, Flow processes documents according to their associated publishing time, as encoded in the document UUID.\n\nHowever, when one transform has a higher priority than others, then *all* ready documents are processed through the transform before *any* documents of other transforms are processed.",
           "type": "integer",
           "format": "uint32",
           "minimum": 0.0
-        },
-        "publish": {
-          "title": "Publish that maps a source document and registers into derived documents of the collection.",
-          "examples": [
-            {
-              "lambda": "typescript"
-            }
-          ],
-          "anyOf": [
-            {
-              "$ref": "#/definitions/Publish"
-            },
-            {
-              "type": "null"
-            }
-          ]
         },
         "readDelay": {
           "title": "Delay applied to documents processed by this transform.",
@@ -1618,7 +1192,7 @@ expression: "&schema"
           "pattern": "^\\d+(s|m|h)$"
         },
         "shuffle": {
-          "title": "Shuffle by which source documents are mapped to registers.",
+          "title": "Shuffle by which source documents are mapped to processing shards.",
           "description": "If empty, the key of the source collection is used.",
           "examples": [
             {
@@ -1627,139 +1201,11 @@ expression: "&schema"
               ]
             }
           ],
-          "anyOf": [
-            {
-              "$ref": "#/definitions/Shuffle"
-            },
-            {
-              "type": "null"
-            }
-          ]
+          "$ref": "#/definitions/Shuffle"
         },
         "source": {
           "title": "Source collection read by this transform.",
-          "$ref": "#/definitions/TransformSource"
-        },
-        "update": {
-          "title": "Update that maps a source document into register updates.",
-          "examples": [
-            {
-              "lambda": "typescript"
-            }
-          ],
-          "anyOf": [
-            {
-              "$ref": "#/definitions/Update"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "additionalProperties": false
-    },
-    "TransformSource": {
-      "description": "TransformSource defines a transformation source collection and how it's read.",
-      "examples": [
-        {
-          "name": "source/collection"
-        }
-      ],
-      "type": "object",
-      "required": [
-        "name"
-      ],
-      "properties": {
-        "name": {
-          "title": "Name of the collection to be read.",
-          "$ref": "#/definitions/Collection"
-        },
-        "partitions": {
-          "title": "Selector over partition of the source collection to read.",
-          "examples": [
-            {
-              "exclude": {
-                "other_partition": [
-                  32,
-                  64
-                ]
-              },
-              "include": {
-                "a_partition": [
-                  "A",
-                  "B"
-                ]
-              }
-            }
-          ],
-          "anyOf": [
-            {
-              "$ref": "#/definitions/PartitionSelector"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "additionalProperties": false
-    },
-    "TypescriptModule": {
-      "type": "object",
-      "required": [
-        "module"
-      ],
-      "properties": {
-        "module": {
-          "title": "TypeScript module implementing this derivation.",
-          "description": "Module is either a relative URL of a TypeScript module file, or is an inline representation of a Typscript module. The module must have a exported Derivation variable which is an instance implementing the corresponding Derivation interface.",
-          "oneOf": [
-            {
-              "description": "A URL identifying a resource, which may be a relative local path with respect to the current resource (i.e, ../path/to/flow.yaml), or may be an external absolute URL (i.e., http://example/flow.yaml).",
-              "examples": [
-                "https://example/resource"
-              ],
-              "type": "string",
-              "pattern": "^[^ ]+$"
-            },
-            {
-              "type": "string",
-              "contentMediaType": "text/x.typescript"
-            }
-          ]
-        },
-        "npmDependencies": {
-          "title": "NPM package dependencies of the module.",
-          "description": "Dependencies are included when building the catalog's build NodeJS package, as {\"package-name\": \"version\"}. I.e. {\"moment\": \"^2.24\"}.\n\nVersion strings can take any form understood by NPM. See https://docs.npmjs.com/files/package.json#dependencies",
-          "examples": [
-            {
-              "a-npm-package": "^1.2.3"
-            }
-          ],
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    "Update": {
-      "description": "Update lambdas take a source document and transform it into one or more register updates, which are then reduced into the associated register by the runtime. For example these register updates might update counters, or update the state of a \"join\" window.",
-      "examples": [
-        {
-          "lambda": "typescript"
-        }
-      ],
-      "type": "object",
-      "required": [
-        "lambda"
-      ],
-      "properties": {
-        "lambda": {
-          "title": "Lambda invoked by the update.",
-          "$ref": "#/definitions/Lambda"
+          "$ref": "#/definitions/Source"
         }
       },
       "additionalProperties": false

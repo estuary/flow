@@ -3,22 +3,19 @@ source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 Sources {
-    capture_bindings: [],
     captures: [],
     collections: [
         Collection {
             scope: test://example/catalog.yaml#/collections/test,
             collection: test,
             spec: {
+              "schema": "schema.json",
               "key": [
                 "/a"
               ]
             },
-            write_schema: test://example/schema.json,
-            read_schema: test://example/schema.json,
         },
     ],
-    derivations: [],
     errors: [],
     fetches: [
         Fetch {
@@ -33,21 +30,10 @@ Sources {
     imports: [
         Import {
             scope: test://example/catalog.yaml#/collections/test/schema,
-            from_resource: test://example/catalog.yaml,
             to_resource: test://example/schema.json,
         },
     ],
-    materialization_bindings: [],
     materializations: [],
-    npm_dependencies: [],
-    projections: [
-        Projection {
-            scope: test://example/catalog.yaml#/collections/test/projections/flow_document,
-            collection: test,
-            field: flow_document,
-            spec: "",
-        },
-    ],
     resources: [
         Resource {
             resource: test://example/catalog.yaml,
@@ -62,29 +48,6 @@ Sources {
             content_dom: {"$defs":{"lowercase":{"$anchor":"lowercase","type":"integer"},"matches":{"$anchor":"Match_es","type":"integer"},"punctuation":{"$anchor":"Spa ce","type":"integer"}},"type":"string"},
         },
     ],
-    schema_docs: [
-        SchemaDoc {
-            schema: test://example/schema.json,
-            dom: {
-              "$defs": {
-                "lowercase": {
-                  "$anchor": "lowercase",
-                  "type": "integer"
-                },
-                "matches": {
-                  "$anchor": "Match_es",
-                  "type": "integer"
-                },
-                "punctuation": {
-                  "$anchor": "Spa ce",
-                  "type": "integer"
-                }
-              },
-              "type": "string"
-            },
-        },
-    ],
     storage_mappings: [],
-    test_steps: [],
-    transforms: [],
+    tests: [],
 }

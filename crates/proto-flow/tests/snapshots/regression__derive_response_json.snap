@@ -1,0 +1,38 @@
+---
+source: crates/proto-flow/tests/regression.rs
+expression: json_test(msg)
+---
+{
+  "spec": {
+    "protocol": 3032023,
+    "configSchema": {"config":"schema"},
+    "lambdaConfigSchema": {"lambda":"schema"},
+    "documentationUrl": "https://example/docs"
+  },
+  "validated": {
+    "transforms": [
+      {
+        "readOnly": true
+      },
+      {}
+    ],
+    "generatedFiles": {
+      "file:///project/root/deno.json": "content"
+    }
+  },
+  "opened": {},
+  "published": {
+    "doc": {"published":"doc"}
+  },
+  "flushed": {},
+  "startedCommit": {
+    "state": {
+      "updated": {"state":"update"},
+      "mergePatch": true
+    }
+  },
+  "internal": {
+    "typeUrl": "flow://internal.thing",
+    "value": "EgJIaRgB"
+  }
+}

@@ -1,11 +1,10 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
-
 ---
 [
     Error {
-        scope: test://example/int-string-tests#/tests/testing~1test/0,
+        scope: test://example/int-string-tests#/tests/testing~1test/0/verify/documents/1,
         error: documents to verify are not in collection key order,
     },
 ]

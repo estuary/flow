@@ -5,29 +5,30 @@ import (
 
 	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	po "github.com/estuary/flow/go/protocols/ops"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCaptureStats(t *testing.T) {
 	// Simulate a capture with two bindings, where only one of them participated in the transaction.
 	var captureSpec = pf.CaptureSpec{
-		Capture: pf.Capture("test/capture"),
+		Name: pf.Capture("test/capture"),
 		Bindings: []*pf.CaptureSpec_Binding{
 			{
 				Collection: pf.CollectionSpec{
-					Collection: pf.Collection("test/collectionA"),
+					Name: pf.Collection("test/collectionA"),
 				},
 			},
 			{
 				Collection: pf.CollectionSpec{
-					Collection: pf.Collection("test/collectionA"),
+					Name: pf.Collection("test/collectionA"),
 				},
 			},
 		},
 	}
 	var subject = Capture{
 		taskTerm: taskTerm{
-			StatsFormatter: newTestFormatter("test/capture", "capture"),
+			StatsFormatter: newTestFormatter("test/capture", po.Shard_capture),
 		},
 		spec: captureSpec,
 	}

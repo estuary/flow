@@ -2,9 +2,9 @@ package ops
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
 
+	"github.com/gogo/protobuf/jsonpb"
 	"github.com/sirupsen/logrus"
 )
 
@@ -23,7 +23,7 @@ func NewLogWriteAdapter(publisher Publisher) io.Writer {
 
 type writeAdapter struct {
 	publisher Publisher
-	shard     ShardRef
+	shard     *ShardRef
 	rem       []byte
 }
 
@@ -37,8 +37,8 @@ func (o *writeAdapter) Write(p []byte) (int, error) {
 			line = append(o.rem, line...)
 		}
 
-		var log = Log{Fields: json.RawMessage("{}")}
-		if err := json.Unmarshal(line, &log); err != nil {
+		var log = Log{}
+		if err := jsonpb.Unmarshal(bytes.NewReader(line), &log); err != nil {
 			// We log but swallow an error because `writeAdapter` is used in contexts where
 			// a returned error cannot reasonably cancel an operation underway. We instead
 			// let it run and ensure we're at least getting logging of malformed lines.

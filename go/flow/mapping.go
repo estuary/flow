@@ -73,7 +73,7 @@ func NewMapper(
 func PartitionPointers(spec *pf.CollectionSpec) []string {
 	var ptrs = make([]string, len(spec.PartitionFields))
 	for i, field := range spec.PartitionFields {
-		ptrs[i] = pf.GetProjectionByField(field, spec.Projections).Ptr
+		ptrs[i] = spec.GetProjection(field).Ptr
 	}
 	return ptrs
 }
@@ -174,7 +174,7 @@ func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {
 				"journal":     applySpec.Name,
 				"readThrough": readThrough,
 			}).Info("created partition")
-			createdPartitionsCounters.WithLabelValues(msg.Spec.Collection.String()).Inc()
+			createdPartitionsCounters.WithLabelValues(msg.Spec.Name.String()).Inc()
 		}
 
 		m.journals.Mu.RLock()
@@ -274,7 +274,7 @@ func (m Mappable) SetUUID(uuid message.UUID) {
 func NewAcknowledgementMessage(spec *pf.CollectionSpec) Mappable {
 	return Mappable{
 		Spec: spec,
-		Doc:  append(json.RawMessage(nil), spec.AckJsonTemplate...),
+		Doc:  append(json.RawMessage(nil), spec.AckTemplateJson...),
 	}
 }
 

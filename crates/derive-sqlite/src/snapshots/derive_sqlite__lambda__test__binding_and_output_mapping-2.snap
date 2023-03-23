@@ -1,0 +1,29 @@
+---
+source: crates/derive-sqlite/src/lambda.rs
+expression: snap(&lambda)
+---
+{
+  "bindings": [
+    {
+      "encoding": "$amount",
+      "projection": {
+        "field": "amount",
+        "inference": {
+          "string": {}
+        },
+        "ptr": "/amount"
+      }
+    },
+    {
+      "encoding": "$sender",
+      "projection": {
+        "field": "sender",
+        "inference": {
+          "string": {}
+        },
+        "ptr": "/sender"
+      }
+    }
+  ],
+  "outputs": []
+}

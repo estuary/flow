@@ -1,83 +1,196 @@
 collections:
-  # Collection of 💲 transfers between accounts:
+  # Collection of 💲 requested transfers between accounts:
   #   {id: 123, sender: alice, recipient: bob, amount: 32.50}
-  acmeBänk/transfers:
-    schema:
-      # JSON Schema of collection's documents.
-      type: object
-      properties:
-        id: { type: integer }
-        sender: { type: string }
-        recipient: { type: string }
-        amount: { type: number }
-      required: [id, sender, recipient, amount]
+  acmeBänk/transfer-requests:
+    schema: acmeTransfer.schema.yaml
     key: [/id]
 
-  # Derived balances of each account:
-  #   {account: alice, amount: 67.35}
+  # Transformation which examines transfer requests and the current sender
+  # account balance, and approves or denies each request.
+  acmeBänk/transfer-outcomes:
+    schema:
+      # Enrich transfer-request schema with outcome and the sender's balance.
+      $ref: acmeTransfer.schema.yaml
+      required: [outcome, sender_balance]
+      properties:
+        outcome:
+          enum: [approve, deny]
+          description: Whether the transfer was approved, or denied for insufficient funds.
+        sender_balance: { type: number }
+    key: [/id]
+
+    # Logically partition the collection on the transfer decision outcome.
+    projections:
+      outcome:
+        location: /outcome
+        partition: true
+
+    derive:
+      using:
+        sqlite:
+          # The migrations block provides an opportunity to create and evolve internal
+          # tables and schema which are used by the SQL blocks of your transforms below.
+          # Migrations may be added over time and are applied automatically on initialization.
+          migrations:
+            - |
+              -- Table that tracks the current balance of each account.
+              create table current_balances (
+                account text primary key not null,
+                balance real not null
+              );
+
+      transforms:
+        - name: fromRequests
+          source: { name: acmeBänk/transfer-requests }
+          # Shuffle sourced documents on the sender, which ensures that all
+          # transfer requests of a given sender are processed and tracked by
+          # the same scale-out task shard.
+          shuffle: { key: [/sender] }
+          # The SQL block of a transform is run with each sourced document.
+          # The available $parameters correspond to the schema of the source collection,
+          # as well as any of it's explicitly-configured projections.
+          #
+          # When developing your transformation, `flowctl` will provide feedback on
+          # what $parameters are available and suggest alternatives for $parameters
+          # it doesn't know about.
+          lambda: |
+            -- If the sender has funds to cover the transfer request, then debit their account.
+            update current_balances
+            set balance = balance - $amount
+            where account = $sender and balance >= $amount;
+
+            -- Emit a transfer decision.
+            -- Use SQLite's changes() function to check if the previous update matched any rows.
+            -- If the sender was the special sweep account 'deposit' then the transfer is always approved.
+            with r as (
+              select
+                $id,
+                $sender,
+                $recipient,
+                $amount
+            )
+            select
+              r.*,
+              case when changes() or $sender = 'deposit'
+                then 'approve' else 'deny' end as outcome,
+              coalesce(b.balance, 0) as sender_balance
+            from r
+            left outer join current_balances b on $sender = b.account;
+
+        - name: fromSelf
+          # When a transfer is approved, we've debited the sender account but
+          # still need to credit the receiver. Read approved transfers from ourselves.
+          source:
+            name: acmeBänk/transfer-outcomes
+            partitions:
+              include:
+                outcome: ["approve"]
+          # Shuffled on the recipient this time, so we can credit their balance.
+          shuffle: { key: [/recipient] }
+          lambda: |
+            -- Credit the recipient's balance for a previously-approved transfer.
+            insert into current_balances (account, balance)
+            values ($recipient, $amount)
+            on conflict (account)
+            do update set balance = balance + $amount;
+
+  # Aggregation of the current balance for each account,
+  # built from the set of approved transfers.
   acmeBänk/balances:
     schema:
       type: object
+      required: [account, balance]
       properties:
         account: { type: string }
-        amount:
-          # Flow extends JSON schema with "reduce" annotations.
-          # These tell Flow how to combine each document location.
-          reduce: { strategy: sum }
+        balance:
           type: number
-      required: [account, amount]
+          reduce: { strategy: sum }
       reduce: { strategy: merge }
     key: [/account]
 
-    derivation:
-      transform:
-        fromTransfers:
-          source: { name: acmeBänk/transfers }
-          # Lambdas are functions that map input documents into output documents.
-          # Here we declare a lambda that will map a bank transfer document
-          # into a balance update.
-          # This declaration tells Flow to look for an associated TypeScript module.
-          publish:
-            lambda:
-              sql: |
-                select recipient as account, amount from source
-                union all
-                select sender, -amount from source
-
-# Uncomment when updating README:
-#
-#materializations:
-#  acmeBänk/database:
-#    endpoint:
-#      connector:
-#        # Use a Docker connector to materialize into a PostgreSQL database.
-#        # Connectors encapsulate the details of how to update a remote system,
-#        # whether it's a database, a key/value store, pub/sub, or a SaaS API.
-#        image: ghcr.io/estuary/materialize-postgres:f6f197d
-#        config:
-#          # Try this by standing up a local PostgreSQL database.
-#          # docker run --rm -e POSTGRES_PASSWORD=password -p 5432:5432 postgres -c log_statement=all
-#          # (Use host: host.docker.internal when running Docker for Windows/Mac).
-#          address: localhost:5432
-#          password: password
-#          database: postgres
-#          user: postgres
-#    bindings:
-#      # Create and materialize into table `account_balances`.
-#      - resource:
-#          table: account_balances
-#        source: acmeBänk/balances
+    derive:
+      using:
+        sqlite:
+          migrations: []
+      transforms:
+        - name: transfers
+          source:
+            name: acmeBänk/transfer-outcomes
+            partitions:
+              include:
+                outcome: ["approve"]
+          lambda: |
+            -- Map approved transfers to a credit for the recipient and a debit for the sender.
+            select $recipient as account, $amount as balance
+            union all
+            select $sender, -$amount
+            ;
 
 tests:
-  acmeBänk/test/balancers-from-transfers:
+  acmeBänk/test/transfer-outcomes:
     - ingest:
-        collection: acmeBänk/transfers
+        collection: acmeBänk/transfer-requests
         documents:
-          - { id: 1, sender: alice, recipient: bob, amount: 32.50 }
-          - { id: 2, sender: bob, recipient: carly, amount: 10.75 }
+          - { id: 1, sender: deposit, recipient: alice, amount: 20 }
+          - { id: 2, sender: deposit, recipient: bob, amount: 20 }
+    - ingest:
+        collection: acmeBänk/transfer-requests
+        documents:
+          - { id: 3, sender: alice, recipient: bob, amount: 32.50 }
+          - { id: 4, sender: bob, recipient: carly, amount: 10.75 }
+    - verify:
+        collection: acmeBänk/transfer-outcomes
+        documents:
+          - {
+              id: 1,
+              sender: deposit,
+              recipient: alice,
+              amount: 20,
+              outcome: approve,
+            }
+          - {
+              id: 2,
+              sender: deposit,
+              recipient: bob,
+              amount: 20,
+              outcome: approve,
+            }
+          - {
+              id: 3,
+              sender: alice,
+              recipient: bob,
+              amount: 32.50,
+              outcome: deny,
+            }
+          - {
+              id: 4,
+              sender: bob,
+              recipient: carly,
+              amount: 10.75,
+              outcome: approve,
+              sender_balance: 9.25,
+            }
+
+  acmeBänk/test/balances-from-outcomes:
+    - ingest:
+        collection: acmeBänk/transfer-requests
+        documents:
+          - { id: 1, sender: deposit, recipient: alice, amount: 20 }
+          - { id: 2, sender: deposit, recipient: bob, amount: 20 }
     - verify:
         collection: acmeBänk/balances
         documents:
-          - { account: alice, amount: -32.50 }
-          - { account: bob, amount: 21.75 }
-          - { account: carly, amount: 10.75 }
+          - { account: alice, balance: 20 }
+          - { account: bob, balance: 20 }
+          - { account: deposit, balance: -40 }
+    - ingest:
+        collection: acmeBänk/transfer-requests
+        documents:
+          - { id: 3, sender: alice, recipient: bob, amount: 25 }
+          - { id: 4, sender: bob, recipient: alice, amount: 15 }
+    - verify:
+        collection: acmeBänk/balances
+        documents:
+          - { account: alice, balance: 35 }
+          - { account: bob, balance: 5 }
+          - { account: deposit, balance: -40 }

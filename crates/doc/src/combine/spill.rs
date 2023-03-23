@@ -3,10 +3,10 @@ use crate::{
     validation::Validator, ArchivedDoc, ArchivedNode, HeapDoc, HeapNode, LazyNode, Pointer,
 };
 use rkyv::ser::Serializer;
+use std::cmp;
 use std::collections::BinaryHeap;
 use std::io;
 use std::ops::Range;
-use std::{cmp, rc::Rc};
 
 /// SpillWriter writes segments of sorted documents to a spill file,
 /// and tracks each of the written segment range offsets within the file.
@@ -159,7 +159,7 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
 /// this iterator-like object will also yield documents in ascending key order.
 pub struct Segment {
     docs: &'static [ArchivedDoc],
-    key: Rc<[Pointer]>,
+    key: Box<[Pointer]>,
     next: Range<u64>,
     zz_backing: rkyv::AlignedVec,
 }
@@ -169,7 +169,7 @@ impl Segment {
     /// The given AlignedVec buffer, which may have pre-allocated capacity,
     /// is used to back the archived documents read from the spill file.
     pub fn new<R: io::Read + io::Seek>(
-        key: Rc<[Pointer]>,
+        key: Box<[Pointer]>,
         r: &mut R,
         range: Range<u64>,
     ) -> Result<Self, io::Error> {
@@ -282,7 +282,7 @@ impl Eq for Segment {}
 /// yielding one document per key in ascending order.
 pub struct SpillDrainer<F: io::Read + io::Write + io::Seek> {
     heap: BinaryHeap<cmp::Reverse<Segment>>,
-    key: Rc<[Pointer]>,
+    key: Box<[Pointer]>,
     schema: Option<url::Url>,
     spill: F,
     validator: Validator,
@@ -292,7 +292,7 @@ impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
     /// Build a new SpillDrainer which drains the given segment ranges previously
     /// written to the spill file.
     pub fn new(
-        key: Rc<[Pointer]>,
+        key: Box<[Pointer]>,
         schema: Option<url::Url>,
         mut spill: F,
         ranges: &[Range<u64>],
@@ -314,7 +314,7 @@ impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
         })
     }
 
-    pub fn into_parts(self) -> (Rc<[Pointer]>, Option<url::Url>, F, Validator) {
+    pub fn into_parts(self) -> (Box<[Pointer]>, Option<url::Url>, F, Validator) {
         let Self {
             heap: _,
             key,
@@ -437,7 +437,7 @@ mod test {
         "###);
 
         // Parse the region as a Segment.
-        let key: Rc<[Pointer]> = vec![Pointer::from_str("/key")].into();
+        let key: Box<[Pointer]> = vec![Pointer::from_str("/key")].into();
         let mut actual = Vec::new();
         let mut segment = Segment::new(key, &mut spill, ranges[0].clone()).unwrap();
 
@@ -493,7 +493,7 @@ mod test {
             },
             "reduce": { "strategy": "merge" }
         });
-        let key: Rc<[Pointer]> = vec![Pointer::from_str("/key")].into();
+        let key: Box<[Pointer]> = vec![Pointer::from_str("/key")].into();
         let curi = url::Url::parse("http://example/schema").unwrap();
         let validator = Validator::new(build_schema(curi, &schema).unwrap()).unwrap();
 
@@ -638,7 +638,7 @@ mod test {
         spill.write_segment(&segment, 109..110).unwrap();
         let (mut spill, ranges) = spill.into_parts();
 
-        let key: Rc<[Pointer]> = vec![Pointer::from_str("")].into();
+        let key: Box<[Pointer]> = vec![Pointer::from_str("")].into();
         let mut segment = Segment::new(key, &mut spill, ranges[0].clone()).unwrap();
 
         // First chunk is retried until its narrowed to a single document.

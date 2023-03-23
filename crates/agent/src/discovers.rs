@@ -102,7 +102,7 @@ impl DiscoverHandler {
                 "pull",
                 &self.logs_tx,
                 row.logs_token,
-                tokio::process::Command::new("docker")
+                async_process::Command::new("docker")
                     .arg("pull")
                     .arg("--quiet")
                     .arg(&image_composed),
@@ -119,7 +119,7 @@ impl DiscoverHandler {
             &self.logs_tx,
             row.logs_token,
             row.endpoint_config.0.get().as_bytes(),
-            tokio::process::Command::new(format!("{}/flowctl-go", &self.bindir))
+            async_process::Command::new(format!("{}/flowctl-go", &self.bindir))
                 .arg("api")
                 .arg("discover")
                 .arg("--config=/dev/stdin")

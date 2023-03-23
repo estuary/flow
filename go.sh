@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PROFILE=release
+PROFILE="${PROFILE:-release}"
 
 export CGO_LDFLAGS="-L $(pwd)/target/${CARGO_BUILD_TARGET}/${PROFILE} -L $(pwd)/target/${CARGO_BUILD_TARGET}/${PROFILE}/librocksdb-exp -lbindings -lrocksdb -lsnappy -lstdc++ -ldl -lm"
 if [ "$(uname)" == "Darwin" ]; then

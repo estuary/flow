@@ -13,6 +13,7 @@ import (
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	po "github.com/estuary/flow/go/protocols/ops"
 	"github.com/pkg/errors"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -125,7 +126,7 @@ func (r *ring) onSubscribe(sub subscriber) {
 	r.subscribers.prune()
 	var rr = r.subscribers.add(sub)
 
-	r.log(pf.LogLevel_debug,
+	r.log(po.Log_debug,
 		"added shuffle ring subscriber",
 		"endOffset", sub.EndOffset,
 		"offset", sub.Offset,
@@ -146,7 +147,7 @@ func (r *ring) onSubscribe(sub subscriber) {
 	go r.readDocuments(readCh, *rr)
 
 	if rr.EndOffset != 0 {
-		r.log(pf.LogLevel_debug,
+		r.log(po.Log_debug,
 			"started a catch-up journal read for new subscriber",
 			"endOffset", rr.EndOffset,
 			"offset", rr.Offset,
@@ -162,7 +163,7 @@ func (r *ring) onRead(staged *pf.ShuffleResponse, ok bool, ex *bindings.Extracto
 		r.readChans = r.readChans[:len(r.readChans)-1]
 
 		if len(r.readChans) != 0 {
-			r.log(pf.LogLevel_debug,
+			r.log(po.Log_debug,
 				"completed catch-up journal read",
 				"reads", len(r.readChans),
 			)
@@ -170,9 +171,9 @@ func (r *ring) onRead(staged *pf.ShuffleResponse, ok bool, ex *bindings.Extracto
 		return
 	}
 
-	if len(staged.DocsJson) != 0 {
+	if len(staged.Docs) != 0 {
 		// Extract from staged documents.
-		for _, d := range staged.DocsJson {
+		for _, d := range staged.Docs {
 			ex.Document(staged.Arena.Bytes(d))
 		}
 		var uuids, fields, err = ex.Extract()
@@ -194,7 +195,7 @@ func (r *ring) onExtract(staged *pf.ShuffleResponse, uuids []pf.UUIDParts, packe
 		if staged.TerminalError == "" {
 			staged.TerminalError = err.Error()
 		}
-		r.log(pf.LogLevel_error,
+		r.log(po.Log_error,
 			"failed to extract from documents",
 			"error", err,
 			"readThrough", staged.ReadThrough,
@@ -213,7 +214,7 @@ func (r *ring) onExtract(staged *pf.ShuffleResponse, uuids []pf.UUIDParts, packe
 
 func (r *ring) serve() {
 	pprof.SetGoroutineLabels(r.ctx)
-	r.log(pf.LogLevel_debug, "started shuffle ring")
+	r.log(po.Log_debug, "started shuffle ring")
 
 	var (
 		build     = r.coordinator.builds.Open(r.shuffle.BuildId)
@@ -228,7 +229,7 @@ func (r *ring) serve() {
 	} else if initErr = extractor.Configure(
 		r.shuffle.SourceUuidPtr,
 		r.shuffle.ShuffleKeyPtrs,
-		json.RawMessage(r.shuffle.ValidateSchemaJson),
+		json.RawMessage(r.shuffle.ValidateSchema),
 	); initErr != nil {
 		initErr = fmt.Errorf("building document extractor: %w", initErr)
 	}
@@ -270,10 +271,10 @@ loop:
 		sub.callback(nil, r.ctx.Err())
 	}
 
-	r.log(pf.LogLevel_debug, "stopped shuffle ring")
+	r.log(po.Log_debug, "stopped shuffle ring")
 }
 
-func (r *ring) log(lvl pf.LogLevel, message string, fields ...interface{}) {
+func (r *ring) log(lvl po.Log_Level, message string, fields ...interface{}) {
 	if lvl > r.coordinator.publisher.Labels().LogLevel {
 		return
 	}
@@ -300,7 +301,7 @@ func (r *ring) readDocuments(ch chan *pf.ShuffleResponse, req pb.ReadRequest) (_
 			"offset", fmt.Sprint(req.Offset),
 		)),
 	)
-	r.log(pf.LogLevel_debug,
+	r.log(po.Log_debug,
 		"started reading journal documents",
 		"endOffset", req.EndOffset,
 		"offset", req.Offset,
@@ -321,7 +322,7 @@ func (r *ring) readDocuments(ch chan *pf.ShuffleResponse, req pb.ReadRequest) (_
 	var lastArena, lastDocs = 0, 0
 
 	defer func() {
-		r.log(pf.LogLevel_debug,
+		r.log(po.Log_debug,
 			"finished reading journal documents",
 			"endOffset", req.EndOffset,
 			"error", __out,
@@ -344,7 +345,7 @@ func (r *ring) readDocuments(ch chan *pf.ShuffleResponse, req pb.ReadRequest) (_
 			// bufio.Reader generates these when a read is restarted multiple
 			// times with no actual bytes read (e.x. because the journal is idle).
 			// It's safe to ignore.
-			r.log(pf.LogLevel_debug,
+			r.log(po.Log_debug,
 				"multiple journal reads occurred without any progress",
 				"endOffset", req.EndOffset,
 				"offset", offset,
@@ -353,7 +354,7 @@ func (r *ring) readDocuments(ch chan *pf.ShuffleResponse, req pb.ReadRequest) (_
 			line, err = nil, nil
 		case client.ErrOffsetJump:
 			// Offset jumps occur when fragments are removed from the middle of a journal.
-			r.log(pf.LogLevel_warn,
+			r.log(po.Log_warn,
 				"source journal offset jump",
 				"from", offset,
 				"to", rr.AdjustedOffset(br),
@@ -365,7 +366,7 @@ func (r *ring) readDocuments(ch chan *pf.ShuffleResponse, req pb.ReadRequest) (_
 				// Continue reading, now with blocking reads.
 				line, err, rr.Reader.Request.Block = nil, nil, true
 
-				r.log(pf.LogLevel_debug,
+				r.log(po.Log_debug,
 					"switched to blocking journal read",
 					"endOffset", req.EndOffset,
 					"offset", offset,
@@ -387,7 +388,7 @@ func (r *ring) readDocuments(ch chan *pf.ShuffleResponse, req pb.ReadRequest) (_
 		// Would |line| cause a re-allocation of |out| ?
 		if out.Arena == nil ||
 			line == nil ||
-			(len(out.Arena)+len(line) <= cap(out.Arena) && len(out.DocsJson)+1 <= cap(out.DocsJson)) {
+			(len(out.Arena)+len(line) <= cap(out.Arena) && len(out.Docs)+1 <= cap(out.Docs)) {
 			// It wouldn't, as |out| hasn't been allocated in the first place,
 			// or it can be extended without re-allocation.
 		} else {
@@ -426,12 +427,12 @@ func (r *ring) readDocuments(ch chan *pf.ShuffleResponse, req pb.ReadRequest) (_
 			var docsCap = roundUpPow2(lastDocs, docsCapMin, docsCapMax)
 
 			out.Arena = make([]byte, 0, arenaCap)
-			out.DocsJson = make([]pf.Slice, 0, docsCap)
+			out.Docs = make([]pf.Slice, 0, docsCap)
 			out.Offsets = make([]int64, 0, 2*docsCap)
 		}
 
 		if line != nil {
-			out.DocsJson = append(out.DocsJson, out.Arena.Add(line))
+			out.Docs = append(out.Docs, out.Arena.Add(line))
 			out.Offsets = append(out.Offsets, offset)
 			offset = rr.AdjustedOffset(br)
 			out.Offsets = append(out.Offsets, offset)
@@ -443,7 +444,7 @@ func (r *ring) readDocuments(ch chan *pf.ShuffleResponse, req pb.ReadRequest) (_
 
 		out.ReadThrough = offset
 		out.WriteHead = rr.Reader.Response.WriteHead
-		lastArena, lastDocs = len(out.Arena), len(out.DocsJson)
+		lastArena, lastDocs = len(out.Arena), len(out.Docs)
 
 		// Place back onto channel (cannot block).
 		ch <- out

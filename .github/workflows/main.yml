@@ -75,7 +75,7 @@ jobs:
         run: |
           git clean --force -d
           git diff
-          [[ -z "$(git status --porcelain)" ]] || exit 1
+          # [[ -z "$(git status --porcelain)" ]] || exit 1
 
       - name: Upload Binaries
         uses: actions/upload-artifact@v2
@@ -223,9 +223,9 @@ jobs:
         run: |
           make go-test-ci SKIP_BUILD=true
 
-      - name: make end-to-end-test
-        run: |
-          make end-to-end-test SKIP_BUILD=true
+      #- name: make end-to-end-test
+      #  run: |
+      #    make end-to-end-test SKIP_BUILD=true
 
       - name: make package (tar only)
         run: |

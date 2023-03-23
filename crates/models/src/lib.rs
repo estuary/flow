@@ -1,30 +1,30 @@
-use serde_json::{from_value, json};
-
 pub mod collate;
 
 mod captures;
 mod catalogs;
 mod collections;
-mod config;
-mod derivations;
+mod connector;
+mod derivation;
+mod derive_sqlite;
+mod derive_typescript;
 mod journals;
 mod labels;
 mod materializations;
+mod raw_value;
 mod references;
-mod resources;
 mod schemas;
 mod shards;
-mod shuffles;
+mod source;
 mod tests;
 
 pub use crate::labels::{Label, LabelSelector, LabelSet};
 pub use captures::{CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::Catalog;
 pub use collections::{CollectionDef, Projection};
-pub use config::{Config, ConnectorConfig};
-pub use derivations::{
-    Derivation, Publish, Register, TransformDef, TransformSource, TypescriptModule, Update,
-};
+pub use connector::ConnectorConfig;
+pub use derivation::{Derivation, DeriveUsing, Shuffle, ShuffleType, TransformDef};
+pub use derive_sqlite::DeriveUsingSqlite;
+pub use derive_typescript::DeriveUsingTypescript;
 pub use journals::{
     BucketAndPrefix, CompressionCodec, CustomStore, FragmentTemplate, JournalTemplate, StorageDef,
     Store,
@@ -33,21 +33,18 @@ pub use materializations::{
     MaterializationBinding, MaterializationDef, MaterializationEndpoint, MaterializationFields,
     SqliteConfig,
 };
+pub use raw_value::RawValue;
 pub use references::{
     Capture, Collection, CompositeKey, Field, JsonPointer, Materialization, PartitionField, Prefix,
     RelativeUrl, StorageEndpoint, Test, Transform,
 };
-pub use resources::{ContentType, Import, ResourceDef};
 pub use schemas::Schema;
 pub use shards::ShardTemplate;
-pub use shuffles::{Lambda, PartitionSelector, Shuffle};
+pub use source::{FullSource, PartitionSelector, Source};
 pub use tests::{TestDocuments, TestStep, TestStepIngest, TestStepVerify};
 
-/// Object is an alias for a JSON object.
-pub type Object = serde_json::Map<String, serde_json::Value>;
-
 fn duration_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    from_value(json!({
+    serde_json::from_value(serde_json::json!({
         "type": ["string", "null"],
         "pattern": "^\\d+(s|m|h)$"
     }))

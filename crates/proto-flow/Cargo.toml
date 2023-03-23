@@ -16,9 +16,14 @@ pbjson = { workspace = true }
 pbjson-types = { workspace = true }
 prost = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 
 [build-dependencies]
 proto-build = { path = "../proto-build" }
-
 pbjson-build = { workspace = true }
 prost-build = { workspace = true }
+regex = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+hexdump = { workspace = true }

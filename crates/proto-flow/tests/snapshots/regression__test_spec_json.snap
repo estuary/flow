@@ -1,0 +1,43 @@
+---
+source: crates/proto-flow/tests/regression.rs
+expression: json_test(msg)
+---
+{
+  "name": "acmeCo/test",
+  "steps": [
+    {
+      "description": "ingest step",
+      "stepScope": "scope://ingest",
+      "collection": "ingest/collection",
+      "docs": [
+        {"doc":"one"},
+        {"doc":2}
+      ]
+    },
+    {
+      "stepType": "VERIFY",
+      "stepIndex": 1,
+      "description": "verify step",
+      "stepScope": "scope://verify",
+      "collection": "verify/collection",
+      "docs": [
+        {"verify":"one"},
+        {"verify":2}
+      ],
+      "partitions": {
+        "include": {
+          "labels": [
+            {
+              "name": "estuary.dev/foo",
+              "value": "label-value"
+            },
+            {
+              "name": "estuary.dev/bar",
+              "value": "other-value"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

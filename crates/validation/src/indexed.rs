@@ -2,10 +2,9 @@ use super::Error;
 use itertools::{EitherOrBoth, Itertools};
 use models::collate::collate;
 use regex::Regex;
-use url::Url;
 
 pub fn walk_name(
-    scope: &Url,
+    scope: sources::Scope,
     entity: &'static str,
     name: &str,
     re: &Regex,
@@ -33,7 +32,7 @@ pub fn walk_name(
 
 pub fn walk_duplicates<'a, I>(i: I, errors: &mut tables::Errors)
 where
-    I: Iterator<Item = (&'static str, &'a str, &'a Url)> + 'a,
+    I: Iterator<Item = (&'static str, &'a str, sources::Scope<'a>)> + 'a,
 {
     // Sort entity iterator by increasing, collated name.
     let i = i.sorted_by(|(_, lhs, _), (_, rhs, _)| collate(lhs.chars()).cmp(collate(rhs.chars())));
@@ -66,7 +65,7 @@ where
                         lhs_name: lhs.to_string(),
                         rhs_entity,
                         rhs_name: rhs.to_string(),
-                        rhs_scope: rhs_scope.clone(),
+                        rhs_scope: rhs_scope.flatten(),
                     }
                     .push(lhs_scope, errors);
                 }
@@ -82,7 +81,7 @@ where
                         lhs_name: lhs.to_string(),
                         rhs_entity,
                         rhs_name: rhs.to_string(),
-                        rhs_scope: rhs_scope.clone(),
+                        rhs_scope: rhs_scope.flatten(),
                     }
                     .push(lhs_scope, errors);
                     break;

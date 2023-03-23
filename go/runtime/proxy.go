@@ -14,6 +14,7 @@ import (
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	po "github.com/estuary/flow/go/protocols/ops"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
@@ -82,7 +83,7 @@ func (ps *ProxyServer) Proxy(streaming pf.NetworkProxy_ProxyServer) error {
 
 	var inboundBytes, outboundBytes uint64
 
-	ops.PublishLog(container.logger, pf.LogLevel_info, "opening inbound connection to container",
+	ops.PublishLog(container.logger, po.Log_info, "opening inbound connection to container",
 		"clientAddr", open.ClientAddr,
 		"targetPort", open.TargetPort,
 	)
@@ -92,7 +93,7 @@ func (ps *ProxyServer) Proxy(streaming pf.NetworkProxy_ProxyServer) error {
 		if errors.Is(logErr, io.EOF) {
 			logErr = nil
 		}
-		ops.PublishLog(container.logger, pf.LogLevel_info, "proxy connection closed",
+		ops.PublishLog(container.logger, po.Log_info, "proxy connection closed",
 			"clientAddr", open.ClientAddr,
 			"targetPort", open.TargetPort,
 			"inboundBytes", inboundBytes,
@@ -156,7 +157,7 @@ func (ps *ProxyServer) Proxy(streaming pf.NetworkProxy_ProxyServer) error {
 	handshakeComplete = true
 	var shardID = open.ShardId.String()
 	proxyConnectionsAcceptedCounter.WithLabelValues(shardID, strconv.Itoa(int(open.TargetPort))).Inc()
-	ops.PublishLog(container.logger, pf.LogLevel_debug, "proxy connection opened", "port", open.TargetPort, "clientIP", open.ClientAddr)
+	ops.PublishLog(container.logger, po.Log_debug, "proxy connection opened", "port", open.TargetPort, "clientIP", open.ClientAddr)
 
 	var grp = errgroup.Group{}
 
@@ -177,9 +178,9 @@ func (ps *ProxyServer) Proxy(streaming pf.NetworkProxy_ProxyServer) error {
 	var status = "ok"
 	if err != nil {
 		status = "error"
-		ops.PublishLog(container.logger, pf.LogLevel_warn, "proxy connection failed", "port", open.TargetPort, "clientAddr", open.ClientAddr, "error", err)
+		ops.PublishLog(container.logger, po.Log_warn, "proxy connection failed", "port", open.TargetPort, "clientAddr", open.ClientAddr, "error", err)
 	} else {
-		ops.PublishLog(container.logger, pf.LogLevel_debug, "proxy connection closing normally", "port", open.TargetPort, "clientAddr", open.ClientAddr)
+		ops.PublishLog(container.logger, po.Log_debug, "proxy connection closing normally", "port", open.TargetPort, "clientAddr", open.ClientAddr)
 	}
 	proxyConnectionsClosedCounter.WithLabelValues(shardID, strconv.Itoa(int(open.TargetPort)), status).Inc()
 	return nil

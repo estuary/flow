@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"testing"
 
-	pf "github.com/estuary/flow/go/protocols/flow"
+	po "github.com/estuary/flow/go/protocols/ops"
 	"github.com/stretchr/testify/require"
 )
 
 func TestLogPublishing(t *testing.T) {
 	var publisher = &appendPublisher{}
 
-	PublishLog(publisher, pf.LogLevel_info,
+	PublishLog(publisher, po.Log_info,
 		"the log message",
 		"an-int", 42,
 		"a-float", 3.14159,
@@ -26,22 +26,24 @@ func TestLogPublishing(t *testing.T) {
 			fmt.Errorf("squince doesn't look ship-shape")),
 		"cancelled", context.Canceled,
 	)
-	PublishLog(publisher, pf.LogLevel_trace, "My trace level is filtered out")
+	PublishLog(publisher, po.Log_trace, "My trace level is filtered out")
 
 	require.Equal(t, []Log{
 		{
 			Timestamp: publisher.logs[0].Timestamp,
-			Level:     pf.LogLevel_info,
+			Level:     po.Log_info,
 			Message:   "the log message",
-			Fields: json.RawMessage(`{"a-float":3.14159,` +
-				`"a-str":"the string",` +
-				`"an-int":42,` +
-				`"cancelled":"context canceled",` +
-				`"error":"failed to frobulate: squince doesn't look ship-shape",` +
-				`"nested":{"one":1,"two":2}}`),
-			Shard: ShardRef{
+			FieldsJsonMap: map[string]json.RawMessage{
+				"a-float":   []byte("3.14159"),
+				"a-str":     []byte("\"the string\""),
+				"an-int":    []byte("42"),
+				"cancelled": []byte("\"context canceled\""),
+				"error":     []byte("\"failed to frobulate: squince doesn't look ship-shape\""),
+				"nested":    []byte("{\"one\":1,\"two\":2}"),
+			},
+			Shard: &ShardRef{
 				Name:        "task/name",
-				Kind:        "capture",
+				Kind:        po.Shard_capture,
 				KeyBegin:    "00001111",
 				RClockBegin: "00003333",
 			},

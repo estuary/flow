@@ -101,6 +101,17 @@ typedef struct GlobalMemoryStats {
   uint64_t realloc_ops_total;
 } GlobalMemoryStats;
 
+typedef struct TaskServiceImplPtr {
+  uint8_t _private[0];
+} TaskServiceImplPtr;
+
+typedef struct TaskService {
+  struct TaskServiceImplPtr *svc_ptr;
+  uint8_t *err_ptr;
+  uintptr_t err_len;
+  uintptr_t err_cap;
+} TaskService;
+
 struct Channel *build_create(int32_t log_level, int32_t log_dest_fd);
 
 void build_invoke1(struct Channel *ch, struct In1 i);
@@ -121,16 +132,6 @@ void combine_invoke16(struct Channel *ch, struct In16 i);
 
 void combine_drop(struct Channel *ch);
 
-struct Channel *derive_create(int32_t log_level, int32_t log_dest_fd);
-
-void derive_invoke1(struct Channel *ch, struct In1 i);
-
-void derive_invoke4(struct Channel *ch, struct In4 i);
-
-void derive_invoke16(struct Channel *ch, struct In16 i);
-
-void derive_drop(struct Channel *ch);
-
 struct Channel *extract_create(int32_t log_level, int32_t log_dest_fd);
 
 void extract_invoke1(struct Channel *ch, struct In1 i);
@@ -145,6 +146,10 @@ void extract_drop(struct Channel *ch);
  * Returns general statistics on memory allocations perfomed from within libbindings.
  */
 struct GlobalMemoryStats get_memory_stats(void);
+
+struct TaskService *new_task_service(const uint8_t *config_ptr, uint32_t config_len);
+
+void task_service_drop(struct TaskService *svc);
 
 struct Channel *upper_case_create(int32_t log_level, int32_t log_dest_fd);
 

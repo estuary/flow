@@ -1,55 +1,54 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
-
 ---
 [
     Error {
-        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
+        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0/include/Int,
         error: include projection Int of collection testing/int-string is not a partition,
     },
     Error {
-        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
+        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0/include/Int/1,
         error: include partition selector field Int value true is incompatible with the projections type, "integer",
     },
     Error {
-        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
+        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0/include/Unknown,
         error: include projection Unknown does not exist in collection testing/int-string,
     },
     Error {
-        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
+        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0/include/bit/1,
         error: include partition selector field bit value 42 is incompatible with the projections type, "boolean",
     },
     Error {
-        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
+        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0/include/bit/2,
         error: include partition selector field bit value "" is incompatible with the projections type, "boolean",
     },
     Error {
-        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
+        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0/include/bit/2,
         error: include partition selector field bit cannot be an empty string,
     },
     Error {
-        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
+        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0/exclude/AlsoUnknown,
         error: exclude projection AlsoUnknown does not exist in collection testing/int-string,
     },
     Error {
-        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
+        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0/exclude/Int,
         error: exclude projection Int of collection testing/int-string is not a partition,
     },
     Error {
-        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
+        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0/exclude/Int/0,
         error: exclude partition selector field Int value false is incompatible with the projections type, "integer",
     },
     Error {
-        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
+        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0/exclude/Int/1,
         error: exclude partition selector field Int value "" is incompatible with the projections type, "integer",
     },
     Error {
-        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
+        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0/exclude/Int/1,
         error: exclude partition selector field Int cannot be an empty string,
     },
     Error {
-        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
+        scope: test://example/db-views#/materializations/testing~1db-views/bindings/0/exclude/bit/1,
         error: exclude partition selector field bit value "a string" is incompatible with the projections type, "boolean",
     },
 ]

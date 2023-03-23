@@ -1,0 +1,104 @@
+---
+source: crates/proto-flow/tests/regression.rs
+expression: json_test(msg)
+---
+{
+  "spec": {
+    "protocol": 3032023,
+    "configSchema": {"config":"schema"},
+    "resourceConfigSchema": {"resource":"schema"},
+    "documentationUrl": "https://example/docs",
+    "oauth2": {
+      "provider": "oauth-provider",
+      "authUrlTemplate": "https://auth-url",
+      "accessTokenUrlTemplate": "https://access-token",
+      "accessTokenMethod": "POST",
+      "accessTokenBody": "foo",
+      "accessTokenHeaders": {
+        "hdr-one": {"hello":"hdr"},
+        "hdr-two": 42.5
+      },
+      "accessTokenResponseMap": {
+        "foo": true,
+        "key": "value"
+      },
+      "refreshTokenUrlTemplate": "https://refresh-token",
+      "refreshTokenMethod": "POST",
+      "refreshTokenBody": "refresh!",
+      "refreshTokenHeaders": {
+        "hdr-three": {"refresh":"hdr"}
+      },
+      "refreshTokenResponseMap": {
+        "access": "here"
+      }
+    }
+  },
+  "validated": {
+    "bindings": [
+      {
+        "constraints": {
+          "rec_field": {
+            "type": "LOCATION_RECOMMENDED",
+            "reason": "is recommended"
+          },
+          "req_field": {
+            "type": "FIELD_REQUIRED",
+            "reason": "is required"
+          }
+        },
+        "resourcePath": [
+          "some",
+          "path"
+        ],
+        "deltaUpdates": true
+      }
+    ]
+  },
+  "applied": {
+    "actionDescription": "I did some stuff"
+  },
+  "opened": {
+    "runtimeCheckpoint": {
+      "sources": {
+        "a/read/journal;suffix": {
+          "readThrough": "12345",
+          "producers": [
+            {
+              "id": "AwkIBQc=",
+              "state": {
+                "lastAck": "8675",
+                "begin": "1111"
+              }
+            },
+            {
+              "id": "BwxmKx0=",
+              "state": {
+                "lastAck": "309",
+                "begin": "2222"
+              }
+            }
+          ]
+        }
+      },
+      "ackIntents": {
+        "an/ack/journal": "AwQCBQ=="
+      }
+    }
+  },
+  "loaded": {
+    "binding": 4,
+    "doc": {"loaded":"doc"}
+  },
+  "flushed": {},
+  "startedCommit": {
+    "state": {
+      "updated": {"state":"update"},
+      "mergePatch": true
+    }
+  },
+  "acknowledged": {},
+  "internal": {
+    "typeUrl": "flow://internal.thing",
+    "value": "EgJIaRgB"
+  }
+}

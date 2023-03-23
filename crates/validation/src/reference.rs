@@ -1,9 +1,55 @@
-use super::Error;
-use url::Url;
+use super::{Error, Scope};
+use std::collections::BTreeSet;
+
+pub fn gather_referenced_collections<'a>(
+    captures: &'a [tables::Capture],
+    collections: &'a [tables::Collection],
+    materializations: &'a [tables::Materialization],
+    tests: &'a [tables::Test],
+) -> Vec<models::Collection> {
+    let mut out = BTreeSet::new();
+
+    for capture in captures {
+        for binding in &capture.spec.bindings {
+            out.insert(&binding.target);
+        }
+    }
+    for collection in collections {
+        let Some(derive) = &collection.spec.derive else { continue };
+
+        for transform in &derive.transforms {
+            out.insert(&transform.source.collection());
+        }
+    }
+    for materialization in materializations {
+        for binding in &materialization.spec.bindings {
+            out.insert(&binding.source.collection());
+        }
+    }
+    for test in tests {
+        for step in &test.spec {
+            match step {
+                models::TestStep::Ingest(models::TestStepIngest { collection, .. }) => {
+                    out.insert(collection);
+                }
+                models::TestStep::Verify(models::TestStepVerify { collection, .. }) => {
+                    out.insert(collection.collection());
+                }
+            }
+        }
+    }
+
+    // Now remove collections which are included locally.
+    for collection in collections {
+        out.remove(&collection.collection);
+    }
+
+    out.into_iter().cloned().collect()
+}
 
 pub fn walk_reference<'a, T, F>(
-    this_scope: &Url,
-    this_thing: &str,
+    this_scope: Scope<'a>,
+    this_entity: &str,
     ref_entity: &'static str,
     ref_name: &str,
     entities: &'a [T],
@@ -11,7 +57,7 @@ pub fn walk_reference<'a, T, F>(
     errors: &mut tables::Errors,
 ) -> Option<&'a T>
 where
-    F: Fn(&'a T) -> (&'a str, &'a Url),
+    F: Fn(&'a T) -> (&'a str, Scope<'a>),
 {
     if let Some(entity) = entities.iter().find(|t| entity_fn(t).0 == ref_name) {
         return Some(entity);
@@ -24,7 +70,7 @@ where
             let dist = strsim::osa_distance(&ref_name, &name);
 
             if dist <= 4 {
-                Some((dist, name, scope))
+                Some((dist, name, scope.flatten()))
             } else {
                 None
             }
@@ -33,16 +79,16 @@ where
 
     if let Some((_, suggest_name, suggest_scope)) = closest {
         Error::NoSuchEntitySuggest {
-            this_thing: this_thing.to_string(),
+            this_entity: this_entity.to_string(),
             ref_entity,
             ref_name: ref_name.to_string(),
             suggest_name: suggest_name.to_string(),
-            suggest_scope: suggest_scope.clone(),
+            suggest_scope: suggest_scope,
         }
         .push(this_scope, errors);
     } else {
         Error::NoSuchEntity {
-            this_thing: this_thing.to_string(),
+            this_entity: this_entity.to_string(),
             ref_entity,
             ref_name: ref_name.to_string(),
         }

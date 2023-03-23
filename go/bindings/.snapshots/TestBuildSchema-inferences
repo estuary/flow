@@ -1,7 +1,0 @@
-([]catalog.SchemaLocation) (len=1) {
-  (catalog.SchemaLocation) {
-    Schema: (string) (len=21) "file:///b.schema.yaml",
-    Location: (string) "",
-    Spec: (flow.Inference) types:"string" string:<format:"email" > title:"A title" description:"An email description" exists:MUST 
-  }
-}

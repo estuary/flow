@@ -1,7 +1,7 @@
 test://example/catalog.yaml:
   collections:
     test/collection:
-      schema: schema.json#foobar
+      schema: schema.json
       key: [/key/1, /key/0]
       projections:
         field_a: { location: /a/a, partition: true }
@@ -18,16 +18,11 @@ test://example/catalog.yaml:
           compressionCodec: GZIP_OFFLOAD_DECOMPRESSION
 
     test/collection-with-write-and-read:
-      writeSchema: schema.json#foobar
+      writeSchema: schema.json
       readSchema: schema.json#/properties/a
       key: [/key/1, /key/0]
 
     test/collection-no-schema:
-      key: [/key]
-
-    test/collection-wrong-schemas:
-      schema: true
-      writeSchema: schema.json#foobar
       key: [/key]
 
 test://example/schema.json:

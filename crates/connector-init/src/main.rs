@@ -1,34 +1,38 @@
-use anyhow::Context;
 use clap::Parser;
 use tracing_subscriber::prelude::*;
 
-fn main() -> anyhow::Result<()> {
+fn main() {
     let args = connector_init::Args::parse();
 
     // Map the LOG_LEVEL variable to an equivalent tracing EnvFilter.
     // Restrict logged modules to the current crate, as debug logging
     // for tonic can be quite verbose.
-    let log_level =
-        std::env::var("LOG_LEVEL").context("missing expected environment variable LOG_LEVEL")?;
-    let env_filter = tracing_subscriber::EnvFilter::try_from(format!(
+    let log_level = std::env::var("LOG_LEVEL").unwrap_or("info".to_string());
+    let env_filter = tracing_subscriber::EnvFilter::new(format!(
         "flow_connector_init={log_level},connector_init={log_level}"
-    ))
-    .context("parsing LOG_LEVEL environment filter failed")?;
+    ));
 
     // Map tracing::info!() and friends to instances of `Log` which are processed
     // by the stderr handler. Note that flow-connector-init *always* logs in the
     // canonical structured ops::Log format.
     tracing_subscriber::registry()
         .with(
-            ops::tracing::Layer::new(ops::stderr_log_handler, time::OffsetDateTime::now_utc)
+            ops::tracing::Layer::new(ops::stderr_log_handler, std::time::SystemTime::now)
                 .with_filter(env_filter),
         )
         .init();
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
-        .build()
-        .context("building tokio runtime")?;
+        .build();
+
+    let runtime = match runtime {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            tracing::error!(%error, "couldn't build Tokio runtime");
+            std::process::exit(1);
+        }
+    };
 
     // Run until signaled, then gracefully stop.
     tracing::info!(%log_level, port=args.port, message = "connector-init started");
@@ -41,7 +45,11 @@ fn main() -> anyhow::Result<()> {
     // (Note that tokio::io maps AsyncRead of file descriptors to blocking tasks under the hood).
     runtime.shutdown_background();
 
-    let () = result?;
-    tracing::info!(message = "connector-init exiting");
-    Ok(())
+    if let Err(error) = result {
+        tracing::error!(
+            error = format!("{error:#}"),
+            "connector-init crashed with error"
+        );
+    }
+    tracing::info!("connector-init exiting");
 }

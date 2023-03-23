@@ -6,12 +6,6 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-mod bundle;
-pub use bundle::bundled_schema;
-
-mod npm;
-pub use npm::{generate_npm_package, write_npm_package};
-
 mod ops;
 pub use ops::generate_ops_collections;
 
@@ -252,17 +246,6 @@ pub fn shard_id_base(task_name: &str, task_type: &str) -> String {
     format!("{}/{}", task_type, task_name)
 }
 
-/// Represents additional configuration about an exposed port.
-#[derive(Default)]
-pub struct PortConfig {
-    pub protocol: Option<String>,
-    pub public: bool,
-}
-
-/// Represents network ports that are meant to be exposed by the container of a running shard.
-/// An empty map indicates that no ports should be exposed.
-pub type PortMap = std::collections::BTreeMap<u16, PortConfig>;
-
 // shard_template returns a template ShardSpec for creating or updating
 // shards of the task.
 pub fn shard_template(
@@ -271,7 +254,7 @@ pub fn shard_template(
     task_type: &str,
     shard: &models::ShardTemplate,
     disable_wait_for_ack: bool,
-    ports: PortMap,
+    ports: &[flow::NetworkPort],
 ) -> consumer::ShardSpec {
     let models::ShardTemplate {
         disable,
@@ -333,24 +316,29 @@ pub fn shard_template(
             value: shard_hostname_label(task_name),
         });
     }
-    for (port_num, port_config) in ports {
+    for flow::NetworkPort {
+        number,
+        protocol,
+        public,
+    } in ports
+    {
         // labels are a multiset, so we use the same label for all exposed port numbers.
         labels.push(broker::Label {
             name: labels::EXPOSE_PORT.to_string(),
-            value: port_num.to_string(),
+            value: number.to_string(),
         });
 
         // Only add these labels if they differ from the defaults
-        if port_config.public {
+        if *public {
             labels.push(broker::Label {
-                name: format!("{}{}", labels::PORT_PUBLIC_PREFIX, port_num),
+                name: format!("{}{number}", labels::PORT_PUBLIC_PREFIX),
                 value: "true".to_string(),
             });
         }
-        if let Some(proto) = port_config.protocol {
+        if !protocol.is_empty() {
             labels.push(broker::Label {
-                name: format!("{}{}", labels::PORT_PROTO_PREFIX, port_num),
-                value: proto,
+                name: format!("{}{number}", labels::PORT_PROTO_PREFIX),
+                value: protocol.clone(),
             });
         }
     }
@@ -389,17 +377,28 @@ pub fn collection_spec(
     build_config: &flow::build_api::Config,
     collection: &tables::Collection,
     projections: Vec<flow::Projection>,
-    write_schema_bundle: &Value,
-    read_schema_bundle: &Value,
     stores: &[models::Store],
 ) -> flow::CollectionSpec {
     let tables::Collection {
         scope: _,
         collection: name,
-        spec: models::CollectionDef { key, journals, .. },
-        write_schema,
-        read_schema,
+        spec:
+            models::CollectionDef {
+                schema,
+                read_schema,
+                write_schema,
+                key,
+                projections: _,
+                journals,
+                derivation: _,
+                derive: _,
+                ..
+            },
     } = collection;
+
+    // Projections must be ascending and unique on field.
+    // We expect they already are.
+    assert!(projections.windows(2).all(|p| p[0].field < p[1].field));
 
     let partition_fields = projections
         .iter()
@@ -415,27 +414,29 @@ pub fn collection_spec(
     // For the forseeable future, we don't allow customizing this.
     let uuid_ptr = "/_meta/uuid".to_string();
 
+    let (write_schema_json, read_schema_json) = match (schema, write_schema, read_schema) {
+        (Some(schema), None, None) => (schema.to_string(), String::new()),
+        (None, Some(write_schema), Some(read_schema)) => {
+            (write_schema.to_string(), read_schema.to_string())
+        }
+        _ => (String::new(), String::new()),
+    };
+
     flow::CollectionSpec {
-        collection: name.to_string(),
-        write_schema_uri: write_schema.to_string(),
-        write_schema_json: write_schema_bundle.to_string(),
-        read_schema_uri: read_schema.to_string(),
-        // If read_schema_json is unset, then write_schema_json is to be implicitly used instead.
-        read_schema_json: if read_schema != write_schema {
-            read_schema_bundle.to_string()
-        } else {
-            String::new()
-        },
-        key_ptrs: key.iter().map(|p| p.to_string()).collect(),
+        name: name.to_string(),
+        write_schema_json,
+        read_schema_json,
+        key: key.iter().map(|p| p.to_string()).collect(),
         projections,
         partition_fields,
         uuid_ptr,
-        ack_json_template: serde_json::json!({
+        ack_template_json: serde_json::json!({
                 "_meta": {"uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef",
                 "ack": true,
             } })
         .to_string(),
         partition_template: Some(partition_template(build_config, name, journals, stores)),
+        derivation: None,
     }
 }
 
@@ -495,182 +496,6 @@ fn push_partitions(fields: &BTreeMap<String, Vec<Value>>, out: &mut Vec<broker::
     }
 }
 
-fn lambda_spec(
-    lambda: &models::Lambda,
-    transform: &tables::Transform,
-    suffix: &str,
-) -> flow::LambdaSpec {
-    match lambda {
-        models::Lambda::Typescript => flow::LambdaSpec {
-            typescript: format!("/{}/{}", transform_group_name(transform), suffix),
-            ..Default::default()
-        },
-        models::Lambda::Remote(addr) => flow::LambdaSpec {
-            remote: addr.clone(),
-            ..Default::default()
-        },
-        models::Lambda::Sql(statement) => flow::LambdaSpec {
-            sqlite: statement.clone(),
-            ..Default::default()
-        },
-    }
-}
-
-// Group name of this transform, used to group shards & shuffled reads
-// which collectively process the transformation.
-pub fn transform_group_name(table: &tables::Transform) -> String {
-    format!(
-        "derive/{}/{}",
-        table.derivation.as_str(),
-        table.transform.as_str()
-    )
-}
-
-pub fn transform_spec(
-    transform: &tables::Transform,
-    source: &flow::CollectionSpec,
-    validate_schema_bundle: &serde_json::Value,
-) -> flow::TransformSpec {
-    let tables::Transform {
-        scope: _,
-        derivation,
-        transform: name,
-        spec:
-            models::TransformDef {
-                priority,
-                source:
-                    models::TransformSource {
-                        name: source_collection,
-                        partitions: source_partitions,
-                    },
-                publish,
-                update,
-                read_delay,
-                shuffle,
-            },
-    } = &transform;
-
-    let (uses_source_key, shuffle_key_ptrs, shuffle_lambda) = match shuffle {
-        Some(models::Shuffle::Key(key)) => {
-            (
-                false,
-                key.iter().map(|k| k.to_string()).collect(), // CompositeKey => Vec<String>.
-                None,
-            )
-        }
-        Some(models::Shuffle::Lambda(lambda)) => (
-            false,
-            Vec::new(),
-            Some(lambda_spec(&lambda, transform, "Shuffle")),
-        ),
-        None => (true, source.key_ptrs.clone(), None),
-    };
-
-    // Identify partition fields that cover the shuffle key, if there is one.
-    let shuffle_key_partition_fields = shuffle_key_ptrs
-        .iter()
-        .map(|ptr| {
-            source
-                .projections
-                .iter()
-                .find(|p| p.is_partition_key && p.ptr == *ptr)
-                .map(|p| p.field.clone())
-        })
-        .collect::<Option<Vec<_>>>()
-        .unwrap_or_default();
-
-    let shuffle = flow::Shuffle {
-        group_name: transform_group_name(transform),
-        source_collection: source.collection.clone(),
-        source_partitions: Some(journal_selector(
-            source_collection,
-            source_partitions.as_ref(),
-        )),
-        source_uuid_ptr: source.uuid_ptr.clone(),
-        shuffle_key_ptrs,
-        shuffle_key_partition_fields,
-        uses_source_key,
-        shuffle_lambda,
-        filter_r_clocks: update.is_none(),
-        read_delay_seconds: read_delay.map(|d| d.as_secs() as u32).unwrap_or(0),
-        priority: *priority,
-        validate_schema_json: validate_schema_bundle.to_string(),
-    };
-
-    flow::TransformSpec {
-        derivation: derivation.to_string(),
-        transform: name.to_string(),
-        shuffle: Some(shuffle),
-        update_lambda: update
-            .as_ref()
-            .map(|update| lambda_spec(&update.lambda, transform, "Update")),
-        publish_lambda: publish
-            .as_ref()
-            .map(|publish| lambda_spec(&publish.lambda, transform, "Publish")),
-        collection: Some(source.clone()),
-    }
-}
-
-pub fn derivation_spec(
-    build_config: &flow::build_api::Config,
-    derivation: &tables::Derivation,
-    collection: &tables::BuiltCollection,
-    mut transforms: Vec<flow::TransformSpec>,
-    recovery_stores: &[models::Store],
-    register_schema_bundle: &serde_json::Value,
-    register_projections: Vec<flow::Projection>,
-) -> flow::DerivationSpec {
-    let tables::Derivation {
-        scope: _,
-        derivation: name,
-        spec:
-            models::Derivation {
-                register:
-                    models::Register {
-                        initial: register_initial,
-                        schema: _,
-                    },
-                transform: _,
-                typescript: _,
-                shards,
-            },
-        register_schema,
-        typescript_module: _,
-    } = derivation;
-
-    transforms.sort_by(|l, r| l.transform.cmp(&r.transform));
-
-    // We should disable waiting for acknowledgements only if
-    // the derivation reads from itself.
-    let disable_wait_for_ack = transforms
-        .iter()
-        .map(|t| &t.shuffle.as_ref().unwrap().source_collection)
-        .any(|n| n == name.as_str());
-
-    flow::DerivationSpec {
-        collection: Some(collection.spec.clone()),
-        transforms,
-        register_schema_uri: register_schema.to_string(),
-        register_schema_json: register_schema_bundle.to_string(),
-        register_initial_json: register_initial.to_string(),
-        register_projections,
-        recovery_log_template: Some(recovery_log_template(
-            build_config,
-            name,
-            labels::TASK_TYPE_DERIVATION,
-            recovery_stores,
-        )),
-        shard_template: Some(shard_template(
-            build_config,
-            name,
-            labels::TASK_TYPE_DERIVATION,
-            shards,
-            disable_wait_for_ack,
-            PortMap::new(), // we aren't yet able to expose network ports for derivations
-        )),
-    }
-}
-
 /// `encode_resource_path` encodes path components into a string which is
 /// suitable for use within a Gazette path, such as a Journal name or suffix, or
 /// a Shard ID.
@@ -704,106 +529,6 @@ pub fn encode_resource_path(resource_path: &[impl AsRef<str>]) -> String {
     }
 
     name
-}
-
-pub fn materialization_shuffle(
-    binding: &tables::MaterializationBinding,
-    source: &flow::CollectionSpec,
-    resource_path: &[impl AsRef<str>],
-) -> flow::Shuffle {
-    let tables::MaterializationBinding {
-        materialization,
-        spec:
-            models::MaterializationBinding {
-                source: collection,
-                partitions: source_partitions,
-                ..
-            },
-        ..
-    } = binding;
-
-    flow::Shuffle {
-        group_name: format!(
-            "materialize/{}/{}",
-            materialization.as_str(),
-            encode_resource_path(resource_path),
-        ),
-        source_collection: collection.to_string(),
-        source_partitions: Some(journal_selector(collection, source_partitions.as_ref())),
-        source_uuid_ptr: source.uuid_ptr.clone(),
-        // Materializations always group by the collection's key.
-        shuffle_key_ptrs: source.key_ptrs.clone(),
-        shuffle_key_partition_fields: Vec::new(),
-        uses_source_key: true,
-        shuffle_lambda: None,
-        // At all times, a given collection key must be exclusively owned by
-        // a single materialization shard. Therefore we only subdivide
-        // materialization shards on key, never on r-clock.
-        filter_r_clocks: false,
-        // Never delay materializations.
-        read_delay_seconds: 0,
-        // Priority has no meaning since there's just one shuffle
-        // (we're not joining across collections as transforms do).
-        priority: 0,
-        // Schemas are validated when combined over by the materialization runtime.
-        validate_schema_json: String::new(),
-    }
-}
-
-pub fn test_step_spec(
-    test_step: &tables::TestStep,
-    documents: &Vec<Value>,
-) -> flow::test_spec::Step {
-    let tables::TestStep {
-        scope,
-        test: _,
-        step_index,
-        spec,
-        documents: _,
-    } = test_step;
-
-    let (step_type, collection, description, selector) = match spec {
-        models::TestStep::Ingest(ingest) => (
-            flow::test_spec::step::Type::Ingest,
-            &ingest.collection,
-            &ingest.description,
-            None,
-        ),
-        models::TestStep::Verify(verify) => (
-            flow::test_spec::step::Type::Verify,
-            &verify.collection,
-            &verify.description,
-            verify.partitions.as_ref(),
-        ),
-    };
-
-    flow::test_spec::Step {
-        step_type: step_type as i32,
-        step_index: *step_index,
-        step_scope: scope.to_string(),
-        collection: collection.to_string(),
-        docs_json_lines: documents
-            .iter()
-            .map(|d| serde_json::to_string(d).expect("object cannot fail to serialize"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        partitions: Some(journal_selector(collection, selector)),
-        description: description.clone(),
-    }
-}
-
-pub fn capture_endpoint_type(t: &models::CaptureEndpoint) -> flow::EndpointType {
-    match t {
-        models::CaptureEndpoint::Connector(_) => flow::EndpointType::AirbyteSource,
-        models::CaptureEndpoint::Ingest(_) => flow::EndpointType::Ingest,
-    }
-}
-
-pub fn materialization_endpoint_type(t: &models::MaterializationEndpoint) -> flow::EndpointType {
-    match t {
-        models::MaterializationEndpoint::Connector(_) => flow::EndpointType::FlowSink,
-        models::MaterializationEndpoint::Sqlite(_) => flow::EndpointType::Sqlite,
-    }
 }
 
 pub fn compression_codec(t: models::CompressionCodec) -> broker::CompressionCodec {

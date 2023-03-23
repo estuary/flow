@@ -1,0 +1,294 @@
+---
+source: crates/proto-flow/tests/regression.rs
+expression: json_test(msg)
+---
+{
+  "spec": {
+    "connectorType": "SQLITE",
+    "config": {"spec":"config"}
+  },
+  "validate": {
+    "connectorType": "SQLITE",
+    "config": {"validate":"config"},
+    "collection": {
+      "name": "acmeCo/collection",
+      "writeSchema": {"write":"schema"},
+      "readSchema": {"read":"schema"},
+      "key": [
+        "/key/one",
+        "/key/two"
+      ],
+      "uuidPtr": "/_meta/uuid",
+      "partitionFields": [
+        "type",
+        "region"
+      ],
+      "projections": [
+        {
+          "ptr": "/json/ptr",
+          "field": "a-field",
+          "isPartitionKey": true,
+          "inference": {
+            "types": [
+              "integer",
+              "string"
+            ],
+            "string": {
+              "contentType": "typ",
+              "format": "date",
+              "contentEncoding": "enc",
+              "maxLength": 12345
+            },
+            "title": "title",
+            "description": "desc",
+            "default": {"def":"ault"},
+            "exists": "MUST"
+          }
+        }
+      ],
+      "ackTemplate": {"ack":"true"},
+      "partitionTemplate": {
+        "name": "partition/template",
+        "replication": 3,
+        "labels": {
+          "labels": [
+            {
+              "name": "estuary.dev/foo",
+              "value": "label-value"
+            },
+            {
+              "name": "estuary.dev/bar",
+              "value": "other-value"
+            }
+          ]
+        },
+        "fragment": {
+          "length": "112233",
+          "compressionCodec": "ZSTANDARD",
+          "stores": [
+            "s3://bucket/prefix"
+          ],
+          "refreshInterval": "300s",
+          "flushInterval": "62.250s",
+          "pathPostfixTemplate": "Path{{Postfix.Template}}"
+        },
+        "flags": 4,
+        "maxAppendRate": "4020303"
+      }
+    },
+    "transforms": [
+      {
+        "name": "stable_name",
+        "collection": {
+          "name": "acmeCo/collection",
+          "writeSchema": {"write":"schema"},
+          "readSchema": {"read":"schema"},
+          "key": [
+            "/key/one",
+            "/key/two"
+          ],
+          "uuidPtr": "/_meta/uuid",
+          "partitionFields": [
+            "type",
+            "region"
+          ],
+          "projections": [
+            {
+              "ptr": "/json/ptr",
+              "field": "a-field",
+              "isPartitionKey": true,
+              "inference": {
+                "types": [
+                  "integer",
+                  "string"
+                ],
+                "string": {
+                  "contentType": "typ",
+                  "format": "date",
+                  "contentEncoding": "enc",
+                  "maxLength": 12345
+                },
+                "title": "title",
+                "description": "desc",
+                "default": {"def":"ault"},
+                "exists": "MUST"
+              }
+            }
+          ],
+          "ackTemplate": {"ack":"true"},
+          "partitionTemplate": {
+            "name": "partition/template",
+            "replication": 3,
+            "labels": {
+              "labels": [
+                {
+                  "name": "estuary.dev/foo",
+                  "value": "label-value"
+                },
+                {
+                  "name": "estuary.dev/bar",
+                  "value": "other-value"
+                }
+              ]
+            },
+            "fragment": {
+              "length": "112233",
+              "compressionCodec": "ZSTANDARD",
+              "stores": [
+                "s3://bucket/prefix"
+              ],
+              "refreshInterval": "300s",
+              "flushInterval": "62.250s",
+              "pathPostfixTemplate": "Path{{Postfix.Template}}"
+            },
+            "flags": 4,
+            "maxAppendRate": "4020303"
+          }
+        },
+        "shuffleLambdaConfig": {"shuffle":"config"},
+        "lambdaConfig": {"lambda":"config"}
+      }
+    ],
+    "shuffleKeyTypes": [
+      "BOOLEAN",
+      "INTEGER"
+    ],
+    "projectRoot": "file:///project/root",
+    "importMap": {
+      "/using/typescript/module": "file:///path/to/import"
+    },
+    "networkPorts": [
+      {
+        "number": 8080,
+        "protocol": "https",
+        "public": true
+      },
+      {
+        "number": 9000
+      }
+    ]
+  },
+  "open": {
+    "collection": {
+      "name": "acmeCo/collection",
+      "writeSchema": {"write":"schema"},
+      "readSchema": {"read":"schema"},
+      "key": [
+        "/key/one",
+        "/key/two"
+      ],
+      "uuidPtr": "/_meta/uuid",
+      "partitionFields": [
+        "type",
+        "region"
+      ],
+      "projections": [
+        {
+          "ptr": "/json/ptr",
+          "field": "a-field",
+          "isPartitionKey": true,
+          "inference": {
+            "types": [
+              "integer",
+              "string"
+            ],
+            "string": {
+              "contentType": "typ",
+              "format": "date",
+              "contentEncoding": "enc",
+              "maxLength": 12345
+            },
+            "title": "title",
+            "description": "desc",
+            "default": {"def":"ault"},
+            "exists": "MUST"
+          }
+        }
+      ],
+      "ackTemplate": {"ack":"true"},
+      "partitionTemplate": {
+        "name": "partition/template",
+        "replication": 3,
+        "labels": {
+          "labels": [
+            {
+              "name": "estuary.dev/foo",
+              "value": "label-value"
+            },
+            {
+              "name": "estuary.dev/bar",
+              "value": "other-value"
+            }
+          ]
+        },
+        "fragment": {
+          "length": "112233",
+          "compressionCodec": "ZSTANDARD",
+          "stores": [
+            "s3://bucket/prefix"
+          ],
+          "refreshInterval": "300s",
+          "flushInterval": "62.250s",
+          "pathPostfixTemplate": "Path{{Postfix.Template}}"
+        },
+        "flags": 4,
+        "maxAppendRate": "4020303"
+      }
+    },
+    "version": "11:22:33:44",
+    "range": {
+      "keyBegin": 1122867,
+      "keyEnd": 1146447479,
+      "rClockBegin": 2291772091,
+      "rClockEnd": 3437096703
+    },
+    "state": {"connector":{"state":42}}
+  },
+  "read": {
+    "transform": 2,
+    "uuid": {
+      "node": "1234",
+      "clock": "5678"
+    },
+    "shuffle": {
+      "key": [true,32],
+      "packed": "VkseCQ==",
+      "hash": 44556677
+    },
+    "doc": {"read":"doc"}
+  },
+  "flush": {},
+  "startCommit": {
+    "runtimeCheckpoint": {
+      "sources": {
+        "a/read/journal;suffix": {
+          "readThrough": "12345",
+          "producers": [
+            {
+              "id": "AwkIBQc=",
+              "state": {
+                "lastAck": "8675",
+                "begin": "1111"
+              }
+            },
+            {
+              "id": "BwxmKx0=",
+              "state": {
+                "lastAck": "309",
+                "begin": "2222"
+              }
+            }
+          ]
+        }
+      },
+      "ackIntents": {
+        "an/ack/journal": "AwQCBQ=="
+      }
+    }
+  },
+  "reset": {},
+  "internal": {
+    "typeUrl": "flow://internal.thing",
+    "value": "EgJIaRgB"
+  }
+}
