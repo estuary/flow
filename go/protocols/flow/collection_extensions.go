@@ -2,23 +2,20 @@ package flow
 
 import (
 	"encoding/json"
+	"sort"
 
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
-// GetProjectionByField finds the projection with the given field name, or nil if one does not exist
-func GetProjectionByField(field string, projections []Projection) *Projection {
-	for p := range projections {
-		if projections[p].Field == field {
-			return &projections[p]
-		}
-	}
-	return nil
-}
-
 // GetProjection finds the projection with the given field name, or nil if one does not exist
 func (m *CollectionSpec) GetProjection(field string) *Projection {
-	return GetProjectionByField(field, m.Projections)
+	var index = sort.Search(len(m.Projections), func(index int) bool {
+		return m.Projections[index].Field >= field
+	})
+	if index != len(m.Projections) && m.Projections[index].Field == field {
+		return &m.Projections[index]
+	}
+	return nil
 }
 
 // GetReadSchemaJson returns the effective JSON schema for collection reads.
@@ -31,7 +28,7 @@ func (m *CollectionSpec) GetReadSchemaJson() json.RawMessage {
 
 // Validate returns an error if the CollectionSpec is invalid.
 func (m *CollectionSpec) Validate() error {
-	if err := m.Collection.Validate(); err != nil {
+	if err := m.Name.Validate(); err != nil {
 		return pb.ExtendContext(err, "Collection")
 	}
 
@@ -39,9 +36,15 @@ func (m *CollectionSpec) Validate() error {
 
 	for i, proj := range m.Projections {
 		var err error
+
 		if proj.Field == "" {
 			err = pb.NewValidationError("missing field")
+		} else if err2 := proj.Inference.Validate(); err != nil {
+			err = err2
+		} else if i != 0 && proj.Field <= m.Projections[i-1].Field {
+			err = pb.NewValidationError("projections are not in Field order")
 		}
+
 		if err != nil {
 			return pb.ExtendContext(err, "Projections[%d]", i)
 		}
@@ -51,15 +54,23 @@ func (m *CollectionSpec) Validate() error {
 		}
 	}
 
-	if m.WriteSchemaUri == "" {
-		return pb.NewValidationError("missing schema URI")
-	}
-	if len(m.KeyPtrs) == 0 {
+	if len(m.Key) == 0 {
 		return pb.NewValidationError("key pointers are empty")
 	}
-	for _, p := range m.KeyPtrs {
+	for _, p := range m.Key {
 		if _, ok := keyPointers[p]; !ok {
 			return pb.NewValidationError("no keyed projection for key pointer %q", p)
+		}
+	}
+	for i, field := range m.PartitionFields {
+		var err error
+		if p := m.GetProjection(field); p == nil {
+			err = pb.NewValidationError("no projection for field %q", field)
+		} else if !p.IsPartitionKey {
+			err = pb.NewValidationError("projection is not a partition key")
+		}
+		if err != nil {
+			return pb.ExtendContext(err, "PartitionFields[%d]", i)
 		}
 	}
 	if err := m.PartitionTemplate.Validate(); err != nil {
@@ -69,17 +80,8 @@ func (m *CollectionSpec) Validate() error {
 	return nil
 }
 
-// Validate returns an error if the DerivationSpec is invalid.
-func (m *DerivationSpec) Validate() error {
-	if err := m.Collection.Validate(); err != nil {
-		return pb.ExtendContext(err, "Collection")
-	}
-	if m.RegisterSchemaUri == "" {
-		return pb.NewValidationError("missing RegisterSchemaUri")
-	}
-	if len(m.RegisterInitialJson) == 0 {
-		return pb.NewValidationError("missing RegisterInitialJson")
-	}
+// Validate returns an error if the Derivation is invalid.
+func (m *CollectionSpec_Derivation) Validate() error {
 	for i, tf := range m.Transforms {
 		if err := tf.Validate(); err != nil {
 			return pb.ExtendContext(err, "Transform[%d]", i)
@@ -89,6 +91,20 @@ func (m *DerivationSpec) Validate() error {
 		return pb.ExtendContext(err, "ShardTemplate")
 	} else if err := m.RecoveryLogTemplate.Validate(); err != nil {
 		return pb.ExtendContext(err, "RecoveryLogTemplate")
+	}
+	return nil
+}
+
+// Validate returns an error if the Transform is invalid.
+func (m *CollectionSpec_Derivation_Transform) Validate() error {
+	if err := m.Name.Validate(); err != nil {
+		return pb.ExtendContext(err, "Name")
+	} else if err := m.Collection.Validate(); err != nil {
+		return pb.ExtendContext(err, "Collection")
+	} else if err := m.PartitionSelector.Validate(); err != nil {
+		return pb.ExtendContext(err, "PartitionSelector")
+	} else if len(m.LambdaConfigJson) == 0 {
+		return pb.ExtendContext(err, "missing LambdaConfigJson")
 	}
 	return nil
 }

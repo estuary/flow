@@ -4,35 +4,7 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-halve?ptr=/collections/testing~1int-halve/schema,
-        error: schema $ref 'test://example/int-string-len.schema', referenced by 'test://example/int-halve?ptr=/collections/testing~1int-halve/schema', was not found,
-    },
-    Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve,
-        error: collection testing/int-halve schema must be an object,
-    },
-    Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve,
-        error: location /int is unknown in schema test://example/int-halve?ptr=/collections/testing~1int-halve/schema (https://go.estuary.dev/rdCMNB),
-    },
-    Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve/projections/Extra,
-        error: location /extra is unknown in schema test://example/int-halve?ptr=/collections/testing~1int-halve/schema (https://go.estuary.dev/rdCMNB),
-    },
-    Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve/projections/Len,
-        error: location /len is unknown in schema test://example/int-halve?ptr=/collections/testing~1int-halve/schema (https://go.estuary.dev/rdCMNB),
-    },
-    Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve/projections/TheString,
-        error: location /partitionString is unknown in schema test://example/int-halve?ptr=/collections/testing~1int-halve/schema (https://go.estuary.dev/rdCMNB),
-    },
-    Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveSelf,
-        error: location /len is unknown in schema test://example/int-halve?ptr=/collections/testing~1int-halve/schema (https://go.estuary.dev/rdCMNB),
-    },
-    Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveSelf,
-        error: location /partitionString is unknown in schema test://example/int-halve?ptr=/collections/testing~1int-halve/schema (https://go.estuary.dev/rdCMNB),
+        scope: test://example/int-halve#/collections/testing~1int-halve/schema,
+        error: schema $ref 'test://example/int-string-len.schema', referenced by 'test://example/int-halve#/collections/testing~1int-halve/schema', was not found,
     },
 ]

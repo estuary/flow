@@ -5,6 +5,7 @@ import (
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/sirupsen/logrus"
+	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 // Endpoint is an sql compatible endpoint that allows dialect specific tasks and generators.
@@ -40,9 +41,9 @@ type Endpoint interface {
 // fenced this instance off.
 type Fence interface {
 	// Fetch the current checkpoint.
-	Checkpoint() []byte
+	Checkpoint() *pc.Checkpoint
 	// SetCheckpoint sets the current checkpoint.
-	SetCheckpoint(checkpoint []byte)
+	SetCheckpoint(checkpoint *pc.Checkpoint)
 	// LogEntry returns a logger Entry with context of the current fence to differentiate
 	// concurrent threads in the logs.
 	LogEntry() *logrus.Entry

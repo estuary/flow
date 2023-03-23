@@ -5,13 +5,14 @@ package materialize
 
 import (
 	context "context"
-	encoding_binary "encoding/binary"
 	encoding_json "encoding/json"
 	fmt "fmt"
 	flow "github.com/estuary/flow/go/protocols/flow"
 	github_com_estuary_flow_go_protocols_flow "github.com/estuary/flow/go/protocols/flow"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
+	types "github.com/gogo/protobuf/types"
+	protocol "go.gazette.dev/core/consumer/protocol"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -32,54 +33,743 @@ var _ = math.Inf
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
 // Type encodes a constraint type for this flow.Projection.
-type Constraint_Type int32
+type Response_Validated_Constraint_Type int32
 
 const (
+	Response_Validated_Constraint_INVALID Response_Validated_Constraint_Type = 0
 	// This specific projection must be present.
-	Constraint_FIELD_REQUIRED Constraint_Type = 0
+	Response_Validated_Constraint_FIELD_REQUIRED Response_Validated_Constraint_Type = 1
 	// At least one projection with this location pointer must be present.
-	Constraint_LOCATION_REQUIRED Constraint_Type = 1
+	Response_Validated_Constraint_LOCATION_REQUIRED Response_Validated_Constraint_Type = 2
 	// A projection with this location is recommended, and should be included by
 	// default.
-	Constraint_LOCATION_RECOMMENDED Constraint_Type = 2
+	Response_Validated_Constraint_LOCATION_RECOMMENDED Response_Validated_Constraint_Type = 3
 	// This projection may be included, but should be omitted by default.
-	Constraint_FIELD_OPTIONAL Constraint_Type = 3
+	Response_Validated_Constraint_FIELD_OPTIONAL Response_Validated_Constraint_Type = 4
 	// This projection must not be present in the materialization.
-	Constraint_FIELD_FORBIDDEN Constraint_Type = 4
+	Response_Validated_Constraint_FIELD_FORBIDDEN Response_Validated_Constraint_Type = 5
 	// This specific projection is required but is also unacceptable (e.x.,
 	// because it uses an incompatible type with a previous applied version).
-	Constraint_UNSATISFIABLE Constraint_Type = 5
+	Response_Validated_Constraint_UNSATISFIABLE Response_Validated_Constraint_Type = 6
 )
 
-var Constraint_Type_name = map[int32]string{
-	0: "FIELD_REQUIRED",
-	1: "LOCATION_REQUIRED",
-	2: "LOCATION_RECOMMENDED",
-	3: "FIELD_OPTIONAL",
-	4: "FIELD_FORBIDDEN",
-	5: "UNSATISFIABLE",
+var Response_Validated_Constraint_Type_name = map[int32]string{
+	0: "INVALID",
+	1: "FIELD_REQUIRED",
+	2: "LOCATION_REQUIRED",
+	3: "LOCATION_RECOMMENDED",
+	4: "FIELD_OPTIONAL",
+	5: "FIELD_FORBIDDEN",
+	6: "UNSATISFIABLE",
 }
 
-var Constraint_Type_value = map[string]int32{
-	"FIELD_REQUIRED":       0,
-	"LOCATION_REQUIRED":    1,
-	"LOCATION_RECOMMENDED": 2,
-	"FIELD_OPTIONAL":       3,
-	"FIELD_FORBIDDEN":      4,
-	"UNSATISFIABLE":        5,
+var Response_Validated_Constraint_Type_value = map[string]int32{
+	"INVALID":              0,
+	"FIELD_REQUIRED":       1,
+	"LOCATION_REQUIRED":    2,
+	"LOCATION_RECOMMENDED": 3,
+	"FIELD_OPTIONAL":       4,
+	"FIELD_FORBIDDEN":      5,
+	"UNSATISFIABLE":        6,
 }
 
-func (x Constraint_Type) String() string {
-	return proto.EnumName(Constraint_Type_name, int32(x))
+func (x Response_Validated_Constraint_Type) String() string {
+	return proto.EnumName(Response_Validated_Constraint_Type_name, int32(x))
 }
 
-func (Constraint_Type) EnumDescriptor() ([]byte, []int) {
+func (Response_Validated_Constraint_Type) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{1, 1, 0, 0}
+}
+
+type Request struct {
+	Spec        *Request_Spec        `protobuf:"bytes,1,opt,name=spec,proto3" json:"spec,omitempty"`
+	Validate    *Request_Validate    `protobuf:"bytes,2,opt,name=validate,proto3" json:"validate,omitempty"`
+	Apply       *Request_Apply       `protobuf:"bytes,3,opt,name=apply,proto3" json:"apply,omitempty"`
+	Open        *Request_Open        `protobuf:"bytes,4,opt,name=open,proto3" json:"open,omitempty"`
+	Load        *Request_Load        `protobuf:"bytes,5,opt,name=load,proto3" json:"load,omitempty"`
+	Flush       *Request_Flush       `protobuf:"bytes,6,opt,name=flush,proto3" json:"flush,omitempty"`
+	Store       *Request_Store       `protobuf:"bytes,7,opt,name=store,proto3" json:"store,omitempty"`
+	StartCommit *Request_StartCommit `protobuf:"bytes,8,opt,name=start_commit,json=startCommit,proto3" json:"start_commit,omitempty"`
+	Acknowledge *Request_Acknowledge `protobuf:"bytes,9,opt,name=acknowledge,proto3" json:"acknowledge,omitempty"`
+	// Reserved for internal use.
+	Internal             *types.Any `protobuf:"bytes,100,opt,name=internal,proto3" json:"internal,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}   `json:"-"`
+	XXX_unrecognized     []byte     `json:"-"`
+	XXX_sizecache        int32      `json:"-"`
+}
+
+func (m *Request) Reset()         { *m = Request{} }
+func (m *Request) String() string { return proto.CompactTextString(m) }
+func (*Request) ProtoMessage()    {}
+func (*Request) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{0}
+}
+func (m *Request) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Request) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Request.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Request) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Request.Merge(m, src)
+}
+func (m *Request) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Request) XXX_DiscardUnknown() {
+	xxx_messageInfo_Request.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Request proto.InternalMessageInfo
+
+// Spec requests the specification definition of this connector.
+// Notably this includes its configuration JSON schemas.
+type Request_Spec struct {
+	// Connector type addressed by this request.
+	ConnectorType flow.MaterializationSpec_ConnectorType `protobuf:"varint,1,opt,name=connector_type,json=connectorType,proto3,enum=flow.MaterializationSpec_ConnectorType" json:"connector_type,omitempty"`
+	// Connector configuration, as an encoded JSON object.
+	// This may be a partial specification (for example, a Docker image),
+	// providing only enough information to fetch the remainder of the
+	// specification schema.
+	ConfigJson           encoding_json.RawMessage `protobuf:"bytes,2,opt,name=config_json,json=config,proto3,casttype=encoding/json.RawMessage" json:"config_json,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
+	XXX_unrecognized     []byte                   `json:"-"`
+	XXX_sizecache        int32                    `json:"-"`
+}
+
+func (m *Request_Spec) Reset()         { *m = Request_Spec{} }
+func (m *Request_Spec) String() string { return proto.CompactTextString(m) }
+func (*Request_Spec) ProtoMessage()    {}
+func (*Request_Spec) Descriptor() ([]byte, []int) {
 	return fileDescriptor_3e8b62b327f34bc6, []int{0, 0}
 }
+func (m *Request_Spec) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Request_Spec) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Request_Spec.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Request_Spec) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Request_Spec.Merge(m, src)
+}
+func (m *Request_Spec) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Request_Spec) XXX_DiscardUnknown() {
+	xxx_messageInfo_Request_Spec.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Request_Spec proto.InternalMessageInfo
+
+// Validate a materialization configuration and proposed bindings.
+// Validate is run out-of-band with ongoing capture invocations.
+// It's purpose is to confirm that the proposed configuration
+// is likely to succeed if applied and run, or to report any
+// potential issues for the user to address.
+type Request_Validate struct {
+	// Name of the materialization being validated.
+	Name github_com_estuary_flow_go_protocols_flow.Materialization `protobuf:"bytes,1,opt,name=name,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Materialization" json:"name,omitempty"`
+	// Connector type addressed by this request.
+	ConnectorType flow.MaterializationSpec_ConnectorType `protobuf:"varint,2,opt,name=connector_type,json=connectorType,proto3,enum=flow.MaterializationSpec_ConnectorType" json:"connector_type,omitempty"`
+	// Connector configuration, as an encoded JSON object.
+	ConfigJson encoding_json.RawMessage    `protobuf:"bytes,3,opt,name=config_json,json=config,proto3,casttype=encoding/json.RawMessage" json:"config_json,omitempty"`
+	Bindings   []*Request_Validate_Binding `protobuf:"bytes,4,rep,name=bindings,proto3" json:"bindings,omitempty"`
+	// Network ports of this proposed materialization.
+	NetworkPorts         []*flow.NetworkPort `protobuf:"bytes,5,rep,name=network_ports,json=networkPorts,proto3" json:"network_ports,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}            `json:"-"`
+	XXX_unrecognized     []byte              `json:"-"`
+	XXX_sizecache        int32               `json:"-"`
+}
+
+func (m *Request_Validate) Reset()         { *m = Request_Validate{} }
+func (m *Request_Validate) String() string { return proto.CompactTextString(m) }
+func (*Request_Validate) ProtoMessage()    {}
+func (*Request_Validate) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{0, 1}
+}
+func (m *Request_Validate) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Request_Validate) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Request_Validate.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Request_Validate) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Request_Validate.Merge(m, src)
+}
+func (m *Request_Validate) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Request_Validate) XXX_DiscardUnknown() {
+	xxx_messageInfo_Request_Validate.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Request_Validate proto.InternalMessageInfo
+
+// Bindings of endpoint resources and collections from which they would be
+// materialized. Bindings are ordered and unique on the bound collection name.
+type Request_Validate_Binding struct {
+	// JSON-encoded object which specifies the endpoint resource to be materialized.
+	ResourceConfigJson encoding_json.RawMessage `protobuf:"bytes,1,opt,name=resource_config_json,json=resourceConfig,proto3,casttype=encoding/json.RawMessage" json:"resource_config_json,omitempty"`
+	// Collection to be materialized.
+	Collection flow.CollectionSpec `protobuf:"bytes,2,opt,name=collection,proto3" json:"collection"`
+	// Projection configuration, keyed by the projection field name,
+	// with JSON-encoded and driver-defined configuration objects.
+	FieldConfigJsonMap   map[string]encoding_json.RawMessage `protobuf:"bytes,3,rep,name=field_config_json_map,json=fieldConfig,proto3,castvalue=encoding/json.RawMessage" json:"field_config_json_map,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	XXX_NoUnkeyedLiteral struct{}                            `json:"-"`
+	XXX_unrecognized     []byte                              `json:"-"`
+	XXX_sizecache        int32                               `json:"-"`
+}
+
+func (m *Request_Validate_Binding) Reset()         { *m = Request_Validate_Binding{} }
+func (m *Request_Validate_Binding) String() string { return proto.CompactTextString(m) }
+func (*Request_Validate_Binding) ProtoMessage()    {}
+func (*Request_Validate_Binding) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{0, 1, 0}
+}
+func (m *Request_Validate_Binding) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Request_Validate_Binding) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Request_Validate_Binding.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Request_Validate_Binding) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Request_Validate_Binding.Merge(m, src)
+}
+func (m *Request_Validate_Binding) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Request_Validate_Binding) XXX_DiscardUnknown() {
+	xxx_messageInfo_Request_Validate_Binding.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Request_Validate_Binding proto.InternalMessageInfo
+
+// Apply a materialization configuration and bindings to its endpoint.
+// Apply is run out-of-band with ongoing connector invocations,
+// and may be run many times for a single materialization name,
+// where each invocation has varying bindings, or even no bindings.
+// The connector performs any required setup or cleanup.
+type Request_Apply struct {
+	// Materialization to be applied.
+	Materialization *flow.MaterializationSpec `protobuf:"bytes,1,opt,name=materialization,proto3" json:"materialization,omitempty"`
+	// Version of the MaterializationSpec being applied.
+	Version string `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
+	// Is this Apply a dry-run? If so, no action is undertaken and Apply will
+	// report only what would have happened.
+	DryRun               bool     `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *Request_Apply) Reset()         { *m = Request_Apply{} }
+func (m *Request_Apply) String() string { return proto.CompactTextString(m) }
+func (*Request_Apply) ProtoMessage()    {}
+func (*Request_Apply) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{0, 2}
+}
+func (m *Request_Apply) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Request_Apply) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Request_Apply.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Request_Apply) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Request_Apply.Merge(m, src)
+}
+func (m *Request_Apply) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Request_Apply) XXX_DiscardUnknown() {
+	xxx_messageInfo_Request_Apply.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Request_Apply proto.InternalMessageInfo
+
+// Open a materialization stream.
+//
+// If the Flow recovery log is authoritative:
+// The driver is given its last committed checkpoint state in this request.
+// It MAY return a runtime checkpoint in its opened response -- perhaps an older
+// Flow checkpoint which was previously embedded within its driver checkpoint.
+//
+// If the remote store is authoritative:
+// The driver MUST fence off other streams of this materialization that
+// overlap the provided [key_begin, key_end) range, such that those streams
+// cannot issue further commits. The driver MUST return its stored runtime
+// checkpoint for this materialization and range [key_begin, key_end]
+// in its Opened response.
+//
+// After Open, the runtime will send only Load, Flush, Store,
+// StartCommit, and Acknowledge.
+type Request_Open struct {
+	// Materialization to be transacted.
+	Materialization *flow.MaterializationSpec `protobuf:"bytes,1,opt,name=materialization,proto3" json:"materialization,omitempty"`
+	// Version of the opened MaterializationSpec.
+	// The driver may want to require that this match the version last
+	// provided to a successful Apply RPC. It's possible that it won't,
+	// due to expected propagation races in Flow's distributed runtime.
+	Version string `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
+	// Range of documents to be processed by this invocation.
+	Range *flow.RangeSpec `protobuf:"bytes,3,opt,name=range,proto3" json:"range,omitempty"`
+	// Last-persisted connector checkpoint state from a previous invocation.
+	StateJson            encoding_json.RawMessage `protobuf:"bytes,4,opt,name=state_json,json=state,proto3,casttype=encoding/json.RawMessage" json:"state_json,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
+	XXX_unrecognized     []byte                   `json:"-"`
+	XXX_sizecache        int32                    `json:"-"`
+}
+
+func (m *Request_Open) Reset()         { *m = Request_Open{} }
+func (m *Request_Open) String() string { return proto.CompactTextString(m) }
+func (*Request_Open) ProtoMessage()    {}
+func (*Request_Open) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{0, 3}
+}
+func (m *Request_Open) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Request_Open) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Request_Open.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Request_Open) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Request_Open.Merge(m, src)
+}
+func (m *Request_Open) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Request_Open) XXX_DiscardUnknown() {
+	xxx_messageInfo_Request_Open.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Request_Open proto.InternalMessageInfo
+
+// Load a document identified by its key. The given key may have never before been stored,
+// but a given key will be sent in a transaction Load just one time.
+type Request_Load struct {
+	// Index of the Open binding for which this document is to be loaded.
+	Binding uint32 `protobuf:"varint,1,opt,name=binding,proto3" json:"binding,omitempty"`
+	// key tuple, as an array of key components.
+	// Ordering matches `keys` of the materialization's field selection.
+	KeyJson encoding_json.RawMessage `protobuf:"bytes,2,opt,name=key_json,json=key,proto3,casttype=encoding/json.RawMessage" json:"key_json,omitempty"`
+	// Packed tuple of the document key to load.
+	KeyPacked            []byte   `protobuf:"bytes,3,opt,name=key_packed,json=keyPacked,proto3" json:"key_packed,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *Request_Load) Reset()         { *m = Request_Load{} }
+func (m *Request_Load) String() string { return proto.CompactTextString(m) }
+func (*Request_Load) ProtoMessage()    {}
+func (*Request_Load) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{0, 4}
+}
+func (m *Request_Load) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Request_Load) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Request_Load.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Request_Load) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Request_Load.Merge(m, src)
+}
+func (m *Request_Load) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Request_Load) XXX_DiscardUnknown() {
+	xxx_messageInfo_Request_Load.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Request_Load proto.InternalMessageInfo
+
+// Flush loads. No further Loads will be sent in this transaction,
+// and the runtime will await the connectors's remaining Loaded
+// responses followed by one Flushed response.
+type Request_Flush struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *Request_Flush) Reset()         { *m = Request_Flush{} }
+func (m *Request_Flush) String() string { return proto.CompactTextString(m) }
+func (*Request_Flush) ProtoMessage()    {}
+func (*Request_Flush) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{0, 5}
+}
+func (m *Request_Flush) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Request_Flush) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Request_Flush.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Request_Flush) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Request_Flush.Merge(m, src)
+}
+func (m *Request_Flush) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Request_Flush) XXX_DiscardUnknown() {
+	xxx_messageInfo_Request_Flush.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Request_Flush proto.InternalMessageInfo
+
+// Store documents updated by the current transaction.
+type Request_Store struct {
+	// Index of the Open binding for which this document is to be stored.
+	Binding uint32 `protobuf:"varint,1,opt,name=binding,proto3" json:"binding,omitempty"`
+	// Key tuple, as an array of key components.
+	// Ordering matches `keys` of the materialization's field selection.
+	KeyJson encoding_json.RawMessage `protobuf:"bytes,2,opt,name=key_json,json=key,proto3,casttype=encoding/json.RawMessage" json:"key_json,omitempty"`
+	// Packed FoundationDB tuple of the document key to store.
+	KeyPacked []byte `protobuf:"bytes,3,opt,name=key_packed,json=keyPacked,proto3" json:"key_packed,omitempty"`
+	// Values tuple, as an array of value components.
+	// Ordering matches `values` of the materialization's field selection.
+	ValuesJson encoding_json.RawMessage `protobuf:"bytes,4,opt,name=values_json,json=values,proto3,casttype=encoding/json.RawMessage" json:"values_json,omitempty"`
+	// Packed FoundationDB tuple of the document values to store.
+	ValuesPacked []byte `protobuf:"bytes,5,opt,name=values_packed,json=valuesPacked,proto3" json:"values_packed,omitempty"`
+	// JSON document to store.
+	DocJson encoding_json.RawMessage `protobuf:"bytes,6,opt,name=doc_json,json=doc,proto3,casttype=encoding/json.RawMessage" json:"doc_json,omitempty"`
+	// Exists is true if this document has previously been loaded or stored.
+	Exists               bool     `protobuf:"varint,7,opt,name=exists,proto3" json:"exists,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *Request_Store) Reset()         { *m = Request_Store{} }
+func (m *Request_Store) String() string { return proto.CompactTextString(m) }
+func (*Request_Store) ProtoMessage()    {}
+func (*Request_Store) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{0, 6}
+}
+func (m *Request_Store) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Request_Store) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Request_Store.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Request_Store) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Request_Store.Merge(m, src)
+}
+func (m *Request_Store) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Request_Store) XXX_DiscardUnknown() {
+	xxx_messageInfo_Request_Store.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Request_Store proto.InternalMessageInfo
+
+// Mark the end of the Store phase, and if the remote store is authoritative,
+// instruct it to start committing its transaction.
+type Request_StartCommit struct {
+	// Flow runtime checkpoint to commit with this transaction.
+	RuntimeCheckpoint    *protocol.Checkpoint `protobuf:"bytes,1,opt,name=runtime_checkpoint,json=runtimeCheckpoint,proto3" json:"runtime_checkpoint,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
+	XXX_unrecognized     []byte               `json:"-"`
+	XXX_sizecache        int32                `json:"-"`
+}
+
+func (m *Request_StartCommit) Reset()         { *m = Request_StartCommit{} }
+func (m *Request_StartCommit) String() string { return proto.CompactTextString(m) }
+func (*Request_StartCommit) ProtoMessage()    {}
+func (*Request_StartCommit) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{0, 7}
+}
+func (m *Request_StartCommit) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Request_StartCommit) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Request_StartCommit.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Request_StartCommit) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Request_StartCommit.Merge(m, src)
+}
+func (m *Request_StartCommit) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Request_StartCommit) XXX_DiscardUnknown() {
+	xxx_messageInfo_Request_StartCommit.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Request_StartCommit proto.InternalMessageInfo
+
+// Acknowledge to the connector that the previous transaction
+// has committed to the Flow runtime's recovery log.
+type Request_Acknowledge struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *Request_Acknowledge) Reset()         { *m = Request_Acknowledge{} }
+func (m *Request_Acknowledge) String() string { return proto.CompactTextString(m) }
+func (*Request_Acknowledge) ProtoMessage()    {}
+func (*Request_Acknowledge) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{0, 8}
+}
+func (m *Request_Acknowledge) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Request_Acknowledge) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Request_Acknowledge.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Request_Acknowledge) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Request_Acknowledge.Merge(m, src)
+}
+func (m *Request_Acknowledge) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Request_Acknowledge) XXX_DiscardUnknown() {
+	xxx_messageInfo_Request_Acknowledge.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Request_Acknowledge proto.InternalMessageInfo
+
+type Response struct {
+	Spec          *Response_Spec          `protobuf:"bytes,1,opt,name=spec,proto3" json:"spec,omitempty"`
+	Validated     *Response_Validated     `protobuf:"bytes,2,opt,name=validated,proto3" json:"validated,omitempty"`
+	Applied       *Response_Applied       `protobuf:"bytes,3,opt,name=applied,proto3" json:"applied,omitempty"`
+	Opened        *Response_Opened        `protobuf:"bytes,4,opt,name=opened,proto3" json:"opened,omitempty"`
+	Loaded        *Response_Loaded        `protobuf:"bytes,5,opt,name=loaded,proto3" json:"loaded,omitempty"`
+	Flushed       *Response_Flushed       `protobuf:"bytes,6,opt,name=flushed,proto3" json:"flushed,omitempty"`
+	StartedCommit *Response_StartedCommit `protobuf:"bytes,7,opt,name=started_commit,json=startedCommit,proto3" json:"started_commit,omitempty"`
+	Acknowledged  *Response_Acknowledged  `protobuf:"bytes,8,opt,name=acknowledged,proto3" json:"acknowledged,omitempty"`
+	// Reserved for internal use.
+	Internal             *types.Any `protobuf:"bytes,100,opt,name=internal,proto3" json:"internal,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}   `json:"-"`
+	XXX_unrecognized     []byte     `json:"-"`
+	XXX_sizecache        int32      `json:"-"`
+}
+
+func (m *Response) Reset()         { *m = Response{} }
+func (m *Response) String() string { return proto.CompactTextString(m) }
+func (*Response) ProtoMessage()    {}
+func (*Response) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{1}
+}
+func (m *Response) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Response) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Response.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Response) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response.Merge(m, src)
+}
+func (m *Response) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Response) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Response proto.InternalMessageInfo
+
+// Spec responds to Request.Spec.
+type Response_Spec struct {
+	// Protocol version must be 3032023.
+	Protocol uint32 `protobuf:"varint,1,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	// JSON schema of the connector's configuration.
+	ConfigSchemaJson encoding_json.RawMessage `protobuf:"bytes,2,opt,name=config_schema_json,json=configSchema,proto3,casttype=encoding/json.RawMessage" json:"config_schema_json,omitempty"`
+	// JSON schema of the connecor's resource configuration.
+	ResourceConfigSchemaJson encoding_json.RawMessage `protobuf:"bytes,3,opt,name=resource_config_schema_json,json=resourceConfigSchema,proto3,casttype=encoding/json.RawMessage" json:"resource_config_schema_json,omitempty"`
+	// URL for connector's documention.
+	DocumentationUrl string `protobuf:"bytes,4,opt,name=documentation_url,json=documentationUrl,proto3" json:"documentation_url,omitempty"`
+	// Optional OAuth2 configuration.
+	Oauth2               *flow.OAuth2 `protobuf:"bytes,5,opt,name=oauth2,proto3" json:"oauth2,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
+	XXX_unrecognized     []byte       `json:"-"`
+	XXX_sizecache        int32        `json:"-"`
+}
+
+func (m *Response_Spec) Reset()         { *m = Response_Spec{} }
+func (m *Response_Spec) String() string { return proto.CompactTextString(m) }
+func (*Response_Spec) ProtoMessage()    {}
+func (*Response_Spec) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{1, 0}
+}
+func (m *Response_Spec) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Response_Spec) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Response_Spec.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Response_Spec) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response_Spec.Merge(m, src)
+}
+func (m *Response_Spec) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Response_Spec) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response_Spec.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Response_Spec proto.InternalMessageInfo
+
+// Validated responds to Request.Validate.
+type Response_Validated struct {
+	Bindings             []*Response_Validated_Binding `protobuf:"bytes,1,rep,name=bindings,proto3" json:"bindings,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                      `json:"-"`
+	XXX_unrecognized     []byte                        `json:"-"`
+	XXX_sizecache        int32                         `json:"-"`
+}
+
+func (m *Response_Validated) Reset()         { *m = Response_Validated{} }
+func (m *Response_Validated) String() string { return proto.CompactTextString(m) }
+func (*Response_Validated) ProtoMessage()    {}
+func (*Response_Validated) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{1, 1}
+}
+func (m *Response_Validated) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *Response_Validated) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_Response_Validated.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *Response_Validated) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response_Validated.Merge(m, src)
+}
+func (m *Response_Validated) XXX_Size() int {
+	return m.ProtoSize()
+}
+func (m *Response_Validated) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response_Validated.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_Response_Validated proto.InternalMessageInfo
 
 // Constraint constrains the use of a flow.Projection within a materialization.
-type Constraint struct {
-	Type Constraint_Type `protobuf:"varint,2,opt,name=type,proto3,enum=materialize.Constraint_Type" json:"type,omitempty"`
+type Response_Validated_Constraint struct {
+	Type Response_Validated_Constraint_Type `protobuf:"varint,2,opt,name=type,proto3,enum=materialize.Response_Validated_Constraint_Type" json:"type,omitempty"`
 	// Optional human readable reason for the given constraint.
 	// Implementations are strongly encouraged to supply a descriptive message.
 	Reason               string   `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
@@ -88,18 +778,18 @@ type Constraint struct {
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *Constraint) Reset()         { *m = Constraint{} }
-func (m *Constraint) String() string { return proto.CompactTextString(m) }
-func (*Constraint) ProtoMessage()    {}
-func (*Constraint) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{0}
+func (m *Response_Validated_Constraint) Reset()         { *m = Response_Validated_Constraint{} }
+func (m *Response_Validated_Constraint) String() string { return proto.CompactTextString(m) }
+func (*Response_Validated_Constraint) ProtoMessage()    {}
+func (*Response_Validated_Constraint) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{1, 1, 0}
 }
-func (m *Constraint) XXX_Unmarshal(b []byte) error {
+func (m *Response_Validated_Constraint) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *Constraint) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *Response_Validated_Constraint) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_Constraint.Marshal(b, m, deterministic)
+		return xxx_messageInfo_Response_Validated_Constraint.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -109,257 +799,25 @@ func (m *Constraint) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return b[:n], nil
 	}
 }
-func (m *Constraint) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_Constraint.Merge(m, src)
+func (m *Response_Validated_Constraint) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response_Validated_Constraint.Merge(m, src)
 }
-func (m *Constraint) XXX_Size() int {
+func (m *Response_Validated_Constraint) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *Constraint) XXX_DiscardUnknown() {
-	xxx_messageInfo_Constraint.DiscardUnknown(m)
+func (m *Response_Validated_Constraint) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response_Validated_Constraint.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_Constraint proto.InternalMessageInfo
-
-// SpecRequest is the request type of the Spec RPC.
-type SpecRequest struct {
-	// Endpoint type addressed by this request.
-	EndpointType flow.EndpointType `protobuf:"varint,1,opt,name=endpoint_type,json=endpointType,proto3,enum=flow.EndpointType" json:"endpoint_type,omitempty"`
-	// Driver specification, as an encoded JSON object.
-	// This may be a partial specification (for example, a Docker image),
-	// providing only enough information to fetch the remainder of the
-	// specification schema.
-	EndpointSpecJson     encoding_json.RawMessage `protobuf:"bytes,2,opt,name=endpoint_spec_json,json=endpointSpec,proto3,casttype=encoding/json.RawMessage" json:"endpoint_spec_json,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
-	XXX_unrecognized     []byte                   `json:"-"`
-	XXX_sizecache        int32                    `json:"-"`
-}
-
-func (m *SpecRequest) Reset()         { *m = SpecRequest{} }
-func (m *SpecRequest) String() string { return proto.CompactTextString(m) }
-func (*SpecRequest) ProtoMessage()    {}
-func (*SpecRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{1}
-}
-func (m *SpecRequest) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *SpecRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_SpecRequest.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *SpecRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_SpecRequest.Merge(m, src)
-}
-func (m *SpecRequest) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *SpecRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_SpecRequest.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_SpecRequest proto.InternalMessageInfo
-
-// SpecResponse is the response type of the Spec RPC.
-type SpecResponse struct {
-	// JSON schema of an endpoint specification.
-	EndpointSpecSchemaJson encoding_json.RawMessage `protobuf:"bytes,1,opt,name=endpoint_spec_schema_json,json=endpointSpecSchema,proto3,casttype=encoding/json.RawMessage" json:"endpoint_spec_schema_json,omitempty"`
-	// JSON schema of a resource specification.
-	ResourceSpecSchemaJson encoding_json.RawMessage `protobuf:"bytes,2,opt,name=resource_spec_schema_json,json=resourceSpecSchema,proto3,casttype=encoding/json.RawMessage" json:"resource_spec_schema_json,omitempty"`
-	// URL for connector's documention.
-	DocumentationUrl string `protobuf:"bytes,3,opt,name=documentation_url,json=documentationUrl,proto3" json:"documentation_url,omitempty"`
-	// OAuth2 spec
-	Oauth2Spec           *flow.OAuth2Spec `protobuf:"bytes,4,opt,name=oauth2_spec,json=oauth2Spec,proto3" json:"oauth2_spec,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}         `json:"-"`
-	XXX_unrecognized     []byte           `json:"-"`
-	XXX_sizecache        int32            `json:"-"`
-}
-
-func (m *SpecResponse) Reset()         { *m = SpecResponse{} }
-func (m *SpecResponse) String() string { return proto.CompactTextString(m) }
-func (*SpecResponse) ProtoMessage()    {}
-func (*SpecResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{2}
-}
-func (m *SpecResponse) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *SpecResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_SpecResponse.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *SpecResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_SpecResponse.Merge(m, src)
-}
-func (m *SpecResponse) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *SpecResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_SpecResponse.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_SpecResponse proto.InternalMessageInfo
-
-// ValidateRequest is the request type of the Validate RPC.
-type ValidateRequest struct {
-	// Name of the materialization being validated.
-	Materialization github_com_estuary_flow_go_protocols_flow.Materialization `protobuf:"bytes,1,opt,name=materialization,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Materialization" json:"materialization,omitempty"`
-	// Endpoint type addressed by this request.
-	EndpointType flow.EndpointType `protobuf:"varint,2,opt,name=endpoint_type,json=endpointType,proto3,enum=flow.EndpointType" json:"endpoint_type,omitempty"`
-	// Driver specification, as an encoded JSON object.
-	EndpointSpecJson     encoding_json.RawMessage   `protobuf:"bytes,3,opt,name=endpoint_spec_json,json=endpointSpec,proto3,casttype=encoding/json.RawMessage" json:"endpoint_spec_json,omitempty"`
-	Bindings             []*ValidateRequest_Binding `protobuf:"bytes,4,rep,name=bindings,proto3" json:"bindings,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}                   `json:"-"`
-	XXX_unrecognized     []byte                     `json:"-"`
-	XXX_sizecache        int32                      `json:"-"`
-}
-
-func (m *ValidateRequest) Reset()         { *m = ValidateRequest{} }
-func (m *ValidateRequest) String() string { return proto.CompactTextString(m) }
-func (*ValidateRequest) ProtoMessage()    {}
-func (*ValidateRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{3}
-}
-func (m *ValidateRequest) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *ValidateRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_ValidateRequest.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *ValidateRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ValidateRequest.Merge(m, src)
-}
-func (m *ValidateRequest) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *ValidateRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_ValidateRequest.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_ValidateRequest proto.InternalMessageInfo
-
-// Bindings of endpoint resources and collections from which they would be
-// materialized. Bindings are ordered and unique on the bound collection name.
-type ValidateRequest_Binding struct {
-	// JSON-encoded object which specifies the endpoint resource to be
-	// materialized.
-	ResourceSpecJson encoding_json.RawMessage `protobuf:"bytes,1,opt,name=resource_spec_json,json=resourceSpec,proto3,casttype=encoding/json.RawMessage" json:"resource_spec_json,omitempty"`
-	// Collection to be materialized.
-	Collection flow.CollectionSpec `protobuf:"bytes,2,opt,name=collection,proto3" json:"collection"`
-	// Projection configuration, keyed by the projection field name,
-	// with JSON-encoded and driver-defined configuration objects.
-	FieldConfigJson      map[string]encoding_json.RawMessage `protobuf:"bytes,3,rep,name=field_config_json,json=fieldConfig,proto3,castvalue=encoding/json.RawMessage" json:"field_config_json,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	XXX_NoUnkeyedLiteral struct{}                            `json:"-"`
-	XXX_unrecognized     []byte                              `json:"-"`
-	XXX_sizecache        int32                               `json:"-"`
-}
-
-func (m *ValidateRequest_Binding) Reset()         { *m = ValidateRequest_Binding{} }
-func (m *ValidateRequest_Binding) String() string { return proto.CompactTextString(m) }
-func (*ValidateRequest_Binding) ProtoMessage()    {}
-func (*ValidateRequest_Binding) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{3, 0}
-}
-func (m *ValidateRequest_Binding) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *ValidateRequest_Binding) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_ValidateRequest_Binding.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *ValidateRequest_Binding) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ValidateRequest_Binding.Merge(m, src)
-}
-func (m *ValidateRequest_Binding) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *ValidateRequest_Binding) XXX_DiscardUnknown() {
-	xxx_messageInfo_ValidateRequest_Binding.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_ValidateRequest_Binding proto.InternalMessageInfo
-
-// ValidateResponse is the response type of the Validate RPC.
-type ValidateResponse struct {
-	Bindings             []*ValidateResponse_Binding `protobuf:"bytes,1,rep,name=bindings,proto3" json:"bindings,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}                    `json:"-"`
-	XXX_unrecognized     []byte                      `json:"-"`
-	XXX_sizecache        int32                       `json:"-"`
-}
-
-func (m *ValidateResponse) Reset()         { *m = ValidateResponse{} }
-func (m *ValidateResponse) String() string { return proto.CompactTextString(m) }
-func (*ValidateResponse) ProtoMessage()    {}
-func (*ValidateResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{4}
-}
-func (m *ValidateResponse) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *ValidateResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_ValidateResponse.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *ValidateResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ValidateResponse.Merge(m, src)
-}
-func (m *ValidateResponse) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *ValidateResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_ValidateResponse.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_ValidateResponse proto.InternalMessageInfo
+var xxx_messageInfo_Response_Validated_Constraint proto.InternalMessageInfo
 
 // Validation responses for each binding of the request, and matching the
 // request ordering. Each Binding must have a unique resource_path.
-type ValidateResponse_Binding struct {
+type Response_Validated_Binding struct {
 	// Constraints over collection projections imposed by the Driver,
 	// keyed by the projection field name. Projections of the CollectionSpec
 	// which are missing from constraints are implicitly forbidden.
-	Constraints map[string]*Constraint `protobuf:"bytes,1,rep,name=constraints,proto3" json:"constraints,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	Constraints map[string]*Response_Validated_Constraint `protobuf:"bytes,1,rep,name=constraints,proto3" json:"constraints,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	// Components of the resource path which fully qualify the resource
 	// identified by this binding.
 	// - For an RDBMS, this might be []{dbname, schema, table}.
@@ -370,7 +828,7 @@ type ValidateResponse_Binding struct {
 	// reductions.
 	//
 	// When set, the Flow runtime will not attempt to load documents via
-	// TransactionRequest.Load, and also disables re-use of cached documents
+	// Request.Load, and also disables re-use of cached documents
 	// stored in prior transactions. Each stored document is exclusively
 	// combined from updates processed by the runtime within the current
 	// transaction only.
@@ -387,18 +845,18 @@ type ValidateResponse_Binding struct {
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *ValidateResponse_Binding) Reset()         { *m = ValidateResponse_Binding{} }
-func (m *ValidateResponse_Binding) String() string { return proto.CompactTextString(m) }
-func (*ValidateResponse_Binding) ProtoMessage()    {}
-func (*ValidateResponse_Binding) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{4, 0}
+func (m *Response_Validated_Binding) Reset()         { *m = Response_Validated_Binding{} }
+func (m *Response_Validated_Binding) String() string { return proto.CompactTextString(m) }
+func (*Response_Validated_Binding) ProtoMessage()    {}
+func (*Response_Validated_Binding) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{1, 1, 1}
 }
-func (m *ValidateResponse_Binding) XXX_Unmarshal(b []byte) error {
+func (m *Response_Validated_Binding) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *ValidateResponse_Binding) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *Response_Validated_Binding) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_ValidateResponse_Binding.Marshal(b, m, deterministic)
+		return xxx_messageInfo_Response_Validated_Binding.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -408,67 +866,20 @@ func (m *ValidateResponse_Binding) XXX_Marshal(b []byte, deterministic bool) ([]
 		return b[:n], nil
 	}
 }
-func (m *ValidateResponse_Binding) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ValidateResponse_Binding.Merge(m, src)
+func (m *Response_Validated_Binding) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response_Validated_Binding.Merge(m, src)
 }
-func (m *ValidateResponse_Binding) XXX_Size() int {
+func (m *Response_Validated_Binding) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *ValidateResponse_Binding) XXX_DiscardUnknown() {
-	xxx_messageInfo_ValidateResponse_Binding.DiscardUnknown(m)
+func (m *Response_Validated_Binding) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response_Validated_Binding.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_ValidateResponse_Binding proto.InternalMessageInfo
+var xxx_messageInfo_Response_Validated_Binding proto.InternalMessageInfo
 
-// ApplyRequest is the request type of the ApplyUpsert and ApplyDelete RPCs.
-type ApplyRequest struct {
-	// Materialization to be applied.
-	Materialization *flow.MaterializationSpec `protobuf:"bytes,1,opt,name=materialization,proto3" json:"materialization,omitempty"`
-	// Version of the MaterializationSpec being applied.
-	Version string `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
-	// Is this Apply a dry-run? If so, no action is undertaken and Apply will
-	// report only what would have happened.
-	DryRun               bool     `protobuf:"varint,3,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *ApplyRequest) Reset()         { *m = ApplyRequest{} }
-func (m *ApplyRequest) String() string { return proto.CompactTextString(m) }
-func (*ApplyRequest) ProtoMessage()    {}
-func (*ApplyRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{5}
-}
-func (m *ApplyRequest) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *ApplyRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_ApplyRequest.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *ApplyRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ApplyRequest.Merge(m, src)
-}
-func (m *ApplyRequest) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *ApplyRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_ApplyRequest.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_ApplyRequest proto.InternalMessageInfo
-
-// ApplyResponse is the response type of the ApplyUpsert and ApplyDelete RPCs.
-type ApplyResponse struct {
+// Applied responds to Request.Apply.
+type Response_Applied struct {
 	// Human-readable description of the action that the Driver took (or, if
 	// dry_run, would have taken). If empty, this Apply is to be considered a
 	// "no-op".
@@ -478,18 +889,18 @@ type ApplyResponse struct {
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *ApplyResponse) Reset()         { *m = ApplyResponse{} }
-func (m *ApplyResponse) String() string { return proto.CompactTextString(m) }
-func (*ApplyResponse) ProtoMessage()    {}
-func (*ApplyResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{6}
+func (m *Response_Applied) Reset()         { *m = Response_Applied{} }
+func (m *Response_Applied) String() string { return proto.CompactTextString(m) }
+func (*Response_Applied) ProtoMessage()    {}
+func (*Response_Applied) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{1, 2}
 }
-func (m *ApplyResponse) XXX_Unmarshal(b []byte) error {
+func (m *Response_Applied) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *ApplyResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *Response_Applied) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_ApplyResponse.Marshal(b, m, deterministic)
+		return xxx_messageInfo_Response_Applied.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -499,408 +910,23 @@ func (m *ApplyResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error
 		return b[:n], nil
 	}
 }
-func (m *ApplyResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_ApplyResponse.Merge(m, src)
+func (m *Response_Applied) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response_Applied.Merge(m, src)
 }
-func (m *ApplyResponse) XXX_Size() int {
+func (m *Response_Applied) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *ApplyResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_ApplyResponse.DiscardUnknown(m)
+func (m *Response_Applied) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response_Applied.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_ApplyResponse proto.InternalMessageInfo
+var xxx_messageInfo_Response_Applied proto.InternalMessageInfo
 
-// TransactionRequest is the request type of a Transaction RPC.
-// It will have exactly one top-level field set, which represents its message
-// type.
-type TransactionRequest struct {
-	Open                 *TransactionRequest_Open        `protobuf:"bytes,1,opt,name=open,proto3" json:"open,omitempty"`
-	Load                 *TransactionRequest_Load        `protobuf:"bytes,2,opt,name=load,proto3" json:"load,omitempty"`
-	Flush                *TransactionRequest_Flush       `protobuf:"bytes,3,opt,name=flush,proto3" json:"flush,omitempty"`
-	Store                *TransactionRequest_Store       `protobuf:"bytes,4,opt,name=store,proto3" json:"store,omitempty"`
-	StartCommit          *TransactionRequest_StartCommit `protobuf:"bytes,5,opt,name=start_commit,json=startCommit,proto3" json:"start_commit,omitempty"`
-	Acknowledge          *TransactionRequest_Acknowledge `protobuf:"bytes,6,opt,name=acknowledge,proto3" json:"acknowledge,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}                        `json:"-"`
-	XXX_unrecognized     []byte                          `json:"-"`
-	XXX_sizecache        int32                           `json:"-"`
-}
-
-func (m *TransactionRequest) Reset()         { *m = TransactionRequest{} }
-func (m *TransactionRequest) String() string { return proto.CompactTextString(m) }
-func (*TransactionRequest) ProtoMessage()    {}
-func (*TransactionRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{7}
-}
-func (m *TransactionRequest) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *TransactionRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_TransactionRequest.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *TransactionRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TransactionRequest.Merge(m, src)
-}
-func (m *TransactionRequest) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *TransactionRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_TransactionRequest.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_TransactionRequest proto.InternalMessageInfo
-
-// Open a transaction stream.
-//
-// If the Flow recovery log is authoritative:
-// The driver is given its last committed driver checkpoint in this request.
-// It MAY return a Flow checkpoint in its opened response -- perhaps an older
-// Flow checkpoint which was previously embedded within its driver checkpoint.
-//
-// If the remote store is authoritative:
-// The driver MUST fence off other streams of this materialization that
-// overlap the provided [key_begin, key_end) range, such that those streams
-// cannot issue further commits. The driver MUST return its stored checkpoint
-// for this materialization and range [key_begin, key_end] in its Opened
-// response.
-type TransactionRequest_Open struct {
-	// Materialization to be transacted.
-	Materialization *flow.MaterializationSpec `protobuf:"bytes,1,opt,name=materialization,proto3" json:"materialization,omitempty"`
-	// Version of the opened MaterializationSpec.
-	// The driver may want to require that this match the version last
-	// provided to a successful Apply RPC. It's possible that it won't,
-	// due to expected propagation races in Flow's distributed runtime.
-	Version string `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
-	// [begin, end] inclusive range of keys processed by this transaction
-	// stream. Ranges are with respect to a 32-bit hash of a packed document
-	// key.
-	KeyBegin uint32 `protobuf:"fixed32,3,opt,name=key_begin,json=keyBegin,proto3" json:"key_begin,omitempty"`
-	KeyEnd   uint32 `protobuf:"fixed32,4,opt,name=key_end,json=keyEnd,proto3" json:"key_end,omitempty"`
-	// Last-persisted driver checkpoint committed in the Flow runtime recovery
-	// log. Or empty, if the driver has cleared or never set its checkpoint.
-	DriverCheckpointJson encoding_json.RawMessage `protobuf:"bytes,5,opt,name=driver_checkpoint_json,json=driverCheckpoint,proto3,casttype=encoding/json.RawMessage" json:"driver_checkpoint_json,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
-	XXX_unrecognized     []byte                   `json:"-"`
-	XXX_sizecache        int32                    `json:"-"`
-}
-
-func (m *TransactionRequest_Open) Reset()         { *m = TransactionRequest_Open{} }
-func (m *TransactionRequest_Open) String() string { return proto.CompactTextString(m) }
-func (*TransactionRequest_Open) ProtoMessage()    {}
-func (*TransactionRequest_Open) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{7, 0}
-}
-func (m *TransactionRequest_Open) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *TransactionRequest_Open) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_TransactionRequest_Open.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *TransactionRequest_Open) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TransactionRequest_Open.Merge(m, src)
-}
-func (m *TransactionRequest_Open) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *TransactionRequest_Open) XXX_DiscardUnknown() {
-	xxx_messageInfo_TransactionRequest_Open.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_TransactionRequest_Open proto.InternalMessageInfo
-
-// Load one or more documents identified by key.
-// Keys may included documents which have never before been stored,
-// but a given key will be sent in a transaction Load just one time.
-type TransactionRequest_Load struct {
-	// The materialization binding for documents of this Load request.
-	Binding uint32 `protobuf:"varint,1,opt,name=binding,proto3" json:"binding,omitempty"`
-	// Byte arena of the request.
-	Arena github_com_estuary_flow_go_protocols_flow.Arena `protobuf:"bytes,2,opt,name=arena,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Arena" json:"arena,omitempty"`
-	// Packed tuples of collection keys, enumerating the documents to load.
-	PackedKeys           []flow.Slice `protobuf:"bytes,3,rep,name=packed_keys,json=packedKeys,proto3" json:"packed_keys"`
-	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
-	XXX_unrecognized     []byte       `json:"-"`
-	XXX_sizecache        int32        `json:"-"`
-}
-
-func (m *TransactionRequest_Load) Reset()         { *m = TransactionRequest_Load{} }
-func (m *TransactionRequest_Load) String() string { return proto.CompactTextString(m) }
-func (*TransactionRequest_Load) ProtoMessage()    {}
-func (*TransactionRequest_Load) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{7, 1}
-}
-func (m *TransactionRequest_Load) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *TransactionRequest_Load) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_TransactionRequest_Load.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *TransactionRequest_Load) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TransactionRequest_Load.Merge(m, src)
-}
-func (m *TransactionRequest_Load) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *TransactionRequest_Load) XXX_DiscardUnknown() {
-	xxx_messageInfo_TransactionRequest_Load.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_TransactionRequest_Load proto.InternalMessageInfo
-
-// Flush loads. No further Loads will be sent in this transaction,
-// and the runtime will await the driver's remaining Loaded responses
-// followed by one Flushed response.
-type TransactionRequest_Flush struct {
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *TransactionRequest_Flush) Reset()         { *m = TransactionRequest_Flush{} }
-func (m *TransactionRequest_Flush) String() string { return proto.CompactTextString(m) }
-func (*TransactionRequest_Flush) ProtoMessage()    {}
-func (*TransactionRequest_Flush) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{7, 2}
-}
-func (m *TransactionRequest_Flush) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *TransactionRequest_Flush) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_TransactionRequest_Flush.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *TransactionRequest_Flush) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TransactionRequest_Flush.Merge(m, src)
-}
-func (m *TransactionRequest_Flush) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *TransactionRequest_Flush) XXX_DiscardUnknown() {
-	xxx_messageInfo_TransactionRequest_Flush.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_TransactionRequest_Flush proto.InternalMessageInfo
-
-// Store documents of this transaction commit.
-type TransactionRequest_Store struct {
-	// The materialization binding for documents of this Store request.
-	Binding uint32 `protobuf:"varint,1,opt,name=binding,proto3" json:"binding,omitempty"`
-	// Byte arena of the request.
-	Arena github_com_estuary_flow_go_protocols_flow.Arena `protobuf:"bytes,2,opt,name=arena,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Arena" json:"arena,omitempty"`
-	// Packed tuples holding keys of each document.
-	PackedKeys []flow.Slice `protobuf:"bytes,3,rep,name=packed_keys,json=packedKeys,proto3" json:"packed_keys"`
-	// Packed tuples holding values for each document.
-	PackedValues []flow.Slice `protobuf:"bytes,4,rep,name=packed_values,json=packedValues,proto3" json:"packed_values"`
-	// JSON documents.
-	DocsJson []flow.Slice `protobuf:"bytes,5,rep,name=docs_json,json=docsJson,proto3" json:"docs_json"`
-	// Exists is true if this document as previously been loaded or stored.
-	Exists               []bool   `protobuf:"varint,6,rep,packed,name=exists,proto3" json:"exists,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *TransactionRequest_Store) Reset()         { *m = TransactionRequest_Store{} }
-func (m *TransactionRequest_Store) String() string { return proto.CompactTextString(m) }
-func (*TransactionRequest_Store) ProtoMessage()    {}
-func (*TransactionRequest_Store) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{7, 3}
-}
-func (m *TransactionRequest_Store) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *TransactionRequest_Store) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_TransactionRequest_Store.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *TransactionRequest_Store) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TransactionRequest_Store.Merge(m, src)
-}
-func (m *TransactionRequest_Store) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *TransactionRequest_Store) XXX_DiscardUnknown() {
-	xxx_messageInfo_TransactionRequest_Store.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_TransactionRequest_Store proto.InternalMessageInfo
-
-// Mark the end of the Store phase, and if the remote store is authoritative,
-// instruct it to start committing its transaction.
-type TransactionRequest_StartCommit struct {
-	// Flow runtime checkpoint to commit with this transaction.
-	RuntimeCheckpoint    []byte   `protobuf:"bytes,1,opt,name=runtime_checkpoint,json=runtimeCheckpoint,proto3" json:"runtime_checkpoint,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *TransactionRequest_StartCommit) Reset()         { *m = TransactionRequest_StartCommit{} }
-func (m *TransactionRequest_StartCommit) String() string { return proto.CompactTextString(m) }
-func (*TransactionRequest_StartCommit) ProtoMessage()    {}
-func (*TransactionRequest_StartCommit) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{7, 4}
-}
-func (m *TransactionRequest_StartCommit) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *TransactionRequest_StartCommit) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_TransactionRequest_StartCommit.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *TransactionRequest_StartCommit) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TransactionRequest_StartCommit.Merge(m, src)
-}
-func (m *TransactionRequest_StartCommit) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *TransactionRequest_StartCommit) XXX_DiscardUnknown() {
-	xxx_messageInfo_TransactionRequest_StartCommit.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_TransactionRequest_StartCommit proto.InternalMessageInfo
-
-// Notify the driver that the previous transaction has committed to the Flow
-// runtime's recovery log.
-type TransactionRequest_Acknowledge struct {
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *TransactionRequest_Acknowledge) Reset()         { *m = TransactionRequest_Acknowledge{} }
-func (m *TransactionRequest_Acknowledge) String() string { return proto.CompactTextString(m) }
-func (*TransactionRequest_Acknowledge) ProtoMessage()    {}
-func (*TransactionRequest_Acknowledge) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{7, 5}
-}
-func (m *TransactionRequest_Acknowledge) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *TransactionRequest_Acknowledge) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_TransactionRequest_Acknowledge.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *TransactionRequest_Acknowledge) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TransactionRequest_Acknowledge.Merge(m, src)
-}
-func (m *TransactionRequest_Acknowledge) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *TransactionRequest_Acknowledge) XXX_DiscardUnknown() {
-	xxx_messageInfo_TransactionRequest_Acknowledge.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_TransactionRequest_Acknowledge proto.InternalMessageInfo
-
-// TransactionResponse is the response type of a Transaction RPC.
-// It will have exactly one top-level field set, which represents its message
-// type.
-type TransactionResponse struct {
-	Opened               *TransactionResponse_Opened        `protobuf:"bytes,1,opt,name=opened,proto3" json:"opened,omitempty"`
-	Loaded               *TransactionResponse_Loaded        `protobuf:"bytes,2,opt,name=loaded,proto3" json:"loaded,omitempty"`
-	Flushed              *TransactionResponse_Flushed       `protobuf:"bytes,3,opt,name=flushed,proto3" json:"flushed,omitempty"`
-	StartedCommit        *TransactionResponse_StartedCommit `protobuf:"bytes,4,opt,name=started_commit,json=startedCommit,proto3" json:"started_commit,omitempty"`
-	Acknowledged         *TransactionResponse_Acknowledged  `protobuf:"bytes,5,opt,name=acknowledged,proto3" json:"acknowledged,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}                           `json:"-"`
-	XXX_unrecognized     []byte                             `json:"-"`
-	XXX_sizecache        int32                              `json:"-"`
-}
-
-func (m *TransactionResponse) Reset()         { *m = TransactionResponse{} }
-func (m *TransactionResponse) String() string { return proto.CompactTextString(m) }
-func (*TransactionResponse) ProtoMessage()    {}
-func (*TransactionResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{8}
-}
-func (m *TransactionResponse) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *TransactionResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_TransactionResponse.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *TransactionResponse) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TransactionResponse.Merge(m, src)
-}
-func (m *TransactionResponse) XXX_Size() int {
-	return m.ProtoSize()
-}
-func (m *TransactionResponse) XXX_DiscardUnknown() {
-	xxx_messageInfo_TransactionResponse.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_TransactionResponse proto.InternalMessageInfo
-
-// Opened responds to TransactionRequest.Open of the client.
-type TransactionResponse_Opened struct {
+// Opened responds to Request.Open.
+// After Opened, the connector sends only Loaded, Flushed,
+// StartedCommit, and Acknowledged as per the materialization
+// protocol.
+type Response_Opened struct {
 	// Flow runtime checkpoint to begin processing from.
 	// If empty, the most recent checkpoint of the Flow recovery log is used.
 	//
@@ -908,24 +934,24 @@ type TransactionResponse_Opened struct {
 	// to explicitly begin processing from a zero-valued checkpoint, effectively
 	// rebuilding the materialization from scratch. This sentinel is a trivial
 	// encoding of the max-value 2^29-1 protobuf tag with boolean true.
-	RuntimeCheckpoint    []byte   `protobuf:"bytes,1,opt,name=runtime_checkpoint,json=runtimeCheckpoint,proto3" json:"runtime_checkpoint,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
+	RuntimeCheckpoint    *protocol.Checkpoint `protobuf:"bytes,1,opt,name=runtime_checkpoint,json=runtimeCheckpoint,proto3" json:"runtime_checkpoint,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
+	XXX_unrecognized     []byte               `json:"-"`
+	XXX_sizecache        int32                `json:"-"`
 }
 
-func (m *TransactionResponse_Opened) Reset()         { *m = TransactionResponse_Opened{} }
-func (m *TransactionResponse_Opened) String() string { return proto.CompactTextString(m) }
-func (*TransactionResponse_Opened) ProtoMessage()    {}
-func (*TransactionResponse_Opened) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{8, 0}
+func (m *Response_Opened) Reset()         { *m = Response_Opened{} }
+func (m *Response_Opened) String() string { return proto.CompactTextString(m) }
+func (*Response_Opened) ProtoMessage()    {}
+func (*Response_Opened) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{1, 3}
 }
-func (m *TransactionResponse_Opened) XXX_Unmarshal(b []byte) error {
+func (m *Response_Opened) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *TransactionResponse_Opened) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *Response_Opened) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_TransactionResponse_Opened.Marshal(b, m, deterministic)
+		return xxx_messageInfo_Response_Opened.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -935,47 +961,45 @@ func (m *TransactionResponse_Opened) XXX_Marshal(b []byte, deterministic bool) (
 		return b[:n], nil
 	}
 }
-func (m *TransactionResponse_Opened) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TransactionResponse_Opened.Merge(m, src)
+func (m *Response_Opened) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response_Opened.Merge(m, src)
 }
-func (m *TransactionResponse_Opened) XXX_Size() int {
+func (m *Response_Opened) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *TransactionResponse_Opened) XXX_DiscardUnknown() {
-	xxx_messageInfo_TransactionResponse_Opened.DiscardUnknown(m)
+func (m *Response_Opened) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response_Opened.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_TransactionResponse_Opened proto.InternalMessageInfo
+var xxx_messageInfo_Response_Opened proto.InternalMessageInfo
 
-// Loaded responds to TransactionRequest.Loads of the client.
+// Loaded responds to Request.Load.
 // It returns documents of requested keys which have previously been stored.
 // Keys not found in the store MUST be omitted. Documents may be in any order,
 // both within and across Loaded response messages, but a document of a given
 // key MUST be sent at most one time in a Transaction.
-type TransactionResponse_Loaded struct {
-	// The materialization binding for documents of this Loaded response.
+type Response_Loaded struct {
+	// Index of the Open binding for which this document was loaded.
 	Binding uint32 `protobuf:"varint,1,opt,name=binding,proto3" json:"binding,omitempty"`
-	// Byte arena of the request.
-	Arena github_com_estuary_flow_go_protocols_flow.Arena `protobuf:"bytes,2,opt,name=arena,proto3,casttype=github.com/estuary/flow/go/protocols/flow.Arena" json:"arena,omitempty"`
-	// Loaded JSON documents.
-	DocsJson             []flow.Slice `protobuf:"bytes,3,rep,name=docs_json,json=docsJson,proto3" json:"docs_json"`
-	XXX_NoUnkeyedLiteral struct{}     `json:"-"`
-	XXX_unrecognized     []byte       `json:"-"`
-	XXX_sizecache        int32        `json:"-"`
+	// Loaded JSON document.
+	DocJson              encoding_json.RawMessage `protobuf:"bytes,2,opt,name=doc_json,json=doc,proto3,casttype=encoding/json.RawMessage" json:"doc_json,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
+	XXX_unrecognized     []byte                   `json:"-"`
+	XXX_sizecache        int32                    `json:"-"`
 }
 
-func (m *TransactionResponse_Loaded) Reset()         { *m = TransactionResponse_Loaded{} }
-func (m *TransactionResponse_Loaded) String() string { return proto.CompactTextString(m) }
-func (*TransactionResponse_Loaded) ProtoMessage()    {}
-func (*TransactionResponse_Loaded) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{8, 1}
+func (m *Response_Loaded) Reset()         { *m = Response_Loaded{} }
+func (m *Response_Loaded) String() string { return proto.CompactTextString(m) }
+func (*Response_Loaded) ProtoMessage()    {}
+func (*Response_Loaded) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{1, 4}
 }
-func (m *TransactionResponse_Loaded) XXX_Unmarshal(b []byte) error {
+func (m *Response_Loaded) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *TransactionResponse_Loaded) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *Response_Loaded) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_TransactionResponse_Loaded.Marshal(b, m, deterministic)
+		return xxx_messageInfo_Response_Loaded.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -985,38 +1009,38 @@ func (m *TransactionResponse_Loaded) XXX_Marshal(b []byte, deterministic bool) (
 		return b[:n], nil
 	}
 }
-func (m *TransactionResponse_Loaded) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TransactionResponse_Loaded.Merge(m, src)
+func (m *Response_Loaded) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response_Loaded.Merge(m, src)
 }
-func (m *TransactionResponse_Loaded) XXX_Size() int {
+func (m *Response_Loaded) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *TransactionResponse_Loaded) XXX_DiscardUnknown() {
-	xxx_messageInfo_TransactionResponse_Loaded.DiscardUnknown(m)
+func (m *Response_Loaded) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response_Loaded.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_TransactionResponse_Loaded proto.InternalMessageInfo
+var xxx_messageInfo_Response_Loaded proto.InternalMessageInfo
 
-// Flushed responds to a TransactionRequest.Flush of the client.
+// Flushed responds to a Request.Flush.
 // The driver will send no further Loaded responses.
-type TransactionResponse_Flushed struct {
+type Response_Flushed struct {
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *TransactionResponse_Flushed) Reset()         { *m = TransactionResponse_Flushed{} }
-func (m *TransactionResponse_Flushed) String() string { return proto.CompactTextString(m) }
-func (*TransactionResponse_Flushed) ProtoMessage()    {}
-func (*TransactionResponse_Flushed) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{8, 2}
+func (m *Response_Flushed) Reset()         { *m = Response_Flushed{} }
+func (m *Response_Flushed) String() string { return proto.CompactTextString(m) }
+func (*Response_Flushed) ProtoMessage()    {}
+func (*Response_Flushed) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{1, 5}
 }
-func (m *TransactionResponse_Flushed) XXX_Unmarshal(b []byte) error {
+func (m *Response_Flushed) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *TransactionResponse_Flushed) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *Response_Flushed) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_TransactionResponse_Flushed.Marshal(b, m, deterministic)
+		return xxx_messageInfo_Response_Flushed.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -1026,41 +1050,41 @@ func (m *TransactionResponse_Flushed) XXX_Marshal(b []byte, deterministic bool) 
 		return b[:n], nil
 	}
 }
-func (m *TransactionResponse_Flushed) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TransactionResponse_Flushed.Merge(m, src)
+func (m *Response_Flushed) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response_Flushed.Merge(m, src)
 }
-func (m *TransactionResponse_Flushed) XXX_Size() int {
+func (m *Response_Flushed) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *TransactionResponse_Flushed) XXX_DiscardUnknown() {
-	xxx_messageInfo_TransactionResponse_Flushed.DiscardUnknown(m)
+func (m *Response_Flushed) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response_Flushed.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_TransactionResponse_Flushed proto.InternalMessageInfo
+var xxx_messageInfo_Response_Flushed proto.InternalMessageInfo
 
-// StartedCommit responds to a TransactionRequest.StartCommit of the client.
+// StartedCommit responds to a Request.StartCommit.
 // The driver has processed all Store requests, it has started to commit its
 // transaction (if it has one), and it is now ready for the runtime to start
 // committing to its own recovery log.
-type TransactionResponse_StartedCommit struct {
-	DriverCheckpoint     *flow.DriverCheckpoint `protobuf:"bytes,1,opt,name=driver_checkpoint,json=driverCheckpoint,proto3" json:"driver_checkpoint,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}               `json:"-"`
-	XXX_unrecognized     []byte                 `json:"-"`
-	XXX_sizecache        int32                  `json:"-"`
+type Response_StartedCommit struct {
+	State                *flow.ConnectorState `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
+	XXX_unrecognized     []byte               `json:"-"`
+	XXX_sizecache        int32                `json:"-"`
 }
 
-func (m *TransactionResponse_StartedCommit) Reset()         { *m = TransactionResponse_StartedCommit{} }
-func (m *TransactionResponse_StartedCommit) String() string { return proto.CompactTextString(m) }
-func (*TransactionResponse_StartedCommit) ProtoMessage()    {}
-func (*TransactionResponse_StartedCommit) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{8, 3}
+func (m *Response_StartedCommit) Reset()         { *m = Response_StartedCommit{} }
+func (m *Response_StartedCommit) String() string { return proto.CompactTextString(m) }
+func (*Response_StartedCommit) ProtoMessage()    {}
+func (*Response_StartedCommit) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{1, 6}
 }
-func (m *TransactionResponse_StartedCommit) XXX_Unmarshal(b []byte) error {
+func (m *Response_StartedCommit) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *TransactionResponse_StartedCommit) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *Response_StartedCommit) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_TransactionResponse_StartedCommit.Marshal(b, m, deterministic)
+		return xxx_messageInfo_Response_StartedCommit.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -1070,42 +1094,42 @@ func (m *TransactionResponse_StartedCommit) XXX_Marshal(b []byte, deterministic 
 		return b[:n], nil
 	}
 }
-func (m *TransactionResponse_StartedCommit) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TransactionResponse_StartedCommit.Merge(m, src)
+func (m *Response_StartedCommit) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response_StartedCommit.Merge(m, src)
 }
-func (m *TransactionResponse_StartedCommit) XXX_Size() int {
+func (m *Response_StartedCommit) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *TransactionResponse_StartedCommit) XXX_DiscardUnknown() {
-	xxx_messageInfo_TransactionResponse_StartedCommit.DiscardUnknown(m)
+func (m *Response_StartedCommit) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response_StartedCommit.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_TransactionResponse_StartedCommit proto.InternalMessageInfo
+var xxx_messageInfo_Response_StartedCommit proto.InternalMessageInfo
 
 // Notify the runtime that the previous driver transaction has committed
 // to the endpoint store (where applicable). On receipt, the runtime may
 // begin to flush, store, and commit a next (pipelined) transaction.
 //
-// Acknowledged is _not_ a direct response to TransactionRequest.Acknowledge,
+// Acknowledged is _not_ a direct response to Request.Acknowledge,
 // and Acknowledge vs Acknowledged may be written in either order.
-type TransactionResponse_Acknowledged struct {
+type Response_Acknowledged struct {
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *TransactionResponse_Acknowledged) Reset()         { *m = TransactionResponse_Acknowledged{} }
-func (m *TransactionResponse_Acknowledged) String() string { return proto.CompactTextString(m) }
-func (*TransactionResponse_Acknowledged) ProtoMessage()    {}
-func (*TransactionResponse_Acknowledged) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{8, 4}
+func (m *Response_Acknowledged) Reset()         { *m = Response_Acknowledged{} }
+func (m *Response_Acknowledged) String() string { return proto.CompactTextString(m) }
+func (*Response_Acknowledged) ProtoMessage()    {}
+func (*Response_Acknowledged) Descriptor() ([]byte, []int) {
+	return fileDescriptor_3e8b62b327f34bc6, []int{1, 7}
 }
-func (m *TransactionResponse_Acknowledged) XXX_Unmarshal(b []byte) error {
+func (m *Response_Acknowledged) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-func (m *TransactionResponse_Acknowledged) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+func (m *Response_Acknowledged) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
-		return xxx_messageInfo_TransactionResponse_Acknowledged.Marshal(b, m, deterministic)
+		return xxx_messageInfo_Response_Acknowledged.Marshal(b, m, deterministic)
 	} else {
 		b = b[:cap(b)]
 		n, err := m.MarshalToSizedBuffer(b)
@@ -1115,19 +1139,20 @@ func (m *TransactionResponse_Acknowledged) XXX_Marshal(b []byte, deterministic b
 		return b[:n], nil
 	}
 }
-func (m *TransactionResponse_Acknowledged) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_TransactionResponse_Acknowledged.Merge(m, src)
+func (m *Response_Acknowledged) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_Response_Acknowledged.Merge(m, src)
 }
-func (m *TransactionResponse_Acknowledged) XXX_Size() int {
+func (m *Response_Acknowledged) XXX_Size() int {
 	return m.ProtoSize()
 }
-func (m *TransactionResponse_Acknowledged) XXX_DiscardUnknown() {
-	xxx_messageInfo_TransactionResponse_Acknowledged.DiscardUnknown(m)
+func (m *Response_Acknowledged) XXX_DiscardUnknown() {
+	xxx_messageInfo_Response_Acknowledged.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_TransactionResponse_Acknowledged proto.InternalMessageInfo
+var xxx_messageInfo_Response_Acknowledged proto.InternalMessageInfo
 
 // Extra messages used by connectors
+// TODO(johnny): Do we still need this?
 type Extra struct {
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -1138,7 +1163,7 @@ func (m *Extra) Reset()         { *m = Extra{} }
 func (m *Extra) String() string { return proto.CompactTextString(m) }
 func (*Extra) ProtoMessage()    {}
 func (*Extra) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{9}
+	return fileDescriptor_3e8b62b327f34bc6, []int{2}
 }
 func (m *Extra) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -1168,13 +1193,11 @@ func (m *Extra) XXX_DiscardUnknown() {
 var xxx_messageInfo_Extra proto.InternalMessageInfo
 
 type Extra_ValidateExistingProjectionRequest struct {
-	// Existing Materialization Binding
-	ExistingBinding *flow.MaterializationSpec_Binding `protobuf:"bytes,1,opt,name=existing_binding,json=existingBinding,proto3" json:"existing_binding,omitempty"`
-	// Proposed ValidateRequest Binding
-	ProposedBinding      *ValidateRequest_Binding `protobuf:"bytes,2,opt,name=proposed_binding,json=proposedBinding,proto3" json:"proposed_binding,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}                 `json:"-"`
-	XXX_unrecognized     []byte                   `json:"-"`
-	XXX_sizecache        int32                    `json:"-"`
+	ExistingBinding      *flow.MaterializationSpec_Binding `protobuf:"bytes,1,opt,name=existing_binding,json=existingBinding,proto3" json:"existing_binding,omitempty"`
+	ProposedBinding      *Request_Validate_Binding         `protobuf:"bytes,2,opt,name=proposed_binding,json=proposedBinding,proto3" json:"proposed_binding,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                          `json:"-"`
+	XXX_unrecognized     []byte                            `json:"-"`
+	XXX_sizecache        int32                             `json:"-"`
 }
 
 func (m *Extra_ValidateExistingProjectionRequest) Reset() {
@@ -1183,7 +1206,7 @@ func (m *Extra_ValidateExistingProjectionRequest) Reset() {
 func (m *Extra_ValidateExistingProjectionRequest) String() string { return proto.CompactTextString(m) }
 func (*Extra_ValidateExistingProjectionRequest) ProtoMessage()    {}
 func (*Extra_ValidateExistingProjectionRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{9, 0}
+	return fileDescriptor_3e8b62b327f34bc6, []int{2, 0}
 }
 func (m *Extra_ValidateExistingProjectionRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -1213,13 +1236,11 @@ func (m *Extra_ValidateExistingProjectionRequest) XXX_DiscardUnknown() {
 var xxx_messageInfo_Extra_ValidateExistingProjectionRequest proto.InternalMessageInfo
 
 type Extra_ValidateBindingAgainstConstraints struct {
-	// Materialization Binding
-	Binding *flow.MaterializationSpec_Binding `protobuf:"bytes,1,opt,name=binding,proto3" json:"binding,omitempty"`
-	// Constraints map
-	Constraints          map[string]*Constraint `protobuf:"bytes,2,rep,name=constraints,proto3" json:"constraints,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	XXX_NoUnkeyedLiteral struct{}               `json:"-"`
-	XXX_unrecognized     []byte                 `json:"-"`
-	XXX_sizecache        int32                  `json:"-"`
+	Binding              *flow.MaterializationSpec_Binding         `protobuf:"bytes,1,opt,name=binding,proto3" json:"binding,omitempty"`
+	Constraints          map[string]*Response_Validated_Constraint `protobuf:"bytes,2,rep,name=constraints,proto3" json:"constraints,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	XXX_NoUnkeyedLiteral struct{}                                  `json:"-"`
+	XXX_unrecognized     []byte                                    `json:"-"`
+	XXX_sizecache        int32                                     `json:"-"`
 }
 
 func (m *Extra_ValidateBindingAgainstConstraints) Reset() {
@@ -1228,7 +1249,7 @@ func (m *Extra_ValidateBindingAgainstConstraints) Reset() {
 func (m *Extra_ValidateBindingAgainstConstraints) String() string { return proto.CompactTextString(m) }
 func (*Extra_ValidateBindingAgainstConstraints) ProtoMessage()    {}
 func (*Extra_ValidateBindingAgainstConstraints) Descriptor() ([]byte, []int) {
-	return fileDescriptor_3e8b62b327f34bc6, []int{9, 1}
+	return fileDescriptor_3e8b62b327f34bc6, []int{2, 1}
 }
 func (m *Extra_ValidateBindingAgainstConstraints) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -1258,35 +1279,35 @@ func (m *Extra_ValidateBindingAgainstConstraints) XXX_DiscardUnknown() {
 var xxx_messageInfo_Extra_ValidateBindingAgainstConstraints proto.InternalMessageInfo
 
 func init() {
-	proto.RegisterEnum("materialize.Constraint_Type", Constraint_Type_name, Constraint_Type_value)
-	proto.RegisterType((*Constraint)(nil), "materialize.Constraint")
-	proto.RegisterType((*SpecRequest)(nil), "materialize.SpecRequest")
-	proto.RegisterType((*SpecResponse)(nil), "materialize.SpecResponse")
-	proto.RegisterType((*ValidateRequest)(nil), "materialize.ValidateRequest")
-	proto.RegisterType((*ValidateRequest_Binding)(nil), "materialize.ValidateRequest.Binding")
-	proto.RegisterMapType((map[string]encoding_json.RawMessage)(nil), "materialize.ValidateRequest.Binding.FieldConfigJsonEntry")
-	proto.RegisterType((*ValidateResponse)(nil), "materialize.ValidateResponse")
-	proto.RegisterType((*ValidateResponse_Binding)(nil), "materialize.ValidateResponse.Binding")
-	proto.RegisterMapType((map[string]*Constraint)(nil), "materialize.ValidateResponse.Binding.ConstraintsEntry")
-	proto.RegisterType((*ApplyRequest)(nil), "materialize.ApplyRequest")
-	proto.RegisterType((*ApplyResponse)(nil), "materialize.ApplyResponse")
-	proto.RegisterType((*TransactionRequest)(nil), "materialize.TransactionRequest")
-	proto.RegisterType((*TransactionRequest_Open)(nil), "materialize.TransactionRequest.Open")
-	proto.RegisterType((*TransactionRequest_Load)(nil), "materialize.TransactionRequest.Load")
-	proto.RegisterType((*TransactionRequest_Flush)(nil), "materialize.TransactionRequest.Flush")
-	proto.RegisterType((*TransactionRequest_Store)(nil), "materialize.TransactionRequest.Store")
-	proto.RegisterType((*TransactionRequest_StartCommit)(nil), "materialize.TransactionRequest.StartCommit")
-	proto.RegisterType((*TransactionRequest_Acknowledge)(nil), "materialize.TransactionRequest.Acknowledge")
-	proto.RegisterType((*TransactionResponse)(nil), "materialize.TransactionResponse")
-	proto.RegisterType((*TransactionResponse_Opened)(nil), "materialize.TransactionResponse.Opened")
-	proto.RegisterType((*TransactionResponse_Loaded)(nil), "materialize.TransactionResponse.Loaded")
-	proto.RegisterType((*TransactionResponse_Flushed)(nil), "materialize.TransactionResponse.Flushed")
-	proto.RegisterType((*TransactionResponse_StartedCommit)(nil), "materialize.TransactionResponse.StartedCommit")
-	proto.RegisterType((*TransactionResponse_Acknowledged)(nil), "materialize.TransactionResponse.Acknowledged")
+	proto.RegisterEnum("materialize.Response_Validated_Constraint_Type", Response_Validated_Constraint_Type_name, Response_Validated_Constraint_Type_value)
+	proto.RegisterType((*Request)(nil), "materialize.Request")
+	proto.RegisterType((*Request_Spec)(nil), "materialize.Request.Spec")
+	proto.RegisterType((*Request_Validate)(nil), "materialize.Request.Validate")
+	proto.RegisterType((*Request_Validate_Binding)(nil), "materialize.Request.Validate.Binding")
+	proto.RegisterMapType((map[string]encoding_json.RawMessage)(nil), "materialize.Request.Validate.Binding.FieldConfigJsonMapEntry")
+	proto.RegisterType((*Request_Apply)(nil), "materialize.Request.Apply")
+	proto.RegisterType((*Request_Open)(nil), "materialize.Request.Open")
+	proto.RegisterType((*Request_Load)(nil), "materialize.Request.Load")
+	proto.RegisterType((*Request_Flush)(nil), "materialize.Request.Flush")
+	proto.RegisterType((*Request_Store)(nil), "materialize.Request.Store")
+	proto.RegisterType((*Request_StartCommit)(nil), "materialize.Request.StartCommit")
+	proto.RegisterType((*Request_Acknowledge)(nil), "materialize.Request.Acknowledge")
+	proto.RegisterType((*Response)(nil), "materialize.Response")
+	proto.RegisterType((*Response_Spec)(nil), "materialize.Response.Spec")
+	proto.RegisterType((*Response_Validated)(nil), "materialize.Response.Validated")
+	proto.RegisterType((*Response_Validated_Constraint)(nil), "materialize.Response.Validated.Constraint")
+	proto.RegisterType((*Response_Validated_Binding)(nil), "materialize.Response.Validated.Binding")
+	proto.RegisterMapType((map[string]*Response_Validated_Constraint)(nil), "materialize.Response.Validated.Binding.ConstraintsEntry")
+	proto.RegisterType((*Response_Applied)(nil), "materialize.Response.Applied")
+	proto.RegisterType((*Response_Opened)(nil), "materialize.Response.Opened")
+	proto.RegisterType((*Response_Loaded)(nil), "materialize.Response.Loaded")
+	proto.RegisterType((*Response_Flushed)(nil), "materialize.Response.Flushed")
+	proto.RegisterType((*Response_StartedCommit)(nil), "materialize.Response.StartedCommit")
+	proto.RegisterType((*Response_Acknowledged)(nil), "materialize.Response.Acknowledged")
 	proto.RegisterType((*Extra)(nil), "materialize.Extra")
 	proto.RegisterType((*Extra_ValidateExistingProjectionRequest)(nil), "materialize.Extra.ValidateExistingProjectionRequest")
 	proto.RegisterType((*Extra_ValidateBindingAgainstConstraints)(nil), "materialize.Extra.ValidateBindingAgainstConstraints")
-	proto.RegisterMapType((map[string]*Constraint)(nil), "materialize.Extra.ValidateBindingAgainstConstraints.ConstraintsEntry")
+	proto.RegisterMapType((map[string]*Response_Validated_Constraint)(nil), "materialize.Extra.ValidateBindingAgainstConstraints.ConstraintsEntry")
 }
 
 func init() {
@@ -1294,108 +1315,113 @@ func init() {
 }
 
 var fileDescriptor_3e8b62b327f34bc6 = []byte{
-	// 1608 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xcc, 0x57, 0xcb, 0x73, 0xdb, 0x44,
-	0x18, 0xaf, 0xfc, 0x8c, 0x3f, 0xd9, 0x89, 0xb3, 0x0d, 0xad, 0x2b, 0x42, 0x92, 0x1a, 0x18, 0x32,
-	0x74, 0xea, 0x14, 0x77, 0xa6, 0x4f, 0x5e, 0x7e, 0x85, 0x09, 0x24, 0x71, 0xbb, 0x4e, 0x0a, 0xc3,
-	0xc5, 0xa3, 0x48, 0x1b, 0x47, 0xb5, 0x22, 0x09, 0xad, 0xdc, 0xd6, 0x5c, 0xb8, 0x95, 0x19, 0x0e,
-	0x1c, 0x38, 0x71, 0x61, 0xe8, 0x70, 0xe4, 0xcf, 0xe0, 0xd4, 0x1b, 0x0c, 0x7f, 0x40, 0x80, 0x72,
-	0xe4, 0xd4, 0x6b, 0x4f, 0xcc, 0xee, 0x4a, 0xb6, 0x94, 0x38, 0xb1, 0x0b, 0x53, 0x86, 0x4b, 0xc6,
-	0xbb, 0xfb, 0xfd, 0x7e, 0xda, 0xef, 0xf5, 0xdb, 0x2f, 0xf0, 0x66, 0xc7, 0x5e, 0x71, 0x5c, 0xdb,
-	0xb3, 0x35, 0xdb, 0xa4, 0x2b, 0xfb, 0xaa, 0x47, 0x5c, 0x43, 0x35, 0x8d, 0xcf, 0x49, 0xf8, 0x77,
-	0x89, 0x5b, 0x20, 0x39, 0xb4, 0xa5, 0xcc, 0x47, 0x80, 0xbb, 0xa6, 0x7d, 0x9f, 0xff, 0x11, 0xa6,
-	0xca, 0x5c, 0xc7, 0xee, 0xd8, 0xfc, 0xe7, 0x0a, 0xfb, 0x25, 0x76, 0x8b, 0xbf, 0x4b, 0x00, 0x35,
-	0xdb, 0xa2, 0x9e, 0xab, 0x1a, 0x96, 0x87, 0x2e, 0x41, 0xc2, 0xeb, 0x3b, 0xa4, 0x10, 0x5b, 0x92,
-	0x96, 0xa7, 0xcb, 0xf3, 0xa5, 0xf0, 0x17, 0x87, 0x66, 0xa5, 0xad, 0xbe, 0x43, 0x30, 0xb7, 0x44,
-	0x67, 0x20, 0xe5, 0x12, 0x95, 0xda, 0x56, 0x21, 0xbe, 0x24, 0x2d, 0x67, 0xb0, 0xbf, 0x2a, 0x7e,
-	0x29, 0x41, 0x82, 0x99, 0x21, 0x04, 0xd3, 0xab, 0x6b, 0x8d, 0xf5, 0x7a, 0x1b, 0x37, 0x6e, 0x6f,
-	0xaf, 0xe1, 0x46, 0x3d, 0x7f, 0x0a, 0xbd, 0x04, 0xb3, 0xeb, 0xcd, 0x5a, 0x65, 0x6b, 0xad, 0xb9,
-	0x39, 0xdc, 0x96, 0x50, 0x01, 0xe6, 0x42, 0xdb, 0xb5, 0xe6, 0xc6, 0x46, 0x63, 0xb3, 0xde, 0xa8,
-	0xe7, 0x63, 0x43, 0x92, 0xe6, 0x2d, 0x76, 0x5a, 0x59, 0xcf, 0xc7, 0xd1, 0x69, 0x98, 0x11, 0x7b,
-	0xab, 0x4d, 0x5c, 0x5d, 0xab, 0xd7, 0x1b, 0x9b, 0xf9, 0x04, 0x9a, 0x85, 0xdc, 0xf6, 0x66, 0xab,
-	0xb2, 0xb5, 0xd6, 0x5a, 0x5d, 0xab, 0x54, 0xd7, 0x1b, 0xf9, 0x64, 0xf1, 0x6b, 0x09, 0xe4, 0x96,
-	0x43, 0x34, 0x4c, 0x3e, 0xeb, 0x11, 0xea, 0xa1, 0xab, 0x90, 0x23, 0x96, 0xee, 0xd8, 0x86, 0xe5,
-	0xb5, 0xb9, 0xb3, 0x12, 0x77, 0x16, 0x95, 0x78, 0xb0, 0x1a, 0xfe, 0x11, 0x77, 0x31, 0x4b, 0x42,
-	0x2b, 0xb4, 0x0a, 0x68, 0x00, 0xa4, 0x0e, 0xd1, 0xda, 0x77, 0x99, 0xdb, 0x2c, 0x54, 0x99, 0xea,
-	0xfc, 0xb3, 0x83, 0xc5, 0x02, 0xb1, 0x34, 0x5b, 0x37, 0xac, 0xce, 0x0a, 0x3b, 0x28, 0x61, 0xf5,
-	0xfe, 0x06, 0xa1, 0x54, 0xed, 0x84, 0x78, 0xd8, 0x3d, 0x8a, 0xdf, 0xc6, 0x20, 0x2b, 0x2e, 0x44,
-	0x1d, 0xdb, 0xa2, 0x04, 0xb5, 0xe0, 0x5c, 0x94, 0x98, 0x6a, 0x7b, 0x64, 0x5f, 0x15, 0xfc, 0xd2,
-	0x04, 0xfc, 0x28, 0xcc, 0xdf, 0xe2, 0x60, 0x46, 0xea, 0x12, 0x6a, 0xf7, 0x5c, 0x8d, 0x1c, 0x25,
-	0x9d, 0xe4, 0xd2, 0x28, 0x80, 0x87, 0x48, 0x2f, 0xc0, 0xac, 0x6e, 0x6b, 0xbd, 0x7d, 0x62, 0x79,
-	0xaa, 0x67, 0xd8, 0x56, 0xbb, 0xe7, 0x9a, 0x7e, 0xe2, 0xf3, 0x91, 0x83, 0x6d, 0xd7, 0x44, 0x6f,
-	0x81, 0x6c, 0xab, 0x3d, 0x6f, 0xaf, 0xcc, 0xbf, 0x5f, 0x48, 0x2c, 0x49, 0xcb, 0x72, 0x39, 0x2f,
-	0xc2, 0xdc, 0xac, 0xb0, 0x03, 0x1e, 0x05, 0x10, 0x46, 0x3c, 0x34, 0xdf, 0x24, 0x61, 0xe6, 0x8e,
-	0x6a, 0x1a, 0xba, 0xea, 0x91, 0x20, 0x5f, 0x1d, 0x98, 0x19, 0x96, 0x21, 0x27, 0xf7, 0x63, 0xf2,
-	0xce, 0xb3, 0x83, 0xc5, 0xeb, 0x1d, 0xc3, 0xdb, 0xeb, 0xed, 0x94, 0x34, 0x7b, 0x7f, 0x85, 0x50,
-	0xaf, 0xa7, 0xba, 0x7d, 0x51, 0xf9, 0x47, 0x7a, 0xa1, 0xb4, 0x11, 0x25, 0xc1, 0x87, 0x59, 0x8f,
-	0x16, 0x46, 0xec, 0x5f, 0x15, 0x46, 0xfc, 0x79, 0x0b, 0x03, 0xbd, 0x0f, 0x53, 0x3b, 0x86, 0xc5,
-	0x0c, 0x69, 0x21, 0xb1, 0x14, 0x5f, 0x96, 0xcb, 0xaf, 0x45, 0x3a, 0xf0, 0x50, 0x64, 0x4a, 0x55,
-	0x61, 0x8c, 0x07, 0x28, 0xe5, 0xd7, 0x18, 0xa4, 0xfd, 0x5d, 0x76, 0xab, 0x68, 0x01, 0x4c, 0x5c,
-	0x4e, 0xd9, 0x70, 0xe6, 0xd1, 0x0d, 0x00, 0xcd, 0x36, 0x4d, 0xa2, 0xf1, 0xd0, 0xc7, 0x78, 0x16,
-	0xe7, 0x44, 0x4c, 0x6a, 0x83, 0x7d, 0x66, 0x59, 0x4d, 0x3c, 0x3e, 0x58, 0x3c, 0x85, 0x43, 0xd6,
-	0xe8, 0x0b, 0x98, 0xdd, 0x35, 0x88, 0xa9, 0xb7, 0x35, 0xdb, 0xda, 0x35, 0x3a, 0x41, 0x60, 0x98,
-	0x6b, 0xd7, 0x27, 0x71, 0xad, 0xb4, 0xca, 0xd0, 0x35, 0x0e, 0xfe, 0x90, 0xda, 0x56, 0xc3, 0xf2,
-	0xdc, 0x7e, 0x75, 0xfe, 0xab, 0xdf, 0x4e, 0xb8, 0xbd, 0xbc, 0x3b, 0xc4, 0x28, 0x55, 0x98, 0x1b,
-	0x45, 0x81, 0xf2, 0x10, 0xef, 0x92, 0xbe, 0x88, 0x06, 0x66, 0x3f, 0xd1, 0x1c, 0x24, 0xef, 0xa9,
-	0x66, 0x4f, 0x64, 0x3d, 0x83, 0xc5, 0xe2, 0x46, 0xec, 0x9a, 0x54, 0x3c, 0x88, 0x41, 0x7e, 0x78,
-	0x3f, 0xbf, 0x67, 0x2b, 0xa1, 0x5c, 0x49, 0xdc, 0xa1, 0xd7, 0x8f, 0x71, 0x48, 0x00, 0x46, 0x24,
-	0xeb, 0x61, 0x28, 0x59, 0x9f, 0x80, 0xac, 0x0d, 0xf4, 0x35, 0x60, 0xbc, 0x32, 0x11, 0x63, 0x48,
-	0x98, 0x29, 0x77, 0x0e, 0x87, 0xa9, 0xd0, 0xab, 0x90, 0x1b, 0x94, 0x81, 0xa3, 0x7a, 0x7b, 0x85,
-	0xd8, 0x52, 0x7c, 0x39, 0x33, 0xcc, 0xf1, 0x2d, 0xd5, 0xdb, 0x63, 0x46, 0x3a, 0x31, 0x3d, 0xb5,
-	0xdd, 0x73, 0xd8, 0x27, 0x28, 0x2f, 0xde, 0x29, 0x9c, 0xe5, 0x9b, 0xdb, 0x62, 0x4f, 0xf9, 0x18,
-	0xf2, 0x87, 0x3f, 0x35, 0x22, 0x8e, 0x17, 0xc3, 0x71, 0x94, 0xcb, 0x67, 0x8f, 0x79, 0x43, 0xc2,
-	0x01, 0x7e, 0x28, 0x41, 0xb6, 0xe2, 0x38, 0x66, 0x3f, 0x68, 0xf9, 0xda, 0xe8, 0x96, 0x97, 0xcb,
-	0xe7, 0x4a, 0xa3, 0x5a, 0x99, 0xcb, 0xc8, 0x91, 0x76, 0x2e, 0x40, 0xfa, 0x1e, 0x71, 0x69, 0x50,
-	0xb4, 0x19, 0x1c, 0x2c, 0xd1, 0x59, 0x48, 0xeb, 0x6e, 0xbf, 0xed, 0xf6, 0x2c, 0xdf, 0xcf, 0x94,
-	0xee, 0xf6, 0x71, 0xcf, 0x2a, 0xbe, 0x0b, 0x39, 0xff, 0x1e, 0x7e, 0x96, 0x2f, 0x02, 0x52, 0x79,
-	0x25, 0xb7, 0x75, 0x42, 0x35, 0xd7, 0x70, 0x86, 0xf2, 0x83, 0x67, 0xc5, 0x49, 0x7d, 0x78, 0x50,
-	0xfc, 0x31, 0x03, 0x68, 0xcb, 0x55, 0x2d, 0x2a, 0x8e, 0x02, 0x77, 0xae, 0x41, 0xc2, 0x76, 0x48,
-	0xe0, 0x43, 0xb4, 0xa7, 0x8f, 0x9a, 0x97, 0x9a, 0x0e, 0xb1, 0x30, 0x47, 0x30, 0xa4, 0x69, 0xab,
-	0xba, 0x1f, 0xcb, 0xb1, 0xc8, 0x75, 0x5b, 0xd5, 0x31, 0x47, 0xa0, 0x9b, 0x90, 0xdc, 0x35, 0x7b,
-	0x74, 0x8f, 0x7b, 0x78, 0xb8, 0x38, 0x47, 0x40, 0x57, 0x99, 0x31, 0x16, 0x18, 0x06, 0xa6, 0x9e,
-	0xed, 0x12, 0x5f, 0xb3, 0xc7, 0x82, 0x5b, 0xcc, 0x18, 0x0b, 0x0c, 0xda, 0x84, 0x2c, 0xf5, 0x54,
-	0xd7, 0x6b, 0x6b, 0xf6, 0xfe, 0xbe, 0xe1, 0x15, 0x92, 0x9c, 0xe3, 0xc2, 0x78, 0x0e, 0xd5, 0xf5,
-	0x6a, 0x1c, 0x82, 0x65, 0x3a, 0x5c, 0xa0, 0x0d, 0x90, 0x55, 0xad, 0x6b, 0xd9, 0xf7, 0x4d, 0xa2,
-	0x77, 0x48, 0x21, 0x35, 0x19, 0x5d, 0x65, 0x08, 0xc1, 0x61, 0xbc, 0xf2, 0x97, 0x04, 0x09, 0x16,
-	0xe1, 0x17, 0x5d, 0x64, 0x2f, 0x43, 0xa6, 0x4b, 0xfa, 0xed, 0x1d, 0xd2, 0x31, 0x44, 0x99, 0xa5,
-	0xf1, 0x54, 0x97, 0xf4, 0xab, 0x6c, 0xcd, 0x2a, 0x90, 0x1d, 0x12, 0x4b, 0xe7, 0x21, 0x4e, 0xe3,
-	0x54, 0x97, 0xf4, 0x1b, 0x96, 0x8e, 0x36, 0xe1, 0x8c, 0xee, 0x1a, 0xf7, 0x88, 0xdb, 0xd6, 0xf6,
-	0x88, 0xd6, 0x15, 0x6f, 0x0a, 0x57, 0x4d, 0x16, 0xc6, 0xec, 0x18, 0xe1, 0xce, 0x0b, 0x6c, 0x6d,
-	0x00, 0x55, 0xbe, 0x97, 0x20, 0xc1, 0xaa, 0x82, 0x5d, 0xd4, 0x17, 0x1e, 0xee, 0x65, 0x0e, 0x07,
-	0x4b, 0xb4, 0x06, 0x49, 0xd5, 0x25, 0x96, 0xca, 0x1d, 0xc8, 0x56, 0x2f, 0x3f, 0x3b, 0x58, 0x5c,
-	0x99, 0xfc, 0x55, 0xad, 0x30, 0x28, 0x16, 0x0c, 0xa8, 0x0c, 0xb2, 0xa3, 0x6a, 0x5d, 0xa2, 0xb7,
-	0xbb, 0xa4, 0x4f, 0x7d, 0xa1, 0x97, 0x45, 0x38, 0x5b, 0xa6, 0xa1, 0x91, 0xe0, 0x89, 0x10, 0x56,
-	0x1f, 0x91, 0x3e, 0x55, 0xd2, 0x90, 0xe4, 0xb5, 0xa7, 0x3c, 0x8a, 0x41, 0x92, 0x17, 0xd2, 0xff,
-	0xf6, 0xae, 0xe8, 0x0a, 0xe4, 0x7c, 0x0c, 0x17, 0xaf, 0xe0, 0x95, 0x1e, 0x81, 0xca, 0x0a, 0xbb,
-	0x3b, 0xdc, 0x0c, 0x95, 0x20, 0xa3, 0xdb, 0x1a, 0x0d, 0x12, 0x79, 0x0c, 0x66, 0x8a, 0xd9, 0xb0,
-	0x27, 0x8a, 0x0d, 0xd5, 0xe4, 0x81, 0x41, 0x3d, 0x5a, 0x48, 0x2d, 0xc5, 0x99, 0x3e, 0x89, 0x95,
-	0xf2, 0x36, 0xc8, 0xa1, 0x36, 0x61, 0xea, 0xe4, 0xf6, 0x2c, 0xcf, 0xd8, 0x27, 0xa1, 0x6a, 0xe1,
-	0x21, 0xcb, 0xe2, 0x59, 0xff, 0x24, 0x54, 0x0b, 0x39, 0x90, 0x43, 0x5d, 0x51, 0xfc, 0x39, 0x09,
-	0xa7, 0x23, 0x8d, 0xe3, 0x6b, 0xde, 0x7b, 0x90, 0x62, 0xda, 0x43, 0x74, 0xbf, 0x1d, 0xde, 0x38,
-	0xbe, 0xd5, 0xfc, 0x87, 0xa8, 0xc9, 0xcd, 0xb1, 0x0f, 0x63, 0x04, 0x4c, 0x82, 0x48, 0x20, 0x5b,
-	0xe3, 0x09, 0xd6, 0xb9, 0x39, 0xf6, 0x61, 0xa8, 0x0a, 0x69, 0xae, 0x43, 0x44, 0xf7, 0xd5, 0x6b,
-	0x79, 0x2c, 0xc3, 0xaa, 0xb0, 0xc7, 0x01, 0x10, 0x6d, 0xc3, 0x34, 0x17, 0x11, 0xa2, 0x07, 0x3a,
-	0x24, 0xb4, 0xac, 0x34, 0x96, 0xaa, 0x25, 0x60, 0xbe, 0x14, 0xe5, 0x68, 0x78, 0x89, 0x6e, 0x43,
-	0x36, 0x24, 0x26, 0xba, 0x2f, 0x6e, 0x17, 0xc7, 0x92, 0x86, 0x02, 0xaf, 0xe3, 0x08, 0x85, 0x72,
-	0x15, 0x52, 0x22, 0x80, 0xcf, 0x9b, 0xcf, 0xef, 0x24, 0x48, 0x89, 0xc8, 0xfd, 0x37, 0x1d, 0x13,
-	0xa9, 0xe2, 0xf8, 0xd8, 0x2a, 0x56, 0x32, 0x90, 0xf6, 0xd3, 0xa2, 0x6c, 0x41, 0x2e, 0x12, 0x56,
-	0x54, 0x83, 0xd9, 0x23, 0x3a, 0xe7, 0xd7, 0xdb, 0x19, 0xc1, 0x59, 0x3f, 0x24, 0x65, 0x23, 0xc4,
-	0x6d, 0x1a, 0xb2, 0xe1, 0xb8, 0x16, 0x9f, 0xc6, 0x21, 0xd9, 0x78, 0xe0, 0xb9, 0xaa, 0xf2, 0x93,
-	0x04, 0xe7, 0x83, 0x79, 0xa9, 0xc1, 0x7a, 0xc7, 0xb0, 0x3a, 0xb7, 0x5c, 0xfb, 0x2e, 0x89, 0xbc,
-	0xcb, 0xeb, 0x90, 0x27, 0xfe, 0x61, 0x3b, 0x1c, 0x3e, 0xb9, 0x7c, 0xfe, 0xd8, 0x27, 0x60, 0x30,
-	0xc7, 0xcd, 0x04, 0xd0, 0x60, 0x84, 0x6b, 0x42, 0xde, 0x71, 0x6d, 0xc7, 0xa6, 0x44, 0x1f, 0xb0,
-	0x8d, 0x7a, 0xb7, 0x8f, 0x9b, 0xe2, 0x67, 0x02, 0xb4, 0xbf, 0xa1, 0xfc, 0x10, 0x1b, 0x3a, 0xe1,
-	0xef, 0x55, 0x3a, 0xaa, 0x61, 0x51, 0x2f, 0x34, 0x86, 0xa1, 0x9b, 0xd1, 0xd4, 0x4f, 0x74, 0xf7,
-	0x41, 0x75, 0x74, 0xa2, 0x63, 0x67, 0x8c, 0x27, 0xb5, 0x11, 0xb9, 0x2e, 0x0f, 0x68, 0x69, 0xec,
-	0x3d, 0x4e, 0x9e, 0x42, 0x5f, 0xd8, 0xec, 0x58, 0x7e, 0x1a, 0x83, 0x94, 0x28, 0x15, 0x74, 0x13,
-	0x12, 0xfc, 0x1f, 0x96, 0x42, 0x04, 0x16, 0xfa, 0xd7, 0x5f, 0x39, 0x37, 0xe2, 0xc4, 0x57, 0xbd,
-	0x0f, 0x60, 0x2a, 0xf0, 0x11, 0xcd, 0x9f, 0x94, 0x2f, 0xe5, 0x95, 0x13, 0xa7, 0x72, 0x54, 0x07,
-	0x99, 0xcf, 0x90, 0xdb, 0x0e, 0x25, 0xae, 0x87, 0xa2, 0x9f, 0x0c, 0x4f, 0xb9, 0x8a, 0x32, 0xea,
-	0xe8, 0x10, 0x4b, 0x9d, 0x98, 0xc4, 0x23, 0xff, 0x94, 0x65, 0x1b, 0xb2, 0x21, 0x31, 0xa2, 0x68,
-	0x71, 0xcc, 0xd4, 0xa4, 0x2c, 0x8d, 0x13, 0xb2, 0x65, 0xe9, 0x92, 0x54, 0xad, 0x3e, 0xfe, 0x63,
-	0xe1, 0xd4, 0xe3, 0x27, 0x0b, 0xd2, 0x2f, 0x4f, 0x16, 0xa4, 0x47, 0x7f, 0x2e, 0x48, 0x9f, 0x5e,
-	0x9a, 0x48, 0x52, 0x42, 0xdc, 0x3b, 0x29, 0xbe, 0x7d, 0xf9, 0xef, 0x00, 0x00, 0x00, 0xff, 0xff,
-	0xbb, 0xe5, 0x55, 0x42, 0xee, 0x12, 0x00, 0x00,
+	// 1686 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xbc, 0x57, 0x4f, 0x6f, 0x1b, 0xc7,
+	0x15, 0xf7, 0x52, 0xfc, 0xfb, 0x48, 0x4a, 0xd4, 0x94, 0x6e, 0x36, 0x5b, 0xc7, 0x56, 0x94, 0x06,
+	0x31, 0x5c, 0x64, 0x65, 0xc8, 0x45, 0x63, 0x27, 0x70, 0x51, 0x92, 0xa2, 0x00, 0xb9, 0xfa, 0x97,
+	0x91, 0x9d, 0x00, 0xb9, 0x10, 0xe3, 0xdd, 0x11, 0xb5, 0xd6, 0x72, 0x67, 0xbb, 0x33, 0xb4, 0xc3,
+	0x5e, 0xda, 0x4b, 0x51, 0xa0, 0xb7, 0x02, 0x45, 0x2f, 0xbd, 0x14, 0xfd, 0x0e, 0xfd, 0x04, 0x45,
+	0x01, 0x1d, 0xdb, 0x2f, 0xe0, 0xa2, 0x6e, 0xbf, 0x40, 0xaf, 0x39, 0x15, 0xf3, 0x67, 0x97, 0x4b,
+	0x59, 0xa4, 0x89, 0x22, 0xf5, 0x85, 0xd8, 0x79, 0xf3, 0xfb, 0x3d, 0xbe, 0x79, 0xfb, 0xe6, 0xbd,
+	0xdf, 0xc2, 0x9d, 0x21, 0xdb, 0x8a, 0x13, 0x26, 0x98, 0xc7, 0x42, 0xbe, 0x35, 0x22, 0x82, 0x26,
+	0x01, 0x09, 0x83, 0x9f, 0xd3, 0xfc, 0xb3, 0xab, 0x10, 0xa8, 0x9e, 0x33, 0x39, 0x1b, 0x1e, 0x8b,
+	0xf8, 0x78, 0x44, 0x93, 0x8c, 0x9e, 0x3d, 0x68, 0xb8, 0x73, 0x63, 0xc6, 0xf5, 0x69, 0xc8, 0x5e,
+	0xa8, 0x1f, 0xb3, 0xdb, 0x1e, 0xb2, 0x21, 0x53, 0x8f, 0x5b, 0xf2, 0xc9, 0x58, 0xdf, 0x1d, 0x32,
+	0x36, 0x0c, 0xa9, 0xe6, 0x3d, 0x1d, 0x9f, 0x6e, 0x91, 0x68, 0xa2, 0xb7, 0x36, 0xff, 0xbe, 0x0e,
+	0x15, 0x4c, 0x7f, 0x36, 0xa6, 0x5c, 0xa0, 0x8f, 0xa1, 0xc8, 0x63, 0xea, 0xd9, 0xd6, 0x86, 0x75,
+	0xbb, 0xbe, 0xfd, 0xae, 0x9b, 0x8f, 0xd5, 0x60, 0xdc, 0x93, 0x98, 0x7a, 0x58, 0xc1, 0xd0, 0x03,
+	0xa8, 0x3e, 0x27, 0x61, 0xe0, 0x13, 0x41, 0xed, 0x82, 0xa2, 0xbc, 0x77, 0x25, 0xe5, 0x0b, 0x03,
+	0xc2, 0x19, 0x1c, 0xdd, 0x85, 0x12, 0x89, 0xe3, 0x70, 0x62, 0xaf, 0x28, 0x9e, 0x73, 0x25, 0xaf,
+	0x23, 0x11, 0x58, 0x03, 0x65, 0x6c, 0x2c, 0xa6, 0x91, 0x5d, 0x5c, 0x10, 0xdb, 0x51, 0x4c, 0x23,
+	0xac, 0x60, 0x12, 0x1e, 0x32, 0xe2, 0xdb, 0xa5, 0x05, 0xf0, 0x7d, 0x46, 0x7c, 0xac, 0x60, 0x32,
+	0x9e, 0xd3, 0x70, 0xcc, 0xcf, 0xec, 0xf2, 0x82, 0x78, 0x76, 0x25, 0x02, 0x6b, 0xa0, 0x64, 0x70,
+	0xc1, 0x12, 0x6a, 0x57, 0x16, 0x30, 0x4e, 0x24, 0x02, 0x6b, 0x20, 0xea, 0x41, 0x83, 0x0b, 0x92,
+	0x88, 0x81, 0xc7, 0x46, 0xa3, 0x40, 0xd8, 0x55, 0x45, 0xdc, 0x98, 0x43, 0x24, 0x89, 0xe8, 0x29,
+	0x1c, 0xae, 0xf3, 0xe9, 0x02, 0x75, 0xa1, 0x4e, 0xbc, 0xf3, 0x88, 0xbd, 0x08, 0xa9, 0x3f, 0xa4,
+	0x76, 0x6d, 0x81, 0x8f, 0xce, 0x14, 0x87, 0xf3, 0x24, 0x74, 0x17, 0xaa, 0x41, 0x24, 0x68, 0x12,
+	0x91, 0xd0, 0xf6, 0x95, 0x83, 0xb6, 0xab, 0x0b, 0xc4, 0x4d, 0x0b, 0xc4, 0xed, 0x44, 0x13, 0x9c,
+	0xa1, 0x9c, 0xdf, 0x5a, 0x50, 0x94, 0x2f, 0x1e, 0x1d, 0xc2, 0xaa, 0xc7, 0xa2, 0x88, 0x7a, 0x82,
+	0x25, 0x03, 0x31, 0x89, 0xa9, 0xaa, 0x95, 0xd5, 0xed, 0x8f, 0x5c, 0x55, 0x83, 0x07, 0x59, 0x18,
+	0x44, 0x04, 0x2c, 0x92, 0x14, 0xb7, 0x97, 0xe2, 0x1f, 0x4f, 0x62, 0x8a, 0x9b, 0x5e, 0x7e, 0x89,
+	0x1e, 0x40, 0xdd, 0x63, 0xd1, 0x69, 0x30, 0x1c, 0x3c, 0xe3, 0x2c, 0x52, 0x55, 0x54, 0xeb, 0xde,
+	0xf8, 0xe6, 0xe5, 0x2d, 0x9b, 0x46, 0x1e, 0xf3, 0x83, 0x68, 0xb8, 0x25, 0x37, 0x5c, 0x4c, 0x5e,
+	0x1c, 0x50, 0xce, 0xc9, 0x90, 0xe2, 0xb2, 0x26, 0x38, 0x17, 0x25, 0xa8, 0xa6, 0x95, 0x85, 0x3e,
+	0x87, 0x62, 0x44, 0x46, 0x3a, 0x9a, 0x5a, 0xf7, 0xe1, 0x37, 0x2f, 0x6f, 0x3d, 0x18, 0x06, 0xe2,
+	0x6c, 0xfc, 0xd4, 0xf5, 0xd8, 0x68, 0x8b, 0x72, 0x31, 0x26, 0xc9, 0x44, 0x5f, 0x96, 0xd7, 0xae,
+	0xcf, 0xe5, 0xa8, 0xb1, 0x72, 0x75, 0xc5, 0x51, 0x0b, 0xdf, 0xe6, 0x51, 0x57, 0x96, 0x3f, 0x2a,
+	0xea, 0x40, 0xf5, 0x69, 0x10, 0x49, 0x08, 0xb7, 0x8b, 0x1b, 0x2b, 0xb7, 0xeb, 0xdb, 0x1f, 0x2e,
+	0xbc, 0x68, 0x6e, 0x57, 0xa3, 0x71, 0x46, 0x43, 0x3f, 0x82, 0x66, 0x44, 0xc5, 0x0b, 0x96, 0x9c,
+	0x0f, 0x62, 0x96, 0x08, 0x6e, 0x97, 0x94, 0x9f, 0x75, 0x7d, 0x98, 0x43, 0xbd, 0x75, 0xcc, 0x12,
+	0x81, 0x1b, 0xd1, 0x74, 0xc1, 0x9d, 0x57, 0x05, 0xa8, 0x18, 0x6f, 0xe8, 0x11, 0xb4, 0x13, 0xca,
+	0xd9, 0x38, 0xf1, 0xe8, 0x20, 0x7f, 0x14, 0x6b, 0x89, 0xa3, 0xac, 0xa6, 0xcc, 0x9e, 0x3e, 0xd2,
+	0xa7, 0x00, 0x1e, 0x0b, 0x43, 0xea, 0xc9, 0xe4, 0x99, 0xee, 0xd1, 0xd6, 0xc1, 0xf4, 0x32, 0xbb,
+	0x4c, 0x6a, 0xb7, 0x78, 0xf1, 0xf2, 0xd6, 0x35, 0x9c, 0x43, 0xa3, 0x5f, 0x5b, 0x70, 0xfd, 0x34,
+	0xa0, 0xa1, 0x9f, 0x8f, 0x62, 0x30, 0x22, 0xb1, 0xbd, 0xa2, 0x0e, 0xf5, 0x70, 0xa9, 0xe4, 0xb8,
+	0xbb, 0xd2, 0x85, 0x0e, 0xe7, 0x11, 0x67, 0xd1, 0x01, 0x89, 0xfb, 0x91, 0x48, 0x26, 0xdd, 0x1b,
+	0xbf, 0xf9, 0xc7, 0x82, 0x83, 0xd4, 0x4f, 0xa7, 0x34, 0xa7, 0x0f, 0xef, 0xcc, 0xf1, 0x82, 0x5a,
+	0xb0, 0x72, 0x4e, 0x27, 0x3a, 0x37, 0x58, 0x3e, 0xa2, 0x36, 0x94, 0x9e, 0x93, 0x70, 0xac, 0xeb,
+	0xa8, 0x86, 0xf5, 0xe2, 0xd3, 0xc2, 0x7d, 0xcb, 0xf9, 0x05, 0x94, 0x54, 0xaf, 0x43, 0x3d, 0x58,
+	0x1b, 0xcd, 0xd6, 0x55, 0xd6, 0x8b, 0xe7, 0x15, 0x1d, 0xbe, 0xcc, 0x40, 0x36, 0x54, 0x9e, 0xd3,
+	0x84, 0xa7, 0x79, 0xad, 0xe1, 0x74, 0x89, 0xde, 0x81, 0x8a, 0x9f, 0x4c, 0x06, 0xc9, 0x58, 0x97,
+	0x5f, 0x15, 0x97, 0xfd, 0x64, 0x82, 0xc7, 0x91, 0xf3, 0x57, 0x0b, 0x8a, 0xb2, 0x79, 0xfe, 0xbf,
+	0x03, 0xf8, 0x10, 0x4a, 0x09, 0x89, 0x86, 0xd4, 0xb4, 0xfd, 0x35, 0xed, 0x14, 0x4b, 0x93, 0x72,
+	0xa5, 0x77, 0xd1, 0x27, 0x00, 0x5c, 0x10, 0x41, 0x75, 0x79, 0x15, 0x97, 0x28, 0xaf, 0x92, 0xc2,
+	0x3b, 0x02, 0x8a, 0xb2, 0xa9, 0xcb, 0x08, 0x4c, 0xe5, 0xab, 0xf0, 0x9b, 0x38, 0x5d, 0xa2, 0x7b,
+	0x50, 0x3d, 0xa7, 0x93, 0xe5, 0xbb, 0x8d, 0x7a, 0x73, 0xef, 0x01, 0x48, 0x52, 0x4c, 0xbc, 0x73,
+	0xea, 0xab, 0xd8, 0x1b, 0xb8, 0x76, 0x4e, 0x27, 0xc7, 0xca, 0xe0, 0x54, 0xa0, 0xa4, 0x46, 0x83,
+	0xf3, 0xa7, 0x02, 0x94, 0x54, 0xcb, 0x7f, 0xbb, 0x01, 0xc8, 0xd6, 0xa2, 0x8a, 0x89, 0x2f, 0x9f,
+	0xb0, 0xb2, 0x26, 0xa0, 0x0f, 0xa0, 0x69, 0xa8, 0xc6, 0x79, 0x49, 0x39, 0x6f, 0x68, 0xa3, 0xf1,
+	0x7f, 0x0f, 0xaa, 0x3e, 0xf3, 0xb4, 0xf3, 0xf2, 0x32, 0x31, 0xfb, 0xcc, 0x43, 0xdf, 0x85, 0x32,
+	0xfd, 0x3a, 0xe0, 0x82, 0xab, 0x09, 0x59, 0xc5, 0x66, 0xe5, 0x60, 0xa8, 0xe7, 0xa6, 0x1b, 0xea,
+	0x01, 0x4a, 0xc6, 0x91, 0x08, 0x46, 0x74, 0xe0, 0x9d, 0x51, 0xef, 0x3c, 0x66, 0x41, 0x24, 0x4c,
+	0xd1, 0xb5, 0xdd, 0x54, 0x0d, 0xb9, 0xbd, 0x6c, 0x0f, 0xaf, 0x1b, 0xfc, 0xd4, 0xe4, 0x34, 0xa1,
+	0x9e, 0x9b, 0x76, 0x9b, 0xff, 0x6e, 0x42, 0x15, 0x53, 0x1e, 0xb3, 0x88, 0x53, 0xe4, 0xce, 0x88,
+	0x9a, 0xcb, 0x73, 0x5a, 0x83, 0xf2, 0xaa, 0xe6, 0x21, 0xd4, 0x52, 0x99, 0xe2, 0x9b, 0xc6, 0x74,
+	0xeb, 0x6a, 0x52, 0xda, 0x51, 0x7c, 0x3c, 0x65, 0xa0, 0x4f, 0xa0, 0x22, 0x05, 0x4b, 0x60, 0xde,
+	0xd3, 0xeb, 0x9a, 0xc8, 0x90, 0x3b, 0x1a, 0x84, 0x53, 0x34, 0xfa, 0x21, 0x94, 0xa5, 0x72, 0xa1,
+	0xbe, 0x91, 0x38, 0x37, 0xae, 0xe6, 0x1d, 0x29, 0x0c, 0x36, 0x58, 0xc9, 0x92, 0x02, 0x86, 0xa6,
+	0x4a, 0x67, 0x0e, 0x6b, 0x5f, 0x61, 0xb0, 0xc1, 0xca, 0x20, 0x95, 0x8a, 0xa1, 0xbe, 0x11, 0x3c,
+	0x73, 0x82, 0xdc, 0xd5, 0x20, 0x9c, 0xa2, 0xd1, 0x23, 0x58, 0x55, 0x6a, 0x84, 0xfa, 0xa9, 0x8a,
+	0xd1, 0xf2, 0xe7, 0x83, 0x39, 0x69, 0xd5, 0x58, 0x23, 0x64, 0x9a, 0x3c, 0xbf, 0x44, 0xbb, 0xd0,
+	0xc8, 0xa9, 0x12, 0xdf, 0xe8, 0xa1, 0xcd, 0x39, 0xe9, 0xca, 0x21, 0xf1, 0x0c, 0xef, 0x7f, 0x90,
+	0x33, 0xbf, 0x2f, 0x18, 0x39, 0xe3, 0x40, 0x35, 0xd5, 0x02, 0xe6, 0x9e, 0x66, 0x6b, 0xb4, 0x0b,
+	0xc8, 0x8c, 0x17, 0xee, 0x9d, 0xd1, 0x11, 0x59, 0xfe, 0xca, 0x36, 0x34, 0xef, 0x44, 0xd1, 0xd0,
+	0x97, 0xf0, 0xbd, 0xcb, 0x53, 0x33, 0xef, 0x70, 0x19, 0x1d, 0xd0, 0x9e, 0x1d, 0x9e, 0xc6, 0xf1,
+	0x0f, 0x60, 0xdd, 0x67, 0xde, 0x78, 0x44, 0x23, 0xa1, 0xfa, 0xee, 0x60, 0x9c, 0x84, 0xfa, 0xee,
+	0xe3, 0xd6, 0xcc, 0xc6, 0x93, 0x24, 0x44, 0xdf, 0x87, 0x32, 0x23, 0x63, 0x71, 0xb6, 0x6d, 0xea,
+	0xa4, 0xa1, 0x5b, 0xef, 0x51, 0x47, 0xda, 0xb0, 0xd9, 0x73, 0xfe, 0x53, 0x84, 0x5a, 0x56, 0xd5,
+	0xa8, 0x97, 0x93, 0x1d, 0x96, 0x9a, 0xac, 0x1f, 0xbd, 0xe1, 0x22, 0xbc, 0x2e, 0x3c, 0x9c, 0x5f,
+	0x16, 0x00, 0x7a, 0x2c, 0xe2, 0x22, 0x21, 0x41, 0x24, 0xaf, 0x7b, 0x31, 0xa7, 0xa5, 0xb6, 0xde,
+	0xe4, 0x6f, 0xca, 0x74, 0x95, 0xa6, 0x52, 0x64, 0xd9, 0x5a, 0x12, 0x4a, 0xb2, 0xec, 0x61, 0xb3,
+	0xda, 0xfc, 0x9d, 0x05, 0x45, 0xa5, 0xb5, 0xea, 0x50, 0xd9, 0x3b, 0xfc, 0xa2, 0xb3, 0xbf, 0xb7,
+	0xd3, 0xba, 0x86, 0x10, 0xac, 0xee, 0xee, 0xf5, 0xf7, 0x77, 0x06, 0xb8, 0xff, 0xf9, 0x93, 0x3d,
+	0xdc, 0xdf, 0x69, 0x59, 0xe8, 0x3a, 0xac, 0xef, 0x1f, 0xf5, 0x3a, 0x8f, 0xf7, 0x8e, 0x0e, 0xa7,
+	0xe6, 0x02, 0xb2, 0xa1, 0x9d, 0x33, 0xf7, 0x8e, 0x0e, 0x0e, 0xfa, 0x87, 0x3b, 0xfd, 0x9d, 0xd6,
+	0xca, 0xd4, 0xc9, 0xd1, 0xb1, 0xdc, 0xed, 0xec, 0xb7, 0x8a, 0xe8, 0x3b, 0xb0, 0xa6, 0x6d, 0xbb,
+	0x47, 0xb8, 0xbb, 0xb7, 0xb3, 0xd3, 0x3f, 0x6c, 0x95, 0xd0, 0x3a, 0x34, 0x9f, 0x1c, 0x9e, 0x74,
+	0x1e, 0xef, 0x9d, 0xec, 0xee, 0x75, 0xba, 0xfb, 0xfd, 0x56, 0xd9, 0xf9, 0x43, 0x4e, 0x43, 0x7d,
+	0xa5, 0x54, 0xa0, 0x39, 0x53, 0x9a, 0xd6, 0xfb, 0x4b, 0xa6, 0x35, 0x97, 0x0e, 0xae, 0x54, 0x06,
+	0xce, 0x3b, 0x93, 0xbd, 0x3c, 0xab, 0xb4, 0x98, 0x88, 0x33, 0xbb, 0xb0, 0xb1, 0x72, 0xbb, 0x86,
+	0x1b, 0xa9, 0xf1, 0x98, 0x88, 0x33, 0x09, 0xf2, 0x69, 0x28, 0xc8, 0x60, 0x1c, 0x4b, 0xdf, 0xdc,
+	0x28, 0x81, 0x86, 0x32, 0x3e, 0xd1, 0x36, 0xe7, 0x19, 0xb4, 0x2e, 0xff, 0xd5, 0x15, 0x82, 0xe6,
+	0x27, 0x79, 0x41, 0x53, 0xdf, 0xbe, 0xb3, 0xfc, 0xcb, 0xcc, 0x8b, 0x9f, 0xfb, 0x50, 0x31, 0xbd,
+	0x10, 0x7d, 0x0c, 0x88, 0x28, 0x89, 0x37, 0xf0, 0x29, 0xf7, 0x92, 0x20, 0xce, 0x04, 0x48, 0x0d,
+	0xaf, 0xeb, 0x9d, 0x9d, 0xe9, 0x86, 0x73, 0x00, 0x65, 0xdd, 0x0d, 0xbf, 0x9d, 0x21, 0xf2, 0x25,
+	0x94, 0x75, 0x9b, 0x5c, 0x3c, 0xbd, 0xb3, 0x49, 0x58, 0x58, 0x72, 0x12, 0x3a, 0x35, 0xa8, 0x98,
+	0x46, 0xea, 0x7c, 0x06, 0xcd, 0x99, 0x9e, 0x88, 0xee, 0x80, 0x96, 0x2e, 0x59, 0xb0, 0x46, 0x02,
+	0x9b, 0x2f, 0x87, 0x13, 0xb9, 0x97, 0xaa, 0x9b, 0x55, 0x68, 0xe4, 0xdb, 0xe0, 0xe6, 0xaf, 0x8a,
+	0x50, 0xea, 0x7f, 0x2d, 0x12, 0xe2, 0xfc, 0xc5, 0x82, 0xf7, 0xd3, 0x3c, 0xf7, 0xe5, 0x98, 0x0d,
+	0xa2, 0xe1, 0x71, 0xc2, 0x9e, 0x69, 0xc1, 0x9c, 0x7e, 0xde, 0xef, 0x43, 0x8b, 0x9a, 0xcd, 0x41,
+	0xfe, 0x7c, 0xf5, 0xed, 0xf7, 0xe7, 0x7f, 0xd3, 0xa4, 0x37, 0x7a, 0x2d, 0xa5, 0xa6, 0x95, 0x7c,
+	0x0c, 0xad, 0x38, 0x61, 0x31, 0xe3, 0xd4, 0xcf, 0xbc, 0xe9, 0x42, 0x58, 0xf2, 0xe3, 0x64, 0x2d,
+	0xa5, 0x1b, 0x83, 0xf3, 0xe7, 0xc2, 0xf4, 0x14, 0xc6, 0xd6, 0x19, 0x92, 0x20, 0xe2, 0x22, 0x57,
+	0x8c, 0xe8, 0xb3, 0xd9, 0x97, 0xb3, 0x54, 0xf0, 0xd9, 0xfb, 0x1b, 0xce, 0x5e, 0xbf, 0x82, 0xba,
+	0x7e, 0xfd, 0x99, 0x78, 0x55, 0x46, 0xdd, 0x37, 0xc6, 0xb1, 0xf8, 0x2e, 0xbe, 0xcd, 0x1b, 0xb4,
+	0xfd, 0x53, 0xa8, 0x65, 0x05, 0x83, 0x7e, 0x0c, 0xf5, 0x69, 0x26, 0x28, 0x6a, 0x5f, 0xf5, 0x2e,
+	0x9c, 0xeb, 0x57, 0xfe, 0xd1, 0x6d, 0xeb, 0xae, 0xd5, 0xed, 0x5e, 0xfc, 0xf3, 0xe6, 0xb5, 0x8b,
+	0x57, 0x37, 0xad, 0xbf, 0xbd, 0xba, 0x69, 0xfd, 0xf1, 0x5f, 0x37, 0xad, 0xaf, 0xee, 0x2e, 0xf5,
+	0x25, 0x9d, 0x73, 0xf8, 0xb4, 0xac, 0xcc, 0xf7, 0xfe, 0x1b, 0x00, 0x00, 0xff, 0xff, 0x21, 0x3e,
+	0xf0, 0x87, 0x06, 0x13, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -1406,264 +1432,103 @@ var _ grpc.ClientConn
 // is compatible with the grpc package it is being compiled against.
 const _ = grpc.SupportPackageIsVersion4
 
-// DriverClient is the client API for Driver service.
+// ConnectorClient is the client API for Connector service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
-type DriverClient interface {
-	// Spec returns the specification definition of this driver.
-	// Notably this includes its endpoint and resource configuration JSON schema.
-	Spec(ctx context.Context, in *SpecRequest, opts ...grpc.CallOption) (*SpecResponse, error)
-	// Validate that store resources and proposed collection bindings are
-	// compatible, and return constraints over the projections of each binding.
-	Validate(ctx context.Context, in *ValidateRequest, opts ...grpc.CallOption) (*ValidateResponse, error)
-	// ApplyUpsert applies a new or updated materialization to the store.
-	ApplyUpsert(ctx context.Context, in *ApplyRequest, opts ...grpc.CallOption) (*ApplyResponse, error)
-	// ApplyDelete deletes an existing materialization from the store.
-	ApplyDelete(ctx context.Context, in *ApplyRequest, opts ...grpc.CallOption) (*ApplyResponse, error)
-	// Transactions is a very long lived RPC through which the Flow runtime and a
-	// Driver cooperatively execute an unbounded number of transactions.
-	Transactions(ctx context.Context, opts ...grpc.CallOption) (Driver_TransactionsClient, error)
+type ConnectorClient interface {
+	Materialize(ctx context.Context, opts ...grpc.CallOption) (Connector_MaterializeClient, error)
 }
 
-type driverClient struct {
+type connectorClient struct {
 	cc *grpc.ClientConn
 }
 
-func NewDriverClient(cc *grpc.ClientConn) DriverClient {
-	return &driverClient{cc}
+func NewConnectorClient(cc *grpc.ClientConn) ConnectorClient {
+	return &connectorClient{cc}
 }
 
-func (c *driverClient) Spec(ctx context.Context, in *SpecRequest, opts ...grpc.CallOption) (*SpecResponse, error) {
-	out := new(SpecResponse)
-	err := c.cc.Invoke(ctx, "/materialize.Driver/Spec", in, out, opts...)
+func (c *connectorClient) Materialize(ctx context.Context, opts ...grpc.CallOption) (Connector_MaterializeClient, error) {
+	stream, err := c.cc.NewStream(ctx, &_Connector_serviceDesc.Streams[0], "/materialize.Connector/Materialize", opts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
-}
-
-func (c *driverClient) Validate(ctx context.Context, in *ValidateRequest, opts ...grpc.CallOption) (*ValidateResponse, error) {
-	out := new(ValidateResponse)
-	err := c.cc.Invoke(ctx, "/materialize.Driver/Validate", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *driverClient) ApplyUpsert(ctx context.Context, in *ApplyRequest, opts ...grpc.CallOption) (*ApplyResponse, error) {
-	out := new(ApplyResponse)
-	err := c.cc.Invoke(ctx, "/materialize.Driver/ApplyUpsert", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *driverClient) ApplyDelete(ctx context.Context, in *ApplyRequest, opts ...grpc.CallOption) (*ApplyResponse, error) {
-	out := new(ApplyResponse)
-	err := c.cc.Invoke(ctx, "/materialize.Driver/ApplyDelete", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *driverClient) Transactions(ctx context.Context, opts ...grpc.CallOption) (Driver_TransactionsClient, error) {
-	stream, err := c.cc.NewStream(ctx, &_Driver_serviceDesc.Streams[0], "/materialize.Driver/Transactions", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &driverTransactionsClient{stream}
+	x := &connectorMaterializeClient{stream}
 	return x, nil
 }
 
-type Driver_TransactionsClient interface {
-	Send(*TransactionRequest) error
-	Recv() (*TransactionResponse, error)
+type Connector_MaterializeClient interface {
+	Send(*Request) error
+	Recv() (*Response, error)
 	grpc.ClientStream
 }
 
-type driverTransactionsClient struct {
+type connectorMaterializeClient struct {
 	grpc.ClientStream
 }
 
-func (x *driverTransactionsClient) Send(m *TransactionRequest) error {
+func (x *connectorMaterializeClient) Send(m *Request) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *driverTransactionsClient) Recv() (*TransactionResponse, error) {
-	m := new(TransactionResponse)
+func (x *connectorMaterializeClient) Recv() (*Response, error) {
+	m := new(Response)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
-// DriverServer is the server API for Driver service.
-type DriverServer interface {
-	// Spec returns the specification definition of this driver.
-	// Notably this includes its endpoint and resource configuration JSON schema.
-	Spec(context.Context, *SpecRequest) (*SpecResponse, error)
-	// Validate that store resources and proposed collection bindings are
-	// compatible, and return constraints over the projections of each binding.
-	Validate(context.Context, *ValidateRequest) (*ValidateResponse, error)
-	// ApplyUpsert applies a new or updated materialization to the store.
-	ApplyUpsert(context.Context, *ApplyRequest) (*ApplyResponse, error)
-	// ApplyDelete deletes an existing materialization from the store.
-	ApplyDelete(context.Context, *ApplyRequest) (*ApplyResponse, error)
-	// Transactions is a very long lived RPC through which the Flow runtime and a
-	// Driver cooperatively execute an unbounded number of transactions.
-	Transactions(Driver_TransactionsServer) error
+// ConnectorServer is the server API for Connector service.
+type ConnectorServer interface {
+	Materialize(Connector_MaterializeServer) error
 }
 
-// UnimplementedDriverServer can be embedded to have forward compatible implementations.
-type UnimplementedDriverServer struct {
+// UnimplementedConnectorServer can be embedded to have forward compatible implementations.
+type UnimplementedConnectorServer struct {
 }
 
-func (*UnimplementedDriverServer) Spec(ctx context.Context, req *SpecRequest) (*SpecResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Spec not implemented")
-}
-func (*UnimplementedDriverServer) Validate(ctx context.Context, req *ValidateRequest) (*ValidateResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Validate not implemented")
-}
-func (*UnimplementedDriverServer) ApplyUpsert(ctx context.Context, req *ApplyRequest) (*ApplyResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ApplyUpsert not implemented")
-}
-func (*UnimplementedDriverServer) ApplyDelete(ctx context.Context, req *ApplyRequest) (*ApplyResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ApplyDelete not implemented")
-}
-func (*UnimplementedDriverServer) Transactions(srv Driver_TransactionsServer) error {
-	return status.Errorf(codes.Unimplemented, "method Transactions not implemented")
+func (*UnimplementedConnectorServer) Materialize(srv Connector_MaterializeServer) error {
+	return status.Errorf(codes.Unimplemented, "method Materialize not implemented")
 }
 
-func RegisterDriverServer(s *grpc.Server, srv DriverServer) {
-	s.RegisterService(&_Driver_serviceDesc, srv)
+func RegisterConnectorServer(s *grpc.Server, srv ConnectorServer) {
+	s.RegisterService(&_Connector_serviceDesc, srv)
 }
 
-func _Driver_Spec_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SpecRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DriverServer).Spec(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/materialize.Driver/Spec",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DriverServer).Spec(ctx, req.(*SpecRequest))
-	}
-	return interceptor(ctx, in, info, handler)
+func _Connector_Materialize_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ConnectorServer).Materialize(&connectorMaterializeServer{stream})
 }
 
-func _Driver_Validate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ValidateRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DriverServer).Validate(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/materialize.Driver/Validate",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DriverServer).Validate(ctx, req.(*ValidateRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Driver_ApplyUpsert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ApplyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DriverServer).ApplyUpsert(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/materialize.Driver/ApplyUpsert",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DriverServer).ApplyUpsert(ctx, req.(*ApplyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Driver_ApplyDelete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ApplyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DriverServer).ApplyDelete(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/materialize.Driver/ApplyDelete",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DriverServer).ApplyDelete(ctx, req.(*ApplyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Driver_Transactions_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(DriverServer).Transactions(&driverTransactionsServer{stream})
-}
-
-type Driver_TransactionsServer interface {
-	Send(*TransactionResponse) error
-	Recv() (*TransactionRequest, error)
+type Connector_MaterializeServer interface {
+	Send(*Response) error
+	Recv() (*Request, error)
 	grpc.ServerStream
 }
 
-type driverTransactionsServer struct {
+type connectorMaterializeServer struct {
 	grpc.ServerStream
 }
 
-func (x *driverTransactionsServer) Send(m *TransactionResponse) error {
+func (x *connectorMaterializeServer) Send(m *Response) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *driverTransactionsServer) Recv() (*TransactionRequest, error) {
-	m := new(TransactionRequest)
+func (x *connectorMaterializeServer) Recv() (*Request, error) {
+	m := new(Request)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
-var _Driver_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "materialize.Driver",
-	HandlerType: (*DriverServer)(nil),
-	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "Spec",
-			Handler:    _Driver_Spec_Handler,
-		},
-		{
-			MethodName: "Validate",
-			Handler:    _Driver_Validate_Handler,
-		},
-		{
-			MethodName: "ApplyUpsert",
-			Handler:    _Driver_ApplyUpsert_Handler,
-		},
-		{
-			MethodName: "ApplyDelete",
-			Handler:    _Driver_ApplyDelete_Handler,
-		},
-	},
+var _Connector_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "materialize.Connector",
+	HandlerType: (*ConnectorServer)(nil),
+	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "Transactions",
-			Handler:       _Driver_Transactions_Handler,
+			StreamName:    "Materialize",
+			Handler:       _Connector_Materialize_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},
@@ -1671,7 +1536,7 @@ var _Driver_serviceDesc = grpc.ServiceDesc{
 	Metadata: "go/protocols/materialize/materialize.proto",
 }
 
-func (m *Constraint) Marshal() (dAtA []byte, err error) {
+func (m *Request) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1681,12 +1546,12 @@ func (m *Constraint) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *Constraint) MarshalTo(dAtA []byte) (int, error) {
+func (m *Request) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *Constraint) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Request) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -1695,87 +1560,83 @@ func (m *Constraint) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	if len(m.Reason) > 0 {
-		i -= len(m.Reason)
-		copy(dAtA[i:], m.Reason)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Reason)))
-		i--
-		dAtA[i] = 0x1a
-	}
-	if m.Type != 0 {
-		i = encodeVarintMaterialize(dAtA, i, uint64(m.Type))
-		i--
-		dAtA[i] = 0x10
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *SpecRequest) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *SpecRequest) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *SpecRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if len(m.EndpointSpecJson) > 0 {
-		i -= len(m.EndpointSpecJson)
-		copy(dAtA[i:], m.EndpointSpecJson)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.EndpointSpecJson)))
-		i--
-		dAtA[i] = 0x12
-	}
-	if m.EndpointType != 0 {
-		i = encodeVarintMaterialize(dAtA, i, uint64(m.EndpointType))
-		i--
-		dAtA[i] = 0x8
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *SpecResponse) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *SpecResponse) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *SpecResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if m.Oauth2Spec != nil {
+	if m.Internal != nil {
 		{
-			size, err := m.Oauth2Spec.MarshalToSizedBuffer(dAtA[:i])
+			size, err := m.Internal.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x6
+		i--
+		dAtA[i] = 0xa2
+	}
+	if m.Acknowledge != nil {
+		{
+			size, err := m.Acknowledge.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x4a
+	}
+	if m.StartCommit != nil {
+		{
+			size, err := m.StartCommit.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x42
+	}
+	if m.Store != nil {
+		{
+			size, err := m.Store.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x3a
+	}
+	if m.Flush != nil {
+		{
+			size, err := m.Flush.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x32
+	}
+	if m.Load != nil {
+		{
+			size, err := m.Load.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x2a
+	}
+	if m.Open != nil {
+		{
+			size, err := m.Open.MarshalToSizedBuffer(dAtA[:i])
 			if err != nil {
 				return 0, err
 			}
@@ -1785,31 +1646,46 @@ func (m *SpecResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x22
 	}
-	if len(m.DocumentationUrl) > 0 {
-		i -= len(m.DocumentationUrl)
-		copy(dAtA[i:], m.DocumentationUrl)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.DocumentationUrl)))
+	if m.Apply != nil {
+		{
+			size, err := m.Apply.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
 		i--
 		dAtA[i] = 0x1a
 	}
-	if len(m.ResourceSpecSchemaJson) > 0 {
-		i -= len(m.ResourceSpecSchemaJson)
-		copy(dAtA[i:], m.ResourceSpecSchemaJson)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.ResourceSpecSchemaJson)))
+	if m.Validate != nil {
+		{
+			size, err := m.Validate.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
 		i--
 		dAtA[i] = 0x12
 	}
-	if len(m.EndpointSpecSchemaJson) > 0 {
-		i -= len(m.EndpointSpecSchemaJson)
-		copy(dAtA[i:], m.EndpointSpecSchemaJson)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.EndpointSpecSchemaJson)))
+	if m.Spec != nil {
+		{
+			size, err := m.Spec.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
 		i--
 		dAtA[i] = 0xa
 	}
 	return len(dAtA) - i, nil
 }
 
-func (m *ValidateRequest) Marshal() (dAtA []byte, err error) {
+func (m *Request_Spec) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1819,12 +1695,12 @@ func (m *ValidateRequest) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *ValidateRequest) MarshalTo(dAtA []byte) (int, error) {
+func (m *Request_Spec) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *ValidateRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Request_Spec) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -1832,6 +1708,59 @@ func (m *ValidateRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	if m.XXX_unrecognized != nil {
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.ConfigJson) > 0 {
+		i -= len(m.ConfigJson)
+		copy(dAtA[i:], m.ConfigJson)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.ConfigJson)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.ConnectorType != 0 {
+		i = encodeVarintMaterialize(dAtA, i, uint64(m.ConnectorType))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Request_Validate) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Request_Validate) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Request_Validate) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.NetworkPorts) > 0 {
+		for iNdEx := len(m.NetworkPorts) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.NetworkPorts[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintMaterialize(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x2a
+		}
 	}
 	if len(m.Bindings) > 0 {
 		for iNdEx := len(m.Bindings) - 1; iNdEx >= 0; iNdEx-- {
@@ -1847,29 +1776,29 @@ func (m *ValidateRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			dAtA[i] = 0x22
 		}
 	}
-	if len(m.EndpointSpecJson) > 0 {
-		i -= len(m.EndpointSpecJson)
-		copy(dAtA[i:], m.EndpointSpecJson)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.EndpointSpecJson)))
+	if len(m.ConfigJson) > 0 {
+		i -= len(m.ConfigJson)
+		copy(dAtA[i:], m.ConfigJson)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.ConfigJson)))
 		i--
 		dAtA[i] = 0x1a
 	}
-	if m.EndpointType != 0 {
-		i = encodeVarintMaterialize(dAtA, i, uint64(m.EndpointType))
+	if m.ConnectorType != 0 {
+		i = encodeVarintMaterialize(dAtA, i, uint64(m.ConnectorType))
 		i--
 		dAtA[i] = 0x10
 	}
-	if len(m.Materialization) > 0 {
-		i -= len(m.Materialization)
-		copy(dAtA[i:], m.Materialization)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Materialization)))
+	if len(m.Name) > 0 {
+		i -= len(m.Name)
+		copy(dAtA[i:], m.Name)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Name)))
 		i--
 		dAtA[i] = 0xa
 	}
 	return len(dAtA) - i, nil
 }
 
-func (m *ValidateRequest_Binding) Marshal() (dAtA []byte, err error) {
+func (m *Request_Validate_Binding) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1879,12 +1808,12 @@ func (m *ValidateRequest_Binding) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *ValidateRequest_Binding) MarshalTo(dAtA []byte) (int, error) {
+func (m *Request_Validate_Binding) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *ValidateRequest_Binding) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Request_Validate_Binding) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -1893,9 +1822,9 @@ func (m *ValidateRequest_Binding) MarshalToSizedBuffer(dAtA []byte) (int, error)
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	if len(m.FieldConfigJson) > 0 {
-		for k := range m.FieldConfigJson {
-			v := m.FieldConfigJson[k]
+	if len(m.FieldConfigJsonMap) > 0 {
+		for k := range m.FieldConfigJsonMap {
+			v := m.FieldConfigJsonMap[k]
 			baseI := i
 			i -= len(v)
 			copy(dAtA[i:], v)
@@ -1922,17 +1851,17 @@ func (m *ValidateRequest_Binding) MarshalToSizedBuffer(dAtA []byte) (int, error)
 	}
 	i--
 	dAtA[i] = 0x12
-	if len(m.ResourceSpecJson) > 0 {
-		i -= len(m.ResourceSpecJson)
-		copy(dAtA[i:], m.ResourceSpecJson)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.ResourceSpecJson)))
+	if len(m.ResourceConfigJson) > 0 {
+		i -= len(m.ResourceConfigJson)
+		copy(dAtA[i:], m.ResourceConfigJson)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.ResourceConfigJson)))
 		i--
 		dAtA[i] = 0xa
 	}
 	return len(dAtA) - i, nil
 }
 
-func (m *ValidateResponse) Marshal() (dAtA []byte, err error) {
+func (m *Request_Apply) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1942,12 +1871,551 @@ func (m *ValidateResponse) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *ValidateResponse) MarshalTo(dAtA []byte) (int, error) {
+func (m *Request_Apply) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *ValidateResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Request_Apply) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.DryRun {
+		i--
+		if m.DryRun {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x18
+	}
+	if len(m.Version) > 0 {
+		i -= len(m.Version)
+		copy(dAtA[i:], m.Version)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Version)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Materialization != nil {
+		{
+			size, err := m.Materialization.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Request_Open) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Request_Open) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Request_Open) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.StateJson) > 0 {
+		i -= len(m.StateJson)
+		copy(dAtA[i:], m.StateJson)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.StateJson)))
+		i--
+		dAtA[i] = 0x22
+	}
+	if m.Range != nil {
+		{
+			size, err := m.Range.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x1a
+	}
+	if len(m.Version) > 0 {
+		i -= len(m.Version)
+		copy(dAtA[i:], m.Version)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Version)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Materialization != nil {
+		{
+			size, err := m.Materialization.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Request_Load) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Request_Load) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Request_Load) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.KeyPacked) > 0 {
+		i -= len(m.KeyPacked)
+		copy(dAtA[i:], m.KeyPacked)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.KeyPacked)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if len(m.KeyJson) > 0 {
+		i -= len(m.KeyJson)
+		copy(dAtA[i:], m.KeyJson)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.KeyJson)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Binding != 0 {
+		i = encodeVarintMaterialize(dAtA, i, uint64(m.Binding))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Request_Flush) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Request_Flush) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Request_Flush) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Request_Store) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Request_Store) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Request_Store) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Exists {
+		i--
+		if m.Exists {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x38
+	}
+	if len(m.DocJson) > 0 {
+		i -= len(m.DocJson)
+		copy(dAtA[i:], m.DocJson)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.DocJson)))
+		i--
+		dAtA[i] = 0x32
+	}
+	if len(m.ValuesPacked) > 0 {
+		i -= len(m.ValuesPacked)
+		copy(dAtA[i:], m.ValuesPacked)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.ValuesPacked)))
+		i--
+		dAtA[i] = 0x2a
+	}
+	if len(m.ValuesJson) > 0 {
+		i -= len(m.ValuesJson)
+		copy(dAtA[i:], m.ValuesJson)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.ValuesJson)))
+		i--
+		dAtA[i] = 0x22
+	}
+	if len(m.KeyPacked) > 0 {
+		i -= len(m.KeyPacked)
+		copy(dAtA[i:], m.KeyPacked)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.KeyPacked)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if len(m.KeyJson) > 0 {
+		i -= len(m.KeyJson)
+		copy(dAtA[i:], m.KeyJson)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.KeyJson)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Binding != 0 {
+		i = encodeVarintMaterialize(dAtA, i, uint64(m.Binding))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Request_StartCommit) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Request_StartCommit) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Request_StartCommit) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.RuntimeCheckpoint != nil {
+		{
+			size, err := m.RuntimeCheckpoint.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Request_Acknowledge) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Request_Acknowledge) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Request_Acknowledge) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Response) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Response) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Response) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Internal != nil {
+		{
+			size, err := m.Internal.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x6
+		i--
+		dAtA[i] = 0xa2
+	}
+	if m.Acknowledged != nil {
+		{
+			size, err := m.Acknowledged.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x42
+	}
+	if m.StartedCommit != nil {
+		{
+			size, err := m.StartedCommit.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x3a
+	}
+	if m.Flushed != nil {
+		{
+			size, err := m.Flushed.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x32
+	}
+	if m.Loaded != nil {
+		{
+			size, err := m.Loaded.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x2a
+	}
+	if m.Opened != nil {
+		{
+			size, err := m.Opened.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x22
+	}
+	if m.Applied != nil {
+		{
+			size, err := m.Applied.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x1a
+	}
+	if m.Validated != nil {
+		{
+			size, err := m.Validated.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Spec != nil {
+		{
+			size, err := m.Spec.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Response_Spec) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Response_Spec) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Response_Spec) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.Oauth2 != nil {
+		{
+			size, err := m.Oauth2.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintMaterialize(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x2a
+	}
+	if len(m.DocumentationUrl) > 0 {
+		i -= len(m.DocumentationUrl)
+		copy(dAtA[i:], m.DocumentationUrl)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.DocumentationUrl)))
+		i--
+		dAtA[i] = 0x22
+	}
+	if len(m.ResourceConfigSchemaJson) > 0 {
+		i -= len(m.ResourceConfigSchemaJson)
+		copy(dAtA[i:], m.ResourceConfigSchemaJson)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.ResourceConfigSchemaJson)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if len(m.ConfigSchemaJson) > 0 {
+		i -= len(m.ConfigSchemaJson)
+		copy(dAtA[i:], m.ConfigSchemaJson)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.ConfigSchemaJson)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.Protocol != 0 {
+		i = encodeVarintMaterialize(dAtA, i, uint64(m.Protocol))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Response_Validated) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Response_Validated) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Response_Validated) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -1973,7 +2441,7 @@ func (m *ValidateResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *ValidateResponse_Binding) Marshal() (dAtA []byte, err error) {
+func (m *Response_Validated_Constraint) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -1983,12 +2451,51 @@ func (m *ValidateResponse_Binding) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *ValidateResponse_Binding) MarshalTo(dAtA []byte) (int, error) {
+func (m *Response_Validated_Constraint) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *ValidateResponse_Binding) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Response_Validated_Constraint) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if len(m.Reason) > 0 {
+		i -= len(m.Reason)
+		copy(dAtA[i:], m.Reason)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Reason)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if m.Type != 0 {
+		i = encodeVarintMaterialize(dAtA, i, uint64(m.Type))
+		i--
+		dAtA[i] = 0x10
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *Response_Validated_Binding) Marshal() (dAtA []byte, err error) {
+	size := m.ProtoSize()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *Response_Validated_Binding) MarshalTo(dAtA []byte) (int, error) {
+	size := m.ProtoSize()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *Response_Validated_Binding) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -2045,7 +2552,7 @@ func (m *ValidateResponse_Binding) MarshalToSizedBuffer(dAtA []byte) (int, error
 	return len(dAtA) - i, nil
 }
 
-func (m *ApplyRequest) Marshal() (dAtA []byte, err error) {
+func (m *Response_Applied) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -2055,68 +2562,12 @@ func (m *ApplyRequest) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *ApplyRequest) MarshalTo(dAtA []byte) (int, error) {
+func (m *Response_Applied) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *ApplyRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if m.DryRun {
-		i--
-		if m.DryRun {
-			dAtA[i] = 1
-		} else {
-			dAtA[i] = 0
-		}
-		i--
-		dAtA[i] = 0x18
-	}
-	if len(m.Version) > 0 {
-		i -= len(m.Version)
-		copy(dAtA[i:], m.Version)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Version)))
-		i--
-		dAtA[i] = 0x12
-	}
-	if m.Materialization != nil {
-		{
-			size, err := m.Materialization.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintMaterialize(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *ApplyResponse) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *ApplyResponse) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *ApplyResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Response_Applied) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -2135,7 +2586,7 @@ func (m *ApplyResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *TransactionRequest) Marshal() (dAtA []byte, err error) {
+func (m *Response_Opened) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -2145,12 +2596,12 @@ func (m *TransactionRequest) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *TransactionRequest) MarshalTo(dAtA []byte) (int, error) {
+func (m *Response_Opened) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *TransactionRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Response_Opened) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -2159,69 +2610,9 @@ func (m *TransactionRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	if m.Acknowledge != nil {
+	if m.RuntimeCheckpoint != nil {
 		{
-			size, err := m.Acknowledge.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintMaterialize(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0x32
-	}
-	if m.StartCommit != nil {
-		{
-			size, err := m.StartCommit.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintMaterialize(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0x2a
-	}
-	if m.Store != nil {
-		{
-			size, err := m.Store.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintMaterialize(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0x22
-	}
-	if m.Flush != nil {
-		{
-			size, err := m.Flush.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintMaterialize(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0x1a
-	}
-	if m.Load != nil {
-		{
-			size, err := m.Load.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintMaterialize(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0x12
-	}
-	if m.Open != nil {
-		{
-			size, err := m.Open.MarshalToSizedBuffer(dAtA[:i])
+			size, err := m.RuntimeCheckpoint.MarshalToSizedBuffer(dAtA[:i])
 			if err != nil {
 				return 0, err
 			}
@@ -2234,7 +2625,7 @@ func (m *TransactionRequest) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *TransactionRequest_Open) Marshal() (dAtA []byte, err error) {
+func (m *Response_Loaded) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -2244,12 +2635,12 @@ func (m *TransactionRequest_Open) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *TransactionRequest_Open) MarshalTo(dAtA []byte) (int, error) {
+func (m *Response_Loaded) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *TransactionRequest_Open) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Response_Loaded) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -2258,89 +2649,10 @@ func (m *TransactionRequest_Open) MarshalToSizedBuffer(dAtA []byte) (int, error)
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	if len(m.DriverCheckpointJson) > 0 {
-		i -= len(m.DriverCheckpointJson)
-		copy(dAtA[i:], m.DriverCheckpointJson)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.DriverCheckpointJson)))
-		i--
-		dAtA[i] = 0x2a
-	}
-	if m.KeyEnd != 0 {
-		i -= 4
-		encoding_binary.LittleEndian.PutUint32(dAtA[i:], uint32(m.KeyEnd))
-		i--
-		dAtA[i] = 0x25
-	}
-	if m.KeyBegin != 0 {
-		i -= 4
-		encoding_binary.LittleEndian.PutUint32(dAtA[i:], uint32(m.KeyBegin))
-		i--
-		dAtA[i] = 0x1d
-	}
-	if len(m.Version) > 0 {
-		i -= len(m.Version)
-		copy(dAtA[i:], m.Version)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Version)))
-		i--
-		dAtA[i] = 0x12
-	}
-	if m.Materialization != nil {
-		{
-			size, err := m.Materialization.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintMaterialize(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *TransactionRequest_Load) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *TransactionRequest_Load) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *TransactionRequest_Load) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if len(m.PackedKeys) > 0 {
-		for iNdEx := len(m.PackedKeys) - 1; iNdEx >= 0; iNdEx-- {
-			{
-				size, err := m.PackedKeys[iNdEx].MarshalToSizedBuffer(dAtA[:i])
-				if err != nil {
-					return 0, err
-				}
-				i -= size
-				i = encodeVarintMaterialize(dAtA, i, uint64(size))
-			}
-			i--
-			dAtA[i] = 0x1a
-		}
-	}
-	if len(m.Arena) > 0 {
-		i -= len(m.Arena)
-		copy(dAtA[i:], m.Arena)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Arena)))
+	if len(m.DocJson) > 0 {
+		i -= len(m.DocJson)
+		copy(dAtA[i:], m.DocJson)
+		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.DocJson)))
 		i--
 		dAtA[i] = 0x12
 	}
@@ -2352,7 +2664,7 @@ func (m *TransactionRequest_Load) MarshalToSizedBuffer(dAtA []byte) (int, error)
 	return len(dAtA) - i, nil
 }
 
-func (m *TransactionRequest_Flush) Marshal() (dAtA []byte, err error) {
+func (m *Response_Flushed) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -2362,12 +2674,12 @@ func (m *TransactionRequest_Flush) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *TransactionRequest_Flush) MarshalTo(dAtA []byte) (int, error) {
+func (m *Response_Flushed) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *TransactionRequest_Flush) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Response_Flushed) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -2379,7 +2691,7 @@ func (m *TransactionRequest_Flush) MarshalToSizedBuffer(dAtA []byte) (int, error
 	return len(dAtA) - i, nil
 }
 
-func (m *TransactionRequest_Store) Marshal() (dAtA []byte, err error) {
+func (m *Response_StartedCommit) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -2389,12 +2701,12 @@ func (m *TransactionRequest_Store) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *TransactionRequest_Store) MarshalTo(dAtA []byte) (int, error) {
+func (m *Response_StartedCommit) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *TransactionRequest_Store) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Response_StartedCommit) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -2403,212 +2715,9 @@ func (m *TransactionRequest_Store) MarshalToSizedBuffer(dAtA []byte) (int, error
 		i -= len(m.XXX_unrecognized)
 		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	if len(m.Exists) > 0 {
-		for iNdEx := len(m.Exists) - 1; iNdEx >= 0; iNdEx-- {
-			i--
-			if m.Exists[iNdEx] {
-				dAtA[i] = 1
-			} else {
-				dAtA[i] = 0
-			}
-		}
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Exists)))
-		i--
-		dAtA[i] = 0x32
-	}
-	if len(m.DocsJson) > 0 {
-		for iNdEx := len(m.DocsJson) - 1; iNdEx >= 0; iNdEx-- {
-			{
-				size, err := m.DocsJson[iNdEx].MarshalToSizedBuffer(dAtA[:i])
-				if err != nil {
-					return 0, err
-				}
-				i -= size
-				i = encodeVarintMaterialize(dAtA, i, uint64(size))
-			}
-			i--
-			dAtA[i] = 0x2a
-		}
-	}
-	if len(m.PackedValues) > 0 {
-		for iNdEx := len(m.PackedValues) - 1; iNdEx >= 0; iNdEx-- {
-			{
-				size, err := m.PackedValues[iNdEx].MarshalToSizedBuffer(dAtA[:i])
-				if err != nil {
-					return 0, err
-				}
-				i -= size
-				i = encodeVarintMaterialize(dAtA, i, uint64(size))
-			}
-			i--
-			dAtA[i] = 0x22
-		}
-	}
-	if len(m.PackedKeys) > 0 {
-		for iNdEx := len(m.PackedKeys) - 1; iNdEx >= 0; iNdEx-- {
-			{
-				size, err := m.PackedKeys[iNdEx].MarshalToSizedBuffer(dAtA[:i])
-				if err != nil {
-					return 0, err
-				}
-				i -= size
-				i = encodeVarintMaterialize(dAtA, i, uint64(size))
-			}
-			i--
-			dAtA[i] = 0x1a
-		}
-	}
-	if len(m.Arena) > 0 {
-		i -= len(m.Arena)
-		copy(dAtA[i:], m.Arena)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Arena)))
-		i--
-		dAtA[i] = 0x12
-	}
-	if m.Binding != 0 {
-		i = encodeVarintMaterialize(dAtA, i, uint64(m.Binding))
-		i--
-		dAtA[i] = 0x8
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *TransactionRequest_StartCommit) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *TransactionRequest_StartCommit) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *TransactionRequest_StartCommit) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if len(m.RuntimeCheckpoint) > 0 {
-		i -= len(m.RuntimeCheckpoint)
-		copy(dAtA[i:], m.RuntimeCheckpoint)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.RuntimeCheckpoint)))
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *TransactionRequest_Acknowledge) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *TransactionRequest_Acknowledge) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *TransactionRequest_Acknowledge) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *TransactionResponse) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *TransactionResponse) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *TransactionResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if m.Acknowledged != nil {
+	if m.State != nil {
 		{
-			size, err := m.Acknowledged.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintMaterialize(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0x2a
-	}
-	if m.StartedCommit != nil {
-		{
-			size, err := m.StartedCommit.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintMaterialize(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0x22
-	}
-	if m.Flushed != nil {
-		{
-			size, err := m.Flushed.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintMaterialize(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0x1a
-	}
-	if m.Loaded != nil {
-		{
-			size, err := m.Loaded.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintMaterialize(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0x12
-	}
-	if m.Opened != nil {
-		{
-			size, err := m.Opened.MarshalToSizedBuffer(dAtA[:i])
+			size, err := m.State.MarshalToSizedBuffer(dAtA[:i])
 			if err != nil {
 				return 0, err
 			}
@@ -2621,7 +2730,7 @@ func (m *TransactionResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
-func (m *TransactionResponse_Opened) Marshal() (dAtA []byte, err error) {
+func (m *Response_Acknowledged) Marshal() (dAtA []byte, err error) {
 	size := m.ProtoSize()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalToSizedBuffer(dAtA[:size])
@@ -2631,165 +2740,12 @@ func (m *TransactionResponse_Opened) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *TransactionResponse_Opened) MarshalTo(dAtA []byte) (int, error) {
+func (m *Response_Acknowledged) MarshalTo(dAtA []byte) (int, error) {
 	size := m.ProtoSize()
 	return m.MarshalToSizedBuffer(dAtA[:size])
 }
 
-func (m *TransactionResponse_Opened) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if len(m.RuntimeCheckpoint) > 0 {
-		i -= len(m.RuntimeCheckpoint)
-		copy(dAtA[i:], m.RuntimeCheckpoint)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.RuntimeCheckpoint)))
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *TransactionResponse_Loaded) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *TransactionResponse_Loaded) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *TransactionResponse_Loaded) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if len(m.DocsJson) > 0 {
-		for iNdEx := len(m.DocsJson) - 1; iNdEx >= 0; iNdEx-- {
-			{
-				size, err := m.DocsJson[iNdEx].MarshalToSizedBuffer(dAtA[:i])
-				if err != nil {
-					return 0, err
-				}
-				i -= size
-				i = encodeVarintMaterialize(dAtA, i, uint64(size))
-			}
-			i--
-			dAtA[i] = 0x1a
-		}
-	}
-	if len(m.Arena) > 0 {
-		i -= len(m.Arena)
-		copy(dAtA[i:], m.Arena)
-		i = encodeVarintMaterialize(dAtA, i, uint64(len(m.Arena)))
-		i--
-		dAtA[i] = 0x12
-	}
-	if m.Binding != 0 {
-		i = encodeVarintMaterialize(dAtA, i, uint64(m.Binding))
-		i--
-		dAtA[i] = 0x8
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *TransactionResponse_Flushed) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *TransactionResponse_Flushed) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *TransactionResponse_Flushed) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *TransactionResponse_StartedCommit) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *TransactionResponse_StartedCommit) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *TransactionResponse_StartedCommit) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if m.DriverCheckpoint != nil {
-		{
-			size, err := m.DriverCheckpoint.MarshalToSizedBuffer(dAtA[:i])
-			if err != nil {
-				return 0, err
-			}
-			i -= size
-			i = encodeVarintMaterialize(dAtA, i, uint64(size))
-		}
-		i--
-		dAtA[i] = 0xa
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *TransactionResponse_Acknowledged) Marshal() (dAtA []byte, err error) {
-	size := m.ProtoSize()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *TransactionResponse_Acknowledged) MarshalTo(dAtA []byte) (int, error) {
-	size := m.ProtoSize()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *TransactionResponse_Acknowledged) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+func (m *Response_Acknowledged) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i := len(dAtA)
 	_ = i
 	var l int
@@ -2955,7 +2911,388 @@ func encodeVarintMaterialize(dAtA []byte, offset int, v uint64) int {
 	dAtA[offset] = uint8(v)
 	return base
 }
-func (m *Constraint) ProtoSize() (n int) {
+func (m *Request) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Spec != nil {
+		l = m.Spec.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.Validate != nil {
+		l = m.Validate.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.Apply != nil {
+		l = m.Apply.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.Open != nil {
+		l = m.Open.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.Load != nil {
+		l = m.Load.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.Flush != nil {
+		l = m.Flush.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.Store != nil {
+		l = m.Store.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.StartCommit != nil {
+		l = m.StartCommit.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.Acknowledge != nil {
+		l = m.Acknowledge.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.Internal != nil {
+		l = m.Internal.ProtoSize()
+		n += 2 + l + sovMaterialize(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Request_Spec) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.ConnectorType != 0 {
+		n += 1 + sovMaterialize(uint64(m.ConnectorType))
+	}
+	l = len(m.ConfigJson)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Request_Validate) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Name)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.ConnectorType != 0 {
+		n += 1 + sovMaterialize(uint64(m.ConnectorType))
+	}
+	l = len(m.ConfigJson)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if len(m.Bindings) > 0 {
+		for _, e := range m.Bindings {
+			l = e.ProtoSize()
+			n += 1 + l + sovMaterialize(uint64(l))
+		}
+	}
+	if len(m.NetworkPorts) > 0 {
+		for _, e := range m.NetworkPorts {
+			l = e.ProtoSize()
+			n += 1 + l + sovMaterialize(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Request_Validate_Binding) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.ResourceConfigJson)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	l = m.Collection.ProtoSize()
+	n += 1 + l + sovMaterialize(uint64(l))
+	if len(m.FieldConfigJsonMap) > 0 {
+		for k, v := range m.FieldConfigJsonMap {
+			_ = k
+			_ = v
+			mapEntrySize := 1 + len(k) + sovMaterialize(uint64(len(k))) + 1 + len(v) + sovMaterialize(uint64(len(v)))
+			n += mapEntrySize + 1 + sovMaterialize(uint64(mapEntrySize))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Request_Apply) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Materialization != nil {
+		l = m.Materialization.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	l = len(m.Version)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.DryRun {
+		n += 2
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Request_Open) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Materialization != nil {
+		l = m.Materialization.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	l = len(m.Version)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.Range != nil {
+		l = m.Range.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	l = len(m.StateJson)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Request_Load) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Binding != 0 {
+		n += 1 + sovMaterialize(uint64(m.Binding))
+	}
+	l = len(m.KeyJson)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	l = len(m.KeyPacked)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Request_Flush) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Request_Store) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Binding != 0 {
+		n += 1 + sovMaterialize(uint64(m.Binding))
+	}
+	l = len(m.KeyJson)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	l = len(m.KeyPacked)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	l = len(m.ValuesJson)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	l = len(m.ValuesPacked)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	l = len(m.DocJson)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.Exists {
+		n += 2
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Request_StartCommit) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.RuntimeCheckpoint != nil {
+		l = m.RuntimeCheckpoint.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Request_Acknowledge) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Response) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Spec != nil {
+		l = m.Spec.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.Validated != nil {
+		l = m.Validated.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.Applied != nil {
+		l = m.Applied.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.Opened != nil {
+		l = m.Opened.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.Loaded != nil {
+		l = m.Loaded.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.Flushed != nil {
+		l = m.Flushed.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.StartedCommit != nil {
+		l = m.StartedCommit.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.Acknowledged != nil {
+		l = m.Acknowledged.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.Internal != nil {
+		l = m.Internal.ProtoSize()
+		n += 2 + l + sovMaterialize(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Response_Spec) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Protocol != 0 {
+		n += 1 + sovMaterialize(uint64(m.Protocol))
+	}
+	l = len(m.ConfigSchemaJson)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	l = len(m.ResourceConfigSchemaJson)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	l = len(m.DocumentationUrl)
+	if l > 0 {
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.Oauth2 != nil {
+		l = m.Oauth2.ProtoSize()
+		n += 1 + l + sovMaterialize(uint64(l))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Response_Validated) ProtoSize() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if len(m.Bindings) > 0 {
+		for _, e := range m.Bindings {
+			l = e.ProtoSize()
+			n += 1 + l + sovMaterialize(uint64(l))
+		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *Response_Validated_Constraint) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -2974,127 +3311,7 @@ func (m *Constraint) ProtoSize() (n int) {
 	return n
 }
 
-func (m *SpecRequest) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.EndpointType != 0 {
-		n += 1 + sovMaterialize(uint64(m.EndpointType))
-	}
-	l = len(m.EndpointSpecJson)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *SpecResponse) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.EndpointSpecSchemaJson)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	l = len(m.ResourceSpecSchemaJson)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	l = len(m.DocumentationUrl)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.Oauth2Spec != nil {
-		l = m.Oauth2Spec.ProtoSize()
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *ValidateRequest) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.Materialization)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.EndpointType != 0 {
-		n += 1 + sovMaterialize(uint64(m.EndpointType))
-	}
-	l = len(m.EndpointSpecJson)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if len(m.Bindings) > 0 {
-		for _, e := range m.Bindings {
-			l = e.ProtoSize()
-			n += 1 + l + sovMaterialize(uint64(l))
-		}
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *ValidateRequest_Binding) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.ResourceSpecJson)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	l = m.Collection.ProtoSize()
-	n += 1 + l + sovMaterialize(uint64(l))
-	if len(m.FieldConfigJson) > 0 {
-		for k, v := range m.FieldConfigJson {
-			_ = k
-			_ = v
-			mapEntrySize := 1 + len(k) + sovMaterialize(uint64(len(k))) + 1 + len(v) + sovMaterialize(uint64(len(v)))
-			n += mapEntrySize + 1 + sovMaterialize(uint64(mapEntrySize))
-		}
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *ValidateResponse) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if len(m.Bindings) > 0 {
-		for _, e := range m.Bindings {
-			l = e.ProtoSize()
-			n += 1 + l + sovMaterialize(uint64(l))
-		}
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *ValidateResponse_Binding) ProtoSize() (n int) {
+func (m *Response_Validated_Binding) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -3128,30 +3345,7 @@ func (m *ValidateResponse_Binding) ProtoSize() (n int) {
 	return n
 }
 
-func (m *ApplyRequest) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.Materialization != nil {
-		l = m.Materialization.ProtoSize()
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	l = len(m.Version)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.DryRun {
-		n += 2
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *ApplyResponse) ProtoSize() (n int) {
+func (m *Response_Applied) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -3167,34 +3361,14 @@ func (m *ApplyResponse) ProtoSize() (n int) {
 	return n
 }
 
-func (m *TransactionRequest) ProtoSize() (n int) {
+func (m *Response_Opened) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	if m.Open != nil {
-		l = m.Open.ProtoSize()
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.Load != nil {
-		l = m.Load.ProtoSize()
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.Flush != nil {
-		l = m.Flush.ProtoSize()
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.Store != nil {
-		l = m.Store.ProtoSize()
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.StartCommit != nil {
-		l = m.StartCommit.ProtoSize()
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.Acknowledge != nil {
-		l = m.Acknowledge.ProtoSize()
+	if m.RuntimeCheckpoint != nil {
+		l = m.RuntimeCheckpoint.ProtoSize()
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
 	if m.XXX_unrecognized != nil {
@@ -3203,37 +3377,7 @@ func (m *TransactionRequest) ProtoSize() (n int) {
 	return n
 }
 
-func (m *TransactionRequest_Open) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.Materialization != nil {
-		l = m.Materialization.ProtoSize()
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	l = len(m.Version)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.KeyBegin != 0 {
-		n += 5
-	}
-	if m.KeyEnd != 0 {
-		n += 5
-	}
-	l = len(m.DriverCheckpointJson)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *TransactionRequest_Load) ProtoSize() (n int) {
+func (m *Response_Loaded) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -3242,81 +3386,7 @@ func (m *TransactionRequest_Load) ProtoSize() (n int) {
 	if m.Binding != 0 {
 		n += 1 + sovMaterialize(uint64(m.Binding))
 	}
-	l = len(m.Arena)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if len(m.PackedKeys) > 0 {
-		for _, e := range m.PackedKeys {
-			l = e.ProtoSize()
-			n += 1 + l + sovMaterialize(uint64(l))
-		}
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *TransactionRequest_Flush) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *TransactionRequest_Store) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.Binding != 0 {
-		n += 1 + sovMaterialize(uint64(m.Binding))
-	}
-	l = len(m.Arena)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if len(m.PackedKeys) > 0 {
-		for _, e := range m.PackedKeys {
-			l = e.ProtoSize()
-			n += 1 + l + sovMaterialize(uint64(l))
-		}
-	}
-	if len(m.PackedValues) > 0 {
-		for _, e := range m.PackedValues {
-			l = e.ProtoSize()
-			n += 1 + l + sovMaterialize(uint64(l))
-		}
-	}
-	if len(m.DocsJson) > 0 {
-		for _, e := range m.DocsJson {
-			l = e.ProtoSize()
-			n += 1 + l + sovMaterialize(uint64(l))
-		}
-	}
-	if len(m.Exists) > 0 {
-		n += 1 + sovMaterialize(uint64(len(m.Exists))) + len(m.Exists)*1
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *TransactionRequest_StartCommit) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.RuntimeCheckpoint)
+	l = len(m.DocJson)
 	if l > 0 {
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
@@ -3326,7 +3396,7 @@ func (m *TransactionRequest_StartCommit) ProtoSize() (n int) {
 	return n
 }
 
-func (m *TransactionRequest_Acknowledge) ProtoSize() (n int) {
+func (m *Response_Flushed) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -3338,30 +3408,14 @@ func (m *TransactionRequest_Acknowledge) ProtoSize() (n int) {
 	return n
 }
 
-func (m *TransactionResponse) ProtoSize() (n int) {
+func (m *Response_StartedCommit) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
 	var l int
 	_ = l
-	if m.Opened != nil {
-		l = m.Opened.ProtoSize()
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.Loaded != nil {
-		l = m.Loaded.ProtoSize()
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.Flushed != nil {
-		l = m.Flushed.ProtoSize()
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.StartedCommit != nil {
-		l = m.StartedCommit.ProtoSize()
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.Acknowledged != nil {
-		l = m.Acknowledged.ProtoSize()
+	if m.State != nil {
+		l = m.State.ProtoSize()
 		n += 1 + l + sovMaterialize(uint64(l))
 	}
 	if m.XXX_unrecognized != nil {
@@ -3370,76 +3424,7 @@ func (m *TransactionResponse) ProtoSize() (n int) {
 	return n
 }
 
-func (m *TransactionResponse_Opened) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	l = len(m.RuntimeCheckpoint)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *TransactionResponse_Loaded) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.Binding != 0 {
-		n += 1 + sovMaterialize(uint64(m.Binding))
-	}
-	l = len(m.Arena)
-	if l > 0 {
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if len(m.DocsJson) > 0 {
-		for _, e := range m.DocsJson {
-			l = e.ProtoSize()
-			n += 1 + l + sovMaterialize(uint64(l))
-		}
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *TransactionResponse_Flushed) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *TransactionResponse_StartedCommit) ProtoSize() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if m.DriverCheckpoint != nil {
-		l = m.DriverCheckpoint.ProtoSize()
-		n += 1 + l + sovMaterialize(uint64(l))
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *TransactionResponse_Acknowledged) ProtoSize() (n int) {
+func (m *Response_Acknowledged) ProtoSize() (n int) {
 	if m == nil {
 		return 0
 	}
@@ -3518,7 +3503,7 @@ func sovMaterialize(x uint64) (n int) {
 func sozMaterialize(x uint64) (n int) {
 	return sovMaterialize(uint64((x << 1) ^ uint64((int64(x) >> 63))))
 }
-func (m *Constraint) Unmarshal(dAtA []byte) error {
+func (m *Request) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -3541,315 +3526,15 @@ func (m *Constraint) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: Constraint: wiretype end group for non-group")
+			return fmt.Errorf("proto: Request: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: Constraint: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 2:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Type", wireType)
-			}
-			m.Type = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.Type |= Constraint_Type(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Reason", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Reason = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipMaterialize(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *SpecRequest) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowMaterialize
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: SpecRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: SpecRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EndpointType", wireType)
-			}
-			m.EndpointType = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.EndpointType |= flow.EndpointType(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EndpointSpecJson", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.EndpointSpecJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipMaterialize(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *SpecResponse) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowMaterialize
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: SpecResponse: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: SpecResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: Request: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EndpointSpecSchemaJson", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.EndpointSpecSchemaJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ResourceSpecSchemaJson", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.ResourceSpecSchemaJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DocumentationUrl", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.DocumentationUrl = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 4:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Oauth2Spec", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Spec", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -3876,10 +3561,334 @@ func (m *SpecResponse) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.Oauth2Spec == nil {
-				m.Oauth2Spec = &flow.OAuth2Spec{}
+			if m.Spec == nil {
+				m.Spec = &Request_Spec{}
 			}
-			if err := m.Oauth2Spec.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.Spec.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Validate", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Validate == nil {
+				m.Validate = &Request_Validate{}
+			}
+			if err := m.Validate.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Apply", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Apply == nil {
+				m.Apply = &Request_Apply{}
+			}
+			if err := m.Apply.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Open", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Open == nil {
+				m.Open = &Request_Open{}
+			}
+			if err := m.Open.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Load", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Load == nil {
+				m.Load = &Request_Load{}
+			}
+			if err := m.Load.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Flush", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Flush == nil {
+				m.Flush = &Request_Flush{}
+			}
+			if err := m.Flush.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Store", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Store == nil {
+				m.Store = &Request_Store{}
+			}
+			if err := m.Store.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 8:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field StartCommit", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.StartCommit == nil {
+				m.StartCommit = &Request_StartCommit{}
+			}
+			if err := m.StartCommit.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 9:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Acknowledge", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Acknowledge == nil {
+				m.Acknowledge = &Request_Acknowledge{}
+			}
+			if err := m.Acknowledge.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 100:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Internal", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Internal == nil {
+				m.Internal = &types.Any{}
+			}
+			if err := m.Internal.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -3905,7 +3914,7 @@ func (m *SpecResponse) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
+func (m *Request_Spec) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -3928,15 +3937,34 @@ func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: ValidateRequest: wiretype end group for non-group")
+			return fmt.Errorf("proto: Spec: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ValidateRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: Spec: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ConnectorType", wireType)
+			}
+			m.ConnectorType = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ConnectorType |= flow.MaterializationSpec_ConnectorType(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Materialization", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field ConfigJson", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -3964,13 +3992,64 @@ func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Materialization = github_com_estuary_flow_go_protocols_flow.Materialization(dAtA[iNdEx:postIndex])
+			m.ConfigJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 2:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EndpointType", wireType)
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMaterialize(dAtA[iNdEx:])
+			if err != nil {
+				return err
 			}
-			m.EndpointType = 0
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Request_Validate) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMaterialize
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Validate: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Validate: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Name", wireType)
+			}
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowMaterialize
@@ -3980,14 +4059,46 @@ func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.EndpointType |= flow.EndpointType(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Name = github_com_estuary_flow_go_protocols_flow.Materialization(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ConnectorType", wireType)
+			}
+			m.ConnectorType = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ConnectorType |= flow.MaterializationSpec_ConnectorType(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
 		case 3:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field EndpointSpecJson", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field ConfigJson", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -4015,7 +4126,7 @@ func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.EndpointSpecJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
+			m.ConfigJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 4:
 			if wireType != 2 {
@@ -4046,8 +4157,42 @@ func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Bindings = append(m.Bindings, &ValidateRequest_Binding{})
+			m.Bindings = append(m.Bindings, &Request_Validate_Binding{})
 			if err := m.Bindings[len(m.Bindings)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field NetworkPorts", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.NetworkPorts = append(m.NetworkPorts, &flow.NetworkPort{})
+			if err := m.NetworkPorts[len(m.NetworkPorts)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -4073,7 +4218,7 @@ func (m *ValidateRequest) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *ValidateRequest_Binding) Unmarshal(dAtA []byte) error {
+func (m *Request_Validate_Binding) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -4104,7 +4249,7 @@ func (m *ValidateRequest_Binding) Unmarshal(dAtA []byte) error {
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ResourceSpecJson", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field ResourceConfigJson", wireType)
 			}
 			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
@@ -4132,7 +4277,7 @@ func (m *ValidateRequest_Binding) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.ResourceSpecJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
+			m.ResourceConfigJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 2:
 			if wireType != 2 {
@@ -4169,7 +4314,7 @@ func (m *ValidateRequest_Binding) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 3:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field FieldConfigJson", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field FieldConfigJsonMap", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -4196,8 +4341,8 @@ func (m *ValidateRequest_Binding) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.FieldConfigJson == nil {
-				m.FieldConfigJson = make(map[string]encoding_json.RawMessage)
+			if m.FieldConfigJsonMap == nil {
+				m.FieldConfigJsonMap = make(map[string]encoding_json.RawMessage)
 			}
 			var mapkey string
 			var mapvalue encoding_json.RawMessage
@@ -4292,7 +4437,7 @@ func (m *ValidateRequest_Binding) Unmarshal(dAtA []byte) error {
 					iNdEx += skippy
 				}
 			}
-			m.FieldConfigJson[mapkey] = ((encoding_json.RawMessage)(mapvalue))
+			m.FieldConfigJsonMap[mapkey] = ((encoding_json.RawMessage)(mapvalue))
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -4316,7 +4461,7 @@ func (m *ValidateRequest_Binding) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *ValidateResponse) Unmarshal(dAtA []byte) error {
+func (m *Request_Apply) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -4339,327 +4484,10 @@ func (m *ValidateResponse) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: ValidateResponse: wiretype end group for non-group")
+			return fmt.Errorf("proto: Apply: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ValidateResponse: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Bindings", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Bindings = append(m.Bindings, &ValidateResponse_Binding{})
-			if err := m.Bindings[len(m.Bindings)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipMaterialize(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *ValidateResponse_Binding) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowMaterialize
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: Binding: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: Binding: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Constraints", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.Constraints == nil {
-				m.Constraints = make(map[string]*Constraint)
-			}
-			var mapkey string
-			var mapvalue *Constraint
-			for iNdEx < postIndex {
-				entryPreIndex := iNdEx
-				var wire uint64
-				for shift := uint(0); ; shift += 7 {
-					if shift >= 64 {
-						return ErrIntOverflowMaterialize
-					}
-					if iNdEx >= l {
-						return io.ErrUnexpectedEOF
-					}
-					b := dAtA[iNdEx]
-					iNdEx++
-					wire |= uint64(b&0x7F) << shift
-					if b < 0x80 {
-						break
-					}
-				}
-				fieldNum := int32(wire >> 3)
-				if fieldNum == 1 {
-					var stringLenmapkey uint64
-					for shift := uint(0); ; shift += 7 {
-						if shift >= 64 {
-							return ErrIntOverflowMaterialize
-						}
-						if iNdEx >= l {
-							return io.ErrUnexpectedEOF
-						}
-						b := dAtA[iNdEx]
-						iNdEx++
-						stringLenmapkey |= uint64(b&0x7F) << shift
-						if b < 0x80 {
-							break
-						}
-					}
-					intStringLenmapkey := int(stringLenmapkey)
-					if intStringLenmapkey < 0 {
-						return ErrInvalidLengthMaterialize
-					}
-					postStringIndexmapkey := iNdEx + intStringLenmapkey
-					if postStringIndexmapkey < 0 {
-						return ErrInvalidLengthMaterialize
-					}
-					if postStringIndexmapkey > l {
-						return io.ErrUnexpectedEOF
-					}
-					mapkey = string(dAtA[iNdEx:postStringIndexmapkey])
-					iNdEx = postStringIndexmapkey
-				} else if fieldNum == 2 {
-					var mapmsglen int
-					for shift := uint(0); ; shift += 7 {
-						if shift >= 64 {
-							return ErrIntOverflowMaterialize
-						}
-						if iNdEx >= l {
-							return io.ErrUnexpectedEOF
-						}
-						b := dAtA[iNdEx]
-						iNdEx++
-						mapmsglen |= int(b&0x7F) << shift
-						if b < 0x80 {
-							break
-						}
-					}
-					if mapmsglen < 0 {
-						return ErrInvalidLengthMaterialize
-					}
-					postmsgIndex := iNdEx + mapmsglen
-					if postmsgIndex < 0 {
-						return ErrInvalidLengthMaterialize
-					}
-					if postmsgIndex > l {
-						return io.ErrUnexpectedEOF
-					}
-					mapvalue = &Constraint{}
-					if err := mapvalue.Unmarshal(dAtA[iNdEx:postmsgIndex]); err != nil {
-						return err
-					}
-					iNdEx = postmsgIndex
-				} else {
-					iNdEx = entryPreIndex
-					skippy, err := skipMaterialize(dAtA[iNdEx:])
-					if err != nil {
-						return err
-					}
-					if (skippy < 0) || (iNdEx+skippy) < 0 {
-						return ErrInvalidLengthMaterialize
-					}
-					if (iNdEx + skippy) > postIndex {
-						return io.ErrUnexpectedEOF
-					}
-					iNdEx += skippy
-				}
-			}
-			m.Constraints[mapkey] = mapvalue
-			iNdEx = postIndex
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ResourcePath", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.ResourcePath = append(m.ResourcePath, string(dAtA[iNdEx:postIndex]))
-			iNdEx = postIndex
-		case 3:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DeltaUpdates", wireType)
-			}
-			var v int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				v |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			m.DeltaUpdates = bool(v != 0)
-		default:
-			iNdEx = preIndex
-			skippy, err := skipMaterialize(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *ApplyRequest) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowMaterialize
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: ApplyRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ApplyRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: Apply: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -4772,357 +4600,7 @@ func (m *ApplyRequest) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *ApplyResponse) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowMaterialize
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: ApplyResponse: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: ApplyResponse: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field ActionDescription", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.ActionDescription = string(dAtA[iNdEx:postIndex])
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipMaterialize(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *TransactionRequest) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowMaterialize
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: TransactionRequest: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: TransactionRequest: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Open", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.Open == nil {
-				m.Open = &TransactionRequest_Open{}
-			}
-			if err := m.Open.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 2:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Load", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.Load == nil {
-				m.Load = &TransactionRequest_Load{}
-			}
-			if err := m.Load.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Flush", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.Flush == nil {
-				m.Flush = &TransactionRequest_Flush{}
-			}
-			if err := m.Flush.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 4:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Store", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.Store == nil {
-				m.Store = &TransactionRequest_Store{}
-			}
-			if err := m.Store.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 5:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field StartCommit", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.StartCommit == nil {
-				m.StartCommit = &TransactionRequest_StartCommit{}
-			}
-			if err := m.StartCommit.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 6:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Acknowledge", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if m.Acknowledge == nil {
-				m.Acknowledge = &TransactionRequest_Acknowledge{}
-			}
-			if err := m.Acknowledge.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		default:
-			iNdEx = preIndex
-			skippy, err := skipMaterialize(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *TransactionRequest_Open) Unmarshal(dAtA []byte) error {
+func (m *Request_Open) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -5220,30 +4698,10 @@ func (m *TransactionRequest_Open) Unmarshal(dAtA []byte) error {
 			m.Version = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 3:
-			if wireType != 5 {
-				return fmt.Errorf("proto: wrong wireType = %d for field KeyBegin", wireType)
-			}
-			m.KeyBegin = 0
-			if (iNdEx + 4) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.KeyBegin = uint32(encoding_binary.LittleEndian.Uint32(dAtA[iNdEx:]))
-			iNdEx += 4
-		case 4:
-			if wireType != 5 {
-				return fmt.Errorf("proto: wrong wireType = %d for field KeyEnd", wireType)
-			}
-			m.KeyEnd = 0
-			if (iNdEx + 4) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.KeyEnd = uint32(encoding_binary.LittleEndian.Uint32(dAtA[iNdEx:]))
-			iNdEx += 4
-		case 5:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DriverCheckpointJson", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Range", wireType)
 			}
-			var byteLen int
+			var msglen int
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowMaterialize
@@ -5253,25 +4711,59 @@ func (m *TransactionRequest_Open) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				byteLen |= int(b&0x7F) << shift
+				msglen |= int(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if byteLen < 0 {
+			if msglen < 0 {
 				return ErrInvalidLengthMaterialize
 			}
-			postIndex := iNdEx + byteLen
+			postIndex := iNdEx + msglen
 			if postIndex < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.DriverCheckpointJson = append(m.DriverCheckpointJson[:0], dAtA[iNdEx:postIndex]...)
-			if m.DriverCheckpointJson == nil {
-				m.DriverCheckpointJson = []byte{}
+			if m.Range == nil {
+				m.Range = &flow.RangeSpec{}
 			}
+			if err := m.Range.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field StateJson", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.StateJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -5295,7 +4787,7 @@ func (m *TransactionRequest_Open) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *TransactionRequest_Load) Unmarshal(dAtA []byte) error {
+func (m *Request_Load) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -5345,7 +4837,39 @@ func (m *TransactionRequest_Load) Unmarshal(dAtA []byte) error {
 			}
 		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field KeyJson", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.KeyJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field KeyPacked", wireType)
 			}
 			var byteLen int
 			for shift := uint(0); ; shift += 7 {
@@ -5372,43 +4896,9 @@ func (m *TransactionRequest_Load) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Arena = append(m.Arena[:0], dAtA[iNdEx:postIndex]...)
-			if m.Arena == nil {
-				m.Arena = []byte{}
-			}
-			iNdEx = postIndex
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PackedKeys", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.PackedKeys = append(m.PackedKeys, flow.Slice{})
-			if err := m.PackedKeys[len(m.PackedKeys)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
+			m.KeyPacked = append(m.KeyPacked[:0], dAtA[iNdEx:postIndex]...)
+			if m.KeyPacked == nil {
+				m.KeyPacked = []byte{}
 			}
 			iNdEx = postIndex
 		default:
@@ -5433,7 +4923,7 @@ func (m *TransactionRequest_Load) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *TransactionRequest_Flush) Unmarshal(dAtA []byte) error {
+func (m *Request_Flush) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -5484,7 +4974,7 @@ func (m *TransactionRequest_Flush) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *TransactionRequest_Store) Unmarshal(dAtA []byte) error {
+func (m *Request_Store) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -5534,7 +5024,39 @@ func (m *TransactionRequest_Store) Unmarshal(dAtA []byte) error {
 			}
 		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field KeyJson", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.KeyJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field KeyPacked", wireType)
 			}
 			var byteLen int
 			for shift := uint(0); ; shift += 7 {
@@ -5561,50 +5083,16 @@ func (m *TransactionRequest_Store) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Arena = append(m.Arena[:0], dAtA[iNdEx:postIndex]...)
-			if m.Arena == nil {
-				m.Arena = []byte{}
-			}
-			iNdEx = postIndex
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PackedKeys", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.PackedKeys = append(m.PackedKeys, flow.Slice{})
-			if err := m.PackedKeys[len(m.PackedKeys)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
+			m.KeyPacked = append(m.KeyPacked[:0], dAtA[iNdEx:postIndex]...)
+			if m.KeyPacked == nil {
+				m.KeyPacked = []byte{}
 			}
 			iNdEx = postIndex
 		case 4:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PackedValues", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field ValuesJson", wireType)
 			}
-			var msglen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowMaterialize
@@ -5614,31 +5102,29 @@ func (m *TransactionRequest_Store) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthMaterialize
 			}
-			postIndex := iNdEx + msglen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.PackedValues = append(m.PackedValues, flow.Slice{})
-			if err := m.PackedValues[len(m.PackedValues)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
+			m.ValuesJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		case 5:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DocsJson", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field ValuesPacked", wireType)
 			}
-			var msglen int
+			var byteLen int
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowMaterialize
@@ -5648,96 +5134,78 @@ func (m *TransactionRequest_Store) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				msglen |= int(b&0x7F) << shift
+				byteLen |= int(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if msglen < 0 {
+			if byteLen < 0 {
 				return ErrInvalidLengthMaterialize
 			}
-			postIndex := iNdEx + msglen
+			postIndex := iNdEx + byteLen
 			if postIndex < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.DocsJson = append(m.DocsJson, flow.Slice{})
-			if err := m.DocsJson[len(m.DocsJson)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
+			m.ValuesPacked = append(m.ValuesPacked[:0], dAtA[iNdEx:postIndex]...)
+			if m.ValuesPacked == nil {
+				m.ValuesPacked = []byte{}
 			}
 			iNdEx = postIndex
 		case 6:
-			if wireType == 0 {
-				var v int
-				for shift := uint(0); ; shift += 7 {
-					if shift >= 64 {
-						return ErrIntOverflowMaterialize
-					}
-					if iNdEx >= l {
-						return io.ErrUnexpectedEOF
-					}
-					b := dAtA[iNdEx]
-					iNdEx++
-					v |= int(b&0x7F) << shift
-					if b < 0x80 {
-						break
-					}
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DocJson", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
 				}
-				m.Exists = append(m.Exists, bool(v != 0))
-			} else if wireType == 2 {
-				var packedLen int
-				for shift := uint(0); ; shift += 7 {
-					if shift >= 64 {
-						return ErrIntOverflowMaterialize
-					}
-					if iNdEx >= l {
-						return io.ErrUnexpectedEOF
-					}
-					b := dAtA[iNdEx]
-					iNdEx++
-					packedLen |= int(b&0x7F) << shift
-					if b < 0x80 {
-						break
-					}
-				}
-				if packedLen < 0 {
-					return ErrInvalidLengthMaterialize
-				}
-				postIndex := iNdEx + packedLen
-				if postIndex < 0 {
-					return ErrInvalidLengthMaterialize
-				}
-				if postIndex > l {
+				if iNdEx >= l {
 					return io.ErrUnexpectedEOF
 				}
-				var elementCount int
-				elementCount = packedLen
-				if elementCount != 0 && len(m.Exists) == 0 {
-					m.Exists = make([]bool, 0, elementCount)
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
 				}
-				for iNdEx < postIndex {
-					var v int
-					for shift := uint(0); ; shift += 7 {
-						if shift >= 64 {
-							return ErrIntOverflowMaterialize
-						}
-						if iNdEx >= l {
-							return io.ErrUnexpectedEOF
-						}
-						b := dAtA[iNdEx]
-						iNdEx++
-						v |= int(b&0x7F) << shift
-						if b < 0x80 {
-							break
-						}
-					}
-					m.Exists = append(m.Exists, bool(v != 0))
-				}
-			} else {
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DocJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 7:
+			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Exists", wireType)
 			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.Exists = bool(v != 0)
 		default:
 			iNdEx = preIndex
 			skippy, err := skipMaterialize(dAtA[iNdEx:])
@@ -5760,7 +5228,7 @@ func (m *TransactionRequest_Store) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *TransactionRequest_StartCommit) Unmarshal(dAtA []byte) error {
+func (m *Request_StartCommit) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -5793,7 +5261,7 @@ func (m *TransactionRequest_StartCommit) Unmarshal(dAtA []byte) error {
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field RuntimeCheckpoint", wireType)
 			}
-			var byteLen int
+			var msglen int
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowMaterialize
@@ -5803,24 +5271,26 @@ func (m *TransactionRequest_StartCommit) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				byteLen |= int(b&0x7F) << shift
+				msglen |= int(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if byteLen < 0 {
+			if msglen < 0 {
 				return ErrInvalidLengthMaterialize
 			}
-			postIndex := iNdEx + byteLen
+			postIndex := iNdEx + msglen
 			if postIndex < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.RuntimeCheckpoint = append(m.RuntimeCheckpoint[:0], dAtA[iNdEx:postIndex]...)
 			if m.RuntimeCheckpoint == nil {
-				m.RuntimeCheckpoint = []byte{}
+				m.RuntimeCheckpoint = &protocol.Checkpoint{}
+			}
+			if err := m.RuntimeCheckpoint.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
 			}
 			iNdEx = postIndex
 		default:
@@ -5845,7 +5315,7 @@ func (m *TransactionRequest_StartCommit) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *TransactionRequest_Acknowledge) Unmarshal(dAtA []byte) error {
+func (m *Request_Acknowledge) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -5896,7 +5366,7 @@ func (m *TransactionRequest_Acknowledge) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *TransactionResponse) Unmarshal(dAtA []byte) error {
+func (m *Response) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -5919,13 +5389,121 @@ func (m *TransactionResponse) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: TransactionResponse: wiretype end group for non-group")
+			return fmt.Errorf("proto: Response: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: TransactionResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: Response: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Spec", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Spec == nil {
+				m.Spec = &Response_Spec{}
+			}
+			if err := m.Spec.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Validated", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Validated == nil {
+				m.Validated = &Response_Validated{}
+			}
+			if err := m.Validated.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Applied", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Applied == nil {
+				m.Applied = &Response_Applied{}
+			}
+			if err := m.Applied.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Opened", wireType)
 			}
@@ -5955,13 +5533,13 @@ func (m *TransactionResponse) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.Opened == nil {
-				m.Opened = &TransactionResponse_Opened{}
+				m.Opened = &Response_Opened{}
 			}
 			if err := m.Opened.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
-		case 2:
+		case 5:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Loaded", wireType)
 			}
@@ -5991,13 +5569,13 @@ func (m *TransactionResponse) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.Loaded == nil {
-				m.Loaded = &TransactionResponse_Loaded{}
+				m.Loaded = &Response_Loaded{}
 			}
 			if err := m.Loaded.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
-		case 3:
+		case 6:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Flushed", wireType)
 			}
@@ -6027,13 +5605,13 @@ func (m *TransactionResponse) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.Flushed == nil {
-				m.Flushed = &TransactionResponse_Flushed{}
+				m.Flushed = &Response_Flushed{}
 			}
 			if err := m.Flushed.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
-		case 4:
+		case 7:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field StartedCommit", wireType)
 			}
@@ -6063,13 +5641,13 @@ func (m *TransactionResponse) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.StartedCommit == nil {
-				m.StartedCommit = &TransactionResponse_StartedCommit{}
+				m.StartedCommit = &Response_StartedCommit{}
 			}
 			if err := m.StartedCommit.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
-		case 5:
+		case 8:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Acknowledged", wireType)
 			}
@@ -6099,9 +5677,45 @@ func (m *TransactionResponse) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.Acknowledged == nil {
-				m.Acknowledged = &TransactionResponse_Acknowledged{}
+				m.Acknowledged = &Response_Acknowledged{}
 			}
 			if err := m.Acknowledged.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 100:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Internal", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Internal == nil {
+				m.Internal = &types.Any{}
+			}
+			if err := m.Internal.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -6127,7 +5741,711 @@ func (m *TransactionResponse) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *TransactionResponse_Opened) Unmarshal(dAtA []byte) error {
+func (m *Response_Spec) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMaterialize
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Spec: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Spec: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Protocol", wireType)
+			}
+			m.Protocol = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Protocol |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ConfigSchemaJson", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ConfigSchemaJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ResourceConfigSchemaJson", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ResourceConfigSchemaJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DocumentationUrl", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DocumentationUrl = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Oauth2", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Oauth2 == nil {
+				m.Oauth2 = &flow.OAuth2{}
+			}
+			if err := m.Oauth2.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMaterialize(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Response_Validated) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMaterialize
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Validated: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Validated: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Bindings", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Bindings = append(m.Bindings, &Response_Validated_Binding{})
+			if err := m.Bindings[len(m.Bindings)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMaterialize(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Response_Validated_Constraint) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMaterialize
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Constraint: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Constraint: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Type", wireType)
+			}
+			m.Type = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Type |= Response_Validated_Constraint_Type(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Reason", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Reason = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMaterialize(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Response_Validated_Binding) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMaterialize
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Binding: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Binding: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Constraints", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Constraints == nil {
+				m.Constraints = make(map[string]*Response_Validated_Constraint)
+			}
+			var mapkey string
+			var mapvalue *Response_Validated_Constraint
+			for iNdEx < postIndex {
+				entryPreIndex := iNdEx
+				var wire uint64
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return ErrIntOverflowMaterialize
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					wire |= uint64(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				fieldNum := int32(wire >> 3)
+				if fieldNum == 1 {
+					var stringLenmapkey uint64
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowMaterialize
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						stringLenmapkey |= uint64(b&0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					intStringLenmapkey := int(stringLenmapkey)
+					if intStringLenmapkey < 0 {
+						return ErrInvalidLengthMaterialize
+					}
+					postStringIndexmapkey := iNdEx + intStringLenmapkey
+					if postStringIndexmapkey < 0 {
+						return ErrInvalidLengthMaterialize
+					}
+					if postStringIndexmapkey > l {
+						return io.ErrUnexpectedEOF
+					}
+					mapkey = string(dAtA[iNdEx:postStringIndexmapkey])
+					iNdEx = postStringIndexmapkey
+				} else if fieldNum == 2 {
+					var mapmsglen int
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowMaterialize
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						mapmsglen |= int(b&0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					if mapmsglen < 0 {
+						return ErrInvalidLengthMaterialize
+					}
+					postmsgIndex := iNdEx + mapmsglen
+					if postmsgIndex < 0 {
+						return ErrInvalidLengthMaterialize
+					}
+					if postmsgIndex > l {
+						return io.ErrUnexpectedEOF
+					}
+					mapvalue = &Response_Validated_Constraint{}
+					if err := mapvalue.Unmarshal(dAtA[iNdEx:postmsgIndex]); err != nil {
+						return err
+					}
+					iNdEx = postmsgIndex
+				} else {
+					iNdEx = entryPreIndex
+					skippy, err := skipMaterialize(dAtA[iNdEx:])
+					if err != nil {
+						return err
+					}
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
+						return ErrInvalidLengthMaterialize
+					}
+					if (iNdEx + skippy) > postIndex {
+						return io.ErrUnexpectedEOF
+					}
+					iNdEx += skippy
+				}
+			}
+			m.Constraints[mapkey] = mapvalue
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ResourcePath", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ResourcePath = append(m.ResourcePath, string(dAtA[iNdEx:postIndex]))
+			iNdEx = postIndex
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DeltaUpdates", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.DeltaUpdates = bool(v != 0)
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMaterialize(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Response_Applied) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMaterialize
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Applied: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Applied: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ActionDescription", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMaterialize
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ActionDescription = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMaterialize(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthMaterialize
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Response_Opened) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -6160,7 +6478,7 @@ func (m *TransactionResponse_Opened) Unmarshal(dAtA []byte) error {
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field RuntimeCheckpoint", wireType)
 			}
-			var byteLen int
+			var msglen int
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowMaterialize
@@ -6170,24 +6488,26 @@ func (m *TransactionResponse_Opened) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				byteLen |= int(b&0x7F) << shift
+				msglen |= int(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if byteLen < 0 {
+			if msglen < 0 {
 				return ErrInvalidLengthMaterialize
 			}
-			postIndex := iNdEx + byteLen
+			postIndex := iNdEx + msglen
 			if postIndex < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.RuntimeCheckpoint = append(m.RuntimeCheckpoint[:0], dAtA[iNdEx:postIndex]...)
 			if m.RuntimeCheckpoint == nil {
-				m.RuntimeCheckpoint = []byte{}
+				m.RuntimeCheckpoint = &protocol.Checkpoint{}
+			}
+			if err := m.RuntimeCheckpoint.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
 			}
 			iNdEx = postIndex
 		default:
@@ -6212,7 +6532,7 @@ func (m *TransactionResponse_Opened) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *TransactionResponse_Loaded) Unmarshal(dAtA []byte) error {
+func (m *Response_Loaded) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -6262,9 +6582,9 @@ func (m *TransactionResponse_Loaded) Unmarshal(dAtA []byte) error {
 			}
 		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Arena", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field DocJson", wireType)
 			}
-			var byteLen int
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowMaterialize
@@ -6274,59 +6594,23 @@ func (m *TransactionResponse_Loaded) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				byteLen |= int(b&0x7F) << shift
+				stringLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			if byteLen < 0 {
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
 				return ErrInvalidLengthMaterialize
 			}
-			postIndex := iNdEx + byteLen
+			postIndex := iNdEx + intStringLen
 			if postIndex < 0 {
 				return ErrInvalidLengthMaterialize
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.Arena = append(m.Arena[:0], dAtA[iNdEx:postIndex]...)
-			if m.Arena == nil {
-				m.Arena = []byte{}
-			}
-			iNdEx = postIndex
-		case 3:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DocsJson", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMaterialize
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthMaterialize
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.DocsJson = append(m.DocsJson, flow.Slice{})
-			if err := m.DocsJson[len(m.DocsJson)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
+			m.DocJson = encoding_json.RawMessage(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -6350,7 +6634,7 @@ func (m *TransactionResponse_Loaded) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *TransactionResponse_Flushed) Unmarshal(dAtA []byte) error {
+func (m *Response_Flushed) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -6401,7 +6685,7 @@ func (m *TransactionResponse_Flushed) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *TransactionResponse_StartedCommit) Unmarshal(dAtA []byte) error {
+func (m *Response_StartedCommit) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -6432,7 +6716,7 @@ func (m *TransactionResponse_StartedCommit) Unmarshal(dAtA []byte) error {
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DriverCheckpoint", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field State", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -6459,10 +6743,10 @@ func (m *TransactionResponse_StartedCommit) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.DriverCheckpoint == nil {
-				m.DriverCheckpoint = &flow.DriverCheckpoint{}
+			if m.State == nil {
+				m.State = &flow.ConnectorState{}
 			}
-			if err := m.DriverCheckpoint.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.State.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -6488,7 +6772,7 @@ func (m *TransactionResponse_StartedCommit) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *TransactionResponse_Acknowledged) Unmarshal(dAtA []byte) error {
+func (m *Response_Acknowledged) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -6685,7 +6969,7 @@ func (m *Extra_ValidateExistingProjectionRequest) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.ProposedBinding == nil {
-				m.ProposedBinding = &ValidateRequest_Binding{}
+				m.ProposedBinding = &Request_Validate_Binding{}
 			}
 			if err := m.ProposedBinding.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
@@ -6808,10 +7092,10 @@ func (m *Extra_ValidateBindingAgainstConstraints) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.Constraints == nil {
-				m.Constraints = make(map[string]*Constraint)
+				m.Constraints = make(map[string]*Response_Validated_Constraint)
 			}
 			var mapkey string
-			var mapvalue *Constraint
+			var mapvalue *Response_Validated_Constraint
 			for iNdEx < postIndex {
 				entryPreIndex := iNdEx
 				var wire uint64
@@ -6885,7 +7169,7 @@ func (m *Extra_ValidateBindingAgainstConstraints) Unmarshal(dAtA []byte) error {
 					if postmsgIndex > l {
 						return io.ErrUnexpectedEOF
 					}
-					mapvalue = &Constraint{}
+					mapvalue = &Response_Validated_Constraint{}
 					if err := mapvalue.Unmarshal(dAtA[iNdEx:postmsgIndex]); err != nil {
 						return err
 					}

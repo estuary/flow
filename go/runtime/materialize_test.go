@@ -7,6 +7,7 @@ import (
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	po "github.com/estuary/flow/go/protocols/ops"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,23 +15,23 @@ func TestMaterializationStats(t *testing.T) {
 	// Simulate a materialization with two bindings, where only one of them participated in the
 	// transaction, to exercise the conditional inclusion of binding stats.
 	var materializationSpec = pf.MaterializationSpec{
-		Materialization: pf.Materialization("test/materialization"),
+		Name: "test/materialization",
 		Bindings: []*pf.MaterializationSpec_Binding{
 			{
 				Collection: pf.CollectionSpec{
-					Collection: pf.Collection("test/collectionA"),
+					Name: "test/collectionA",
 				},
 			},
 			{
 				Collection: pf.CollectionSpec{
-					Collection: pf.Collection("test/collectionA"),
+					Name: "test/collectionA",
 				},
 			},
 		},
 	}
 	var subject = Materialize{
 		taskTerm: taskTerm{
-			StatsFormatter: newTestFormatter("test/materialization", "materialization"),
+			StatsFormatter: newTestFormatter("test/materialization", po.Shard_materialization),
 		},
 		spec: materializationSpec,
 	}
@@ -139,14 +140,14 @@ func testTxnStartTime() time.Time {
 
 func assertEventMeta(t *testing.T, event ops.StatsEvent, task pf.Task, expectKind string) {
 	require.Equal(t, task.TaskName(), event.Shard.Name)
-	require.Equal(t, expectKind, event.Shard.Kind)
+	require.Equal(t, expectKind, event.Shard.Kind.String())
 	require.Equal(t, "00000000", event.Shard.KeyBegin)
 	require.Equal(t, "00000000", event.Shard.RClockBegin)
 	// Assert that the timestamp is a truncated version of the full timestamp above
 	require.Equal(t, "2021-09-10T08:09:00Z", event.Timestamp.Format(time.RFC3339))
 }
 
-func newTestFormatter(name, kind string) *StatsFormatter {
+func newTestFormatter(name string, kind po.Shard_Kind) *StatsFormatter {
 	var labeling = labels.ShardLabeling{
 		Build:    "tha build",
 		Range:    pf.NewFullRange(),
@@ -154,9 +155,9 @@ func newTestFormatter(name, kind string) *StatsFormatter {
 		TaskType: kind,
 	}
 	var testStatsCollectionSpec = &pf.CollectionSpec{
-		Collection:      pf.Collection("ops/test/stats"),
+		Name:            "ops/test/stats",
 		PartitionFields: []string{"kind", "name"},
-		KeyPtrs:         []string{"/shard/name", "/shard/keyBegin", "/shard/rClockBegin", "/ts"},
+		Key:             []string{"/shard/name", "/shard/keyBegin", "/shard/rClockBegin", "/ts"},
 	}
 	var f, err = NewStatsFormatter(labeling, testStatsCollectionSpec)
 	if err != nil {

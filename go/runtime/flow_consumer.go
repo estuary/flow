@@ -11,8 +11,8 @@ import (
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/ops"
-	"github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	po "github.com/estuary/flow/go/protocols/ops"
 	"github.com/estuary/flow/go/shuffle"
 	"github.com/pkg/errors"
 	"go.gazette.dev/core/broker/client"
@@ -77,11 +77,11 @@ func (f *FlowConsumer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder)
 
 	var taskType = shard.Spec().LabelSet.ValueOf(labels.TaskType)
 	switch taskType {
-	case labels.TaskTypeCapture:
+	case po.Shard_capture.String():
 		return NewCaptureApp(f, shard, rec)
-	case labels.TaskTypeDerivation:
+	case po.Shard_derivation.String():
 		return NewDeriveApp(f, shard, rec)
-	case labels.TaskTypeMaterialization:
+	case po.Shard_materialization.String():
 		return NewMaterializeApp(f, shard, rec)
 	default:
 		return nil, fmt.Errorf("don't know how to serve catalog task type %q", taskType)
@@ -119,9 +119,7 @@ func (f *FlowConsumer) FinishedTxn(shard consumer.Shard, store consumer.Store, f
 func logTxnFinished(publisher ops.Publisher, op consumer.OpFuture) {
 	go func() {
 		if err := op.Err(); err != nil && errors.Cause(err) != context.Canceled {
-			ops.PublishLog(publisher, pf.LogLevel_error,
-				"shard failed",
-				"error", err)
+			ops.PublishLog(publisher, po.Log_error, "shard failed", "error", err)
 		}
 	}()
 }
@@ -211,7 +209,6 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 	}
 
 	pf.RegisterShufflerServer(args.Server.GRPCServer, shuffle.NewAPI(args.Service.Resolver))
-	capture.RegisterRuntimeServer(args.Server.GRPCServer, f)
 
 	f.NetworkProxyServer = NewProxyServer(args.Service.Resolver)
 	pf.RegisterNetworkProxyServer(args.Server.GRPCServer, f.NetworkProxyServer)

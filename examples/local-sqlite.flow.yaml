@@ -1,7 +1,0 @@
-# Example catalog tailored to local development environments
-
-import:
-  - all-collections.flow.yaml
-
-storageMappings:
-  "": { stores: [{ provider: S3, bucket: a-bucket }] }

@@ -3,7 +3,7 @@ use crate::{ArchivedNode, HeapDoc, HeapNode, LazyNode, Pointer, Validator};
 use bumpalo::Bump;
 use std::cell::UnsafeCell;
 use std::pin::Pin;
-use std::{cmp, io, ops, rc::Rc};
+use std::{cmp, io, ops};
 
 /// MemTable is an in-memory combiner of HeapDocs.
 /// It requires heap memory for storing and reducing documents.
@@ -17,10 +17,16 @@ pub struct MemTable {
     //
     // Safety: MemTable never lends a reference to `entries`.
     entries: UnsafeCell<Entries>,
-    key: Rc<[Pointer]>,
+    key: Box<[Pointer]>,
     schema: Option<url::Url>,
     zz_alloc: Pin<Box<Bump>>,
 }
+
+// Safety: MemTable is safe to Send because `entries` never has lent references,
+// and we're sending `entries` and its corresponding Bump allocator together.
+// It would _not_ be safe to separately send `entries` and the allocator,
+// and so we do not do that.
+unsafe impl Send for MemTable {}
 
 struct Entries {
     // Queued documents are in any order.
@@ -144,7 +150,7 @@ impl Entries {
 }
 
 impl MemTable {
-    pub fn new(key: Rc<[Pointer]>, schema: Option<url::Url>, validator: Validator) -> Self {
+    pub fn new(key: Box<[Pointer]>, schema: Option<url::Url>, validator: Validator) -> Self {
         assert!(!key.is_empty());
 
         let alloc = Box::pin(HeapNode::new_allocator());
@@ -214,7 +220,7 @@ impl MemTable {
     ) -> Result<
         (
             Vec<HeapDoc<'static>>,
-            Rc<[Pointer]>,
+            Box<[Pointer]>,
             Option<url::Url>,
             Validator,
             Pin<Box<Bump>>,
@@ -266,7 +272,7 @@ impl MemTable {
         self,
         writer: &mut SpillWriter<F>,
         chunk_target_size: ops::Range<usize>,
-    ) -> Result<(Rc<[Pointer]>, Option<url::Url>, Validator), Error> {
+    ) -> Result<(Box<[Pointer]>, Option<url::Url>, Validator), Error> {
         let (sorted, key, schema, validator, alloc) = self.try_into_parts()?;
 
         let docs = sorted.len();
@@ -301,11 +307,15 @@ impl MemTable {
 pub struct MemDrainer {
     it1: std::iter::Peekable<std::vec::IntoIter<HeapDoc<'static>>>,
     it2: std::iter::Peekable<std::vec::IntoIter<HeapDoc<'static>>>,
-    key: Rc<[Pointer]>,
+    key: Box<[Pointer]>,
     schema: Option<url::Url>,
     validator: Validator,
     zz_alloc: Pin<Box<Bump>>, // Careful! Order matters. See MemTable.
 }
+
+// Safety: MemDrainer is safe to Send because its iterators never have lent references,
+// and we're sending them and their backing Bump allocator together.
+unsafe impl Send for MemDrainer {}
 
 impl MemDrainer {
     /// Drain documents from this MemDrainer by invoking the given callback.
@@ -359,7 +369,7 @@ impl MemDrainer {
         }
     }
 
-    pub fn into_parts(self) -> (Rc<[Pointer]>, Option<url::Url>, Validator) {
+    pub fn into_parts(self) -> (Box<[Pointer]>, Option<url::Url>, Validator) {
         let MemDrainer {
             it1,
             it2,

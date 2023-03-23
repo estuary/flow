@@ -46,7 +46,7 @@ pub fn extract_uuid_parts(v: &serde_json::Value, ptr: &doc::Pointer) -> Option<f
             | (c_high as u64) << 52                 // Clock high bits.
             | ((seq_node_id[0] as u64) >> 2) & 0xf, // High 4 bits of sequence number.
 
-                producer_and_flags: (seq_node_id[2] as u64) << 56 // 6 bytes of big-endian node ID.
+                node: (seq_node_id[2] as u64) << 56 // 6 bytes of big-endian node ID.
             | (seq_node_id[3] as u64) << 48
             | (seq_node_id[4] as u64) << 40
             | (seq_node_id[5] as u64) << 32
@@ -120,7 +120,7 @@ impl cgo::Service for API {
                     }
                 })?;
 
-                if proto_gazette::message_flags::ACK_TXN & uuid.producer_and_flags != 0 {
+                if proto_gazette::message_flags::ACK_TXN & uuid.node != 0 {
                     // Transaction acknowledgements aren't expected to validate.
                 } else if let Some(validator) = &mut state.validator {
                     validator
@@ -172,7 +172,7 @@ mod test {
         assert_eq!(
             extract_uuid_parts(&v, &doc::Pointer::from("/_meta/uuid")).unwrap(),
             flow::UuidParts {
-                producer_and_flags: 0x0806070503090000 + 0x02,
+                node: 0x0806070503090000 + 0x02,
                 clock: 0x1eac6a39f2952f32,
             },
         );

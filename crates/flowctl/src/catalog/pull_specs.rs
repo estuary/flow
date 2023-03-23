@@ -1,71 +1,72 @@
 use crate::catalog::{collect_specs, fetch_live_specs, List, NameSelector, SpecTypeSelector};
+use crate::local_specs;
 use crate::CliContext;
-use crate::{source, typescript};
-use anyhow::Context;
 
 /// Arguments for the pull-specs subcommand
 #[derive(Debug, clap::Args)]
 pub struct PullSpecs {
     #[clap(flatten)]
-    pub name_selector: NameSelector,
+    name_selector: NameSelector,
     #[clap(flatten)]
-    pub type_selector: SpecTypeSelector,
-
-    #[clap(flatten)]
-    pub output_args: source::LocalSpecsArgs,
-
-    /// Skip generating typescript classes for derivations.
-    ///
-    /// This is useful if you're authorized to access to a derivation, but
-    /// lack authorization for all of its source collections. In that case,
-    /// generating typescript would return an error due to being unable to
-    /// fetch the source collection specs.
+    type_selector: SpecTypeSelector,
+    /// Root flow specification to create or update.
+    #[clap(long, default_value = "flow.yaml")]
+    target: String,
+    /// Should existing specs be over-written by specs from the Flow control plane?
     #[clap(long)]
-    pub no_generate_typescript: bool,
+    overwrite: bool,
+    /// Should specs be written to the single specification file, or written in the canonical layout?
+    #[clap(long)]
+    flat: bool,
 }
 
 pub async fn do_pull_specs(ctx: &mut CliContext, args: &PullSpecs) -> anyhow::Result<()> {
     let client = ctx.controlplane_client().await?;
-    let columns = vec![
-        "catalog_name",
-        "id",
-        "updated_at",
-        "last_pub_user_email",
-        "last_pub_user_full_name",
-        "last_pub_user_id",
-        "spec_type",
-        "spec",
-    ];
-
-    let list_args = List {
-        flows: true,
-        name_selector: args.name_selector.clone(),
-        type_selector: args.type_selector.clone(),
-        deleted: false, // deleted specs have nothing to pull
-    };
-
-    let live_specs = fetch_live_specs(client, &list_args, columns).await?;
+    // Retrieve identified live specifications.
+    let live_specs = fetch_live_specs(
+        client.clone(),
+        &List {
+            flows: true,
+            name_selector: args.name_selector.clone(),
+            type_selector: args.type_selector.clone(),
+            deleted: false, // deleted specs have nothing to pull
+        },
+        vec![
+            "catalog_name",
+            "id",
+            "updated_at",
+            "last_pub_user_email",
+            "last_pub_user_full_name",
+            "last_pub_user_id",
+            "spec_type",
+            "spec",
+        ],
+    )
+    .await?;
     tracing::debug!(count = live_specs.len(), "successfully fetched live specs");
-    let catalog = collect_specs(live_specs)?;
-    let has_any_derivations = catalog.collections.values().any(|c| c.derivation.is_some());
 
-    source::write_local_specs(catalog, &args.output_args).await?;
-    tracing::info!(%has_any_derivations, "finished writing specs");
+    let target = local_specs::arg_source_to_url(&args.target, true)?;
+    let mut sources = local_specs::surface_errors(local_specs::load(&target).await)?;
 
-    if has_any_derivations && !args.no_generate_typescript {
-        // We intentionally don't re-use the bundled catalog during typescript generation
-        // because there may be pre-existing specs in the directory, and we want typescript
-        // generation to account for all of them.
-        let generate = typescript::Generate {
-            root_dir: args.output_args.output_dir.clone(),
-            source: source::SourceArgs {
-                source_dir: vec![args.output_args.output_dir.display().to_string()],
-                ..Default::default()
-            },
-        };
-        typescript::do_generate(ctx, &generate)
-            .await
-            .context("generating typescript")?;
+    let count = local_specs::extend_from_catalog(
+        &mut sources,
+        collect_specs(live_specs)?,
+        local_specs::pick_policy(args.overwrite, args.flat),
+    );
+    let sources = local_specs::indirect_and_write_resources(sources)?;
+
+    println!("Wrote {count} specifications under {target}.");
+
+    // Validate to generate associated files.
+    let ((sources, validations), errors) =
+        local_specs::inline_and_validate(client.clone(), sources).await;
+    local_specs::write_generated_files(&sources, &validations)?;
+
+    if !errors.is_empty() {
+        tracing::warn!(
+            "The written Flow specifications have {} errors. Run `test` to review",
+            errors.len()
+        );
     }
     Ok(())
 }

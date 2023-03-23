@@ -48,7 +48,6 @@ func (cmd apiAwait) execute(ctx context.Context) error {
 	// Load collections and tasks.
 	var collections []*pf.CollectionSpec
 	var captures []*pf.CaptureSpec
-	var derivations []*pf.DerivationSpec
 	var materializations []*pf.MaterializationSpec
 
 	if err := build.Extract(func(db *sql.DB) error {
@@ -56,9 +55,6 @@ func (cmd apiAwait) execute(ctx context.Context) error {
 			return err
 		}
 		if captures, err = catalog.LoadAllCaptures(db); err != nil {
-			return err
-		}
-		if derivations, err = catalog.LoadAllDerivations(db); err != nil {
 			return err
 		}
 		if materializations, err = catalog.LoadAllMaterializations(db); err != nil {
@@ -75,21 +71,17 @@ func (cmd apiAwait) execute(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("building test driver: %w", err)
 	}
-	var graph = testing.NewGraph(captures, derivations, materializations)
+	var graph = testing.NewGraph(captures, collections, materializations)
 
 	// "Ingest" the capture EOF pseudo-journal to mark
 	// capture tasks as having a pending stat, which is recursively tracked
 	// through derivations and materializations of the catalog.
 	for _, capture := range captures {
-		if capture.EndpointType == pf.EndpointType_INGEST {
-			continue // Skip ingestions, which never EOF.
-		}
-
 		graph.CompletedIngest(
-			pf.Collection(capture.Capture),
+			pf.Collection(capture.Name),
 			&testing.Clock{
 				Etcd:    *brokerHeader,
-				Offsets: pb.Offsets{pb.Journal(fmt.Sprintf("%s/eof", capture.Capture)): 1},
+				Offsets: pb.Offsets{pb.Journal(fmt.Sprintf("%s/eof", capture.Name)): 1},
 			},
 		)
 	}

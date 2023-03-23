@@ -13,11 +13,10 @@ name = "flow-connector-init"
 path = "src/main.rs"
 
 [dependencies]
-connector-protocol = { path = "../connector-protocol" }
+async-process = { path = "../async-process" }
 ops = { path = "../ops" }
-proto-convert = { path = "../proto-convert" }
 proto-flow = { path = "../proto-flow" }
-proto-grpc = { path = "../proto-grpc", features = ["capture_server", "materialize_server", "flow_server"] }
+proto-grpc = { path = "../proto-grpc", features = ["capture_server", "derive_server", "materialize_server", "flow_server"] }
 
 async-trait = { workspace = true }
 anyhow = { workspace = true }

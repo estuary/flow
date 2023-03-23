@@ -3,34 +3,32 @@ source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 Sources {
-    capture_bindings: [],
     captures: [],
     collections: [],
-    derivations: [],
     errors: [
         Error {
-            scope: test://example/catalog-err-not-an-array.yaml,
-            error: failed to parse document (data did not match any variant of untagged enum TestDocuments at line 1 column 107)
-            
-            Caused by:
-                data did not match any variant of untagged enum TestDocuments at line 1 column 107,
-        },
-        Error {
-            scope: test://example/catalog-err-not-an-object.yaml,
-            error: failed to parse document (data did not match any variant of untagged enum TestDocuments at line 1 column 106)
-            
-            Caused by:
-                data did not match any variant of untagged enum TestDocuments at line 1 column 106,
-        },
-        Error {
-            scope: test://example/not-an-array.json,
-            error: failed to parse document fixtures (https://go.estuary.dev/NGT3es)
+            scope: test://example/catalog-err-not-an-array.yaml#/tests/acmeCo~1parse~1failure/0/documents,
+            error: failed to parse document fixtures as an array of objects
             
             Caused by:
                 invalid type: map, expected a sequence at line 1 column 0,
         },
         Error {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/1,
+            scope: test://example/catalog-err-not-an-object.yaml#/tests/acmeCo~1parse~1failure/0/documents,
+            error: failed to parse document fixtures as an array of objects
+            
+            Caused by:
+                invalid type: string "not-an-object", expected a map at line 1 column 16,
+        },
+        Error {
+            scope: test://example/not-an-array.json,
+            error: failed to parse document fixtures as an array of objects
+            
+            Caused by:
+                invalid type: map, expected a sequence at line 1 column 0,
+        },
+        Error {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/1/documents,
             error: failed to fetch resource test://example/not-found.json
             
             Caused by:
@@ -70,54 +68,30 @@ Sources {
     imports: [
         Import {
             scope: test://example/catalog.yaml#/import/0,
-            from_resource: test://example/catalog.yaml,
             to_resource: test://example/catalog-err-not-an-array.yaml,
         },
         Import {
             scope: test://example/catalog.yaml#/import/1,
-            from_resource: test://example/catalog.yaml,
             to_resource: test://example/catalog-err-not-an-object.yaml,
         },
         Import {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/0,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/0,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/1,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/1,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/2,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/2,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/0,
-            from_resource: test://example/catalog.yaml,
+            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/0/documents,
             to_resource: test://example/not-an-array.json,
         },
         Import {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/1,
-            from_resource: test://example/catalog.yaml,
+            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/1/documents,
             to_resource: test://example/not-found.json,
         },
         Import {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/3,
-            from_resource: test://example/catalog.yaml,
+            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/3/documents,
             to_resource: test://example/snapshots/ingest.json,
         },
         Import {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/4,
-            from_resource: test://example/catalog.yaml,
+            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/4/documents,
             to_resource: test://example/snapshots/verify.json,
         },
     ],
-    materialization_bindings: [],
     materializations: [],
-    npm_dependencies: [],
-    projections: [],
     resources: [
         Resource {
             resource: test://example/catalog-err-not-an-array.yaml,
@@ -135,25 +109,7 @@ Sources {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"import":["catalog-err-not-an-array.yaml","catalog-err-not-an-object.yaml"],"tests":{"acmeCo/errors/test":[{"ingest":{"collection":"test/collection","description":"This isn't an array.","documents":"./not-an-array.json"}},{"verify":{"collection":"test/collection","description":"This is missing.","documents":"./not-found.json"}}],"acmeCo/widgest/test":[{"ingest":{"collection":"test/collection","description":"Import some foos","documents":[{"ingest":1},{"next":"ingest"}]}},{"verify":{"collection":"test/collection","description":"Verify without a selector.","documents":[{"verify":2},{"next":false}]}},{"verify":{"collection":"test/collection","documents":[{"verify":3},{"fin":null}],"partitions":{"exclude":{},"include":{"a_field":["some-val"]}}}},{"ingest":{"collection":"test/collection","description":"Import more foos via file fixture.","documents":"./snapshots/ingest.json"}},{"verify":{"collection":"test/collection","description":"Verify via file fixture.","documents":"./snapshots/verify.json"}}]}},
-        },
-        Resource {
-            resource: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/0,
-            content_type: "DOCUMENTS_FIXTURE",
-            content: ".. binary ..",
-            content_dom: [{"ingest":1},{"next":"ingest"}],
-        },
-        Resource {
-            resource: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/1,
-            content_type: "DOCUMENTS_FIXTURE",
-            content: ".. binary ..",
-            content_dom: [{"verify":2},{"next":false}],
-        },
-        Resource {
-            resource: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/2,
-            content_type: "DOCUMENTS_FIXTURE",
-            content: ".. binary ..",
-            content_dom: [{"verify":3},{"fin":null}],
+            content_dom: {"import":["catalog-err-not-an-array.yaml","catalog-err-not-an-object.yaml"],"tests":{"acmeCo/errors/test":[{"ingest":{"collection":"test/collection","description":"This isn't an array.","documents":"./not-an-array.json"}},{"verify":{"collection":"test/collection","description":"This is missing.","documents":"./not-found.json"}}],"acmeCo/widgest/test":[{"ingest":{"collection":"test/collection","description":"Import some foos","documents":[{"ingest":1},{"next":"ingest"}]}},{"verify":{"collection":"test/collection","description":"Verify without a selector.","documents":[{"verify":2},{"next":false}]}},{"verify":{"collection":{"name":"test/collection","partitions":{"exclude":{},"include":{"a_field":["some-val"]}}},"documents":[{"verify":3},{"fin":null}]}},{"ingest":{"collection":"test/collection","description":"Import more foos via file fixture.","documents":"./snapshots/ingest.json"}},{"verify":{"collection":"test/collection","description":"Verify via file fixture.","documents":"./snapshots/verify.json"}}]}},
         },
         Resource {
             resource: test://example/not-an-array.json,
@@ -171,110 +127,104 @@ Sources {
             resource: test://example/snapshots/verify.json,
             content_type: "DOCUMENTS_FIXTURE",
             content: ".. binary ..",
-            content_dom: [{"a":"verify"}],
+            content_dom: [{"a":"verify"},{"another":"one that is pretty long and causes this not to be inline"}],
         },
     ],
-    schema_docs: [],
     storage_mappings: [],
-    test_steps: [
-        TestStep {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/0,
+    tests: [
+        Test {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test,
             test: acmeCo/errors/test,
-            step_index: 0,
-            spec: {
-              "ingest": {
-                "description": "This isn't an array.",
-                "collection": "test/collection",
-                "documents": []
-              }
-            },
-            documents: test://example/not-an-array.json,
-        },
-        TestStep {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/1,
-            test: acmeCo/errors/test,
-            step_index: 1,
-            spec: {
-              "verify": {
-                "description": "This is missing.",
-                "collection": "test/collection",
-                "documents": []
-              }
-            },
-            documents: test://example/not-found.json,
-        },
-        TestStep {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/0,
-            test: acmeCo/widgest/test,
-            step_index: 0,
-            spec: {
-              "ingest": {
-                "description": "Import some foos",
-                "collection": "test/collection",
-                "documents": []
-              }
-            },
-            documents: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/0,
-        },
-        TestStep {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/1,
-            test: acmeCo/widgest/test,
-            step_index: 1,
-            spec: {
-              "verify": {
-                "description": "Verify without a selector.",
-                "collection": "test/collection",
-                "documents": []
-              }
-            },
-            documents: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/1,
-        },
-        TestStep {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/2,
-            test: acmeCo/widgest/test,
-            step_index: 2,
-            spec: {
-              "verify": {
-                "collection": "test/collection",
-                "documents": [],
-                "partitions": {
-                  "include": {
-                    "a_field": [
-                      "some-val"
-                    ]
-                  },
-                  "exclude": {}
+            spec: [
+              {
+                "ingest": {
+                  "description": "This isn't an array.",
+                  "collection": "test/collection",
+                  "documents": "./not-an-array.json"
+                }
+              },
+              {
+                "verify": {
+                  "description": "This is missing.",
+                  "collection": "test/collection",
+                  "documents": "./not-found.json"
                 }
               }
-            },
-            documents: test://example/catalog.yaml?ptr=/tests/acmeCo~1widgest~1test/2,
+            ],
         },
-        TestStep {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/3,
-            test: acmeCo/widgest/test,
-            step_index: 3,
-            spec: {
-              "ingest": {
-                "description": "Import more foos via file fixture.",
-                "collection": "test/collection",
-                "documents": []
+        Test {
+            scope: test://example/catalog-err-not-an-array.yaml#/tests/acmeCo~1parse~1failure,
+            test: acmeCo/parse/failure,
+            spec: [
+              {
+                "ingest": {
+                  "collection": "test/collection",
+                  "documents": {"not":"an array"}
+                }
               }
-            },
-            documents: test://example/snapshots/ingest.json,
+            ],
         },
-        TestStep {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/4,
-            test: acmeCo/widgest/test,
-            step_index: 4,
-            spec: {
-              "verify": {
-                "description": "Verify via file fixture.",
-                "collection": "test/collection",
-                "documents": []
+        Test {
+            scope: test://example/catalog-err-not-an-object.yaml#/tests/acmeCo~1parse~1failure,
+            test: acmeCo/parse/failure,
+            spec: [
+              {
+                "ingest": {
+                  "collection": "test/collection",
+                  "documents": ["not-an-object"]
+                }
               }
-            },
-            documents: test://example/snapshots/verify.json,
+            ],
+        },
+        Test {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test,
+            test: acmeCo/widgest/test,
+            spec: [
+              {
+                "ingest": {
+                  "description": "Import some foos",
+                  "collection": "test/collection",
+                  "documents": [{"ingest":1},{"next":"ingest"}]
+                }
+              },
+              {
+                "verify": {
+                  "description": "Verify without a selector.",
+                  "collection": "test/collection",
+                  "documents": [{"verify":2},{"next":false}]
+                }
+              },
+              {
+                "verify": {
+                  "collection": {
+                    "name": "test/collection",
+                    "partitions": {
+                      "include": {
+                        "a_field": [
+                          "some-val"
+                        ]
+                      },
+                      "exclude": {}
+                    }
+                  },
+                  "documents": [{"verify":3},{"fin":null}]
+                }
+              },
+              {
+                "ingest": {
+                  "description": "Import more foos via file fixture.",
+                  "collection": "test/collection",
+                  "documents": "./snapshots/ingest.json"
+                }
+              },
+              {
+                "verify": {
+                  "description": "Verify via file fixture.",
+                  "collection": "test/collection",
+                  "documents": "./snapshots/verify.json"
+                }
+              }
+            ],
         },
     ],
-    transforms: [],
 }

@@ -3,22 +3,26 @@ source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 Sources {
-    capture_bindings: [],
     captures: [],
     collections: [
         Collection {
             scope: test://example/catalog.yaml#/collections/a~1collection,
             collection: a/collection,
             spec: {
+              "schema": "test://example/schema",
               "key": [
                 "/key"
-              ]
+              ],
+              "projections": {
+                "baz": {
+                  "location": "/bing",
+                  "partition": true
+                },
+                "foo": "/bar"
+              }
             },
-            write_schema: test://example/schema,
-            read_schema: test://example/schema,
         },
     ],
-    derivations: [],
     errors: [
         Error {
             scope: test://example/catalog.yaml#/import/1,
@@ -56,51 +60,22 @@ Sources {
     imports: [
         Import {
             scope: test://example/catalog.yaml#/collections/a~1collection/schema,
-            from_resource: test://example/catalog.yaml,
             to_resource: test://example/schema,
         },
         Import {
             scope: test://example/catalog.yaml#/import/0,
-            from_resource: test://example/catalog.yaml,
             to_resource: test://example/sibling,
         },
         Import {
             scope: test://example/catalog.yaml#/import/1,
-            from_resource: test://example/catalog.yaml,
             to_resource: test://example/sibling#/bad/fragment,
         },
         Import {
             scope: test://example/catalog.yaml#/import/2,
-            from_resource: test://example/catalog.yaml,
             to_resource: test://not/found,
         },
     ],
-    materialization_bindings: [],
     materializations: [],
-    npm_dependencies: [],
-    projections: [
-        Projection {
-            scope: test://example/catalog.yaml#/collections/a~1collection/projections/baz,
-            collection: a/collection,
-            field: baz,
-            spec: {
-              "location": "/bing",
-              "partition": true
-            },
-        },
-        Projection {
-            scope: test://example/catalog.yaml#/collections/a~1collection/projections/flow_document,
-            collection: a/collection,
-            field: flow_document,
-            spec: "",
-        },
-        Projection {
-            scope: test://example/catalog.yaml#/collections/a~1collection/projections/foo,
-            collection: a/collection,
-            field: foo,
-            spec: "/bar",
-        },
-    ],
     resources: [
         Resource {
             resource: test://example/catalog.yaml,
@@ -121,13 +96,6 @@ Sources {
             content_dom: {},
         },
     ],
-    schema_docs: [
-        SchemaDoc {
-            schema: test://example/schema,
-            dom: true,
-        },
-    ],
     storage_mappings: [],
-    test_steps: [],
-    transforms: [],
+    tests: [],
 }

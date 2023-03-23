@@ -47,22 +47,22 @@ func NewUUIDParts(uuid message.UUID) UUIDParts {
 	binary.BigEndian.PutUint16(tmp[6:8], uint16(message.GetFlags(uuid)))
 
 	return UUIDParts{
-		ProducerAndFlags: binary.BigEndian.Uint64(tmp[:]),
-		Clock:            message.GetClock(uuid),
+		Node:  binary.BigEndian.Uint64(tmp[:]),
+		Clock: message.GetClock(uuid),
 	}
 }
 
 // Pack this UUIDParts into a message.UUID.
 func (parts *UUIDParts) Pack() message.UUID {
 	var tmp [8]byte
-	binary.BigEndian.PutUint64(tmp[:], parts.ProducerAndFlags)
+	binary.BigEndian.PutUint64(tmp[:], parts.Node)
 	var producerID message.ProducerID
 	copy(producerID[:], tmp[:6])
 
 	return message.BuildUUID(
 		producerID,
 		parts.Clock,
-		message.Flags(parts.ProducerAndFlags),
+		message.Flags(parts.Node),
 	)
 }
 
@@ -71,8 +71,8 @@ func (parts *UUIDParts) Pack() message.UUID {
 type IndexedShuffleResponse struct {
 	ShuffleResponse
 	Index int
-	// Shuffle on whose behalf this document was read.
-	Shuffle *Shuffle
+	// Index of the Transform or Binding on whose behalf this document was read.
+	ShuffleIndex int
 }
 
 var _ message.Message = IndexedShuffleResponse{}

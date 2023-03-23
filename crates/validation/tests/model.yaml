@@ -104,10 +104,11 @@ test://example/webhook-deliveries:
           image: webhook/connector
           config: webhook-config.yaml
       bindings:
-        - source: testing/int-string
-          partitions:
-            include:
-              bit: [true]
+        - source:
+            name: testing/int-string
+            partitions:
+              include:
+                bit: [true]
           resource: { fixture: one }
           fields:
             include:
@@ -154,13 +155,14 @@ test://example/int-string-tests:
             - { int: 52, str: "string B", bit: true }
       - verify:
           description: expect stuff happens
-          collection: testing/int-string
+          collection:
+            name: testing/int-string
+            partitions:
+              include:
+                bit: [true]
           documents:
             - { str: "string A" }
             - { str: "string B" }
-          partitions:
-            include:
-              bit: [true]
 
 test://example/int-reverse:
   import:
@@ -170,19 +172,16 @@ test://example/int-reverse:
     testing/int-reverse:
       schema: test://example/int-string.schema
       key: [/int]
-      derivation:
-        typescript:
-          module: int-reverse.ts
-          npmDependencies:
-            package-one: "v1.2.3"
-        transform:
-          reverseIntString:
+      derive:
+        using:
+          typescript:
+            module: int-reverse.ts
+        transforms:
+          - name: reverseIntString
             source:
               name: testing/int-string
-            publish: { lambda: typescript }
 
-test://example/int-reverse.ts:
-  typescript: "module placeholder"
+test://example/int-reverse.ts: typescript module placeholder
 
 test://example/int-halve:
   collections:
@@ -204,15 +203,12 @@ test://example/int-halve:
         fragments:
           length: 11223344
           flushInterval: 15m
-      derivation:
-        register:
-          schema:
-            type: integer
-          initial: 42
-        typescript:
-          module: int-halve.ts
-        transform:
-          halveIntString:
+      derive:
+        using:
+          typescript:
+            module: int-halve.ts
+        transforms:
+          - name: halveIntString
             source:
               name: testing/int-string-rw
               partitions:
@@ -224,22 +220,18 @@ test://example/int-halve:
               # Note that /len is defined in int-string-rw's readSchema,
               # but not its writeSchema.
               key: [/len, /str]
-            update:
-              lambda:
-                remote: https://an/api
 
-          halveSelf:
+          - name: halveSelf
             source:
               name: testing/int-halve
             shuffle:
               # Shuffle key is fully covered by logical partition fields.
               key: [/len, /partitionString]
-            publish: { lambda: typescript }
         shards:
           disable: true
 
-test://example/int-halve.ts:
-  typescript: "module placeholder"
+test://example/int-halve.ts: |
+  another typescript placeholder
 
 test://example/int-string.schema:
   type: object
@@ -301,46 +293,81 @@ driver:
 
   materializations:
     testing/webhook/deliveries:
-      endpoint: FLOW_SINK
-      spec:
+      connectorType: IMAGE
+      config:
         image: webhook/connector
         config:
           address: http://example/webhook
       deltaUpdates: true
       bindings:
         - constraints:
-            flow_document: { type: 1, reason: "location required" }
+            flow_document: { type: 2, reason: "location required" }
             # `Int`, as a user-defined projection, would be selected
             # over `int`. However, `int` is required by the driver,
             # and chosen instead.
-            Int: { type: 2, reason: "recommended" }
-            int: { type: 0, reason: "field required" }
-            str: { type: 3, reason: "optional" }
-            bit: { type: 4, reason: "field forbidden" }
+            Int: { type: 3, reason: "recommended" }
+            int: { type: 1, reason: "field required" }
+            str: { type: 4, reason: "optional" }
+            bit: { type: 5, reason: "field forbidden" }
           resourcePath: [Web!hook, foo bar]
 
         - constraints:
-            Root: { type: 1, reason: "location required" }
-            int: { type: 0, reason: "required" }
-            Extra: { type: 1, reason: "location required" }
+            Root: { type: 2, reason: "location required" }
+            int: { type: 1, reason: "required" }
+            Extra: { type: 2, reason: "location required" }
             Len: { type: 3, reason: "optional" }
           resourcePath: [targe+, two]
 
     testing/db-views:
-      endpoint: FLOW_SINK
-      spec:
+      connectorType: IMAGE
+      config:
         image: database/image
         config: { foo: bar }
       deltaUpdates: false
       bindings:
         - constraints:
-            flow_document: { type: 1, reason: "location required" }
+            flow_document: { type: 2, reason: "location required" }
           resourcePath: [view]
+
+  derivations:
+    testing/int-reverse:
+      connectorType: TYPESCRIPT
+      config:
+        module: typescript module placeholder
+      shuffleKeyTypes: [INTEGER]
+      transforms:
+        - readOnly: true
+      generatedFiles: {}
+
+    testing/from-array-key:
+      connectorType: SQLITE
+      config:
+        migrations:
+          - select migration;
+          - test://example/mi%C3%9F%C3%9Fing/migration.sql
+      transforms:
+        - readOnly: true
+        - readOnly: false
+      shuffleKeyTypes: [INTEGER]
+      generatedFiles:
+        test://example/mi%C3%9F%C3%9Fing/migration.sql: generated content
+
+    testing/int-halve:
+      connectorType: TYPESCRIPT
+      config:
+        module: |
+          another typescript placeholder
+
+      transforms:
+        - readOnly: false
+        - readOnly: true
+      shuffleKeyTypes: [INTEGER, STRING]
+      generatedFiles: {}
 
   captures:
     testing/s3-source:
-      endpoint: AIRBYTE_SOURCE
-      spec:
+      connectorType: IMAGE
+      config:
         image: s3
         config:
           bucket: a-bucket
@@ -350,8 +377,8 @@ driver:
         - resourcePath: [other-bucket]
 
     testing/db-cdc:
-      endpoint: AIRBYTE_SOURCE
-      spec:
+      connectorType: IMAGE
+      config:
         image: database
         config:
           host: a.host.name
@@ -362,7 +389,7 @@ driver:
 test://example/array-key.schema:
   # This schema models array additionalItems which provably exist,
   # due to minItems, but are not ordinarily generated as inferences.
-  # It excercises our ability to generate inferences from explicit
+  # It exercises our ability to generate inferences from explicit
   # locations referencing the schema from:
   #  - Collection keys.
   #  - Collection projections.
@@ -400,35 +427,21 @@ test://example/from-array-key:
         required: [someKey]
       key: [/someKey]
 
-      derivation:
-        register:
-          schema:
-            type: object
-            properties:
-              an-int: { type: integer }
-              nested:
-                type: object
-                properties:
-                  timestamp:
-                    type: string
-                    format: date-time
-            required: [an-int, nested]
-          initial: { an-int: 42, nested: { timestamp: "2019-03-06T09:28:00Z" } }
-        transform:
-          # The shuffle keys of these transforms become projections
-          # of the read collection.
-          withBar:
+      derive:
+        using:
+          sqlite:
+            migrations:
+              - select migration;
+              - ./mißßing/migration.sql
+        transforms:
+          - name: withBar
             source: { name: testing/array-key }
             shuffle: { key: [/arr/2/aKey] }
-            update:
-              lambda:
-                sql: select aKeyOne as "an-int", json_object('timestamp', strftime('%Y-%m-%dT%H:%M:%SZ')) as two from source
-            publish:
-              lambda:
-                sql: |
-                  select s.aKeyOne, s.arr, s."arr/0/aKey", r."an-int", r."nested/timestamp" from source as s, register as r
+            lambda: |
+              select aKeyOne as "an-int", json_object('timestamp', strftime('%Y-%m-%dT%H:%M:%SZ')) as two from source;
 
-          withFoo:
+          - name: withFoo
             source: { name: testing/array-key }
             shuffle: { key: [/arr/3/aKey] }
-            publish: { lambda: { remote: https://an/api } }
+            lambda: |
+              select s.aKeyOne, s.arr, s."arr/0/aKey", r."an-int", r."nested/timestamp" from source as s, register as r;

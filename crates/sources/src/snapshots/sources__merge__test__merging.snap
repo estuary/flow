@@ -1,0 +1,152 @@
+---
+source: crates/sources/src/merge.rs
+expression: tgt
+---
+Sources {
+    captures: [
+        Capture {
+            scope: test://example/catalog.yaml#/captures/acmeCo~1captures~1exists,
+            capture: acmeCo/captures/exists,
+            spec: {
+              "endpoint": {
+                "connector": {
+                  "image": "an/image",
+                  "config": ["updated"]
+                }
+              },
+              "bindings": []
+            },
+        },
+        Capture {
+            scope: test://example/acmeCo/one/flow.yaml,
+            capture: acmeCo/one/new,
+            spec: {
+              "endpoint": {
+                "connector": {
+                  "image": "other/image",
+                  "config": 42
+                }
+              },
+              "bindings": []
+            },
+        },
+    ],
+    collections: [
+        Collection {
+            scope: test://example/catalog.yaml#/collections/acmeCo~1collections~1exists,
+            collection: acmeCo/collections/exists,
+            spec: {
+              "schema": {"const":["updated-value"]},
+              "key": [
+                "/int"
+              ]
+            },
+        },
+        Collection {
+            scope: test://example/acmeCo/one/flow.yaml,
+            collection: acmeCo/one/new,
+            spec: {
+              "schema": true,
+              "key": [
+                "/int"
+              ]
+            },
+        },
+    ],
+    errors: [],
+    fetches: [
+        Fetch {
+            depth: 1,
+            resource: test://example/catalog.yaml,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/acmeCo/flow.yaml,
+        },
+    ],
+    imports: [
+        Import {
+            scope: test://example/acmeCo/flow.yaml#/import/-,
+            to_resource: test://example/acmeCo/one/flow.yaml,
+        },
+        Import {
+            scope: test://example/acmeCo/flow.yaml#/import/-,
+            to_resource: test://example/acmeCo/two/flow.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/-,
+            to_resource: test://example/acmeCo/flow.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/0,
+            to_resource: test://example/acmeCo/flow.yaml,
+        },
+    ],
+    materializations: [
+        Materialization {
+            scope: test://example/catalog.yaml#/materializations/acmeCo~1materializations~1exists,
+            materialization: acmeCo/materializations/exists,
+            spec: {
+              "endpoint": {
+                "connector": {
+                  "image": "an/image",
+                  "config": ["also-updated"]
+                }
+              },
+              "bindings": []
+            },
+        },
+        Materialization {
+            scope: test://example/acmeCo/two/flow.yaml,
+            materialization: acmeCo/two/new,
+            spec: {
+              "endpoint": {
+                "connector": {
+                  "image": "an/image",
+                  "config": 42
+                }
+              },
+              "bindings": []
+            },
+        },
+    ],
+    resources: [
+        Resource {
+            resource: test://example/acmeCo/flow.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+            content_dom: {"import":["one/flow.yaml","two/flow.yaml"]},
+        },
+        Resource {
+            resource: test://example/acmeCo/one/flow.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+            content_dom: {"captures":{"acmeCo/one/new":{"endpoint":{"connector":{"image":"other/image","config":42}},"bindings":[]}},"collections":{"acmeCo/one/new":{"schema":true,"key":["/int"]}}},
+        },
+        Resource {
+            resource: test://example/acmeCo/two/flow.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+            content_dom: {"materializations":{"acmeCo/two/new":{"endpoint":{"connector":{"image":"an/image","config":42}},"bindings":[]}},"tests":{"acmeCo/two/new":[]}},
+        },
+        Resource {
+            resource: test://example/catalog.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+            content_dom: {"import":["acmeCo/flow.yaml"],"captures":{"acmeCo/captures/exists":{"endpoint":{"connector":{"image":"an/image","config":["updated"]}},"bindings":[]}},"collections":{"acmeCo/collections/exists":{"schema":{"const":["updated-value"]},"key":["/int"]}},"materializations":{"acmeCo/materializations/exists":{"endpoint":{"connector":{"image":"an/image","config":["also-updated"]}},"bindings":[]}},"tests":{"acmeCo/tests/exists":[]}},
+        },
+    ],
+    storage_mappings: [],
+    tests: [
+        Test {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1tests~1exists,
+            test: acmeCo/tests/exists,
+            spec: [],
+        },
+        Test {
+            scope: test://example/acmeCo/two/flow.yaml,
+            test: acmeCo/two/new,
+            spec: [],
+        },
+    ],
+}

@@ -17,6 +17,7 @@ import (
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	po "github.com/estuary/flow/go/protocols/ops"
 	"github.com/estuary/flow/go/shuffle"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
@@ -28,7 +29,7 @@ import (
 type Capture struct {
 	driver *connector.Driver
 	// delegate is a pc.PullClient or a pc.PushServer
-	delegate delegate
+	delegate *pc.Client
 	// delegateEOF is set after reading a delegate EOF.
 	delegateEOF bool
 	// FlowConsumer which owns this Capture shard.
@@ -69,7 +70,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	}
 	defer func() {
 		if err == nil {
-			ops.PublishLog(c.opsPublisher, pf.LogLevel_debug,
+			ops.PublishLog(c.opsPublisher, po.Log_debug,
 				"initialized processing term",
 				"capture", c.labels.TaskName,
 				"shard", c.shardSpec.Id,
@@ -77,7 +78,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 				"checkpoint", cp,
 			)
 		} else if !errors.Is(err, context.Canceled) {
-			ops.PublishLog(c.opsPublisher, pf.LogLevel_error,
+			ops.PublishLog(c.opsPublisher, po.Log_error,
 				"failed to initialize processing term",
 				"error", err,
 			)
@@ -86,9 +87,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 
 	// Stop a previous Driver and PullClient / PushServer delegate if it exists.
 	if c.delegate != nil {
-		if err = c.delegate.Close(); err != nil && !errors.Is(err, context.Canceled) {
-			return pf.Checkpoint{}, fmt.Errorf("closing previous connector client: %w", err)
-		}
+		c.delegate.Close()
 		c.delegate = nil
 	}
 	if c.driver != nil {
@@ -109,7 +108,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	if err != nil {
 		return pf.Checkpoint{}, err
 	}
-	ops.PublishLog(c.opsPublisher, pf.LogLevel_debug,
+	ops.PublishLog(c.opsPublisher, po.Log_debug,
 		"loaded specification",
 		"spec", c.spec, "build", c.labels.Build)
 
@@ -147,8 +146,8 @@ func (c *Capture) startReadingMessages(
 	// In the future, we *may* want to generalize the `consumer` package to decouple
 	// its current tight binding with JournalSpecs.
 
-	var txnJournal = &pf.JournalSpec{Name: pf.Journal(fmt.Sprintf("%s/txn", c.spec.Capture))}
-	var eofJournal = &pf.JournalSpec{Name: pf.Journal(fmt.Sprintf("%s/eof", c.spec.Capture))}
+	var txnJournal = &pf.JournalSpec{Name: pf.Journal(fmt.Sprintf("%s/txn", c.spec.Name))}
+	var eofJournal = &pf.JournalSpec{Name: pf.Journal(fmt.Sprintf("%s/eof", c.spec.Name))}
 
 	// Messages that a capture shard "reads" are really just notifications that
 	// data is ready, and that it should run a consumer transaction to publish
@@ -245,71 +244,53 @@ func (c *Capture) startReadingMessages(
 		}
 		return combiner, combiner.Configure(
 			shard.FQN(),
-			binding.Collection.Collection,
+			binding.Collection.Name,
 			binding.Collection.WriteSchemaJson,
 			binding.Collection.UuidPtr,
-			binding.Collection.KeyPtrs,
+			binding.Collection.Key,
 			flow.PartitionPointers(&binding.Collection),
 		)
 	}
 
-	if c.spec.EndpointType == pf.EndpointType_INGEST {
-		// Create a PushServer for the specification.
-		// Careful! Don't assign directly to c.delegate because (*pc.PushServer)(nil) != nil
-		var pushServer, err = pc.NewPushServer(
-			c.taskTerm.ctx,
-			newCombinerFn,
-			c.labels.Range,
-			&c.spec,
-			c.labels.Build,
-			startCommitFn,
-		)
-		if err != nil {
-			return fmt.Errorf("opening push: %w", err)
-		} else {
-			c.delegate = pushServer
-		}
-	} else {
-		// Establish driver connection and start Pull RPC.
-		var err error
-		var exposePorts = c.host.NetworkProxyServer.NetworkConfigHandle(shard.Spec().Id, c.labels.Ports)
-		c.driver, err = connector.NewDriver(
-			c.taskTerm.ctx,
-			c.spec.EndpointSpecJson,
-			c.spec.EndpointType,
-			c.opsPublisher,
-			c.host.Config.Flow.Network,
-			exposePorts,
-		)
-		if err != nil {
-			return fmt.Errorf("building endpoint driver: %w", err)
-		}
-
-		// Open a Pull RPC stream for the capture.
-		err = connector.WithUnsealed(c.driver, &c.spec, func(unsealed *pf.CaptureSpec) error {
-			// Careful! Don't assign directly to c.delegate because (*pc.PullClient)(nil) != nil
-			if pullClient, err := pc.OpenPull(
-				c.taskTerm.ctx,
-				c.driver.CaptureClient(),
-				loadDriverCheckpoint(c.store),
-				newCombinerFn,
-				c.labels.Range,
-				unsealed,
-				c.labels.Build,
-				startCommitFn,
-			); err != nil {
-				return err
-			} else {
-				c.delegate = pullClient
-				return nil
-			}
-		})
-		if err != nil {
-			return fmt.Errorf("opening pull RPC: %w", err)
-		}
+	// Establish driver connection and start Pull RPC.
+	var err error
+	var exposePorts = c.host.NetworkProxyServer.NetworkConfigHandle(shard.Spec().Id, c.labels.Ports)
+	c.driver, err = connector.NewDriver(
+		c.taskTerm.ctx,
+		c.spec.ConfigJson,
+		c.spec.ConnectorType.String(),
+		c.opsPublisher,
+		c.host.Config.Flow.Network,
+		exposePorts,
+	)
+	if err != nil {
+		return fmt.Errorf("building endpoint driver: %w", err)
 	}
 
-	ops.PublishLog(c.opsPublisher, pf.LogLevel_debug,
+	// Open a Pull RPC stream for the capture.
+	err = connector.WithUnsealed(c.driver, &c.spec, func(unsealed *pf.CaptureSpec) error {
+		// Careful! Don't assign directly to c.delegate because (*pc.PullClient)(nil) != nil
+		if pullClient, err := pc.Open(
+			c.taskTerm.ctx,
+			c.driver.CaptureClient(),
+			loadDriverCheckpoint(c.store),
+			newCombinerFn,
+			c.labels.Range,
+			unsealed,
+			c.labels.Build,
+			startCommitFn,
+		); err != nil {
+			return err
+		} else {
+			c.delegate = pullClient
+			return nil
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("opening pull RPC: %w", err)
+	}
+
+	ops.PublishLog(c.opsPublisher, po.Log_debug,
 		"reading capture stream",
 		"capture", c.labels.TaskName,
 		"shard", c.shardSpec.Id,
@@ -392,7 +373,7 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 			return fmt.Errorf("publishing stats document: %w", err)
 		}
 	} else {
-		ops.PublishLog(c.opsPublisher, pf.LogLevel_debug,
+		ops.PublishLog(c.opsPublisher, po.Log_debug,
 			"capture transaction committing updating driver checkpoint only")
 	}
 
@@ -406,7 +387,7 @@ func (c *Capture) captureStats(statsPerBinding []*pf.CombineAPI_Stats) ops.Stats
 		if bindingStats == nil {
 			continue
 		}
-		var name = c.spec.Bindings[i].Collection.Collection.String()
+		var name = c.spec.Bindings[i].Collection.Name.String()
 		// It's possible for multiple bindings to use the same collection, in which case the
 		// stats should be summed.
 		var prevStats = captureStats[name]
@@ -448,7 +429,7 @@ func (c *Capture) Coordinator() *shuffle.Coordinator {
 
 // StartCommit implements consumer.Store.StartCommit
 func (c *Capture) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
-	ops.PublishLog(c.opsPublisher, pf.LogLevel_debug,
+	ops.PublishLog(c.opsPublisher, po.Log_debug,
 		"StartCommit",
 		"capture", c.labels.TaskName,
 		"shard", c.shardSpec.Id,
@@ -478,17 +459,10 @@ func (c *Capture) Destroy() {
 		_ = c.driver.Close()
 	}
 	if c.delegate != nil {
-		_ = c.delegate.Close()
+		c.delegate.Close()
 	}
 	c.taskTerm.destroy()
 	c.store.Destroy()
-}
-
-// delegate is the common interface of PullClient and PushServer that we use.
-type delegate interface {
-	Close() error
-	PopTransaction() ([]pf.Combiner, pf.DriverCheckpoint)
-	SetLogCommitOp(op client.OpFuture) error
 }
 
 type captureMessage struct {

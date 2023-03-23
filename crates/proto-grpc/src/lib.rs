@@ -1,5 +1,6 @@
 pub mod capture;
 pub mod consumer;
+pub mod derive;
 pub mod flow;
 pub mod materialize;
 mod protocol;

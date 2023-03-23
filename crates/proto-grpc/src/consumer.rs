@@ -184,7 +184,7 @@ pub mod shard_client {
 pub mod shard_server {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
-    ///Generated trait containing gRPC methods that should be implemented for use with ShardServer.
+    /// Generated trait containing gRPC methods that should be implemented for use with ShardServer.
     #[async_trait]
     pub trait Shard: Send + Sync + 'static {
         /// Stat returns detailed status of a given Shard.

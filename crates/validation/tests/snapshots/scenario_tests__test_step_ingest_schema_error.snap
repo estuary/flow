@@ -4,7 +4,7 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-string-tests#/tests/testing~1test/0,
+        scope: test://example/int-string-tests#/tests/testing~1test/0/ingest/documents/0,
         error: test ingest document is invalid against the collection schema: {
           "basic_output": {
             "errors": [
@@ -25,7 +25,7 @@ expression: errors
         },
     },
     Error {
-        scope: test://example/int-string-tests#/tests/testing~1test/0,
+        scope: test://example/int-string-tests#/tests/testing~1test/0/ingest/documents/1,
         error: test ingest document is invalid against the collection schema: {
           "basic_output": {
             "errors": [

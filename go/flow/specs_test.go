@@ -3,6 +3,7 @@ package flow
 import (
 	"context"
 	"database/sql"
+	"path"
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
@@ -21,20 +22,20 @@ func TestBuildingSpecs(t *testing.T) {
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			BuildId:    "fixture",
-			Directory:  t.TempDir(),
+			BuildDb:    path.Join(t.TempDir(), "build.db"),
 			Source:     "file:///specs_test.flow.yaml",
 			SourceType: pf.ContentType_CATALOG,
 		}}
 	require.NoError(t, bindings.BuildCatalog(args))
 
 	var collection *pf.CollectionSpec
-	var derivation *pf.DerivationSpec
+	var derivation *pf.CollectionSpec
 
-	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+	require.NoError(t, catalog.Extract(args.BuildDb, func(db *sql.DB) (err error) {
 		if collection, err = catalog.LoadCollection(db, "example/collection"); err != nil {
 			return err
 		}
-		derivation, err = catalog.LoadDerivation(db, "example/derivation")
+		derivation, err = catalog.LoadCollection(db, "example/derivation")
 		return err
 	}))
 
@@ -56,17 +57,17 @@ func TestBuildingSpecs(t *testing.T) {
 		RClockEnd:   61514131,
 	}, set)
 
-	shard, err := BuildShardSpec(derivation.ShardTemplate, set)
+	shard, err := BuildShardSpec(derivation.Derivation.ShardTemplate, set)
 	require.NoError(t, err)
 
 	// Build a derivation shard that's currently splitting from its source.
 	set.AddValue(flowLabels.SplitSource, "something/something")
 
-	shardSplitSource, err := BuildShardSpec(derivation.ShardTemplate, set)
+	shardSplitSource, err := BuildShardSpec(derivation.Derivation.ShardTemplate, set)
 	require.NoError(t, err)
 
 	// Build a recovery log.
-	var recovery = BuildRecoverySpec(derivation.RecoveryLogTemplate, shard)
+	var recovery = BuildRecoverySpec(derivation.Derivation.RecoveryLogTemplate, shard)
 
 	// Snapshot all specs.
 	cupaloy.SnapshotT(t,
@@ -87,14 +88,14 @@ func TestBuildingSpecs(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, partition, partition2)
 
-	shard2, err := BuildShardSpec(derivation.ShardTemplate, shard.LabelSet)
+	shard2, err := BuildShardSpec(derivation.Derivation.ShardTemplate, shard.LabelSet)
 	require.NoError(t, err)
 	require.Equal(t, shard, shard2)
 
-	shard2, err = BuildShardSpec(derivation.ShardTemplate, shardSplitSource.LabelSet)
+	shard2, err = BuildShardSpec(derivation.Derivation.ShardTemplate, shardSplitSource.LabelSet)
 	require.NoError(t, err)
 	require.Equal(t, shardSplitSource, shard2)
 
-	var recovery2 = BuildRecoverySpec(derivation.RecoveryLogTemplate, shard2)
+	var recovery2 = BuildRecoverySpec(derivation.Derivation.RecoveryLogTemplate, shard2)
 	require.Equal(t, recovery, recovery2)
 }

@@ -40,12 +40,6 @@ const (
 	// TaskType of this shard's task.
 	// This is implied by the associated catalog task, and is informational.
 	TaskType = "estuary.dev/task-type"
-	// TaskTypeCapture is a "capture" TaskType.
-	TaskTypeCapture = "capture"
-	// TaskTypeDerivation is a "derivation" TaskType.
-	TaskTypeDerivation = "derivation"
-	// TaskTypeMaterialization is a "materialization" TaskType.
-	TaskTypeMaterialization = "materialization"
 	// RClockBegin is a uint32 in big-endian 8-char hexadecimal notation,
 	// which is the beginning rotated clock range (inclusive) managed by this shard.
 	RClockBegin = "estuary.dev/rclock-begin"

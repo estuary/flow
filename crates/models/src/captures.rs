@@ -1,5 +1,4 @@
-use super::{Collection, ConnectorConfig, Object, ShardTemplate};
-
+use super::{Collection, ConnectorConfig, RawValue, ShardTemplate};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -38,6 +37,27 @@ pub struct CaptureDef {
     pub shards: ShardTemplate,
 }
 
+/// An endpoint from which Flow will capture.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub enum CaptureEndpoint {
+    /// # A Connector.
+    Connector(ConnectorConfig),
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(example = "CaptureBinding::example")]
+pub struct CaptureBinding {
+    /// # Endpoint resource to capture from.
+    pub resource: RawValue,
+    /// # Name of the collection to capture into.
+    // Note(johnny): If we need to add details about how data is written to a
+    // target, we should turn this into a Target enum as has already been done
+    // with Source (used by Materialization & Derive).
+    pub target: Collection,
+}
+
 impl CaptureDef {
     pub fn default_interval() -> Duration {
         Duration::from_secs(300) // 5 minutes.
@@ -56,36 +76,11 @@ impl CaptureDef {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[schemars(example = "CaptureBinding::example")]
-pub struct CaptureBinding {
-    /// # Endpoint resource to capture from.
-    pub resource: Object,
-    /// # Name of the collection to capture into.
-    pub target: Collection,
-}
-
 impl CaptureBinding {
     pub fn example() -> Self {
         Self {
-            resource: json!({"stream": "a_stream"}).as_object().unwrap().clone(),
+            resource: serde_json::from_value(json!({"stream": "a_stream"})).unwrap(),
             target: Collection::new("target/collection"),
         }
     }
 }
-
-/// An Endpoint connector used for Flow captures.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub enum CaptureEndpoint {
-    /// # A Connector.
-    #[serde(alias = "airbyteSource")]
-    Connector(ConnectorConfig),
-    /// # A push ingestion.
-    Ingest(IngestConfig),
-}
-
-/// Ingest source specification.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-pub struct IngestConfig {}

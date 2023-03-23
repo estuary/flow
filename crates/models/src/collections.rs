@@ -1,9 +1,8 @@
+use super::{CompositeKey, Derivation, Field, JournalTemplate, JsonPointer, RawValue, Schema};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};
 use std::collections::BTreeMap;
-
-use super::{CompositeKey, Derivation, Field, JournalTemplate, JsonPointer, RelativeUrl, Schema};
 
 /// Collection describes a set of related documents, where each adheres to a
 /// common schema and grouping key. Collections are append-only: once a document
@@ -33,24 +32,29 @@ pub struct CollectionDef {
     #[schemars(schema_with = "projections_schema")]
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub projections: BTreeMap<Field, Projection>,
-    /// # Derivation which builds this collection from others.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub derivation: Option<Derivation>,
     /// # Template for journals of this collection.
     #[serde(default, skip_serializing_if = "JournalTemplate::is_empty")]
     pub journals: JournalTemplate,
+    // # Derivation which builds this collection as transformations of other collections.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derive: Option<Derivation>,
+    // TODO(johnny): Remove after cut-over.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub derivation: Option<RawValue>,
 }
 
 impl CollectionDef {
     pub fn example() -> Self {
         Self {
-            schema: Some(Schema::Url(RelativeUrl::example_relative())),
+            schema: Some(Schema::example_inline_basic()),
             write_schema: None,
             read_schema: None,
             key: CompositeKey::example(),
             projections: BTreeMap::new(),
-            derivation: None,
             journals: JournalTemplate::default(),
+            derive: None,
+            derivation: None,
         }
     }
 }

@@ -4,7 +4,6 @@ use crate::{
     ArchivedNode, HeapDoc, LazyNode, Pointer,
 };
 use std::io::{self, Seek};
-use std::rc::Rc;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -37,7 +36,7 @@ pub struct Accumulator {
 
 impl Accumulator {
     pub fn new(
-        key: Rc<[Pointer]>,
+        key: Box<[Pointer]>,
         schema: Option<url::Url>,
         spill: std::fs::File,
         validator: Validator,
@@ -163,7 +162,7 @@ pub enum Combiner {
 impl Combiner {
     /// Build a Combiner initialized as an empty, new Accumulator.
     pub fn new(
-        key: Rc<[Pointer]>,
+        key: Box<[Pointer]>,
         schema: Option<url::Url>,
         spill: std::fs::File,
         validator: Validator,
@@ -254,3 +253,22 @@ const SPILL_THRESHOLD: usize = 8 * (1 << 28) / 10; // 80% of 256MB.
 // hold many large chunks in memory, which could push us over our allocation.
 const CHUNK_TARGET_LEN: usize = 1 << 18; // 256KB.
 const CHUNK_MAX_LEN: usize = 1 << 20; // 1MB.
+
+// These are compile-time assertions that document and enforce that Combiner
+// and friends implement Send.
+fn _assert_accumulator_is_send(t: Accumulator) {
+    _assert_send(t)
+}
+fn _assert_spill_drainer_is_send(t: SpillDrainer<std::fs::File>) {
+    _assert_send(t)
+}
+fn _assert_mem_drainer_is_send(t: MemDrainer) {
+    _assert_send(t)
+}
+fn _assert_drainer_is_send(t: Drainer) {
+    _assert_send(t)
+}
+fn _assert_combiner_is_send(t: Combiner) {
+    _assert_send(t)
+}
+fn _assert_send<T: Send>(_t: T) {}

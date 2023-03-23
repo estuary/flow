@@ -1,27 +1,26 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
-
 ---
 [
     Error {
-        scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/,
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/transforms/1,
         error: transform name cannot be empty,
     },
     Error {
-        scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/inv%20alid,
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/transforms/2,
         error: inv alid cannot be used as name for transform (" alid" is invalid),
     },
     Error {
-        scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/inv!alid,
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/transforms/3,
         error: inv!alid cannot be used as name for transform ("!alid" is invalid),
     },
     Error {
-        scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/inv~1alid,
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/transforms/4,
         error: inv/alid cannot be used as name for transform ("/alid" is invalid),
     },
     Error {
-        scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/reVeRsEIntString,
-        error: transform reVeRsEIntString collides with transform reverseIntString, defined at test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/reverseIntString,
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/transforms/0,
+        error: transform reverseIntString collides with transform reVeRsEIntString, defined at test://example/int-reverse#/collections/testing~1int-reverse/derive/transforms/5,
     },
 ]

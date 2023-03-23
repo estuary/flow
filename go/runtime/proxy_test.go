@@ -5,18 +5,17 @@ import (
 
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/ops"
-	"google.golang.org/grpc"
-
-	//pf "github.com/estuary/flow/go/protocols/flow"
+	po "github.com/estuary/flow/go/protocols/ops"
 	"github.com/stretchr/testify/require"
 	pc "go.gazette.dev/core/consumer/protocol"
+	"google.golang.org/grpc"
 )
 
 func TestExposeCalledAfterUnexpose(t *testing.T) {
 	var logger = ops.NewLocalPublisher(labels.ShardLabeling{
 		Build:    "test-build",
 		TaskName: "foo/bar",
-		TaskType: "capture",
+		TaskType: po.Shard_capture,
 	})
 	var server = &ProxyServer{
 		containers: make(map[pc.ShardID]*runningContainer),
@@ -44,7 +43,7 @@ func TestExposeCalledBeforePreviousInstanceIsUnexposed(t *testing.T) {
 	var logger = ops.NewLocalPublisher(labels.ShardLabeling{
 		Build:    "test-build",
 		TaskName: "foo/bar",
-		TaskType: "capture",
+		TaskType: po.Shard_capture,
 	})
 	var server = &ProxyServer{
 		containers: make(map[pc.ShardID]*runningContainer),
@@ -75,7 +74,7 @@ func TestExposeCalledBeforePreviousInstanceIsUnexposed(t *testing.T) {
 	}
 	handleB.Expose(connB, logger)
 
-	// Expect that the _new_ connnection is now the one that's exposed
+	// Expect that the _new_ connection is now the one that's exposed
 	require.Same(t, connB, server.containers[shard].connection)
 	require.Equal(t, 1, len(server.containers))
 

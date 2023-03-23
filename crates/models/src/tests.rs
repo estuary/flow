@@ -1,20 +1,26 @@
+use super::{Collection, RawValue, Source};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};
 
-use super::{Collection, Object, PartitionSelector, RelativeUrl};
-
 /// A test step describes either an "ingest" of document fixtures into a
 /// collection, or a "verify" of expected document fixtures from a collection.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-#[serde(untagged)]
 #[schemars(example = "TestDocuments::example_relative")]
 #[schemars(example = "TestDocuments::example_inline")]
-pub enum TestDocuments {
-    /// Relative URL to a file of documents.
-    Url(RelativeUrl),
-    /// An inline array of documents.
-    Inline(Vec<Object>),
+pub struct TestDocuments(RawValue);
+
+impl std::ops::Deref for TestDocuments {
+    type Target = RawValue;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for TestDocuments {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 impl TestDocuments {
@@ -88,27 +94,22 @@ pub struct TestStepVerify {
     /// # Description of this test verification.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
-    /// # Collection into which the test will ingest.
-    pub collection: Collection,
+    /// # Collection from which the test will verify.
+    pub collection: Source,
     /// # Documents to verify.
     /// Each document may contain only a portion of the matched document's
     /// properties, and any properties present in the actual document but
     /// not in this document fixture are ignored. All other values must
     /// match or the test will fail.
     pub documents: TestDocuments,
-    /// # Selector over partitions to verify.
-    #[schemars(example = "PartitionSelector::example")]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub partitions: Option<PartitionSelector>,
 }
 
 impl TestStepVerify {
     pub fn example() -> Self {
         Self {
             description: "Description of the verification.".to_string(),
-            collection: Collection::example(),
+            collection: Source::Collection(Collection::new("acmeCo/collection")),
             documents: TestDocuments::example_inline(),
-            partitions: None,
         }
     }
 }

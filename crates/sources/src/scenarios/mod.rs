@@ -10,7 +10,6 @@ use url::Url;
 #[cfg(test)]
 mod test {
     use super::evaluate_fixtures;
-    use serde_json::json;
 
     macro_rules! file_tests {
     ($($name:ident,)*) => {
@@ -19,7 +18,22 @@ mod test {
         fn $name() {
 			let fixture = include_bytes!(concat!(stringify!($name), ".yaml"));
             let fixture: serde_json::Value = serde_yaml::from_slice(fixture).unwrap();
-			let tables = evaluate_fixtures(Default::default(), &fixture);
+			let mut tables = evaluate_fixtures(Default::default(), &fixture);
+			insta::assert_debug_snapshot!(tables);
+
+            crate::inline_sources(&mut tables);
+
+            // Clear out load-related state prior to the snapshot.
+            tables.errors = tables::Errors::new();
+            tables.fetches = tables::Fetches::new();
+            tables.resources = tables::Resources::new();
+
+            // Verify shape of inline specs.
+			insta::assert_debug_snapshot!(tables);
+
+            // Now indirect specs again, and verify the updated specs and indirect'd resources.
+            crate::indirect_large_files(&mut tables, 32);
+            crate::rebuild_catalog_resources(&mut tables);
 			insta::assert_debug_snapshot!(tables);
         }
     )*
@@ -37,122 +51,6 @@ mod test {
         test_simple_catalog,
         test_storage_mappings,
         test_test_case,
-    }
-
-    #[test]
-    fn test_inline_nested_catalogs() {
-        let c = json!({
-            "storageMappings": {
-                "C/": {
-                    "stores": [{ "provider": "AZURE", "bucket": "az-bucket" }]
-                }
-            }
-        });
-        let c = base64::encode(serde_json::to_vec(&c).unwrap());
-
-        let b = json!({
-            "resources": {
-                "https://absolute/path/to/c.yaml": {
-                    "content": c,
-                    "contentType": "CATALOG",
-                }
-            },
-            "import": [
-                "https://absolute/path/to/c.yaml"
-            ],
-            "collections": {
-                "foo": {
-                    "schema": "subpath/json-schema.yaml",
-                    "key": ["/ptr"]
-                },
-                "bar": {
-                    "schema": "subpath/wrong-content-type.yaml",
-                    "key": ["/ptr"]
-                },
-                "baz": {
-                    "schema": "subpath/invalid-base64",
-                    "key": ["/ptr"]
-                }
-            },
-            "storageMappings": {
-                "B/": {
-                    "stores": [{ "provider": "S3", "bucket": "s3-bucket" }]
-                }
-            }
-        });
-
-        let fixture = json!({
-            "test://example/catalog.yaml": {
-                "resources": {
-                    "test://example/B.yaml": {
-                        "content": b,
-                        "contentType": "CATALOG",
-                    },
-                    "test://example/subpath/json-schema.yaml": {
-                        "content": {"const": 42},
-                        "contentType": "JSON_SCHEMA",
-                    },
-                    "test://example/subpath/wrong-content-type.yaml": {
-                        "content": {},
-                        "contentType": "CATALOG",
-                    },
-                    "test://example/subpath/invalid-base64": {
-                        "content": "this should be base64",
-                        "contentType": "JSON_SCHEMA",
-                    },
-                },
-                "import": [
-                    "B.yaml"
-                ],
-                "storageMappings": {
-                    "A/": {
-                        "stores": [{ "provider": "GCS", "bucket": "gcs-bucket" }]
-                    }
-                }
-            }
-        });
-
-        let tables = evaluate_fixtures(Default::default(), &fixture);
-        insta::assert_debug_snapshot!(tables);
-    }
-
-    #[test]
-    fn test_inline_schema() {
-        let schema1 = json!({
-            "$anchor": "Email",
-            "type": "string",
-        });
-        let schema1 = base64::encode(serde_json::to_vec(&schema1).unwrap());
-
-        let schema2 = json!({
-            "$ref": "path/to/email.schema.json",
-            "format": "email",
-        });
-        let schema2 = base64::encode(serde_json::to_vec(&schema2).unwrap());
-
-        let fixture = json!({
-            "test://example/catalog.yaml": {
-                "resources": {
-                    "test://example/path/to/email.schema.json": {
-                        "content": schema1,
-                        "contentType": "JSON_SCHEMA",
-                    },
-                    "test://example/schema.json": {
-                        "content": schema2,
-                        "contentType": "JSON_SCHEMA",
-                    },
-                },
-                "import": [
-                    {
-                        "url": "schema.json",
-                        "contentType": "JSON_SCHEMA",
-                    },
-                ],
-            }
-        });
-
-        let tables = evaluate_fixtures(Default::default(), &fixture);
-        insta::assert_debug_snapshot!(tables);
     }
 }
 // MockFetcher queues and returns oneshot futures for started fetches.
@@ -238,6 +136,7 @@ pub fn evaluate_fixtures(catalog: tables::Sources, fixture: &serde_json::Value) 
             Poll::Pending => {
                 for (url, tx) in fetches.borrow_mut().split_off("") {
                     match fixtures.get(&url) {
+                        Some(serde_json::Value::String(value)) => tx.send(Ok(value.clone().into())),
                         Some(value) => tx.send(Ok(serde_json::to_vec(&value).unwrap().into())),
                         None => tx.send(Err(anyhow::anyhow!("fixture not found"))),
                     }

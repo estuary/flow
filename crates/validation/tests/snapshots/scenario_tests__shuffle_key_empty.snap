@@ -4,7 +4,7 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/reverseIntString,
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/transforms/0/shuffle/key,
         error: transform reverseIntString shuffle key cannot be empty,
     },
 ]

@@ -3,11 +3,7 @@ use proto_flow::flow::DocsAndBytes;
 use serde::Serialize;
 
 pub mod combine_api;
-pub mod derive_api;
 pub mod extract_api;
-
-mod pipeline;
-mod registers;
 
 pub use extract_api::extract_uuid_parts;
 

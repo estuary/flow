@@ -1,0 +1,44 @@
+---
+source: crates/proto-flow/tests/regression.rs
+expression: json_test(msg)
+---
+{
+  "_meta": {
+    "uuid": "c13a3412-903a-40f2-8bca-0a2f4d9260be"
+  },
+  "shard": {
+    "kind": "derivation",
+    "name": "my/cool/task",
+    "keyBegin": "00112233",
+    "rClockBegin": "aabbccdd"
+  },
+  "ts": "1970-01-01T00:00:00+00:00",
+  "openSecondsTotal": 3.14159,
+  "txnCount": 15,
+  "derive": {
+    "transforms": {
+      "my-transform": {
+        "source": "the/source/collection",
+        "input": {
+          "docsTotal": 12,
+          "bytesTotal": 369
+        }
+      },
+      "otherTransform": {
+        "source": "other/collection",
+        "input": {
+          "docsTotal": 52,
+          "bytesTotal": 2389
+        }
+      }
+    },
+    "published": {
+      "docsTotal": 69,
+      "bytesTotal": 1269
+    },
+    "out": {
+      "docsTotal": 3,
+      "bytesTotal": 102
+    }
+  }
+}

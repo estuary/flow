@@ -1,0 +1,40 @@
+[package]
+name = "runtime"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+connector-init = { path = "../connector-init"  }
+doc = { path = "../doc" }
+ops = { path = "../ops" }
+proto-flow = { path = "../proto-flow" }
+proto-gazette = { path = "../proto-gazette" }
+proto-grpc = { path = "../proto-grpc", features = ["derive_server"] }
+derive-sqlite = { path = "../derive-sqlite" }
+tuple = { path = "../tuple" }
+
+anyhow = { workspace = true }
+bytes = { workspace = true }
+clap = { workspace = true }
+futures = { workspace = true }
+json-patch = { workspace = true }
+librocksdb-sys = { workspace = true }
+pbjson-types = { workspace = true }
+prost = { workspace = true }
+rocksdb = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }

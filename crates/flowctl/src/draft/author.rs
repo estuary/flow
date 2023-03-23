@@ -1,12 +1,13 @@
-use crate::{api_exec, catalog::SpecSummaryItem, controlplane, source};
+use crate::{api_exec, catalog::SpecSummaryItem, controlplane, local_specs};
 use anyhow::Context;
 use serde::Serialize;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct Author {
-    #[clap(flatten)]
-    source_args: source::SourceArgs,
+    /// Path or URL to a Flow specification file to author.
+    #[clap(long)]
+    source: String,
 }
 
 pub async fn clear_draft(client: controlplane::Client, draft_id: &str) -> anyhow::Result<()> {
@@ -118,10 +119,12 @@ pub async fn upsert_draft_specs(
 
 pub async fn do_author(
     ctx: &mut crate::CliContext,
-    Author { source_args }: &Author,
+    Author { source }: &Author,
 ) -> anyhow::Result<()> {
     let cur_draft = ctx.config().cur_draft()?;
-    let catalog = crate::source::bundle(source_args).await?;
+    let (sources, _) =
+        local_specs::load_and_validate(ctx.controlplane_client().await?, &source).await?;
+    let catalog = local_specs::into_catalog(sources);
     let client = ctx.controlplane_client().await?;
     clear_draft(client.clone(), &cur_draft).await?;
     let rows = upsert_draft_specs(ctx.controlplane_client().await?, &cur_draft, &catalog).await?;

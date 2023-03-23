@@ -1,8 +1,8 @@
 use futures::{future::LocalBoxFuture, FutureExt};
 use lazy_static::lazy_static;
-use proto_flow::{capture, flow, materialize};
+use proto_flow::{capture, derive, flow, materialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 lazy_static! {
     static ref GOLDEN: Value = serde_yaml::from_slice(include_bytes!("model.yaml")).unwrap();
@@ -185,21 +185,22 @@ fn test_invalid_transform_names_and_duplicates() {
 test://example/int-reverse:
   collections:
     testing/int-reverse:
-      derivation:
-        transform:
-          good: &spec
-            source:
+      derive:
+        transforms:
+          - name: reverseIntString
+            source: &source
               name: testing/int-string
-            publish:
-              lambda: typescript
-
-          "": *spec
-          inv alid: *spec
-          inv!alid: *spec
-          inv/alid: *spec
-
+          - name: ""
+            source: *source
+          - name: inv alid
+            source: *source
+          - name: inv!alid
+            source: *source
+          - name: inv/alid
+            source: *source
           # Illegal duplicate under collation.
-          reVeRsEIntString: *spec
+          - name: reVeRsEIntString
+            source: *source
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -385,12 +386,12 @@ fn test_transform_source_not_found() {
 test://example/int-halve:
   collections:
     testing/int-halve:
-      derivation:
-        transform:
-          halveIntString:
-            source: { name: testinG/Int-String }
-          halveSelf:
-            source: { name: wildly/off/name }
+      derive:
+        transforms:
+          - name: halveIntString
+            source: testinG/Int-String
+          - name: halveSelf
+            source: wildly/off/name
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -493,13 +494,11 @@ test://example/int-string:
 
     testing/int-string-rw:
       writeSchema: test://example/int-string.schema#/also/not/found
-      readSchema: test://example/int-string-len.schema#DoesNotExist
-
-# Omit downstream errors.
-test://example/db-views:
-  materializations: null
-test://example/webhook-deliveries:
-  materializations: null
+      readSchema:
+        type: object
+        properties:
+          missing:
+            $ref: test://example/int-string-len.schema#DoesNotExist
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -551,9 +550,10 @@ test://example/int-string:
 test://example/int-halve:
   collections:
     testing/int-halve:
-      derivation:
-        transform:
-          halveIntString:
+      derive:
+        transforms:
+          - name: halveIntString
+            source: testing/int-string-rw
             shuffle:
               key: [/len, /int, /unknown/shuffle]
 "#,
@@ -569,12 +569,14 @@ fn test_shuffle_key_length_mismatch() {
 test://example/int-halve:
   collections:
     testing/int-halve:
-      derivation:
-        transform:
-          halveIntString:
+      derive:
+        transforms:
+          - name: halveIntString
+            source: testing/int-string-rw
             shuffle:
               key: [/len]
-          halveSelf:
+          - name: halveSelf
+            source: testing/int-halve
             shuffle:
               key: [/len, /int]
 "#,
@@ -590,38 +592,55 @@ fn test_shuffle_key_types_mismatch() {
 test://example/int-halve:
   collections:
     testing/int-halve:
-      derivation:
-        transform:
-          halveIntString:
+      derive:
+        transforms:
+          - name: halveIntString
+            source: testing/int-string-rw
             shuffle:
               key: [/int, /str]
-          halveSelf:
+          - name: halveSelf
+            source: testing/int-halve
             shuffle:
               key: [/str, /int]
+        shuffleKeyTypes: [integer, boolean]
 "#,
     );
     insta::assert_debug_snapshot!(errors);
 }
 
 #[test]
-fn test_shuffle_key_relaxed() {
+fn test_shuffle_needs_explicit_types() {
     let errors = run_test_errors(
         &GOLDEN,
         r#"
-test://example/int-reverse:
+test://example/int-halve:
   collections:
-    testing/int-reverse:
-      key: [/bit, /str]
-      derivation:
-        transform:
-          reverseIntString:
-            source:
-              name: testing/int-string
-            publish: { lambda: typescript }
-          selfCycle:
-            source:
-              name: testing/int-reverse
-            publish: { lambda: typescript }
+    testing/int-halve:
+      derive:
+        transforms:
+          - name: halveIntString
+            source: testing/int-string-rw
+            shuffle:
+              lambda: {the: lambda}
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_shuffle_key_is_implicit() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/int-halve:
+  collections:
+    testing/int-halve:
+      derive:
+        transforms:
+          - name: halveIntString
+            source: testing/int-string-rw
+            shuffle:
+              key: [/int]
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -649,9 +668,10 @@ fn test_shuffle_key_empty() {
 test://example/int-reverse:
   collections:
     testing/int-reverse:
-      derivation:
-        transform:
-          reverseIntString:
+      derive:
+        transforms:
+          - name: reverseIntString
+            source: testing/int-string
             shuffle: {key: []}
 "#,
     );
@@ -666,10 +686,11 @@ fn test_partition_selections() {
 test://example/int-halve:
   collections:
     testing/int-halve:
-      derivation:
-        transform:
-          halveIntString:
+      derive:
+        transforms:
+          - name: halveIntString
             source:
+              name: testing/int-string-rw
               partitions:
                 include:
                   bit: [true, 42, ""]
@@ -711,88 +732,6 @@ test://example/int-string:
     testing/int-string-rw:
       # /len is present in the read but not write schema.
       key: [/int, /len, /missing-in-read-and-write-schemas]
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
-fn test_must_have_update_or_publish() {
-    let errors = run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/int-reverse:
-  collections:
-    testing/int-reverse:
-      derivation:
-        typescript: null
-        transform:
-          reverseIntString:
-            publish: null
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
-fn test_typescript_lambdas_without_module() {
-    let errors = run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/int-reverse:
-  collections:
-    testing/int-reverse:
-      derivation:
-        typescript: null
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
-fn test_typescript_modules_without_lambdas() {
-    let errors = run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/int-reverse:
-  collections:
-    testing/int-reverse:
-      derivation:
-        transform:
-          reverseIntString:
-            publish: { lambda: { remote: https://an/api } }
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
-fn test_typescript_module_used_multiple_times() {
-    let errors = run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/int-reverse:
-  collections:
-    testing/int-reverse:
-      derivation:
-        typescript:
-          module: int-halve.ts
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
-fn test_invalid_initial_register() {
-    let errors = run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/int-halve:
-  collections:
-    testing/int-halve:
-      derivation:
-        register:
-          initial: "should be an integer"
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -889,6 +828,20 @@ driver:
 }
 
 #[test]
+fn test_derive_driver_returns_error() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+driver:
+  derivations:
+    testing/int-halve:
+      error: "A driver error!"
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
 fn test_materialization_driver_returns_error() {
     let errors = run_test_errors(
         &GOLDEN,
@@ -952,12 +905,12 @@ driver:
     testing/db-views:
       bindings:
         - constraints:
-            flow_document: { type: 1, reason: "location required" }
-            Int: { type: 1, reason: "location required" }
-            int: { type: 5, reason: "field unsatisfiable" }
-            str: { type: 4, reason: "field forbidden" }
-            bit: { type: 0, reason: "field required" }
-            Unknown: { type: 0, reason: "whoops" }
+            flow_document: { type: 2, reason: "location required" }
+            Int: { type: 2, reason: "location required" }
+            int: { type: 6, reason: "field unsatisfiable" }
+            str: { type: 5, reason: "field forbidden" }
+            bit: { type: 1, reason: "field required" }
+            Unknown: { type: 1, reason: "whoops" }
           resourcePath: [tar!get]
 "#,
     );
@@ -1026,17 +979,18 @@ test://example/int-string-tests:
   tests:
     testing/test:
       - verify:
-          collection: testing/int-string
+          collection:
+            name: testing/int-string
+            partitions:
+              include:
+                bit: [true, 42, ""]
+                Int: [15, true]
+                Unknown: ["whoops"]
+              exclude:
+                bit: [false, "a string"]
+                Int: [false, "", 16]
+                AlsoUnknown: ["whoops"]
           documents: []
-          partitions:
-            include:
-              bit: [true, 42, ""]
-              Int: [15, true]
-              Unknown: ["whoops"]
-            exclude:
-              bit: [false, "a string"]
-              Int: [false, "", 16]
-              AlsoUnknown: ["whoops"]
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -1051,46 +1005,18 @@ test://example/db-views:
   materializations:
     testing/db-views:
       bindings:
-        - source: testing/int-string
+        - source:
+            name: testing/int-string
+            partitions:
+              include:
+                bit: [true, 42, ""]
+                Int: [15, true]
+                Unknown: ["whoops"]
+              exclude:
+                bit: [false, "a string"]
+                Int: [false, "", 16]
+                AlsoUnknown: ["whoops"]
           resource: { table: the_table }
-          partitions:
-            include:
-              bit: [true, 42, ""]
-              Int: [15, true]
-              Unknown: ["whoops"]
-            exclude:
-              bit: [false, "a string"]
-              Int: [false, "", 16]
-              AlsoUnknown: ["whoops"]
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
-fn test_incompatible_npm_packages() {
-    let errors = run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/int-reverse:
-  collections:
-    testing/int-reverse:
-      derivation:
-        typescript:
-          npmDependencies:
-            package-one: "same"
-            pkg-2: "different"
-            package-4: "4"
-
-test://example/int-halve:
-  collections:
-    testing/int-halve:
-      derivation:
-        typescript:
-          npmDependencies:
-            package-one: "same"
-            pkg-2: "differ ent"
-            pkg-three: "3"
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -1211,23 +1137,20 @@ test://example/int-halve:
 }
 
 #[test]
-fn test_invalid_sqlite_lambdas() {
+fn test_image_inspection_is_malformed() {
     let errors = run_test_errors(
         &GOLDEN,
         r#"
-test://example/from-array-key:
-  collections:
-    testing/from-array-key:
-      derivation:
-        transform:
-          withBar:
-            update:
-              lambda:
-                sql: select invalidColumn from source
-            publish:
-              lambda:
-                sql: |
-                  select s.invalid, r.column from source s, register r
+driver:
+  imageInspections:
+    s3:
+      output: '[{"Invalid": "Inspection"}]'
+    database:
+      output: '[{"whoops": "bad"}]'
+    database/image:
+      output: '{"also": "bad"}'
+    webhook/connector:
+      output: '{"me": "too"}'
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -1236,16 +1159,17 @@ test://example/from-array-key:
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MockDriverCalls {
-    image_inspections: HashMap<String, MockImageInspectCall>,
-    materializations: HashMap<String, MockMaterializationValidateCall>,
-    captures: HashMap<String, MockCaptureValidateCall>,
+    captures: BTreeMap<String, MockCaptureValidateCall>,
+    derivations: BTreeMap<String, MockDeriveValidateCall>,
+    image_inspections: BTreeMap<String, MockImageInspectCall>,
+    materializations: BTreeMap<String, MockMaterializationValidateCall>,
 }
 
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct MockCaptureValidateCall {
-    endpoint: flow::EndpointType,
-    spec: serde_json::Value,
+    connector_type: flow::capture_spec::ConnectorType,
+    config: serde_json::Value,
     bindings: Vec<MockDriverBinding>,
     #[serde(default)]
     error: Option<String>,
@@ -1253,9 +1177,27 @@ struct MockCaptureValidateCall {
 
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct MockDeriveValidateCall {
+    connector_type: flow::collection_spec::derivation::ConnectorType,
+    config: serde_json::Value,
+    shuffle_key_types: Vec<flow::collection_spec::derivation::ShuffleType>,
+    transforms: Vec<MockDeriveTransform>,
+    generated_files: BTreeMap<String, String>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct MockDeriveTransform {
+    read_only: bool,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct MockMaterializationValidateCall {
-    endpoint: flow::EndpointType,
-    spec: serde_json::Value,
+    connector_type: flow::materialization_spec::ConnectorType,
+    config: serde_json::Value,
     bindings: Vec<MockDriverBinding>,
     #[serde(default)]
     delta_updates: bool,
@@ -1274,7 +1216,7 @@ struct MockImageInspectCall {
 struct MockDriverBinding {
     resource_path: Vec<String>,
     #[serde(default)]
-    constraints: HashMap<String, materialize::Constraint>,
+    constraints: BTreeMap<String, materialize::response::validated::Constraint>,
     // type_override overrides the parsed constraints[].type for
     // each constraint. It supports test cases which want to deliberately
     // use type values which are invalid, and can't be parsed as YAML
@@ -1283,37 +1225,148 @@ struct MockDriverBinding {
     type_override: i32,
 }
 
-impl validation::Drivers for MockDriverCalls {
-    fn validate_materialization<'a>(
+impl validation::Connectors for MockDriverCalls {
+    fn validate_capture<'a>(
         &'a self,
-        request: materialize::ValidateRequest,
-    ) -> LocalBoxFuture<'a, Result<materialize::ValidateResponse, anyhow::Error>> {
+        request: capture::request::Validate,
+    ) -> LocalBoxFuture<'a, Result<capture::response::Validated, anyhow::Error>> {
         async move {
-            let call = match self.materializations.get(&request.materialization) {
+            let call = match self.captures.get(&request.name) {
                 Some(call) => call,
                 None => {
                     return Err(anyhow::anyhow!(
                         "driver fixture not found: {}",
-                        request.materialization
+                        request.name
                     ));
                 }
             };
 
-            let endpoint_spec: serde_json::Value =
-                serde_json::from_str(&request.endpoint_spec_json)?;
+            let config: serde_json::Value = serde_json::from_str(&request.config_json)?;
 
-            if call.endpoint as i32 != request.endpoint_type {
+            if call.connector_type as i32 != request.connector_type {
                 return Err(anyhow::anyhow!(
-                    "endpoint type mismatch: {} vs {}",
-                    call.endpoint as i32,
-                    request.endpoint_type
+                    "connector type mismatch: {} vs {}",
+                    call.connector_type as i32,
+                    request.connector_type
                 ));
             }
-            if &call.spec != &endpoint_spec {
+            if &call.config != &config {
                 return Err(anyhow::anyhow!(
-                    "endpoint spec mismatch: {} vs {}",
-                    call.spec.to_string(),
-                    &request.endpoint_spec_json,
+                    "connector config mismatch: {} vs {}",
+                    call.config.to_string(),
+                    &request.config_json,
+                ));
+            }
+            if let Some(err) = &call.error {
+                return Err(anyhow::anyhow!("{}", err));
+            }
+
+            let bindings = call
+                .bindings
+                .iter()
+                .map(|b| capture::response::validated::Binding {
+                    resource_path: b.resource_path.clone(),
+                })
+                .collect();
+
+            return Ok(capture::response::Validated { bindings });
+        }
+        .boxed_local()
+    }
+
+    fn validate_derivation<'a>(
+        &'a self,
+        request: derive::request::Validate,
+    ) -> LocalBoxFuture<'a, Result<derive::response::Validated, anyhow::Error>> {
+        async move {
+            let name = &request.collection.as_ref().unwrap().name;
+
+            let call = match self.derivations.get(name) {
+                Some(call) => call,
+                None => {
+                    return Err(anyhow::anyhow!("driver fixture not found: {}", name));
+                }
+            };
+
+            let config: serde_json::Value = serde_json::from_str(&request.config_json)?;
+
+            if call.connector_type as i32 != request.connector_type {
+                return Err(anyhow::anyhow!(
+                    "connector type mismatch: {} vs {}",
+                    call.connector_type as i32,
+                    request.connector_type
+                ));
+            }
+            if &call.config != &config {
+                return Err(anyhow::anyhow!(
+                    "connector config mismatch: {} vs {}",
+                    call.config.to_string(),
+                    &request.config_json,
+                ));
+            }
+            if call
+                .shuffle_key_types
+                .iter()
+                .map(|t| *t as i32)
+                .collect::<Vec<_>>()
+                != request.shuffle_key_types
+            {
+                return Err(anyhow::anyhow!(
+                    "shuffle types mismatch: {:?} vs {:?}",
+                    call.shuffle_key_types,
+                    request.shuffle_key_types,
+                ));
+            }
+
+            if let Some(err) = &call.error {
+                return Err(anyhow::anyhow!("{}", err));
+            }
+
+            let transforms = call
+                .transforms
+                .iter()
+                .map(|b| derive::response::validated::Transform {
+                    read_only: b.read_only,
+                })
+                .collect();
+
+            return Ok(derive::response::Validated {
+                transforms,
+                generated_files: call.generated_files.clone(),
+            });
+        }
+        .boxed_local()
+    }
+
+    fn validate_materialization<'a>(
+        &'a self,
+        request: materialize::request::Validate,
+    ) -> LocalBoxFuture<'a, Result<materialize::response::Validated, anyhow::Error>> {
+        async move {
+            let call = match self.materializations.get(&request.name) {
+                Some(call) => call,
+                None => {
+                    return Err(anyhow::anyhow!(
+                        "driver fixture not found: {}",
+                        request.name
+                    ));
+                }
+            };
+
+            let config: serde_json::Value = serde_json::from_str(&request.config_json)?;
+
+            if call.connector_type as i32 != request.connector_type {
+                return Err(anyhow::anyhow!(
+                    "connector type mismatch: {} vs {}",
+                    call.connector_type as i32,
+                    request.connector_type
+                ));
+            }
+            if &call.config != &config {
+                return Err(anyhow::anyhow!(
+                    "connector config mismatch: {} vs {}",
+                    call.config.to_string(),
+                    &request.config_json,
                 ));
             }
             if let Some(err) = &call.error {
@@ -1324,7 +1377,7 @@ impl validation::Drivers for MockDriverCalls {
                 .bindings
                 .iter()
                 .map(|b| {
-                    let mut out = materialize::validate_response::Binding {
+                    let mut out = materialize::response::validated::Binding {
                         constraints: b.constraints.clone(),
                         delta_updates: call.delta_updates,
                         resource_path: b.resource_path.clone(),
@@ -1342,56 +1395,7 @@ impl validation::Drivers for MockDriverCalls {
                 })
                 .collect();
 
-            return Ok(materialize::ValidateResponse { bindings });
-        }
-        .boxed_local()
-    }
-
-    fn validate_capture<'a>(
-        &'a self,
-        request: capture::ValidateRequest,
-    ) -> LocalBoxFuture<'a, Result<capture::ValidateResponse, anyhow::Error>> {
-        async move {
-            let call = match self.captures.get(&request.capture) {
-                Some(call) => call,
-                None => {
-                    return Err(anyhow::anyhow!(
-                        "driver fixture not found: {}",
-                        request.capture
-                    ));
-                }
-            };
-
-            let endpoint_spec: serde_json::Value =
-                serde_json::from_str(&request.endpoint_spec_json)?;
-
-            if call.endpoint as i32 != request.endpoint_type {
-                return Err(anyhow::anyhow!(
-                    "endpoint type mismatch: {} vs {}",
-                    call.endpoint as i32,
-                    request.endpoint_type
-                ));
-            }
-            if &call.spec != &endpoint_spec {
-                return Err(anyhow::anyhow!(
-                    "endpoint spec mismatch: {} vs {}",
-                    call.spec.to_string(),
-                    &request.endpoint_spec_json,
-                ));
-            }
-            if let Some(err) = &call.error {
-                return Err(anyhow::anyhow!("{}", err));
-            }
-
-            let bindings = call
-                .bindings
-                .iter()
-                .map(|b| capture::validate_response::Binding {
-                    resource_path: b.resource_path.clone(),
-                })
-                .collect();
-
-            return Ok(capture::ValidateResponse { bindings });
+            return Ok(materialize::response::Validated { bindings });
         }
         .boxed_local()
     }
@@ -1421,51 +1425,38 @@ fn run_test(mut fixture: Value, config: &flow::build_api::Config) -> tables::All
         .unwrap_or_default();
     let mock_calls: MockDriverCalls = serde_json::from_value(mock_calls).unwrap();
 
+    let mut sources = sources::scenarios::evaluate_fixtures(Default::default(), &fixture);
+    sources::inline_sources(&mut sources);
+
     let tables::Sources {
-        capture_bindings,
         captures,
         collections,
-        derivations,
         mut errors,
         fetches,
         imports,
-        materialization_bindings,
         materializations,
-        npm_dependencies,
-        projections,
         resources,
-        schema_docs,
         storage_mappings,
-        test_steps,
-        transforms,
-    } = sources::scenarios::evaluate_fixtures(Default::default(), &fixture);
+        tests,
+    } = sources;
 
     let tables::Validations {
         built_captures,
         built_collections,
-        built_derivations,
         built_materializations,
         built_tests,
         errors: validation_errors,
-        image_inspections,
-        inferences,
     } = futures::executor::block_on(validation::validate(
         config,
         &mock_calls,
-        &capture_bindings,
+        &validation::NoOpControlPlane,
         &captures,
         &collections,
-        &derivations,
         &fetches,
         &imports,
-        &materialization_bindings,
         &materializations,
-        &npm_dependencies,
-        &projections,
-        &resources,
         &storage_mappings,
-        &test_steps,
-        &transforms,
+        &tests,
     ));
 
     errors.extend(validation_errors.into_iter());
@@ -1473,28 +1464,18 @@ fn run_test(mut fixture: Value, config: &flow::build_api::Config) -> tables::All
     tables::All {
         built_captures,
         built_collections,
-        built_derivations,
         built_materializations,
         built_tests,
-        capture_bindings,
         captures,
         collections,
-        derivations,
         errors,
         fetches,
-        image_inspections,
         imports,
-        inferences,
-        materialization_bindings,
         materializations,
         meta: tables::Meta::new(),
-        npm_dependencies,
-        projections,
         resources,
-        schema_docs,
         storage_mappings,
-        test_steps,
-        transforms,
+        tests,
     }
 }
 
@@ -1504,12 +1485,18 @@ fn run_test_errors(fixture: &Value, patch: &str) -> tables::Errors {
     let patch: Value = serde_yaml::from_str(patch).unwrap();
     json_patch::merge(&mut fixture, &patch);
 
-    let tables::All { errors, .. } = run_test(
+    let tables::All { mut errors, .. } = run_test(
         fixture,
         &flow::build_api::Config {
             build_id: "a-build-id".to_string(),
             ..Default::default()
         },
     );
+
+    // Squelch expected fixture error.
+    if matches!(errors.first(), Some(err) if err.scope.as_str() == "test://example/from-array-key#/collections/testing~1from-array-key/derive/using/sqlite/migrations/1")
+    {
+        errors = errors.into_iter().skip(1).collect();
+    }
     errors
 }
