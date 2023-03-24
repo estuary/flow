@@ -14,6 +14,7 @@ create table connectors (
   image_name             text unique not null,
   title                  jsonb_internationalized_value not null,
   short_description      jsonb_internationalized_value not null,
+  long_description       jsonb_internationalized_value,
   logo_url               jsonb_internationalized_value not null,
   recommended            boolean not null default false,
   oauth2_client_id       text,
@@ -49,6 +50,8 @@ comment on column public.connectors.title is
   'The title of this connector. Represented as a json object with IETF language tags as keys (https://en.wikipedia.org/wiki/IETF_language_tag), and the title string as values';
 comment on column public.connectors.short_description is
   'A short description of this connector, at most a few sentences. Represented as a json object with IETF language tags as keys (https://en.wikipedia.org/wiki/IETF_language_tag), and the description string as values';
+comment on column public.connectors.long_description is
+  'A longform description of this connector. Represented as a json object with IETF language tags as keys (https://en.wikipedia.org/wiki/IETF_language_tag), and the description string as values';
 
 -- don't expose details of oauth2 secret
 -- authenticated may select other columns for all connectors connectors.
