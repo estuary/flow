@@ -262,29 +262,15 @@ corresponding collection's key accordingly.
 In cases where a SQL Server table you want to capture doesn't have a primary key,
 you can manually add it to the collection definition during the [capture creation workflow](../../../guides/create-dataflow.md#create-a-capture).
 
-1. Make sure you have the [flowctl CLI](../../../getting-started/installation.md#get-started-with-the-flow-cli) installed.
-
-2. Open a terminal in your local environment and [authenticate flowctl](../../../reference/authentication.md#authenticating-flow-using-the-cli). Switch to an empty directory.
-
-3. After you input the endpoint configuration and click **Next**,
+1. After you input the endpoint configuration and click **Next**,
 the tables in your database have been mapped to Flow collections.
 Click each collection's **Specification** tab and identify a collection where `"key": [ ],` is empty.
 
-4. Click the **CLI** button above the collection specification and copy the provided command
-to pull down the draft and edit.
-
-5. In your working directory, you'll find the source files for the capture you started to define in the web app.
-Locate the `flow.yaml` file that contains the collection definition (this will be in a subdirectory that shares the name of your Flow catalog prefix).
-
-6. Locate the empty key value and input the name of column in the table to use as the key, formatted as a JSON pointer. For example `"key": ["/foo"],`
+2. Click inside the empty key value in the editor and input the name of column in the table to use as the key, formatted as a JSON pointer. For example `"key": ["/foo"],`
 
    Make sure the key field is required, not nullable, and of an [allowed type](../../../concepts/collections.md#schema-restrictions).
    Make any other necessary changes to the [collection specification](../../../concepts/collections.md#specification) to accommodate this.
 
-7. Repeat with other missing collection keys, if necessary.
+3. Repeat with other missing collection keys, if necessary.
 
-   Run ```flowctl draft author --source flow.yaml```.
-
-8. In the web app, click **Synchronize Schema**.
-
-9. Save and publish the capture as usual.
+4. Save and publish the capture as usual.
