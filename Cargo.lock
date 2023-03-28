@@ -41,6 +41,7 @@ dependencies = [
  "insta",
  "itertools 0.10.5",
  "models",
+ "proto-flow",
  "reqwest",
  "rusqlite",
  "schemars",

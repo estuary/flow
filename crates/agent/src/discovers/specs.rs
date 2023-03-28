@@ -1,35 +1,17 @@
+use anyhow::Context;
+use proto_flow::capture::{response::discovered::Binding, response::Discovered};
 use std::collections::BTreeMap;
-
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiscoveredBinding {
-    /// A recommended display name for this discovered binding.
-    pub recommended_name: String,
-    /// JSON-encoded object which specifies the endpoint resource to be captured.
-    pub resource_spec: models::RawValue,
-    /// JSON schema of documents produced by this binding.
-    pub document_schema: models::Schema,
-    /// Composite key of documents (if known), as JSON-Pointers.
-    #[serde(default)]
-    pub key_ptrs: Vec<models::JsonPointer>,
-}
 
 pub fn parse_response(
     endpoint_config: &serde_json::value::RawValue,
     image_name: &str,
     image_tag: &str,
     response: &[u8],
-) -> Result<(models::CaptureEndpoint, Vec<DiscoveredBinding>), serde_json::Error> {
+) -> Result<(models::CaptureEndpoint, Vec<Binding>), serde_json::Error> {
     let image_composed = format!("{image_name}{image_tag}");
     tracing::debug!(%image_composed, response=%String::from_utf8_lossy(response), "converting response");
 
-    // Response is the expected shape of a discover response.
-    #[derive(serde::Deserialize)]
-    struct Response {
-        #[serde(default)]
-        bindings: Vec<DiscoveredBinding>,
-    }
-    let Response { mut bindings } = serde_json::from_slice(response)?;
+    let Discovered { mut bindings } = serde_json::from_slice(response)?;
 
     // Sort bindings so they're consistently ordered on their recommended name.
     // This reduces potential churn if an established capture is refreshed.
@@ -47,10 +29,10 @@ pub fn parse_response(
 pub fn merge_capture(
     capture_name: &str,
     endpoint: models::CaptureEndpoint,
-    discovered_bindings: Vec<DiscoveredBinding>,
+    discovered_bindings: Vec<Binding>,
     fetched_capture: Option<models::CaptureDef>,
     update_only: bool,
-) -> (models::CaptureDef, Vec<DiscoveredBinding>) {
+) -> anyhow::Result<(models::CaptureDef, Vec<Binding>)> {
     let capture_prefix = capture_name.rsplit_once("/").unwrap().0;
 
     let (fetched_bindings, interval, shards) = match fetched_capture {
@@ -72,9 +54,9 @@ pub fn merge_capture(
     let mut filtered_bindings = Vec::new();
 
     for discovered_binding in discovered_bindings {
-        let DiscoveredBinding {
+        let Binding {
             recommended_name,
-            resource_spec,
+            resource_config_json,
             ..
         } = &discovered_binding;
 
@@ -87,7 +69,7 @@ pub fn merge_capture(
             .filter(|fetched| {
                 doc::diff(
                     Some(&serde_json::json!(&fetched.resource)),
-                    Some(&serde_json::json!(resource_spec)),
+                    Some(&serde_json::json!(resource_config_json)),
                 )
                 .is_empty()
             })
@@ -99,15 +81,17 @@ pub fn merge_capture(
             filtered_bindings.push(discovered_binding);
         } else if !update_only {
             // Create a new CaptureBinding.
+            let resource = models::RawValue::from_string(resource_config_json.clone())
+                .context("parsing resource_config_json of discovered binding")?;
             capture_bindings.push(models::CaptureBinding {
                 target: models::Collection::new(format!("{capture_prefix}/{recommended_name}")),
-                resource: resource_spec.clone(),
+                resource,
             });
             filtered_bindings.push(discovered_binding);
         }
     }
 
-    (
+    Ok((
         models::CaptureDef {
             endpoint,
             bindings: capture_bindings,
@@ -115,27 +99,29 @@ pub fn merge_capture(
             shards,
         },
         filtered_bindings,
-    )
+    ))
 }
 
 pub fn merge_collections(
-    discovered_bindings: Vec<DiscoveredBinding>,
+    discovered_bindings: Vec<Binding>,
     mut fetched_collections: BTreeMap<models::Collection, models::CollectionDef>,
     targets: Vec<models::Collection>,
-) -> BTreeMap<models::Collection, models::CollectionDef> {
+) -> anyhow::Result<BTreeMap<models::Collection, models::CollectionDef>> {
     assert_eq!(targets.len(), discovered_bindings.len());
 
     let mut collections = BTreeMap::new();
 
     for (
         target,
-        DiscoveredBinding {
-            key_ptrs,
-            document_schema,
+        Binding {
+            key,
+            document_schema_json,
             ..
         },
     ) in targets.into_iter().zip(discovered_bindings.into_iter())
     {
+        let document_schema: models::Schema =
+            serde_json::from_str(&document_schema_json).context("parsing document_schema_json")?;
         // Unwrap a fetched collection, or initialize a blank one.
         let mut collection =
             fetched_collections
@@ -158,19 +144,23 @@ pub fn merge_collections(
         }
 
         // If the discover didn't provide a key, don't over-write a user's chosen key.
-        if !key_ptrs.is_empty() {
-            collection.key = models::CompositeKey::new(key_ptrs);
+        if !key.is_empty() {
+            let pointers = key
+                .into_iter()
+                .map(models::JsonPointer::new)
+                .collect::<Vec<_>>();
+            collection.key = models::CompositeKey::new(pointers);
         }
 
         collections.insert(target.clone(), collection);
     }
 
-    collections
+    Ok(collections)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{BTreeMap, DiscoveredBinding};
+    use super::{BTreeMap, Binding};
     use serde_json::json;
 
     #[test]
@@ -226,7 +216,7 @@ mod tests {
     #[test]
     fn test_merge_collection() {
         let (discovered_bindings, fetched_collections, targets): (
-            Vec<DiscoveredBinding>,
+            Vec<Binding>,
             BTreeMap<models::Collection, models::CollectionDef>,
             Vec<models::Collection>,
         ) = serde_json::from_value(json!([
@@ -270,7 +260,8 @@ mod tests {
         ]))
         .unwrap();
 
-        let out = super::merge_collections(discovered_bindings, fetched_collections, targets);
+        let out =
+            super::merge_collections(discovered_bindings, fetched_collections, targets).unwrap();
 
         insta::assert_display_snapshot!(serde_json::to_string_pretty(&out).unwrap());
     }
@@ -292,7 +283,8 @@ mod tests {
             discovered_bindings,
             None,
             false,
-        );
+        )
+        .unwrap();
 
         insta::assert_json_snapshot!(json!(out));
     }
@@ -329,7 +321,8 @@ mod tests {
             discovered_bindings,
             fetched_capture,
             true,
-        );
+        )
+        .unwrap();
 
         // Expect we:
         // * Preserved the modified binding configuration.
@@ -366,7 +359,8 @@ mod tests {
             discovered_bindings,
             fetched_capture,
             false,
-        );
+        )
+        .unwrap();
 
         // Expect we:
         // * Preserved the modified binding configurations.
