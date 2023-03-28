@@ -20,6 +20,10 @@ where
     // Fall back to the $PATH.
     if !flowctl.exists() {
         flowctl = "flowctl".into();
+    } else {
+        // If the executable does exist, then we need to pass it as an absolute path,
+        // because the `Command` does not handle relative paths.
+        flowctl = flowctl.canonicalize().unwrap();
     }
     let cmd = connector_init::rpc::new_command(&[flowctl.to_str().unwrap(), "raw", "deno-derive"]);
 
