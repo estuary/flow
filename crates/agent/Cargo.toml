@@ -16,6 +16,7 @@ async-process = { path = "../async-process" }
 doc = { path = "../doc" }
 models = { path = "../models" }
 tables = { path = "../tables", features = ["persist"] }
+proto-flow = { path = "../proto-flow" }
 
 anyhow = { workspace = true }
 async-trait = { workspace = true }

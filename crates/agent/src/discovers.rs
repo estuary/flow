@@ -213,7 +213,7 @@ impl DiscoverHandler {
             discovered_bindings,
             catalog.captures.remove(&capture_name),
             update_only,
-        );
+        )?;
         let targets = capture
             .bindings
             .iter()
@@ -253,7 +253,7 @@ impl DiscoverHandler {
         // Now deeply merge all captured collections.
         // Post-condition: `catalog` reflects the final outcome of our operation.
         catalog.collections =
-            specs::merge_collections(discovered_bindings, catalog.collections, targets);
+            specs::merge_collections(discovered_bindings, catalog.collections, targets)?;
 
         Ok(Ok(catalog))
     }
