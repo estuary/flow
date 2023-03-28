@@ -1,0 +1,43 @@
+layout {
+  cwd "/Users/mahdi/estuary/flow"
+  pane split_direction="vertical" {
+    pane split_direction="horizontal" {
+      pane split_direction="vertical" {
+        pane {
+          command "bash"
+          args "./local/start-component.sh" "schema-inference"
+        }
+        pane {
+          command "bash"
+          args "./local/start-component.sh" "temp-data-plane"
+        }
+      }
+
+      pane split_direction="vertical" {
+        pane {
+          command "bash"
+          args "./local/start-component.sh" "ui"
+        }
+        pane {
+          command "bash"
+          args "./local/start-component.sh" "data-plane-gateway"
+        }
+      }
+      pane split_direction="vertical" {
+        pane {
+          command "bash"
+          args "./local/start-component.sh" "config-encryption"
+        }
+        pane {
+          command "bash"
+          args "./local/start-component.sh" "oauth-edge"
+        }
+      }
+
+      pane {
+        command "bash"
+        args "./local/start-component.sh" "control-plane"
+      }
+    }
+  }
+}
