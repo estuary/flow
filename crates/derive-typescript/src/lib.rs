@@ -268,7 +268,7 @@ fn find_deno() -> std::path::PathBuf {
     // Look for deno alongside this program.
     let this_program = std::env::args().next().unwrap();
 
-    eprintln!("ATTEMPTING TO FIND DENO {}", this_program);
+    tracing::debug!(%this_program, "attempting for find 'deno'");
     let mut deno = std::path::Path::new(&this_program)
         .parent()
         .unwrap()
@@ -277,7 +277,10 @@ fn find_deno() -> std::path::PathBuf {
     // Fall back to the $PATH.
     if !deno.exists() {
         deno = "deno".into();
+    } else {
+        deno = deno.canonicalize().unwrap();
     }
+    tracing::debug!(executable = %deno.display(), "resolved deno");
     deno
 }
 
