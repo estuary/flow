@@ -156,10 +156,11 @@ type LoadIterator struct {
 	Key       tuple.Tuple // Key of the document to load.
 	PackedKey []byte      // PackedKey of the document to load.
 
-	stream  RequestRx
-	request *Request // Request read into.
-	total   int      // Total number of iterated keys.
-	err     error    // Terminal error.
+	stream      RequestRx
+	request     *Request        // Request read into.
+	awaitDoneCh <-chan struct{} // Signaled when last commit acknowledgment has completed.
+	total       int             // Total number of iterated keys.
+	err         error           // Terminal error.
 }
 
 // Context returns the Context of this LoadIterator.
@@ -184,7 +185,20 @@ func (it *LoadIterator) Next() bool {
 		it.err = fmt.Errorf("reading Load: %w", err)
 		return false
 	} else if it.request.Load == nil {
-		return false // No loads remain.
+		// No loads remain.
+
+		// Don't return to the caller until we've finished acknowledging the
+		// last commit. This isn't strictly required when interacting with the
+		// Flow runtime, as it will never send Request.Flush until it reads
+		// Response.Acknowledged, but it is required for test fixtures.
+		//
+		// Many connectors stage a set of keys to load and then perform the
+		// load only after we return, so blocking here ensures that the caller
+		// does this load only after its prior commit has completed.
+		if it.awaitDoneCh != nil {
+			_, it.awaitDoneCh = <-it.awaitDoneCh, nil
+		}
+		return false
 	} else if err = it.request.Validate_(); err != nil {
 		it.err = fmt.Errorf("validation failed: %w", err)
 		return false
@@ -451,8 +465,3 @@ func recv(
 		return err
 	}
 }
-
-const (
-	arenaSize = 16 * 1024
-	sliceSize = 32
-)

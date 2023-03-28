@@ -63,7 +63,9 @@ func TestStreamLifecycle(t *testing.T) {
 	require.NoError(t, WriteFlush(cliRPC, &txRequest))
 
 	// Driver reads Loads.
-	var it = &LoadIterator{stream: srvRPC, request: &rxRequest}
+	var awaitDoneCh = make(chan struct{})
+	close(awaitDoneCh)
+	var it = &LoadIterator{stream: srvRPC, request: &rxRequest, awaitDoneCh: awaitDoneCh}
 	require.True(t, it.Next())
 	require.Equal(t, tuple.Tuple{"key-1"}, it.Key)
 	require.True(t, it.Next())
