@@ -159,7 +159,6 @@ func RunTransactions(
 	var load = func(
 		round int,
 		it *LoadIterator,
-		awaitDoneCh <-chan struct{}, // Signaled when await() has completed.
 		loadDoneCh chan<- struct{}, // To be closed upon return.
 	) (__out error) {
 
@@ -177,9 +176,9 @@ func RunTransactions(
 		}()
 
 		var err = transactor.Load(it, func(binding int, doc json.RawMessage) error {
-			if awaitDoneCh != nil {
+			if it.awaitDoneCh != nil {
 				// Wait for await() to complete and then clear our local copy of its channel.
-				_, awaitDoneCh = <-awaitDoneCh, nil
+				_, it.awaitDoneCh = <-it.awaitDoneCh, nil
 			}
 			if awaitErr != nil {
 				// We cannot write a Loaded response if await() failed, as it would
@@ -191,22 +190,14 @@ func RunTransactions(
 			return WriteLoaded(stream, &txResponse, binding, doc)
 		})
 
-		if awaitDoneCh == nil && awaitErr != nil {
+		if it.awaitDoneCh == nil && awaitErr != nil {
 			return nil // Cancelled by await() error.
 		} else if it.err != nil {
 			// Prefer the iterator's error over `err` as it's earlier in the chain
 			// of dependency and is likely causal of (or equal to) `err`.
 			return it.err
-		} else if err != nil {
-			return err
-		} else if awaitDoneCh != nil {
-			// If a loaded() callback didn't already await and clear `awaitDoneCh`
-			// do it now. This isn't strictly necessary for the runtime, since it doesn't
-			// send Flush (breaking the Load iterator loop) until Acknowledged has
-			// been sent, but does make ordering consistent in test fixtures.
-			<-awaitDoneCh
 		}
-		return nil
+		return err
 	}
 
 	// ourCommitOp is a future for the last async startCommit().
@@ -218,7 +209,7 @@ func RunTransactions(
 		var (
 			awaitDoneCh = make(chan struct{}) // Signals await() is done.
 			loadDoneCh  = make(chan struct{}) // Signals load() is done.
-			loadIt      = LoadIterator{stream: stream, request: &rxRequest}
+			loadIt      = LoadIterator{stream: stream, request: &rxRequest, awaitDoneCh: awaitDoneCh}
 		)
 
 		if err = ReadAcknowledge(stream, &rxRequest); err != nil {
@@ -235,7 +226,7 @@ func RunTransactions(
 
 		// Begin an async load of the current transaction.
 		// At exit, `loadDoneCh` is closed and `loadErr` is its status.
-		go load(round, &loadIt, awaitDoneCh, loadDoneCh)
+		go load(round, &loadIt, loadDoneCh)
 
 		// Join over await() and load().
 		for awaitDoneCh != nil || loadDoneCh != nil {
