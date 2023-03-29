@@ -199,7 +199,7 @@ and set up the watermarks table and publication.
         for additional details and a sample.
    :::
 
-2. Set [the `cloudsql.logical_decoding` flag to `on`](https://cloud.google.com/sql/docs/postgres/flags) to enable logical replication on your Cloud SQL PostgreSQL instance.
+2. On Google Cloud, navigate to your instance's Overview page. Click "Edit configuration". Scroll down to the Flags section. Click "ADD FLAG". Set [the `cloudsql.logical_decoding` flag to `on`](https://cloud.google.com/sql/docs/postgres/flags) to enable logical replication on your Cloud SQL PostgreSQL instance.
 
 3. In your PostgreSQL client, connect to your instance and issue the following commands to create a new user for the capture with appropriate permissions,
 and set up the watermarks table and publication.
