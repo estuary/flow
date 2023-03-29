@@ -176,11 +176,11 @@ func RunTransactions(
 		}()
 
 		var err = transactor.Load(it, func(binding int, doc json.RawMessage) error {
-			if it.awaitDoneCh != nil {
-				// Wait for await() to complete and then clear our local copy of its channel.
-				_, it.awaitDoneCh = <-it.awaitDoneCh, nil
-			}
-			if awaitErr != nil {
+			if it.err != nil {
+				panic(fmt.Sprintf("loaded called without first checking LoadIterator.Err(): %v", it.err))
+			} else if it.awaitDoneCh != nil {
+				panic("loaded called without first calling LoadIterator.WaitForAcknowledged()")
+			} else if awaitErr != nil {
 				// We cannot write a Loaded response if await() failed, as it would
 				// be an out-of-order response (a protocol violation). Bail out.
 				return context.Canceled
