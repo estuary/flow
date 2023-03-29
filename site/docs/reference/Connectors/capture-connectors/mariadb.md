@@ -1,7 +1,6 @@
 ---
-sidebar_position: 6
+sidebar_position: 3
 ---
-
 # MariaDB
 
 This is a change data capture (CDC) connector that captures change events from a MariaDB database via the [Binary Log](https://mariadb.com/kb/en/overview-of-the-binary-log/).

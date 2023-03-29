@@ -1,3 +1,6 @@
+---
+sidebar_position: 1
+---
 # GitHub
 
 This connector captures data from GitHub repositories and organizations into Flow collections via GitHub's REST API.
@@ -65,7 +68,7 @@ There are two ways to authenticate with GitHub when capturing data into Flow: us
 Their prerequisites differ.
 
 OAuth is recommended for simplicity in the Flow web app;
-the access token method is the only supported method using the command line. Which authentication method you choose depends on the policies of your organization. Github has special organization settings that need to be enabled in order for users to be able to access repos that are part of an organization. 
+the access token method is the only supported method using the command line. Which authentication method you choose depends on the policies of your organization. Github has special organization settings that need to be enabled in order for users to be able to access repos that are part of an organization.
 
 ### Using OAuth2 to authenticate with GitHub in the Flow web app
 
@@ -80,7 +83,7 @@ the access token method is the only supported method using the command line. Whi
 * A GitHub [personal access token](https://github.com/settings/tokens).
 You may use multiple tokens to balance the load on your API quota.
 
-* User may need to get the organization's administrator to grant access under "Third-party Access" then "Personal access tokens". 
+* User may need to get the organization's administrator to grant access under "Third-party Access" then "Personal access tokens".
 
 ## Configuration
 

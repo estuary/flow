@@ -1,7 +1,7 @@
 ---
-sidebar_position: 6
+sidebar_position: 3
 ---
-# HTTP file
+# HTTP File
 
 This connector captures data from an HTTP endpoint into a Flow collection.
 

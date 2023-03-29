@@ -1,3 +1,6 @@
+---
+sidebar_position: 3
+---
 # Google Universal Analytics
 
 This connector captures data from a view in Google Universal Analytics.

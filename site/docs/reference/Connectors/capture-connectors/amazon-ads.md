@@ -1,3 +1,6 @@
+---
+sidebar_position: 1
+---
 # Amazon Ads
 
 This connector captures data from Amazon Ads into Flow collections via the [Amazon Ads API](https://advertising.amazon.com/API/docs/en-us).
