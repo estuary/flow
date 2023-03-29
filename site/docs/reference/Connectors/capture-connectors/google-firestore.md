@@ -1,7 +1,6 @@
 ---
-sidebar_position: 5
+sidebar_position: 2
 ---
-
 # Google Firestore
 
 This connector captures data from your Google Firestore collections into Flow collections.

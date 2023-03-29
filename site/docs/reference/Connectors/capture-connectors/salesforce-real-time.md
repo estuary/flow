@@ -1,6 +1,3 @@
----
-sidebar_position: 8
----
 # Salesforce — Real-time data
 
 This connector captures data from Salesforce objects into Flow collections in real time via the [Salesforce PushTopic API](https://developer.salesforce.com/docs/atlas.en-us.api_streaming.meta/api_streaming/pushtopic_events_intro.htm).

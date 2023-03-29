@@ -1,3 +1,6 @@
+---
+sidebar_position: 1
+---
 # Google Ads
 
 This connector captures data from [resources](https://developers.google.com/google-ads/api/fields/v11/overview) in one or more Google Ads accounts into Flow collections via the Google Ads API.

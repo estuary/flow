@@ -1,6 +1,7 @@
 ---
-sidebar_position: 8
+sidebar_position: 5
 ---
+# MySQL
 
 This is a change data capture (CDC) connector that captures change events from a MySQL database via the [Binary Log](https://dev.mysql.com/doc/refman/8.0/en/binary-log.html).
 
@@ -427,6 +428,6 @@ If your capture fails with a `"binlog retention period is too short"` error, it 
 
 The `"binlog retention period is too short"` error should normally be fixed by setting `binlog_expire_logs_seconds = 2592000` as described in the [Prerequisites](#prerequisites) section (and when running on a managed cloud platform additional steps may be required, refer to the managed cloud setup instructions above). However, advanced users who understand the risks can use the `skip_binlog_retention_check` configuration option to disable this safety.
 
-### Empty Collection Key 
+### Empty Collection Key
 
 Every Flow collection must declare a [key](../../../concepts/collections.md#keys) which is used to group its documents. When testing your capture, if you encounter an error indicating collection key cannot be empty, you will need to either add a key to the table in your source, or manually edit the generated specification and specify keys for the collection before publishing to the catalog as documented [here](../../../concepts/collections.md#empty-keys).
