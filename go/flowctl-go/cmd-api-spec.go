@@ -15,7 +15,6 @@ import (
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/ops"
 	pc "github.com/estuary/flow/go/protocols/capture"
-	"github.com/estuary/flow/go/protocols/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/sirupsen/logrus"
@@ -24,11 +23,11 @@ import (
 )
 
 type specResponse struct {
-	Type               string          `json:"type"`
-	DocumentationURL   string          `json:"documentationURL"`
-	EndpointSpecSchema json.RawMessage `json:"endpointSpecSchema"`
-	ResourceSpecSchema json.RawMessage `json:"resourceSpecSchema"`
-	Oauth2Spec         json.RawMessage `json:"oauth2Spec"`
+	Protocol             string          `json:"protocol"`
+	DocumentationURL     string          `json:"documentationUrl"`
+	ConfigSchema         json.RawMessage `json:"configSchema"`
+	ResourceConfigSchema json.RawMessage `json:"resourceConfigSchema"`
+	Oauth2               json.RawMessage `json:"oauth2"`
 }
 
 type apiSpec struct {
@@ -116,11 +115,11 @@ func (cmd apiSpec) specCapture(ctx context.Context, spec json.RawMessage) (specR
 	}
 
 	return specResponse{
-		Type:               "capture",
-		DocumentationURL:   response.Spec.DocumentationUrl,
-		EndpointSpecSchema: response.Spec.ConfigSchemaJson,
-		ResourceSpecSchema: response.Spec.ResourceConfigSchemaJson,
-		Oauth2Spec:         oauth2Spec.Bytes(),
+		Protocol:             "capture",
+		DocumentationURL:     response.Spec.DocumentationUrl,
+		ConfigSchema:         response.Spec.ConfigSchemaJson,
+		ResourceConfigSchema: response.Spec.ResourceConfigSchemaJson,
+		Oauth2:               oauth2Spec.Bytes(),
 	}, nil
 }
 
@@ -130,7 +129,7 @@ func (cmd apiSpec) specMaterialization(ctx context.Context, spec json.RawMessage
 	})
 	var request = &pm.Request{
 		Spec: &pm.Request_Spec{
-			ConnectorType: flow.MaterializationSpec_IMAGE,
+			ConnectorType: pf.MaterializationSpec_IMAGE,
 			ConfigJson:    spec,
 		},
 	}
@@ -159,11 +158,11 @@ func (cmd apiSpec) specMaterialization(ctx context.Context, spec json.RawMessage
 	}
 
 	return specResponse{
-		Type:               "materialization",
-		DocumentationURL:   response.Spec.DocumentationUrl,
-		EndpointSpecSchema: response.Spec.ConfigSchemaJson,
-		ResourceSpecSchema: response.Spec.ResourceConfigSchemaJson,
-		Oauth2Spec:         oauth2Spec.Bytes(),
+		Protocol:             "materialization",
+		DocumentationURL:     response.Spec.DocumentationUrl,
+		ConfigSchema:         response.Spec.ConfigSchemaJson,
+		ResourceConfigSchema: response.Spec.ResourceConfigSchemaJson,
+		Oauth2:               oauth2Spec.Bytes(),
 	}, nil
 }
 

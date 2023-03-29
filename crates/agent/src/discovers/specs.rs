@@ -32,7 +32,7 @@ pub fn merge_capture(
     discovered_bindings: Vec<Binding>,
     fetched_capture: Option<models::CaptureDef>,
     update_only: bool,
-) -> anyhow::Result<(models::CaptureDef, Vec<Binding>)> {
+) -> (models::CaptureDef, Vec<Binding>) {
     let capture_prefix = capture_name.rsplit_once("/").unwrap().0;
 
     let (fetched_bindings, interval, shards) = match fetched_capture {
@@ -60,6 +60,8 @@ pub fn merge_capture(
             ..
         } = &discovered_binding;
 
+        let resource: serde_json::Value = serde_json::from_str(&resource_config_json).unwrap();
+
         // Attempt to find a fetched binding such that the discovered resource
         // spec is a strict subset of the fetched resource spec. In other
         // words the fetched resource spec may have _extra_ locations,
@@ -67,11 +69,7 @@ pub fn merge_capture(
         let fetched_binding = fetched_bindings
             .iter()
             .filter(|fetched| {
-                doc::diff(
-                    Some(&serde_json::json!(&fetched.resource)),
-                    Some(&serde_json::json!(resource_config_json)),
-                )
-                .is_empty()
+                doc::diff(Some(&serde_json::json!(&fetched.resource)), Some(&resource)).is_empty()
             })
             .next();
 
@@ -81,17 +79,15 @@ pub fn merge_capture(
             filtered_bindings.push(discovered_binding);
         } else if !update_only {
             // Create a new CaptureBinding.
-            let resource = models::RawValue::from_string(resource_config_json.clone())
-                .context("parsing resource_config_json of discovered binding")?;
             capture_bindings.push(models::CaptureBinding {
                 target: models::Collection::new(format!("{capture_prefix}/{recommended_name}")),
-                resource,
+                resource: models::RawValue::from_value(&resource),
             });
             filtered_bindings.push(discovered_binding);
         }
     }
 
-    Ok((
+    (
         models::CaptureDef {
             endpoint,
             bindings: capture_bindings,
@@ -99,14 +95,14 @@ pub fn merge_capture(
             shards,
         },
         filtered_bindings,
-    ))
+    )
 }
 
 pub fn merge_collections(
     discovered_bindings: Vec<Binding>,
     mut fetched_collections: BTreeMap<models::Collection, models::CollectionDef>,
     targets: Vec<models::Collection>,
-) -> anyhow::Result<BTreeMap<models::Collection, models::CollectionDef>> {
+) -> BTreeMap<models::Collection, models::CollectionDef> {
     assert_eq!(targets.len(), discovered_bindings.len());
 
     let mut collections = BTreeMap::new();
@@ -120,8 +116,7 @@ pub fn merge_collections(
         },
     ) in targets.into_iter().zip(discovered_bindings.into_iter())
     {
-        let document_schema: models::Schema =
-            serde_json::from_str(&document_schema_json).context("parsing document_schema_json")?;
+        let document_schema: models::Schema = serde_json::from_str(&document_schema_json).unwrap();
         // Unwrap a fetched collection, or initialize a blank one.
         let mut collection =
             fetched_collections
@@ -155,7 +150,7 @@ pub fn merge_collections(
         collections.insert(target.clone(), collection);
     }
 
-    Ok(collections)
+    collections
 }
 
 #[cfg(test)]
@@ -169,7 +164,7 @@ mod tests {
             "bindings": [
                 {
                     "recommendedName": "greetings",
-                    "resourceSpec": {
+                    "resourceConfig": {
                         "stream": "greetings",
                         "syncMode": "incremental"
                     },
@@ -181,11 +176,11 @@ mod tests {
                         },
                         "required": [ "count", "message" ]
                     },
-                    "keyPtrs": [ "/count" ]
+                    "key": [ "/count" ]
                 },
                 {
                     "recommendedName": "frogs",
-                    "resourceSpec": {
+                    "resourceConfig": {
                         "stream": "greetings",
                         "syncMode": "incremental"
                     },
@@ -196,7 +191,7 @@ mod tests {
                         },
                         "required": [ "croak" ]
                     },
-                    "keyPtrs": [ "/croak" ]
+                    "key": [ "/croak" ]
                 }
             ]
         })
@@ -222,13 +217,13 @@ mod tests {
         ) = serde_json::from_value(json!([
             [
                 // case/1: if there is no fetched collection, one is assembled.
-                {"documentSchema": {"const": 42}, "keyPtrs": ["/foo", "/bar"], "recommendedName": "", "resourceSpec": {}},
+                {"documentSchema": {"const": 42}, "key": ["/foo", "/bar"], "recommendedName": "", "resourceConfig": {}},
                 // case/2: expect key and schema are updated, but other fields remain.
-                {"documentSchema": {"const": 42}, "keyPtrs": ["/foo", "/bar"], "recommendedName": "", "resourceSpec": {}},
+                {"documentSchema": {"const": 42}, "key": ["/foo", "/bar"], "recommendedName": "", "resourceConfig": {}},
                 // case/3: If discovered key is empty, it doesn't replace the collection key.
-                {"documentSchema": {"const": 42}, "keyPtrs": [], "recommendedName": "", "resourceSpec": {}},
+                {"documentSchema": {"const": 42}, "key": [], "recommendedName": "", "resourceConfig": {}},
                 // case/4: If fetched collection has read & write schemas, only the write schema is updated.
-                {"documentSchema": {"const": "write!"}, "keyPtrs": ["/foo", "/bar"], "recommendedName": "", "resourceSpec": {}},
+                {"documentSchema": {"const": "write!"}, "key": ["/foo", "/bar"], "recommendedName": "", "resourceConfig": {}},
             ],
             {
                 "case/2": {
@@ -260,8 +255,7 @@ mod tests {
         ]))
         .unwrap();
 
-        let out =
-            super::merge_collections(discovered_bindings, fetched_collections, targets).unwrap();
+        let out = super::merge_collections(discovered_bindings, fetched_collections, targets);
 
         insta::assert_display_snapshot!(serde_json::to_string_pretty(&out).unwrap());
     }
@@ -272,7 +266,7 @@ mod tests {
             serde_json::from_value(json!([
                 { "connector": { "config": { "discovered": 1 }, "image": "new/image" } },
                 [
-                    { "recommendedName": "foo", "resourceSpec": { "stream": "foo" }, "keyPtrs": ["/foo-key"], "documentSchema": { "const": "foo" } },
+                    { "recommendedName": "foo", "resourceConfig": { "stream": "foo" }, "key": ["/foo-key"], "documentSchema": { "const": "foo" } },
                 ],
             ]))
             .unwrap();
@@ -283,8 +277,7 @@ mod tests {
             discovered_bindings,
             None,
             false,
-        )
-        .unwrap();
+        );
 
         insta::assert_json_snapshot!(json!(out));
     }
@@ -297,8 +290,8 @@ mod tests {
             serde_json::from_value(json!([
                 { "connector": { "config": { "discovered": 1 }, "image": "new/image" } },
                 [
-                    { "recommendedName": "suggested", "resourceSpec": { "stream": "foo" }, "documentSchema": { "const": "discovered" } },
-                    { "recommendedName": "other", "resourceSpec": { "stream": "bar" }, "documentSchema": false },
+                    { "recommendedName": "suggested", "resourceConfig": { "stream": "foo" }, "documentSchema": { "const": "discovered" } },
+                    { "recommendedName": "other", "resourceConfig": { "stream": "bar" }, "documentSchema": false },
                 ],
                 {
                   "bindings": [
@@ -321,8 +314,7 @@ mod tests {
             discovered_bindings,
             fetched_capture,
             true,
-        )
-        .unwrap();
+        );
 
         // Expect we:
         // * Preserved the modified binding configuration.
@@ -339,9 +331,9 @@ mod tests {
             serde_json::from_value(json!([
                 { "connector": { "config": { "discovered": 1 }, "image": "new/image" } },
                 [
-                    { "recommendedName": "foo", "resourceSpec": { "stream": "foo" }, "documentSchema": { "const": 1 } },
-                    { "recommendedName": "bar", "resourceSpec": { "stream": "bar" }, "documentSchema": { "const": 2 } },
-                    { "recommendedName": "baz", "resourceSpec": { "stream": "baz" }, "documentSchema": { "const": 3 } },
+                    { "recommendedName": "foo", "resourceConfig": { "stream": "foo" }, "documentSchema": { "const": 1 } },
+                    { "recommendedName": "bar", "resourceConfig": { "stream": "bar" }, "documentSchema": { "const": 2 } },
+                    { "recommendedName": "baz", "resourceConfig": { "stream": "baz" }, "documentSchema": { "const": 3 } },
                 ],
                 {
                   "bindings": [
@@ -359,8 +351,7 @@ mod tests {
             discovered_bindings,
             fetched_capture,
             false,
-        )
-        .unwrap();
+        );
 
         // Expect we:
         // * Preserved the modified binding configurations.

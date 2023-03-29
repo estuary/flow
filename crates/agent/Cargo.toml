@@ -15,8 +15,8 @@ agent-sql = { path = "../agent-sql" }
 async-process = { path = "../async-process" }
 doc = { path = "../doc" }
 models = { path = "../models" }
-tables = { path = "../tables", features = ["persist"] }
 proto-flow = { path = "../proto-flow" }
+tables = { path = "../tables", features = ["persist"] }
 
 anyhow = { workspace = true }
 async-trait = { workspace = true }

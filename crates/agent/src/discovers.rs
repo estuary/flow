@@ -213,7 +213,7 @@ impl DiscoverHandler {
             discovered_bindings,
             catalog.captures.remove(&capture_name),
             update_only,
-        )?;
+        );
         let targets = capture
             .bindings
             .iter()
@@ -253,7 +253,7 @@ impl DiscoverHandler {
         // Now deeply merge all captured collections.
         // Post-condition: `catalog` reflects the final outcome of our operation.
         catalog.collections =
-            specs::merge_collections(discovered_bindings, catalog.collections, targets)?;
+            specs::merge_collections(discovered_bindings, catalog.collections, targets);
 
         Ok(Ok(catalog))
     }
@@ -323,9 +323,9 @@ mod test {
 
         let discover_output = json!({
             "bindings": [
-                {"documentSchema": {"const": "write!"}, "keyPtrs": ["/foo"], "recommendedName": "foo", "resourceSpec": {"table": "foo"}},
-                {"documentSchema": {"const": "bar"}, "keyPtrs": ["/bar"], "recommendedName": "bar", "resourceSpec": {"table": "bar"}},
-                {"documentSchema": {"const": "quz"}, "keyPtrs": ["/quz"], "recommendedName": "quz", "resourceSpec": {"table": "quz"}},
+                {"documentSchema": {"const": "write!"}, "key": ["/foo"], "recommendedName": "foo", "resourceConfig": {"table": "foo"}},
+                {"documentSchema": {"const": "bar"}, "key": ["/bar"], "recommendedName": "bar", "resourceConfig": {"table": "bar"}},
+                {"documentSchema": {"const": "quz"}, "key": ["/quz"], "recommendedName": "quz", "resourceConfig": {"table": "quz"}},
             ],
         }).to_string();
 
@@ -376,7 +376,7 @@ mod test {
 
         let discover_output = json!({
             "bindings": [
-                {"documentSchema": {"const": 42}, "keyPtrs": ["/key"], "recommendedName": "bad", "resourceSpec": {"table": "bad"}},
+                {"documentSchema": {"const": 42}, "key": ["/key"], "recommendedName": "bad", "resourceConfig": {"table": "bad"}},
             ],
         }).to_string();
 
