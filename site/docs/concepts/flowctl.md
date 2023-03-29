@@ -16,7 +16,7 @@ so distribution and upgrades are all simple.
 
 ## Installation and setup
 
-flowctl binaries for MacOS and Linux are available.
+flowctl binaries for MacOS and Linux are available. Fow Windows, [install Windows Subsystem for Linux (WSL)](https://docs.estuary.dev/concepts/flowctl/) to run Linux on Windows, or use a remote development environment.
 
 1. Copy and paste the appropriate script below into your terminal. This will download flowctl, make it executable, and add it to your `PATH`.
 
@@ -38,9 +38,6 @@ flowctl binaries for MacOS and Linux are available.
 
    You can also find the source files on GitHub [here](https://go.estuary.dev/flowctl).
 
-   flowctl isn't currently available for Windows.
-   For Windows users, we recommend running the Linux version inside [WSL](https://learn.microsoft.com/en-us/windows/wsl/),
-   or using a remote development environment.
 
 2. To connect to your Flow account and start a session, [use an authentication token](../reference/authentication.md#authenticating-flow-using-the-cli) from the web app.
 
