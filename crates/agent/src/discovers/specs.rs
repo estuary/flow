@@ -1,4 +1,3 @@
-use anyhow::Context;
 use proto_flow::capture::{response::discovered::Binding, response::Discovered};
 use std::collections::BTreeMap;
 

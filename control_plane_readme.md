@@ -207,12 +207,6 @@ To login with a Magic Link you need to enter an email and then your local will "
 
 ### Building on M1
 
-* To cross-compile `musl` binaries from a darwin arm64 (M1) machine, you need to install `musl-cross` and link it:
-  ```
-  brew install filosottile/musl-cross/musl-cross
-  sudo ln -s /opt/homebrew/opt/musl-cross/bin/x86_64-linux-musl-gcc /usr/local/bin/musl-gcc
-  ```
-
 * Install GNU `coreutils` which are used in the build process using:
 
   ```

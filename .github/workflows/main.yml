@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  gnu-binaries:
+  all-binaries:
     runs-on: ubuntu-20.04
 
     steps:
@@ -68,8 +68,8 @@ jobs:
       # Build and test all the things.
       - run: make install-tools
       - run: go mod download
-      - run: make rust-gnu-test
-      - run: make linux-gnu-binaries
+      - run: make rust-test
+      - run: make all-binaries
 
       - name: Ensure that generated files are unchanged.
         run: |
@@ -80,53 +80,16 @@ jobs:
       - name: Upload Binaries
         uses: actions/upload-artifact@v2
         with:
-          name: linux-gnu-binaries
+          name: all-binaries
           path: |
             .build/package/bin/*
-            target/x86_64-unknown-linux-gnu/release/libbindings.a
+            target/release/libbindings.a
             crates/bindings/flow_bindings.h
-            target/x86_64-unknown-linux-gnu/release/librocksdb-exp/
-
-  musl-binaries:
-    runs-on: ubuntu-20.04
-
-    steps:
-      - uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
-          submodules: true
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: 1.66.1
-          default: true
-          target: x86_64-unknown-linux-musl
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v1
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - run: make extra-ci-runner-setup
-      - run: make print-versions
-
-      - uses: Swatinem/rust-cache@v2
-
-      # Build and test all the things.
-      - run: go mod download
-      - run: make rust-musl-test
-      - run: make linux-musl-binaries
-
-      - name: Upload Binaries
-        uses: actions/upload-artifact@v2
-        with:
-          name: linux-musl-binaries
-          path: |
-            .build/package/bin/*
+            target/release/librocks-exp/
 
   assembly:
     runs-on: ubuntu-20.04
-    needs: [gnu-binaries, musl-binaries]
+    needs: [all-binaries]
 
     services:
       postgres:
@@ -181,28 +144,18 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | \
             docker login --username ${{ github.actor }} --password-stdin ghcr.io
 
-      - name: Download gnu-linux-binaries
+      - name: Download binaries
         uses: actions/download-artifact@v2
         with:
-          name: linux-gnu-binaries
-          path: linux-gnu-binaries
-      - name: Move linux-gnu-binaries to PKGBIN
+          name: all-binaries
+          path: fetched
+      - name: Move all-binaries to PKGBIN
         run: |
           mkdir -p .build/package/bin && \
-          mv linux-gnu-binaries/.build/package/bin/* .build/package/bin && \
-          mkdir -p target/x86_64-unknown-linux-gnu/release && \
-          mv -f linux-gnu-binaries/target/x86_64-unknown-linux-gnu/release/* target/x86_64-unknown-linux-gnu/release/ && \
-          mv -f linux-gnu-binaries/crates/bindings/flow_bindings.h crates/bindings/
-
-      - name: Download linux-musl-binaries
-        uses: actions/download-artifact@v2
-        with:
-          name: linux-musl-binaries
-          path: linux-musl-binaries
-      - name: Move linux-musl-binaries to PKGBIN
-        run: |
-          mkdir -p .build/package/bin && \
-          mv linux-musl-binaries/* .build/package/bin
+          mv fetched/.build/package/bin/* .build/package/bin && \
+          mkdir -p target/release && \
+          mv -f fetched/target/release/* target/release/ && \
+          mv -f fetched/crates/bindings/flow_bindings.h crates/bindings/
 
       # Downloaded artifacts lose their prior permission settings
       - name: Adjust binaries permissions
@@ -234,7 +187,6 @@ jobs:
       # Package and push images.
       - run: make docker-image
 
-      # TODO(johnny) re-enable
       - run: make docker-push
       - if: ${{ github.ref == 'refs/heads/master' }}
         run: make docker-push-dev
@@ -249,5 +201,19 @@ jobs:
           draft: false
           prerelease: true
           tag_name: dev
+          generate_release_notes: false
+          files: .build/package/flow-x86-linux.tar.gz
+
+      # TODO remove me when merged.
+      - if: ${{ github.ref == 'refs/pull/985/merge' }}
+        name: Upload release assets (dev-sql)
+        uses: softprops/action-gh-release@v1
+        with:
+          body: |
+            This is the latest development build of the sql branch, which gets updated on every successful build of its branch.
+          target_commitish: ${{ github.sha }}
+          draft: false
+          prerelease: true
+          tag_name: dev-sql
           generate_release_notes: false
           files: .build/package/flow-x86-linux.tar.gz
