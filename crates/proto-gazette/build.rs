@@ -1,4 +1,7 @@
 fn main() {
+    if proto_build::Boilerplate::skip() {
+        return;
+    }
     let b = proto_build::Boilerplate::create();
     let proto_build = b.resolve_gazette_targets();
 
@@ -11,7 +14,7 @@ fn main() {
         .expect("failed to compile protobuf");
 
     pbjson_build::Builder::new()
-        //.out_dir(&b.src_dir) // Uncomment to debug code generation.
+        .out_dir(&b.src_dir)
         .register_descriptors(&std::fs::read(b.descriptor_path).expect("read descriptors"))
         .unwrap()
         .build(&[".protocol", ".consumer", ".recoverylog"])

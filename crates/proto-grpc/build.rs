@@ -1,4 +1,7 @@
 fn main() {
+    if proto_build::Boilerplate::skip() {
+        return;
+    }
     let b = proto_build::Boilerplate::create();
 
     // Generating gRPC stubs for Flow also brings in Gazette protobufs,

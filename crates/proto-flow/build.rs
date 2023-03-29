@@ -1,4 +1,7 @@
 fn main() {
+    if proto_build::Boilerplate::skip() {
+        return;
+    }
     let b = proto_build::Boilerplate::create();
     let proto_build = b.resolve_flow_targets();
 
@@ -17,7 +20,7 @@ fn main() {
         .expect("failed to compile protobuf");
 
     pbjson_build::Builder::new()
-        // .out_dir(&b.src_dir) // Uncomment to debug code generation and applied fixups.
+        .out_dir(&b.src_dir)
         .register_descriptors(&std::fs::read(b.descriptor_path).expect("read descriptors"))
         .unwrap()
         .btree_map(["."]) // Make ordering stable for snapshots.
@@ -55,9 +58,7 @@ fn main() {
         "./materialize.serde.rs",
         "./ops.serde.rs",
     ] {
-        // Uncomment to debug code generation and applied fixups.
-        // let root = &b.src_dir;
-        let root = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
+        let root = &b.src_dir;
         let mut buf = std::fs::read_to_string(&root.join(path)).unwrap();
 
         // Handle _json fields.

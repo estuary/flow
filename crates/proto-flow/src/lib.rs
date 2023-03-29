@@ -66,28 +66,23 @@ use proto_gazette::consumer;
 
 mod serde_capture {
     use crate::capture::*;
-    include!(concat!(env!("OUT_DIR"), "/capture.serde.rs"));
-    //include!("capture.serde.rs");
+    include!("capture.serde.rs");
 }
 mod serde_derive {
     use crate::derive::*;
-    include!(concat!(env!("OUT_DIR"), "/derive.serde.rs"));
-    //include!("derive.serde.rs");
+    include!("derive.serde.rs");
 }
 mod serde_flow {
     use crate::flow::*;
-    include!(concat!(env!("OUT_DIR"), "/flow.serde.rs"));
-    //include!("flow.serde.rs");
+    include!("flow.serde.rs");
 }
 mod serde_materialize {
     use crate::materialize::*;
-    include!(concat!(env!("OUT_DIR"), "/materialize.serde.rs"));
-    //include!("materialize.serde.rs");
+    include!("materialize.serde.rs");
 }
 mod serde_ops {
     use crate::ops::*;
-    include!(concat!(env!("OUT_DIR"), "/ops.serde.rs"));
-    //include!("ops.serde.rs");
+    include!("ops.serde.rs");
 }
 // We don't generate serde support for the `runtime` protobuf package,
 // as it's not intended for JSON serialization.

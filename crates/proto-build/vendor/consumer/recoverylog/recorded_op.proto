@@ -1,0 +1,196 @@
+syntax = "proto3";
+
+package recoverylog;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "go.gazette.dev/core/consumer/recoverylog";
+
+option (gogoproto.goproto_getters_all) = false;
+option (gogoproto.goproto_sizecache_all) = false;
+option (gogoproto.goproto_unkeyed_all) = false;
+option (gogoproto.goproto_unrecognized_all) = false;
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.protosizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+
+// RecordedOp records states changes occuring within a local file-system.
+// Next tag: 12.
+message RecordedOp {
+  option (gogoproto.goproto_unrecognized) = false;
+
+  // Monotonically-increasing sequence number of this operation.
+  int64 seq_no = 1;
+  // Previous FSM checksum to which this operation should be applied (eg, the
+  // expected checksum arrived at after applying the previous operation.
+  fixed32 checksum = 2;
+  // Author is the unique ID of the Recorder which wrote this RecordedOp.
+  // Each Recorder randomly generates an Author ID at startup, and thereafter
+  // applies it to all operations it records.
+  fixed32 author = 3 [(gogoproto.casttype) = "Author"];
+  // First and last byte offset (exclusive) of this RecordedOp, and the journal
+  // addressed by those offsets.
+  //
+  // These are meta-fields: they're not literally serialized into written messages.
+  // The offsets of a particular message will also vary over its lifetime:
+  // * When first recorded, the offsets at which the write will land within the journal
+  //   cannot be known ahead of time, and Recorders use an approximate lower bound
+  //   as |first_offset|.
+  // * During playback, players have the benefit of inspecting the committed log and
+  //   attach exact byte offsets as they deserialized RecordedOps.
+  int64 first_offset = 9;
+  int64 last_offset = 10;
+  string log = 11 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal"];
+
+  // RecordedOp is a union-type over the remaining fields.
+
+  // A no-op may also be represented as a RecordedOp with no fields set. This
+  // is principally useful for issuing transactional write-barriers at log
+  // handoff. Eg, given a log Player which desires to be the log Recorder:
+  //
+  //   1) The Player will read all available log content, and then inject
+  //      what it understands to be a correctly sequenced no-op with
+  //      its unique author ID. Note that this injected operation may well
+  //      lose a write race with another Recorder, resulting in its being
+  //      mis-sequenced and ignored by other readers.
+  //
+  //   2) It will continue to read the log until its no-op is read.
+  //      If the operation is mis-sequenced, it will restart from step 1.
+  //
+  //   3) If the no-op is sequenced correctly, it will terminate playback
+  //      immediately after the no-op and transition to recording new log
+  //      operations. Any following, raced writes must be mis-sequenced,
+  //      having lost the write race, and will be ignored by other readers.
+
+  // Create a new "File Node" (Fnode), initially linked to |path|. Fnodes play
+  // a similar role to Posix inodes: they identify a specific file object while
+  // being invariant to (and spanning across) its current or future path links.
+  // The assigned Fnode ID is the |seq_no| of this RecordedOp.
+  message Create {
+    option (gogoproto.goproto_unrecognized) = false;
+
+    // Filesystem path of this file, relative to the common base directory.
+    string path = 1;
+  };
+  Create create = 4;
+
+  // Link or unlink an Fnode to a filesystem path.
+  message Link {
+    option (gogoproto.goproto_unrecognized) = false;
+
+    // Fnode being linked or unlinked.
+    int64 fnode = 1 [(gogoproto.casttype) = "Fnode"];
+    // Filesystem path being un/linked, relative to the common base directory.
+    string path = 2;
+  };
+  Link link = 5;
+  Link unlink = 6;
+
+  // Write indicates |length| bytes should be written at |offset| to |fnode|.
+  // In a serialization stream, we expect |length| raw bytes of content to
+  // immediately follow this operation.
+  message Write {
+    option (gogoproto.goproto_unrecognized) = false;
+
+    // Fnode being written to.
+    int64 fnode = 1 [(gogoproto.casttype) = "Fnode"];
+    // Byte-offset within the file to which this write is applied.
+    int64 offset = 2;
+    // Length of the write.
+    int64 length = 3;
+  };
+  Write write = 7;
+
+  // Property indicates a property file has been created or updated.
+  // DEPRECATED. Properties are no longer created,
+  // but will still be applied from a written log.
+  Property property = 8;
+};
+
+// Property is a small file which rarely changes, and is thus managed
+// outside of regular Fnode tracking. See FSM.Properties.
+message Property {
+  option (gogoproto.goproto_unrecognized) = false;
+
+  // Filesystem path of this property, relative to the common base directory.
+  string path = 1;
+  // Complete file content of this property.
+  string content = 2;
+};
+
+// Segment is a contiguous chunk of recovery log written by a single Author.
+// Recorders track Segments they have written, for use in providing hints to
+// future readers of the log. A key point to understand is that Gazette append
+// semantics mean that Recorders *cannot know* exactly what offsets their writes
+// are applied to in the log, nor guarantee that their operations are not being
+// interleaved with those of other writers. Log Players are aware of these
+// limitations, and use Segments to resolve conflicts of possible interpretation
+// of the log. Segments produced by a Player are exact, since Players observe all
+// recorded operations at their exact offsets.
+// Next tag: 8.
+message Segment {
+  option (gogoproto.goproto_unrecognized) = false;
+
+  // Author which wrote RecordedOps of this Segment.
+  fixed32 author = 1 [(gogoproto.casttype) = "Author"];
+  // First (lowest) sequence number of RecordedOps within this Segment.
+  int64 first_seq_no = 2;
+  // First byte offset of the Segment, where |first_seq_no| is recorded.
+  // If this Segment was produced by a Recorder, this is guaranteed only to be a
+  // lower-bound (eg, a Player reading at this offset may encounter irrelevant
+  // operations prior to the RecordedOp indicated by the tuple
+  // (|author|, |first_seq_no|, |first_checksum|). If a Player produced the Segment,
+  // first_offset is exact.
+  int64 first_offset = 3;
+  // Checksum of the RecordedOp having |first_seq_no|.
+  fixed32 first_checksum = 4;
+  // Last (highest, inclusive) sequence number of RecordedOps within this Segment.
+  int64 last_seq_no = 5;
+  // Last offset (exclusive) of the Segment. Zero means the offset is not known
+  // (eg, because the Segment was produced by a Recorder).
+  int64 last_offset = 6;
+  // Log is the Journal holding this Segment's data, and to which offsets are relative.
+  string log = 7 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal"];
+};
+
+// FnodeSegments captures log Segments containing all RecordedOps of the Fnode.
+message FnodeSegments {
+  option (gogoproto.goproto_unrecognized) = false;
+
+  // Fnode being hinted.
+  int64 fnode = 1 [(gogoproto.casttype) = "Fnode"];
+  // Segments of the Fnode in the log. Currently, FSM tracks only a single
+  // Segment per Fnode per Author & Log. A specific implication of this is that Fnodes
+  // modified over long periods of time will result in Segments spanning large
+  // chunks of the log. For best performance, Fnodes should be opened & written
+  // once, and then never be modified again (this is RocksDB's behavior).
+  // If supporting this case is desired, FSM will have to be a bit smarter about
+  // not extending Segments which gap over significant portions of the log
+  // (eg, there's a trade-off to make over size of the hinted manifest, vs
+  // savings incurred on playback by being able to skip portions of the log).
+  repeated Segment segments = 2 [(gogoproto.nullable) = false];
+};
+
+// FSMHints represents a manifest of Fnodes which were still live (eg, having
+// remaining links) at the time the FSMHints were produced, as well as any
+// Properties. It allows a Player of the log to identify minimal Segments which
+// must be read to recover all Fnodes, and also contains sufficient metadata for
+// a Player to resolve all possible conflicts it could encounter while reading
+// the log, to arrive at a consistent view of file state which exactly matches
+// that of the Recorder producing the FSMHints.
+// Next tag: 4.
+message FSMHints {
+  option (gogoproto.goproto_unrecognized) = false;
+
+  // Log is the implied recovery log of any contained |live_nodes| Segments
+  // which omit a |log| value. This implied behavior is both for backward-
+  // compatibility (Segments didn't always have a |log| field) and also for
+  // compacting the representation in the common case of Segments mostly or
+  // entirely addressing a single log.
+  string log = 1 [(gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal"];
+  // Live Fnodes and their Segments as-of the generation of these FSMHints.
+  repeated FnodeSegments live_nodes = 2 [(gogoproto.nullable) = false];
+  // Property files and contents as-of the generation of these FSMHints.
+  repeated Property properties = 3 [(gogoproto.nullable) = false];
+};
+
