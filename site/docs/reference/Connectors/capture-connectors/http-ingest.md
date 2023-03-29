@@ -10,7 +10,7 @@ The connector is available for use in the Flow web application. For local develo
 ## Usage
 
 This connector is distinct from all other capture connectors in that it's not designed to pull data from a specific
-system or endpoint. It has no endpoint-specific configuration, and can accept any and all valid JSON objects from any source.
+system or endpoint. It requires no endpoint-specific configuration, and can accept any and all valid JSON objects from any source.
 
 This is useful primarily if you want to test out Flow or see how your webhook data will come over.
 
@@ -73,7 +73,7 @@ For example, to capture webhooks from Segment, you'll want to set the `key` to `
 
 The connector can optionally require each request to present an authentication token as part of an `Authorization: Bearer ` HTTP header. To enable authentication, generate a secret and paste it into the "Require Auth Token" field. We recommend using a password manager to generate these values, but keep in mind that not all systems will be able to send values with certain special characters, so you may want to disable special characters when you generate the secret. If you enable authentication, then each incoming request must have an `Authorization` header with the value of your token. For example, if you use an auth token value of `mySecretToken`, then the header on each request must be `Authorization: Bearer mySecretToken`.
 
-**If you don't enable authentication, then anyone who knows the URL may be able to publish data to your collection.** We recommend using authentication whenever possible.
+**If you don't enable authentication, then anyone who knows the URL will be able to publish data to your collection.** We recommend using authentication whenever possible.
 
 ### Webhook signature verification
 
