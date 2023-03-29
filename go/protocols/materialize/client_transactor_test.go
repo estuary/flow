@@ -340,6 +340,9 @@ func (t *testTransactor) Load(it *LoadIterator, loaded func(binding int, doc jso
 		t.LoadBindings = append(t.LoadBindings, it.Binding)
 		t.LoadKeys = append(t.LoadKeys, it.Key)
 	}
+	if it.Err() != nil {
+		return it.Err()
+	}
 
 	for binding, docs := range t.Loaded {
 		for _, doc := range docs {

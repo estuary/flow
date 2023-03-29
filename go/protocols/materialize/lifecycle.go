@@ -166,6 +166,16 @@ type LoadIterator struct {
 // Context returns the Context of this LoadIterator.
 func (it *LoadIterator) Context() context.Context { return it.stream.Context() }
 
+// WaitForAcknowledged returns once the prior transaction has been fully acknowledged.
+// Importantly, upon its return a materialization connector is free to issues loads
+// to its backing store (as doing so cannot now violate read-committed semantics).
+func (it *LoadIterator) WaitForAcknowledged() {
+	if it.awaitDoneCh != nil {
+		// Wait for await() to complete and then clear our local copy of its channel.
+		_, it.awaitDoneCh = <-it.awaitDoneCh, nil
+	}
+}
+
 // Next returns true if there is another Load and makes it available.
 // When no Loads remain, or if an error is encountered, it returns false
 // and must not be called again.
@@ -179,6 +189,9 @@ func (it *LoadIterator) Next() bool {
 			it.err = fmt.Errorf("unexpected EOF when there are loaded keys")
 		} else {
 			it.err = io.EOF // Clean shutdown.
+			// If we didn't wait here, the await loop could see our return
+			// as a cancellation (which is not intended).
+			it.WaitForAcknowledged()
 		}
 		return false
 	} else if err != nil {
@@ -187,17 +200,9 @@ func (it *LoadIterator) Next() bool {
 	} else if it.request.Load == nil {
 		// No loads remain.
 
-		// Don't return to the caller until we've finished acknowledging the
-		// last commit. This isn't strictly required when interacting with the
-		// Flow runtime, as it will never send Request.Flush until it reads
-		// Response.Acknowledged, but it is required for test fixtures.
-		//
-		// Many connectors stage a set of keys to load and then perform the
-		// load only after we return, so blocking here ensures that the caller
-		// does this load only after its prior commit has completed.
-		if it.awaitDoneCh != nil {
-			_, it.awaitDoneCh = <-it.awaitDoneCh, nil
-		}
+		// Block for clients which stage loads during the loop and query on
+		// our return, and which don't bother to check WaitForAcknowledged().
+		it.WaitForAcknowledged()
 		return false
 	} else if err = it.request.Validate_(); err != nil {
 		it.err = fmt.Errorf("validation failed: %w", err)
