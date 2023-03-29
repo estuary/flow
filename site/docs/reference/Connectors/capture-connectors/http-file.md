@@ -5,6 +5,8 @@ sidebar_position: 6
 
 This connector captures data from an HTTP endpoint into a Flow collection.
 
+To capture data from an _incoming_ HTTP request, see the [HTTP Ingest](./http-ingest.md) connector.
+
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-http-file:dev`](https://ghcr.io/estuary/source-http-file:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 ## Supported data types
