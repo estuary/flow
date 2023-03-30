@@ -4,8 +4,12 @@ pub use std::process;
 pub struct Boilerplate {
     // Canonical path to this repository's root.
     pub repo_root: PathBuf,
-    // Canonical path to our vendored Gazette and gogoproto protobufs.
-    pub vendor_root: PathBuf,
+    // Canonical path to a gazette repository,
+    // resolved through the Go module system.
+    pub gazette_root: PathBuf,
+    // Canonical path to gogo/protobuf repository,
+    // resolved through the Go module system.
+    pub protobuf_root: PathBuf,
     // The './src' directory of the current crate.
     pub src_dir: PathBuf,
     // The protobuf descriptor path.
@@ -20,13 +24,7 @@ impl Boilerplate {
                 .join("../../"),
         )
         .expect("canonical repo root path");
-        let vendor_root = repo_root.join("crates/proto-build/vendor");
-        let src_dir = Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("src");
 
-        // NOTE(johnny): We used to resolve protobuf dependencies through go.mod and `go list`.
-        // That introduced an unfortunate coupling on having the entire Go toolchain installed,
-        // so we've switched to vendoring these dependencies.
-        /*
         let resolve = |module| {
             if !process::Command::new("go")
                 .args(&["mod", "download", module])
@@ -52,7 +50,8 @@ impl Boilerplate {
 
         let gazette_root = resolve("go.gazette.dev/core");
         let protobuf_root = resolve("github.com/gogo/protobuf");
-        */
+
+        let src_dir = Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("src");
 
         // Descriptors written by prost, and read by pbjson.
         let descriptor_path =
@@ -60,27 +59,22 @@ impl Boilerplate {
 
         Self {
             repo_root,
-            vendor_root,
+            gazette_root,
+            protobuf_root,
             src_dir,
             descriptor_path,
         }
     }
 
-    pub fn skip() -> bool {
-        std::env::var("SKIP_PROTO_BUILD").is_ok()
-    }
-
     pub fn proto_include(&self) -> Vec<&Path> {
-        // The vendor directory must appear first, or `protoc` gets confused
-        // about also finding it in the repository root.
-        vec![&self.vendor_root, &self.repo_root]
+        vec![&self.repo_root, &self.gazette_root, &self.protobuf_root]
     }
 
     pub fn resolve_gazette_targets(&self) -> Vec<PathBuf> {
         let targets = vec![
-            self.vendor_root.join("broker/protocol/protocol.proto"),
-            self.vendor_root.join("consumer/protocol/protocol.proto"),
-            self.vendor_root
+            self.gazette_root.join("broker/protocol/protocol.proto"),
+            self.gazette_root.join("consumer/protocol/protocol.proto"),
+            self.gazette_root
                 .join("consumer/recoverylog/recorded_op.proto"),
         ];
         Self::rerun_if_changed(&targets);
@@ -105,9 +99,6 @@ impl Boilerplate {
         for path in targets.iter() {
             println!("cargo:rerun-if-changed={}", path.display());
         }
-        // Emitting explicit paths drops the default behavior of watching
-        // for changes to files in the crate root, which we also want:
-        // See https://doc.rust-lang.org/cargo/reference/build-scripts.html#rerun-if-changed
-        println!("cargo:rerun-if-changed=.");
+        println!("cargo:rerun-if-changed=build.rs");
     }
 }

@@ -1,7 +1,5 @@
+#[cfg(feature = "generate")]
 fn main() {
-    if proto_build::Boilerplate::skip() {
-        return;
-    }
     let b = proto_build::Boilerplate::create();
     let proto_build = b.resolve_gazette_targets();
 
@@ -20,3 +18,6 @@ fn main() {
         .build(&[".protocol", ".consumer", ".recoverylog"])
         .expect("building pbjson");
 }
+
+#[cfg(not(feature = "generate"))]
+fn main() {}

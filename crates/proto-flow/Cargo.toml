@@ -19,11 +19,16 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [build-dependencies]
-proto-build = { path = "../proto-build" }
-pbjson-build = { workspace = true }
-prost-build = { workspace = true }
-regex = { workspace = true }
+proto-build = { path = "../proto-build", optional = true }
+
+pbjson-build = { workspace = true, optional = true }
+prost-build = { workspace = true, optional = true }
+regex = { workspace = true, optional = true }
 
 [dev-dependencies]
 insta = { workspace = true }
 hexdump = { workspace = true }
+
+[features]
+default = []
+generate = ["proto-build", "pbjson-build", "prost-build", "regex"]

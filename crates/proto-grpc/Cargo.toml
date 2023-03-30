@@ -15,12 +15,13 @@ proto-flow = { path = "../proto-flow", optional = true }
 tonic = { workspace = true }
 
 [build-dependencies]
-proto-build = { path = "../proto-build" }
+proto-build = { path = "../proto-build", optional = true }
 
-tonic-build = { workspace = true }
+tonic-build = { workspace = true, optional = true }
 
 [features]
 default = []
+generate = ["proto-build", "tonic-build"]
 
 broker_client = []
 broker_server = []

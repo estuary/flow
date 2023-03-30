@@ -110,6 +110,9 @@ protoc-gen-gogo:
 
 go-protobufs: $(GO_PROTO_TARGETS)
 
+rust-protobufs:
+	cargo build --release -p proto-gazette -p proto-flow -p proto-grpc --all-features
+
 ${PKGDIR}/bin/deno:
 	curl -L -o /tmp/deno.zip \
 			https://github.com/denoland/deno/releases/download/${DENO_VERSION}/deno-${CARGO_BUILD_TARGET}.zip \

@@ -1,7 +1,5 @@
+#[cfg(feature = "generate")]
 fn main() {
-    if proto_build::Boilerplate::skip() {
-        return;
-    }
     let b = proto_build::Boilerplate::create();
     let proto_build = b.resolve_flow_targets();
 
@@ -127,3 +125,6 @@ fn main() {
         std::fs::write(&root.join(path), buf).unwrap();
     }
 }
+
+#[cfg(not(feature = "generate"))]
+fn main() {}

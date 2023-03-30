@@ -1,7 +1,5 @@
+#[cfg(feature = "generate")]
 fn main() {
-    if proto_build::Boilerplate::skip() {
-        return;
-    }
     let b = proto_build::Boilerplate::create();
 
     // Generating gRPC stubs for Flow also brings in Gazette protobufs,
@@ -37,3 +35,6 @@ fn main() {
         .compile(&proto_build, &b.proto_include())
         .expect("tonic build failed");
 }
+
+#[cfg(not(feature = "generate"))]
+fn main() {}
