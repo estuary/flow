@@ -59,8 +59,7 @@ where
                 Some(EitherOrBoth::Right(r)) if r == '/' => {
                     // LHS finished *just* as we reached a '/',
                     // as in "foo/bar" vs "foo/bar/".
-                    Error::NameCollision {
-                        error_class: "is a prohibited prefix of",
+                    Error::PrefixCollision {
                         lhs_entity,
                         lhs_name: lhs.to_string(),
                         rhs_entity,
@@ -76,7 +75,6 @@ where
                 None => {
                     // Iterator finished with no different characters.
                     Error::NameCollision {
-                        error_class: "collides with",
                         lhs_entity,
                         lhs_name: lhs.to_string(),
                         rhs_entity,

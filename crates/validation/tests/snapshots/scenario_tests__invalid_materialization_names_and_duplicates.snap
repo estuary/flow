@@ -5,11 +5,11 @@ expression: errors
 [
     Error {
         scope: test://example/materializations#/materializations/testing,
-        error: materialization testing is a prohibited prefix of materialization testing/SoMe-target, defined at test://example/materializations#/materializations/testing~1SoMe-target,
+        error: materialization "testing" is a prohibited prefix of materialization "testing/SoMe-target", defined at test://example/materializations#/materializations/testing~1SoMe-target. Consider renaming your materialization "testing" and adding a suffix to it.,
     },
     Error {
         scope: test://example/materializations#/materializations/testing~1SoMe-target,
-        error: materialization testing/SoMe-target collides with materialization testing/some-target, defined at test://example/materializations#/materializations/testing~1some-target,
+        error: materialization "testing/SoMe-target" collides with materialization "testing/some-target", defined at test://example/materializations#/materializations/testing~1some-target. Consider renaming your materialization "testing/SoMe-target".,
     },
     Error {
         scope: test://example/materializations#/materializations/~1bad~1name,

@@ -25,18 +25,18 @@ expression: errors
     },
     Error {
         scope: test://example/int-string#/storageMappings/,
-        error: storageMapping  is a prohibited prefix of storageMapping /leading/Slash, defined at test://example/int-string#/storageMappings/~1leading~1Slash~1,
+        error: storageMapping "" is a prohibited prefix of storageMapping "/leading/Slash", defined at test://example/int-string#/storageMappings/~1leading~1Slash~1. Consider renaming your storageMapping "" and adding a suffix to it.,
     },
     Error {
         scope: test://example/catalog.yaml#/storageMappings/not-matched~1,
-        error: storageMapping not-matched is a prohibited prefix of storageMapping Not-Matched/foobar, defined at test://example/int-string#/storageMappings/Not-Matched~1foobar~1,
+        error: storageMapping "not-matched" is a prohibited prefix of storageMapping "Not-Matched/foobar", defined at test://example/int-string#/storageMappings/Not-Matched~1foobar~1. Consider renaming your storageMapping "not-matched" and adding a suffix to it.,
     },
     Error {
         scope: test://example/int-string#/storageMappings/recoverY~1,
-        error: storageMapping recoverY is a prohibited prefix of storageMapping recovery/testing, defined at test://example/catalog.yaml#/storageMappings/recovery~1testing~1,
+        error: storageMapping "recoverY" is a prohibited prefix of storageMapping "recovery/testing", defined at test://example/catalog.yaml#/storageMappings/recovery~1testing~1. Consider renaming your storageMapping "recoverY" and adding a suffix to it.,
     },
     Error {
         scope: test://example/catalog.yaml#/storageMappings/testing~1,
-        error: storageMapping testing collides with storageMapping testing, defined at test://example/int-string#/storageMappings/testing~1,
+        error: storageMapping "testing" collides with storageMapping "testing", defined at test://example/int-string#/storageMappings/testing~1. Consider renaming your storageMapping "testing".,
     },
 ]

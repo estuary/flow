@@ -29,26 +29,26 @@ expression: errors
     },
     Error {
         scope: test://example/catalog.yaml#/tests/,
-        error: test  is a prohibited prefix of test /testing/bad/name, defined at test://example/catalog.yaml#/tests/~1testing~1bad~1name,
+        error: test "" is a prohibited prefix of test "/testing/bad/name", defined at test://example/catalog.yaml#/tests/~1testing~1bad~1name. Consider renaming your test "" and adding a suffix to it.,
     },
     Error {
         scope: test://example/catalog.yaml#/tests/testing,
-        error: test testing is a prohibited prefix of test testing/bad name, defined at test://example/catalog.yaml#/tests/testing~1bad%20name,
+        error: test "testing" is a prohibited prefix of test "testing/bad name", defined at test://example/catalog.yaml#/tests/testing~1bad%20name. Consider renaming your test "testing" and adding a suffix to it.,
     },
     Error {
         scope: test://example/catalog.yaml#/tests/testing~1TeSt,
-        error: test testing/TeSt collides with test testing/test, defined at test://example/int-string-tests#/tests/testing~1test,
+        error: test "testing/TeSt" collides with test "testing/test", defined at test://example/int-string-tests#/tests/testing~1test. Consider renaming your test "testing/TeSt".,
     },
     Error {
         scope: test://example/catalog.yaml#/tests/,
-        error: test  is a prohibited prefix of test /testing/bad/name, defined at test://example/catalog.yaml#/tests/~1testing~1bad~1name,
+        error: test "" is a prohibited prefix of test "/testing/bad/name", defined at test://example/catalog.yaml#/tests/~1testing~1bad~1name. Consider renaming your test "" and adding a suffix to it.,
     },
     Error {
         scope: test://example/catalog.yaml#/tests/testing,
-        error: test testing is a prohibited prefix of collection testing/array-key, defined at test://example/array-key#/collections/testing~1array-key,
+        error: test "testing" is a prohibited prefix of collection "testing/array-key", defined at test://example/array-key#/collections/testing~1array-key. Consider renaming your test "testing" and adding a suffix to it.,
     },
     Error {
         scope: test://example/catalog.yaml#/tests/testing~1TeSt,
-        error: test testing/TeSt collides with test testing/test, defined at test://example/int-string-tests#/tests/testing~1test,
+        error: test "testing/TeSt" collides with test "testing/test", defined at test://example/int-string-tests#/tests/testing~1test. Consider renaming your test "testing/TeSt".,
     },
 ]

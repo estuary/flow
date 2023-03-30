@@ -5,35 +5,35 @@ expression: errors
 [
     Error {
         scope: test://example/catalog.yaml#/captures/testing~1b~11,
-        error: capture testing/b/1 collides with collection testing/b/1, defined at test://example/catalog.yaml#/collections/testing~1b~11,
+        error: capture "testing/b/1" collides with collection "testing/b/1", defined at test://example/catalog.yaml#/collections/testing~1b~11. Consider renaming your capture "testing/b/1".,
     },
     Error {
         scope: test://example/catalog.yaml#/collections/testing~1b~11,
-        error: collection testing/b/1 is a prohibited prefix of materialization testing/b/1/suffix, defined at test://example/catalog.yaml#/materializations/testing~1b~11~1suffix,
+        error: collection "testing/b/1" is a prohibited prefix of materialization "testing/b/1/suffix", defined at test://example/catalog.yaml#/materializations/testing~1b~11~1suffix. Consider renaming your collection "testing/b/1" and adding a suffix to it.,
     },
     Error {
         scope: test://example/catalog.yaml#/collections/testing~1b~12,
-        error: collection testing/b/2 collides with materialization testing/b/2, defined at test://example/catalog.yaml#/materializations/testing~1b~12,
+        error: collection "testing/b/2" collides with materialization "testing/b/2", defined at test://example/catalog.yaml#/materializations/testing~1b~12. Consider renaming your collection "testing/b/2".,
     },
     Error {
         scope: test://example/catalog.yaml#/materializations/testing~1b~12,
-        error: materialization testing/b/2 is a prohibited prefix of capture testing/b/2/suffix, defined at test://example/catalog.yaml#/captures/testing~1b~12~1suffix,
+        error: materialization "testing/b/2" is a prohibited prefix of capture "testing/b/2/suffix", defined at test://example/catalog.yaml#/captures/testing~1b~12~1suffix. Consider renaming your materialization "testing/b/2" and adding a suffix to it.,
     },
     Error {
         scope: test://example/catalog.yaml#/captures/testing~1b~13,
-        error: capture testing/b/3 collides with materialization testing/b/3, defined at test://example/catalog.yaml#/materializations/testing~1b~13,
+        error: capture "testing/b/3" collides with materialization "testing/b/3", defined at test://example/catalog.yaml#/materializations/testing~1b~13. Consider renaming your capture "testing/b/3".,
     },
     Error {
         scope: test://example/catalog.yaml#/materializations/testing~1b~13,
-        error: materialization testing/b/3 is a prohibited prefix of collection testing/b/3/suffix, defined at test://example/catalog.yaml#/collections/testing~1b~13~1suffix,
+        error: materialization "testing/b/3" is a prohibited prefix of collection "testing/b/3/suffix", defined at test://example/catalog.yaml#/collections/testing~1b~13~1suffix. Consider renaming your materialization "testing/b/3" and adding a suffix to it.,
     },
     Error {
         scope: test://example/catalog.yaml#/materializations/testing~1b~14,
-        error: materialization testing/b/4 is a prohibited prefix of test testing/b/4/suffix, defined at test://example/catalog.yaml#/tests/testing~1b~14~1suffix,
+        error: materialization "testing/b/4" is a prohibited prefix of test "testing/b/4/suffix", defined at test://example/catalog.yaml#/tests/testing~1b~14~1suffix. Consider renaming your materialization "testing/b/4" and adding a suffix to it.,
     },
     Error {
         scope: test://example/catalog.yaml#/tests/testing~1b~15,
-        error: test testing/b/5 is a prohibited prefix of capture testing/b/5/suffix, defined at test://example/catalog.yaml#/captures/testing~1b~15~1suffix,
+        error: test "testing/b/5" is a prohibited prefix of capture "testing/b/5/suffix", defined at test://example/catalog.yaml#/captures/testing~1b~15~1suffix. Consider renaming your test "testing/b/5" and adding a suffix to it.,
     },
     Error {
         scope: test://example/catalog.yaml#/captures/testing~1b~11,

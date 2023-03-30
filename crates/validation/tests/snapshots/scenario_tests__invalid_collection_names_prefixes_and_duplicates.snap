@@ -41,18 +41,18 @@ expression: errors
     },
     Error {
         scope: test://example/catalog.yaml#/collections/,
-        error: collection  is a prohibited prefix of collection /testing/bad/name, defined at test://example/catalog.yaml#/collections/~1testing~1bad~1name,
+        error: collection "" is a prohibited prefix of collection "/testing/bad/name", defined at test://example/catalog.yaml#/collections/~1testing~1bad~1name. Consider renaming your collection "" and adding a suffix to it.,
     },
     Error {
         scope: test://example/catalog.yaml#/collections/testing,
-        error: collection testing is a prohibited prefix of collection testing/array-key, defined at test://example/array-key#/collections/testing~1array-key,
+        error: collection "testing" is a prohibited prefix of collection "testing/array-key", defined at test://example/array-key#/collections/testing~1array-key. Consider renaming your collection "testing" and adding a suffix to it.,
     },
     Error {
         scope: test://example/catalog.yaml#/collections/testing~1Int-Halve,
-        error: collection testing/Int-Halve collides with collection testing/int-halve, defined at test://example/int-halve#/collections/testing~1int-halve,
+        error: collection "testing/Int-Halve" collides with collection "testing/int-halve", defined at test://example/int-halve#/collections/testing~1int-halve. Consider renaming your collection "testing/Int-Halve".,
     },
     Error {
         scope: test://example/catalog.yaml#/collections/testing~1int-sTRinG,
-        error: collection testing/int-sTRinG collides with collection testing/int-string, defined at test://example/int-string#/collections/testing~1int-string,
+        error: collection "testing/int-sTRinG" collides with collection "testing/int-string", defined at test://example/int-string#/collections/testing~1int-string. Consider renaming your collection "testing/int-sTRinG".,
     },
 ]

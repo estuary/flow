@@ -21,6 +21,6 @@ expression: errors
     },
     Error {
         scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/transforms/0,
-        error: transform reverseIntString collides with transform reVeRsEIntString, defined at test://example/int-reverse#/collections/testing~1int-reverse/derive/transforms/5,
+        error: transform "reverseIntString" collides with transform "reVeRsEIntString", defined at test://example/int-reverse#/collections/testing~1int-reverse/derive/transforms/5. Consider renaming your transform "reverseIntString".,
     },
 ]

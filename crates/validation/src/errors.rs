@@ -14,10 +14,19 @@ pub enum Error {
         unmatched: String,
     },
     #[error(
-        "{lhs_entity} {lhs_name} {error_class} {rhs_entity} {rhs_name}, defined at {rhs_scope}"
+        "{lhs_entity} \"{lhs_name}\" collides with {rhs_entity} \"{rhs_name}\", defined at {rhs_scope}. Consider renaming your {lhs_entity} \"{lhs_name}\"."
     )]
     NameCollision {
-        error_class: &'static str,
+        lhs_entity: &'static str,
+        lhs_name: String,
+        rhs_entity: &'static str,
+        rhs_name: String,
+        rhs_scope: Url,
+    },
+    #[error(
+        "{lhs_entity} \"{lhs_name}\" is a prohibited prefix of {rhs_entity} \"{rhs_name}\", defined at {rhs_scope}. Consider renaming your {lhs_entity} \"{lhs_name}\" and adding a suffix to it."
+    )]
+    PrefixCollision {
         lhs_entity: &'static str,
         lhs_name: String,
         rhs_entity: &'static str,

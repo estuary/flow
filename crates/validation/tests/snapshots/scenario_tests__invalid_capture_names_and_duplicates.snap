@@ -5,11 +5,11 @@ expression: errors
 [
     Error {
         scope: test://example/captures#/captures/testing,
-        error: capture testing is a prohibited prefix of capture testing/SoMe-source, defined at test://example/captures#/captures/testing~1SoMe-source,
+        error: capture "testing" is a prohibited prefix of capture "testing/SoMe-source", defined at test://example/captures#/captures/testing~1SoMe-source. Consider renaming your capture "testing" and adding a suffix to it.,
     },
     Error {
         scope: test://example/captures#/captures/testing~1SoMe-source,
-        error: capture testing/SoMe-source collides with capture testing/some-source, defined at test://example/captures#/captures/testing~1some-source,
+        error: capture "testing/SoMe-source" collides with capture "testing/some-source", defined at test://example/captures#/captures/testing~1some-source. Consider renaming your capture "testing/SoMe-source".,
     },
     Error {
         scope: test://example/captures#/captures/~1bad~1name,

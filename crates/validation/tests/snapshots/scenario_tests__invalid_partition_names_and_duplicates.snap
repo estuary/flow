@@ -5,11 +5,11 @@ expression: errors
 [
     Error {
         scope: test://example/int-string#/collections/testing~1int-string/projections/bIt,
-        error: projection bIt collides with projection bit, defined at test://example/int-string#/collections/testing~1int-string/projections/bit,
+        error: projection "bIt" collides with projection "bit", defined at test://example/int-string#/collections/testing~1int-string/projections/bit. Consider renaming your projection "bIt".,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string/projections/INT,
-        error: projection INT collides with projection Int, defined at test://example/int-string#/collections/testing~1int-string/projections/Int,
+        error: projection "INT" collides with projection "Int", defined at test://example/int-string#/collections/testing~1int-string/projections/Int. Consider renaming your projection "INT".,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string/projections/,
