@@ -251,8 +251,22 @@ impl RocksDB {
 
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
+        let column_families =
+            rocksdb::DB::list_cf(&opts, &path).context("listing rocksdb column families")?;
 
-        let db = rocksdb::DB::open_cf(&opts, &path, [rocksdb::DEFAULT_COLUMN_FAMILY_NAME].iter())?;
+        let mut db = rocksdb::DB::open_cf(&opts, &path, column_families.iter())?;
+        for column_family in column_families {
+            // We used to use a `registers` column family for derivations, but we no longer do
+            // and they were never actually used in production. Rocks requires that all existing
+            // column families are opened, so we just open and drop any of these legacy "registers"
+            // column families.
+            if column_family.as_str() == "registers" {
+                tracing::warn!(%column_family, "dropping legacy rocksdb column family");
+                db.drop_cf(column_family.as_str())
+                    .context("dropping legacy column family")?;
+            }
+        }
+
         Ok(Self {
             db,
             _path: path,
