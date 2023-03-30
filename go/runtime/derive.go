@@ -95,6 +95,9 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 	if err != nil {
 		return pf.Checkpoint{}, err
 	}
+	if d.collection.Derivation == nil {
+		return pf.Checkpoint{}, fmt.Errorf("this is an old task that needs to be updated")
+	}
 	ops.PublishLog(d.opsPublisher, po.Log_debug,
 		"loaded specification",
 		"spec", d.collection, "build", d.labels.Build)
