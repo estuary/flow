@@ -34,6 +34,7 @@ RUN apt update -y \
     libssl-dev \
     lld-12 \
     locales \
+    musl-tools \
     net-tools \
     netcat \
     openssh-client  \

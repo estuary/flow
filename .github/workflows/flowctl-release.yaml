@@ -78,7 +78,6 @@ jobs:
           # https://localazy.com/blog/how-to-automatically-sign-macos-apps-using-github-actions
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-
       # This one mac build runs on both intel and m1 macs
       - name: Build Mac
         if: matrix.config.os == 'macos-latest'

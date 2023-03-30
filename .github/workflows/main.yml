@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  all-binaries:
+  gnu-binaries:
     runs-on: ubuntu-20.04
 
     steps:
@@ -68,8 +68,8 @@ jobs:
       # Build and test all the things.
       - run: make install-tools
       - run: go mod download
-      - run: make rust-test
-      - run: make all-binaries
+      - run: make rust-gnu-test
+      - run: make linux-gnu-binaries
 
       - name: Ensure that generated files are unchanged.
         run: |
@@ -80,16 +80,53 @@ jobs:
       - name: Upload Binaries
         uses: actions/upload-artifact@v2
         with:
-          name: all-binaries
+          name: linux-gnu-binaries
           path: |
             .build/package/bin/*
-            target/release/libbindings.a
+            target/x86_64-unknown-linux-gnu/release/libbindings.a
             crates/bindings/flow_bindings.h
-            target/release/librocks-exp/
+            target/x86_64-unknown-linux-gnu/release/librocksdb-exp/
+
+  musl-binaries:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.66.1
+          default: true
+          target: x86_64-unknown-linux-musl
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - run: make extra-ci-runner-setup
+      - run: make print-versions
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Build and test all the things.
+      - run: go mod download
+      - run: make rust-musl-test
+      - run: make linux-musl-binaries
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v2
+        with:
+          name: linux-musl-binaries
+          path: |
+            .build/package/bin/*
 
   assembly:
     runs-on: ubuntu-20.04
-    needs: [all-binaries]
+    needs: [gnu-binaries, musl-binaries]
 
     services:
       postgres:
@@ -144,18 +181,28 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | \
             docker login --username ${{ github.actor }} --password-stdin ghcr.io
 
-      - name: Download binaries
+      - name: Download gnu-linux-binaries
         uses: actions/download-artifact@v2
         with:
-          name: all-binaries
-          path: fetched
-      - name: Move all-binaries to PKGBIN
+          name: linux-gnu-binaries
+          path: linux-gnu-binaries
+      - name: Move linux-gnu-binaries to PKGBIN
         run: |
           mkdir -p .build/package/bin && \
-          mv fetched/.build/package/bin/* .build/package/bin && \
-          mkdir -p target/release && \
-          mv -f fetched/target/release/* target/release/ && \
-          mv -f fetched/crates/bindings/flow_bindings.h crates/bindings/
+          mv linux-gnu-binaries/.build/package/bin/* .build/package/bin && \
+          mkdir -p target/x86_64-unknown-linux-gnu/release && \
+          mv -f linux-gnu-binaries/target/x86_64-unknown-linux-gnu/release/* target/x86_64-unknown-linux-gnu/release/ && \
+          mv -f linux-gnu-binaries/crates/bindings/flow_bindings.h crates/bindings/
+
+      - name: Download linux-musl-binaries
+        uses: actions/download-artifact@v2
+        with:
+          name: linux-musl-binaries
+          path: linux-musl-binaries
+      - name: Move linux-musl-binaries to PKGBIN
+        run: |
+          mkdir -p .build/package/bin && \
+          mv linux-musl-binaries/* .build/package/bin
 
       # Downloaded artifacts lose their prior permission settings
       - name: Adjust binaries permissions

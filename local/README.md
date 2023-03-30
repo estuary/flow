@@ -32,6 +32,7 @@ Where links are provided, just follow the linked instructions to install the lat
 - libsqlite3-dev
 - libssl-dev
 - make
+- musl-tools
 - openssl (we need both the libs and the CLI)
 - pkg-config
 - protobuf-compiler
@@ -44,6 +45,7 @@ We want rustup because it makes it easy to install other compilation targets.
 ```console
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source "$HOME/.cargo/env"
+rustup target add x86_64-unknown-linux-musl
 rustup target add wasm32-unknown-unknown
 ```
 
@@ -102,7 +104,7 @@ The Flow UI should open in your browser automatically.
 - run `supabase stop` from the root of the `flow` repo
 - Local Flow instances sometimes leave dangling docker containers, which you can cleanup using `docker ps` and `docker stop`.
 
-## Notes on
+## Notes on 
 ### Logging in locally
 
 To login locally, you need to use the "magic link" method. Oauth does not work locally. You can enter any email address you like, and all emails will be sent to [http://localhost:5434/monitor]. After it says "email sent", go to that address and click the link in the email to complete the login process.
