@@ -1,7 +1,6 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
-
 ---
 [
     Error {
@@ -34,28 +33,28 @@ expression: errors
     },
     Error {
         scope: test://example/captures#/captures/good,
-        error: driver error while validating capture good
+        error: connector error while validating capture good
         
         Caused by:
             driver fixture not found: good,
     },
     Error {
         scope: test://example/captures#/captures/testing,
-        error: driver error while validating capture testing
+        error: connector error while validating capture testing
         
         Caused by:
             driver fixture not found: testing,
     },
     Error {
         scope: test://example/captures#/captures/testing~1SoMe-source,
-        error: driver error while validating capture testing/SoMe-source
+        error: connector error while validating capture testing/SoMe-source
         
         Caused by:
             driver fixture not found: testing/SoMe-source,
     },
     Error {
         scope: test://example/captures#/captures/testing~1some-source,
-        error: driver error while validating capture testing/some-source
+        error: connector error while validating capture testing/some-source
         
         Caused by:
             driver fixture not found: testing/some-source,

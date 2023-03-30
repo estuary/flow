@@ -121,7 +121,21 @@ tests:
             }
 
     - verify:
-        collection: ops.us-central1.v1/catalog-stats-L1
+        collection:
+          name: ops.us-central1.v1/catalog-stats-L1
+
+          # NOTE(johnny): Running these tests are a bit awkward because
+          # these collections are dynamically written to as part of running
+          # the test itself. To manually run it, temporarily add `name`
+          # partitions to the L1 and L2 stats derivations.
+          partitions: &tempManualPartitions
+            exclude:
+              name:
+                - ops.us-central1.v1/catalog-stats-L1
+                - ops.us-central1.v1/catalog-stats-L2
+                - ops.us-central1.v1/logs
+                - ops.us-central1.v1/stats
+
         documents: &docs
 
           # Capture task
@@ -288,7 +302,9 @@ tests:
 
     - verify:
         # L2 derivation passed through docs as-is.
-        collection: ops.us-central1.v1/catalog-stats-L2
+        collection:
+          name: ops.us-central1.v1/catalog-stats-L2
+          partitions: *tempManualPartitions
         documents: *docs
 
 # TODO(johnny): this is used only for local testing with `flowctl-go` and can go away soon.

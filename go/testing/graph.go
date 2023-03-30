@@ -58,7 +58,7 @@ type taskRead struct {
 // NewGraph constructs a new *Graph.
 func NewGraph(
 	captures []*pf.CaptureSpec,
-	derivations []*pf.DerivationSpec,
+	collections []*pf.CollectionSpec,
 	materializations []*pf.MaterializationSpec,
 ) *Graph {
 	var g = &Graph{
@@ -73,8 +73,10 @@ func NewGraph(
 	for _, t := range captures {
 		g.addTask(t)
 	}
-	for _, t := range derivations {
-		g.addTask(t)
+	for _, t := range collections {
+		if t.Derivation != nil {
+			g.addTask(t)
+		}
 	}
 	for _, t := range materializations {
 		g.addTask(t)
@@ -94,10 +96,10 @@ func (g *Graph) addTask(t pf.Task) {
 	// Index into |outputs|.
 	if capture, ok := t.(*pf.CaptureSpec); ok {
 		for _, b := range capture.Bindings {
-			g.outputs[name] = append(g.outputs[name], b.Collection.Collection)
+			g.outputs[name] = append(g.outputs[name], b.Collection.Name)
 		}
-	} else if derivation, ok := t.(*pf.DerivationSpec); ok {
-		g.outputs[name] = append(g.outputs[name], derivation.Collection.Collection)
+	} else if derivation, ok := t.(*pf.CollectionSpec); ok {
+		g.outputs[name] = append(g.outputs[name], derivation.Name)
 	}
 
 	// Index into |readers|.
@@ -200,10 +202,10 @@ func (g *Graph) CompletedIngest(collection pf.Collection, writeClock *Clock) {
 }
 
 // CompletedStat tells the Graph of a completed task stat.
-// * |readClock| is a min-reduced Clock over read progress across derivation shards.
-//   It's journals include group-name suffixes (as returned from Gazette's Stat).
-// * |writeClock| is a max-reduced Clock over write progress across derivation shards.
-//   It's journals *don't* include group names (again, as returned from Gazette's Stat).
+//   - |readClock| is a min-reduced Clock over read progress across derivation shards.
+//     It's journals include group-name suffixes (as returned from Gazette's Stat).
+//   - |writeClock| is a max-reduced Clock over write progress across derivation shards.
+//     It's journals *don't* include group names (again, as returned from Gazette's Stat).
 func (g *Graph) CompletedStat(task TaskName, readClock *Clock, writeClock *Clock) {
 	g.writeClock.ReduceMax(writeClock.Etcd, writeClock.Offsets)
 	g.readThrough[task] = readClock // Track progress of this task.

@@ -4,7 +4,7 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
-        error: transform halveIntString shuffled key types ["integer"] don't align with transform halveSelf types ["integer", "integer"],
+        scope: test://example/int-halve#/collections/testing~1int-halve/derive/transforms/0,
+        error: transform halveIntString shuffled key types [Integer] don't align with transform halveSelf types [Integer, Integer],
     },
 ]

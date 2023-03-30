@@ -14,6 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 flow_cli_common = { path = "../flow_cli_common" }
+async-process = { path = "../async-process" }
 
 async-trait={ workspace = true }
 base64={ workspace = true }

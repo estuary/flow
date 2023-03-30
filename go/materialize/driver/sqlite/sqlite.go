@@ -15,6 +15,7 @@ import (
 	_ "github.com/mattn/go-sqlite3" // Import for register side-effects.
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
 )
@@ -167,7 +168,7 @@ func NewInProcessServer(ctx context.Context) (*InProcessServer, error) {
 	var group = task.NewGroup(pb.WithDispatchDefault(ctx))
 	var server = server.MustLoopback()
 
-	pm.RegisterDriverServer(server.GRPCServer, NewSQLiteDriver())
+	pm.RegisterConnectorServer(server.GRPCServer, NewSQLiteDriver())
 	server.QueueTasks(group)
 
 	group.GoRun()
@@ -178,8 +179,8 @@ func NewInProcessServer(ctx context.Context) (*InProcessServer, error) {
 	}, nil
 }
 
-func (s *InProcessServer) Client() pm.DriverClient {
-	return pm.NewDriverClient(s.server.GRPCLoopback)
+func (s *InProcessServer) Client() pm.ConnectorClient {
+	return pm.NewConnectorClient(s.server.GRPCLoopback)
 }
 
 func (s *InProcessServer) Stop() error {
@@ -378,7 +379,7 @@ func (d *transactor) Store(it *pm.StoreIterator) (pm.StartCommitFunc, error) {
 		}
 	}
 
-	return func(ctx context.Context, runtimeCheckpoint []byte, _ <-chan struct{}) (*pf.DriverCheckpoint, pf.OpFuture) {
+	return func(ctx context.Context, runtimeCheckpoint *pc.Checkpoint, _ <-chan struct{}) (*pf.ConnectorState, pf.OpFuture) {
 		d.store.fence.SetCheckpoint(runtimeCheckpoint)
 		return nil, pf.RunAsyncOperation(func() error { return commitTxn(ctx, txn, d.store.fence) })
 	}, nil

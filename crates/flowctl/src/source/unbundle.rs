@@ -380,14 +380,11 @@ fn merge_catalog(
 }
 
 fn merge_imports(
-    new_imports: &[models::Import],
-    existing: &mut Vec<models::Import>,
+    new_imports: &[models::RelativeUrl],
+    existing: &mut Vec<models::RelativeUrl>,
 ) -> anyhow::Result<()> {
     for new_import in new_imports {
-        if let Some(existing_import) = existing
-            .iter_mut()
-            .find(|i| i.relative_url() == new_import.relative_url())
-        {
+        if let Some(existing_import) = existing.iter_mut().find(|i| i == new_import) {
             *existing_import = new_import.clone();
         } else {
             existing.push(new_import.clone());

@@ -1,0 +1,13 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve,
+        error: connector error while validating derivation testing/int-halve
+        
+        Caused by:
+            A driver error!,
+    },
+]

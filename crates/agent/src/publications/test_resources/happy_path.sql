@@ -19,14 +19,14 @@ p4 as (
     '{
         "schema": {},
         "key": ["foo"],
-        "derivation": {
-            "transform":{
-                "key": {
-                    "source": {
-                        "name": "usageB/CollectionA"
-                    }
+        "derive": {
+            "using": {"sqlite": {}},
+            "transforms":[
+                {
+                  "name": "my-name",
+                  "source": "usageB/CollectionA"
                 }
-            }
+            ]
         }
     }'::json,
     'collection'

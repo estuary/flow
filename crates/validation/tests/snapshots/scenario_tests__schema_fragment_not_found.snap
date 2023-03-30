@@ -4,83 +4,15 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-string#/collections/testing~1int-string-rw,
-        error: referenced schema fragment location test://example/int-string-len.schema#DoesNotExist does not exist,
+        scope: test://example/int-string#/collections/testing~1int-string/schema,
+        error: schema $ref 'test://example/int-string.schema#/not/found', referenced by 'test://example/int-string#/collections/testing~1int-string/schema', was not found,
     },
     Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
-        error: referenced schema fragment location test://example/int-string-len.schema#DoesNotExist does not exist,
+        scope: test://example/int-string#/collections/testing~1int-string-rw/writeSchema,
+        error: schema $ref 'test://example/int-string.schema#/also/not/found', referenced by 'test://example/int-string#/collections/testing~1int-string-rw/writeSchema', was not found,
     },
     Error {
-        scope: test://example/int-string#/collections/testing~1int-string-rw,
-        error: referenced schema fragment location test://example/int-string.schema#/also/not/found does not exist,
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string,
-        error: referenced schema fragment location test://example/int-string.schema#/not/found does not exist,
-    },
-    Error {
-        scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation/transform/reverseIntString,
-        error: referenced schema fragment location test://example/int-string.schema#/not/found does not exist,
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string,
-        error: collection testing/int-string schema must be an object,
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string,
-        error: location /int is unknown in schema test://example/int-string.schema#/not/found (https://go.estuary.dev/rdCMNB),
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string/projections/Int,
-        error: location /int is unknown in schema test://example/int-string.schema#/not/found (https://go.estuary.dev/rdCMNB),
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string/projections/bit,
-        error: location /bit is unknown in schema test://example/int-string.schema#/not/found (https://go.estuary.dev/rdCMNB),
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string-rw,
-        error: collection testing/int-string-rw schema must be an object,
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string-rw,
-        error: location /int is unknown in schema test://example/int-string-len.schema#DoesNotExist (https://go.estuary.dev/rdCMNB),
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string-rw,
-        error: collection testing/int-string-rw schema must be an object,
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string-rw,
-        error: location /int is unknown in schema test://example/int-string.schema#/also/not/found (https://go.estuary.dev/rdCMNB),
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string-rw/projections/Int,
-        error: location /int is unknown in schema test://example/int-string-len.schema#DoesNotExist (https://go.estuary.dev/rdCMNB),
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string-rw/projections/Len,
-        error: location /len is unknown in schema test://example/int-string-len.schema#DoesNotExist (https://go.estuary.dev/rdCMNB),
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string-rw/projections/Str,
-        error: location /str is unknown in schema test://example/int-string-len.schema#DoesNotExist (https://go.estuary.dev/rdCMNB),
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string-rw/projections/bit,
-        error: location /bit is unknown in schema test://example/int-string.schema#/also/not/found (https://go.estuary.dev/rdCMNB),
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string-rw/projections/bit,
-        error: location /bit is unknown in schema test://example/int-string-len.schema#DoesNotExist (https://go.estuary.dev/rdCMNB),
-    },
-    Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
-        error: location /len is unknown in schema test://example/int-string-len.schema#DoesNotExist (https://go.estuary.dev/rdCMNB),
-    },
-    Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
-        error: location /str is unknown in schema test://example/int-string-len.schema#DoesNotExist (https://go.estuary.dev/rdCMNB),
+        scope: test://example/int-string#/collections/testing~1int-string-rw/readSchema,
+        error: schema $ref 'test://example/int-string-len.schema#DoesNotExist', referenced by 'test://example/int-string?ptr=/collections/testing~1int-string-rw/readSchema#/properties/missing', was not found,
     },
 ]

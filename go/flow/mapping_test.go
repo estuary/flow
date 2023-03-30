@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path"
 	"testing"
 	"time"
 
@@ -198,14 +199,14 @@ func buildCombineFixtures(t *testing.T) []Mappable {
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			BuildId:    "fixture",
-			Directory:  t.TempDir(),
+			BuildDb:    path.Join(t.TempDir(), "build.db"),
 			Source:     "file:///mapping_test.flow.yaml",
 			SourceType: pf.ContentType_CATALOG,
 		}}
 	require.NoError(t, bindings.BuildCatalog(args))
 
 	var spec *pf.CollectionSpec
-	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+	require.NoError(t, catalog.Extract(args.BuildDb, func(db *sql.DB) (err error) {
 		spec, err = catalog.LoadCollection(db, "a/collection")
 		return err
 	}))

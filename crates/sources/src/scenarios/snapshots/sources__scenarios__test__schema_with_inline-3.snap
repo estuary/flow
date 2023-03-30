@@ -1,0 +1,39 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+expression: tables
+---
+Sources {
+    captures: [],
+    collections: [
+        Collection {
+            scope: test://example/catalog.yaml#/collections/test,
+            collection: test,
+            spec: {
+              "schema": "test.schema.yaml",
+              "key": [
+                "/some-key"
+              ]
+            },
+        },
+    ],
+    errors: [],
+    fetches: [],
+    imports: [],
+    materializations: [],
+    resources: [
+        Resource {
+            resource: test://example/catalog.yaml,
+            content_type: "CATALOG",
+            content: ".. binary ..",
+            content_dom: {"collections":{"test":{"schema":"test.schema.yaml","key":["/some-key"]}}},
+        },
+        Resource {
+            resource: test://example/test.schema.yaml,
+            content_type: "CONFIG",
+            content: ".. binary ..",
+            content_dom: {"$id":"test://example/catalog.yaml?ptr=/collections/test/schema","additionalProperties":true,"type":"object"},
+        },
+    ],
+    storage_mappings: [],
+    tests: [],
+}

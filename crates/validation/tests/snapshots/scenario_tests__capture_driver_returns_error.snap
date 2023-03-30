@@ -1,12 +1,11 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
-
 ---
 [
     Error {
         scope: test://example/int-string-captures#/captures/testing~1s3-source,
-        error: driver error while validating capture testing/s3-source
+        error: connector error while validating capture testing/s3-source
         
         Caused by:
             A driver error!,

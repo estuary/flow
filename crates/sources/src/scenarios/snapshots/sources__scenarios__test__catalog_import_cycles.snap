@@ -3,10 +3,8 @@ source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 Sources {
-    capture_bindings: [],
     captures: [],
     collections: [],
-    derivations: [],
     errors: [],
     fetches: [
         Fetch {
@@ -28,50 +26,39 @@ Sources {
     ],
     imports: [
         Import {
+            scope: test://example/A#/import/0,
+            to_resource: test://example/C,
+        },
+        Import {
             scope: test://example/A#/import/1,
-            from_resource: test://example/A,
             to_resource: test://example/B,
         },
         Import {
-            scope: test://example/A#/import/0,
-            from_resource: test://example/A,
+            scope: test://example/B#/import/0,
             to_resource: test://example/C,
         },
         Import {
             scope: test://example/B#/import/1,
-            from_resource: test://example/B,
             to_resource: test://example/A,
         },
         Import {
-            scope: test://example/B#/import/0,
-            from_resource: test://example/B,
-            to_resource: test://example/C,
-        },
-        Import {
-            scope: test://example/C#/import/1,
-            from_resource: test://example/C,
-            to_resource: test://example/B,
-        },
-        Import {
             scope: test://example/C#/import/0,
-            from_resource: test://example/C,
             to_resource: test://example/catalog.yaml,
         },
         Import {
+            scope: test://example/C#/import/1,
+            to_resource: test://example/B,
+        },
+        Import {
             scope: test://example/catalog.yaml#/import/0,
-            from_resource: test://example/catalog.yaml,
             to_resource: test://example/A,
         },
         Import {
             scope: test://example/catalog.yaml#/import/1,
-            from_resource: test://example/catalog.yaml,
             to_resource: test://example/B,
         },
     ],
-    materialization_bindings: [],
     materializations: [],
-    npm_dependencies: [],
-    projections: [],
     resources: [
         Resource {
             resource: test://example/A,
@@ -98,8 +85,6 @@ Sources {
             content_dom: {"import":["A","B"]},
         },
     ],
-    schema_docs: [],
     storage_mappings: [],
-    test_steps: [],
-    transforms: [],
+    tests: [],
 }

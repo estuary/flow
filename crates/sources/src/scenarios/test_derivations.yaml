@@ -20,12 +20,13 @@ test://example/catalog.yaml:
     d1/collection:
       schema: a-schema.json
       key: [/d1-key]
-      derivation:
-        register:
-          schema: reg-schema.json#/$defs/qib
-          initial: { "initial": ["value", 32] }
-        transform:
-          some-name:
+
+      derive:
+        using:
+          typescript:
+            module: catalog.ts
+        transforms:
+          - name: some-name
             source:
               name: src/collection
               partitions:
@@ -35,13 +36,6 @@ test://example/catalog.yaml:
             priority: 32
             shuffle:
               key: ["/shuffle", "/key"]
-            update:
-              lambda: typescript
-            publish: { lambda: typescript }
-        typescript:
-          module: catalog.ts
-          npmDependencies:
-            package-one: "v0.1.2"
 
     d2/collection:
       schema: a-schema.json
@@ -50,14 +44,16 @@ test://example/catalog.yaml:
         fragments:
           compressionCodec: ZSTANDARD
           flushInterval: 15m
-      derivation:
-        transform:
-          do-the-thing:
-            source:
-              name: src/collection
-            update:
-              lambda:
-                remote: https://example/api
+      derive:
+        using:
+          connector:
+            image: some/image:tag
+            config:
+              remote: https://example/api
+        transforms:
+          - name: do-the-thing
+            source: src/collection
+            lambda: 42
         shards:
           disable: true
           minTxnDuration: 15s
@@ -70,20 +66,28 @@ test://example/catalog.yaml:
       writeSchema: a-schema.json
       readSchema: other-schema.json
       key: [/some/key]
-      derivation:
-        transform:
-          frob:
-            source:
-              name: src/collection
-            publish:
-              lambda: typescript
-        typescript:
-          module: |
-            import { some } from 'the/package';
+      derive:
+        using:
+          sqlite:
+            migrations:
+              - |
+                create table foo(bar int);
+              - sql/migration_two.sql
+        transforms:
+          - name: frob
+            source: src/collection
+            lambda: |
+              select 'a long string which makes this a larger lambda' * from foo;
+            shuffle:
+              lambda: sql/shuffle_lambda.sql
+        shuffleKeyTypes: [string, integer]
 
-            inlineTypescript();
-          npmDependencies:
-            pkg-2: "~v2"
+test://example/catalog.ts: |
+  a typescript module placeholder that's fairly "long", at least long enough to not be inline
 
-test://example/catalog.ts:
-  typescript: "module placeholder"
+test://example/sql/migration_two.sql: |
+  alter table baz add column value text not null;
+  drop table other_thing;
+
+test://example/sql/shuffle_lambda.sql: |
+  select a whole bunch of fields and stuff from source documents to shuffle upon;

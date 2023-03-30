@@ -26,10 +26,10 @@ pub enum Error {
 }
 
 impl Error {
-    fn detail(err: Self, name: &str, cmd: &tokio::process::Command) -> Self {
+    fn detail(err: Self, name: &str, cmd: &async_process::Command) -> Self {
         Self::NameDetail {
             name: name.to_string(),
-            exec: cmd.as_std().get_program().to_os_string(),
+            exec: cmd.get_program().to_os_string(),
             err: err.into(),
         }
     }
@@ -43,7 +43,7 @@ pub async fn run(
     name: &str,
     logs_tx: &logs::Tx,
     logs_token: Uuid,
-    cmd: &mut tokio::process::Command,
+    cmd: &mut async_process::Command,
 ) -> Result<std::process::ExitStatus, Error> {
     // Pass through PATH and any docker-related variables, but remove all other environment variables.
     cmd.env_clear().envs(std::env::vars().filter(|&(ref k, _)| {
@@ -59,7 +59,7 @@ pub async fn run_without_removing_env(
     name: &str,
     logs_tx: &logs::Tx,
     logs_token: Uuid,
-    cmd: &mut tokio::process::Command,
+    cmd: &mut async_process::Command,
 ) -> Result<std::process::ExitStatus, Error> {
     let child = spawn(name, cmd)?;
     let stdin: &[u8] = &[];
@@ -77,7 +77,7 @@ pub async fn run_with_output(
     name: &str,
     logs_tx: &logs::Tx,
     logs_token: Uuid,
-    cmd: &mut tokio::process::Command,
+    cmd: &mut async_process::Command,
 ) -> Result<(std::process::ExitStatus, Vec<u8>), Error> {
     let mut child = spawn(name, cmd)?;
     let stdin: &[u8] = &[];
@@ -99,7 +99,7 @@ pub async fn run_with_input_output<I>(
     logs_tx: &logs::Tx,
     logs_token: Uuid,
     stdin: I,
-    cmd: &mut tokio::process::Command,
+    cmd: &mut async_process::Command,
 ) -> Result<(std::process::ExitStatus, Vec<u8>), Error>
 where
     I: AsyncRead + Unpin,
@@ -115,17 +115,17 @@ where
 }
 
 /// spawn a command with the provided job name, returning its created Child.
-fn spawn(name: &str, cmd: &mut tokio::process::Command) -> Result<tokio::process::Child, Error> {
-    cmd.kill_on_drop(true)
-        .stdin(std::process::Stdio::piped())
+fn spawn(name: &str, cmd: &mut async_process::Command) -> Result<async_process::Child, Error> {
+    cmd.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
-    debug!(program = ?cmd.as_std().get_program(), args = ?cmd.as_std().get_args().collect::<Vec<_>>(), "invoking");
+    debug!(program = ?cmd.get_program(), args = ?cmd.get_args().collect::<Vec<_>>(), "invoking");
 
     cmd.spawn()
         .map_err(Error::Spawn)
         .map_err(|err| Error::detail(err, name, cmd))
+        .map(Into::into)
 }
 
 /// Wait for the child to exit while servicing its IO.
@@ -141,7 +141,7 @@ pub async fn wait<I>(
     logs_tx: &logs::Tx,
     logs_token: Uuid,
     mut stdin: I,
-    mut child: tokio::process::Child,
+    mut child: async_process::Child,
 ) -> Result<std::process::ExitStatus, Error>
 where
     I: AsyncRead + Unpin,
@@ -181,7 +181,7 @@ where
     Ok(status)
 }
 
-async fn read_stdout(mut reader: tokio::process::ChildStdout) -> Result<Vec<u8>, Error> {
+async fn read_stdout(mut reader: async_process::ChildStdio) -> Result<Vec<u8>, Error> {
     let mut buffer = Vec::new();
     let _ = tokio::io::copy(&mut reader, &mut buffer)
         .await

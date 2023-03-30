@@ -3,22 +3,19 @@ source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 Sources {
-    capture_bindings: [],
     captures: [],
     collections: [
         Collection {
             scope: test://example/catalog.yaml#/collections/a~1collection,
             collection: a/collection,
             spec: {
+              "schema": "actual",
               "key": [
                 "/key"
               ]
             },
-            write_schema: test://example/actual,
-            read_schema: test://example/actual,
         },
     ],
-    derivations: [],
     errors: [],
     fetches: [
         Fetch {
@@ -33,21 +30,10 @@ Sources {
     imports: [
         Import {
             scope: test://example/catalog.yaml#/collections/a~1collection/schema,
-            from_resource: test://example/catalog.yaml,
             to_resource: test://example/actual,
         },
     ],
-    materialization_bindings: [],
     materializations: [],
-    npm_dependencies: [],
-    projections: [
-        Projection {
-            scope: test://example/catalog.yaml#/collections/a~1collection/projections/flow_document,
-            collection: a/collection,
-            field: flow_document,
-            spec: "",
-        },
-    ],
     resources: [
         Resource {
             resource: test://example/actual,
@@ -62,56 +48,6 @@ Sources {
             content_dom: {"collections":{"a/collection":{"key":["/key"],"schema":"actual"}}},
         },
     ],
-    schema_docs: [
-        SchemaDoc {
-            schema: test://example/actual,
-            dom: {
-              "$defs": {
-                "wrapper": {
-                  "$defs": {
-                    "a": {
-                      "$id": "test://fake/other/a-doc",
-                      "items": [
-                        true,
-                        {
-                          "$ref": "b-doc#/items/1"
-                        }
-                      ]
-                    },
-                    "b": {
-                      "$id": "test://fake/other/b-doc",
-                      "items": [
-                        {
-                          "$ref": "a-doc#/items/0"
-                        },
-                        true
-                      ]
-                    },
-                    "c": true
-                  },
-                  "$id": "test://fake/root",
-                  "allOf": [
-                    {
-                      "$ref": "other/a-doc#/items/1"
-                    },
-                    {
-                      "$ref": "test://fake/other/b-doc#/items/0"
-                    },
-                    {
-                      "$ref": "#/$defs/c"
-                    },
-                    {
-                      "$ref": "test://fake/root#/$defs/c"
-                    }
-                  ]
-                }
-              },
-              "$id": "test://canonical/id",
-              "$ref": "test://fake/root"
-            },
-        },
-    ],
     storage_mappings: [],
-    test_steps: [],
-    transforms: [],
+    tests: [],
 }

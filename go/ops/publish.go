@@ -3,10 +3,10 @@ package ops
 import (
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/estuary/flow/go/labels"
-	pf "github.com/estuary/flow/go/protocols/flow"
+	po "github.com/estuary/flow/go/protocols/ops"
+	"github.com/gogo/protobuf/types"
 )
 
 // Publisher of operation Logs and Stats.
@@ -24,15 +24,10 @@ type Publisher interface {
 // ShardRef is a reference to a specific task shard that produced logs and stats.
 // * ops-catalog/ops-task-schema.json
 // * crate/ops/lib.rs
-type ShardRef struct {
-	Name        string `json:"name"`
-	Kind        string `json:"kind"`
-	KeyBegin    string `json:"keyBegin"`
-	RClockBegin string `json:"rClockBegin"`
-}
+type ShardRef = po.Shard
 
-func NewShardRef(labeling labels.ShardLabeling) ShardRef {
-	return ShardRef{
+func NewShardRef(labeling labels.ShardLabeling) *ShardRef {
+	return &ShardRef{
 		Name:        labeling.TaskName,
 		Kind:        labeling.TaskType,
 		KeyBegin:    fmt.Sprintf("%08x", labeling.Range.KeyBegin),
@@ -44,7 +39,7 @@ func NewShardRef(labeling labels.ShardLabeling) ShardRef {
 // Fields must be pairs of a string key followed by a JSON-encodable interface{} value.
 // PublishLog panics if `fields` are odd, or if a field isn't a string,
 // or if it cannot be encoded as JSON.
-func PublishLog(publisher Publisher, level pf.LogLevel, message string, fields ...interface{}) {
+func PublishLog(publisher Publisher, level po.Log_Level, message string, fields ...interface{}) {
 	if publisher.Labels().LogLevel < level {
 		return
 	}
@@ -55,7 +50,7 @@ func PublishLog(publisher Publisher, level pf.LogLevel, message string, fields .
 		panic(fmt.Sprintf("fields must be of even length: %#v", fields))
 	}
 
-	var m = make(map[string]interface{}, len(fields)/2)
+	var fieldsMap = make(map[string]json.RawMessage, len(fields)/2)
 	for i := 0; i != len(fields); i += 2 {
 		var key = fields[i].(string)
 		var value = fields[i+1]
@@ -66,20 +61,19 @@ func PublishLog(publisher Publisher, level pf.LogLevel, message string, fields .
 			value = err.Error()
 		}
 
-		m[key] = value
-	}
-
-	var fieldsRaw, err = json.Marshal(m)
-	if err != nil {
-		panic(err)
+		var valueRaw, err = json.Marshal(value)
+		if err != nil {
+			panic(err)
+		}
+		fieldsMap[key] = valueRaw
 	}
 
 	publisher.PublishLog(Log{
-		Timestamp: time.Now(),
-		Level:     level,
-		Message:   message,
-		Fields:    json.RawMessage(fieldsRaw),
-		Shard:     NewShardRef(publisher.Labels()),
-		Spans:     nil, // Not supported from Go.
+		Timestamp:     types.TimestampNow(),
+		Level:         level,
+		Message:       message,
+		FieldsJsonMap: fieldsMap,
+		Shard:         NewShardRef(publisher.Labels()),
+		Spans:         nil, // Not supported from Go.
 	})
 }

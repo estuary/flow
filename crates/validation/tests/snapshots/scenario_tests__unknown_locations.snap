@@ -1,20 +1,25 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
-assertion_line: 1301
 expression: errors
-
 ---
 [
     Error {
-        scope: test://example/int-string#/collections/testing~1int-string,
-        error: location /unknown/key is unknown in schema test://example/int-string.schema (https://go.estuary.dev/rdCMNB),
+        scope: test://example/int-string#/collections/testing~1int-string/key/1,
+        error: location /unknown/key is unknown in schema test://example/int-string.schema,
     },
     Error {
         scope: test://example/int-string#/collections/testing~1int-string/projections/Unknown,
-        error: location /unknown/projection is unknown in schema test://example/int-string.schema (https://go.estuary.dev/rdCMNB),
+        error: location /unknown/projection is unknown in schema test://example/int-string.schema,
     },
     Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
-        error: location /unknown/shuffle can never exist within schema test://example/int-string-len.schema (https://go.estuary.dev/L3m1y9),
+        scope: test://example/int-halve#/collections/testing~1int-halve/derive/transforms/0/shuffle/key/2,
+        error: location /unknown/shuffle is prohibited from ever existing by the schema test://example/canonical/int-string-len.schema,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse,
+        error: connector error while validating derivation testing/int-reverse
+        
+        Caused by:
+            shuffle types mismatch: [Integer] vs [2, 0],
     },
 ]

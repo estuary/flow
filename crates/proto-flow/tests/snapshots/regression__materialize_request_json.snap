@@ -1,0 +1,465 @@
+---
+source: crates/proto-flow/tests/regression.rs
+expression: json_test(msg)
+---
+{
+  "spec": {
+    "connectorType": "IMAGE",
+    "config": {"spec":"config"}
+  },
+  "validate": {
+    "name": "validate/materialization",
+    "connectorType": "IMAGE",
+    "config": {"validate":"config"},
+    "bindings": [
+      {
+        "resourceConfig": {"resource":"config"},
+        "collection": {
+          "name": "acmeCo/collection",
+          "writeSchema": {"write":"schema"},
+          "readSchema": {"read":"schema"},
+          "key": [
+            "/key/one",
+            "/key/two"
+          ],
+          "uuidPtr": "/_meta/uuid",
+          "partitionFields": [
+            "type",
+            "region"
+          ],
+          "projections": [
+            {
+              "ptr": "/json/ptr",
+              "field": "a-field",
+              "isPartitionKey": true,
+              "inference": {
+                "types": [
+                  "integer",
+                  "string"
+                ],
+                "string": {
+                  "contentType": "typ",
+                  "format": "date",
+                  "contentEncoding": "enc",
+                  "maxLength": 12345
+                },
+                "title": "title",
+                "description": "desc",
+                "default": {"def":"ault"},
+                "exists": "MUST"
+              }
+            }
+          ],
+          "ackTemplate": {"ack":"true"},
+          "partitionTemplate": {
+            "name": "partition/template",
+            "replication": 3,
+            "labels": {
+              "labels": [
+                {
+                  "name": "estuary.dev/foo",
+                  "value": "label-value"
+                },
+                {
+                  "name": "estuary.dev/bar",
+                  "value": "other-value"
+                }
+              ]
+            },
+            "fragment": {
+              "length": "112233",
+              "compressionCodec": "ZSTANDARD",
+              "stores": [
+                "s3://bucket/prefix"
+              ],
+              "refreshInterval": "300s",
+              "flushInterval": "62.250s",
+              "pathPostfixTemplate": "Path{{Postfix.Template}}"
+            },
+            "flags": 4,
+            "maxAppendRate": "4020303"
+          }
+        },
+        "fieldConfig": {
+          "a_field": {"field":"config"},
+          "other/field": 42.5
+        }
+      }
+    ],
+    "networkPorts": [
+      {
+        "number": 8080,
+        "protocol": "https",
+        "public": true
+      },
+      {
+        "number": 9000
+      }
+    ]
+  },
+  "apply": {
+    "materialization": {
+      "name": "acmeCo/materialization",
+      "connectorType": "IMAGE",
+      "config": {"materialize":{"config":42}},
+      "bindings": [
+        {
+          "resourceConfig": {"resource":"config"},
+          "resourcePath": [
+            "some",
+            "path"
+          ],
+          "collection": {
+            "name": "acmeCo/collection",
+            "writeSchema": {"write":"schema"},
+            "readSchema": {"read":"schema"},
+            "key": [
+              "/key/one",
+              "/key/two"
+            ],
+            "uuidPtr": "/_meta/uuid",
+            "partitionFields": [
+              "type",
+              "region"
+            ],
+            "projections": [
+              {
+                "ptr": "/json/ptr",
+                "field": "a-field",
+                "isPartitionKey": true,
+                "inference": {
+                  "types": [
+                    "integer",
+                    "string"
+                  ],
+                  "string": {
+                    "contentType": "typ",
+                    "format": "date",
+                    "contentEncoding": "enc",
+                    "maxLength": 12345
+                  },
+                  "title": "title",
+                  "description": "desc",
+                  "default": {"def":"ault"},
+                  "exists": "MUST"
+                }
+              }
+            ],
+            "ackTemplate": {"ack":"true"},
+            "partitionTemplate": {
+              "name": "partition/template",
+              "replication": 3,
+              "labels": {
+                "labels": [
+                  {
+                    "name": "estuary.dev/foo",
+                    "value": "label-value"
+                  },
+                  {
+                    "name": "estuary.dev/bar",
+                    "value": "other-value"
+                  }
+                ]
+              },
+              "fragment": {
+                "length": "112233",
+                "compressionCodec": "ZSTANDARD",
+                "stores": [
+                  "s3://bucket/prefix"
+                ],
+                "refreshInterval": "300s",
+                "flushInterval": "62.250s",
+                "pathPostfixTemplate": "Path{{Postfix.Template}}"
+              },
+              "flags": 4,
+              "maxAppendRate": "4020303"
+            }
+          },
+          "partitionSelector": {
+            "include": {
+              "labels": [
+                {
+                  "name": "estuary.dev/foo",
+                  "value": "label-value"
+                },
+                {
+                  "name": "estuary.dev/bar",
+                  "value": "other-value"
+                }
+              ]
+            }
+          },
+          "fieldSelection": {
+            "keys": [
+              "key/one"
+            ],
+            "values": [
+              "val/two"
+            ],
+            "document": "flow_document",
+            "fieldConfig": {
+              "a_field": {"field":"config"},
+              "other/field": 42.5
+            }
+          },
+          "journalReadSuffix": "materialize/acmeCo/materialization/some%20path"
+        }
+      ],
+      "shardTemplate": {
+        "id": "shard/template",
+        "recoveryLogPrefix": "recovery/prefix",
+        "hintPrefix": "hint/prefix",
+        "hintBackups": 3,
+        "maxTxnDuration": "60s",
+        "hotStandbys": 1,
+        "labels": {
+          "labels": [
+            {
+              "name": "estuary.dev/foo",
+              "value": "label-value"
+            },
+            {
+              "name": "estuary.dev/bar",
+              "value": "other-value"
+            }
+          ]
+        },
+        "ringBufferSize": 44556,
+        "readChannelSize": 112233
+      },
+      "recoveryLogTemplate": {
+        "name": "recovery/template",
+        "replication": 3,
+        "fragment": {
+          "length": "1048576",
+          "compressionCodec": "SNAPPY",
+          "stores": [
+            "s3://bucket/recovery"
+          ],
+          "refreshInterval": "300s"
+        }
+      },
+      "networkPorts": [
+        {
+          "number": 8080,
+          "protocol": "https",
+          "public": true
+        },
+        {
+          "number": 9000
+        }
+      ]
+    },
+    "version": "11:22:33:44"
+  },
+  "open": {
+    "materialization": {
+      "name": "acmeCo/materialization",
+      "connectorType": "IMAGE",
+      "config": {"materialize":{"config":42}},
+      "bindings": [
+        {
+          "resourceConfig": {"resource":"config"},
+          "resourcePath": [
+            "some",
+            "path"
+          ],
+          "collection": {
+            "name": "acmeCo/collection",
+            "writeSchema": {"write":"schema"},
+            "readSchema": {"read":"schema"},
+            "key": [
+              "/key/one",
+              "/key/two"
+            ],
+            "uuidPtr": "/_meta/uuid",
+            "partitionFields": [
+              "type",
+              "region"
+            ],
+            "projections": [
+              {
+                "ptr": "/json/ptr",
+                "field": "a-field",
+                "isPartitionKey": true,
+                "inference": {
+                  "types": [
+                    "integer",
+                    "string"
+                  ],
+                  "string": {
+                    "contentType": "typ",
+                    "format": "date",
+                    "contentEncoding": "enc",
+                    "maxLength": 12345
+                  },
+                  "title": "title",
+                  "description": "desc",
+                  "default": {"def":"ault"},
+                  "exists": "MUST"
+                }
+              }
+            ],
+            "ackTemplate": {"ack":"true"},
+            "partitionTemplate": {
+              "name": "partition/template",
+              "replication": 3,
+              "labels": {
+                "labels": [
+                  {
+                    "name": "estuary.dev/foo",
+                    "value": "label-value"
+                  },
+                  {
+                    "name": "estuary.dev/bar",
+                    "value": "other-value"
+                  }
+                ]
+              },
+              "fragment": {
+                "length": "112233",
+                "compressionCodec": "ZSTANDARD",
+                "stores": [
+                  "s3://bucket/prefix"
+                ],
+                "refreshInterval": "300s",
+                "flushInterval": "62.250s",
+                "pathPostfixTemplate": "Path{{Postfix.Template}}"
+              },
+              "flags": 4,
+              "maxAppendRate": "4020303"
+            }
+          },
+          "partitionSelector": {
+            "include": {
+              "labels": [
+                {
+                  "name": "estuary.dev/foo",
+                  "value": "label-value"
+                },
+                {
+                  "name": "estuary.dev/bar",
+                  "value": "other-value"
+                }
+              ]
+            }
+          },
+          "fieldSelection": {
+            "keys": [
+              "key/one"
+            ],
+            "values": [
+              "val/two"
+            ],
+            "document": "flow_document",
+            "fieldConfig": {
+              "a_field": {"field":"config"},
+              "other/field": 42.5
+            }
+          },
+          "journalReadSuffix": "materialize/acmeCo/materialization/some%20path"
+        }
+      ],
+      "shardTemplate": {
+        "id": "shard/template",
+        "recoveryLogPrefix": "recovery/prefix",
+        "hintPrefix": "hint/prefix",
+        "hintBackups": 3,
+        "maxTxnDuration": "60s",
+        "hotStandbys": 1,
+        "labels": {
+          "labels": [
+            {
+              "name": "estuary.dev/foo",
+              "value": "label-value"
+            },
+            {
+              "name": "estuary.dev/bar",
+              "value": "other-value"
+            }
+          ]
+        },
+        "ringBufferSize": 44556,
+        "readChannelSize": 112233
+      },
+      "recoveryLogTemplate": {
+        "name": "recovery/template",
+        "replication": 3,
+        "fragment": {
+          "length": "1048576",
+          "compressionCodec": "SNAPPY",
+          "stores": [
+            "s3://bucket/recovery"
+          ],
+          "refreshInterval": "300s"
+        }
+      },
+      "networkPorts": [
+        {
+          "number": 8080,
+          "protocol": "https",
+          "public": true
+        },
+        {
+          "number": 9000
+        }
+      ]
+    },
+    "version": "11:22:33:44",
+    "range": {
+      "keyBegin": 1122867,
+      "keyEnd": 1146447479,
+      "rClockBegin": 2291772091,
+      "rClockEnd": 3437096703
+    },
+    "state": {"connector":{"state":42}}
+  },
+  "load": {
+    "binding": 12,
+    "key": [42,"hi"],
+    "keyPacked": "VkseCQ=="
+  },
+  "flush": {},
+  "store": {
+    "binding": 3,
+    "key": [true,null],
+    "keyPacked": "WhUA",
+    "values": [3.14159,"field!"],
+    "valuesPacked": "PFs=",
+    "doc": {"full":"document"},
+    "exists": true
+  },
+  "startCommit": {
+    "runtimeCheckpoint": {
+      "sources": {
+        "a/read/journal;suffix": {
+          "readThrough": "12345",
+          "producers": [
+            {
+              "id": "AwkIBQc=",
+              "state": {
+                "lastAck": "8675",
+                "begin": "1111"
+              }
+            },
+            {
+              "id": "BwxmKx0=",
+              "state": {
+                "lastAck": "309",
+                "begin": "2222"
+              }
+            }
+          ]
+        }
+      },
+      "ackIntents": {
+        "an/ack/journal": "AwQCBQ=="
+      }
+    }
+  },
+  "acknowledge": {},
+  "internal": {
+    "typeUrl": "flow://internal.thing",
+    "value": "EgJIaRgB"
+  }
+}

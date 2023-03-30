@@ -21,10 +21,10 @@ func StatsCollection(taskName string) pf.Collection {
 // for storing instances of Stats documents.
 func ValidateStatsCollection(spec *pf.CollectionSpec) error {
 	if !reflect.DeepEqual(
-		spec.KeyPtrs,
+		spec.Key,
 		[]string{"/shard/name", "/shard/keyBegin", "/shard/rClockBegin", "/ts"},
 	) {
-		return fmt.Errorf("CollectionSpec doesn't have expected key: %v", spec.KeyPtrs)
+		return fmt.Errorf("CollectionSpec doesn't have expected key: %v", spec.Key)
 	}
 
 	if !reflect.DeepEqual(spec.PartitionFields, []string{"kind", "name"}) {

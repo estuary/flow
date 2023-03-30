@@ -30,20 +30,15 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       # Linux build steps:
-      # Linux builds need the non-default musl target.
       - name: Install Rust
         if: matrix.config.os == 'ubuntu-latest'
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-          target: x86_64-unknown-linux-musl
       - name: Build Linux
         if: matrix.config.os == 'ubuntu-latest'
         run: |-
-          sudo apt-get update && \
-          sudo apt-get install -y musl-tools && \
-          cargo build -p flowctl --release --target x86_64-unknown-linux-musl && \
-          mv target/x86_64-unknown-linux-musl/release/flowctl ${ASSET_NAME}
+          cargo build -p flowctl --release && mv target/release/flowctl ${ASSET_NAME}
 
       # Mac build steps:
       # We need multiple targets for mac builds, so they will be manually added
@@ -78,12 +73,12 @@ jobs:
           security import "$CERTIFICATE_PATH" -P "$MAC_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
           security find-identity -v
           security list-keychain -d user -s "$KEYCHAIN_PATH"
-          
+
           # allow the codesign utility to use this keychain without triggering a prompt. Taken from:
           # https://localazy.com/blog/how-to-automatically-sign-macos-apps-using-github-actions
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-      
+
       # This one mac build runs on both intel and m1 macs
       - name: Build Mac
         if: matrix.config.os == 'macos-latest'

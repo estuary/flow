@@ -322,10 +322,10 @@ pub mod network_proxy_client {
 pub mod shuffler_server {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
-    ///Generated trait containing gRPC methods that should be implemented for use with ShufflerServer.
+    /// Generated trait containing gRPC methods that should be implemented for use with ShufflerServer.
     #[async_trait]
     pub trait Shuffler: Send + Sync + 'static {
-        ///Server streaming response type for the Shuffle method.
+        /// Server streaming response type for the Shuffle method.
         type ShuffleStream: futures_core::Stream<
                 Item = Result<::proto_flow::flow::ShuffleResponse, tonic::Status>,
             >
@@ -479,7 +479,7 @@ pub mod shuffler_server {
 pub mod testing_server {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
-    ///Generated trait containing gRPC methods that should be implemented for use with TestingServer.
+    /// Generated trait containing gRPC methods that should be implemented for use with TestingServer.
     #[async_trait]
     pub trait Testing: Send + Sync + 'static {
         async fn reset_state(
@@ -724,10 +724,10 @@ pub mod testing_server {
 pub mod network_proxy_server {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
-    ///Generated trait containing gRPC methods that should be implemented for use with NetworkProxyServer.
+    /// Generated trait containing gRPC methods that should be implemented for use with NetworkProxyServer.
     #[async_trait]
     pub trait NetworkProxy: Send + Sync + 'static {
-        ///Server streaming response type for the Proxy method.
+        /// Server streaming response type for the Proxy method.
         type ProxyStream: futures_core::Stream<
                 Item = Result<
                     ::proto_flow::flow::TaskNetworkProxyResponse,

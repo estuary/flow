@@ -4,27 +4,34 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve,
-        error: location /int accepts "number", "object" in schema test://example/int-string-len.schema, but "fractional", "object" is disallowed in locations used as keys (https://go.estuary.dev/CigSvN),
+        scope: test://example/int-halve#/collections/testing~1int-halve/key/0,
+        error: location /int accepts "number", "object" in schema test://example/canonical/int-string-len.schema, but locations used as keys may only be null-able integers, strings, or booleans,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse/key/0,
+        error: location /int accepts "number", "object" in schema test://example/int-string.schema, but locations used as keys may only be null-able integers, strings, or booleans,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string/key/0,
+        error: location /int accepts "number", "object" in schema test://example/int-string.schema, but locations used as keys may only be null-able integers, strings, or booleans,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw/key/0,
+        error: location /int accepts "number", "object" in schema test://example/int-string.schema, but locations used as keys may only be null-able integers, strings, or booleans,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw/key/0,
+        error: location /int accepts "number", "object" in schema test://example/canonical/int-string-len.schema, but locations used as keys may only be null-able integers, strings, or booleans,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string.v2/key/0,
+        error: location /int accepts "number", "object" in schema test://inlined/canonical/id, but locations used as keys may only be null-able integers, strings, or booleans,
     },
     Error {
         scope: test://example/int-reverse#/collections/testing~1int-reverse,
-        error: location /int accepts "number", "object" in schema test://example/int-string.schema, but "fractional", "object" is disallowed in locations used as keys (https://go.estuary.dev/CigSvN),
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string,
-        error: location /int accepts "number", "object" in schema test://example/int-string.schema, but "fractional", "object" is disallowed in locations used as keys (https://go.estuary.dev/CigSvN),
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string-rw,
-        error: location /int accepts "number", "object" in schema test://example/int-string-len.schema, but "fractional", "object" is disallowed in locations used as keys (https://go.estuary.dev/CigSvN),
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string-rw,
-        error: location /int accepts "number", "object" in schema test://example/int-string.schema, but "fractional", "object" is disallowed in locations used as keys (https://go.estuary.dev/CigSvN),
-    },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string.v2,
-        error: location /int accepts "number", "object" in schema test://example/int-string?ptr=/collections/testing~1int-string.v2/schema, but "fractional", "object" is disallowed in locations used as keys (https://go.estuary.dev/CigSvN),
+        error: connector error while validating derivation testing/int-reverse
+        
+        Caused by:
+            shuffle types mismatch: [Integer] vs [0],
     },
 ]

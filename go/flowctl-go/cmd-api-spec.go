@@ -15,7 +15,7 @@ import (
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/ops"
 	pc "github.com/estuary/flow/go/protocols/capture"
-	"github.com/estuary/flow/go/protocols/flow"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -23,11 +23,11 @@ import (
 )
 
 type specResponse struct {
-	Type               string          `json:"type"`
-	DocumentationURL   string          `json:"documentationURL"`
-	EndpointSpecSchema json.RawMessage `json:"endpointSpecSchema"`
-	ResourceSpecSchema json.RawMessage `json:"resourceSpecSchema"`
-	Oauth2Spec         json.RawMessage `json:"oauth2Spec"`
+	Protocol             string          `json:"protocol"`
+	DocumentationURL     string          `json:"documentationUrl"`
+	ConfigSchema         json.RawMessage `json:"configSchema"`
+	ResourceConfigSchema json.RawMessage `json:"resourceConfigSchema"`
+	Oauth2               json.RawMessage `json:"oauth2"`
 }
 
 type apiSpec struct {
@@ -84,38 +84,42 @@ func (cmd apiSpec) specCapture(ctx context.Context, spec json.RawMessage) (specR
 	var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
 		TaskName: cmd.Name,
 	})
-	var request = &pc.SpecRequest{
-		EndpointType:     flow.EndpointType_AIRBYTE_SOURCE,
-		EndpointSpecJson: spec,
+	var request = &pc.Request{
+		Spec: &pc.Request_Spec{
+			ConnectorType: pf.CaptureSpec_IMAGE,
+			ConfigJson:    spec,
+		},
 	}
-	var response, err = connector.Invoke(
+	var response, err = connector.Invoke[pc.Response](
 		ctx,
 		request,
 		cmd.Network,
 		publisher,
-		func(driver *connector.Driver, request *pc.SpecRequest) (*pc.SpecResponse, error) {
-			return driver.CaptureClient().Spec(ctx, request)
+		func(driver *connector.Driver) (pc.Connector_CaptureClient, error) {
+			return driver.CaptureClient().Capture(ctx)
 		},
 	)
 	if err != nil {
 		return specResponse{}, err
+	} else if response.Spec == nil {
+		return specResponse{}, fmt.Errorf("missing Spec response")
 	}
 
 	var oauth2Spec bytes.Buffer
-	if response.Oauth2Spec != nil {
+	if response.Spec.Oauth2 != nil {
 		// Serialize OAuth2Spec using canonical proto JSON
-		err = (&jsonpb.Marshaler{}).Marshal(&oauth2Spec, response.Oauth2Spec)
+		err = (&jsonpb.Marshaler{}).Marshal(&oauth2Spec, response.Spec.Oauth2)
 		if err != nil {
 			return specResponse{}, err
 		}
 	}
 
 	return specResponse{
-		Type:               "capture",
-		DocumentationURL:   response.DocumentationUrl,
-		EndpointSpecSchema: response.EndpointSpecSchemaJson,
-		ResourceSpecSchema: response.ResourceSpecSchemaJson,
-		Oauth2Spec:         oauth2Spec.Bytes(),
+		Protocol:             "capture",
+		DocumentationURL:     response.Spec.DocumentationUrl,
+		ConfigSchema:         response.Spec.ConfigSchemaJson,
+		ResourceConfigSchema: response.Spec.ResourceConfigSchemaJson,
+		Oauth2:               oauth2Spec.Bytes(),
 	}, nil
 }
 
@@ -123,38 +127,42 @@ func (cmd apiSpec) specMaterialization(ctx context.Context, spec json.RawMessage
 	var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
 		TaskName: cmd.Name,
 	})
-	var request = &pm.SpecRequest{
-		EndpointType:     flow.EndpointType_FLOW_SINK,
-		EndpointSpecJson: spec,
+	var request = &pm.Request{
+		Spec: &pm.Request_Spec{
+			ConnectorType: pf.MaterializationSpec_IMAGE,
+			ConfigJson:    spec,
+		},
 	}
-	var response, err = connector.Invoke(
+	var response, err = connector.Invoke[pm.Response](
 		ctx,
 		request,
 		cmd.Network,
 		publisher,
-		func(driver *connector.Driver, request *pm.SpecRequest) (*pm.SpecResponse, error) {
-			return driver.MaterializeClient().Spec(ctx, request)
+		func(driver *connector.Driver) (pm.Connector_MaterializeClient, error) {
+			return driver.MaterializeClient().Materialize(ctx)
 		},
 	)
 	if err != nil {
 		return specResponse{}, err
+	} else if response.Spec == nil {
+		return specResponse{}, fmt.Errorf("missing Spec response")
 	}
 
 	var oauth2Spec bytes.Buffer
-	if response.Oauth2Spec != nil {
+	if response.Spec.Oauth2 != nil {
 		// Serialize OAuth2Spec using canonical proto JSON
-		err = (&jsonpb.Marshaler{}).Marshal(&oauth2Spec, response.Oauth2Spec)
+		err = (&jsonpb.Marshaler{}).Marshal(&oauth2Spec, response.Spec.Oauth2)
 		if err != nil {
 			return specResponse{}, err
 		}
 	}
 
 	return specResponse{
-		Type:               "materialization",
-		DocumentationURL:   response.DocumentationUrl,
-		EndpointSpecSchema: response.EndpointSpecSchemaJson,
-		ResourceSpecSchema: response.ResourceSpecSchemaJson,
-		Oauth2Spec:         oauth2Spec.Bytes(),
+		Protocol:             "materialization",
+		DocumentationURL:     response.Spec.DocumentationUrl,
+		ConfigSchema:         response.Spec.ConfigSchemaJson,
+		ResourceConfigSchema: response.Spec.ResourceConfigSchemaJson,
+		Oauth2:               oauth2Spec.Bytes(),
 	}, nil
 }
 

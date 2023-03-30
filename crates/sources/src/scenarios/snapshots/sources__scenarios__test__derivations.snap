@@ -3,24 +3,59 @@ source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 Sources {
-    capture_bindings: [],
     captures: [],
     collections: [
         Collection {
             scope: test://example/catalog.yaml#/collections/d1~1collection,
             collection: d1/collection,
             spec: {
+              "schema": "a-schema.json",
               "key": [
                 "/d1-key"
-              ]
+              ],
+              "derive": {
+                "using": {
+                  "typescript": {
+                    "module": "catalog.ts"
+                  }
+                },
+                "transforms": [
+                  {
+                    "name": "some-name",
+                    "source": {
+                      "name": "src/collection",
+                      "partitions": {
+                        "include": {
+                          "a_field": [
+                            "foo",
+                            42
+                          ]
+                        },
+                        "exclude": {
+                          "other_field": [
+                            false
+                          ]
+                        }
+                      }
+                    },
+                    "shuffle": {
+                      "key": [
+                        "/shuffle",
+                        "/key"
+                      ]
+                    },
+                    "priority": 32,
+                    "readDelay": "1h"
+                  }
+                ]
+              }
             },
-            write_schema: test://example/a-schema.json,
-            read_schema: test://example/a-schema.json,
         },
         Collection {
             scope: test://example/catalog.yaml#/collections/d2~1collection,
             collection: d2/collection,
             spec: {
+              "schema": "a-schema.json",
               "key": [
                 "/d2-key"
               ],
@@ -29,81 +64,66 @@ Sources {
                   "compressionCodec": "ZSTANDARD",
                   "flushInterval": "15m"
                 }
+              },
+              "derive": {
+                "using": {
+                  "connector": {
+                    "image": "some/image:tag",
+                    "config": {"remote":"https://example/api"}
+                  }
+                },
+                "transforms": [
+                  {
+                    "name": "do-the-thing",
+                    "source": "src/collection",
+                    "lambda": 42
+                  }
+                ],
+                "shards": {
+                  "disable": true,
+                  "minTxnDuration": "15s",
+                  "maxTxnDuration": "6m",
+                  "hotStandbys": 2,
+                  "ringBufferSize": 12345,
+                  "readChannelSize": 6789
+                }
               }
             },
-            write_schema: test://example/a-schema.json,
-            read_schema: test://example/a-schema.json,
         },
         Collection {
             scope: test://example/catalog.yaml#/collections/d3~1collection,
             collection: d3/collection,
             spec: {
+              "writeSchema": "a-schema.json",
+              "readSchema": "other-schema.json",
               "key": [
                 "/some/key"
-              ]
-            },
-            write_schema: test://example/a-schema.json,
-            read_schema: test://example/other-schema.json,
-        },
-    ],
-    derivations: [
-        Derivation {
-            scope: test://example/catalog.yaml#/collections/d1~1collection/derivation,
-            derivation: d1/collection,
-            spec: {
-              "register": {
-                "schema": false,
-                "initial": {
-                  "initial": [
-                    "value",
-                    32
-                  ]
-                }
-              },
-              "transform": {},
-              "typescript": {
-                "module": ""
+              ],
+              "derive": {
+                "using": {
+                  "sqlite": {
+                    "migrations": [
+                      "create table foo(bar int);\n",
+                      "sql/migration_two.sql"
+                    ]
+                  }
+                },
+                "transforms": [
+                  {
+                    "name": "frob",
+                    "source": "src/collection",
+                    "shuffle": {
+                      "lambda": "sql/shuffle_lambda.sql"
+                    },
+                    "lambda": "select 'a long string which makes this a larger lambda' * from foo;\n"
+                  }
+                ],
+                "shuffleKeyTypes": [
+                  "string",
+                  "integer"
+                ]
               }
             },
-            register_schema: test://example/reg-schema.json#/$defs/qib,
-            typescript_module: test://example/catalog.ts,
-        },
-        Derivation {
-            scope: test://example/catalog.yaml#/collections/d2~1collection/derivation,
-            derivation: d2/collection,
-            spec: {
-              "register": {
-                "schema": false,
-                "initial": null
-              },
-              "transform": {},
-              "shards": {
-                "disable": true,
-                "minTxnDuration": "15s",
-                "maxTxnDuration": "6m",
-                "hotStandbys": 2,
-                "ringBufferSize": 12345,
-                "readChannelSize": 6789
-              }
-            },
-            register_schema: test://example/catalog.yaml?ptr=/collections/d2~1collection/derivation/register/schema,
-            typescript_module: NULL,
-        },
-        Derivation {
-            scope: test://example/catalog.yaml#/collections/d3~1collection/derivation,
-            derivation: d3/collection,
-            spec: {
-              "register": {
-                "schema": false,
-                "initial": null
-              },
-              "transform": {},
-              "typescript": {
-                "module": ""
-              }
-            },
-            register_schema: test://example/catalog.yaml?ptr=/collections/d3~1collection/derivation/register/schema,
-            typescript_module: test://example/catalog.yaml?ptr=/collections/d3~1collection/derivation/typescript/module,
         },
     ],
     errors: [],
@@ -126,92 +146,44 @@ Sources {
         },
         Fetch {
             depth: 2,
-            resource: test://example/reg-schema.json,
+            resource: test://example/sql/migration_two.sql,
+        },
+        Fetch {
+            depth: 2,
+            resource: test://example/sql/shuffle_lambda.sql,
         },
     ],
     imports: [
         Import {
-            scope: test://example/catalog.yaml#/collections/d2~1collection/schema,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/a-schema.json,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/collections/d3~1collection/writeSchema,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/a-schema.json,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/collections/d1~1collection/schema,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/a-schema.json,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/collections/d1~1collection/derivation/typescript/module,
-            from_resource: test://example/catalog.yaml,
+            scope: test://example/catalog.yaml#/collections/d1~1collection/derive/using/typescript/module,
             to_resource: test://example/catalog.ts,
         },
         Import {
-            scope: test://example/catalog.yaml#/collections/d2~1collection/derivation/register/schema,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.yaml?ptr=/collections/d2~1collection/derivation/register/schema,
+            scope: test://example/catalog.yaml#/collections/d1~1collection/schema,
+            to_resource: test://example/a-schema.json,
         },
         Import {
-            scope: test://example/catalog.yaml#/collections/d3~1collection/derivation/register/schema,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.yaml?ptr=/collections/d3~1collection/derivation/register/schema,
+            scope: test://example/catalog.yaml#/collections/d2~1collection/schema,
+            to_resource: test://example/a-schema.json,
         },
         Import {
-            scope: test://example/catalog.yaml#/collections/d3~1collection/derivation/typescript/module,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/catalog.yaml?ptr=/collections/d3~1collection/derivation/typescript/module,
+            scope: test://example/catalog.yaml#/collections/d3~1collection/derive/transforms/0/shuffle/lambda,
+            to_resource: test://example/sql/shuffle_lambda.sql,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d3~1collection/derive/using/sqlite/migrations/1,
+            to_resource: test://example/sql/migration_two.sql,
         },
         Import {
             scope: test://example/catalog.yaml#/collections/d3~1collection/readSchema,
-            from_resource: test://example/catalog.yaml,
             to_resource: test://example/other-schema.json,
         },
         Import {
-            scope: test://example/catalog.yaml#/collections/d1~1collection/derivation/register/schema,
-            from_resource: test://example/catalog.yaml,
-            to_resource: test://example/reg-schema.json,
+            scope: test://example/catalog.yaml#/collections/d3~1collection/writeSchema,
+            to_resource: test://example/a-schema.json,
         },
     ],
-    materialization_bindings: [],
     materializations: [],
-    npm_dependencies: [
-        NPMDependency {
-            scope: test://example/catalog.yaml#/collections/d1~1collection/derivation/typescript/npmDependencies/package-one,
-            derivation: d1/collection,
-            package: package-one,
-            version: v0.1.2,
-        },
-        NPMDependency {
-            scope: test://example/catalog.yaml#/collections/d3~1collection/derivation/typescript/npmDependencies/pkg-2,
-            derivation: d3/collection,
-            package: pkg-2,
-            version: ~v2,
-        },
-    ],
-    projections: [
-        Projection {
-            scope: test://example/catalog.yaml#/collections/d1~1collection/projections/flow_document,
-            collection: d1/collection,
-            field: flow_document,
-            spec: "",
-        },
-        Projection {
-            scope: test://example/catalog.yaml#/collections/d2~1collection/projections/flow_document,
-            collection: d2/collection,
-            field: flow_document,
-            spec: "",
-        },
-        Projection {
-            scope: test://example/catalog.yaml#/collections/d3~1collection/projections/flow_document,
-            collection: d3/collection,
-            field: flow_document,
-            spec: "",
-        },
-    ],
     resources: [
         Resource {
             resource: test://example/a-schema.json,
@@ -221,33 +193,15 @@ Sources {
         },
         Resource {
             resource: test://example/catalog.ts,
-            content_type: "TYPESCRIPT_MODULE",
+            content_type: "CONFIG",
             content: ".. binary ..",
-            content_dom: null,
+            content_dom: "a typescript module placeholder that's fairly \"long\", at least long enough to not be inline\n",
         },
         Resource {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"d1/collection":{"derivation":{"register":{"initial":{"initial":["value",32]},"schema":"reg-schema.json#/$defs/qib"},"transform":{"some-name":{"priority":32,"publish":{"lambda":"typescript"},"readDelay":"1 hour","shuffle":{"key":["/shuffle","/key"]},"source":{"name":"src/collection","partitions":{"exclude":{"other_field":[false]},"include":{"a_field":["foo",42]}}},"update":{"lambda":"typescript"}}},"typescript":{"module":"catalog.ts","npmDependencies":{"package-one":"v0.1.2"}}},"key":["/d1-key"],"schema":"a-schema.json"},"d2/collection":{"derivation":{"shards":{"disable":true,"hotStandbys":2,"maxTxnDuration":"6m","minTxnDuration":"15s","readChannelSize":6789,"ringBufferSize":12345},"transform":{"do-the-thing":{"source":{"name":"src/collection"},"update":{"lambda":{"remote":"https://example/api"}}}}},"journals":{"fragments":{"compressionCodec":"ZSTANDARD","flushInterval":"15m"}},"key":["/d2-key"],"schema":"a-schema.json"},"d3/collection":{"derivation":{"transform":{"frob":{"publish":{"lambda":"typescript"},"source":{"name":"src/collection"}}},"typescript":{"module":"import { some } from 'the/package';\n\ninlineTypescript();\n","npmDependencies":{"pkg-2":"~v2"}}},"key":["/some/key"],"readSchema":"other-schema.json","writeSchema":"a-schema.json"}}},
-        },
-        Resource {
-            resource: test://example/catalog.yaml?ptr=/collections/d2~1collection/derivation/register/schema,
-            content_type: "JSON_SCHEMA",
-            content: ".. binary ..",
-            content_dom: true,
-        },
-        Resource {
-            resource: test://example/catalog.yaml?ptr=/collections/d3~1collection/derivation/register/schema,
-            content_type: "JSON_SCHEMA",
-            content: ".. binary ..",
-            content_dom: true,
-        },
-        Resource {
-            resource: test://example/catalog.yaml?ptr=/collections/d3~1collection/derivation/typescript/module,
-            content_type: "TYPESCRIPT_MODULE",
-            content: ".. binary ..",
-            content_dom: null,
+            content_dom: {"collections":{"d1/collection":{"derive":{"transforms":[{"name":"some-name","priority":32,"readDelay":"1 hour","shuffle":{"key":["/shuffle","/key"]},"source":{"name":"src/collection","partitions":{"exclude":{"other_field":[false]},"include":{"a_field":["foo",42]}}}}],"using":{"typescript":{"module":"catalog.ts"}}},"key":["/d1-key"],"schema":"a-schema.json"},"d2/collection":{"derive":{"shards":{"disable":true,"hotStandbys":2,"maxTxnDuration":"6m","minTxnDuration":"15s","readChannelSize":6789,"ringBufferSize":12345},"transforms":[{"lambda":42,"name":"do-the-thing","source":"src/collection"}],"using":{"connector":{"config":{"remote":"https://example/api"},"image":"some/image:tag"}}},"journals":{"fragments":{"compressionCodec":"ZSTANDARD","flushInterval":"15m"}},"key":["/d2-key"],"schema":"a-schema.json"},"d3/collection":{"derive":{"shuffleKeyTypes":["string","integer"],"transforms":[{"lambda":"select 'a long string which makes this a larger lambda' * from foo;\n","name":"frob","shuffle":{"lambda":"sql/shuffle_lambda.sql"},"source":"src/collection"}],"using":{"sqlite":{"migrations":["create table foo(bar int);\n","sql/migration_two.sql"]}}},"key":["/some/key"],"readSchema":"other-schema.json","writeSchema":"a-schema.json"}}},
         },
         Resource {
             resource: test://example/other-schema.json,
@@ -256,124 +210,18 @@ Sources {
             content_dom: {"$anchor":"foobar","properties":{"d1-key":{"type":"string"},"key":{"description":"the key description","title":"the key title","type":"integer"},"moar":{"type":"number"},"shuffle":{"type":"integer"}},"type":"object"},
         },
         Resource {
-            resource: test://example/reg-schema.json,
-            content_type: "JSON_SCHEMA",
+            resource: test://example/sql/migration_two.sql,
+            content_type: "CONFIG",
             content: ".. binary ..",
-            content_dom: {"$defs":{"qib":true}},
+            content_dom: "alter table baz add column value text not null;\ndrop table other_thing;\n",
         },
-    ],
-    schema_docs: [
-        SchemaDoc {
-            schema: test://example/a-schema.json,
-            dom: true,
-        },
-        SchemaDoc {
-            schema: test://example/catalog.yaml?ptr=/collections/d2~1collection/derivation/register/schema,
-            dom: true,
-        },
-        SchemaDoc {
-            schema: test://example/catalog.yaml?ptr=/collections/d3~1collection/derivation/register/schema,
-            dom: true,
-        },
-        SchemaDoc {
-            schema: test://example/other-schema.json,
-            dom: {
-              "$anchor": "foobar",
-              "properties": {
-                "d1-key": {
-                  "type": "string"
-                },
-                "key": {
-                  "description": "the key description",
-                  "title": "the key title",
-                  "type": "integer"
-                },
-                "moar": {
-                  "type": "number"
-                },
-                "shuffle": {
-                  "type": "integer"
-                }
-              },
-              "type": "object"
-            },
-        },
-        SchemaDoc {
-            schema: test://example/reg-schema.json,
-            dom: {
-              "$defs": {
-                "qib": true
-              }
-            },
+        Resource {
+            resource: test://example/sql/shuffle_lambda.sql,
+            content_type: "CONFIG",
+            content: ".. binary ..",
+            content_dom: "select a whole bunch of fields and stuff from source documents to shuffle upon;\n",
         },
     ],
     storage_mappings: [],
-    test_steps: [],
-    transforms: [
-        Transform {
-            scope: test://example/catalog.yaml#/collections/d1~1collection/derivation/transform/some-name,
-            derivation: d1/collection,
-            transform: some-name,
-            spec: {
-              "source": {
-                "name": "src/collection",
-                "partitions": {
-                  "include": {
-                    "a_field": [
-                      "foo",
-                      42
-                    ]
-                  },
-                  "exclude": {
-                    "other_field": [
-                      false
-                    ]
-                  }
-                }
-              },
-              "priority": 32,
-              "readDelay": "1h",
-              "shuffle": {
-                "key": [
-                  "/shuffle",
-                  "/key"
-                ]
-              },
-              "update": {
-                "lambda": "typescript"
-              },
-              "publish": {
-                "lambda": "typescript"
-              }
-            },
-        },
-        Transform {
-            scope: test://example/catalog.yaml#/collections/d2~1collection/derivation/transform/do-the-thing,
-            derivation: d2/collection,
-            transform: do-the-thing,
-            spec: {
-              "source": {
-                "name": "src/collection"
-              },
-              "update": {
-                "lambda": {
-                  "remote": "https://example/api"
-                }
-              }
-            },
-        },
-        Transform {
-            scope: test://example/catalog.yaml#/collections/d3~1collection/derivation/transform/frob,
-            derivation: d3/collection,
-            transform: frob,
-            spec: {
-              "source": {
-                "name": "src/collection"
-              },
-              "publish": {
-                "lambda": "typescript"
-              }
-            },
-        },
-    ],
+    tests: [],
 }

@@ -12,8 +12,10 @@ license.workspace = true
 
 [dependencies]
 agent-sql = { path = "../agent-sql" }
+async-process = { path = "../async-process" }
 doc = { path = "../doc" }
 models = { path = "../models" }
+proto-flow = { path = "../proto-flow" }
 tables = { path = "../tables", features = ["persist"] }
 
 anyhow = { workspace = true }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"net/url"
+	"path"
 	"runtime"
 	"testing"
 
@@ -54,18 +55,19 @@ func TestBuildReferenceCounting(t *testing.T) {
 }
 
 func TestBuildLazyInitAndReuse(t *testing.T) {
+	var dir = t.TempDir()
 	var args = bindings.BuildArgs{
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			BuildId:    "a-build-id",
-			Directory:  t.TempDir(),
+			BuildDb:    path.Join(dir, "a-build-id"),
 			Source:     "file:///specs_test.flow.yaml",
 			SourceType: pf.ContentType_CATALOG,
 		}}
 	require.NoError(t, bindings.BuildCatalog(args))
 
-	var builds, err = NewBuildService("file://" + args.Directory + "/")
+	var builds, err = NewBuildService("file://" + dir + "/")
 	require.NoError(t, err)
 
 	// Open. Expect DB is not initialized until first use.
@@ -80,7 +82,7 @@ func TestBuildLazyInitAndReuse(t *testing.T) {
 		collection, err = catalog.LoadCollection(db, "example/collection")
 		return err
 	}))
-	require.Equal(t, "example/collection", collection.Collection.String())
+	require.Equal(t, "example/collection", collection.Name.String())
 
 	// Database was initialized.
 	var db1 = b1.db
@@ -95,12 +97,6 @@ func TestBuildLazyInitAndReuse(t *testing.T) {
 		return nil
 	}))
 
-	// Our fixture doesn't build a typescript package, so initialization
-	// fails with an error. Expect the error is shared.
-	_, err = b1.TypeScriptClient()
-	require.Error(t, err)
-	require.Equal(t, err, b2.tsErr)
-
 	// Close both builds, dropping the reference count to zero.
 	require.NoError(t, b1.Close())
 	require.NoError(t, b2.Close())
@@ -114,7 +110,7 @@ func TestBuildLazyInitAndReuse(t *testing.T) {
 		collection, err = catalog.LoadCollection(db, "example/collection")
 		return err
 	}))
-	require.Equal(t, "example/collection", collection.Collection.String())
+	require.Equal(t, "example/collection", collection.Name.String())
 }
 
 func TestInitOfMissingBuild(t *testing.T) {

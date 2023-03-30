@@ -107,13 +107,8 @@ func (m *Shuffle) Validate() error {
 	if m.SourceUuidPtr == "" {
 		return pb.NewValidationError("missing SourceUuidPtr")
 	}
-	if (len(m.ShuffleKeyPtrs) == 0) == (m.ShuffleLambda == nil) {
-		return pb.NewValidationError("expected one of ShuffleKeyPtr or ShuffleLambda")
-	}
-	if m.ShuffleLambda != nil {
-		if err := m.ShuffleLambda.Validate(); err != nil {
-			return pb.ExtendContext(err, "ShuffleLambda")
-		}
+	if len(m.ShuffleKeyPtrs) == 0 {
+		return pb.NewValidationError("missing ShuffleKeyPtr")
 	}
 	return nil
 }
@@ -135,47 +130,5 @@ func (m *ShuffleRequest) Validate() error {
 		return pb.NewValidationError("invalid EndOffset (%d; expected 0 or Offset <= EndOffset)", m.EndOffset)
 	}
 
-	return nil
-}
-
-// Validate returns an error if the LambdaSpec is invalid.
-func (m *LambdaSpec) Validate() error {
-	var cnt int
-	if m.Remote != "" {
-		cnt++
-	}
-	if m.Typescript != "" {
-		cnt++
-	}
-	if m.Sqlite != "" {
-		cnt++
-	}
-	if cnt != 1 {
-		return pb.NewValidationError("expected exactly one lambda type")
-	}
-	return nil
-}
-
-// Validate returns an error if the TransformSpec is invalid.
-func (m *TransformSpec) Validate() error {
-	if err := m.Derivation.Validate(); err != nil {
-		return pb.ExtendContext(err, "Derivation")
-	}
-	if err := m.Transform.Validate(); err != nil {
-		return pb.ExtendContext(err, "Transform")
-	}
-	if err := m.Shuffle.Validate(); err != nil {
-		return pb.ExtendContext(err, "Shuffle")
-	}
-	if m.UpdateLambda != nil {
-		if err := m.UpdateLambda.Validate(); err != nil {
-			return pb.ExtendContext(err, "UpdateLambda")
-		}
-	}
-	if m.PublishLambda != nil {
-		if err := m.PublishLambda.Validate(); err != nil {
-			return pb.ExtendContext(err, "PublishLambda")
-		}
-	}
 	return nil
 }

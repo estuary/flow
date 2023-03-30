@@ -16,7 +16,6 @@ models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 tables = { path = "../tables" }
-typescript = { path = "../typescript" }
 
 bytes = { workspace = true }
 itertools = { workspace = true }

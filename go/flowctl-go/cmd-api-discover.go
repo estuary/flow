@@ -11,6 +11,7 @@ import (
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/ops"
 	pc "github.com/estuary/flow/go/protocols/capture"
+	pfc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/sirupsen/logrus"
@@ -29,7 +30,7 @@ type apiDiscover struct {
 	Output      string                `long:"output" choice:"json" choice:"proto" default:"json"`
 }
 
-func (cmd apiDiscover) execute(ctx context.Context) (*pc.DiscoverResponse, error) {
+func (cmd apiDiscover) execute(ctx context.Context) (*pc.Response_Discovered, error) {
 	var config, err = readConfig(cmd.Config)
 	if err != nil {
 		return nil, err
@@ -49,19 +50,25 @@ func (cmd apiDiscover) execute(ctx context.Context) (*pc.DiscoverResponse, error
 		TaskName: cmd.Name,
 	})
 
-	var request = &pc.DiscoverRequest{
-		EndpointType:     pf.EndpointType_AIRBYTE_SOURCE,
-		EndpointSpecJson: spec,
+	var request = &pc.Request{
+		Discover: &pc.Request_Discover{
+			ConnectorType: pf.CaptureSpec_IMAGE,
+			ConfigJson:    spec,
+		},
 	}
-	return connector.Invoke(
+	response, err := connector.Invoke[pfc.Response](
 		ctx,
 		request,
 		cmd.Network,
 		publisher,
-		func(driver *connector.Driver, request *pc.DiscoverRequest) (*pc.DiscoverResponse, error) {
-			return driver.CaptureClient().Discover(ctx, request)
+		func(driver *connector.Driver) (pfc.Connector_CaptureClient, error) {
+			return driver.CaptureClient().Capture(ctx)
 		},
 	)
+	if err != nil {
+		return nil, err
+	}
+	return response.Discovered, nil
 }
 
 func (cmd apiDiscover) Execute(_ []string) error {

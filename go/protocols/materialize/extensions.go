@@ -9,9 +9,9 @@ import (
 
 // IsForbidden returns true if the constraint type forbids inclusion in a materialization. This will
 // return true for FIELD_FORBIDDEN and UNSATISFIABLE, and false for any other constraint type.
-func (m *Constraint_Type) IsForbidden() bool {
+func (m *Response_Validated_Constraint_Type) IsForbidden() bool {
 	switch *m {
-	case Constraint_FIELD_FORBIDDEN, Constraint_UNSATISFIABLE:
+	case Response_Validated_Constraint_FIELD_FORBIDDEN, Response_Validated_Constraint_UNSATISFIABLE:
 		return true
 	default:
 		return false
@@ -24,26 +24,19 @@ func (m *Constraint_Type) IsForbidden() bool {
 var ExplicitZeroCheckpoint = []byte{0xf8, 0xff, 0xff, 0xff, 0xf, 0x1}
 
 // Validate returns an error if the SpecRequest isn't well-formed.
-func (m *SpecRequest) Validate() error {
-	if _, ok := pf.EndpointType_name[int32(m.EndpointType)]; !ok {
-		return pb.NewValidationError("unknown EndpointType %v", m.EndpointType)
-	}
+func (m *Request_Spec) Validate() error {
+	// ConnectorType and ConfigJson are optional.
 	return nil
 }
 
-func (m *SpecRequest) GetEndpointType() pf.EndpointType {
-	return m.EndpointType
-}
-func (m *SpecRequest) GetEndpointSpecPtr() *json.RawMessage {
-	return &m.EndpointSpecJson
-}
-
 // Validate returns an error if the SpecResponse isn't well-formed.
-func (m *SpecResponse) Validate() error {
-	if len(m.EndpointSpecSchemaJson) == 0 {
-		return pb.NewValidationError("missing EndpointSpecSchemaJson")
-	} else if len(m.ResourceSpecSchemaJson) == 0 {
-		return pb.NewValidationError("missing ResourceSpecSchemaJson")
+func (m *Response_Spec) Validate() error {
+	if m.Protocol != 3032023 {
+		return pb.NewValidationError("wrong Protocol (%d, should be 3032023)", m.Protocol)
+	} else if len(m.ConfigSchemaJson) == 0 {
+		return pb.NewValidationError("missing ConfigSchemaJson")
+	} else if len(m.ResourceConfigSchemaJson) == 0 {
+		return pb.NewValidationError("missing ResourceConfigSchemaJson")
 	} else if m.DocumentationUrl == "" {
 		return pb.NewValidationError("missing DocumentationUrl")
 	}
@@ -51,13 +44,13 @@ func (m *SpecResponse) Validate() error {
 }
 
 // Validate returns an error if the ValidateRequest isn't well-formed.
-func (m *ValidateRequest) Validate() error {
-	if err := m.Materialization.Validate(); err != nil {
-		return pb.ExtendContext(err, "Materialization")
-	} else if _, ok := pf.EndpointType_name[int32(m.EndpointType)]; !ok {
-		return pb.NewValidationError("unknown EndpointType %v", m.EndpointType)
-	} else if len(m.EndpointSpecJson) == 0 {
-		return pb.NewValidationError("missing EndpointSpecJson")
+func (m *Request_Validate) Validate() error {
+	if err := m.Name.Validate(); err != nil {
+		return pb.ExtendContext(err, "Name")
+	} else if _, ok := pf.MaterializationSpec_ConnectorType_name[int32(m.ConnectorType)]; !ok {
+		return pb.NewValidationError("unknown EndpointType %v", m.ConnectorType)
+	} else if len(m.ConfigJson) == 0 {
+		return pb.NewValidationError("missing ConfigJson")
 	}
 
 	for i := range m.Bindings {
@@ -68,25 +61,18 @@ func (m *ValidateRequest) Validate() error {
 	return nil
 }
 
-func (m *ValidateRequest) GetEndpointType() pf.EndpointType {
-	return m.EndpointType
-}
-func (m *ValidateRequest) GetEndpointSpecPtr() *json.RawMessage {
-	return &m.EndpointSpecJson
-}
-
 // Validate returns an error if the ValidateRequest_Binding isn't well-formed.
-func (m *ValidateRequest_Binding) Validate() error {
+func (m *Request_Validate_Binding) Validate() error {
 	if err := m.Collection.Validate(); err != nil {
 		return pb.ExtendContext(err, "Collection")
-	} else if len(m.ResourceSpecJson) == 0 {
-		return pb.NewValidationError("missing EndpointSpecJson")
+	} else if len(m.ResourceConfigJson) == 0 {
+		return pb.NewValidationError("missing ResourceConfigJson")
 	}
 	return nil
 }
 
 // Validate returns an error if the ValidateResponse isn't well-formed.
-func (m *ValidateResponse) Validate() error {
+func (m *Response_Validated) Validate() error {
 	for i := range m.Bindings {
 		if err := m.Bindings[i].Validate(); err != nil {
 			return pb.ExtendContext(err, "Bindings[%d]", i)
@@ -96,12 +82,12 @@ func (m *ValidateResponse) Validate() error {
 }
 
 // Validate returns an error if the ValidateResponse_Binding isn't well-formed.
-func (m *ValidateResponse_Binding) Validate() error {
+func (m *Response_Validated_Binding) Validate() error {
 	for field, constraint := range m.Constraints {
 		if constraint == nil {
 			return pb.ExtendContext(
 				pb.NewValidationError("Constraint is missing"), "Constraints[%s]", field)
-		} else if _, ok := Constraint_Type_name[int32(constraint.Type)]; !ok {
+		} else if _, ok := Response_Validated_Constraint_Type_name[int32(constraint.Type)]; !ok {
 			return pb.ExtendContext(
 				pb.NewValidationError("unknown Constraint Type %v", constraint),
 				"Constraints[%s]", field)
@@ -120,7 +106,7 @@ func (m *ValidateResponse_Binding) Validate() error {
 }
 
 // Validate returns an error if the ApplyRequest is malformed.
-func (m *ApplyRequest) Validate() error {
+func (m *Request_Apply) Validate() error {
 	if err := m.Materialization.Validate(); err != nil {
 		return pb.ExtendContext(err, "Materialization")
 	}
@@ -129,21 +115,117 @@ func (m *ApplyRequest) Validate() error {
 	return nil
 }
 
-func (m *ApplyRequest) GetEndpointType() pf.EndpointType {
-	return m.Materialization.EndpointType
-}
-func (m *ApplyRequest) GetEndpointSpecPtr() *json.RawMessage {
-	return &m.Materialization.EndpointSpecJson
-}
-
-func (m *ApplyResponse) Validate() error {
+func (m *Response_Applied) Validate() error {
 	// No validations to do.
 	return nil
 }
 
 // Validate returns an error if the message is not well-formed.
-func (m *TransactionRequest) Validate() error {
+func (m *Request_Open) Validate() error {
+	if err := m.Materialization.Validate(); err != nil {
+		return pb.ExtendContext(err, "Materialization")
+	} else if m.Version == "" {
+		return pb.NewValidationError("expected Version")
+	} else if err = m.Range.Validate(); err != nil {
+		return pb.ExtendContext(err, "Range")
+	}
+	// StateJson may be empty.
+	return nil
+}
+
+// Validate returns an error if the message is not well-formed.
+func (m *Request_Load) Validate() error {
+	if len(m.KeyPacked) == 0 {
+		return pb.NewValidationError("expected KeyPacked")
+	}
+	// KeyJson is not checked yet.
+	return nil
+}
+
+// Validate returns an error if the message is malformed.
+func (m *Request_Flush) Validate() error {
+	return nil
+}
+
+// Validate returns an error if the message is not well-formed.
+func (m *Request_Store) Validate() error {
+	if ll := len(m.DocJson); ll == 0 {
+		return pb.NewValidationError("expected DocJson")
+	} else if len(m.KeyPacked) == 0 {
+		return pb.NewValidationError("expected KeyPacked")
+	} else if len(m.ValuesPacked) == 0 {
+		return pb.NewValidationError("expected ValuesPacked")
+	}
+	// KeyJson and ValuesJson are not checked yet.
+	return nil
+}
+
+// Validate returns an error if the message is malformed.
+func (m *Request_StartCommit) Validate() error {
+	// TODO(johnny): More checkpoint validation.
+	// Make sure ack intents are restricted to valid journals.
+	/*
+		if err := m.RuntimeCheckpoint.Validate(); err != nil {
+			return pb.ExtendContext("RuntimeCheckpoint", err)
+		}
+	*/
+	return nil
+}
+
+// Validate is a no-op.
+func (m *Request_Acknowledge) Validate() error {
+	return nil
+}
+
+// Validate returns an error if the message is not well-formed.
+func (m *Response_Opened) Validate() error {
+	// FlowCheckpoint may be empty.
+	return nil
+}
+
+// Validate returns an error if the message is not well-formed.
+func (m *Response_Loaded) Validate() error {
+	if len(m.DocJson) == 0 {
+		return pb.NewValidationError("expected DocJson")
+	}
+	return nil
+}
+
+func (m *Response_Flushed) Validate() error {
+	return nil
+}
+
+// Validate returns an error if the message is not well-formed.
+func (m *Response_StartedCommit) Validate() error {
+	return nil
+}
+
+// Validate returns an error if the message is not well-formed.
+func (m *Response_Acknowledged) Validate() error {
+	return nil
+}
+
+// Validate returns an error if the message is not well-formed.
+func (m *Request) Validate_() error {
 	var count int
+	if m.Spec != nil {
+		if err := m.Spec.Validate(); err != nil {
+			return pb.ExtendContext(err, "Spec")
+		}
+		count += 1
+	}
+	if m.Validate != nil {
+		if err := m.Validate.Validate(); err != nil {
+			return pb.ExtendContext(err, "Validate")
+		}
+		count += 1
+	}
+	if m.Apply != nil {
+		if err := m.Apply.Validate(); err != nil {
+			return pb.ExtendContext(err, "Apply")
+		}
+		count += 1
+	}
 	if m.Open != nil {
 		if err := m.Open.Validate(); err != nil {
 			return pb.ExtendContext(err, "Open")
@@ -182,67 +264,32 @@ func (m *TransactionRequest) Validate() error {
 	}
 
 	if count != 1 {
-		return pb.NewValidationError("expected one of Open, Load, Prepare, Store, Commit, Acknowledge")
+		return pb.NewValidationError("expected one of Spec, Validate, Apply, Open, Load, Prepare, Store, Commit, or Acknowledge")
 	}
 	return nil
 }
 
 // Validate returns an error if the message is not well-formed.
-func (m *TransactionRequest_Open) Validate() error {
-	if err := m.Materialization.Validate(); err != nil {
-		return pb.ExtendContext(err, "Materialization")
-	} else if m.Version == "" {
-		return pb.NewValidationError("expected Version")
-	} else if m.KeyBegin > m.KeyEnd {
-		return pb.NewValidationError("invalid KeyBegin / KeyEnd range")
-	}
-	// DriverCheckpointJson may be empty.
-	return nil
-}
-
-// Validate returns an error if the message is not well-formed.
-func (m *TransactionRequest_Load) Validate() error {
-	if len(m.PackedKeys) == 0 {
-		return pb.NewValidationError("expected PackedKeys")
-	}
-	return nil
-}
-
-// Validate returns an error if the message is malformed.
-func (m *TransactionRequest_Flush) Validate() error {
-	return nil
-}
-
-// Validate returns an error if the message is not well-formed.
-func (m *TransactionRequest_Store) Validate() error {
-	if ll := len(m.DocsJson); ll == 0 {
-		return pb.NewValidationError("expected DocsJson")
-	} else if lr := len(m.PackedKeys); ll != lr {
-		return pb.NewValidationError("expected PackedKeys length to match DocsJson: %d vs %d", ll, lr)
-	} else if lr = len(m.PackedValues); ll != lr {
-		return pb.NewValidationError("expected PackedValues length to match DocsJson: %d vs %d", ll, lr)
-	} else if lr := len(m.Exists); ll != lr {
-		return pb.NewValidationError("expected Exists length to match DocsJson: %d vs %d", ll, lr)
-	}
-	return nil
-}
-
-// Validate returns an error if the message is malformed.
-func (m *TransactionRequest_StartCommit) Validate() error {
-	if len(m.RuntimeCheckpoint) == 0 {
-		return pb.NewValidationError("expected RuntimeCheckpoint")
-	}
-	return nil
-}
-
-// Validate is a no-op.
-func (m *TransactionRequest_Acknowledge) Validate() error {
-	return nil
-}
-
-// Validate returns an error if the message is not well-formed.
-func (m *TransactionResponse) Validate() error {
+func (m *Response) Validate() error {
 	var count int
+	if m.Spec != nil {
+		if err := m.Spec.Validate(); err != nil {
+			return pb.ExtendContext(err, "Spec")
+		}
+		count += 1
+	}
+	if m.Validated != nil {
+		if err := m.Validated.Validate(); err != nil {
+			return pb.ExtendContext(err, "Validated")
+		}
+		count += 1
+	}
+	if m.Applied != nil {
+		if err := m.Applied.Validate(); err != nil {
+			return pb.ExtendContext(err, "Applied")
+		}
+		count += 1
+	}
 	if m.Opened != nil {
 		if err := m.Opened.Validate(); err != nil {
 			return pb.ExtendContext(err, "Opened")
@@ -275,40 +322,22 @@ func (m *TransactionResponse) Validate() error {
 	}
 
 	if count != 1 {
-		return pb.NewValidationError("expected one of Opened, Loaded, Prepared, DriverCommitted, Acknowledged")
+		return pb.NewValidationError("expected one of Spec, Validated, Applied, Opened, Loaded, Flushed, StartedCommit, or Acknowledged")
 	}
 	return nil
 }
 
-// Validate returns an error if the message is not well-formed.
-func (m *TransactionResponse_Opened) Validate() error {
-	// FlowCheckpoint may be empty.
-	return nil
-}
-
-// Validate returns an error if the message is not well-formed.
-func (m *TransactionResponse_Loaded) Validate() error {
-	if len(m.DocsJson) == 0 {
-		return pb.NewValidationError("expected DocsJson")
+func (m *Request) InvokeConfig() (*json.RawMessage, string) {
+	switch {
+	case m.Spec != nil:
+		return &m.Spec.ConfigJson, m.Spec.ConnectorType.String()
+	case m.Validate != nil:
+		return &m.Validate.ConfigJson, m.Validate.ConnectorType.String()
+	case m.Apply != nil:
+		return &m.Apply.Materialization.ConfigJson, m.Apply.Materialization.ConnectorType.String()
+	case m.Open != nil:
+		return &m.Open.Materialization.ConfigJson, m.Open.Materialization.ConnectorType.String()
+	default:
+		panic("invalid request")
 	}
-	return nil
-}
-
-func (m *TransactionResponse_Flushed) Validate() error {
-	// Added in support of materialization protocol updates circa Jan 2023.
-	// Remove once no old connectors could possibly ever run again.
-	if len(m.XXX_unrecognized) != 0 {
-		return pb.NewValidationError("connector version is out of date and must be upgraded")
-	}
-	return nil
-}
-
-// Validate returns an error if the message is not well-formed.
-func (m *TransactionResponse_StartedCommit) Validate() error {
-	return nil
-}
-
-// Validate returns an error if the message is not well-formed.
-func (m *TransactionResponse_Acknowledged) Validate() error {
-	return nil
 }

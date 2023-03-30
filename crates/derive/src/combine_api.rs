@@ -4,7 +4,6 @@ use bytes::Buf;
 use doc::AsNode;
 use prost::Message;
 use proto_flow::flow::combine_api::{self, Code};
-use std::rc::Rc;
 use tuple::{TupleDepth, TuplePack};
 
 #[derive(thiserror::Error, Debug)]
@@ -58,7 +57,7 @@ struct State {
     // Fields which are extracted and returned from combined documents.
     field_ptrs: Vec<doc::Pointer>,
     // Document key components over which we're grouping while combining.
-    key_ptrs: Rc<[doc::Pointer]>,
+    key_ptrs: Box<[doc::Pointer]>,
     // Statistics of a current combine operation.
     stats: CombineStats,
     // JSON-Pointer into which a UUID placeholder should be set,
@@ -104,7 +103,7 @@ impl cgo::Service for API {
                     "configure",
                 );
 
-                let key_ptrs: Rc<[doc::Pointer]> =
+                let key_ptrs: Box<[doc::Pointer]> =
                     key_ptrs.iter().map(doc::Pointer::from).collect();
                 if key_ptrs.is_empty() {
                     return Err(Error::EmptyKey);

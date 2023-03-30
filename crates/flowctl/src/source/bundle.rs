@@ -202,7 +202,7 @@ fn bundled_capture(
     let endpoint = match &capture.spec.endpoint {
         models::CaptureEndpoint::Connector(models::ConnectorConfig { image, .. }) => {
             let image = image.clone();
-            let config = capture.endpoint_config.as_ref().unwrap();
+            let config = capture.connector_config.as_ref().unwrap();
             let config = t
                 .resources
                 .binary_search_by_key(&config, |r| &r.resource)
@@ -236,7 +236,7 @@ fn bundled_materialization(
     let endpoint = match &materialization.spec.endpoint {
         models::MaterializationEndpoint::Connector(models::ConnectorConfig { image, .. }) => {
             let image = image.clone();
-            let config = materialization.endpoint_config.as_ref().unwrap();
+            let config = materialization.connector_config.as_ref().unwrap();
             let config = t
                 .resources
                 .binary_search_by_key(&config, |r| &r.resource)

@@ -1,23 +1,23 @@
 flow_checkpoints_v1:
 materialization, key_begin, key_end, fence, checkpoint
-the/materialization, 0, 1000, 5, AQEBAQEBAQEBAQ==
-the/materialization, 0, 499, 5, AgICAgICAgICAg==
-the/materialization, 500, 799, 5, AwMDAwMDAwMDAw==
-the/materialization, 800, 1000, 5, BAQEBAQEBAQEBA==
-other/one, 0, 4294967295, 99, other-checkpoint
+the/materialization, 0, 1000, 5, Cg0KCWEvam91cm5hbBIA
+the/materialization, 0, 499, 5, Cg8KCWEvam91cm5hbBICCAE=
+the/materialization, 500, 799, 5, Cg8KCWEvam91cm5hbBICCAI=
+the/materialization, 800, 1000, 5, Cg8KCWEvam91cm5hbBICCAM=
+other/one, 0, 4294967295, 99, ChIKCWEvam91cm5hbBIFCP/B1y8=
 flow_checkpoints_v1:
 materialization, key_begin, key_end, fence, checkpoint
-the/materialization, 0, 1000, 6, AQEBAQEBAQEBAQ==
-the/materialization, 0, 499, 5, AgICAgICAgICAg==
-the/materialization, 500, 799, 6, AwMDAwMDAwMDAw==
-the/materialization, 800, 1000, 5, BAQEBAQEBAQEBA==
-other/one, 0, 4294967295, 99, other-checkpoint
-the/materialization, 500, 599, 6, AwMDAwMDAwMDAw==
+the/materialization, 0, 1000, 6, Cg0KCWEvam91cm5hbBIA
+the/materialization, 0, 499, 5, Cg8KCWEvam91cm5hbBICCAE=
+the/materialization, 500, 799, 6, Cg8KCWEvam91cm5hbBICCAI=
+the/materialization, 800, 1000, 5, Cg8KCWEvam91cm5hbBICCAM=
+other/one, 0, 4294967295, 99, ChIKCWEvam91cm5hbBIFCP/B1y8=
+the/materialization, 500, 599, 6, Cg8KCWEvam91cm5hbBICCAI=
 flow_checkpoints_v1:
 materialization, key_begin, key_end, fence, checkpoint
-the/materialization, 0, 1000, 6, AQEBAQEBAQEBAQ==
-the/materialization, 0, 499, 5, AgICAgICAgICAg==
-the/materialization, 500, 799, 6, AwMDAwMDAwMDAw==
-the/materialization, 800, 1000, 5, BAQEBAQEBAQEBA==
-other/one, 0, 4294967295, 99, other-checkpoint
-the/materialization, 500, 599, 6, AwMDAwMDAwMDAwAAAAAAAAAA
+the/materialization, 0, 1000, 6, Cg0KCWEvam91cm5hbBIA
+the/materialization, 0, 499, 5, Cg8KCWEvam91cm5hbBICCAE=
+the/materialization, 500, 799, 6, Cg8KCWEvam91cm5hbBICCAI=
+the/materialization, 800, 1000, 5, Cg8KCWEvam91cm5hbBICCAM=
+other/one, 0, 4294967295, 99, ChIKCWEvam91cm5hbBIFCP/B1y8=
+the/materialization, 500, 599, 6, ChAKCWEvam91cm5hbBIDCMgD

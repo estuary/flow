@@ -24,15 +24,20 @@ collections:
   example/derivation:
     schema: *schema
     key: [/a_key]
-    derivation:
-      typescript:
-        module: |
-          import stuff;
-          doStuff();
-      transform:
-        fromCollection:
+    derive:
+      using:
+        typescript:
+          module: |
+            import { IDerivation, Document, SourceSwizzle } from 'flow/example/derivation.ts';
+
+            export class Derivation extends IDerivation {
+                swizzle(source: { doc: SourceSwizzle }): Document[] {
+                  return [];
+                }
+            }
+      transforms:
+        - name: swizzle
           source: { name: example/collection }
-          publish: { lambda: typescript }
       shards:
         # Expect this is reflected in shard specs.
         maxTxnDuration: 60s

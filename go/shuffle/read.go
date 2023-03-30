@@ -12,6 +12,7 @@ import (
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	po "github.com/estuary/flow/go/protocols/ops"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -84,7 +85,7 @@ func NewReadBuilder(
 func (rb *ReadBuilder) ReadThrough(offsets pb.Offsets) (pb.Offsets, error) {
 	var out = make(pb.Offsets, len(offsets))
 	var err = walkReads(rb.shardID, rb.members(), rb.journals, rb.shuffles,
-		func(_ pf.RangeSpec, spec pb.JournalSpec, _ *pf.Shuffle, _ pc.ShardID) {
+		func(_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, _ pc.ShardID) {
 			if offset := offsets[spec.Name]; offset != 0 {
 				// Prefer an offset that exactly matches our journal + metadata extension.
 				out[spec.Name] = offset
@@ -120,7 +121,7 @@ type read struct {
 func (rb *ReadBuilder) buildReplayRead(journal pb.Journal, begin, end pb.Offset) (*read, error) {
 	var out *read
 	var err = walkReads(rb.shardID, rb.members(), rb.journals, rb.shuffles,
-		func(range_ pf.RangeSpec, spec pb.JournalSpec, shuffle *pf.Shuffle, coordinator pc.ShardID) {
+		func(range_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID) {
 			if spec.Name != journal {
 				return
 			}
@@ -128,7 +129,7 @@ func (rb *ReadBuilder) buildReplayRead(journal pb.Journal, begin, end pb.Offset)
 			var journalShuffle = pf.JournalShuffle{
 				Journal:     spec.Name,
 				Coordinator: coordinator,
-				Shuffle:     shuffle,
+				Shuffle:     rb.shuffles[shuffleIndex],
 				Replay:      true,
 				BuildId:     rb.buildID,
 			}
@@ -141,7 +142,7 @@ func (rb *ReadBuilder) buildReplayRead(journal pb.Journal, begin, end pb.Offset)
 					Offset:    begin,
 					EndOffset: end,
 				},
-				resp:      pf.IndexedShuffleResponse{Shuffle: shuffle},
+				resp:      pf.IndexedShuffleResponse{ShuffleIndex: shuffleIndex},
 				readDelay: 0, // Not used during replay.
 			}
 		})
@@ -185,12 +186,12 @@ func (rb *ReadBuilder) buildReads(
 	}
 
 	err = walkReads(rb.shardID, rb.members(), rb.journals, rb.shuffles,
-		func(range_ pf.RangeSpec, spec pb.JournalSpec, shuffle *pf.Shuffle, coordinator pc.ShardID) {
+		func(range_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID) {
 			// Build the configuration under which we'll read.
 			var journalShuffle = pf.JournalShuffle{
 				Journal:     spec.Name,
 				Coordinator: coordinator,
-				Shuffle:     shuffle,
+				Shuffle:     rb.shuffles[shuffleIndex],
 				Replay:      false,
 				BuildId:     rb.buildID,
 			}
@@ -202,7 +203,7 @@ func (rb *ReadBuilder) buildReads(
 				if r.req.Shuffle.Equal(&journalShuffle) {
 					delete(drain, spec.Name)
 				} else {
-					r.log(pf.LogLevel_debug,
+					r.log(po.Log_debug,
 						"draining read because its shuffle has changed",
 						"next", map[string]interface{}{
 							"build":       journalShuffle.BuildId,
@@ -216,8 +217,8 @@ func (rb *ReadBuilder) buildReads(
 			}
 
 			// A *read of this journal doesn't exist. Start one.
-			var readDelay = message.NewClock(time.Unix(int64(shuffle.ReadDelaySeconds), 0)) -
-				message.NewClock(time.Unix(0, 0))
+			var readDelaySeconds = int64(rb.shuffles[shuffleIndex].ReadDelaySeconds)
+			var readDelay = message.NewClock(time.Unix(readDelaySeconds, 0)) - message.NewClock(time.Unix(0, 0))
 
 			added[spec.Name] = &read{
 				publisher: rb.publisher,
@@ -227,7 +228,7 @@ func (rb *ReadBuilder) buildReads(
 					Range:   range_,
 					Offset:  offsets[spec.Name],
 				},
-				resp:      pf.IndexedShuffleResponse{Shuffle: shuffle},
+				resp:      pf.IndexedShuffleResponse{ShuffleIndex: shuffleIndex},
 				readDelay: readDelay,
 			}
 		})
@@ -248,7 +249,7 @@ func (r *read) start(
 	case <-time.After(backoff(attempt)):
 	}
 
-	r.log(pf.LogLevel_debug, "started shuffle read", "attempt", attempt)
+	r.log(po.Log_debug, "started shuffle read", "attempt", attempt)
 
 	ctx = pprof.WithLabels(ctx, pprof.Labels(
 		"build", r.req.Shuffle.BuildId,
@@ -354,7 +355,7 @@ func (r *read) sendReadResult(resp *pf.ShuffleResponse, err error, wakeCh chan<-
 
 	var queue, cap = len(r.ch), cap(r.ch)
 	if queue == cap {
-		r.log(pf.LogLevel_warn,
+		r.log(po.Log_warn,
 			"cancelling shuffle read due to full channel timeout",
 			"queue", queue,
 			"cap", cap,
@@ -380,7 +381,7 @@ func (r *read) sendReadResult(resp *pf.ShuffleResponse, err error, wakeCh chan<-
 
 		case <-timer.C:
 			if queue > 13 { // Log values > 8s.
-				r.log(pf.LogLevel_debug,
+				r.log(po.Log_debug,
 					"backpressure timer elapsed on a slow shuffle read",
 					"queue", queue,
 					"backoff", dur.Seconds(),
@@ -412,7 +413,7 @@ func (r *read) sendReadResult(resp *pf.ShuffleResponse, err error, wakeCh chan<-
 // It's only used for replay reads and easier testing;
 // ongoing reads poll the read channel directly.
 func (r *read) next() (message.Envelope, error) {
-	for r.resp.Index == len(r.resp.DocsJson) {
+	for r.resp.Index == len(r.resp.Docs) {
 		// We must receive from the channel.
 		var rr, ok = <-r.ch
 		if err := r.onRead(rr, ok); err == nil {
@@ -456,7 +457,7 @@ func (r *read) dequeue() message.Envelope {
 	return env
 }
 
-func (r *read) log(lvl pf.LogLevel, message string, fields ...interface{}) {
+func (r *read) log(lvl po.Log_Level, message string, fields ...interface{}) {
 	if lvl > r.publisher.Labels().LogLevel {
 		return
 	}
@@ -509,7 +510,7 @@ func (h *readHeap) Pop() interface{} {
 }
 
 func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, allJournals flow.Journals, shuffles []*pf.Shuffle,
-	cb func(_ pf.RangeSpec, _ pb.JournalSpec, _ *pf.Shuffle, coordinator pc.ShardID)) error {
+	cb func(_ pf.RangeSpec, _ pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID)) error {
 
 	var members, err = newShuffleMembers(shardSpecs)
 	if err != nil {
@@ -525,7 +526,7 @@ func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, allJournals flow.Journ
 	allJournals.Mu.RLock()
 	defer allJournals.Mu.RUnlock()
 
-	for _, shuffle := range shuffles {
+	for shuffleIndex, shuffle := range shuffles {
 		var prefix = allocator.ItemKey(allJournals.KeySpace, shuffle.SourceCollection.String()) + "/"
 		var sources = allJournals.Prefixed(prefix)
 
@@ -595,7 +596,7 @@ func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, allJournals flow.Journ
 			copied.Name = pb.Journal(fmt.Sprintf("%s;%s", source.Name.String(), shuffle.GroupName))
 
 			var m = pickHRW(hrwHash(copied.Name.String()), members, start, stop)
-			cb(members[index].range_, copied, shuffle, members[m].spec.Id)
+			cb(members[index].range_, copied, shuffleIndex, members[m].spec.Id)
 		}
 	}
 	return nil

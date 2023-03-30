@@ -1,0 +1,33 @@
+[package]
+name = "derive-typescript"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+doc = { path = "../doc" }
+json = { path = "../json" }
+proto-flow = { path = "../proto-flow" }
+
+anyhow = { workspace = true }
+itertools = { workspace = true }
+lazy_static = { workspace = true }
+regex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+models = { path = "../models" }
+sources = { path = "../sources" }
+tables = { path = "../tables" }
+
+insta = { workspace = true }
+lazy_static = { workspace = true }
+serde_yaml = { workspace = true }

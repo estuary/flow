@@ -1,0 +1,260 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+expression: tables
+---
+Sources {
+    captures: [
+        Capture {
+            scope: test://example/catalog.yaml#/captures/capture~1config-missing,
+            capture: capture/config-missing,
+            spec: {
+              "endpoint": {
+                "connector": {
+                  "image": "another/image",
+                  "config": "test://example/config/not/found.yaml"
+                }
+              },
+              "bindings": [
+                {
+                  "resource": "test://example/resource/not/found.yaml",
+                  "target": "some/collection"
+                }
+              ]
+            },
+        },
+        Capture {
+            scope: test://example/catalog.yaml#/captures/capture~1config-raw,
+            capture: capture/config-raw,
+            spec: {
+              "endpoint": {
+                "connector": {
+                  "image": "another/image",
+                  "config": "fn main() {\n  do_the_thing();\n  do_another_really_long_thing_that_does_stuff_boy_this_is_running_on_huh()?;\n}\n"
+                }
+              },
+              "bindings": []
+            },
+        },
+        Capture {
+            scope: test://example/catalog.yaml#/captures/capture~1second,
+            capture: capture/second,
+            spec: {
+              "endpoint": {
+                "connector": {
+                  "image": "another/image",
+                  "config": {"referenced":"config that's fairly long and does not inline"}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"referenced":"resource that's fairly long and does not inline"},
+                  "target": "third/collection"
+                }
+              ],
+              "interval": "3m",
+              "shards": {
+                "maxTxnDuration": "30s",
+                "logLevel": "debug"
+              }
+            },
+        },
+        Capture {
+            scope: test://example/catalog.yaml#/captures/first~1capture,
+            capture: first/capture,
+            spec: {
+              "endpoint": {
+                "connector": {
+                  "image": "an/image",
+                  "config": {"bucket":"foobar","prefix":"path/prefix"}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"stream":"contents"},
+                  "target": "a/collection"
+                },
+                {
+                  "resource": {"extra":"stuff"},
+                  "target": "other/collection"
+                }
+              ]
+            },
+        },
+    ],
+    collections: [],
+    errors: [],
+    fetches: [],
+    imports: [
+        Import {
+            scope: test://example/catalog.yaml#/captures/capture~1config-missing/bindings/0/resource,
+            to_resource: test://example/resource/not/found.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/captures/capture~1config-missing/endpoint/connector/config,
+            to_resource: test://example/config/not/found.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/captures/capture~1config-raw/endpoint/connector/config,
+            to_resource: test://example/raw-config.foo,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/captures/capture~1second/bindings/0/resource,
+            to_resource: test://example/referenced/resource.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/captures/capture~1second/endpoint/connector/config,
+            to_resource: test://example/referenced/config.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/materializations/materialization~1missing-config/bindings/0/resource,
+            to_resource: test://example/referenced/not/found.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/materializations/materialization~1missing-config/endpoint/connector/config,
+            to_resource: test://example/config/not/found.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment/endpoint/connector/config,
+            to_resource: test://example/referenced/config.yaml#/bad/fragment,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/materializations/materialization~1with-config/bindings/0/resource,
+            to_resource: test://example/referenced/resource.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/materializations/materialization~1with-config/endpoint/connector/config,
+            to_resource: test://example/referenced/config.yaml,
+        },
+    ],
+    materializations: [
+        Materialization {
+            scope: test://example/catalog.yaml#/materializations/a~1materialization,
+            materialization: a/materialization,
+            spec: {
+              "endpoint": {
+                "connector": {
+                  "image": "materialization/image",
+                  "config": {"its":"config"}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"table":"table_one"},
+                  "source": "source/collection",
+                  "fields": {
+                    "recommended": true
+                  }
+                },
+                {
+                  "resource": {"table":"table_two"},
+                  "source": {
+                    "name": "other/source/collection",
+                    "partitions": {
+                      "include": {
+                        "a_field": [
+                          "some-val"
+                        ]
+                      },
+                      "exclude": {
+                        "other": [
+                          42
+                        ]
+                      }
+                    }
+                  },
+                  "fields": {
+                    "include": {
+                      "add": {}
+                    },
+                    "exclude": [
+                      "del"
+                    ],
+                    "recommended": true
+                  }
+                }
+              ]
+            },
+        },
+        Materialization {
+            scope: test://example/catalog.yaml#/materializations/materialization~1missing-config,
+            materialization: materialization/missing-config,
+            spec: {
+              "endpoint": {
+                "connector": {
+                  "image": "materialization/image",
+                  "config": "test://example/config/not/found.yaml"
+                }
+              },
+              "bindings": [
+                {
+                  "resource": "test://example/referenced/not/found.yaml",
+                  "source": "other/source/collection",
+                  "fields": {
+                    "recommended": true
+                  }
+                }
+              ]
+            },
+        },
+        Materialization {
+            scope: test://example/catalog.yaml#/materializations/materialization~1with-config,
+            materialization: materialization/with-config,
+            spec: {
+              "endpoint": {
+                "connector": {
+                  "image": "materialization/another:image",
+                  "config": {"referenced":"config that's fairly long and does not inline"}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"referenced":"resource that's fairly long and does not inline"},
+                  "source": "some/source/collection",
+                  "fields": {
+                    "recommended": true
+                  }
+                }
+              ]
+            },
+        },
+        Materialization {
+            scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment,
+            materialization: materialization/with-config-fragment,
+            spec: {
+              "endpoint": {
+                "connector": {
+                  "image": "materialization/another:image",
+                  "config": "test://example/referenced/config.yaml#/bad/fragment"
+                }
+              },
+              "bindings": []
+            },
+        },
+        Materialization {
+            scope: test://example/catalog.yaml#/materializations/to~1sqlite,
+            materialization: to/sqlite,
+            spec: {
+              "endpoint": {
+                "sqlite": {
+                  "path": "test://example/relative/to/scope.db"
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"table":"table_three"},
+                  "source": "final/source/collection",
+                  "fields": {
+                    "recommended": true
+                  }
+                }
+              ],
+              "shards": {
+                "ringBufferSize": 12345
+              }
+            },
+        },
+    ],
+    resources: [],
+    storage_mappings: [],
+    tests: [],
+}

@@ -2,8 +2,12 @@ use std::collections::BTreeMap;
 use std::iter::FromIterator;
 
 use json::schema::types;
-use protocol::flow::{inference::Exists, materialization_spec, FieldSelection};
-use protocol::materialize::{constraint, validate_request, Constraint};
+use proto_flow::{
+    flow::{inference::Exists, materialization_spec, FieldSelection},
+    materialize::request::validate::Binding as ValidateBinding,
+    materialize::response::validated::constraint,
+    materialize::response::validated::Constraint,
+};
 
 use crate::firebolt::errors::BindingConstraintError;
 
@@ -76,9 +80,7 @@ pub fn validate_binding_against_constraints(
     Ok(())
 }
 
-pub fn validate_new_projection(
-    proposed: validate_request::Binding,
-) -> BTreeMap<String, Constraint> {
+pub fn validate_new_projection(proposed: ValidateBinding) -> BTreeMap<String, Constraint> {
     proposed
         .collection
         .unwrap()
@@ -132,7 +134,7 @@ pub fn validate_new_projection(
 
 pub fn validate_existing_projection(
     existing: materialization_spec::Binding,
-    proposed: validate_request::Binding,
+    proposed: ValidateBinding,
 ) -> BTreeMap<String, Constraint> {
     let existing_projections = existing.collection.unwrap().projections;
     let fields = all_fields(existing.field_selection.unwrap());
@@ -209,7 +211,7 @@ pub fn validate_existing_projection(
 
 #[cfg(test)]
 mod tests {
-    use protocol::flow::{CollectionSpec, FieldSelection, Inference, Projection};
+    use proto_flow::flow::{CollectionSpec, FieldSelection, Inference, Projection};
 
     use super::*;
     fn simple_validate_binding_against_constraints(
@@ -231,7 +233,7 @@ mod tests {
     }
 
     fn check_validate_new_projection(projection: Projection, constraint: Constraint) {
-        let result = validate_new_projection(validate_request::Binding {
+        let result = validate_new_projection(ValidateBinding {
             collection: Some(CollectionSpec {
                 projections: vec![projection.clone()],
                 ..Default::default()
@@ -256,7 +258,7 @@ mod tests {
                 }),
                 ..Default::default()
             },
-            validate_request::Binding {
+            ValidateBinding {
                 collection: Some(CollectionSpec {
                     projections: vec![projection.clone()],
                     ..Default::default()

@@ -85,7 +85,7 @@ impl TagHandler {
                 "pull",
                 &self.logs_tx,
                 row.logs_token,
-                tokio::process::Command::new("docker")
+                async_process::Command::new("docker")
                     .arg("pull")
                     .arg(&image_composed),
             )
@@ -101,7 +101,7 @@ impl TagHandler {
             "spec",
             &self.logs_tx,
             row.logs_token,
-            tokio::process::Command::new(format!("{}/flowctl-go", &self.bindir))
+            async_process::Command::new(format!("{}/flowctl-go", &self.bindir))
                 .arg("api")
                 .arg("spec")
                 .arg("--image")
@@ -119,35 +119,32 @@ impl TagHandler {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct Spec {
-            #[serde(rename = "documentationURL")]
-            documentation_url: String,
-            endpoint_spec_schema: Box<RawValue>,
-            #[serde(rename = "type")]
             protocol: String,
-            resource_spec_schema: Box<RawValue>,
-            oauth2_spec: Option<Box<RawValue>>,
+            documentation_url: String,
+            config_schema: Box<RawValue>,
+            resource_config_schema: Box<RawValue>,
+            oauth2: Option<Box<RawValue>>,
         }
         let Spec {
             documentation_url,
-            endpoint_spec_schema,
+            config_schema,
             protocol,
-            resource_spec_schema,
-            oauth2_spec,
+            resource_config_schema,
+            oauth2,
         } = serde_json::from_slice(&spec.1).context("parsing connector spec output")?;
 
         agent_sql::connector_tags::update_tag_fields(
             row.tag_id,
             documentation_url,
-            endpoint_spec_schema,
+            config_schema,
             protocol,
-            resource_spec_schema,
+            resource_config_schema,
             txn,
         )
         .await?;
 
-        if let Some(oauth2_spec) = oauth2_spec {
-            agent_sql::connector_tags::update_oauth2_spec(row.connector_id, oauth2_spec, txn)
-                .await?;
+        if let Some(oauth2) = oauth2 {
+            agent_sql::connector_tags::update_oauth2_spec(row.connector_id, oauth2, txn).await?;
         }
 
         return Ok((row.tag_id, JobStatus::Success));

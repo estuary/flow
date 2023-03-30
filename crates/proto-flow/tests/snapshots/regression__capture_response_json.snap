@@ -1,0 +1,78 @@
+---
+source: crates/proto-flow/tests/regression.rs
+expression: json_test(msg)
+---
+{
+  "spec": {
+    "protocol": 3032023,
+    "configSchema": {"config":"schema"},
+    "resourceConfigSchema": {"resource":"schema"},
+    "documentationUrl": "https://example/docs",
+    "oauth2": {
+      "provider": "oauth-provider",
+      "authUrlTemplate": "https://auth-url",
+      "accessTokenUrlTemplate": "https://access-token",
+      "accessTokenMethod": "POST",
+      "accessTokenBody": "foo",
+      "accessTokenHeaders": {
+        "hdr-one": {"hello":"hdr"},
+        "hdr-two": 42.5
+      },
+      "accessTokenResponseMap": {
+        "foo": true,
+        "key": "value"
+      },
+      "refreshTokenUrlTemplate": "https://refresh-token",
+      "refreshTokenMethod": "POST",
+      "refreshTokenBody": "refresh!",
+      "refreshTokenHeaders": {
+        "hdr-three": {"refresh":"hdr"}
+      },
+      "refreshTokenResponseMap": {
+        "access": "here"
+      }
+    }
+  },
+  "discovered": {
+    "bindings": [
+      {
+        "recommendedName": "recommended name",
+        "resourceConfig": {"resource":1234},
+        "documentSchema": {"doc":"schema"},
+        "key": [
+          "/key/ptr"
+        ]
+      }
+    ]
+  },
+  "validated": {
+    "bindings": [
+      {
+        "resourcePath": [
+          "some",
+          "path"
+        ]
+      }
+    ]
+  },
+  "applied": {
+    "actionDescription": "I did some stuff"
+  },
+  "opened": {
+    "explicitAcknowledgements": true
+  },
+  "captured": {
+    "binding": 2,
+    "doc": {"captured":"doc"}
+  },
+  "checkpoint": {
+    "state": {
+      "updated": {"state":"update"},
+      "mergePatch": true
+    }
+  },
+  "internal": {
+    "typeUrl": "flow://internal.thing",
+    "value": "EgJIaRgB"
+  }
+}

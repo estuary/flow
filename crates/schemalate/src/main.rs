@@ -17,9 +17,6 @@ struct Args {
 
 #[derive(Debug, clap::Subcommand)]
 enum Subcommand {
-    /// Generates Typescript types that serialize/deserialize into/from JSON that validates against the
-    /// schema.
-    Typescript(schemalate::typescript::Args),
     /// Generates Markdown documentation of the fields in a schema.
     Markdown(schemalate::markdown::Args),
     /// Generates an Elasticsearch schema
@@ -40,7 +37,6 @@ fn main() -> Result<(), anyhow::Error> {
 fn run_subcommand(subcommand: Subcommand) -> Result<(), anyhow::Error> {
     let result = match subcommand {
         Subcommand::Markdown(md_args) => schemalate::markdown::run(md_args),
-        Subcommand::Typescript(ts_args) => schemalate::typescript::run(ts_args),
         Subcommand::ElasticsearchSchema(es_args) => schemalate::elasticsearch::run(es_args),
         Subcommand::FireboltSchema(fb_args) => schemalate::firebolt::run(fb_args),
     };

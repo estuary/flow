@@ -18,7 +18,7 @@ import (
 
 // TxnClient is a client of a driver's Transactions RPC.
 type TxnClient struct {
-	client Driver_TransactionsClient
+	client Connector_MaterializeClient
 	// Combiners of the materialization, one for each binding.
 	combiners []pf.Combiner
 	// Guards combiners, which are accessed concurrently from readAcknowledgedAndLoaded().
@@ -29,19 +29,19 @@ type TxnClient struct {
 	// OpFuture that's resolved on completion of a current Loaded phase,
 	// or nil if readAcknowledgedAndLoaded is not currently running.
 	loadedOp   *client.AsyncOperation
-	opened     *TransactionResponse_Opened // Opened response returned by the server while opening.
-	rxResponse TransactionResponse         // Response which is received into.
-	spec       *pf.MaterializationSpec     // Specification of this Transactions client.
-	txRequest  TransactionRequest          // Request which is sent from.
-	version    string                      // Version of the client's MaterializationSpec.
+	opened     *Response_Opened        // Opened response returned by the server while opening.
+	rxResponse Response                // Response which is received into.
+	spec       *pf.MaterializationSpec // Specification of this Transactions client.
+	txRequest  Request                 // Request which is sent from.
+	version    string                  // Version of the client's MaterializationSpec.
 }
 
-// OpenTransactions opens a Transactions RPC and completes the Open/Opened phase,
+// OpenTransactions opens a transactions RPC and completes the Open/Opened phase,
 // returning a TxnClient prepared for the first transaction of the RPC.
 func OpenTransactions(
 	ctx context.Context,
-	driver DriverClient,
-	driverCheckpoint json.RawMessage,
+	connector ConnectorClient,
+	connectorState json.RawMessage,
 	newCombinerFn func(*pf.MaterializationSpec_Binding) (pf.Combiner, error),
 	range_ pf.RangeSpec,
 	spec *pf.MaterializationSpec,
@@ -58,7 +58,7 @@ func OpenTransactions(
 	for _, b := range spec.Bindings {
 		var combiner, err = newCombinerFn(b)
 		if err != nil {
-			return nil, fmt.Errorf("creating %s combiner: %w", b.Collection.Collection, err)
+			return nil, fmt.Errorf("creating %s combiner: %w", b.Collection.Name, err)
 		}
 		combiners = append(combiners, combiner)
 		flighted = append(flighted, make(map[string]json.RawMessage))
@@ -68,7 +68,7 @@ func OpenTransactions(
 	// This can be removed with that implementation.
 	ctx = pb.WithDispatchDefault(ctx)
 
-	rpc, err := driver.Transactions(ctx)
+	rpc, err := connector.Materialize(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("driver.Transactions: %w", err)
 	}
@@ -80,12 +80,11 @@ func OpenTransactions(
 	}()
 
 	txRequest, err := WriteOpen(rpc,
-		&TransactionRequest_Open{
-			Materialization:      spec,
-			Version:              version,
-			KeyBegin:             range_.KeyBegin,
-			KeyEnd:               range_.KeyEnd,
-			DriverCheckpointJson: driverCheckpoint,
+		&Request_Open{
+			Materialization: spec,
+			Version:         version,
+			Range:           &range_,
+			StateJson:       connectorState,
 		})
 	if err != nil {
 		return nil, err
@@ -129,7 +128,7 @@ func OpenTransactions(
 }
 
 // Opened returns the driver's prior Opened response.
-func (c *TxnClient) Opened() *TransactionResponse_Opened { return c.opened }
+func (c *TxnClient) Opened() *Response_Opened { return c.opened }
 
 // Close the TxnClient. Close returns an error if the RPC is not in an
 // Acknowledged and idle state, or on any other error.
@@ -153,16 +152,16 @@ func (c *TxnClient) Close() error {
 }
 
 // AddDocument to the current transaction under the given binding and tuple-encoded key.
-func (c *TxnClient) AddDocument(binding int, packedKey []byte, doc json.RawMessage) error {
+func (c *TxnClient) AddDocument(binding int, keyPacked []byte, keyJson json.RawMessage, doc json.RawMessage) error {
 	// Note that combineRight obtains a lock on `c.combinerMu`, but it's not held
 	// while we WriteLoad to the connector (which could block).
 	// This allows for a concurrent handling of a Loaded response.
 
-	if load, err := c.combineRight(binding, packedKey, doc); err != nil {
+	if load, err := c.combineRight(binding, keyPacked, doc); err != nil {
 		return err
 	} else if !load {
 		// No-op.
-	} else if err = WriteLoad(c.client, &c.txRequest, binding, packedKey); err != nil {
+	} else if err = WriteLoad(c.client, &c.txRequest, binding, keyPacked, keyJson); err != nil {
 		return c.writeErr(err)
 	}
 
@@ -255,12 +254,12 @@ func (c *TxnClient) Store() ([]*pf.CombineAPI_Stats, error) {
 // StartCommit by synchronously writing StartCommit with the runtime checkpoint
 // and reading StartedCommit with the driver checkpoint, then asynchronously
 // read an Acknowledged response.
-func (c *TxnClient) StartCommit(runtimeCP pf.Checkpoint) (_ *pf.DriverCheckpoint, acknowledged client.OpFuture, _ error) {
-	var driverCP *pf.DriverCheckpoint
+func (c *TxnClient) StartCommit(runtimeCP *pf.Checkpoint) (_ *pf.ConnectorState, acknowledged client.OpFuture, _ error) {
+	var connectorCP *pf.ConnectorState
 
 	if err := WriteStartCommit(c.client, &c.txRequest, runtimeCP); err != nil {
 		return nil, nil, c.writeErr(err)
-	} else if driverCP, err = ReadStartedCommit(c.client, &c.rxResponse); err != nil {
+	} else if connectorCP, err = ReadStartedCommit(c.client, &c.rxResponse); err != nil {
 		return nil, nil, err
 	}
 
@@ -273,7 +272,7 @@ func (c *TxnClient) StartCommit(runtimeCP pf.Checkpoint) (_ *pf.DriverCheckpoint
 
 	go c.readAcknowledgedAndLoaded(acknowledgedOp)
 
-	return driverCP, acknowledgedOp, nil
+	return connectorCP, acknowledgedOp, nil
 }
 
 // Acknowledge that the runtime's commit to its recovery log has completed.
@@ -314,15 +313,15 @@ func (c *TxnClient) drainBinding(
 	var remaining = len(flighted)
 
 	// Drain the combiner into materialization Store requests.
-	var stats, err = combiner.Drain(func(full bool, docRaw json.RawMessage, packedKey, packedValues []byte) error {
+	var stats, err = combiner.Drain(func(full bool, docRaw json.RawMessage, keyPacked, valuesPacked []byte) error {
 		// Inlined use of string(packedKey) clues compiler escape analysis to avoid allocation.
-		if _, ok := flighted[string(packedKey)]; !ok {
-			var key, _ = tuple.Unpack(packedKey)
+		if _, ok := flighted[string(keyPacked)]; !ok {
+			var key, _ = tuple.Unpack(keyPacked)
 			return fmt.Errorf(
 				"driver implementation error: "+
 					"loaded key %v (rawKey: %q) was not requested by Flow in this transaction (document %s)",
 				key,
-				string(packedKey),
+				string(keyPacked),
 				string(docRaw),
 			)
 		}
@@ -333,7 +332,10 @@ func (c *TxnClient) drainBinding(
 		// document was provided by Loaded or was retained from a previous
 		// transaction's Store.
 
-		if err := WriteStore(c.client, &c.txRequest, binding, packedKey, packedValues, docRaw, full); err != nil {
+		// TODO(johnny): Not sent yet. Potentially make part of combiner API scope?
+		var keyJSON, valuesJSON json.RawMessage
+
+		if err := WriteStore(c.client, &c.txRequest, binding, keyPacked, keyJSON, valuesPacked, valuesJSON, docRaw, full); err != nil {
 			return c.writeErr(err)
 		}
 
@@ -341,14 +343,10 @@ func (c *TxnClient) drainBinding(
 		// as a performance optimization, so that they may be directly available
 		// to the next transaction without issuing a Load.
 		if deltaUpdates || remaining >= cachedDocumentBound {
-			delete(flighted, string(packedKey)) // Don't retain.
+			delete(flighted, string(keyPacked)) // Don't retain.
 		} else {
-			// We cannot reference |rawDoc| beyond this callback, and must copy.
-			// Fortunately, StageStore did just that, appending the document
-			// to the staged request Arena, which we can reference here because
-			// Arena bytes are write-once.
-			var s = c.txRequest.Store
-			flighted[string(packedKey)] = s.Arena.Bytes(s.DocsJson[len(s.DocsJson)-1])
+			// We cannot reference `docRaw` beyond this callback, and must copy.
+			flighted[string(keyPacked)] = append(json.RawMessage{}, docRaw...)
 		}
 
 		remaining--
@@ -403,12 +401,9 @@ func (c *TxnClient) readAcknowledgedAndLoaded(acknowledgedOp *client.AsyncOperat
 			return fmt.Errorf("driver implementation error (binding %d out of range)", loaded.Binding)
 		}
 
-		// Feed documents into the combiner as reduce-left operations.
-		var combiner = c.combiners[loaded.Binding]
-		for _, slice := range loaded.DocsJson {
-			if err := combiner.ReduceLeft(loaded.Arena.Bytes(slice)); err != nil {
-				return fmt.Errorf("combiner.ReduceLeft: %w", err)
-			}
+		// Feed document into the combiner as a reduce-left operation.
+		if err := c.combiners[loaded.Binding].ReduceLeft(loaded.DocJson); err != nil {
+			return fmt.Errorf("combiner.ReduceLeft: %w", err)
 		}
 	}
 }

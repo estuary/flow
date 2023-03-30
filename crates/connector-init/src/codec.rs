@@ -8,27 +8,22 @@ pub enum Codec {
 }
 
 impl Codec {
-    pub fn encode<M>(self, m: M) -> Vec<u8>
+    pub fn encode<M>(self, m: &M, buf: &mut Vec<u8>)
     where
-        M: prost::Message + proto_convert::IntoMessages,
+        M: prost::Message + serde::Serialize,
     {
         match self {
             Self::Proto => {
                 // The protobuf encoding is prefixed with a fix four-byte little endian length header.
                 let length = m.encoded_len();
-                let mut buf = Vec::with_capacity(4 + length);
+                buf.reserve(4 + length);
                 buf.extend_from_slice(&(length as u32).to_le_bytes());
-                m.encode(&mut buf).expect("buf has pre-allocated capacity");
-                buf
+                m.encode(buf).expect("buf has pre-allocated capacity");
             }
             Self::Json => {
                 // Encode as newline-delimited JSON.
-                let mut buf = Vec::new();
-                for m in m.into_messages() {
-                    serde_json::to_writer(&mut buf, &m).unwrap();
-                    buf.push(b'\n');
-                }
-                buf
+                serde_json::to_writer(&mut *buf, m).unwrap();
+                buf.push(b'\n');
             }
         }
     }
@@ -39,7 +34,7 @@ impl Codec {
     // which has not yet been fully read.
     pub fn decode<M>(self, buffer: &mut Vec<u8>) -> anyhow::Result<Vec<M>>
     where
-        M: prost::Message + proto_convert::FromMessage + Default,
+        M: prost::Message + for<'de> serde::Deserialize<'de> + Default,
     {
         let mut buf = buffer.as_slice();
         let mut consumed = 0;
@@ -65,10 +60,9 @@ impl Codec {
                 let Some(bound) = buf.iter().position(|b| *b == b'\n') else { break };
                 let bound = bound + 1; // Byte index after '\n'.
 
-                let parsed: M::Message = serde_json::from_slice::<M::Message>(&buf[..bound])
-                    .context("parsing JSON message")?;
-                M::from_message(parsed, &mut out).context("decoding JSON message")?;
-
+                out.push(
+                    serde_json::from_slice::<M>(&buf[..bound]).context("parsing JSON message")?,
+                );
                 consumed += bound;
 
                 buf = &buf[bound..];
@@ -93,7 +87,7 @@ pub fn reader_to_message_stream<M, R>(
     min_capacity: usize,
 ) -> impl futures::Stream<Item = anyhow::Result<M>>
 where
-    M: prost::Message + proto_convert::FromMessage + Default,
+    M: prost::Message + for<'de> serde::Deserialize<'de> + Default,
     R: AsyncRead + Unpin,
 {
     let buffer = Vec::with_capacity(min_capacity);
@@ -138,10 +132,14 @@ mod test {
     #[test]
     fn test_generic_encode_and_decode() {
         for codec in [Codec::Proto, Codec::Json] {
-            let buf = codec.encode(TestSpec {
-                test: "hello world".to_string(),
-                ..Default::default()
-            });
+            let mut buf = Vec::new();
+            codec.encode(
+                &TestSpec {
+                    name: "hello world".to_string(),
+                    ..Default::default()
+                },
+                &mut buf,
+            );
 
             let mut r = buf.repeat(2);
 
@@ -150,11 +148,11 @@ mod test {
                 codec.decode::<TestSpec>(&mut r).unwrap(),
                 vec![
                     TestSpec {
-                        test: "hello world".to_string(),
+                        name: "hello world".to_string(),
                         ..Default::default()
                     },
                     TestSpec {
-                        test: "hello world".to_string(),
+                        name: "hello world".to_string(),
                         ..Default::default()
                     }
                 ]
@@ -178,10 +176,14 @@ mod test {
     #[tokio::test]
     async fn test_reader_to_stream() {
         for codec in [Codec::Proto, Codec::Json] {
-            let mut buf = codec.encode(TestSpec {
-                test: "hello world".to_string(),
-                ..Default::default()
-            });
+            let mut buf = Vec::new();
+            codec.encode(
+                &TestSpec {
+                    name: "hello world".to_string(),
+                    ..Default::default()
+                },
+                &mut buf,
+            );
 
             // We can collect multiple encoded items as a stream, and then read a clean EOF.
             let ten = buf.repeat(10);
@@ -194,23 +196,29 @@ mod test {
             let stream = reader_to_message_stream::<TestSpec, _>(codec, buf.as_slice(), 16);
             tokio::pin!(stream);
 
-            insta::assert_debug_snapshot!(stream.next().await, @r###"
+            let output = stream.next().await;
+            insta::allow_duplicates! {
+            insta::assert_debug_snapshot!(output, @r###"
             Some(
                 Ok(
                     TestSpec {
-                        test: "hello world",
+                        name: "hello world",
                         steps: [],
                     },
                 ),
             )
             "###);
-            insta::assert_debug_snapshot!(stream.next().await, @r###"
+            }
+            let output = stream.next().await;
+            insta::allow_duplicates! {
+            insta::assert_debug_snapshot!(output, @r###"
             Some(
                 Err(
                     "connector wrote a partial message and then closed its output",
                 ),
             )
             "###);
+            }
         }
     }
 }

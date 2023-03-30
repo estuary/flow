@@ -3,10 +3,8 @@ source: crates/sources/src/scenarios/mod.rs
 expression: tables
 ---
 Sources {
-    capture_bindings: [],
     captures: [],
     collections: [],
-    derivations: [],
     errors: [],
     fetches: [
         Fetch {
@@ -15,10 +13,7 @@ Sources {
         },
     ],
     imports: [],
-    materialization_bindings: [],
     materializations: [],
-    npm_dependencies: [],
-    projections: [],
     resources: [
         Resource {
             resource: test://example/catalog.yaml,
@@ -27,7 +22,6 @@ Sources {
             content_dom: {"storageMappings":{"":{"stores":[{"bucket":"root-bucket","provider":"S3"}]},"foo/bar/baz/":{"stores":[{"bucket":"a-bucket","prefix":"and-prefix/","provider":"GCS"},{"bucket":"s3-bucket","provider":"S3"}]},"other/thing/":{"stores":[{"bucket":"s3-bucket","provider":"AZURE"}]}}},
         },
     ],
-    schema_docs: [],
     storage_mappings: [
         StorageMapping {
             scope: test://example/catalog.yaml#/storageMappings/,
@@ -68,6 +62,5 @@ Sources {
             ],
         },
     ],
-    test_steps: [],
-    transforms: [],
+    tests: [],
 }

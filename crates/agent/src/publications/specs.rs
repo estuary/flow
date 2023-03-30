@@ -460,9 +460,9 @@ fn extract_spec_metadata<'a>(
             let key = models::Capture::new(catalog_name);
             let capture = catalog.captures.get(&key).unwrap();
 
-            if let models::CaptureEndpoint::Connector(config) = &capture.endpoint {
-                image_parts = Some(split_tag(&config.image));
-            }
+            let models::CaptureEndpoint::Connector(config) = &capture.endpoint;
+            image_parts = Some(split_tag(&config.image));
+
             for binding in &capture.bindings {
                 writes_to.push(binding.target.as_ref());
             }
@@ -472,9 +472,9 @@ fn extract_spec_metadata<'a>(
             let key = models::Collection::new(catalog_name);
             let collection = catalog.collections.get(&key).unwrap();
 
-            if let Some(derivation) = &collection.derivation {
-                for (_, tdef) in &derivation.transform {
-                    reads_from.push(tdef.source.name.as_ref());
+            if let Some(derivation) = &collection.derive {
+                for tdef in &derivation.transforms {
+                    reads_from.push(tdef.source.collection().as_ref());
                 }
                 reads_from.reserve(1);
             }
@@ -488,7 +488,7 @@ fn extract_spec_metadata<'a>(
                 image_parts = Some(split_tag(&config.image));
             }
             for binding in &materialization.bindings {
-                reads_from.push(binding.source.as_ref());
+                reads_from.push(binding.source.collection().as_ref());
             }
             reads_from.reserve(1);
         }
@@ -499,7 +499,9 @@ fn extract_spec_metadata<'a>(
             for step in steps {
                 match step {
                     models::TestStep::Ingest(ingest) => writes_to.push(ingest.collection.as_ref()),
-                    models::TestStep::Verify(verify) => reads_from.push(verify.collection.as_ref()),
+                    models::TestStep::Verify(verify) => {
+                        reads_from.push(verify.collection.collection().as_ref())
+                    }
                 }
             }
             writes_to.reserve(1);
@@ -665,7 +667,7 @@ mod test {
 
         let results = execute_publications(&mut txn).await;
 
-        insta::assert_debug_snapshot!(results, @r#"
+        insta::assert_debug_snapshot!(results, @r###"
         [
             ScenarioResult {
                 draft_id: 1110000000000000,
@@ -684,13 +686,15 @@ mod test {
                         writes_to: None,
                         spec: Some(
                             Object {
-                                "derivation": Object {
-                                    "transform": Object {
-                                        "key": Object {
-                                            "source": Object {
-                                                "name": String("usageB/CollectionA"),
-                                            },
+                                "derive": Object {
+                                    "transforms": Array [
+                                        Object {
+                                            "name": String("my-name"),
+                                            "source": String("usageB/CollectionA"),
                                         },
+                                    ],
+                                    "using": Object {
+                                        "sqlite": Object {},
                                     },
                                 },
                                 "key": Array [
@@ -706,7 +710,7 @@ mod test {
                 ],
             },
         ]
-        "#);
+        "###);
     }
 
     #[tokio::test]

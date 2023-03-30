@@ -3,14 +3,12 @@ package flow
 import (
 	bytes "bytes"
 	"encoding/json"
-	"fmt"
-	"path/filepath"
 
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // Task is a common interface of specifications which are also Flow runtime
-// tasks. These include CaptureSpec, DerivationSpec, and MaterializationSpec.
+// tasks. These include CaptureSpec, CollectionSpec, and MaterializationSpec.
 type Task interface {
 	// TaskName is the catalog name of this task.
 	TaskName() string
@@ -23,12 +21,12 @@ type Task interface {
 }
 
 var _ Task = &CaptureSpec{}
-var _ Task = &DerivationSpec{}
+var _ Task = &CollectionSpec{}
 var _ Task = &MaterializationSpec{}
 
 // TaskName returns the catalog task name of this capture.
 func (m *CaptureSpec) TaskName() string {
-	return m.Capture.String()
+	return m.Name.String()
 }
 
 // Shuffles returns a nil slice, as captures have no shuffles.
@@ -47,39 +45,121 @@ func (m *CaptureSpec) TaskRecoveryLogTemplate() *JournalSpec {
 }
 
 // TaskName returns the catalog task name of this derivation.
-func (m *DerivationSpec) TaskName() string {
-	return m.Collection.Collection.String()
+func (m *CollectionSpec) TaskName() string {
+	return m.Name.String()
 }
 
 // Shuffles returns a *Shuffle for each transform of the derivation.
-func (m *DerivationSpec) TaskShuffles() []*Shuffle {
-	var shuffles = make([]*Shuffle, len(m.Transforms))
-	for i := range m.Transforms {
-		shuffles[i] = &m.Transforms[i].Shuffle
+func (m *CollectionSpec) TaskShuffles() []*Shuffle {
+	if m.Derivation == nil {
+		return nil
+	}
+
+	var shuffles = make([]*Shuffle, len(m.Derivation.Transforms))
+	for i := range m.Derivation.Transforms {
+		var transform = m.Derivation.Transforms[i]
+
+		var usesSourceKey bool
+		var shuffleKey []string
+		var shuffleKeyPartitionFields []string
+
+		if len(transform.ShuffleKey) != 0 {
+			usesSourceKey = false
+			shuffleKey = transform.ShuffleKey
+			shuffleKeyPartitionFields = make([]string, len(shuffleKey))
+
+			for i, ptr := range shuffleKey {
+				for _, projection := range transform.Collection.Projections {
+					if projection.Ptr == ptr && projection.IsPartitionKey {
+						shuffleKeyPartitionFields[i] = projection.Field
+					}
+				}
+			}
+			for _, field := range shuffleKeyPartitionFields {
+				if field == "" {
+					shuffleKeyPartitionFields = nil // Not all fields are covered.
+				}
+			}
+		} else if len(transform.ShuffleLambdaConfigJson) != 0 {
+			// `shuffleKey` is empty
+			usesSourceKey = false
+			shuffleKey = nil
+			shuffleKeyPartitionFields = nil
+		} else {
+			usesSourceKey = true
+			shuffleKey = transform.Collection.Key
+			shuffleKeyPartitionFields = nil
+		}
+
+		var validateSchemaJson = transform.Collection.ReadSchemaJson
+		if len(validateSchemaJson) == 0 {
+			validateSchemaJson = transform.Collection.WriteSchemaJson
+		}
+
+		shuffles[i] = &Shuffle{
+			GroupName:                 transform.JournalReadSuffix,
+			SourceCollection:          transform.Collection.Name,
+			SourcePartitions:          transform.PartitionSelector,
+			SourceUuidPtr:             transform.Collection.UuidPtr,
+			ShuffleKeyPtrs:            shuffleKey,
+			ShuffleKeyPartitionFields: shuffleKeyPartitionFields,
+			UsesSourceKey:             usesSourceKey,
+			FilterRClocks:             transform.ReadOnly,
+			ReadDelaySeconds:          transform.ReadDelaySeconds,
+			Priority:                  transform.Priority,
+			ValidateSchema:            string(validateSchemaJson),
+		}
 	}
 	return shuffles
 }
 
 // ShardTemplate returns the tasks's shard template.
-func (m *DerivationSpec) TaskShardTemplate() *ShardSpec {
-	return m.ShardTemplate
+func (m *CollectionSpec) TaskShardTemplate() *ShardSpec {
+	if m.Derivation == nil {
+		return nil
+	} else {
+		return m.Derivation.ShardTemplate
+	}
 }
 
 // RecoveryLogTemplate returns the task's recovery log template.
-func (m *DerivationSpec) TaskRecoveryLogTemplate() *JournalSpec {
-	return m.RecoveryLogTemplate
+func (m *CollectionSpec) TaskRecoveryLogTemplate() *JournalSpec {
+	if m.Derivation == nil {
+		return nil
+	} else {
+		return m.Derivation.RecoveryLogTemplate
+	}
 }
 
 // TaskName returns the catalog task name of this derivation.
 func (m *MaterializationSpec) TaskName() string {
-	return m.Materialization.String()
+	return m.Name.String()
 }
 
 // Shuffles returns a *Shuffle for each binding of the materialization.
 func (m *MaterializationSpec) TaskShuffles() []*Shuffle {
 	var shuffles = make([]*Shuffle, len(m.Bindings))
 	for i := range m.Bindings {
-		shuffles[i] = &m.Bindings[i].Shuffle
+		var binding = m.Bindings[i]
+
+		var partitionSelector = binding.PartitionSelector
+		if binding.DeprecatedShuffle != nil {
+			partitionSelector = binding.DeprecatedShuffle.PartitionSelector
+		}
+
+		shuffles[i] = &Shuffle{
+			GroupName:                 binding.JournalReadSuffix,
+			SourceCollection:          binding.Collection.Name,
+			SourcePartitions:          partitionSelector,
+			SourceUuidPtr:             binding.Collection.UuidPtr,
+			ShuffleKeyPtrs:            binding.Collection.Key,
+			ShuffleKeyPartitionFields: nil,
+			UsesSourceKey:             true,
+			FilterRClocks:             false,
+			ReadDelaySeconds:          0,
+			Priority:                  0,
+			ValidateSchema:            "",
+		}
 	}
 	return shuffles
 }
@@ -101,7 +181,7 @@ func (m *BuildAPI_Config) Validate() error {
 		value string
 	}{
 		{"BuildId", m.BuildId},
-		{"Directory", m.Directory},
+		{"BuildDb", m.BuildDb},
 		{"Source", m.Source},
 	} {
 		if field.value == "" {
@@ -113,27 +193,6 @@ func (m *BuildAPI_Config) Validate() error {
 		return pb.NewValidationError("invalid ContentType %s", m.SourceType)
 	}
 
-	return nil
-}
-
-// OutputPath returns the implied output database path of the build configuration.
-func (m *BuildAPI_Config) OutputPath() string {
-	return filepath.Join(m.Directory, m.BuildId)
-}
-
-func (m LogLevel) MarshalJSON() ([]byte, error) {
-	return []byte(fmt.Sprintf("%q", m.String())), nil
-}
-
-func (m *LogLevel) UnmarshalJSON(data []byte) error {
-	var s string
-	if err := json.Unmarshal(data, &s); err != nil {
-		return err
-	} else if v, ok := LogLevel_value[s]; !ok {
-		return fmt.Errorf("unrecognized LogLevel %q", s)
-	} else {
-		*m = LogLevel(v)
-	}
 	return nil
 }
 

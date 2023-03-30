@@ -1,0 +1,28 @@
+---
+source: crates/proto-flow/tests/regression.rs
+expression: json_test(msg)
+---
+{
+  "provider": "oauth-provider",
+  "authUrlTemplate": "https://auth-url",
+  "accessTokenUrlTemplate": "https://access-token",
+  "accessTokenMethod": "POST",
+  "accessTokenBody": "foo",
+  "accessTokenHeaders": {
+    "hdr-one": {"hello":"hdr"},
+    "hdr-two": 42.5
+  },
+  "accessTokenResponseMap": {
+    "foo": true,
+    "key": "value"
+  },
+  "refreshTokenUrlTemplate": "https://refresh-token",
+  "refreshTokenMethod": "POST",
+  "refreshTokenBody": "refresh!",
+  "refreshTokenHeaders": {
+    "hdr-three": {"refresh":"hdr"}
+  },
+  "refreshTokenResponseMap": {
+    "access": "here"
+  }
+}

@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 /// Decoder decodes instances of Log from raw lines of text.
 pub struct Decoder<T>
 where
-    T: Fn() -> time::OffsetDateTime,
+    T: Fn() -> std::time::SystemTime,
 {
     timesource: T,
 }
@@ -78,7 +78,7 @@ impl From<FlexLevel> for LogLevel {
 
 impl<T> Decoder<T>
 where
-    T: Fn() -> time::OffsetDateTime,
+    T: Fn() -> std::time::SystemTime,
 {
     /// Build a new Decoder which uses the given `timesource`
     /// when a timestamp cannot be parsed from an input line.
@@ -108,7 +108,7 @@ where
         } = flex;
 
         let ts = match ts {
-            Some(ts) => ts,
+            Some(ts) => ts.into(),
             None => (self.timesource)(),
         };
         let level = match level {
@@ -133,11 +133,19 @@ where
         }
 
         Log {
-            ts,
-            level,
+            meta: None,
+            timestamp: Some(proto_flow::as_timestamp(ts.into())),
+            level: level as i32,
             message,
-            fields,
-            shard,
+            fields_json_map: fields
+                .into_iter()
+                .map(|(k, v)| {
+                    let v: Box<str> = v.into();
+                    let v: String = v.into();
+                    (k, v)
+                })
+                .collect(),
+            shard: shard.map(Into::into),
             spans,
         }
     }
@@ -171,10 +179,11 @@ where
         };
 
         let log = Log {
-            ts: (self.timesource)(),
-            level,
+            meta: None,
+            timestamp: Some(proto_flow::as_timestamp((self.timesource)())),
+            level: level as i32,
             message,
-            fields: Default::default(),
+            fields_json_map: Default::default(),
             shard: None,
             spans: Default::default(),
         };
@@ -246,7 +255,9 @@ Final line without a newline, which is not grouped into previous lines"#,
         let decoder = Decoder::new(|| {
             let mut seq = seq.borrow_mut();
             *seq += 10;
-            time::OffsetDateTime::from_unix_timestamp(1660000000 + *seq).unwrap()
+            time::OffsetDateTime::from_unix_timestamp(1660000000 + *seq)
+                .unwrap()
+                .into()
         });
 
         let mut logs = Vec::new();
@@ -265,7 +276,7 @@ Final line without a newline, which is not grouped into previous lines"#,
         insta::assert_snapshot!(serde_json::to_string_pretty(&logs).unwrap(), @r###"
         [
           {
-            "ts": "2022-11-20T17:46:37Z",
+            "ts": "2022-11-20T17:46:37+00:00",
             "level": "warn",
             "message": "Acknowledge finished",
             "fields": {
@@ -276,12 +287,18 @@ Final line without a newline, which is not grouped into previous lines"#,
             }
           },
           {
-            "ts": "2022-08-08T23:06:50Z",
+            "ts": "2022-08-08T23:06:50+00:00",
             "level": "warn",
             "message": "{\"hello\":\"world\"} !"
           },
           {
-            "ts": "2022-11-20T17:46:36.119850056Z",
+            "shard": {
+              "kind": "capture",
+              "name": "the/capture/name",
+              "keyBegin": "0000aaaa",
+              "rClockBegin": "8899aabb"
+            },
+            "ts": "2022-11-20T17:46:36.119850056+00:00",
             "level": "info",
             "message": "my testing log",
             "fields": {
@@ -289,15 +306,9 @@ Final line without a newline, which is not grouped into previous lines"#,
               "module": "flow_connector_init",
               "true": "true"
             },
-            "shard": {
-              "kind": "capture",
-              "name": "the/capture/name",
-              "keyBegin": "0000aaaa",
-              "rClockBegin": "8899aabb"
-            },
             "spans": [
               {
-                "ts": "2022-11-20T17:46:36.119826426Z",
+                "ts": "2022-11-20T17:46:36.119826426+00:00",
                 "level": "info",
                 "message": "my testing span",
                 "fields": {
@@ -308,14 +319,13 @@ Final line without a newline, which is not grouped into previous lines"#,
             ]
           },
           {
-            "ts": "2022-08-08T23:07:00Z",
+            "ts": "2022-08-08T23:07:00+00:00",
             "level": "error",
             "message": "Unable to scrub the decks: a pirate approaches!"
           },
           {
-            "ts": "2022-08-08T23:07:10Z",
+            "ts": "2022-08-08T23:07:10+00:00",
             "level": "warn",
-            "message": "",
             "fields": {
               "extra": "read all about it",
               "false": false,
@@ -325,12 +335,12 @@ Final line without a newline, which is not grouped into previous lines"#,
             }
           },
           {
-            "ts": "2022-08-08T23:07:20Z",
+            "ts": "2022-08-08T23:07:20+00:00",
             "level": "warn",
             "message": "\t a debug line that doesn't look very scary and is a warning"
           },
           {
-            "ts": "2022-08-08T23:07:30Z",
+            "ts": "2022-08-08T23:07:30+00:00",
             "level": "error",
             "message": "something went bump",
             "fields": {
@@ -338,22 +348,21 @@ Final line without a newline, which is not grouped into previous lines"#,
             }
           },
           {
-            "ts": "2022-08-08T23:07:40Z",
+            "ts": "2022-08-08T23:07:40+00:00",
             "level": "error",
             "message": "ssh: debug1: resolve_canonicalize: hostname 123.456.789.10:32100 is an unrecognised address"
           },
           {
-            "ts": "2022-08-08T23:07:50Z",
-            "level": "warn",
-            "message": ""
+            "ts": "2022-08-08T23:07:50+00:00",
+            "level": "warn"
           },
           {
-            "ts": "2022-08-08T23:08:00Z",
+            "ts": "2022-08-08T23:08:00+00:00",
             "level": "error",
             "message": "panic: runtime error: index out of range [2] with length 2\n\ngoroutine 1 [running]:\nmain.foobar(...)\n\t/tmp/sandbox1284167461/prog.go:7\nmain.main()\n\t/tmp/sandbox1284167461/prog.go:11 +0x1b\n\nProgram exited."
           },
           {
-            "ts": "2022-08-08T23:08:10Z",
+            "ts": "2022-08-08T23:08:10+00:00",
             "level": "warn",
             "message": "Final line without a newline, which is not grouped into previous line"
           }

@@ -1,24 +1,33 @@
 use super::codec::{reader_to_message_stream, Codec};
+use anyhow::Context;
 use futures::{StreamExt, TryStreamExt};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+use tonic::Status;
 
-/// Status is an error representation that combines a well-known error
-/// code with a descriptive error message.
-type Status = tonic::Status;
+pub fn new_command<S: AsRef<str>>(entrypoint: &[S]) -> async_process::Command {
+    // Split `entrypoint` into the binary and its arguments.
+    let entrypoint = entrypoint.iter().map(AsRef::as_ref).collect::<Vec<_>>();
+    let (binary, args) = entrypoint.split_first().unwrap();
+
+    let mut cmd = async_process::Command::new(binary);
+    cmd.args(args);
+    cmd
+}
 
 /// Process a unary RPC `op` which is delegated to the connector at `entrypoint`.
-pub async fn unary<In, Out>(
-    entrypoint: &[String],
+pub async fn unary<In, Out, H>(
+    connector: async_process::Command,
     codec: Codec,
-    op: &str,
     request: In,
-) -> Result<Out, Status>
+    log_handler: H,
+) -> tonic::Result<Out>
 where
-    In: prost::Message + proto_convert::IntoMessages + 'static,
-    Out: prost::Message + proto_convert::FromMessage + Default + Unpin,
+    In: prost::Message + serde::Serialize + 'static,
+    Out: prost::Message + for<'de> serde::Deserialize<'de> + Default + Unpin,
+    H: Fn(ops::Log) + Send + Sync + 'static,
 {
     let requests = futures::stream::once(async { Ok(request) });
-    let responses = bidi(entrypoint, codec, op, requests)?;
+    let responses = bidi(connector, codec, requests, log_handler)?;
     let mut responses: Vec<Out> = responses.try_collect().await?;
 
     let response = responses.pop();
@@ -33,36 +42,34 @@ where
     }
 }
 
-/// Process a bi-directional RPC `op` which is delegated to the connector at `entrypoint`.
-pub fn bidi<In, Out, InStream>(
-    entrypoint: &[String],
+/// Process a bi-directional RPC which is delegated to the connector at `entrypoint`.
+pub fn bidi<In, Out, InStream, H>(
+    mut connector: async_process::Command,
     codec: Codec,
-    op: &str,
     requests: InStream,
-) -> Result<impl futures::Stream<Item = Result<Out, Status>>, Status>
+    log_handler: H,
+) -> tonic::Result<impl futures::Stream<Item = tonic::Result<Out>>>
 where
-    In: prost::Message + proto_convert::IntoMessages + 'static,
-    Out: prost::Message + proto_convert::FromMessage + Default,
-    InStream: futures::Stream<Item = Result<In, Status>> + Send + 'static,
+    In: prost::Message + serde::Serialize + 'static,
+    Out: prost::Message + for<'de> serde::Deserialize<'de> + Default,
+    InStream: futures::Stream<Item = tonic::Result<In>> + Send + 'static,
+    H: Fn(ops::Log) + Send + Sync + 'static,
 {
-    // Extend `entrypoint` with `op`, then split into the binary and its arguments.
-    let entrypoint = entrypoint
-        .iter()
-        .map(String::as_str)
-        .chain(std::iter::once(op))
-        .collect::<Vec<_>>();
-    let (binary, args) = entrypoint.split_first().unwrap();
+    let args: Vec<String> = std::iter::once(connector.get_program())
+        .chain(connector.get_args())
+        .map(|s| s.to_string_lossy().to_string())
+        .collect();
 
-    tracing::info!(%binary, ?args, "invoking connector");
-
-    let mut connector = tokio::process::Command::new(binary)
+    let mut connector: async_process::Child = connector
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .args(args)
-        .kill_on_drop(true)
         .spawn()
-        .map_err(|err| map_status("could not start connector entrypoint", err))?;
+        .with_context(|| format!("running command {args:?}"))
+        .map_err(|err| map_status("could not start connector entrypoint", err))?
+        .into();
+
+    connector.kill_on_drop(true);
 
     // Map connector's stdout into a stream of output messages.
     let responses = reader_to_message_stream(
@@ -72,7 +79,7 @@ where
     )
     .map_err(|err| map_status("failed to process connector output", err));
     // Spawn a concurrent task that services the connector and forwards to its stdin.
-    let connector = tokio::spawn(service_connector(connector, codec, requests));
+    let connector = tokio::spawn(service_connector(connector, codec, requests, log_handler));
     // Ensure `connector` is aborted (and the process killed) if our response stream is dropped.
     let connector = AutoAbortHandle(connector);
     // Map to a Stream that awaits `connector` and returns EOF, or returns its error.
@@ -90,14 +97,16 @@ where
 /// Note that the connector _should_ but is not *obligated* to consume its stdin.
 /// As such, an I/O error (e.x. a broken pipe) or unconsumed stream remainder
 /// is logged but is not considered an error.
-async fn service_connector<M, S>(
-    mut connector: tokio::process::Child,
+async fn service_connector<M, S, H>(
+    mut connector: async_process::Child,
     codec: Codec,
     stream: S,
-) -> Result<(), Status>
+    log_handler: H,
+) -> tonic::Result<()>
 where
-    M: prost::Message + proto_convert::IntoMessages + 'static,
-    S: futures::Stream<Item = Result<M, Status>>,
+    M: prost::Message + serde::Serialize + 'static,
+    S: futures::Stream<Item = tonic::Result<M>>,
+    H: Fn(ops::Log) + Send + Sync + 'static,
 {
     let mut stdin = connector.stdin.take().expect("connector stdin is a pipe");
     let stderr = connector.stderr.take().expect("connector stderr is a pipe");
@@ -105,12 +114,7 @@ where
     // Future which processes decoded logs from the connector's stderr, forwarding to
     // our own stderr and, when stderr closes, resolving to a smallish ring-buffer of
     // the very last stderr output.
-    let stderr = process_logs(
-        stderr,
-        ops::stderr_log_handler,
-        time::OffsetDateTime::now_utc,
-        8192,
-    );
+    let stderr = process_logs(stderr, log_handler, std::time::SystemTime::now, 8192);
 
     // Future which awaits the connector's exit and stderr result, and returns Ok(())
     // if it exited successfully or an error with embedded stderr content otherwise.
@@ -130,17 +134,35 @@ where
     };
 
     tokio::pin!(exit, stream);
+    let mut buffer = Vec::new();
 
     loop {
-        let message: Option<Result<M, Status>> = tokio::select! {
+        let message: Option<tonic::Result<M>> = tokio::select! {
+            biased;
+
+            // Should we exit?
             exit = &mut exit => {
                 tracing::warn!("connector exited with unconsumed input stream remainder");
                 return exit;
             }
-            message = stream.next() => message,
+
+            // Proxy a next, ready message?
+            message = stream.next(), if buffer.len() < 1<<15 => message,
+
+            // No message is ready. Should we flush?
+            _ = async {}, if !buffer.is_empty() => {
+                if let Err(error) = stdin.write_all(&buffer).await {
+                    tracing::warn!(%error, "i/o error writing to connector stdin");
+                }
+                buffer.clear();
+                continue;
+            }
         };
 
         let Some(Ok(message)) = message else {
+            if let Err(error) = stdin.write_all(&buffer).await {
+                tracing::warn!(%error, "i/o error writing to connector stdin");
+            }
             if let Some(Err(error)) = message {
                 tracing::error!(%error, "failed to read next runtime request");
             }
@@ -148,9 +170,7 @@ where
             return exit.await;
         };
 
-        if let Err(error) = stdin.write_all(&codec.encode(message)).await {
-            tracing::warn!(%error, "i/o error writing to connector stdin");
-        }
+        codec.encode(&message, &mut buffer);
     }
 }
 
@@ -161,7 +181,7 @@ async fn process_logs<R, H, T>(reader: R, handler: H, timesource: T, ring_capaci
 where
     R: tokio::io::AsyncRead + Unpin,
     H: Fn(ops::Log),
-    T: Fn() -> time::OffsetDateTime,
+    T: Fn() -> std::time::SystemTime,
 {
     let mut reader = tokio::io::BufReader::new(reader);
     let mut ring = std::collections::VecDeque::<u8>::with_capacity(ring_capacity);
@@ -213,7 +233,7 @@ fn map_status<E: Into<anyhow::Error>>(message: &'static str, err: E) -> Status {
 
 #[cfg(test)]
 mod test {
-    use super::{bidi, process_logs, unary, Codec};
+    use super::{bidi, new_command, process_logs, unary, Codec};
     use futures::StreamExt;
     use proto_flow::flow::TestSpec;
 
@@ -233,7 +253,9 @@ mod test {
         let timesource = || {
             let mut seq = seq.borrow_mut();
             *seq += 10;
-            time::OffsetDateTime::from_unix_timestamp(1660000000 + *seq).unwrap()
+            time::OffsetDateTime::from_unix_timestamp(1660000000 + *seq)
+                .unwrap()
+                .into()
         };
 
         let logs = std::cell::RefCell::new(Vec::new());
@@ -255,25 +277,24 @@ mod test {
         insta::assert_snapshot!(serde_json::to_string_pretty(&logs).unwrap(), @r###"
         [
           {
-            "ts": "2022-08-08T23:06:50Z",
+            "ts": "2022-08-08T23:06:50+00:00",
             "level": "warn",
             "message": "hi"
           },
           {
-            "ts": "2022-08-08T23:07:00Z",
+            "ts": "2022-08-08T23:07:00+00:00",
             "level": "warn",
-            "message": "",
             "fields": {
               "some_log": "value"
             }
           },
           {
-            "ts": "2022-08-08T23:07:10Z",
+            "ts": "2022-08-08T23:07:10+00:00",
             "level": "error",
             "message": "a failed walrus appears"
           },
           {
-            "ts": "2022-08-08T23:07:20Z",
+            "ts": "2022-08-08T23:07:20+00:00",
             "level": "debug",
             "message": "hi",
             "fields": {
@@ -282,7 +303,7 @@ mod test {
             }
           },
           {
-            "ts": "2022-08-08T23:07:30Z",
+            "ts": "2022-08-08T23:07:30+00:00",
             "level": "warn",
             "message": "to boldly go\n   smol(1)"
           }
@@ -295,7 +316,7 @@ mod test {
         for codec in [Codec::Proto, Codec::Json] {
             let requests = futures::stream::repeat_with(|| {
                 Ok(TestSpec {
-                    test: "hello world".to_string(),
+                    name: "hello world".to_string(),
                     ..Default::default()
                 })
             })
@@ -303,28 +324,34 @@ mod test {
 
             // Let "cat" run to completion and collect its output messages.
             // Note that "cat" will only exit if we properly close its stdin after sending all inputs.
-            let responses: Vec<Result<TestSpec, _>> =
-                bidi(&["cat".to_string()], codec, "-", requests)
-                    .unwrap()
-                    .collect()
-                    .await;
+            let responses: Vec<Result<TestSpec, _>> = bidi(
+                new_command(&["cat".to_string(), "-".to_string()]),
+                codec,
+                requests,
+                ops::stderr_log_handler,
+            )
+            .unwrap()
+            .collect()
+            .await;
 
+            insta::allow_duplicates! {
             insta::assert_debug_snapshot!(responses, @r###"
-        [
-            Ok(
-                TestSpec {
-                    test: "hello world",
-                    steps: [],
-                },
-            ),
-            Ok(
-                TestSpec {
-                    test: "hello world",
-                    steps: [],
-                },
-            ),
-        ]
-        "###);
+            [
+                Ok(
+                    TestSpec {
+                        name: "hello world",
+                        steps: [],
+                    },
+                ),
+                Ok(
+                    TestSpec {
+                        name: "hello world",
+                        steps: [],
+                    },
+                ),
+            ]
+            "###);
+            }
         }
     }
 
@@ -332,17 +359,21 @@ mod test {
     async fn test_bidi_true() {
         let requests = futures::stream::repeat_with(|| {
             Ok(TestSpec {
-                test: "hello world".to_string(),
+                name: "hello world".to_string(),
                 ..Default::default()
             })
         }); // Unbounded stream.
 
         // "true" exits immediately with success, without reading our unbounded stream of inputs.
-        let responses: Vec<Result<TestSpec, _>> =
-            bidi(&["true".to_string()], Codec::Proto, "", requests)
-                .unwrap()
-                .collect()
-                .await;
+        let responses: Vec<Result<TestSpec, _>> = bidi(
+            new_command(&["true".to_string()]),
+            Codec::Proto,
+            requests,
+            ops::stderr_log_handler,
+        )
+        .unwrap()
+        .collect()
+        .await;
 
         insta::assert_debug_snapshot!(responses, @r###"
         []
@@ -354,32 +385,34 @@ mod test {
         for codec in [Codec::Proto, Codec::Json] {
             let requests = futures::stream::repeat_with(|| {
                 Ok(TestSpec {
-                    test: "hello world".to_string(),
+                    name: "hello world".to_string(),
                     ..Default::default()
                 })
             }); // Unbounded stream.
 
             let responses: Vec<Result<TestSpec, _>> = bidi(
-                &["cat".to_string()],
+                new_command(&["cat".to_string(), "/this/path/does/not/exist".to_string()]),
                 codec,
-                "/this/path/does/not/exist",
                 requests,
+                ops::stderr_log_handler,
             )
             .unwrap()
             .collect()
             .await;
 
+            insta::allow_duplicates! {
             insta::assert_debug_snapshot!(responses, @r###"
-        [
-            Err(
-                Status {
-                    code: Internal,
-                    message: "connector failed (exit status: 1) with stderr:\ncat: /this/path/does/not/exist: No such file or directory\n",
-                    source: None,
-                },
-            ),
-        ]
-        "###);
+            [
+                Err(
+                    Status {
+                        code: Internal,
+                        message: "connector failed (exit status: 1) with stderr:\ncat: /this/path/does/not/exist: No such file or directory\n",
+                        source: None,
+                    },
+                ),
+            ]
+            "###);
+            }
         }
     }
 
@@ -387,7 +420,7 @@ mod test {
     async fn test_bidi_cat_bad_output_and_error() {
         let requests = futures::stream::repeat_with(|| {
             Ok(TestSpec {
-                test: "hello world".to_string(),
+                name: "hello world".to_string(),
                 ..Default::default()
             })
         }); // Unbounded stream.
@@ -399,10 +432,14 @@ mod test {
         // no reliable way to conjoin these errors, as a connector can write bad output
         // or even close its stdout without actually exiting.
         let responses: Vec<Result<TestSpec, _>> = bidi(
-            &["cat".to_string(), "/etc/hosts".to_string()],
+            new_command(&[
+                "cat".to_string(),
+                "/etc/hosts".to_string(),
+                "/this/path/does/not/exist".to_string(),
+            ]),
             Codec::Proto,
-            "/this/path/does/not/exist",
             requests,
+            ops::stderr_log_handler,
         )
         .unwrap()
         .collect()
@@ -432,13 +469,18 @@ mod test {
     async fn test_unary_cat() {
         for codec in [Codec::Proto, Codec::Json] {
             let fixture = TestSpec {
-                test: "hello world".to_string(),
+                name: "hello world".to_string(),
                 ..Default::default()
             };
 
-            let out: TestSpec = unary(&["cat".to_string()], codec, "-", fixture.clone())
-                .await
-                .unwrap();
+            let out: TestSpec = unary(
+                new_command(&["cat".to_string(), "-".to_string()]),
+                codec,
+                fixture.clone(),
+                ops::stderr_log_handler,
+            )
+            .await
+            .unwrap();
             assert_eq!(out, fixture);
         }
     }
@@ -447,21 +489,29 @@ mod test {
     async fn test_unary_too_few_outputs() {
         for codec in [Codec::Proto, Codec::Json] {
             let fixture = TestSpec {
-                test: "hello world".to_string(),
+                name: "hello world".to_string(),
                 ..Default::default()
             };
 
-            let out: Result<TestSpec, _> =
-                unary(&["true".to_string()], codec, "", fixture.clone()).await;
+            let out: Result<TestSpec, _> = unary(
+                new_command(&["true".to_string()]),
+                codec,
+                fixture.clone(),
+                ops::stderr_log_handler,
+            )
+            .await;
+
+            insta::allow_duplicates! {
             insta::assert_debug_snapshot!(out, @r###"
-        Err(
-            Status {
-                code: Internal,
-                message: "rpc is expected to be unary but it returned no response",
-                source: None,
-            },
-        )
-        "###);
+            Err(
+                Status {
+                    code: Internal,
+                    message: "rpc is expected to be unary but it returned no response",
+                    source: None,
+                },
+            )
+            "###);
+            }
         }
     }
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
@@ -24,37 +24,23 @@ import (
 //go:generate sqlite3 file:testdata/temp.db "SELECT WRITEFILE('testdata/materialization.proto', spec) FROM built_materializations WHERE materialization = 'test/sqlite';"
 
 func TestIntegratedTransactorAndClient(t *testing.T) {
-	var specBytes, err = ioutil.ReadFile("testdata/materialization.proto")
+	var specBytes, err = os.ReadFile("testdata/materialization.proto")
 	require.NoError(t, err)
 	var spec pf.MaterializationSpec
 	require.NoError(t, spec.Unmarshal(specBytes))
 
-	pb.RegisterGRPCDispatcher("local")
-	var (
-		server    = server.MustLoopback()
-		taskGroup = task.NewGroup(pb.WithDispatchDefault(context.Background()))
-		service   = &testServer{
-			Transactor: nil,
-			OpenedTx: TransactionResponse_Opened{
-				RuntimeCheckpoint: []byte("open-checkpoint"),
-			},
-		}
-	)
-	RegisterDriverServer(server.GRPCServer, service)
-	server.QueueTasks(taskGroup)
+	var server = newTestServer(t)
+	server.OpenedTx = Response_Opened{
+		RuntimeCheckpoint: &pc.Checkpoint{
+			Sources: map[pb.Journal]pc.Checkpoint_Source{"a/journal": {ReadThrough: 1}},
+		},
+	}
 
-	defer func() {
-		taskGroup.Cancel()
-		server.BoundedGracefulStop()
-		taskGroup.Wait()
-	}()
-	taskGroup.GoRun()
-
-	var openTransactions = func(combiner pf.Combiner, driverCheckpoint string) (*TxnClient, error) {
+	var openTransactions = func(combiner pf.Combiner, connectorCheckpoint string) (*TxnClient, error) {
 		return OpenTransactions(
-			taskGroup.Context(),
-			NewDriverClient(server.GRPCLoopback),
-			json.RawMessage(driverCheckpoint),
+			server.group.Context(),
+			server.Client(),
+			json.RawMessage(connectorCheckpoint),
 			func(*pf.MaterializationSpec_Binding) (pf.Combiner, error) { return combiner, nil },
 			pf.NewFullRange(),
 			&spec,
@@ -67,19 +53,19 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 			transactor = &testTransactor{}
 			combiner   = &pf.MockCombiner{}
 		)
-		service.Transactor = transactor
+		server.Transactor = transactor
 
 		rpc, err := openTransactions(combiner, `{"driver":"checkpoint"}`)
 		require.NoError(t, err)
-		require.Equal(t, "open-checkpoint", string(rpc.Opened().RuntimeCheckpoint))
+		require.Contains(t, rpc.Opened().RuntimeCheckpoint.Sources, pb.Journal("a/journal"))
 
 		// Set a Loaded fixture to return, and load some documents.
 		transactor.Loaded = map[int][]interface{}{
 			0: {"found", "also-found"},
 		}
-		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{1}.Pack(), json.RawMessage(`"one"`)))
-		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{2}.Pack(), json.RawMessage(`2`)))
-		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{"three"}.Pack(), json.RawMessage(`3`)))
+		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{1}.Pack(), []byte("[1]"), json.RawMessage(`"one"`)))
+		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{2}.Pack(), []byte("[2]"), json.RawMessage(`2`)))
+		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{"three"}.Pack(), []byte("[3]"), json.RawMessage(`3`)))
 		require.NoError(t, rpc.Flush())
 
 		combiner.AddDrainFixture(false, "one", tuple.Tuple{1}, tuple.Tuple{"val", 1})
@@ -92,11 +78,11 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 
 		// Set a StartCommit fixture to return, and start to commit.
 		transactor.commitOp = client.NewAsyncOperation()
-		transactor.StartedCommitTx.DriverCheckpointJson = json.RawMessage(`"driver-checkpoint"`)
-		driverCheckpoint, opAcknowledged, err := rpc.StartCommit(pf.Checkpoint{
-			Sources: map[pf.Journal]pc.Checkpoint_Source{"1st-flow-fixture": {ReadThrough: 1}}})
+		transactor.StartedCommitTx.UpdatedJson = json.RawMessage(`"driver-checkpoint"`)
+		connectorCheckpoint, opAcknowledged, err := rpc.StartCommit(&pf.Checkpoint{
+			Sources: map[pf.Journal]pc.Checkpoint_Source{"a/journal": {ReadThrough: 2}}})
 		require.NoError(t, err)
-		require.Equal(t, `"driver-checkpoint"`, string(driverCheckpoint.DriverCheckpointJson))
+		require.Equal(t, `"driver-checkpoint"`, string(connectorCheckpoint.UpdatedJson))
 		require.NoError(t, rpc.Acknowledge()) // Write Acknowledge.
 
 		// Pipeline the next transaction.
@@ -104,7 +90,7 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 		transactor.Loaded = map[int][]interface{}{
 			0: {"2nd-round"},
 		}
-		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{4}.Pack(), json.RawMessage(`"four"`)))
+		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{4}.Pack(), []byte("[4]"), json.RawMessage(`"four"`)))
 
 		transactor.commitOp.Resolve(nil)
 		require.NoError(t, opAcknowledged.Err()) // Read Acknowledged.
@@ -117,11 +103,11 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 		require.NotNil(t, stats[0])
 
 		// Set a StartCommit fixture to return, and start to commit.
-		transactor.StartedCommitTx.DriverCheckpointJson = json.RawMessage(`"2nd-checkpoint"`)
-		driverCheckpoint, opAcknowledged, err = rpc.StartCommit(pf.Checkpoint{
-			Sources: map[pf.Journal]pc.Checkpoint_Source{"2nd-flow-fixture": {ReadThrough: 1234}}})
+		transactor.StartedCommitTx.UpdatedJson = json.RawMessage(`"2nd-checkpoint"`)
+		connectorCheckpoint, opAcknowledged, err = rpc.StartCommit(&pf.Checkpoint{
+			Sources: map[pf.Journal]pc.Checkpoint_Source{"a/journal": {ReadThrough: 3}}})
 		require.NoError(t, err)
-		require.Equal(t, `"2nd-checkpoint"`, string(driverCheckpoint.DriverCheckpointJson))
+		require.Equal(t, `"2nd-checkpoint"`, string(connectorCheckpoint.UpdatedJson))
 		require.NoError(t, rpc.Acknowledge())    // Write Acknowledge.
 		require.NoError(t, opAcknowledged.Err()) // Read Acknowledged.
 
@@ -136,8 +122,8 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 		transactor.Loaded = nil
 
 		// We do NOT expect to see Load requests for these documents in the snapshot.
-		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{"five"}.Pack(), json.RawMessage(`5`)))
-		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{"six"}.Pack(), json.RawMessage(`"six"`)))
+		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{"five"}.Pack(), []byte("[5]"), json.RawMessage(`5`)))
+		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{"six"}.Pack(), []byte("[6]"), json.RawMessage(`"six"`)))
 		require.NoError(t, rpc.Flush()) // Close Load phase.
 
 		combiner.AddDrainFixture(true, "five", tuple.Tuple{"five"}, tuple.Tuple{"val", 5})
@@ -147,11 +133,11 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, stats[0])
 
-		transactor.StartedCommitTx.DriverCheckpointJson = json.RawMessage(`"3rd-checkpoint"`)
-		driverCheckpoint, opAcknowledged, err = rpc.StartCommit(pf.Checkpoint{
-			Sources: map[pf.Journal]pc.Checkpoint_Source{"3rd-flow-fixture": {ReadThrough: 5678}}})
+		transactor.StartedCommitTx.UpdatedJson = json.RawMessage(`"3rd-checkpoint"`)
+		connectorCheckpoint, opAcknowledged, err = rpc.StartCommit(&pf.Checkpoint{
+			Sources: map[pf.Journal]pc.Checkpoint_Source{"a/journal": {ReadThrough: 4}}})
 		require.NoError(t, err)
-		require.Equal(t, `"3rd-checkpoint"`, string(driverCheckpoint.DriverCheckpointJson))
+		require.Equal(t, `"3rd-checkpoint"`, string(connectorCheckpoint.UpdatedJson))
 		require.NoError(t, rpc.Acknowledge())    // Write Acknowledge.
 		require.NoError(t, opAcknowledged.Err()) // Read Acknowledged.
 
@@ -171,14 +157,14 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 			transactor = &testTransactor{}
 			combiner   = &pf.MockCombiner{}
 		)
-		service.Transactor = transactor
+		server.Transactor = transactor
 
 		var rpc, err = openTransactions(combiner, "{}")
 		require.NoError(t, err)
 
 		// Cleanly run through an empty transaction, then gracefully close.
 		require.Nil(t, rpc.Flush())
-		_, opAcknowledged, err := rpc.StartCommit(pf.Checkpoint{
+		_, opAcknowledged, err := rpc.StartCommit(&pf.Checkpoint{
 			Sources: map[pf.Journal]pc.Checkpoint_Source{"foobar": {ReadThrough: 123}}})
 		require.NoError(t, err)
 
@@ -192,14 +178,14 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 			transactor = &testTransactor{}
 			combiner   = &pf.MockCombiner{}
 		)
-		service.Transactor = transactor
+		server.Transactor = transactor
 
 		var rpc, err = openTransactions(combiner, "{}")
 		require.NoError(t, err)
 
 		// Set a Loaded fixture to return, and load some documents.
 		transactor.loadErr = fmt.Errorf("mysterious load failure")
-		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{1}.Pack(), json.RawMessage(`"one"`)))
+		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{1}.Pack(), []byte("[1]"), json.RawMessage(`"one"`)))
 		require.EqualError(t, rpc.Flush(),
 			"reading Loaded: transactor.Load: mysterious load failure")
 	})
@@ -209,14 +195,14 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 			transactor = &testTransactor{}
 			combiner   = &pf.MockCombiner{}
 		)
-		service.Transactor = transactor
+		server.Transactor = transactor
 
 		var rpc, err = openTransactions(combiner, "{}")
 		require.NoError(t, err)
 		require.Nil(t, rpc.Flush())
 
 		transactor.storeErr = fmt.Errorf("mysterious store failure")
-		_, _, err = rpc.StartCommit(pf.Checkpoint{
+		_, _, err = rpc.StartCommit(&pf.Checkpoint{
 			Sources: map[pf.Journal]pc.Checkpoint_Source{"foobar": {ReadThrough: 123}}})
 		require.EqualError(t, err, "reading StartedCommit: transactor.Store: mysterious store failure")
 	})
@@ -226,14 +212,14 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 			transactor = &testTransactor{}
 			combiner   = &pf.MockCombiner{}
 		)
-		service.Transactor = transactor
+		server.Transactor = transactor
 
 		var rpc, err = openTransactions(combiner, "{}")
 		require.NoError(t, err)
 		require.Nil(t, rpc.Flush())
 
 		transactor.startCommitErr = fmt.Errorf("mysterious start-commit failure")
-		_, _, err = rpc.StartCommit(pf.Checkpoint{
+		_, _, err = rpc.StartCommit(&pf.Checkpoint{
 			Sources: map[pf.Journal]pc.Checkpoint_Source{"foobar": {ReadThrough: 123}}})
 		require.EqualError(t, err, "reading StartedCommit: transactor.StartCommit: mysterious start-commit failure")
 	})
@@ -243,7 +229,7 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 			transactor = &testTransactor{}
 			combiner   = &pf.MockCombiner{}
 		)
-		service.Transactor = transactor
+		server.Transactor = transactor
 
 		var rpc, err = openTransactions(combiner, "{}")
 		require.NoError(t, err)
@@ -251,15 +237,15 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 
 		transactor.commitOp = client.NewAsyncOperation()
 
-		_, opAcknowledged, err := rpc.StartCommit(pf.Checkpoint{
+		_, opAcknowledged, err := rpc.StartCommit(&pf.Checkpoint{
 			Sources: map[pf.Journal]pc.Checkpoint_Source{"foobar": {ReadThrough: 123}}})
 		require.NoError(t, err)
 		require.NoError(t, rpc.Acknowledge())
 
 		// Race some document loads.
 		transactor.Loaded = map[int][]interface{}{0: {"found", "also-found"}}
-		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{1}.Pack(), json.RawMessage(`"one"`)))
-		require.NoError(t, rpc.AddDocument(1, tuple.Tuple{2}.Pack(), json.RawMessage(`"one"`)))
+		require.NoError(t, rpc.AddDocument(0, tuple.Tuple{1}.Pack(), []byte("[1]"), json.RawMessage(`"one"`)))
+		require.NoError(t, rpc.AddDocument(1, tuple.Tuple{2}.Pack(), []byte("[2]"), json.RawMessage(`"one"`)))
 
 		transactor.commitOp.Resolve(fmt.Errorf("mysterious async commit failure"))
 		require.EqualError(t, opAcknowledged.Err(),
@@ -268,40 +254,57 @@ func TestIntegratedTransactorAndClient(t *testing.T) {
 		// Send a raced Load (after we know that `opAcknowledged` has resolved).
 		// While under the hood it sees EOF due to the stream break,
 		// expect it's mapped to a causal error for the user.
-		require.EqualError(t, rpc.AddDocument(0, tuple.Tuple{3}.Pack(), json.RawMessage(`"one"`)),
+		require.EqualError(t, rpc.AddDocument(0, tuple.Tuple{3}.Pack(), []byte("[3]"), json.RawMessage(`"one"`)),
 			"reading Acknowledged: commit failed: mysterious async commit failure")
 	})
 }
 
 // testServer implements DriverServer.
 type testServer struct {
-	OpenRx   TransactionRequest_Open
-	OpenedTx TransactionResponse_Opened
+	group  *task.Group
+	server *server.Server
+
+	OpenRx   Request_Open
+	OpenedTx Response_Opened
 	Transactor
 }
 
-var _ DriverServer = &testServer{}
+func newTestServer(t *testing.T) *testServer {
+	pb.RegisterGRPCDispatcher("local")
 
-func (t *testServer) Spec(context.Context, *SpecRequest) (*SpecResponse, error) {
-	panic("not called")
-}
-func (t *testServer) Validate(context.Context, *ValidateRequest) (*ValidateResponse, error) {
-	panic("not called")
-}
-func (t *testServer) ApplyUpsert(context.Context, *ApplyRequest) (*ApplyResponse, error) {
-	panic("not called")
-}
-func (t *testServer) ApplyDelete(context.Context, *ApplyRequest) (*ApplyResponse, error) {
-	panic("not called")
-}
+	var instance = &testServer{
+		group:  task.NewGroup(pb.WithDispatchDefault(context.Background())),
+		server: server.MustLoopback(),
+	}
+	RegisterConnectorServer(instance.server.GRPCServer, instance)
+	instance.server.QueueTasks(instance.group)
 
-func (t *testServer) Transactions(stream Driver_TransactionsServer) error {
-	var err = RunTransactions(stream, func(_ context.Context, open TransactionRequest_Open) (Transactor, *TransactionResponse_Opened, error) {
-		t.OpenRx = open
-		return t.Transactor, &t.OpenedTx, nil
+	t.Cleanup(func() {
+		instance.group.Cancel()
+		instance.server.BoundedGracefulStop()
+		require.NoError(t, instance.group.Wait())
 	})
+	instance.group.GoRun()
 
+	return instance
+}
+
+func (t *testServer) Client() ConnectorClient {
+	return NewConnectorClient(t.server.GRPCLoopback)
+}
+
+var _ ConnectorServer = &testServer{}
+
+func (t *testServer) Materialize(stream Connector_MaterializeServer) error {
+	var request, err = stream.Recv()
 	if err != nil {
+		return err
+	}
+	if request.Open == nil {
+		panic("not an open")
+	}
+
+	if err = RunTransactions(stream, *request.Open, t.OpenedTx, t.Transactor); err != nil {
 		// Send Internal code, as flow-connector-init does.
 		// This is unwrapped by the TxnClient.
 		return status.Error(codes.Internal, err.Error())
@@ -319,8 +322,8 @@ type testTransactor struct {
 	LoadKeys     []tuple.Tuple
 	Loaded       map[int][]interface{}
 
-	RuntimeCheckpoint string
-	StartedCommitTx   pf.DriverCheckpoint
+	RuntimeCheckpoint *pc.Checkpoint
+	StartedCommitTx   pf.ConnectorState
 
 	StoreBindings []int
 	StoreExists   []bool
@@ -336,6 +339,9 @@ func (t *testTransactor) Load(it *LoadIterator, loaded func(binding int, doc jso
 		}
 		t.LoadBindings = append(t.LoadBindings, it.Binding)
 		t.LoadKeys = append(t.LoadKeys, it.Key)
+	}
+	if it.Err() != nil {
+		return it.Err()
 	}
 
 	for binding, docs := range t.Loaded {
@@ -363,10 +369,10 @@ func (t *testTransactor) Store(it *StoreIterator) (StartCommitFunc, error) {
 
 func (t *testTransactor) startCommit(
 	_ context.Context,
-	runtimeCheckpoint []byte,
+	runtimeCheckpoint *pc.Checkpoint,
 	runtimeAckCh <-chan struct{},
-) (*pf.DriverCheckpoint, pf.OpFuture) {
-	t.RuntimeCheckpoint = string(runtimeCheckpoint)
+) (*pf.ConnectorState, pf.OpFuture) {
+	t.RuntimeCheckpoint = runtimeCheckpoint
 
 	var commitOp pf.OpFuture
 

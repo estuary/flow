@@ -65,11 +65,11 @@ func (fields *FieldSelection) Equal(other *FieldSelection) bool {
 	if fields.Document != other.Document {
 		return false
 	}
-	if len(fields.FieldConfigJson) != len(other.FieldConfigJson) {
+	if len(fields.FieldConfigJsonMap) != len(other.FieldConfigJsonMap) {
 		return false
 	}
-	for key := range fields.FieldConfigJson {
-		if string(fields.FieldConfigJson[key]) != string(other.FieldConfigJson[key]) {
+	for key := range fields.FieldConfigJsonMap {
+		if string(fields.FieldConfigJsonMap[key]) != string(other.FieldConfigJsonMap[key]) {
 			return false
 		}
 	}
@@ -78,12 +78,12 @@ func (fields *FieldSelection) Equal(other *FieldSelection) bool {
 
 // Validate returns an error if the MaterializationSpec is malformed.
 func (m *MaterializationSpec) Validate() error {
-	if err := m.Materialization.Validate(); err != nil {
+	if err := m.Name.Validate(); err != nil {
 		return pb.ExtendContext(err, "Materialization")
-	} else if _, ok := EndpointType_name[int32(m.EndpointType)]; !ok {
-		return pb.NewValidationError("unknown EndpointType %v", m.EndpointType)
-	} else if len(m.EndpointSpecJson) == 0 {
-		return pb.NewValidationError("missing EndpointSpecJson")
+	} else if _, ok := MaterializationSpec_ConnectorType_name[int32(m.ConnectorType)]; !ok {
+		return pb.NewValidationError("unknown ConnectorType %v", m.ConnectorType)
+	} else if len(m.ConfigJson) == 0 {
+		return pb.NewValidationError("missing ConfigJson")
 	}
 
 	for i := range m.Bindings {
@@ -99,26 +99,26 @@ func (m *MaterializationSpec) Validate() error {
 	return nil
 }
 
-func (m *MaterializationSpec) GetEndpointType() EndpointType {
-	return m.EndpointType
-}
-func (m *MaterializationSpec) GetEndpointSpecPtr() *json.RawMessage {
-	return &m.EndpointSpecJson
-}
-
 // Validate returns an error if the MaterializationSpec_Binding is malformed.
 func (m *MaterializationSpec_Binding) Validate() error {
 	if err := m.Collection.Validate(); err != nil {
 		return pb.ExtendContext(err, "Collection")
-	} else if len(m.ResourceSpecJson) == 0 {
-		return pb.NewValidationError("missing EndpointSpecJson")
-	} else if err = m.Shuffle.Validate(); err != nil {
-		return pb.ExtendContext(err, "Shuffle")
+	} else if len(m.ResourceConfigJson) == 0 {
+		return pb.NewValidationError("missing ResourceConfigJson")
 	} else if err = m.FieldSelection.Validate(); err != nil {
 		return pb.ExtendContext(err, "FieldSelection")
 	} else if len(m.ResourcePath) == 0 {
 		return pb.NewValidationError("missing ResourcePath")
+	} else if err = m.PartitionSelector.Validate(); err != nil {
+		return pb.ExtendContext(err, "PartitionSelector")
 	}
+
+	if m.DeprecatedShuffle != nil {
+		if err := m.DeprecatedShuffle.PartitionSelector.Validate(); err != nil {
+			return pb.ExtendContext(err, "DeprecatedShuffle.PartitionSelector")
+		}
+	}
+
 	for i, p := range m.ResourcePath {
 		if len(p) == 0 {
 			return pb.ExtendContext(
@@ -143,4 +143,8 @@ func (m *MaterializationSpec_Binding) FieldValuePtrs() []string {
 		out = append(out, m.Collection.GetProjection(field).Ptr)
 	}
 	return out
+}
+
+func (m *MaterializationSpec) InvokeConfig() (*json.RawMessage, string) {
+	return &m.ConfigJson, m.ConnectorType.String()
 }

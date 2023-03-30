@@ -1,4 +1,5 @@
 use json::schema::types;
+use proto_flow::flow::collection_spec::derivation::ShuffleType;
 use url::Url;
 
 #[must_use]
@@ -23,15 +24,15 @@ pub enum Error {
         rhs_name: String,
         rhs_scope: Url,
     },
-    #[error("{ref_entity} {ref_name}, referenced by {this_thing}, is not defined")]
+    #[error("{ref_entity} {ref_name}, referenced by {this_entity}, is not defined")]
     NoSuchEntity {
-        this_thing: String,
+        this_entity: String,
         ref_entity: &'static str,
         ref_name: String,
     },
-    #[error("{ref_entity} {ref_name}, referenced by {this_thing}, is not defined; did you mean {suggest_name} defined at {suggest_scope}?")]
+    #[error("{ref_entity} {ref_name}, referenced by {this_entity}, is not defined; did you mean {suggest_name} defined at {suggest_scope} ?")]
     NoSuchEntitySuggest {
-        this_thing: String,
+        this_entity: String,
         ref_entity: &'static str,
         ref_name: String,
         suggest_name: String,
@@ -63,43 +64,35 @@ pub enum Error {
         ref_name: String,
         ref_scope: Url,
     },
+    #[error("collection {collection} must define either `schema` or both of `writeSchema` and `readSchema`")]
+    InvalidSchemaCombination { collection: String },
     #[error("referenced schema fragment location {schema} does not exist")]
     NoSuchSchema { schema: Url },
     #[error("collection {collection} key cannot be empty (https://go.estuary.dev/Zq6zVB)")]
     CollectionKeyEmpty { collection: String },
-    #[error("collection {collection} schema must be an object")]
-    CollectionSchemaNotObject { collection: String },
+    #[error("collection schema {schema} must have type 'object'")]
+    CollectionSchemaNotObject { schema: Url },
     #[error("{ptr} is not a valid JSON pointer (missing leading '/' slash)")]
     KeyMissingLeadingSlash { ptr: String },
     #[error("{ptr} is not a valid JSON pointer ({unmatched:?} is invalid)")]
     KeyRegex { ptr: String, unmatched: String },
-    #[error("keyed location {ptr} must be required to exist by schema {schema} (https://go.estuary.dev/KUYbal)")]
+    #[error("keyed location {ptr} must be required to exist, but is not required within schema {schema}")]
     KeyMayNotExist { ptr: String, schema: Url },
-    #[error(
-        "location {ptr} can never exist within schema {schema} (https://go.estuary.dev/L3m1y9)"
-    )]
+    #[error("location {ptr} is prohibited from ever existing by the schema {schema}")]
     KeyCannotExist { ptr: String, schema: Url },
-    #[error("location {ptr} accepts {type_:?} in schema {schema}, but {disallowed:?} is disallowed in locations used as keys (https://go.estuary.dev/CigSvN)")]
+    #[error("location {ptr} accepts {type_:?} in schema {schema}, but locations used as keys may only be null-able integers, strings, or booleans")]
     KeyWrongType {
         ptr: String,
         type_: types::Set,
-        disallowed: types::Set,
         schema: Url,
     },
-    #[error("location {ptr} is unknown in schema {schema} (https://go.estuary.dev/rdCMNB)")]
+    #[error("location {ptr} is unknown in schema {schema}")]
     KeyIsImplicit { ptr: String, schema: Url },
-    #[error("keyed location {ptr} has a disallowed {strategy:?} reduction strategy (https://go.estuary.dev/V5RRHc)")]
+    #[error("location {ptr} has a reduction strategy {strategy:?}, which is disallowed because the location is used as a key")]
     KeyHasReduction {
         ptr: String,
         schema: Url,
         strategy: doc::inference::Reduction,
-    },
-    #[error("transform {lhs_name} shuffled key types {lhs_types:?} don't align with transform {rhs_name} types {rhs_types:?}")]
-    ShuffleKeyMismatch {
-        lhs_name: String,
-        lhs_types: Vec<types::Set>,
-        rhs_name: String,
-        rhs_types: Vec<types::Set>,
     },
     #[error("{category} projection {field} does not exist in collection {collection}")]
     NoSuchProjection {
@@ -128,35 +121,56 @@ pub enum Error {
     },
     #[error("{category} partition selector field {field} cannot be an empty string")]
     SelectorEmptyString { category: String, field: String },
-    #[error("transform {transform} shuffle key is already the key of {collection} and should be omitted here")]
+    #[error("transform {transform} shuffle key is already the collection key of {collection} and should be omitted here")]
     ShuffleKeyNotDifferent {
         transform: String,
         collection: String,
     },
+    #[error(
+        "cannot infer shuffle key types because all transforms use computed shuffle lambdas. Please add an explicit `shuffleKeyTypes` to this derivation."
+    )]
+    ShuffleKeyCannotInfer {},
     #[error("transform {transform} shuffle key cannot be empty")]
     ShuffleKeyEmpty { transform: String },
-    #[error("transform {transform} must set at least one of 'update' or 'publish' lambdas")]
-    NoUpdateOrPublish { transform: String },
-    #[error("derivation defines a TypeScript module but uses no TypeScript lambdas")]
-    TypescriptModuleWithoutLambdas,
-    #[error("derivation uses TypeScript lambdas but defines no TypeScript module")]
-    TypescriptLambdasWithoutModule,
-    #[error("TypeScript module {module} must be unique to one derivation, but is used here by {lhs_derivation} and also by {rhs_derivation} at {rhs_scope}")]
-    TypescriptModuleNotUnique {
-        module: Url,
-        lhs_derivation: String,
-        rhs_derivation: String,
-        rhs_scope: Url,
+    #[error("transform {lhs_name} shuffled key types {lhs_types:?} don't align with transform {rhs_name} types {rhs_types:?}")]
+    ShuffleKeyImplicitMismatch {
+        lhs_name: String,
+        lhs_types: Vec<ShuffleType>,
+        rhs_name: String,
+        rhs_types: Vec<ShuffleType>,
     },
-    #[error("driver error while validating capture {name}")]
-    CaptureDriver {
+    #[error("transform {name} shuffled key types {types:?} don't align with declared shuffle key types {given_types:?}")]
+    ShuffleKeyExplicitMismatch {
+        name: String,
+        types: Vec<ShuffleType>,
+        given_types: Vec<ShuffleType>,
+    },
+    #[error("error while extracting metadata from the connector image '{image}'")]
+    ImageInspectFailed {
+        image: String,
+        #[source]
+        detail: anyhow::Error,
+    },
+    #[error("connector error while validating capture {name}")]
+    CaptureConnector {
         name: String,
         #[source]
         detail: anyhow::Error,
     },
-    #[error("driver error while validating materialization {name}")]
-    MaterializationDriver {
+    #[error("connector error while validating derivation {name}")]
+    DeriveConnector {
         name: String,
+        #[source]
+        detail: anyhow::Error,
+    },
+    #[error("connector error while validating materialization {name}")]
+    MaterializationConnector {
+        name: String,
+        #[source]
+        detail: anyhow::Error,
+    },
+    #[error("error while resolving referenced collections from the control plane")]
+    ResolveCollections {
         #[source]
         detail: anyhow::Error,
     },
@@ -172,15 +186,6 @@ pub enum Error {
     LocationUnsatisfiable { name: String, location: String },
     #[error("documents to verify are not in collection key order")]
     TestVerifyOrder,
-    #[error("package {package} is repeated with incompatible versions {lhs_version:?} here, vs {rhs_version:?} at {rhs_scope}")]
-    NPMVersionsIncompatible {
-        package: String,
-        lhs_version: String,
-        rhs_version: String,
-        rhs_scope: Url,
-    },
-    #[error("derivation's initial register is invalid against its schema: {}", serde_json::to_string_pretty(.0).unwrap())]
-    RegisterInitialInvalid(doc::FailedValidation),
     #[error("test ingest document is invalid against the collection schema: {}", serde_json::to_string_pretty(.0).unwrap())]
     IngestDocInvalid(doc::FailedValidation),
     #[error("{entity} {name} bindings duplicate the endpoint resource {resource} at {rhs_scope}")]
@@ -190,36 +195,18 @@ pub enum Error {
         resource: String,
         rhs_scope: Url,
     },
-
-    #[error("one or more JSON schemas has errors which prevent further validation checks")]
-    SchemaBuild,
+    #[error(transparent)]
+    SchemaBuild(#[from] json::schema::build::Error),
     #[error(transparent)]
     SchemaIndex(#[from] json::schema::index::Error),
     #[error(transparent)]
     SchemaShape(#[from] doc::inference::Error),
     #[error(transparent)]
     SerdeJson(#[from] serde_json::Error),
-    #[error("SQLite update lambda is invalid.\nAvailable `source` columns are {source_columns:?}")]
-    SqliteUpdate {
-        source_columns: Vec<String>,
-        #[source]
-        detail: rusqlite::Error,
-    },
-    #[error(
-        "SQLite publish lambda is invalid.\n\tAvailable `source` columns are {source_columns:?}\n\tAvailable `register` and `previous_register` columns are {register_columns:?}"
-    )]
-    SqlitePublish {
-        source_columns: Vec<String>,
-        register_columns: Vec<String>,
-        #[source]
-        detail: rusqlite::Error,
-    },
-    #[error("the docker image '{image}' could not be inspected: {error}")]
-    ImageInspectFailed { image: String, error: anyhow::Error },
 }
 
 impl Error {
-    pub fn push(self, scope: &url::Url, errors: &mut tables::Errors) {
-        errors.insert_row(scope, anyhow::anyhow!(self));
+    pub fn push(self, scope: sources::Scope, errors: &mut tables::Errors) {
+        errors.insert_row(scope.flatten(), anyhow::anyhow!(self));
     }
 }
