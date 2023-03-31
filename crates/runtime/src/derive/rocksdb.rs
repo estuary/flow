@@ -251,18 +251,24 @@ impl RocksDB {
 
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
-        let column_families =
-            rocksdb::DB::list_cf(&opts, &path).context("listing rocksdb column families")?;
 
-        let mut db = rocksdb::DB::open_cf(&opts, &path, column_families.iter())?;
+        let column_families = match rocksdb::DB::list_cf(&opts, &path) {
+            Ok(cf) => cf,
+            // Listing column families will fail if the DB doesn't exist.
+            // Assume as such, as we'll otherwise fail when we attempt to open.
+            Err(_) => vec![rocksdb::DEFAULT_COLUMN_FAMILY_NAME.to_string()],
+        };
+        let mut db = rocksdb::DB::open_cf(&opts, &path, column_families.iter())
+            .context("failed to open RocksDB")?;
+
         for column_family in column_families {
             // We used to use a `registers` column family for derivations, but we no longer do
             // and they were never actually used in production. Rocks requires that all existing
             // column families are opened, so we just open and drop any of these legacy "registers"
             // column families.
-            if column_family.as_str() == "registers" {
+            if column_family == "registers" {
                 tracing::warn!(%column_family, "dropping legacy rocksdb column family");
-                db.drop_cf(column_family.as_str())
+                db.drop_cf(&column_family)
                     .context("dropping legacy column family")?;
             }
         }
