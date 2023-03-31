@@ -9,7 +9,7 @@ import (
 	"reflect"
 	"unsafe"
 
-	"github.com/estuary/flow/go/ops"
+	"github.com/estuary/flow/go/protocols/ops"
 )
 
 // newUpperCase is a testing Service that upper-cases each input Frame,

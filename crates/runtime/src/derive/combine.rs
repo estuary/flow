@@ -238,7 +238,7 @@ pub struct State {
     // Ordered transform (transform-name, source-collection).
     transforms: Vec<(String, String)>,
     // Shard of this derivation.
-    shard: ops::Shard,
+    shard: ops::ShardRef,
 }
 
 impl State {
@@ -310,8 +310,8 @@ impl State {
             })
             .collect();
 
-        let shard = ops::Shard {
-            kind: ops::shard::Kind::Derivation as i32,
+        let shard = ops::ShardRef {
+            kind: ops::TaskType::Derivation as i32,
             name: name.clone(),
             key_begin: format!("{:08x}", range.key_begin),
             r_clock_begin: format!("{:08x}", range.r_clock_begin),
@@ -450,11 +450,13 @@ impl State {
             open_seconds_total: duration.as_secs_f64(),
             txn_count: 1,
             shard: Some(self.shard.clone()),
+            capture: Default::default(),
             derive: Some(ops::stats::Derive {
                 transforms,
                 published: Some(std::mem::take(&mut self.publish_stats)),
                 out: Some(std::mem::take(&mut self.drain_stats)),
             }),
+            materialize: Default::default(),
         };
 
         Response {

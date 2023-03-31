@@ -8,10 +8,9 @@ import (
 
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	po "github.com/estuary/flow/go/protocols/ops"
+	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/estuary/flow/go/shuffle"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/allocator"
@@ -36,8 +35,6 @@ type taskTerm struct {
 	build *flow.Build
 	// ops.Publisher of ops.Logs and (in the future) ops.Stats.
 	opsPublisher *OpsPublisher
-	// TODO(johnny): Refactor into `ops` package.
-	*StatsFormatter
 }
 
 func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
@@ -87,14 +84,7 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 		return fmt.Errorf("creating ops publisher: %w", err)
 	}
 
-	if t.StatsFormatter, err = NewStatsFormatter(
-		t.labels,
-		statsCollectionSpec,
-	); err != nil {
-		return err
-	}
-
-	ops.PublishLog(t.opsPublisher, po.Log_info,
+	ops.PublishLog(t.opsPublisher, ops.Log_info,
 		"initialized catalog task term",
 		"labels", t.labels,
 		"lastLabels", lastLabels,

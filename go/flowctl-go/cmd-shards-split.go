@@ -9,7 +9,7 @@ import (
 	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	po "github.com/estuary/flow/go/protocols/ops"
+	"github.com/estuary/flow/go/protocols/ops"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -84,15 +84,15 @@ func (cmd cmdShardsSplit) execute(ctx context.Context) error {
 	var task pf.Task
 	if err := build.Extract(func(db *sql.DB) error {
 		switch labeling.TaskType {
-		case po.Shard_capture:
+		case ops.TaskType_capture:
 			capture, err := catalog.LoadCapture(db, labeling.TaskName)
 			task = capture
 			return err
-		case po.Shard_derivation:
+		case ops.TaskType_derivation:
 			derivation, err := catalog.LoadCollection(db, labeling.TaskName)
 			task = derivation
 			return err
-		case po.Shard_materialization:
+		case ops.TaskType_materialization:
 			materialization, err := catalog.LoadMaterialization(db, labeling.TaskName)
 			task = materialization
 			return err

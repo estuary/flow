@@ -6,14 +6,13 @@ import (
 	"fmt"
 	"testing"
 
-	po "github.com/estuary/flow/go/protocols/ops"
 	"github.com/stretchr/testify/require"
 )
 
 func TestLogPublishing(t *testing.T) {
 	var publisher = &appendPublisher{}
 
-	PublishLog(publisher, po.Log_info,
+	PublishLog(publisher, Log_info,
 		"the log message",
 		"an-int", 42,
 		"a-float", 3.14159,
@@ -26,12 +25,12 @@ func TestLogPublishing(t *testing.T) {
 			fmt.Errorf("squince doesn't look ship-shape")),
 		"cancelled", context.Canceled,
 	)
-	PublishLog(publisher, po.Log_trace, "My trace level is filtered out")
+	PublishLog(publisher, Log_trace, "My trace level is filtered out")
 
 	require.Equal(t, []Log{
 		{
 			Timestamp: publisher.logs[0].Timestamp,
-			Level:     po.Log_info,
+			Level:     Log_info,
 			Message:   "the log message",
 			FieldsJsonMap: map[string]json.RawMessage{
 				"a-float":   []byte("3.14159"),
@@ -43,7 +42,7 @@ func TestLogPublishing(t *testing.T) {
 			},
 			Shard: &ShardRef{
 				Name:        "task/name",
-				Kind:        po.Shard_capture,
+				Kind:        TaskType_capture,
 				KeyBegin:    "00001111",
 				RClockBegin: "00003333",
 			},

@@ -12,18 +12,17 @@ import (
 	"strings"
 
 	"github.com/estuary/flow/go/connector"
-	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/ops"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
+	"github.com/estuary/flow/go/protocols/ops"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // CatalogJSONSchema returns the source catalog JSON schema understood by Flow.
 func CatalogJSONSchema() string {
-	var publisher = ops.NewLocalPublisher(labels.ShardLabeling{})
+	var publisher = ops.NewLocalPublisher(ops.ShardLabeling{})
 	var svc, err = newBuildSvc(publisher)
 	if err != nil {
 		panic(err)
@@ -67,7 +66,7 @@ func BuildCatalog(args BuildArgs) error {
 		transport.RegisterProtocol("file", http.NewFileTransport(http.Dir(args.FileRoot)))
 	}
 	if args.OpsPublisher == nil {
-		args.OpsPublisher = ops.NewLocalPublisher(labels.ShardLabeling{
+		args.OpsPublisher = ops.NewLocalPublisher(ops.ShardLabeling{
 			Build: args.BuildId,
 		})
 	}

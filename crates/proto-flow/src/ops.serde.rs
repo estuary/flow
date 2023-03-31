@@ -374,7 +374,7 @@ impl<'de> serde::Deserialize<'de> for Meta {
         deserializer.deserialize_struct("ops.Meta", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for Shard {
+impl serde::Serialize for ShardRef {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -394,9 +394,9 @@ impl serde::Serialize for Shard {
         if !self.r_clock_begin.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("ops.Shard", len)?;
+        let mut struct_ser = serializer.serialize_struct("ops.ShardRef", len)?;
         if self.kind != 0 {
-            let v = shard::Kind::from_i32(self.kind)
+            let v = TaskType::from_i32(self.kind)
                 .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.kind)))?;
             struct_ser.serialize_field("kind", &v)?;
         }
@@ -412,7 +412,7 @@ impl serde::Serialize for Shard {
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for Shard {
+impl<'de> serde::Deserialize<'de> for ShardRef {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -467,13 +467,13 @@ impl<'de> serde::Deserialize<'de> for Shard {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = Shard;
+            type Value = ShardRef;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct ops.Shard")
+                formatter.write_str("struct ops.ShardRef")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<Shard, V::Error>
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<ShardRef, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -487,7 +487,7 @@ impl<'de> serde::Deserialize<'de> for Shard {
                             if kind__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("kind"));
                             }
-                            kind__ = Some(map.next_value::<shard::Kind>()? as i32);
+                            kind__ = Some(map.next_value::<TaskType>()? as i32);
                         }
                         GeneratedField::Name => {
                             if name__.is_some() {
@@ -509,7 +509,7 @@ impl<'de> serde::Deserialize<'de> for Shard {
                         }
                     }
                 }
-                Ok(Shard {
+                Ok(ShardRef {
                     kind: kind__.unwrap_or_default(),
                     name: name__.unwrap_or_default(),
                     key_begin: key_begin__.unwrap_or_default(),
@@ -517,86 +517,7 @@ impl<'de> serde::Deserialize<'de> for Shard {
                 })
             }
         }
-        deserializer.deserialize_struct("ops.Shard", FIELDS, GeneratedVisitor)
-    }
-}
-impl serde::Serialize for shard::Kind {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let variant = match self {
-            Self::InvalidKind => "invalid_kind",
-            Self::Capture => "capture",
-            Self::Derivation => "derivation",
-            Self::Materialization => "materialization",
-        };
-        serializer.serialize_str(variant)
-    }
-}
-impl<'de> serde::Deserialize<'de> for shard::Kind {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "invalid_kind",
-            "capture",
-            "derivation",
-            "materialization",
-        ];
-
-        struct GeneratedVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = shard::Kind;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(formatter, "expected one of: {:?}", &FIELDS)
-            }
-
-            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                use std::convert::TryFrom;
-                i32::try_from(v)
-                    .ok()
-                    .and_then(shard::Kind::from_i32)
-                    .ok_or_else(|| {
-                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
-                    })
-            }
-
-            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                use std::convert::TryFrom;
-                i32::try_from(v)
-                    .ok()
-                    .and_then(shard::Kind::from_i32)
-                    .ok_or_else(|| {
-                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
-                    })
-            }
-
-            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                match value {
-                    "invalid_kind" => Ok(shard::Kind::InvalidKind),
-                    "capture" => Ok(shard::Kind::Capture),
-                    "derivation" => Ok(shard::Kind::Derivation),
-                    "materialization" => Ok(shard::Kind::Materialization),
-                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
-                }
-            }
-        }
-        deserializer.deserialize_any(GeneratedVisitor)
+        deserializer.deserialize_struct("ops.ShardRef", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for Stats {
@@ -622,7 +543,13 @@ impl serde::Serialize for Stats {
         if self.txn_count != 0 {
             len += 1;
         }
+        if !self.capture.is_empty() {
+            len += 1;
+        }
         if self.derive.is_some() {
+            len += 1;
+        }
+        if !self.materialize.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("ops.Stats", len)?;
@@ -641,8 +568,14 @@ impl serde::Serialize for Stats {
         if self.txn_count != 0 {
             struct_ser.serialize_field("txnCount", &self.txn_count)?;
         }
+        if !self.capture.is_empty() {
+            struct_ser.serialize_field("capture", &self.capture)?;
+        }
         if let Some(v) = self.derive.as_ref() {
             struct_ser.serialize_field("derive", v)?;
+        }
+        if !self.materialize.is_empty() {
+            struct_ser.serialize_field("materialize", &self.materialize)?;
         }
         struct_ser.end()
     }
@@ -663,7 +596,9 @@ impl<'de> serde::Deserialize<'de> for Stats {
             "openSecondsTotal",
             "txn_count",
             "txnCount",
+            "capture",
             "derive",
+            "materialize",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -673,7 +608,9 @@ impl<'de> serde::Deserialize<'de> for Stats {
             Timestamp,
             OpenSecondsTotal,
             TxnCount,
+            Capture,
             Derive,
+            Materialize,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -700,7 +637,9 @@ impl<'de> serde::Deserialize<'de> for Stats {
                             "ts" | "timestamp" => Ok(GeneratedField::Timestamp),
                             "openSecondsTotal" | "open_seconds_total" => Ok(GeneratedField::OpenSecondsTotal),
                             "txnCount" | "txn_count" => Ok(GeneratedField::TxnCount),
+                            "capture" => Ok(GeneratedField::Capture),
                             "derive" => Ok(GeneratedField::Derive),
+                            "materialize" => Ok(GeneratedField::Materialize),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -725,7 +664,9 @@ impl<'de> serde::Deserialize<'de> for Stats {
                 let mut timestamp__ = None;
                 let mut open_seconds_total__ = None;
                 let mut txn_count__ = None;
+                let mut capture__ = None;
                 let mut derive__ = None;
+                let mut materialize__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Meta => {
@@ -762,11 +703,27 @@ impl<'de> serde::Deserialize<'de> for Stats {
                                 Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::Capture => {
+                            if capture__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("capture"));
+                            }
+                            capture__ = Some(
+                                map.next_value::<std::collections::BTreeMap<_, _>>()?
+                            );
+                        }
                         GeneratedField::Derive => {
                             if derive__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("derive"));
                             }
                             derive__ = map.next_value()?;
+                        }
+                        GeneratedField::Materialize => {
+                            if materialize__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("materialize"));
+                            }
+                            materialize__ = Some(
+                                map.next_value::<std::collections::BTreeMap<_, _>>()?
+                            );
                         }
                     }
                 }
@@ -776,11 +733,138 @@ impl<'de> serde::Deserialize<'de> for Stats {
                     timestamp: timestamp__,
                     open_seconds_total: open_seconds_total__.unwrap_or_default(),
                     txn_count: txn_count__.unwrap_or_default(),
+                    capture: capture__.unwrap_or_default(),
                     derive: derive__,
+                    materialize: materialize__.unwrap_or_default(),
                 })
             }
         }
         deserializer.deserialize_struct("ops.Stats", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for stats::Binding {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.left.is_some() {
+            len += 1;
+        }
+        if self.right.is_some() {
+            len += 1;
+        }
+        if self.out.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("ops.Stats.Binding", len)?;
+        if let Some(v) = self.left.as_ref() {
+            struct_ser.serialize_field("left", v)?;
+        }
+        if let Some(v) = self.right.as_ref() {
+            struct_ser.serialize_field("right", v)?;
+        }
+        if let Some(v) = self.out.as_ref() {
+            struct_ser.serialize_field("out", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for stats::Binding {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "left",
+            "right",
+            "out",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Left,
+            Right,
+            Out,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "left" => Ok(GeneratedField::Left),
+                            "right" => Ok(GeneratedField::Right),
+                            "out" => Ok(GeneratedField::Out),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = stats::Binding;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct ops.Stats.Binding")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<stats::Binding, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut left__ = None;
+                let mut right__ = None;
+                let mut out__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::Left => {
+                            if left__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("left"));
+                            }
+                            left__ = map.next_value()?;
+                        }
+                        GeneratedField::Right => {
+                            if right__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("right"));
+                            }
+                            right__ = map.next_value()?;
+                        }
+                        GeneratedField::Out => {
+                            if out__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("out"));
+                            }
+                            out__ = map.next_value()?;
+                        }
+                    }
+                }
+                Ok(stats::Binding {
+                    left: left__,
+                    right: right__,
+                    out: out__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("ops.Stats.Binding", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for stats::Derive {
@@ -1130,5 +1214,84 @@ impl<'de> serde::Deserialize<'de> for stats::DocsAndBytes {
             }
         }
         deserializer.deserialize_struct("ops.Stats.DocsAndBytes", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for TaskType {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::InvalidType => "invalid_type",
+            Self::Capture => "capture",
+            Self::Derivation => "derivation",
+            Self::Materialization => "materialization",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for TaskType {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "invalid_type",
+            "capture",
+            "derivation",
+            "materialization",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = TaskType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                use std::convert::TryFrom;
+                i32::try_from(v)
+                    .ok()
+                    .and_then(TaskType::from_i32)
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                use std::convert::TryFrom;
+                i32::try_from(v)
+                    .ok()
+                    .and_then(TaskType::from_i32)
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "invalid_type" => Ok(TaskType::InvalidType),
+                    "capture" => Ok(TaskType::Capture),
+                    "derivation" => Ok(TaskType::Derivation),
+                    "materialization" => Ok(TaskType::Materialization),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
     }
 }

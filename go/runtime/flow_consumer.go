@@ -10,9 +10,8 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	po "github.com/estuary/flow/go/protocols/ops"
+	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/estuary/flow/go/shuffle"
 	"github.com/pkg/errors"
 	"go.gazette.dev/core/broker/client"
@@ -77,11 +76,11 @@ func (f *FlowConsumer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder)
 
 	var taskType = shard.Spec().LabelSet.ValueOf(labels.TaskType)
 	switch taskType {
-	case po.Shard_capture.String():
+	case ops.TaskType_capture.String():
 		return NewCaptureApp(f, shard, rec)
-	case po.Shard_derivation.String():
+	case ops.TaskType_derivation.String():
 		return NewDeriveApp(f, shard, rec)
-	case po.Shard_materialization.String():
+	case ops.TaskType_materialization.String():
 		return NewMaterializeApp(f, shard, rec)
 	default:
 		return nil, fmt.Errorf("don't know how to serve catalog task type %q", taskType)
@@ -119,7 +118,7 @@ func (f *FlowConsumer) FinishedTxn(shard consumer.Shard, store consumer.Store, f
 func logTxnFinished(publisher ops.Publisher, op consumer.OpFuture) {
 	go func() {
 		if err := op.Err(); err != nil && errors.Cause(err) != context.Canceled {
-			ops.PublishLog(publisher, po.Log_error, "shard failed", "error", err)
+			ops.PublishLog(publisher, ops.Log_error, "shard failed", "error", err)
 		}
 	}()
 }

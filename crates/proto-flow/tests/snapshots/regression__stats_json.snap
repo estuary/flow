@@ -15,6 +15,18 @@ expression: json_test(msg)
   "ts": "1970-01-01T00:00:00+00:00",
   "openSecondsTotal": 3.14159,
   "txnCount": 15,
+  "capture": {
+    "captured/collection": {
+      "right": {
+        "docsTotal": 2,
+        "bytesTotal": 200
+      },
+      "out": {
+        "docsTotal": 1,
+        "bytesTotal": 100
+      }
+    }
+  },
   "derive": {
     "transforms": {
       "my-transform": {
@@ -39,6 +51,22 @@ expression: json_test(msg)
     "out": {
       "docsTotal": 3,
       "bytesTotal": 102
+    }
+  },
+  "materialize": {
+    "materialized/collection": {
+      "left": {
+        "docsTotal": 1,
+        "bytesTotal": 100
+      },
+      "right": {
+        "docsTotal": 2,
+        "bytesTotal": 200
+      },
+      "out": {
+        "docsTotal": 3,
+        "bytesTotal": 300
+      }
     }
   }
 }

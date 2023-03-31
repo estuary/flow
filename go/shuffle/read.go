@@ -10,9 +10,8 @@ import (
 
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	po "github.com/estuary/flow/go/protocols/ops"
+	"github.com/estuary/flow/go/protocols/ops"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -203,7 +202,7 @@ func (rb *ReadBuilder) buildReads(
 				if r.req.Shuffle.Equal(&journalShuffle) {
 					delete(drain, spec.Name)
 				} else {
-					r.log(po.Log_debug,
+					r.log(ops.Log_debug,
 						"draining read because its shuffle has changed",
 						"next", map[string]interface{}{
 							"build":       journalShuffle.BuildId,
@@ -249,7 +248,7 @@ func (r *read) start(
 	case <-time.After(backoff(attempt)):
 	}
 
-	r.log(po.Log_debug, "started shuffle read", "attempt", attempt)
+	r.log(ops.Log_debug, "started shuffle read", "attempt", attempt)
 
 	ctx = pprof.WithLabels(ctx, pprof.Labels(
 		"build", r.req.Shuffle.BuildId,
@@ -355,7 +354,7 @@ func (r *read) sendReadResult(resp *pf.ShuffleResponse, err error, wakeCh chan<-
 
 	var queue, cap = len(r.ch), cap(r.ch)
 	if queue == cap {
-		r.log(po.Log_warn,
+		r.log(ops.Log_warn,
 			"cancelling shuffle read due to full channel timeout",
 			"queue", queue,
 			"cap", cap,
@@ -381,7 +380,7 @@ func (r *read) sendReadResult(resp *pf.ShuffleResponse, err error, wakeCh chan<-
 
 		case <-timer.C:
 			if queue > 13 { // Log values > 8s.
-				r.log(po.Log_debug,
+				r.log(ops.Log_debug,
 					"backpressure timer elapsed on a slow shuffle read",
 					"queue", queue,
 					"backoff", dur.Seconds(),
@@ -457,7 +456,7 @@ func (r *read) dequeue() message.Envelope {
 	return env
 }
 
-func (r *read) log(lvl po.Log_Level, message string, fields ...interface{}) {
+func (r *read) log(lvl ops.Log_Level, message string, fields ...interface{}) {
 	if lvl > r.publisher.Labels().LogLevel {
 		return
 	}

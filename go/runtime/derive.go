@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -11,14 +10,12 @@ import (
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pd "github.com/estuary/flow/go/protocols/derive"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	po "github.com/estuary/flow/go/protocols/ops"
+	"github.com/estuary/flow/go/protocols/ops"
 	pr "github.com/estuary/flow/go/protocols/runtime"
-	"github.com/gogo/protobuf/jsonpb"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/recoverylog"
@@ -73,7 +70,7 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 
 	defer func() {
 		if err == nil {
-			ops.PublishLog(d.opsPublisher, po.Log_debug,
+			ops.PublishLog(d.opsPublisher, ops.Log_debug,
 				"initialized processing term",
 				"derivation", d.labels.TaskName,
 				"shard", d.shardSpec.Id,
@@ -81,7 +78,7 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 				"checkpoint", cp,
 			)
 		} else if !errors.Is(err, context.Canceled) {
-			ops.PublishLog(d.opsPublisher, po.Log_error,
+			ops.PublishLog(d.opsPublisher, ops.Log_error,
 				"failed to initialize processing term",
 				"error", err,
 			)
@@ -98,7 +95,7 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 	if d.collection.Derivation == nil {
 		return pf.Checkpoint{}, fmt.Errorf("this is an old task that needs to be updated")
 	}
-	ops.PublishLog(d.opsPublisher, po.Log_debug,
+	ops.PublishLog(d.opsPublisher, ops.Log_debug,
 		"loaded specification",
 		"spec", d.collection, "build", d.labels.Build)
 
@@ -238,18 +235,9 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 
 		} else if response.Flushed != nil {
 
-			var stats bytes.Buffer
-			if err := (&jsonpb.Marshaler{}).Marshal(&stats, responseExt.Flushed.Stats); err != nil {
-				return fmt.Errorf("encoding stats document: %w", err)
+			if err := d.opsPublisher.PublishStats(*responseExt.Flushed.Stats, false); err != nil {
+				return fmt.Errorf("publishing stats: %w", err)
 			}
-			if _, err := pub.PublishUncommitted(mapper.Map, flow.Mappable{
-				Spec:       d.statsCollection,
-				Doc:        stats.Bytes(),
-				Partitions: tuple.Tuple{d.labels.TaskType.String(), d.labels.TaskName},
-			}); err != nil {
-				return fmt.Errorf("publishing stats document: %w", err)
-			}
-
 			return nil
 		}
 	}
@@ -258,7 +246,7 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 // StartCommit implements the Store interface, and writes the current transaction
 // as an atomic RocksDB WriteBatch, guarded by a write barrier.
 func (d *Derive) StartCommit(_ consumer.Shard, cp pf.Checkpoint, waitFor client.OpFutures) client.OpFuture {
-	ops.PublishLog(d.opsPublisher, po.Log_debug,
+	ops.PublishLog(d.opsPublisher, ops.Log_debug,
 		"StartCommit",
 		"derivation", d.labels.TaskName,
 		"shard", d.shardSpec.Id,

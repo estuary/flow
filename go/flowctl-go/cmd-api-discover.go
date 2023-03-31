@@ -9,10 +9,10 @@ import (
 
 	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/ops"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	pfc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"

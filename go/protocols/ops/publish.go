@@ -4,43 +4,26 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/estuary/flow/go/labels"
-	po "github.com/estuary/flow/go/protocols/ops"
 	"github.com/gogo/protobuf/types"
 )
 
 // Publisher of operation Logs and Stats.
-// TODO(johnny): Publisher covers ops.Logs, but does not yet
-// cover ops.Stats.
 type Publisher interface {
 	// PublishLog publishes a Log instance.
 	PublishLog(Log)
 	// PublishStats publishes a StatsEvent.
-	PublishStats(StatsEvent)
-	// Labels which are the context of this Publisher.
-	Labels() labels.ShardLabeling
-}
-
-// ShardRef is a reference to a specific task shard that produced logs and stats.
-// * ops-catalog/ops-task-schema.json
-// * crate/ops/lib.rs
-type ShardRef = po.Shard
-
-func NewShardRef(labeling labels.ShardLabeling) *ShardRef {
-	return &ShardRef{
-		Name:        labeling.TaskName,
-		Kind:        labeling.TaskType,
-		KeyBegin:    fmt.Sprintf("%08x", labeling.Range.KeyBegin),
-		RClockBegin: fmt.Sprintf("%08x", labeling.Range.RClockBegin),
-	}
+	PublishStats(stats Stats, immediate bool) error
+	// Level to log at.
+	Labels() ShardLabeling
 }
 
 // PublishLog constructs and publishes a Log using the given Publisher.
 // Fields must be pairs of a string key followed by a JSON-encodable interface{} value.
 // PublishLog panics if `fields` are odd, or if a field isn't a string,
 // or if it cannot be encoded as JSON.
-func PublishLog(publisher Publisher, level po.Log_Level, message string, fields ...interface{}) {
-	if publisher.Labels().LogLevel < level {
+func PublishLog(publisher Publisher, level Log_Level, message string, fields ...interface{}) {
+	var labels = publisher.Labels()
+	if labels.LogLevel < level {
 		return
 	}
 
@@ -69,11 +52,11 @@ func PublishLog(publisher Publisher, level po.Log_Level, message string, fields 
 	}
 
 	publisher.PublishLog(Log{
+		Shard:         NewShardRef(publisher.Labels()),
 		Timestamp:     types.TimestampNow(),
 		Level:         level,
 		Message:       message,
 		FieldsJsonMap: fieldsMap,
-		Shard:         NewShardRef(publisher.Labels()),
 		Spans:         nil, // Not supported from Go.
 	})
 }

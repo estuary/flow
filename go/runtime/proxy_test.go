@@ -4,18 +4,17 @@ import (
 	"testing"
 
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/ops"
-	po "github.com/estuary/flow/go/protocols/ops"
+	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/stretchr/testify/require"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"google.golang.org/grpc"
 )
 
 func TestExposeCalledAfterUnexpose(t *testing.T) {
-	var logger = ops.NewLocalPublisher(labels.ShardLabeling{
+	var logger = ops.NewLocalPublisher(ops.ShardLabeling{
 		Build:    "test-build",
 		TaskName: "foo/bar",
-		TaskType: po.Shard_capture,
+		TaskType: ops.TaskType_capture,
 	})
 	var server = &ProxyServer{
 		containers: make(map[pc.ShardID]*runningContainer),
@@ -40,10 +39,10 @@ func TestExposeCalledAfterUnexpose(t *testing.T) {
 }
 
 func TestExposeCalledBeforePreviousInstanceIsUnexposed(t *testing.T) {
-	var logger = ops.NewLocalPublisher(labels.ShardLabeling{
+	var logger = ops.NewLocalPublisher(ops.ShardLabeling{
 		Build:    "test-build",
 		TaskName: "foo/bar",
-		TaskType: po.Shard_capture,
+		TaskType: ops.TaskType_capture,
 	})
 	var server = &ProxyServer{
 		containers: make(map[pc.ShardID]*runningContainer),

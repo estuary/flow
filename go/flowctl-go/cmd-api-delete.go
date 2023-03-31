@@ -8,11 +8,10 @@ import (
 	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/ops"
 	pfc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
-	po "github.com/estuary/flow/go/protocols/ops"
+	"github.com/estuary/flow/go/protocols/ops"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
@@ -85,7 +84,7 @@ func (cmd apiDelete) execute(ctx context.Context) error {
 		var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
 			Build:    spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
 			TaskName: spec.TaskName(),
-			TaskType: po.Shard_capture,
+			TaskType: ops.TaskType_capture,
 		})
 
 		if spec.ShardTemplate.Disable {
@@ -132,10 +131,10 @@ func (cmd apiDelete) execute(ctx context.Context) error {
 		if !ok {
 			continue
 		}
-		var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
+		var publisher = ops.NewLocalPublisher(ops.ShardLabeling{
 			Build:    spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
 			TaskName: spec.TaskName(),
-			TaskType: po.Shard_materialization,
+			TaskType: ops.TaskType_materialization,
 		})
 
 		if spec.ShardTemplate.Disable {

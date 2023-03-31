@@ -608,9 +608,9 @@ fn ex_log() -> ops::Log {
         meta: Some(ops::Meta {
             uuid: "c13a3412-903a-40f2-8bca-0a2f4d9260be".to_string(),
         }),
-        shard: Some(ops::Shard {
+        shard: Some(ops::ShardRef {
             name: "my/cool/task".to_string(),
-            kind: ops::shard::Kind::Derivation as i32,
+            kind: ops::TaskType::Derivation as i32,
             key_begin: "00112233".to_string(),
             r_clock_begin: "aabbccdd".to_string(),
         }),
@@ -642,15 +642,30 @@ fn ex_stats() -> ops::Stats {
         meta: Some(ops::Meta {
             uuid: "c13a3412-903a-40f2-8bca-0a2f4d9260be".to_string(),
         }),
-        shard: Some(ops::Shard {
+        shard: Some(ops::ShardRef {
             name: "my/cool/task".to_string(),
-            kind: ops::shard::Kind::Derivation as i32,
+            kind: ops::TaskType::Derivation as i32,
             key_begin: "00112233".to_string(),
             r_clock_begin: "aabbccdd".to_string(),
         }),
         timestamp: Some(proto_flow::as_timestamp(std::time::SystemTime::UNIX_EPOCH)),
         open_seconds_total: 3.14159,
         txn_count: 15,
+        capture: [(
+            "captured/collection".to_string(),
+            ops::stats::Binding {
+                left: None,
+                right: Some(ops::stats::DocsAndBytes {
+                    docs_total: 2,
+                    bytes_total: 200,
+                }),
+                out: Some(ops::stats::DocsAndBytes {
+                    docs_total: 1,
+                    bytes_total: 100,
+                }),
+            },
+        )]
+        .into(),
         derive: Some(ops::stats::Derive {
             transforms: [
                 (
@@ -684,6 +699,24 @@ fn ex_stats() -> ops::Stats {
                 bytes_total: 102,
             }),
         }),
+        materialize: [(
+            "materialized/collection".to_string(),
+            ops::stats::Binding {
+                left: Some(ops::stats::DocsAndBytes {
+                    docs_total: 1,
+                    bytes_total: 100,
+                }),
+                right: Some(ops::stats::DocsAndBytes {
+                    docs_total: 2,
+                    bytes_total: 200,
+                }),
+                out: Some(ops::stats::DocsAndBytes {
+                    docs_total: 3,
+                    bytes_total: 300,
+                }),
+            },
+        )]
+        .into(),
     }
 }
 

@@ -10,11 +10,10 @@ import (
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
-	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	po "github.com/estuary/flow/go/protocols/ops"
+	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/message"
@@ -76,7 +75,7 @@ func TestExtractorValidation(t *testing.T) {
 	}))
 
 	var opsLogs = make(chan ops.Log)
-	var ex, err = NewExtractor(newChanPublisher(opsLogs, po.Log_warn))
+	var ex, err = NewExtractor(newChanPublisher(opsLogs, ops.Log_warn))
 	require.NoError(t, err)
 	require.NoError(t, ex.Configure("/uuid", []string{"/s"}, collection.WriteSchemaJson))
 

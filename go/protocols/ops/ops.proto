@@ -11,16 +11,18 @@ option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 option (gogoproto.goproto_getters_all) = false;
 
-// Common `shard` sub-document logged by Stats and Log.
-message Shard {
-  // The type of catalog task.
-  enum Kind {
-    invalid_kind = 0;
+// The type of a catalog task.
+enum TaskType {
+    invalid_type = 0;
     capture = 1;
     derivation = 2;
     materialization = 3;
-  }
-  Kind kind = 1;
+}
+
+// Common `shard` sub-document logged by Stats and Log.
+message ShardRef {
+  // The type of catalog task.
+  TaskType kind = 1;
   // The name of the catalog task.
   string name = 2;
   // The hex-encoded inclusive beginning of the shard's assigned key range.
@@ -38,7 +40,7 @@ message Log {
   // Meta sub-document added by the Flow runtime.
   Meta meta = 1 [json_name = "_meta"];
   // The shard which produced this document..
-  Shard shard = 2;
+  ShardRef shard = 2;
   // Timestamp corresponding to the start of the transaction.
   // When aggregating, the timestamp is rounded to various UTC
   // intervals (for example hour, day, and month).
@@ -75,7 +77,7 @@ message Stats {
   // Meta sub-document added by the Flow runtime.
   Meta meta = 1 [json_name = "_meta"];
   // The shard which produced this document..
-  Shard shard = 2;
+  ShardRef shard = 2;
   // Timestamp corresponding to the start of the transaction.
   // When aggregating, the timestamp is rounded to various UTC
   // intervals (for example hour, day, and month).
@@ -94,7 +96,17 @@ message Stats {
     uint32 bytes_total = 2;
   }
 
-  reserved 6; // TODO(johnny): Reserved for Capture.
+  // Binding represents counts of JSON documents and their
+  // cumulative total size in bytes, passing through the binding
+  // of a capture or materialization.
+  message Binding {
+      DocsAndBytes left = 1;
+      DocsAndBytes right = 2;
+      DocsAndBytes out = 3;
+  }
+
+  // Capture metrics.
+  map<string, Binding> capture = 6;
 
   // Derivation metrics.
   message Derive {
@@ -113,5 +125,6 @@ message Stats {
   }
   Derive derive = 7;
 
-  reserved 8; // TODO(johnny): Reserved for Materialization.
+  // Materialization metrics.
+  map<string, Binding> materialize = 8;
 }

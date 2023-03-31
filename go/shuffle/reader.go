@@ -9,7 +9,7 @@ import (
 
 	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	po "github.com/estuary/flow/go/protocols/ops"
+	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -145,7 +145,7 @@ func StartReplayRead(ctx context.Context, rb *ReadBuilder, journal pb.Journal, b
 			// Other errors indicate a broken stream, but may be retried.
 
 			// Stream is broken, but may be retried.
-			r.log(po.Log_warn,
+			r.log(ops.Log_warn,
 				"shuffled replay read failed (will retry)",
 				"error", err,
 				"attempt", attempt,
@@ -190,7 +190,7 @@ func (g *governor) next(ctx context.Context) (message.Envelope, error) {
 			g.gated = append(g.gated, r)
 			g.setPollState(r, pollStateGated)
 
-			r.log(po.Log_debug, "gated documents of journal", "until", readTime)
+			r.log(ops.Log_debug, "gated documents of journal", "until", readTime)
 			continue
 		}
 
@@ -271,9 +271,9 @@ func (g *governor) poll(ctx context.Context) error {
 			// shard assignments change and the read is restarted against
 			// an new coordinator. Other errors aren't as typical.
 			if err != context.Canceled {
-				r.log(po.Log_warn, "shuffled read failed (will retry)", "error", err)
+				r.log(ops.Log_warn, "shuffled read failed (will retry)", "error", err)
 			} else {
-				r.log(po.Log_debug, "shuffled read has drained")
+				r.log(ops.Log_debug, "shuffled read has drained")
 			}
 
 			// Clear tracking state for this drained read.
@@ -335,7 +335,7 @@ func (g *governor) onTick() error {
 	for _, r := range g.gated {
 		heap.Push(&g.queued, r)
 		g.setPollState(r, pollStateReady)
-		r.log(po.Log_debug, "un-gated documents of journal", "now", g.wallTime)
+		r.log(ops.Log_debug, "un-gated documents of journal", "now", g.wallTime)
 	}
 	g.gated = g.gated[:0]
 
@@ -366,7 +366,7 @@ func (g *governor) onConverge(ctx context.Context) error {
 	}
 
 	for _, r := range drain {
-		r.log(po.Log_debug, "cancelled shuffled read marked for draining")
+		r.log(ops.Log_debug, "cancelled shuffled read marked for draining")
 		r.cancel()
 	}
 

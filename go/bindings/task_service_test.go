@@ -9,12 +9,10 @@ import (
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
-	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pd "github.com/estuary/flow/go/protocols/derive"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	po "github.com/estuary/flow/go/protocols/ops"
+	"github.com/estuary/flow/go/protocols/ops"
 	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/stretchr/testify/require"
@@ -72,7 +70,7 @@ func TestSimpleDerive(t *testing.T) {
 		},
 		Internal: pr.ToAny(&pr.DeriveRequestExt{
 			Open: &pr.DeriveRequestExt_Open{
-				LogLevel: po.Log_debug,
+				LogLevel: ops.Log_debug,
 			},
 		}),
 	}))
@@ -146,10 +144,10 @@ func (p *testPublisher) PublishLog(log ops.Log) {
 	p.logs += 1
 }
 
-func (p *testPublisher) PublishStats(ops.StatsEvent) { panic("not called") }
+func (p *testPublisher) PublishStats(ops.Stats, bool) error { panic("not called") }
 
-func (p *testPublisher) Labels() labels.ShardLabeling {
-	return labels.ShardLabeling{
+func (p *testPublisher) Labels() ops.ShardLabeling {
+	return ops.ShardLabeling{
 		TaskName: "some/task",
 	}
 }

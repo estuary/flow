@@ -5,14 +5,14 @@ pub mod decode;
 pub mod tracing;
 
 pub use proto_flow::ops::log::Level as LogLevel;
-pub use proto_flow::ops::shard::Kind as ShardKind;
 pub use proto_flow::ops::Log;
+pub use proto_flow::ops::TaskType;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Shard {
     /// The type of the shard's catalog task.
-    kind: ShardKind,
+    kind: TaskType,
     /// The name of the shard's catalog task.
     name: String,
     /// The inclusive beginning of the shard's assigned key range.
@@ -21,7 +21,7 @@ pub struct Shard {
     r_clock_begin: HexU32,
 }
 
-impl From<Shard> for proto_flow::ops::Shard {
+impl From<Shard> for proto_flow::ops::ShardRef {
     fn from(
         Shard {
             kind,

@@ -11,11 +11,10 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	po "github.com/estuary/flow/go/protocols/ops"
+	"github.com/estuary/flow/go/protocols/ops"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -52,7 +51,7 @@ func NewFlowTesting(inner *FlowConsumer, ajc *client.AppendService) *FlowTesting
 func (f *FlowTesting) ResetState(ctx context.Context, _ *pf.ResetStateRequest) (*pf.ResetStateResponse, error) {
 	var listing, err = consumer.ShardList(ctx, f.Service, &pc.ListRequest{
 		Selector: pb.LabelSelector{
-			Include: pb.MustLabelSet(labels.TaskType, po.Shard_derivation.String()),
+			Include: pb.MustLabelSet(labels.TaskType, ops.TaskType_derivation.String()),
 		},
 	})
 	if err != nil {
@@ -116,10 +115,10 @@ func (f *FlowTesting) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.In
 		return nil, fmt.Errorf("loading collection: %w", err)
 	}
 
-	var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
+	var publisher = ops.NewLocalPublisher(ops.ShardLabeling{
 		Build:    req.BuildId,
 		TaskName: req.Collection.String(),
-		TaskType: po.Shard_capture,
+		TaskType: ops.TaskType_capture,
 	})
 
 	// Build a combiner of documents for this collection.

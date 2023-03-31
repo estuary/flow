@@ -8,7 +8,7 @@ import (
 
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	po "github.com/estuary/flow/go/protocols/ops"
+	"github.com/estuary/flow/go/protocols/ops"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -453,14 +453,14 @@ func DeletionChanges(
 }
 
 // taskType returns the label matching this Task.
-func taskType(task pf.Task) po.Shard_Kind {
+func taskType(task pf.Task) ops.TaskType {
 	switch task.(type) {
 	case *pf.CaptureSpec:
-		return po.Shard_capture
+		return ops.TaskType_capture
 	case *pf.CollectionSpec:
-		return po.Shard_derivation
+		return ops.TaskType_derivation
 	case *pf.MaterializationSpec:
-		return po.Shard_materialization
+		return ops.TaskType_materialization
 	default:
 		panic(task)
 	}

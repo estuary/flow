@@ -1,4 +1,3 @@
-// TODO(johnny): Move this package into go/protocols/ops
 package ops
 
 import (
@@ -7,14 +6,7 @@ import (
 	"strings"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
-	po "github.com/estuary/flow/go/protocols/ops"
 )
-
-// Log is the canonical shape of a Flow operations Log document.
-// See also:
-// * ops-catalog/ops-log-schema.json
-// * crate/ops/lib.rs
-type Log = po.Log
 
 // LogCollection returns the collection to which logs of the given shard are written.
 func LogCollection(taskName string) pf.Collection {

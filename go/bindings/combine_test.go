@@ -9,11 +9,10 @@ import (
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
-	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	po "github.com/estuary/flow/go/protocols/ops"
+	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/stretchr/testify/require"
 )
@@ -43,7 +42,7 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 
 	var opsLogs = make(chan ops.Log)
 
-	combiner, err := NewCombine(newChanPublisher(opsLogs, po.Log_warn))
+	combiner, err := NewCombine(newChanPublisher(opsLogs, ops.Log_warn))
 	require.NoError(t, err)
 	defer combiner.Destroy()
 

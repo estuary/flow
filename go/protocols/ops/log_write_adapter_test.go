@@ -4,10 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	"github.com/estuary/flow/go/protocols/ops"
-	po "github.com/estuary/flow/go/protocols/ops"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,9 +25,9 @@ func TestWriteAdapter(t *testing.T) {
 	w.Write([]byte(`more invalid json!` + "\n"))
 	w.Write([]byte(`{"message":"5", "fields":{"f1":1, "fTwo":"two"}}` + "\n"))
 
-	var shard = &po.Shard{
+	var shard = &ShardRef{
 		Name:        "task/name",
-		Kind:        ops.Shard_capture,
+		Kind:        TaskType_capture,
 		KeyBegin:    "00001111",
 		RClockBegin: "00003333",
 	}
@@ -47,19 +44,16 @@ func TestWriteAdapter(t *testing.T) {
 
 type appendPublisher struct{ logs []Log }
 
-// PublishStats implements Publisher
-func (*appendPublisher) PublishStats(StatsEvent) {
-	// no-op
-}
-
 var _ Publisher = &appendPublisher{}
 
-func (p *appendPublisher) PublishLog(log Log) { p.logs = append(p.logs, log) }
-func (p *appendPublisher) Labels() labels.ShardLabeling {
-	return labels.ShardLabeling{
-		LogLevel: po.Log_debug,
+func (p *appendPublisher) PublishLog(log Log)           { p.logs = append(p.logs, log) }
+func (*appendPublisher) PublishStats(Stats, bool) error { panic("not called") }
+
+func (p *appendPublisher) Labels() ShardLabeling {
+	return ShardLabeling{
+		LogLevel: Log_debug,
 		TaskName: "task/name",
-		TaskType: po.Shard_capture,
+		TaskType: TaskType_capture,
 		Range: pf.RangeSpec{
 			KeyBegin:    0x00001111,
 			KeyEnd:      0x22220000,

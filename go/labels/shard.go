@@ -6,40 +6,12 @@ import (
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
-	po "github.com/estuary/flow/go/protocols/ops"
 )
 
-type PortConfig struct {
-	Protocol string
-	Public   bool
-}
-
-// ShardLabeling is a parsed and validated representation of the Flow
-// labels which are attached to Gazette ShardSpecs, that are understood
-// by the Flow runtime and influence its behavior with respect to the shard.
-type ShardLabeling struct {
-	// Catalog build identifier which the task uses.
-	Build string
-	// Network-addressable hostname of this task shard.
-	Hostname string
-	// Logging level of the task.
-	LogLevel po.Log_Level
-	// Ports is a map from port name to the combined configuration
-	// for the port. The runtime itself doesn't actually care
-	// about the alpn protocol, but it's there for the sake of
-	// completeness.
-	Ports map[uint16]*PortConfig `json:",omitempty"`
-	// Key and R-Clock range of the shard.
-	Range pf.RangeSpec
-	// If non-empty, the shard which this task is splitting from.
-	SplitSource string `json:",omitempty"`
-	// If non-empty, the shard which this task is splitting into.
-	SplitTarget string `json:",omitempty"`
-	// Name of the shard's task.
-	TaskName string
-	// Type of this task (capture, derivation, or materialization).
-	TaskType po.Shard_Kind
-}
+// TODO(johnny): Remove these re-exports and update remaining usages
+// to point to `ops` package instead.
+type PortConfig = ops.PortConfig
+type ShardLabeling = ops.ShardLabeling
 
 // ParseShardLabels parses and validates ShardLabels from their defined
 // label names, and returns any encountered error in the representation.
@@ -49,10 +21,10 @@ func ParseShardLabels(set pf.LabelSet) (ShardLabeling, error) {
 
 	if levelStr, err := ExpectOne(set, LogLevel); err != nil {
 		return out, err
-	} else if mapped, ok := po.Log_Level_value[levelStr]; !ok {
+	} else if mapped, ok := ops.Log_Level_value[levelStr]; !ok {
 		return out, fmt.Errorf("%q is not a valid log level", levelStr)
 	} else {
-		out.LogLevel = po.Log_Level(mapped)
+		out.LogLevel = ops.Log_Level(mapped)
 	}
 	if out.Range, err = ParseRangeSpec(set); err != nil {
 		return out, err
@@ -73,10 +45,10 @@ func ParseShardLabels(set pf.LabelSet) (ShardLabeling, error) {
 	taskType, err := ExpectOne(set, TaskType)
 	if err != nil {
 		return out, err
-	} else if kind, ok := po.Shard_Kind_value[taskType]; !ok {
+	} else if kind, ok := ops.TaskType_value[taskType]; !ok {
 		return out, fmt.Errorf("unknown task type %q", taskType)
 	} else {
-		out.TaskType = ops.Shard_Kind(kind)
+		out.TaskType = ops.TaskType(kind)
 	}
 	if out.Ports, err = parsePorts(set); err != nil {
 		return out, err

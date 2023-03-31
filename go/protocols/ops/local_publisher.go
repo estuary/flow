@@ -3,38 +3,36 @@ package ops
 import (
 	"encoding/json"
 
-	"github.com/estuary/flow/go/labels"
-	po "github.com/estuary/flow/go/protocols/ops"
 	"github.com/sirupsen/logrus"
 )
 
 // LocalPublisher publishes ops Logs to the local process stderr.
 // Currently it uses `logrus` to do so, though this may change in the future.
 type LocalPublisher struct {
-	labels labels.ShardLabeling
+	labels ShardLabeling
 }
 
 var _ Publisher = &LocalPublisher{}
 
-func NewLocalPublisher(labels labels.ShardLabeling) *LocalPublisher {
-	if labels.LogLevel == po.Log_undefined_level {
+func NewLocalPublisher(labels ShardLabeling) *LocalPublisher {
+	if labels.LogLevel == Log_undefined_level {
 		labels.LogLevel = logrusLogLevel()
 	}
 	return &LocalPublisher{labels}
 }
 
-func (p *LocalPublisher) Labels() labels.ShardLabeling { return p.labels }
+func (p *LocalPublisher) Labels() ShardLabeling { return p.labels }
 
-func (*LocalPublisher) PublishLog(log Log) {
+func (p *LocalPublisher) PublishLog(log Log) {
 	var level logrus.Level
 	switch log.Level {
-	case po.Log_trace:
+	case Log_trace:
 		level = logrus.TraceLevel
-	case po.Log_debug:
+	case Log_debug:
 		level = logrus.DebugLevel
-	case po.Log_info:
+	case Log_info:
 		level = logrus.InfoLevel
-	case po.Log_warn:
+	case Log_warn:
 		level = logrus.WarnLevel
 	default:
 		level = logrus.ErrorLevel
@@ -57,29 +55,29 @@ func (*LocalPublisher) PublishLog(log Log) {
 		}
 	}
 
-	if log.Shard.Name != "" && fields["task"] == nil {
-		fields["task"] = log.Shard.Name
+	if p.labels.TaskName != "" && fields["task"] == nil {
+		fields["task"] = p.labels.TaskName
 	}
 	logger.WithFields(fields).Log(level, log.Message)
 }
 
-// PublishStats implements Publisher
-func (*LocalPublisher) PublishStats(event StatsEvent) {
+func (*LocalPublisher) PublishStats(event Stats, immediate bool) error {
 	logrus.WithField("stats", event).Error("got local stats event")
+	return nil
 }
 
 // logrusLogLevel maps the current Level of the logrus logger into a pf.LogLevel.
-func logrusLogLevel() po.Log_Level {
+func logrusLogLevel() Log_Level {
 	switch logrus.StandardLogger().Level {
 	case logrus.TraceLevel:
-		return po.Log_trace
+		return Log_trace
 	case logrus.DebugLevel:
-		return po.Log_debug
+		return Log_debug
 	case logrus.InfoLevel:
-		return po.Log_info
+		return Log_info
 	case logrus.WarnLevel:
-		return po.Log_warn
+		return Log_warn
 	default:
-		return po.Log_error
+		return Log_error
 	}
 }

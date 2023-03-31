@@ -12,11 +12,10 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	po "github.com/estuary/flow/go/protocols/ops"
+	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -251,7 +250,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 var localPublisher = ops.NewLocalPublisher(
 	labels.ShardLabeling{
 		Build:    "the-build",
-		LogLevel: po.Log_debug,
+		LogLevel: ops.Log_debug,
 		Range: pf.RangeSpec{
 			KeyBegin:    0x00001111,
 			KeyEnd:      0x11110000,
@@ -259,6 +258,6 @@ var localPublisher = ops.NewLocalPublisher(
 			RClockEnd:   0x22220000,
 		},
 		TaskName: "some-tenant/task/name",
-		TaskType: po.Shard_derivation,
+		TaskType: ops.TaskType_derivation,
 	},
 )

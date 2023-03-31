@@ -12,13 +12,13 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/ops"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	po "github.com/estuary/flow/go/protocols/ops"
+	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/estuary/flow/go/shuffle"
+	"github.com/gogo/protobuf/types"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/recoverylog"
@@ -41,6 +41,8 @@ type Capture struct {
 	// Embedded processing state scoped to a current task version.
 	// Updated in RestoreCheckpoint.
 	taskTerm
+	// Accumulated stats of a current transaction.
+	txnStats ops.Stats
 }
 
 var _ Application = (*Capture)(nil)
@@ -70,7 +72,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	}
 	defer func() {
 		if err == nil {
-			ops.PublishLog(c.opsPublisher, po.Log_debug,
+			ops.PublishLog(c.opsPublisher, ops.Log_debug,
 				"initialized processing term",
 				"capture", c.labels.TaskName,
 				"shard", c.shardSpec.Id,
@@ -78,7 +80,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 				"checkpoint", cp,
 			)
 		} else if !errors.Is(err, context.Canceled) {
-			ops.PublishLog(c.opsPublisher, po.Log_error,
+			ops.PublishLog(c.opsPublisher, ops.Log_error,
 				"failed to initialize processing term",
 				"error", err,
 			)
@@ -108,7 +110,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 	if err != nil {
 		return pf.Checkpoint{}, err
 	}
-	ops.PublishLog(c.opsPublisher, po.Log_debug,
+	ops.PublishLog(c.opsPublisher, ops.Log_debug,
 		"loaded specification",
 		"spec", c.spec, "build", c.labels.Build)
 
@@ -290,7 +292,7 @@ func (c *Capture) startReadingMessages(
 		return fmt.Errorf("opening pull RPC: %w", err)
 	}
 
-	ops.PublishLog(c.opsPublisher, po.Log_debug,
+	ops.PublishLog(c.opsPublisher, ops.Log_debug,
 		"reading capture stream",
 		"capture", c.labels.TaskName,
 		"shard", c.shardSpec.Id,
@@ -360,62 +362,37 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 		bindingStats = append(bindingStats, stats)
 	}
 
-	// Publish a final message with statistics about the capture transaction we'll soon finish, but
-	// only if we've actually published any documents. It's possible for Capture transactions to
-	// update the driver checkpoint without actually emitting any new documents. We choose not to
-	// publish stats in that case in order to reduce noise in the stats collections, and simplify
-	// working with them (readers of stats can safely assume that there will be capture stats when
-	// kind = capture).
-	var statsEvent = c.captureStats(bindingStats)
-	if len(statsEvent.Capture) > 0 {
-		var statsMessage = c.taskTerm.StatsFormatter.FormatEvent(statsEvent)
-		if _, err := pub.PublishUncommitted(mapper.Map, statsMessage); err != nil {
-			return fmt.Errorf("publishing stats document: %w", err)
-		}
-	} else {
-		ops.PublishLog(c.opsPublisher, po.Log_debug,
-			"capture transaction committing updating driver checkpoint only")
+	for i, s := range bindingStats {
+		mergeBinding(c.txnStats.Capture, c.spec.Bindings[i].Collection.Name.String(), s)
 	}
-
 	return nil
 }
 
-func (c *Capture) captureStats(statsPerBinding []*pf.CombineAPI_Stats) ops.StatsEvent {
-	var captureStats = make(map[string]ops.CaptureBindingStats)
-	for i, bindingStats := range statsPerBinding {
-		// Skip bindings that didn't participate
-		if bindingStats == nil {
-			continue
-		}
-		var name = c.spec.Bindings[i].Collection.Name.String()
-		// It's possible for multiple bindings to use the same collection, in which case the
-		// stats should be summed.
-		var prevStats = captureStats[name]
-		captureStats[name] = ops.CaptureBindingStats{
-			Right: prevStats.Right.With(bindingStats.Right),
-			Out:   prevStats.Out.With(bindingStats.Out),
-		}
-	}
-	// Prune stats for any collections that didn't have any data. This allows us to check
-	// len(statsEvent.Capture) to see if the event contains any non-zero capture stats.
-	for k, v := range captureStats {
-		if v.Right.Docs == 0 {
-			delete(captureStats, k)
-		}
-	}
-	var event = c.NewStatsEvent()
-	event.Capture = captureStats
-	return event
-}
-
-// BeginTxn is a no-op.
+// BeginTxn implements Application.BeginTxn.
 func (c *Capture) BeginTxn(consumer.Shard) error {
-	c.TxnOpened()
+	c.txnStats = ops.Stats{
+		Shard:     ops.NewShardRef(c.labels),
+		Timestamp: types.TimestampNow(),
+		TxnCount:  1,
+		Capture:   make(map[string]*ops.Stats_Binding),
+	}
 	return nil
 }
 
-// FinalizeTxn is a no-op.
-func (c *Capture) FinalizeTxn(consumer.Shard, *message.Publisher) error { return nil }
+func (c *Capture) FinalizeTxn(consumer.Shard, *message.Publisher) error {
+	c.txnStats.OpenSecondsTotal = time.Since(c.txnStats.GoTimestamp()).Seconds()
+
+	if len(c.txnStats.Capture) == 0 {
+		// The connector may have only emitted an empty checkpoint.
+		// Don't publish stats in this case.
+		ops.PublishLog(c.opsPublisher, ops.Log_debug,
+			"capture transaction committing updating driver checkpoint only")
+	} else if err := c.opsPublisher.PublishStats(c.txnStats, false); err != nil {
+		return fmt.Errorf("publishing stats: %w", err)
+	}
+
+	return nil
+}
 
 // FinishedTxn logs if an error occurred.
 func (c *Capture) FinishedTxn(_ consumer.Shard, op consumer.OpFuture) {
@@ -429,7 +406,7 @@ func (c *Capture) Coordinator() *shuffle.Coordinator {
 
 // StartCommit implements consumer.Store.StartCommit
 func (c *Capture) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
-	ops.PublishLog(c.opsPublisher, po.Log_debug,
+	ops.PublishLog(c.opsPublisher, ops.Log_debug,
 		"StartCommit",
 		"capture", c.labels.TaskName,
 		"shard", c.shardSpec.Id,
@@ -479,4 +456,36 @@ func (m *captureMessage) SetUUID(message.UUID) {
 }
 func (m *captureMessage) NewAcknowledgement(pf.Journal) message.Message {
 	panic("must not be called")
+}
+
+func mergeBinding(stats map[string]*ops.Stats_Binding, name string, in *pf.CombineAPI_Stats) {
+	if in == nil {
+		return
+	}
+
+	var stat, ok = stats[name]
+	if !ok {
+		stat = new(ops.Stats_Binding)
+	}
+
+	// It's possible for multiple bindings to use the same collection,
+	// in which case the stats should be summed.
+	mergeCounts(&stat.Left, in.Left)
+	mergeCounts(&stat.Right, in.Right)
+	mergeCounts(&stat.Out, in.Out)
+
+	if stat.Left != nil || stat.Right != nil || stat.Out != nil {
+		stats[name] = stat
+	}
+}
+
+func mergeCounts(out **ops.Stats_DocsAndBytes, in *pf.DocsAndBytes) {
+	if in == nil || in.Docs == 0 {
+		return
+	}
+	if *out == nil {
+		*out = new(ops.Stats_DocsAndBytes)
+	}
+	(*out).DocsTotal += in.Docs
+	(*out).BytesTotal += in.Bytes
 }

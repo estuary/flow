@@ -1,8 +1,9 @@
 /// Common `shard` sub-document logged by Stats and Log.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Shard {
-    #[prost(enumeration = "shard::Kind", tag = "1")]
+pub struct ShardRef {
+    /// The type of catalog task.
+    #[prost(enumeration = "TaskType", tag = "1")]
     pub kind: i32,
     /// The name of the catalog task.
     #[prost(string, tag = "2")]
@@ -13,52 +14,6 @@ pub struct Shard {
     /// The hex-encoded inclusive beginning of the shard's assigned r_clock range.
     #[prost(string, tag = "4")]
     pub r_clock_begin: ::prost::alloc::string::String,
-}
-/// Nested message and enum types in `Shard`.
-pub mod shard {
-    /// The type of catalog task.
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
-    #[repr(i32)]
-    pub enum Kind {
-        InvalidKind = 0,
-        Capture = 1,
-        Derivation = 2,
-        Materialization = 3,
-    }
-    impl Kind {
-        /// String value of the enum field names used in the ProtoBuf definition.
-        ///
-        /// The values are not transformed in any way and thus are considered stable
-        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-        pub fn as_str_name(&self) -> &'static str {
-            match self {
-                Kind::InvalidKind => "invalid_kind",
-                Kind::Capture => "capture",
-                Kind::Derivation => "derivation",
-                Kind::Materialization => "materialization",
-            }
-        }
-        /// Creates an enum from field names used in the ProtoBuf definition.
-        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-            match value {
-                "invalid_kind" => Some(Self::InvalidKind),
-                "capture" => Some(Self::Capture),
-                "derivation" => Some(Self::Derivation),
-                "materialization" => Some(Self::Materialization),
-                _ => None,
-            }
-        }
-    }
 }
 /// Common Meta sub-document of Log and Stats documents.
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -75,7 +30,7 @@ pub struct Log {
     pub meta: ::core::option::Option<Meta>,
     /// The shard which produced this document..
     #[prost(message, optional, tag = "2")]
-    pub shard: ::core::option::Option<Shard>,
+    pub shard: ::core::option::Option<ShardRef>,
     /// Timestamp corresponding to the start of the transaction.
     /// When aggregating, the timestamp is rounded to various UTC
     /// intervals (for example hour, day, and month).
@@ -162,7 +117,7 @@ pub struct Stats {
     pub meta: ::core::option::Option<Meta>,
     /// The shard which produced this document..
     #[prost(message, optional, tag = "2")]
-    pub shard: ::core::option::Option<Shard>,
+    pub shard: ::core::option::Option<ShardRef>,
     /// Timestamp corresponding to the start of the transaction.
     /// When aggregating, the timestamp is rounded to various UTC
     /// intervals (for example hour, day, and month).
@@ -176,8 +131,20 @@ pub struct Stats {
     /// Number of transactions represented by this document.
     #[prost(uint32, tag = "5")]
     pub txn_count: u32,
+    /// Capture metrics.
+    #[prost(map = "string, message", tag = "6")]
+    pub capture: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        stats::Binding,
+    >,
     #[prost(message, optional, tag = "7")]
     pub derive: ::core::option::Option<stats::Derive>,
+    /// Materialization metrics.
+    #[prost(map = "string, message", tag = "8")]
+    pub materialize: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        stats::Binding,
+    >,
 }
 /// Nested message and enum types in `Stats`.
 pub mod stats {
@@ -190,6 +157,19 @@ pub mod stats {
         pub docs_total: u32,
         #[prost(uint32, tag = "2")]
         pub bytes_total: u32,
+    }
+    /// Binding represents counts of JSON documents and their
+    /// cumulative total size in bytes, passing through the binding
+    /// of a capture or materialization.
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Binding {
+        #[prost(message, optional, tag = "1")]
+        pub left: ::core::option::Option<DocsAndBytes>,
+        #[prost(message, optional, tag = "2")]
+        pub right: ::core::option::Option<DocsAndBytes>,
+        #[prost(message, optional, tag = "3")]
+        pub out: ::core::option::Option<DocsAndBytes>,
     }
     /// Derivation metrics.
     #[allow(clippy::derive_partial_eq_without_eq)]
@@ -219,6 +199,39 @@ pub mod stats {
             /// Input documents that were read by this transform.
             #[prost(message, optional, tag = "2")]
             pub input: ::core::option::Option<super::DocsAndBytes>,
+        }
+    }
+}
+/// The type of a catalog task.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum TaskType {
+    InvalidType = 0,
+    Capture = 1,
+    Derivation = 2,
+    Materialization = 3,
+}
+impl TaskType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            TaskType::InvalidType => "invalid_type",
+            TaskType::Capture => "capture",
+            TaskType::Derivation => "derivation",
+            TaskType::Materialization => "materialization",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "invalid_type" => Some(Self::InvalidType),
+            "capture" => Some(Self::Capture),
+            "derivation" => Some(Self::Derivation),
+            "materialization" => Some(Self::Materialization),
+            _ => None,
         }
     }
 }

@@ -14,8 +14,8 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/nsf/jsondiff"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
@@ -373,7 +373,7 @@ func combineDocumentsForVerify(
 	collection *pf.CollectionSpec,
 	documents [][]byte,
 ) ([]json.RawMessage, error) {
-	var publisher = ops.NewLocalPublisher(labels.ShardLabeling{})
+	var publisher = ops.NewLocalPublisher(ops.ShardLabeling{})
 
 	// Feed documents into an extractor, to extract UUIDs.
 	var extractor, err = bindings.NewExtractor(publisher)
