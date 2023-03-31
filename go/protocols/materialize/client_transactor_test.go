@@ -20,7 +20,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-//go:generate flowctl-go api build --build-id temp.db --directory testdata/ --source testdata/flow.yaml
+//go:generate flowctl-go api build --build-id test-build --build-id testdata/temp.db --source testdata/flow.yaml
 //go:generate sqlite3 file:testdata/temp.db "SELECT WRITEFILE('testdata/materialization.proto', spec) FROM built_materializations WHERE materialization = 'test/sqlite';"
 
 func TestIntegratedTransactorAndClient(t *testing.T) {

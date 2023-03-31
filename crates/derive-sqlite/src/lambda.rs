@@ -50,7 +50,13 @@ impl<'db> Lambda<'db> {
         // potential passed-through parameter.
         let mut outputs = Vec::new();
 
-        if stmt.column_count() == 1 && stmt.column_name(0).unwrap().starts_with("json") {
+        if stmt.column_count() == 1
+            && stmt
+                .column_name(0)
+                .unwrap()
+                .to_ascii_lowercase()
+                .starts_with("json")
+        {
             // The single column is a top-level JSON document to publish.
             // SQLite's JSON functions all start with json() or json_*(),
             // so use that as an indicator of user intent

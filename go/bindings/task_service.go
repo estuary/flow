@@ -4,10 +4,13 @@ package bindings
 import "C"
 import (
 	"context"
+	"crypto/md5"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/signal"
+	"path"
 	"reflect"
 	"syscall"
 	"unsafe"
@@ -21,9 +24,10 @@ import (
 )
 
 type TaskService struct {
-	c     *C.TaskService
-	conn  *grpc.ClientConn
-	lwaCh <-chan struct{}
+	config pr.TaskServiceConfig
+	cSvc   *C.TaskService
+	conn   *grpc.ClientConn
+	lwaCh  <-chan struct{}
 }
 
 func NewTaskService(
@@ -65,6 +69,16 @@ func NewTaskService(
 		}
 	}()
 
+	// Unix sockets are limited to 108 characters in length.
+	// TODO(johnny): Remove hashing after pet-set migration, when we know there's a bound on directory length.
+	if len(config.UdsPath) > 107 {
+		config.UdsPath = path.Join(os.TempDir(), fmt.Sprintf("task-svc-%x", md5.Sum([]byte(config.UdsPath))))
+
+		if len(config.UdsPath) > 107 {
+			return nil, fmt.Errorf("config.UdsPath still too long after hashing: %s", config.UdsPath)
+		}
+	}
+
 	configBytes, err := config.Marshal()
 	if err != nil {
 		return nil, err
@@ -72,7 +86,8 @@ func NewTaskService(
 	var h = (*reflect.SliceHeader)(unsafe.Pointer(&configBytes))
 
 	var svc = &TaskService{
-		c: C.new_task_service(
+		config: config,
+		cSvc: C.new_task_service(
 			(*C.uint8_t)(unsafe.Pointer(h.Data)),
 			C.uint32_t(h.Len),
 		),
@@ -110,9 +125,9 @@ func (s *TaskService) Drop() {
 		_ = s.conn.Close()
 		s.conn = nil
 	}
-	if s.c != nil {
-		C.task_service_drop(s.c)
-		s.c = nil
+	if s.cSvc != nil {
+		C.task_service_drop(s.cSvc)
+		s.cSvc = nil
 	}
 	if s.lwaCh != nil {
 		// Block until log read loop reads error or EOF.
@@ -121,14 +136,15 @@ func (s *TaskService) Drop() {
 		<-s.lwaCh
 		s.lwaCh = nil
 	}
+	_ = os.Remove(s.config.UdsPath) // Best effort.
 }
 
 func (s *TaskService) err() error {
 	var err error
-	if s.c.err_len != 0 {
+	if s.cSvc.err_len != 0 {
 		err = errors.New(C.GoStringN(
-			(*C.char)(unsafe.Pointer(s.c.err_ptr)),
-			C.int(s.c.err_len)))
+			(*C.char)(unsafe.Pointer(s.cSvc.err_ptr)),
+			C.int(s.cSvc.err_len)))
 	}
 	return err
 }

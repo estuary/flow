@@ -446,10 +446,10 @@ impl State {
             meta: Some(ops::Meta {
                 uuid: crate::UUID_PLACEHOLDER.to_string(),
             }),
+            shard: Some(self.shard.clone()),
             timestamp: Some(proto_flow::as_timestamp(started_at)),
             open_seconds_total: duration.as_secs_f64(),
             txn_count: 1,
-            shard: Some(self.shard.clone()),
             capture: Default::default(),
             derive: Some(ops::stats::Derive {
                 transforms,

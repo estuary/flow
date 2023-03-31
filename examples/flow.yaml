@@ -2,8 +2,8 @@
 import:
   - acmeBank.flow.yaml
   - stock-stats/flow.yaml
+  - citi-bike/flow.yaml
   # - temp-sensors/flow.yaml
-  #  - citi-bike/flow.yaml
   #  - derive-patterns/flow.yaml
   #  - hello-world/flow.yaml
   #  - marketing/flow.yaml

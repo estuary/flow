@@ -16,24 +16,28 @@ collections:
     key: [/count]
 
 captures:
-  examples/source-test-fail:
+  examples/source-test:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-test:d97009e
+        image: ghcr.io/estuary/source-test:3be4f86
         config:
-          greetings: 10
-          fail_after: 10
+          exit_after: 100
+          greetings: 100
     bindings:
       - resource:
           stream: greetings
           syncMode: incremental
         target: examples/greetings
+    # This low interval makes awaiting the test much quicker.
+    interval: 5s
+    shards:
+      logLevel: info
 
 materializations:
   test/hello-world/ssh-postgresl:
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-postgres:dev
+        image: ghcr.io/estuary/materialize-postgres:3be4f86
         config: ../sshforwarding/materialize-postgres.ssh.config.yaml
     bindings:
       - resource:
