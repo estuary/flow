@@ -1,0 +1,15 @@
+---
+materializations:
+  aliceCo/mat/sqlite:
+    shards:
+      logLevel: debug
+    endpoint:
+      connector:
+        image: "ghcr.io/estuary/materialize-sqlite:v1"
+        config: sqlite.config.yaml
+    bindings:
+      - resource:
+          table: requests
+        source: aliceCo/derive/with-header-count
+        fields:
+          recommended: true

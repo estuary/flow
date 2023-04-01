@@ -1,0 +1,17 @@
+---
+collections:
+  aliceCo/ingest/webhook-data:
+    schema: webhook-data.schema.yaml
+    key:
+      - /_meta/webhookId
+captures:
+  aliceCo/ingest/source-http-ingest:
+    endpoint:
+      connector:
+        image: "ghcr.io/estuary/source-http-ingest:v1"
+        config: source-http-ingest.config.yaml
+    bindings:
+      - resource:
+          idFromHeader: ~
+          path: ~
+        target: aliceCo/ingest/webhook-data

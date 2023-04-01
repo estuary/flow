@@ -1,0 +1,25 @@
+---
+properties:
+  _meta:
+    description: "These fields are automatically added by the connector, and do not need to be specified in the request body"
+    properties:
+      headers:
+        additionalProperties:
+          type: string
+        description: HTTP headers that were sent with the request will get added here. Headers that are known to be sensitive or not useful will not be included
+        type: object
+      receivedAt:
+        description: Timestamp of when the request was received by the connector
+        format: date-time
+        type: string
+      webhookId:
+        description: "The id of the webhook request, which is automatically added by the connector"
+        type: string
+    required:
+      - webhookId
+      - receivedAt
+    type: object
+required:
+  - _meta
+type: object
+x-infer-schema: true

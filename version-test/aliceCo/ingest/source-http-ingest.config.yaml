@@ -1,0 +1,15 @@
+---
+sops:
+  kms: ~
+  gcp_kms:
+    - resource_id: projects/helpful-kingdom-273219/locations/us-central1/keyRings/catalog-sops/cryptoKeys/config-encryptor
+      created_at: "2023-03-29T17:30:45Z"
+      enc: CiQABM8p+174hXHP8+Bi38LmUwxHUKo+xq7RaPxw4ZxdKDtSGmkSSQAMCLoIDnviB1KmkyXlB9UnjmU9QXWlimBlXTeUWK9YCK1Yhtw/KVboM9LOwDdKLfIse2Hsf1dla2XUlOgowrOiu50CSyF/Z/0=
+  azure_kv: ~
+  hc_vault: ~
+  age: ~
+  lastmodified: "2023-03-29T17:30:45Z"
+  mac: "ENC[AES256_GCM,data:K2Zxo+wsSl8gi669v6G/GJS7r7vGWaakpZ23nLnviM4IIVBc4Qgy4sXz4F5cV+cWE8pfCyL+/Ow8pmJMbx7uc4bAmx9zSAd9sbiW7eSQDJlPQwcEs3fPfqdwyWFkGunjkTfTjzK65f4igrZAb1mwkPAbxEf2EJitSCCSLo66CLg=,iv:9s65cKTdNLH+mRqrzi/CdbvNDmpz4goFaLjmyb71AuA=,tag:zBU3Abwu63K+RsqCw0V1wA==,type:str]"
+  pgp: ~
+  encrypted_suffix: _sops
+  version: 3.7.3
