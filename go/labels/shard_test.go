@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 )
@@ -23,7 +24,7 @@ func TestParsingShardLabels(t *testing.T) {
 		RClockBegin, "cccccccc",
 		RClockEnd, "dddddddd",
 		TaskName, "a-task",
-		TaskType, TaskTypeCapture,
+		TaskType, ops.TaskType_capture.String(),
 		SplitSource, "a-source",
 	)
 	var out, err = ParseShardLabels(set)
@@ -31,8 +32,13 @@ func TestParsingShardLabels(t *testing.T) {
 
 	require.Equal(t, ShardLabeling{
 		Build:    "a-build",
-		LogLevel: pf.LogLevel_debug,
 		Hostname: "test-host",
+		LogLevel: ops.Log_debug,
+		Ports: map[uint16]*PortConfig{
+			8080: {Protocol: "http/1.1", Public: false},
+			9000: {Protocol: "", Public: true},
+			9001: {Protocol: "", Public: false},
+		},
 		Range: pf.RangeSpec{
 			KeyBegin:    0xaaaaaaaa,
 			KeyEnd:      0xbbbbbbbb,
@@ -42,12 +48,7 @@ func TestParsingShardLabels(t *testing.T) {
 		SplitSource: "a-source",
 		SplitTarget: "",
 		TaskName:    "a-task",
-		TaskType:    TaskTypeCapture,
-		Ports: map[uint16]*PortConfig{
-			8080: {Protocol: "http/1.1", Public: false},
-			9000: {Protocol: "", Public: true},
-			9001: {Protocol: "", Public: false},
-		},
+		TaskType:    ops.TaskType_capture,
 	}, out)
 
 	// Case: invalid log-level.
@@ -82,8 +83,8 @@ func TestParsingShardLabels(t *testing.T) {
 	require.EqualError(t, err, "label \"estuary.dev/task-type\" value is empty but shouldn't be")
 
 	// Case: too many / few label values (expectOne).
-	set.SetValue(TaskType, TaskTypeCapture)
-	set.AddValue(TaskType, TaskTypeDerivation)
+	set.SetValue(TaskType, ops.TaskType_capture.String())
+	set.AddValue(TaskType, ops.TaskType_derivation.String())
 
 	_, err = ParseShardLabels(set)
 	require.Regexp(t, "expected one label .* \\(got \\[capture derivation\\]\\)", err.Error())
@@ -91,7 +92,7 @@ func TestParsingShardLabels(t *testing.T) {
 	set.Remove(TaskType)
 	_, err = ParseShardLabels(set)
 	require.Regexp(t, "expected one label .* \\(got \\[\\]\\)", err.Error())
-	set.SetValue(TaskType, TaskTypeCapture)
+	set.SetValue(TaskType, ops.TaskType_capture.String())
 
 	// Case: empty label (maybeOne).
 	set.SetValue(SplitSource, "")
