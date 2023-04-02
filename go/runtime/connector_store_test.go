@@ -29,25 +29,25 @@ func TestConnectorInitializationAndStateUpdates(t *testing.T) {
 		require.Empty(t, cp.Sources)
 
 		// Patch and commit the state.
-		require.NoError(t, updateDriverCheckpoint(cs, pf.DriverCheckpoint{
-			DriverCheckpointJson: []byte(`{"k1":"v1","n":null}`),
-			Rfc7396MergePatch:    true,
+		require.NoError(t, updateDriverCheckpoint(cs, &pf.ConnectorState{
+			UpdatedJson: []byte(`{"k1":"v1","n":null}`),
+			MergePatch:  true,
 		}))
 		require.NoError(t, cs.StartCommit(nil, cp, nil).Err())
 		require.Equal(t, `{"k1":"v1"}`, string(loadDriverCheckpoint(cs)))
 
 		// A non-merged patch replaces the current checkpoint.
-		require.NoError(t, updateDriverCheckpoint(cs, pf.DriverCheckpoint{
-			DriverCheckpointJson: []byte(`{"expect":"k1-is-dropped"}`),
-			Rfc7396MergePatch:    false,
+		require.NoError(t, updateDriverCheckpoint(cs, &pf.ConnectorState{
+			UpdatedJson: []byte(`{"expect":"k1-is-dropped"}`),
+			MergePatch:  false,
 		}))
 		require.NoError(t, cs.StartCommit(nil, cp, nil).Err())
 		require.Equal(t, `{"expect":"k1-is-dropped"}`, string(loadDriverCheckpoint(cs)))
 
 		// Empty non-patch update clears a current state.
-		require.NoError(t, updateDriverCheckpoint(cs, pf.DriverCheckpoint{
-			DriverCheckpointJson: nil,
-			Rfc7396MergePatch:    false,
+		require.NoError(t, updateDriverCheckpoint(cs, &pf.ConnectorState{
+			UpdatedJson: nil,
+			MergePatch:  false,
 		}))
 		require.NoError(t, cs.StartCommit(nil, cp, nil).Err())
 		require.Equal(t, `{}`, string(loadDriverCheckpoint(cs)))
