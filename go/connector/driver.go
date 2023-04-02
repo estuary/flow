@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/estuary/flow/go/materialize/driver/sqlite"
-	"github.com/estuary/flow/go/ops"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
+	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/gogo/protobuf/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -30,7 +31,6 @@ type Driver struct {
 	// The following are variants of a driver's enumeration type.
 	// A "remote: *grpc.ClientConn" variant may be added in the future if there's a well-defined use case.
 	container *Container
-	ingest    *ingestClient
 	sqlite    *sqlite.InProcessServer
 
 	// Unwrapped configuration of the endpoint.
@@ -54,14 +54,14 @@ func (c imageSpec) Validate() error {
 // NewDriver returns a new Driver implementation for the given EndpointType.
 func NewDriver(
 	ctx context.Context,
-	endpointSpec json.RawMessage,
-	endpointType pf.EndpointType,
+	config json.RawMessage,
+	connectorType string,
 	publisher ops.Publisher,
 	network string,
 	exposePorts ExposePorts,
 ) (*Driver, error) {
 
-	if endpointType == pf.EndpointType_SQLITE {
+	if connectorType == "SQLITE" {
 		var srv, err = sqlite.NewInProcessServer(ctx)
 		if err != nil {
 			return nil, err
@@ -69,18 +69,15 @@ func NewDriver(
 
 		return &Driver{
 			container: nil,
-			ingest:    nil,
 			sqlite:    srv,
-			config:    endpointSpec,
+			config:    config,
 		}, nil
 	}
 
-	// TODO(johnny): These differentiated endpoint types are inaccurate and meaningless now.
-	// They both now mean simply "run a docker image".
-	if endpointType == pf.EndpointType_AIRBYTE_SOURCE || endpointType == pf.EndpointType_FLOW_SINK {
+	if connectorType == "IMAGE" {
 		var parsedSpec = new(imageSpec)
 
-		if err := pf.UnmarshalStrict(endpointSpec, parsedSpec); err != nil {
+		if err := pf.UnmarshalStrict(config, parsedSpec); err != nil {
 			return nil, fmt.Errorf("parsing connector configuration: %w", err)
 		}
 		container, err := StartContainer(ctx, parsedSpec.Image, network, publisher, exposePorts)
@@ -90,29 +87,19 @@ func NewDriver(
 
 		return &Driver{
 			container: container,
-			ingest:    nil,
 			sqlite:    nil,
 			config:    parsedSpec.Config,
 		}, nil
 	}
 
-	if endpointType == pf.EndpointType_INGEST {
-		return &Driver{
-			container: nil,
-			ingest:    new(ingestClient),
-			sqlite:    nil,
-			config:    endpointSpec,
-		}, nil
-	}
-
-	return nil, fmt.Errorf("unknown endpoint type %v", endpointType)
+	return nil, fmt.Errorf("unknown connector type %v", connectorType)
 }
 
 // MaterializeClient returns a materialization DriverClient and panics
 // if this Driver's endpoint type is not suited for materialization.
-func (d *Driver) MaterializeClient() pm.DriverClient {
+func (d *Driver) MaterializeClient() pm.ConnectorClient {
 	if d.container != nil {
-		return pm.NewDriverClient(d.container.conn)
+		return pm.NewConnectorClient(d.container.conn)
 	} else if d.sqlite != nil {
 		return d.sqlite.Client()
 	} else {
@@ -122,11 +109,9 @@ func (d *Driver) MaterializeClient() pm.DriverClient {
 
 // CaptureClient returns a capture DriverClient and panics
 // if this Driver's endpoint type is not suited for capture.
-func (d *Driver) CaptureClient() pc.DriverClient {
+func (d *Driver) CaptureClient() pc.ConnectorClient {
 	if d.container != nil {
-		return pc.NewDriverClient(d.container.conn)
-	} else if d.ingest != nil {
-		return d.ingest
+		return pc.NewConnectorClient(d.container.conn)
 	} else {
 		panic("invalid driver type for capture")
 	}
@@ -145,8 +130,6 @@ func (d *Driver) Close() error {
 	var err error
 	if d.container != nil {
 		err = d.container.Stop()
-	} else if d.ingest != nil {
-		err = nil // Nothing to close.
 	} else if d.sqlite != nil {
 		err = d.sqlite.Stop()
 	}
@@ -157,33 +140,39 @@ func (d *Driver) Close() error {
 // Invoke is a convenience which creates a Driver, invokes a single unary RPC
 // via the provided callback, and then tears down the Driver all in one go.
 func Invoke[
+	Response any,
 	Request interface {
 		proto.Message
-		GetEndpointSpecPtr() *json.RawMessage
-		GetEndpointType() pf.EndpointType
-		Validate() error
+		InvokeConfig() (*json.RawMessage, string)
+		Validate_() error
 	},
-	Response any,
 	ResponsePtr interface {
 		*Response
 		proto.Message
 		Validate() error
+	},
+	Stream interface {
+		Recv() (*Response, error)
+		Send(Request) error
+		CloseSend() error
 	},
 ](
 	ctx context.Context,
 	request Request,
 	network string,
 	publisher ops.Publisher,
-	cb func(*Driver, Request) (*Response, error),
+	cb func(*Driver) (Stream, error),
 ) (*Response, error) {
-	if err := request.Validate(); err != nil {
+	if err := request.Validate_(); err != nil {
 		return nil, fmt.Errorf("pre-flight request validation failed: %w", err)
 	}
 
+	var configPtr, connectorType = request.InvokeConfig()
+
 	var driver, err = NewDriver(
 		ctx,
-		*request.GetEndpointSpecPtr(),
-		request.GetEndpointType(),
+		*configPtr,
+		connectorType,
 		publisher,
 		network,
 		nil,
@@ -201,8 +190,20 @@ func Invoke[
 
 	var response *Response
 	if err = WithUnsealed(driver, request, func(request Request) error {
-		response, err = cb(driver, request)
-		return err
+		var stream, err = cb(driver)
+		if err != nil {
+			return err
+		} else if err = stream.Send(request); err != nil {
+			_, err = stream.Recv()
+			return err
+		} else if response, err = stream.Recv(); err != nil {
+			return err
+		} else if stream.CloseSend(); err != nil {
+			return fmt.Errorf("sending CloseSend: %w", err)
+		} else if _, err = stream.Recv(); err != io.EOF {
+			return fmt.Errorf("expected EOF but received: %w", err)
+		}
+		return nil
 	}); err != nil {
 		if status, ok := status.FromError(err); ok && status.Code() == codes.Internal {
 			err = errors.New(status.Message())
