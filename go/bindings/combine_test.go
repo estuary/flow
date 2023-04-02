@@ -5,13 +5,15 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"path"
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
-	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/flow/go/protocols/ops"
+	"github.com/gogo/protobuf/jsonpb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,7 +25,7 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			BuildId:    "fixture",
-			Directory:  t.TempDir(),
+			BuildDb:    path.Join(t.TempDir(), "build-db"),
 			Source:     "file:///int-strings.flow.yaml",
 			SourceType: pf.ContentType_CATALOG,
 		}}
@@ -31,7 +33,7 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 
 	var collection *pf.CollectionSpec
 
-	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+	require.NoError(t, catalog.Extract(args.BuildDb, func(db *sql.DB) (err error) {
 		if collection, err = catalog.LoadCollection(db, "int-strings"); err != nil {
 			return fmt.Errorf("loading collection: %w", err)
 		}
@@ -40,16 +42,16 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 
 	var opsLogs = make(chan ops.Log)
 
-	combiner, err := NewCombine(newChanPublisher(opsLogs, pf.LogLevel_warn))
+	combiner, err := NewCombine(newChanPublisher(opsLogs, ops.Log_warn))
 	require.NoError(t, err)
 	defer combiner.Destroy()
 
 	err = combiner.Configure(
-		collection.Collection.String(),
-		collection.Collection,
+		collection.Name.String(),
+		collection.Name,
 		collection.WriteSchemaJson,
 		collection.UuidPtr,
-		collection.KeyPtrs,
+		collection.Key,
 		nil,
 	)
 	require.NoError(t, err)
@@ -63,7 +65,9 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 	require.Error(t, err)
 
 	var opsLog = <-opsLogs
-	cupaloy.SnapshotT(t, err, opsLog.Level, opsLog.Message, string(opsLog.Fields))
+	opsLog.Timestamp = nil
+	opsLogStr, _ := (&jsonpb.Marshaler{}).MarshalToString(&opsLog)
+	cupaloy.SnapshotT(t, err, opsLogStr)
 }
 
 func TestCombineBindings(t *testing.T) {
@@ -72,7 +76,7 @@ func TestCombineBindings(t *testing.T) {
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			BuildId:    "fixture",
-			Directory:  t.TempDir(),
+			BuildDb:    path.Join(t.TempDir(), "build-db"),
 			Source:     "file:///int-strings.flow.yaml",
 			SourceType: pf.ContentType_CATALOG,
 		}}
@@ -80,7 +84,7 @@ func TestCombineBindings(t *testing.T) {
 
 	var collection *pf.CollectionSpec
 
-	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+	require.NoError(t, catalog.Extract(args.BuildDb, func(db *sql.DB) (err error) {
 		if collection, err = catalog.LoadCollection(db, "int-strings"); err != nil {
 			return fmt.Errorf("loading collection: %w", err)
 		}
@@ -96,11 +100,11 @@ func TestCombineBindings(t *testing.T) {
 		// Re-configure the Combiner every other iteration.
 		if i%2 == 0 {
 			err := combiner.Configure(
-				collection.Collection.String(),
-				collection.Collection,
+				collection.Name.String(),
+				collection.Name,
 				collection.WriteSchemaJson,
 				collection.UuidPtr,
-				collection.KeyPtrs,
+				collection.Key,
 				[]string{"/s/1", "/i"},
 			)
 			require.NoError(t, err)

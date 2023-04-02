@@ -3,6 +3,7 @@ package bindings
 import (
 	"context"
 	"database/sql"
+	"path"
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
@@ -20,18 +21,18 @@ func TestBuildCatalog(t *testing.T) {
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			BuildId:    "fixture",
-			Directory:  t.TempDir(),
+			BuildDb:    path.Join(t.TempDir(), "build.db"),
 			Source:     "file:///build.flow.yaml",
 			SourceType: pf.ContentType_CATALOG,
 		}}
 	require.NoError(t, BuildCatalog(args))
 
-	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) error {
+	require.NoError(t, catalog.Extract(args.BuildDb, func(db *sql.DB) error {
 		t.Run("config", func(t *testing.T) {
 			var out, err = catalog.LoadBuildConfig(db)
 			require.NoError(t, err)
 
-			out.Directory = "/stable/path"
+			out.BuildDb = "/stable/path/build.db"
 			cupaloy.SnapshotT(t, out)
 		})
 		t.Run("all-collections", func(t *testing.T) {
@@ -50,7 +51,7 @@ func TestBuildCatalog(t *testing.T) {
 			cupaloy.SnapshotT(t, out)
 		})
 		t.Run("one-derivation", func(t *testing.T) {
-			var out, err = catalog.LoadDerivation(db, "a/derivation")
+			var out, err = catalog.LoadCollection(db, "a/derivation")
 			require.NoError(t, err)
 			cupaloy.SnapshotT(t, out)
 		})
@@ -64,23 +65,8 @@ func TestBuildCatalog(t *testing.T) {
 			require.NoError(t, err)
 			cupaloy.SnapshotT(t, out)
 		})
-		t.Run("all-derivations", func(t *testing.T) {
-			var out, err = catalog.LoadAllDerivations(db)
-			require.NoError(t, err)
-			cupaloy.SnapshotT(t, out)
-		})
 		t.Run("all-materializations", func(t *testing.T) {
 			var out, err = catalog.LoadAllMaterializations(db)
-			require.NoError(t, err)
-			cupaloy.SnapshotT(t, out)
-		})
-		t.Run("inferences", func(t *testing.T) {
-			var out, err = catalog.LoadAllInferences(db)
-			require.NoError(t, err)
-			cupaloy.SnapshotT(t, out)
-		})
-		t.Run("bundle", func(t *testing.T) {
-			var out, err = catalog.LoadSchemaBundle(db)
 			require.NoError(t, err)
 			cupaloy.SnapshotT(t, out)
 		})
@@ -90,40 +76,6 @@ func TestBuildCatalog(t *testing.T) {
 			cupaloy.SnapshotT(t, out)
 		})
 
-		return nil
-	}))
-}
-
-func TestBuildSchema(t *testing.T) {
-	var args = BuildArgs{
-		Context:  context.Background(),
-		FileRoot: "./testdata",
-		BuildAPI_Config: pf.BuildAPI_Config{
-			BuildId:    "fixture",
-			Directory:  t.TempDir(),
-			Source:     "file:///b.schema.yaml",
-			SourceType: pf.ContentType_JSON_SCHEMA,
-		}}
-	require.NoError(t, BuildCatalog(args))
-
-	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) error {
-		t.Run("config", func(t *testing.T) {
-			var out, err = catalog.LoadBuildConfig(db)
-			require.NoError(t, err)
-
-			out.Directory = "/stable/path"
-			cupaloy.SnapshotT(t, out)
-		})
-		t.Run("inferences", func(t *testing.T) {
-			var out, err = catalog.LoadAllInferences(db)
-			require.NoError(t, err)
-			cupaloy.SnapshotT(t, out)
-		})
-		t.Run("bundle", func(t *testing.T) {
-			var out, err = catalog.LoadSchemaBundle(db)
-			require.NoError(t, err)
-			cupaloy.SnapshotT(t, out)
-		})
 		return nil
 	}))
 }

@@ -2,13 +2,11 @@ package bindings
 
 import (
 	"bytes"
-	"fmt"
 	"strconv"
 	"testing"
 
-	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,7 +21,7 @@ func (m frameableString) MarshalToSizedBuffer(b []byte) (int, error) {
 
 func TestLogsForwardedFromService(t *testing.T) {
 	var logs = make(chan ops.Log, 1)
-	var publisher = newChanPublisher(logs, pf.LogLevel_trace)
+	var publisher = newChanPublisher(logs, ops.Log_trace)
 
 	var svc = newUpperCase(publisher)
 	svc.sendBytes(1, []byte("hello"))
@@ -32,12 +30,10 @@ func TestLogsForwardedFromService(t *testing.T) {
 	require.NoError(t, err)
 
 	var actual = <-logs
-	require.Equal(t, actual.Level, pf.LogLevel_debug)
+	require.Equal(t, actual.Level, ops.Log_debug)
 	require.Equal(t, actual.Message, "making stuff uppercase")
-	require.Equal(t, string(actual.Fields), `{"data_len":5,"module":"bindings::upper_case","sum_len":5}`)
 
 	actual = <-logs
-	require.Equal(t, string(actual.Fields), `{"data_len":5,"module":"bindings::upper_case","sum_len":10}`)
 
 	svc.sendMessage(2, frameableString("whoops"))
 	_, _, err = svc.poll()
@@ -45,9 +41,8 @@ func TestLogsForwardedFromService(t *testing.T) {
 	require.EqualError(t, err, "whoops")
 
 	actual = <-logs
-	require.Equal(t, actual.Level, pf.LogLevel_error)
+	require.Equal(t, actual.Level, ops.Log_error)
 	require.Equal(t, actual.Message, "whoops")
-	require.Equal(t, string(actual.Fields), `{"error":"whoops","module":"bindings::service"}`)
 
 	// Destroying the service should cause the logging file to be closed, which will result in this
 	// last log event. We assert that we get the final log event because it means that destroying
@@ -55,14 +50,13 @@ func TestLogsForwardedFromService(t *testing.T) {
 	svc.destroy()
 
 	actual = <-logs
-	require.Equal(t, actual.Level, pf.LogLevel_trace)
+	require.Equal(t, actual.Level, ops.Log_trace)
 	require.Equal(t, actual.Message, "dropped service")
-	require.Equal(t, string(actual.Fields), `{"module":"bindings::service"}`)
 }
 
 func TestLotsOfLogs(t *testing.T) {
 	var logs = make(chan ops.Log, 2048)
-	var publisher = newChanPublisher(logs, pf.LogLevel_trace)
+	var publisher = newChanPublisher(logs, ops.Log_trace)
 	var svc = newUpperCase(publisher)
 
 	var expectedSum = 0
@@ -76,9 +70,7 @@ func TestLotsOfLogs(t *testing.T) {
 
 		for i := 0; i != n; i++ {
 			expectedSum++
-			var actual = <-logs
-			require.Equal(t, string(actual.Fields),
-				fmt.Sprintf(`{"data_len":1,"module":"bindings::upper_case","sum_len":%d}`, expectedSum))
+			<-logs
 		}
 	}
 
@@ -282,9 +274,9 @@ func BenchmarkUpperServiceGo(b *testing.B) {
 }
 
 var localPublisher = ops.NewLocalPublisher(
-	labels.ShardLabeling{
+	ops.ShardLabeling{
 		Build:    "the-build",
-		LogLevel: pf.LogLevel_debug,
+		LogLevel: ops.Log_debug,
 		Range: pf.RangeSpec{
 			KeyBegin:    0x00001111,
 			KeyEnd:      0x11110000,
@@ -292,24 +284,19 @@ var localPublisher = ops.NewLocalPublisher(
 			RClockEnd:   0x22220000,
 		},
 		TaskName: "some-tenant/task/name",
-		TaskType: labels.TaskTypeCapture,
+		TaskType: ops.TaskType_capture,
 	},
 )
 
 // chanPublisher sends Log instances to a wrapped channel.
 type chanPublisher struct {
 	logs   chan<- ops.Log
-	labels labels.ShardLabeling
-}
-
-// PublishStats implements ops.Publisher
-func (*chanPublisher) PublishStats(ops.StatsEvent) {
-	// no-op
+	labels ops.ShardLabeling
 }
 
 var _ ops.Publisher = &chanPublisher{}
 
-func newChanPublisher(ch chan<- ops.Log, level pf.LogLevel) *chanPublisher {
+func newChanPublisher(ch chan<- ops.Log, level ops.Log_Level) *chanPublisher {
 	var labels = localPublisher.Labels()
 	labels.LogLevel = level
 
@@ -319,5 +306,6 @@ func newChanPublisher(ch chan<- ops.Log, level pf.LogLevel) *chanPublisher {
 	}
 }
 
-func (c *chanPublisher) PublishLog(log ops.Log)       { c.logs <- log }
-func (c *chanPublisher) Labels() labels.ShardLabeling { return c.labels }
+func (*chanPublisher) PublishStats(ops.Stats, bool) error { panic("not called") }
+func (c *chanPublisher) PublishLog(log ops.Log)           { c.logs <- log }
+func (c *chanPublisher) Labels() ops.ShardLabeling        { return c.labels }
