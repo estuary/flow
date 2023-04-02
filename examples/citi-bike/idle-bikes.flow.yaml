@@ -16,31 +16,34 @@ collections:
 
     key: [/bike_id, /station/timestamp]
 
-    derivation:
-      register:
-        # Store the most-recent ride timestamp for each bike_id,
-        # and default to null if the bike hasn't ridden before.
-        schema: { type: [string, "null"] }
-        initial: null
+    derive:
+      using:
+        sqlite:
+          migrations:
+            - |
+              CREATE TABLE last_rides (
+                bike_id  INTEGER PRIMARY KEY NOT NULL,
+                time     TEXT NOT NULL
+              );
 
-      transform:
-        liveRides:
+      transforms:
+        - name: liveRides
           source:
             name: examples/citi-bike/rides
           shuffle: { key: [/bike_id] }
-          update:
-            lambda:
-              sql: select "end/timestamp" as flow_document from source
+          lambda: |
+            INSERT INTO last_rides (bike_id, time) VALUES ($bike_id, $end$timestamp)
+              ON CONFLICT DO UPDATE SET time = $end$timestamp;
 
-        delayedRides:
+        - name: delayedRides
           source:
             name: examples/citi-bike/rides
           shuffle: { key: [/bike_id] }
-          # Use a 2-day read delay, relative to the document's ingestion.
+          # Use a 2-day read delay, relative to the document's ingestion,
+          # to fetch records where the bike hasn't moved in that time.
           # To see read delays in action within a short-lived
           # testing contexts, try using a smaller value (e.g., 2m).
           readDelay: "48h"
-          publish:
-            lambda:
-              sql: |
-                select s.bike_id, s.end as station from source s, register r where r.value = s."end/timestamp"
+          lambda: |
+            SELECT $bike_id, $end AS station FROM last_rides r
+              WHERE r.bike_id = $bike_id AND r.time = $end$timestamp;

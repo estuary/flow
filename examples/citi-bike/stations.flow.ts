@@ -1,8 +1,10 @@
-import { IDerivation, Document, Register, RidesAndMovesSource } from 'flow/examples/citi-bike/stations';
+import { IDerivation, Document, SourceRidesAndMoves } from 'flow/examples/citi-bike/stations.ts';
 
-// Implementation for derivation examples/citi-bike/stations.flow.yaml#/collections/examples~1citi-bike~1stations/derivation.
-export class Derivation implements IDerivation {
-    ridesAndMovesPublish(source: RidesAndMovesSource, _register: Register, _previous: Register): Document[] {
+// Implementation for derivation examples/citi-bike/stations.
+export class Derivation extends IDerivation {
+    ridesAndMoves(read: { doc: SourceRidesAndMoves }): Document[] {
+        const source = read.doc;
+
         if (source.relocation) {
             return [
                 {

@@ -10,23 +10,38 @@ collections:
       properties:
         relocation: { const: true }
 
-    derivation:
-      # Use a register to persist the last-arrived station for each bike.
-      register:
-        schema: ride.schema.yaml#/$defs/terminus
-        initial:
-          # Value to use if this is the first time seeing this bike.
-          station: { id: 0, name: "" }
-          timestamp: "0000-00-00 00:00:00.0"
+    derive:
+      using:
+        sqlite:
+          migrations:
+            - |
+              CREATE TABLE last_seen (
+                bike_id     INTEGER PRIMARY KEY NOT NULL,
+                station_id  INTEGER NOT NULL,
+                detail      TEXT    NOT NULL
+              );
 
-      transform:
-        fromRides:
+      transforms:
+        - name: fromRides
           source: { name: examples/citi-bike/rides }
           shuffle: { key: [/bike_id] }
-          update:
-            lambda:
-              sql: select end as flow_document from source;
-          publish:
-            lambda: typescript
-      typescript:
-        module: rides-and-relocations.flow.ts
+          lambda: |
+            -- Potentially emit an explicit relocation event of the move
+            -- from the last-observed station to the new one.
+            SELECT JSON_OBJECT(
+              'bike_id',    $bike_id,
+              'begin',      JSON(last_seen.detail),
+              'end',        JSON($begin),
+              'relocation', JSON('true')
+            )
+            FROM last_seen
+            WHERE bike_id = $bike_id AND station_id != $begin$station$id;
+
+            -- Then emit the current ride.
+            SELECT JSON($flow_document);
+
+            INSERT INTO last_seen (bike_id, station_id, detail)
+              VALUES ($bike_id, $end$station$id, $end)
+              ON CONFLICT DO UPDATE SET
+                station_id = $end$station$id,
+                detail = $end;

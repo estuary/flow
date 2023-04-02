@@ -2,7 +2,7 @@ import:
   - ../materialize-logs.flow.yaml
 
 collections:
-  examples/greetings-no-state:
+  examples/greetings:
     schema:
       properties:
         count:
@@ -16,34 +16,29 @@ collections:
     key: [/count]
 
 captures:
-  examples/source-test-no-state:
+  examples/source-test-fail:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-test:dev
+        image: ghcr.io/estuary/source-test:3be4f86
         config:
-          # Number of greeting documents to produce
-          # [integer] (required)
-          exit_after: 100
-          skip_state: true
-          greetings: 1
+          greetings: 10
+          fail_after: 10
     bindings:
       - resource:
           stream: greetings
           syncMode: incremental
-        target: examples/greetings-no-state
-    shards:
-      logLevel: debug
+        target: examples/greetings
 
 materializations:
   test/hello-world/ssh-postgresl:
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-postgres:dev
+        image: ghcr.io/estuary/materialize-postgres:3be4f86
         config: ../sshforwarding/materialize-postgres.ssh.config.yaml
     bindings:
       - resource:
-          table: greetings_no_state
-        source: examples/greetings-no-state
+          table: greetings
+        source: examples/greetings
 
 storageMappings:
   "": { stores: [{ provider: S3, bucket: a-bucket }] }

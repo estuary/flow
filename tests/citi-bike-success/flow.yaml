@@ -8,7 +8,7 @@ materializations:
   examples/citi-bike/views:
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-postgres:dev
+        image: ghcr.io/estuary/materialize-postgres:3be4f86
         config:
           address: postgres:5432
           user: flow
@@ -27,7 +27,7 @@ materializations:
       disable: true
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-postgres:dev
+        image: ghcr.io/estuary/materialize-postgres:3be4f86
         config:
           address: not-a-real-domain.test:5432
           user: not-a-real-user
@@ -45,7 +45,7 @@ captures:
       disable: true
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-postgres:dev
+        image: ghcr.io/estuary/source-postgres:3be4f86
         config:
           address: not-a-real-domain.test:5432
           user: not-a-real-user
