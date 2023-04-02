@@ -1,3 +1,0 @@
-name,kind,level,message
-examples/source-test-no-state,capture,warn,"go.estuary.dev/W001: connector exited without writing a final state checkpoint, writing an empty object {} merge patch driver checkpoint."
-examples/source-test-no-state,capture,info,connector exited
