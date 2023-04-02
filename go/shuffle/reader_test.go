@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"path"
 	"testing"
 	"time"
 
@@ -63,20 +64,21 @@ func TestStuffedMessageChannel(t *testing.T) {
 }
 
 func TestConsumerIntegration(t *testing.T) {
+	var dir = t.TempDir()
 	var args = bindings.BuildArgs{
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			BuildId:    "a-build-id",
-			Directory:  t.TempDir(),
+			BuildDb:    path.Join(dir, "a-build-id"),
 			Source:     "file:///ab.flow.yaml",
 			SourceType: pf.ContentType_CATALOG,
 		}}
 	require.NoError(t, bindings.BuildCatalog(args))
 
-	var derivation *pf.DerivationSpec
-	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
-		derivation, err = catalog.LoadDerivation(db, "a/derivation")
+	var derivation *pf.CollectionSpec
+	require.NoError(t, catalog.Extract(args.BuildDb, func(db *sql.DB) (err error) {
+		derivation, err = catalog.LoadCollection(db, "a/derivation")
 		return err
 	}))
 
@@ -86,7 +88,7 @@ func TestConsumerIntegration(t *testing.T) {
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
 
-	var builds, err = flow.NewBuildService("file://" + args.Directory + "/")
+	var builds, err = flow.NewBuildService("file://" + dir + "/")
 	require.NoError(t, err)
 	// Fixtures which parameterize the test:
 	var (
@@ -351,8 +353,8 @@ func (a testApp) ConsumeMessage(shard consumer.Shard, store consumer.Store, env 
 	var key = msg.Arena.Bytes(msg.PackedKey[msg.Index])
 	state[hex.EncodeToString(key)]++
 
-	if msg.Shuffle.GroupName != a.shuffles[0].GroupName {
-		return fmt.Errorf("expected Shuffle fixture to be passed-through")
+	if msg.ShuffleIndex != 0 {
+		return fmt.Errorf("expected ShuffleIndex to be zero (only one shuffle)")
 	}
 	return nil
 }

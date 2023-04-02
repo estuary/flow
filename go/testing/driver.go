@@ -14,8 +14,8 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/ops"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/nsf/jsondiff"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
@@ -48,7 +48,7 @@ func NewClusterDriver(
 ) (*ClusterDriver, error) {
 	var collectionIndex = make(map[pf.Collection]*pf.CollectionSpec, len(collections))
 	for _, spec := range collections {
-		collectionIndex[spec.Collection] = spec
+		collectionIndex[spec.Name] = spec
 	}
 
 	var driver = &ClusterDriver{
@@ -138,15 +138,15 @@ func (c *ClusterDriver) Stat(ctx context.Context, stat PendingStat) (readThrough
 // Ingest implements Driver for a Cluster.
 func (c *ClusterDriver) Ingest(ctx context.Context, test *pf.TestSpec, testStep int) (writeAt *Clock, _ error) {
 	log.WithFields(log.Fields{
-		"test":     test.Test,
+		"test":     test.Name,
 		"testStep": testStep,
 	}).Debug("starting ingest")
 	var step = test.Steps[testStep]
 
 	resp, err := c.tc.Ingest(ctx, &pf.IngestRequest{
-		Collection:    step.Collection,
-		BuildId:       c.buildID,
-		DocsJsonLines: step.DocsJsonLines,
+		Collection:  step.Collection,
+		BuildId:     c.buildID,
+		DocsJsonVec: step.DocsJsonVec,
 	})
 
 	if err != nil {
@@ -157,7 +157,7 @@ func (c *ClusterDriver) Ingest(ctx context.Context, test *pf.TestSpec, testStep 
 	writeAt.ReduceMax(resp.JournalEtcd, resp.JournalWriteHeads)
 
 	log.WithFields(log.Fields{
-		"test":     test.Test,
+		"test":     test.Name,
 		"testStep": testStep,
 		"writeAt":  *writeAt,
 	}).Debug("ingest complete")
@@ -180,7 +180,7 @@ func (c *ClusterDriver) Advance(ctx context.Context, delta TestTime) error {
 // Verify implements Driver for a Cluster.
 func (c *ClusterDriver) Verify(ctx context.Context, test *pf.TestSpec, testStep int, from, to *Clock) error {
 	log.WithFields(log.Fields{
-		"test":     test.Test,
+		"test":     test.Name,
 		"testStep": testStep,
 	}).Debug("starting verify")
 	var step = test.Steps[testStep]
@@ -198,10 +198,7 @@ func (c *ClusterDriver) Verify(ctx context.Context, test *pf.TestSpec, testStep 
 		return err
 	}
 
-	var expected = strings.Split(step.DocsJsonLines, "\n")
-	if len(expected) == 1 && len(expected[0]) == 0 {
-		expected = nil // Split("") => [][]string{""} ; map to nil.
-	}
+	var expected = step.DocsJsonVec
 
 	var diffOptions = jsondiff.DefaultConsoleOptions()
 	// The default behavior of jsondiff is to compare the exact string representations of numbers.
@@ -255,7 +252,7 @@ func (c *ClusterDriver) Verify(ctx context.Context, test *pf.TestSpec, testStep 
 	}
 
 	log.WithFields(log.Fields{
-		"test":     test.Test,
+		"test":     test.Name,
 		"testStep": testStep,
 	}).Debug("verify complete")
 	return nil
@@ -376,7 +373,7 @@ func combineDocumentsForVerify(
 	collection *pf.CollectionSpec,
 	documents [][]byte,
 ) ([]json.RawMessage, error) {
-	var publisher = ops.NewLocalPublisher(labels.ShardLabeling{})
+	var publisher = ops.NewLocalPublisher(ops.ShardLabeling{})
 
 	// Feed documents into an extractor, to extract UUIDs.
 	var extractor, err = bindings.NewExtractor(publisher)
@@ -397,18 +394,18 @@ func combineDocumentsForVerify(
 	if err != nil {
 		return nil, fmt.Errorf("creating combiner: %w", err)
 	} else if err = combiner.Configure(
-		collection.Collection.String(),
-		collection.Collection,
+		collection.Name.String(),
+		collection.Name,
 		collection.GetReadSchemaJson(),
 		collection.UuidPtr,
-		collection.KeyPtrs,
+		collection.Key,
 		nil, // Don't extract additional fields.
 	); err != nil {
 		return nil, fmt.Errorf("configuring combiner: %w", err)
 	}
 
 	for d := range documents {
-		if uuids[d].ProducerAndFlags&uint64(message.Flag_ACK_TXN) != 0 {
+		if uuids[d].Node&uint64(message.Flag_ACK_TXN) != 0 {
 			continue
 		}
 
@@ -442,7 +439,7 @@ func Initialize(ctx context.Context, driver *ClusterDriver, graph *Graph) error 
 		// List journals of the collection.
 		list, err := client.ListAllJournals(ctx, driver.rjc, flow.ListPartitionsRequest(collection))
 		if err != nil {
-			return fmt.Errorf("listing journals of %s: %w", collection.Collection, err)
+			return fmt.Errorf("listing journals of %s: %w", collection.Name, err)
 		}
 
 		// Fetch offsets of each journal.
@@ -462,7 +459,7 @@ func Initialize(ctx context.Context, driver *ClusterDriver, graph *Graph) error 
 		}
 
 		// Track it as a completed ingestion.
-		graph.CompletedIngest(collection.Collection, &Clock{Etcd: list.Header.Etcd, Offsets: offsets})
+		graph.CompletedIngest(collection.Name, &Clock{Etcd: list.Header.Etcd, Offsets: offsets})
 	}
 
 	// Run an empty test to poll all Stats implied by the completed ingests.

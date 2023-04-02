@@ -9,6 +9,7 @@ import (
 
 	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -144,7 +145,7 @@ func StartReplayRead(ctx context.Context, rb *ReadBuilder, journal pb.Journal, b
 			// Other errors indicate a broken stream, but may be retried.
 
 			// Stream is broken, but may be retried.
-			r.log(pf.LogLevel_warn,
+			r.log(ops.Log_warn,
 				"shuffled replay read failed (will retry)",
 				"error", err,
 				"attempt", attempt,
@@ -189,13 +190,13 @@ func (g *governor) next(ctx context.Context) (message.Envelope, error) {
 			g.gated = append(g.gated, r)
 			g.setPollState(r, pollStateGated)
 
-			r.log(pf.LogLevel_debug, "gated documents of journal", "until", readTime)
+			r.log(ops.Log_debug, "gated documents of journal", "until", readTime)
 			continue
 		}
 
 		var env = r.dequeue()
 
-		if r.resp.Index != len(r.resp.DocsJson) {
+		if r.resp.Index != len(r.resp.Docs) {
 			// Next document is available without polling.
 			heap.Push(&g.queued, r)
 		} else {
@@ -270,9 +271,9 @@ func (g *governor) poll(ctx context.Context) error {
 			// shard assignments change and the read is restarted against
 			// an new coordinator. Other errors aren't as typical.
 			if err != context.Canceled {
-				r.log(pf.LogLevel_warn, "shuffled read failed (will retry)", "error", err)
+				r.log(ops.Log_warn, "shuffled read failed (will retry)", "error", err)
 			} else {
-				r.log(pf.LogLevel_debug, "shuffled read has drained")
+				r.log(ops.Log_debug, "shuffled read has drained")
 			}
 
 			// Clear tracking state for this drained read.
@@ -287,11 +288,11 @@ func (g *governor) poll(ctx context.Context) error {
 			return g.onConverge(ctx)
 		} else if r.resp.TerminalError != "" {
 			return fmt.Errorf(r.resp.TerminalError)
-		} else if len(r.resp.DocsJson) == 0 && r.resp.Tailing() {
+		} else if len(r.resp.Docs) == 0 && r.resp.Tailing() {
 			// This is an empty read which informed us the reader is now tailing.
 			// Leave it in pending, but return to attempt another read of the channel.
 			return errPollAgain
-		} else if len(r.resp.DocsJson) == 0 {
+		} else if len(r.resp.Docs) == 0 {
 			return fmt.Errorf("unexpected non-tailing empty ShuffleResponse")
 		} else {
 			// Successful read. Queue it for consumption.
@@ -334,7 +335,7 @@ func (g *governor) onTick() error {
 	for _, r := range g.gated {
 		heap.Push(&g.queued, r)
 		g.setPollState(r, pollStateReady)
-		r.log(pf.LogLevel_debug, "un-gated documents of journal", "now", g.wallTime)
+		r.log(ops.Log_debug, "un-gated documents of journal", "now", g.wallTime)
 	}
 	g.gated = g.gated[:0]
 
@@ -365,7 +366,7 @@ func (g *governor) onConverge(ctx context.Context) error {
 	}
 
 	for _, r := range drain {
-		r.log(pf.LogLevel_debug, "cancelled shuffled read marked for draining")
+		r.log(ops.Log_debug, "cancelled shuffled read marked for draining")
 		r.cancel()
 	}
 

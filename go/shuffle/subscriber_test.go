@@ -25,11 +25,11 @@ func simpleResponseFixture() *pf.ShuffleResponse {
 		WriteHead:   600,
 		Offsets:     []pb.Offset{200, 300, 300, 400},
 		UuidParts: []pf.UUIDParts{
-			{Clock: 1001, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
-			{Clock: 1002, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
+			{Clock: 1001, Node: uint64(message.Flag_CONTINUE_TXN)},
+			{Clock: 1002, Node: uint64(message.Flag_CONTINUE_TXN)},
 		},
 	}
-	resp.DocsJson = resp.Arena.AddAll([]byte("one"), []byte("two"))
+	resp.Docs = resp.Arena.AddAll([]byte("one"), []byte("two"))
 	resp.PackedKey = resp.Arena.AddAll([]byte("bb-cc-key"), []byte("more-key"))
 	return resp
 }
@@ -45,11 +45,11 @@ func TestSubscriberDocStaging(t *testing.T) {
 
 	require.Equal(t, sub.staged.Offsets, []pb.Offset{200, 300, 300, 400})
 	require.Equal(t, sub.staged.UuidParts, []pf.UUIDParts{
-		{Clock: 1001, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
-		{Clock: 1002, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
+		{Clock: 1001, Node: uint64(message.Flag_CONTINUE_TXN)},
+		{Clock: 1002, Node: uint64(message.Flag_CONTINUE_TXN)},
 	})
 	require.Equal(t, [][]byte{[]byte("one"), []byte("two")},
-		sub.staged.Arena.AllBytes(sub.staged.DocsJson...))
+		sub.staged.Arena.AllBytes(sub.staged.Docs...))
 	require.Equal(t, [][]byte{[]byte("bb-cc-key"), []byte("more-key")},
 		sub.staged.Arena.AllBytes(sub.staged.PackedKey...))
 
@@ -264,14 +264,14 @@ func TestSubscriberResponseStaging(t *testing.T) {
 		WriteHead:     2000,
 		Offsets:       []pb.Offset{200, 201, 300, 301, 400, 401, 500, 501, 600, 601},
 		UuidParts: []pf.UUIDParts{
-			{Clock: 10000 << 4, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
-			{Clock: 10001 << 4, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
-			{Clock: 10002 << 4, ProducerAndFlags: uint64(message.Flag_ACK_TXN)},
-			{Clock: 10003 << 4, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
-			{Clock: 10004 << 4, ProducerAndFlags: uint64(message.Flag_CONTINUE_TXN)},
+			{Clock: 10000 << 4, Node: uint64(message.Flag_CONTINUE_TXN)},
+			{Clock: 10001 << 4, Node: uint64(message.Flag_CONTINUE_TXN)},
+			{Clock: 10002 << 4, Node: uint64(message.Flag_ACK_TXN)},
+			{Clock: 10003 << 4, Node: uint64(message.Flag_CONTINUE_TXN)},
+			{Clock: 10004 << 4, Node: uint64(message.Flag_CONTINUE_TXN)},
 		},
 	}
-	fixture.DocsJson = fixture.Arena.AddAll(tokens...)
+	fixture.Docs = fixture.Arena.AddAll(tokens...)
 	fixture.PackedKey = fixture.Arena.AddAll(tokens...)
 
 	s.stageResponses(&fixture)

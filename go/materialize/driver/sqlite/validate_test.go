@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path"
+	"strings"
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
@@ -22,29 +23,37 @@ func TestValidations(t *testing.T) {
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			BuildId:    "fixture",
-			Directory:  t.TempDir(),
+			BuildDb:    path.Join(t.TempDir(), "build.db"),
 			Source:     "file:///validate.flow.yaml",
 			SourceType: pf.ContentType_CATALOG,
 		}}
 	require.NoError(t, bindings.BuildCatalog(args))
 
 	var collections []*pf.CollectionSpec
-	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+	require.NoError(t, catalog.Extract(args.BuildDb, func(db *sql.DB) (err error) {
 		collections, err = catalog.LoadAllCollections(db)
 		return err
 	}))
 
 	for _, spec := range collections {
+		if strings.HasPrefix(spec.Name.String(), "ops") {
+			continue
+		}
 		t.Run(
-			fmt.Sprintf("NewSQLProjections-%s", path.Base(spec.Collection.String())),
+			fmt.Sprintf("NewSQLProjections-%s", path.Base(spec.Name.String())),
 			func(t *testing.T) {
 				constraints := sqlDriver.ValidateNewSQLProjections(spec, false)
 				cupaloy.SnapshotT(t, constraints)
 			})
 	}
 	t.Run("MatchesExisting", func(t *testing.T) {
-		// Test body wants "weird-types/optionals", which orders as 1 alphabetically.
-		testMatchesExisting(t, collections[1])
+		for _, c := range collections {
+			if c.Name == "weird-types/optionals" {
+				testMatchesExisting(t, c)
+				return
+			}
+		}
+		panic("not found")
 	})
 }
 
@@ -79,15 +88,15 @@ func testMatchesExisting(t *testing.T, collection *pf.CollectionSpec) {
 	for _, field := range req {
 		var constraint, ok = constraints[field]
 		require.True(t, ok, "constraint must be present for field '%s'", field)
-		require.Equal(t, pm.Constraint_FIELD_REQUIRED, constraint.Type)
+		require.Equal(t, pm.Response_Validated_Constraint_FIELD_REQUIRED, constraint.Type)
 	}
 	var intConstraint, ok = constraints["int"]
 	require.True(t, ok, "missing constraint for 'int' field")
-	require.Equal(t, pm.Constraint_UNSATISFIABLE, intConstraint.Type)
+	require.Equal(t, pm.Response_Validated_Constraint_UNSATISFIABLE, intConstraint.Type)
 
 	numConstraint, ok := constraints["number"]
 	require.True(t, ok, "missing constraint for 'number' field")
-	require.Equal(t, pm.Constraint_FIELD_FORBIDDEN, numConstraint.Type)
+	require.Equal(t, pm.Response_Validated_Constraint_FIELD_FORBIDDEN, numConstraint.Type)
 
 	var proposedSpec = pf.MaterializationSpec_Binding{
 		Collection:     proposed,

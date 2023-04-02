@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
@@ -16,7 +15,6 @@ import (
 )
 
 type cmdTest struct {
-	Directory   string                `long:"directory" default:"." description:"Build directory"`
 	Network     string                `long:"network" description:"The Docker network that connector containers are given access to."`
 	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
 	Snapshot    string                `long:"snapshot" description:"When set, failed test verifications produce snapshots into the given base directory"`
@@ -34,11 +32,6 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 		"buildDate": mbp.BuildDate,
 	}).Info("flowctl configuration")
 	protocol.RegisterGRPCDispatcher("local")
-
-	var err error
-	if cmd.Directory, err = filepath.Abs(cmd.Directory); err != nil {
-		return fmt.Errorf("filepath.Abs: %w", err)
-	}
 
 	// Create a temporary directory which will contain the Etcd database
 	// and various unix:// sockets.
@@ -65,29 +58,18 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 		return fmt.Errorf("starting local data plane: %w", err)
 	}
 
-	// Build into a new database. Arrange to clean it up on exit.
-	var buildID = newBuildID()
-	defer func() { _ = os.Remove(filepath.Join(cmd.Directory, buildID)) }()
+	var buildID = "test-build-id"
 
 	if err := (apiBuild{
-		BuildID:    buildID,
-		Directory:  cmd.Directory,
+		BuildID: buildID,
+		// Build directly into the temp dataplane's build directory.
+		BuildDB:    filepath.Join(tempdir, "builds", buildID),
 		FileRoot:   "/",
 		Network:    cmd.Network,
 		Source:     cmd.Source,
 		SourceType: "catalog",
-		TSPackage:  true,
 	}.execute(ctx)); err != nil {
 		return err
-	}
-
-	// Move the build database into the data plane temp directory.
-	// Shell to `mv` (vs os.Rename) for it's proper handling of cross-volume moves.
-	if err := exec.Command("mv",
-		filepath.Join(cmd.Directory, buildID),
-		filepath.Join(tempdir, "builds", buildID),
-	).Run(); err != nil {
-		return fmt.Errorf("moving build to local data plane builds root: %w", err)
 	}
 
 	// Activate derivations of the built database into the local dataplane.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path"
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
@@ -24,20 +25,20 @@ func TestConvergence(t *testing.T) {
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			BuildId:    "fixture",
-			Directory:  t.TempDir(),
+			BuildDb:    path.Join(t.TempDir(), "build.db"),
 			Source:     "file:///specs_test.flow.yaml",
 			SourceType: pf.ContentType_CATALOG,
 		}}
 	require.NoError(t, bindings.BuildCatalog(args))
 
 	var collection *pf.CollectionSpec
-	var derivation *pf.DerivationSpec
+	var derivation *pf.CollectionSpec
 
-	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+	require.NoError(t, catalog.Extract(args.BuildDb, func(db *sql.DB) (err error) {
 		if collection, err = catalog.LoadCollection(db, "example/collection"); err != nil {
 			return err
 		}
-		derivation, err = catalog.LoadDerivation(db, "example/derivation")
+		derivation, err = catalog.LoadCollection(db, "example/derivation")
 		return err
 	}))
 
@@ -70,7 +71,7 @@ func TestConvergence(t *testing.T) {
 			)))
 	require.NoError(t, err)
 
-	shardSpec1, err := BuildShardSpec(derivation.ShardTemplate,
+	shardSpec1, err := BuildShardSpec(derivation.Derivation.ShardTemplate,
 		labels.EncodeRange(pf.RangeSpec{
 			KeyBegin:    0x10000000,
 			KeyEnd:      0x2fffffff,
@@ -79,9 +80,9 @@ func TestConvergence(t *testing.T) {
 		}, pf.LabelSet{}),
 	)
 	require.NoError(t, err)
-	logSpec1 := BuildRecoverySpec(derivation.RecoveryLogTemplate, shardSpec1)
+	logSpec1 := BuildRecoverySpec(derivation.Derivation.RecoveryLogTemplate, shardSpec1)
 
-	shardSpec2, err := BuildShardSpec(derivation.ShardTemplate,
+	shardSpec2, err := BuildShardSpec(derivation.Derivation.ShardTemplate,
 		labels.EncodeRange(pf.RangeSpec{
 			KeyBegin:    0x30000000,
 			KeyEnd:      0x3fffffff,
@@ -90,9 +91,9 @@ func TestConvergence(t *testing.T) {
 		}, pf.LabelSet{}),
 	)
 	require.NoError(t, err)
-	logSpec2 := BuildRecoverySpec(derivation.RecoveryLogTemplate, shardSpec2)
+	logSpec2 := BuildRecoverySpec(derivation.Derivation.RecoveryLogTemplate, shardSpec2)
 
-	shardSpec3, err := BuildShardSpec(derivation.ShardTemplate,
+	shardSpec3, err := BuildShardSpec(derivation.Derivation.ShardTemplate,
 		labels.EncodeRange(pf.RangeSpec{
 			KeyBegin:    0x30000000,
 			KeyEnd:      0x3fffffff,
@@ -101,7 +102,7 @@ func TestConvergence(t *testing.T) {
 		}, pf.LabelSet{}),
 	)
 	require.NoError(t, err)
-	logSpec3 := BuildRecoverySpec(derivation.RecoveryLogTemplate, shardSpec3)
+	logSpec3 := BuildRecoverySpec(derivation.Derivation.RecoveryLogTemplate, shardSpec3)
 
 	var allPartitions = []pb.ListResponse_Journal{
 		{Spec: *partitionSpec1, ModRevision: 11},
@@ -162,7 +163,7 @@ func TestConvergence(t *testing.T) {
 	})
 
 	t.Run("shard-split-errors", func(t *testing.T) {
-		var shard, err = BuildShardSpec(derivation.ShardTemplate,
+		var shard, err = BuildShardSpec(derivation.Derivation.ShardTemplate,
 			labels.EncodeRange(pf.RangeSpec{
 				KeyEnd:    0x10000000,
 				RClockEnd: 0x10000000,
@@ -330,7 +331,7 @@ func TestConvergence(t *testing.T) {
 		var ctx = context.Background()
 		var jc = &mockJournals{
 			collections: map[string]*pb.ListResponse{
-				collection.Collection.String(): {Journals: allPartitions},
+				collection.Name.String(): {Journals: allPartitions},
 			},
 			logs: map[string]*pb.ListResponse{
 				derivation.TaskName(): {Journals: allLogs},
@@ -361,7 +362,7 @@ func TestConvergence(t *testing.T) {
 		var ctx = context.Background()
 		var jc = &mockJournals{
 			collections: map[string]*pb.ListResponse{
-				collection.Collection.String(): {Journals: allPartitions},
+				collection.Name.String(): {Journals: allPartitions},
 			},
 			logs: map[string]*pb.ListResponse{
 				derivation.TaskName(): {Journals: allLogs},
