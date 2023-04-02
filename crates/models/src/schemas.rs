@@ -1,8 +1,7 @@
+use super::RawValue;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};
-
-use super::{Object, RelativeUrl};
 
 /// A schema is a draft 2020-12 JSON Schema which validates Flow documents.
 /// Schemas also provide annotations at document locations, such as reduction
@@ -15,21 +14,28 @@ use super::{Object, RelativeUrl};
 /// For example, "schemas/marketing.yaml#/$defs/campaign" would reference the schema
 /// at location {"$defs": {"campaign": ...}} within ./schemas/marketing.yaml.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-#[serde(untagged)]
 #[schemars(example = "Schema::example_absolute")]
 #[schemars(example = "Schema::example_relative")]
 #[schemars(example = "Schema::example_inline_basic")]
-#[schemars(example = "Schema::example_inline_counter")]
-pub enum Schema {
-    /// Relative URL to a schema file.
-    Url(RelativeUrl),
-    /// Inline schema document.
-    Object(Object),
-    /// Inline schema document (alternate boolean form).
-    Bool(bool),
+pub struct Schema(RawValue);
+
+impl std::ops::Deref for Schema {
+    type Target = RawValue;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for Schema {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 impl Schema {
+    pub fn new(v: RawValue) -> Self {
+        Self(v)
+    }
     pub fn example_absolute() -> Self {
         from_value(json!("http://example/schema#/$defs/subPath")).unwrap()
     }
@@ -42,19 +48,6 @@ impl Schema {
             "properties": {
                 "foo": { "type": "integer" },
                 "bar": { "const": 42 }
-            }
-        }))
-        .unwrap()
-    }
-    pub fn example_inline_counter() -> Self {
-        from_value(json!({
-            "type": "object",
-            "reduce": {"strategy": "merge"},
-            "properties": {
-                "foo_count": {
-                    "type": "integer",
-                    "reduce": {"strategy": "sum"},
-                }
             }
         }))
         .unwrap()
