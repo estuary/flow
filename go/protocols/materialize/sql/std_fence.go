@@ -10,6 +10,7 @@ import (
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 // StdFence is an installed barrier in a shared checkpoints table which prevents
@@ -19,7 +20,7 @@ import (
 // standard *sql.DB compatable databases.
 type StdFence struct {
 	// checkpoint associated with this Fence.
-	checkpoint []byte
+	checkpoint *pc.Checkpoint
 	// fence is the current value of the monotonically increasing integer used to identify unique
 	// instances of transactions rpcs.
 	fence int64
@@ -43,12 +44,12 @@ func (f *StdFence) LogEntry() *log.Entry {
 }
 
 // Checkpoint returns the current checkpoint.
-func (f *StdFence) Checkpoint() []byte {
+func (f *StdFence) Checkpoint() *pc.Checkpoint {
 	return f.checkpoint
 }
 
 // SetCheckpoint sets the current checkpoint.
-func (f *StdFence) SetCheckpoint(checkpoint []byte) {
+func (f *StdFence) SetCheckpoint(checkpoint *pc.Checkpoint) {
 	f.checkpoint = checkpoint
 }
 
@@ -147,9 +148,13 @@ func (e *StdEndpoint) NewFence(ctx context.Context, materialization pf.Materiali
 		return nil, fmt.Errorf("inserting fence: %w", err)
 	}
 
-	checkpoint, err := base64.StdEncoding.DecodeString(checkpointB64)
+	var checkpoint = new(pc.Checkpoint)
+	checkpointBytes, err := base64.StdEncoding.DecodeString(checkpointB64)
 	if err != nil {
 		return nil, fmt.Errorf("base64.Decode(checkpoint): %w", err)
+	}
+	if err = checkpoint.Unmarshal(checkpointBytes); err != nil {
+		return nil, fmt.Errorf("checkpoint.Unmarshal: %w", err)
 	}
 
 	err = txn.Commit()
@@ -185,10 +190,14 @@ func (e *StdEndpoint) NewFence(ctx context.Context, materialization pf.Materiali
 // Update takes a ExecFn callback which should be scoped to a database transaction,
 // such as sql.Tx or a database-specific transaction implementation.
 func (f *StdFence) Update(ctx context.Context, execFn ExecFn) error {
+	var checkpointBytes, err = f.checkpoint.Marshal()
+	if err != nil {
+		panic(err) // Cannot fail to encode.
+	}
 	rowsAffected, err := execFn(
 		ctx,
 		f.updateSQL,
-		base64.StdEncoding.EncodeToString(f.checkpoint),
+		base64.StdEncoding.EncodeToString(checkpointBytes),
 		f.materialization,
 		f.keyBegin,
 		f.keyEnd,
