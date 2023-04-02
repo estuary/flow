@@ -3,384 +3,285 @@ syntax = "proto3";
 package capture;
 option go_package = "github.com/estuary/flow/go/protocols/capture";
 
-import "broker/protocol/protocol.proto";
-import "consumer/protocol/protocol.proto";
 import "go/protocols/flow/flow.proto";
 import "gogoproto/gogo.proto";
+import "google/protobuf/any.proto";
 
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 option (gogoproto.goproto_getters_all) = false;
 
-// Driver is the service implemented by a capture connector.
-service Driver {
-  // Spec returns the specification definition of this driver.
-  // Notably this includes its endpoint and resource configuration JSON schema.
-  rpc Spec(SpecRequest) returns (SpecResponse);
-  // Discover returns the set of resources available from this Driver.
-  rpc Discover(DiscoverRequest) returns (DiscoverResponse);
-  // Validate that store resources and proposed collection bindings are
-  // compatible.
-  rpc Validate(ValidateRequest) returns (ValidateResponse);
-  // ApplyUpsert applies a new or updated capture to the store.
-  rpc ApplyUpsert(ApplyRequest) returns (ApplyResponse);
-  // ApplyDelete deletes an existing capture from the store.
-  rpc ApplyDelete(ApplyRequest) returns (ApplyResponse);
-  // Pull is a very long lived RPC through which the Flow runtime and a
-  // Driver cooperatively execute an unbounded number of transactions.
-  //
-  // The Pull workflow pulls streams of documents into capturing Flow
-  // collections. Streams are incremental and resume-able, with resumption
-  // semantics defined by the driver. The Flow Runtime uses a transactional
-  // recovery log to support this workflow, and the driver may persist arbitrary
-  // driver checkpoints into that log as part of the RPC lifecycle,
-  // to power its chosen resumption semantics.
-  //
-  // Pull tasks are split-able, and many concurrent invocations of the RPC
-  // may collectively capture from a source, where each task split has an
-  // identified range of keys it's responsible for. The meaning of a "key",
-  // and it's application within the remote store being captured from, is up
-  // to the driver. The driver might map partitions or shards into the keyspace,
-  // and from there to a covering task split. Or, it might map distinct files,
-  // or some other unit of scaling.
-  //
-  // RPC Lifecycle
-  // =============
-  //
-  // :PullRequest.Open:
-  //    - The Flow runtime opens the pull stream.
-  // :PullResponse.Opened:
-  //    - The driver responds with Opened.
-  //
-  // PullRequest.Open and PullRequest.Opened are sent only once, at the
-  // commencement of the stream. Thereafter the protocol loops:
-  //
-  // :PullResponse.Documents:
-  //    - The driver tells the runtime of some documents, which are pending a
-  //      future Checkpoint.
-  //    - If the driver sends multiple Documents messages without an
-  //      interleaving Checkpoint, the Flow runtime MUST commit
-  //      documents of all such messages in a single transaction.
-  // :PullResponse.Checkpoint:
-  //    - The driver tells the runtime of a checkpoint: a watermark in the
-  //      captured documents stream which is eligble to be used as a
-  //      transaction commit boundary.
-  //    - Whether the checkpoint becomes a commit boundary is at the
-  //      discretion of the Flow runtime. It may combine multiple checkpoints
-  //      into a single transaction.
-  // :PullRequest.Acknowledge:
-  //    - The Flow runtime tells the driver that its Checkpoint has committed.
-  //    - The runtime sends one ordered Acknowledge for each Checkpoint.
-  //
-  rpc Pull(stream PullRequest) returns (stream PullResponse);
+// Captures is a very long lived RPC through which the Flow runtime and a
+// connector cooperatively execute an unbounded number of transactions.
+//
+// The Pull workflow pulls streams of documents into capturing Flow
+// collections. Streams are incremental and resume-able, with resumption
+// semantics defined by the connector. The Flow Runtime uses a transactional
+// recovery log to support this workflow, and the connector may persist arbitrary
+// driver checkpoints into that log as part of the RPC lifecycle,
+// to power its chosen resumption semantics.
+//
+// Pull tasks are split-able, and many concurrent invocations of the RPC
+// may collectively capture from a source, where each task split has an
+// identified range of keys it's responsible for. The meaning of a "key",
+// and it's application within the remote store being captured from, is up
+// to the connector. The connector might map partitions or shards into the keyspace,
+// and from there to a covering task split. Or, it might map distinct files,
+// or some other unit of scaling.
+//
+// RPC Lifecycle
+// =============
+//
+// :Request.Open:
+//    - The Flow runtime opens the pull stream.
+// :Response.Opened:
+//    - The connector responds with Opened.
+//
+// Request.Open and Request.Opened are sent only once, at the
+// commencement of the stream. Thereafter the protocol loops:
+//
+// :Response.Captured:
+//    - The connector tells the runtime of documents,
+//      which are pending a future Checkpoint.
+//    - If the connector sends multiple Documents messages without an
+//      interleaving Checkpoint, the Flow runtime MUST commit
+//      documents of all such messages in a single transaction.
+// :Response.Checkpoint:
+//    - The connector tells the runtime of a checkpoint: a watermark in the
+//      captured documents stream which is eligble to be used as a
+//      transaction commit boundary.
+//    - Whether the checkpoint becomes a commit boundary is at the
+//      discretion of the Flow runtime. It may combine multiple checkpoints
+//      into a single transaction.
+// :Request.Acknowledge:
+//    - The Flow runtime tells the connector that its Checkpoint has committed.
+//    - The runtime sends one ordered Acknowledge for each Checkpoint.
+service Connector {
+  rpc Capture(stream Request) returns (stream Response);
 }
 
-// Runtime is the Flow runtime service which implements push-based captures.
-service Runtime {
-  // Push may be a short or very long lived RPC through which the Flow runtime
-  // and a driver cooperatively execute an unbounded number of transactions.
-  //
-  // The Push workflow pushes streams of documents into capturing Flow
-  // collections. The driver is responsible for initiation and resumption of
-  // push streams. The Flow runtime uses a transactional recovery log to support
-  // this workflow, and the driver may persist arbitrary driver checkpoints into
-  // that log as part of the RPC lifecycle, to power its chosen resumption
-  // semantics.
-  //
-  // A push RPC is evaluated against a specific task shard split, which is
-  // encoded in the PushRequest.Open.Header. A driver may perform its own load
-  // balancing by obtain a shard listing and embedding a selected shard into
-  // that header. Or, it may leave it empty and an arbitary shard will be
-  // randomly chosen for it.
-  //
-  // RPC Lifecycle
-  // =============
-  //
-  // :PushRequest.Open:
-  //    - The driver opens the push stream, naming its capture and
-  //      optional routing header.
-  // :PushResponse.Opened:
-  //    - The Flow runtime responds with Opened, which tells the driver
-  //      of the specific CaptureSpec and [key_begin, key_end] range of
-  //      this RPC, as well as the last driver checkpoint.
-  //    - The semantics and treatment of the key range is up to the driver.
-  //
-  // PushRequest.Open and PushRequest.Opened are sent only once, at the
-  // commencement of the stream. Thereafter the protocol loops:
-  //
-  // :PushRequest.Documents:
-  //    - The driver tells the runtime of some documents, which are pending a
-  //      future Checkpoint.
-  //    - If the driver sends multiple Documents messages without an
-  //      interleaving Checkpoint, the Flow runtime MUST commit
-  //      documents of all such messages in a single transaction.
-  // :PushRequest.Checkpoint:
-  //    - The driver tells the runtime of a checkpoint: a watermark in the
-  //      captured documents stream which is eligble to be used as a
-  //      transaction commit boundary.
-  //    - Whether the checkpoint becomes a commit boundary is at the
-  //      discretion of the Flow runtime. It may combine multiple checkpoints
-  //      into a single transaction.
-  // :PushResponse.Acknowledge:
-  //    - The Flow runtime tells the driver that its Checkpoint has committed.
-  //    - The runtime sends one ordered Acknowledge for each Checkpoint.
-  //
-  rpc Push(stream PushRequest) returns (stream PushResponse);
-}
-
-// SpecRequest is the request type of the Spec RPC.
-message SpecRequest {
-  // Endpoint type addressed by this request.
-  flow.EndpointType endpoint_type = 1;
-  // Driver specification, as an encoded JSON object.
-  // This may be a partial specification (for example, a Docker image),
-  // providing only enough information to fetch the remainder of the
-  // specification schema.
-  string endpoint_spec_json = 2 [
-    (gogoproto.casttype) = "encoding/json.RawMessage",
-    json_name = "endpointSpec"
-  ];
-}
-
-// SpecResponse is the response type of the Spec RPC.
-message SpecResponse {
-  // JSON schema of an endpoint specification.
-  string endpoint_spec_schema_json = 1 [
-    (gogoproto.casttype) = "encoding/json.RawMessage",
-    json_name = "endpointSpecSchema"
-  ];
-  // JSON schema of a resource specification.
-  string resource_spec_schema_json = 2 [
-    (gogoproto.casttype) = "encoding/json.RawMessage",
-    json_name = "resourceSpecSchema"
-  ];
-  // URL for connector's documention.
-  string documentation_url = 3;
-
-  // OAuth2 spec
-  flow.OAuth2Spec oauth2_spec = 4;
-}
-
-// DiscoverRequest is the request type of the Discover RPC.
-message DiscoverRequest {
-  // Endpoint type addressed by this request.
-  flow.EndpointType endpoint_type = 1;
-  // Driver specification, as an encoded JSON object.
-  string endpoint_spec_json = 2 [
-    (gogoproto.casttype) = "encoding/json.RawMessage",
-    json_name = "endpointSpec"
-  ];
-}
-
-// DiscoverResponse is the response type of the Discover RPC.
-message DiscoverResponse {
-  // Potential bindings which the capture could provide.
-  // Bindings may be returned in any order.
-  message Binding {
-    // The recommended name for this discovered binding,
-    // which is appended to a catalog prefix of the proposed capture
-    // to form the name of its recommended collection.
-    string recommended_name = 1
-      [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Collection" ];
-    // JSON-encoded object which specifies the endpoint resource to be captured.
-    string resource_spec_json = 2 [
+message Request {
+  // Spec requests the specification definition of this connector.
+  // Notably this includes its configuration JSON schemas.
+  message Spec {
+    // Connector type addressed by this request.
+    flow.CaptureSpec.ConnectorType connector_type = 1;
+    // Connector configuration, as an encoded JSON object.
+    // This may be a partial specification (for example, a Docker image),
+    // providing only enough information to fetch the remainder of the
+    // specification schema.
+    string config_json = 2 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
-      json_name = "resourceSpec"
+      json_name = "config"
     ];
-    // JSON schema of documents produced by this binding.
-    string document_schema_json = 3 [
+  }
+  Spec spec = 1;
+
+  // Discover returns the set of resources available from this connector.
+  message Discover {
+    // Connector type addressed by this request.
+    flow.CaptureSpec.ConnectorType connector_type = 1;
+    // Connector configuration, as an encoded JSON object.
+    string config_json = 2 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
-      json_name = "documentSchema"
+      json_name = "config"
     ];
-    // Composite key of documents (if known), as JSON-Pointers.
-    repeated string key_ptrs = 4;
   }
-  repeated Binding bindings = 1;
-}
+  Discover discover = 2;
 
-// ValidateRequest is the request type of the Validate RPC.
-message ValidateRequest {
-  // Name of the capture being validated.
-  string capture = 1
-      [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Capture" ];
-  // Endpoint type addressed by this request.
-  flow.EndpointType endpoint_type = 2;
-  // Driver specification, as an encoded JSON object.
-  string endpoint_spec_json = 3 [
-    (gogoproto.casttype) = "encoding/json.RawMessage",
-    json_name = "endpointSpec"
-  ];
-  // Bindings of endpoint resources and collections to which they would be
-  // captured. Bindings are ordered and unique on the bound collection name.
-  message Binding {
-    // JSON-encoded object which specifies the endpoint resource to be captured.
-    string resource_spec_json = 1 [
+  // Validate a capture configuration and proposed bindings.
+  // Validate is run out-of-band with ongoing capture invocations.
+  // It's purpose is to confirm that the proposed configuration
+  // is likely to succeed if applied and run, or to report any
+  // potential issues for the user to address.
+  message Validate {
+    // Name of the capture being validated.
+    string name = 1
+        [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Capture" ];
+    // Connector type addressed by this request.
+    flow.CaptureSpec.ConnectorType connector_type = 2;
+    // Connector configuration, as an encoded JSON object.
+    string config_json = 3 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
-      json_name = "resourceSpec"
+      json_name = "config"
     ];
-    // Collection to be captured.
-    flow.CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
+    // Bindings of endpoint resources and collections to which they would be
+    // captured. Bindings are ordered and unique on the bound collection name.
+    message Binding {
+      // JSON-encoded object which specifies the endpoint resource to be captured.
+      string resource_config_json = 1 [
+        (gogoproto.casttype) = "encoding/json.RawMessage",
+        json_name = "resourceConfig"
+      ];
+      // Collection to be captured.
+      flow.CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
+    }
+    repeated Binding bindings = 4;
+    // Network ports of this proposed capture.
+    repeated flow.NetworkPort network_ports = 5;
   }
-  repeated Binding bindings = 4;
-}
+  Validate validate = 3;
 
-// ValidateResponse is the response type of the Validate RPC.
-message ValidateResponse {
-  // Validation responses for each binding of the request, and matching the
-  // request ordering. Each Binding must have a unique resource_path.
-  message Binding {
-    // Components of the resource path which fully qualify the resource
-    // identified by this binding.
-    // - For an RDBMS, this might be []{dbname, schema, table}.
-    // - For Kafka, this might be []{topic}.
-    // - For Redis, this might be []{key_prefix}.
-    repeated string resource_path = 1;
+  // Apply a capture configuration and bindings to its endpoint.
+  // Apply is run out-of-band with ongoing connector invocations,
+  // and may be run many times for a single capture name,
+  // where each invocation has varying bindings, or even no bindings.
+  // The connector performs any required setup or cleanup.
+  message Apply {
+    // Capture to be applied.
+    flow.CaptureSpec capture = 1;
+    // Version of the CaptureSpec being applied.
+    string version = 2;
+    // Is this Apply a dry-run? If so, no action is undertaken and Apply will
+    // report only what would have happened.
+    bool dry_run = 3;
   }
-  repeated Binding bindings = 1;
-}
+  Apply apply = 4;
 
-// ApplyRequest is the request type of the ApplyUpsert and ApplyDelete RPCs.
-message ApplyRequest {
-  // Capture to be applied.
-  flow.CaptureSpec capture = 1;
-  // Version of the CaptureSpec being applied.
-  string version = 2;
-  // Is this Apply a dry-run? If so, no action is undertaken and Apply will
-  // report only what would have happened.
-  bool dry_run = 3;
-}
-
-// ApplyResponse is the response type of the ApplyUpsert and ApplyDelete RPCs.
-message ApplyResponse {
-  // Human-readable description of the action that the Driver took (or, if
-  // dry_run, would have taken). If empty, this Apply is to be considered a
-  // "no-op".
-  string action_description = 1;
-}
-
-// Documents is a set of documents drawn from a binding of the capture.
-message Documents {
-  // The capture binding for documents of this message.
-  uint32 binding = 1;
-  // Byte arena of the response.
-  bytes arena = 2
-      [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena" ];
-  // Captured JSON documents.
-  repeated flow.Slice docs_json = 3 [ (gogoproto.nullable) = false ];
-}
-
-// Acknowledge is a notification that a Checkpoint has committed to the
-// Flow runtime's recovery log.
-message Acknowledge {}
-
-// PullRequest is the request type of a Driver.Pull RPC.
-// It will have exactly one top-level field set, which represents its message
-// type.
-message PullRequest {
-  // Open opens a Pull of the driver, and is sent exactly once as the first
-  // message of the stream.
+  // Open a capture for reading documents from the endpoint.
+  // Unless the connector requests explicit acknowledgements,
+  // Open is the last message which will be sent to the connector.
   message Open {
     // CaptureSpec to be pulled.
     flow.CaptureSpec capture = 1;
     // Version of the opened CaptureSpec.
-    // The driver may want to require that this match the version last
+    // The connector may want to require that this match the version last
     // provided to a successful Apply RPC. It's possible that it won't,
     // due to expected propagation races in Flow's distributed runtime.
     string version = 2;
-    // [key_begin, key_end] inclusive range of keys processed by this
-    // transaction stream. Ranges reflect the disjoint chunks of ownership
-    // specific to each instance of a scale-out capture implementation.
-    fixed32 key_begin = 3;
-    fixed32 key_end = 4;
-    // Last-persisted driver checkpoint from a previous capture stream.
-    // Or empty, if the driver has cleared or never set its checkpoint.
-    bytes driver_checkpoint_json = 5 [
+    // Range of documents to be processed by this invocation.
+    flow.RangeSpec range = 3;
+    // Last-persisted connector checkpoint state from a previous invocation.
+    string state_json = 4 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
-      json_name = "driverCheckpoint"
+      json_name = "state"
     ];
   }
-  Open open = 1;
+  Open open = 5;
 
-  // Tell the driver that its Checkpoint has committed to the Flow recovery log.
-  // Acknowledgments are sent iff PullResponse.Opened.explicit_acknowledgements is true.
-  Acknowledge acknowledge = 2;
+  // Tell the connector that some number of its preceding Checkpoints have
+  // committed to the Flow recovery log.
+  //
+  // Acknowledge is sent only if the connector set
+  // Response.Opened.explicit_acknowledgements.
+  message Acknowledge {
+    // Number of preceeding Response.Checkpoint messages which have
+    // committed and are being acknowledged. Always one or more.
+    uint32 checkpoints = 1;
+  }
+  Acknowledge acknowledge = 6;
+
+  // Reserved for internal use.
+  google.protobuf.Any internal = 100;
 }
 
-// PullResponse is the response type of a Driver.Pull RPC.
-// It will have exactly one top-level field set, which represents its message
-// type.
-message PullResponse {
-  // Opened responds to PullRequest.Open of the runtime,
-  // and is sent exactly once as the first message of the stream.
+message Response {
+  // Spec responds to Request.Spec.
+  message Spec {
+    // Protocol version must be 3032023.
+    uint32 protocol = 1;
+    // JSON schema of the connector's configuration.
+    string config_schema_json = 2 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "configSchema"
+    ];
+    // JSON schema of the connecor's resource configuration.
+    string resource_config_schema_json = 3 [
+      (gogoproto.casttype) = "encoding/json.RawMessage",
+      json_name = "resourceConfigSchema"
+    ];
+    // URL for connector's documention.
+    string documentation_url = 4;
+    // Optional OAuth2 configuration.
+    flow.OAuth2 oauth2 = 5;
+  }
+  Spec spec = 1;
+
+  // Discovered responds to Request.Discover.
+  message Discovered {
+    // Potential bindings which the capture could provide.
+    // Bindings may be returned in any order.
+    message Binding {
+      // The recommended name for this discovered binding,
+      // which is appended to a catalog prefix of the proposed capture
+      // to form the name of its recommended collection.
+      string recommended_name = 1
+        [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Collection" ];
+      // JSON-encoded object which specifies the captured resource configuration.
+      string resource_config_json = 2 [
+        (gogoproto.casttype) = "encoding/json.RawMessage",
+        json_name = "resourceConfig"
+      ];
+      // JSON schema of documents produced by this binding.
+      string document_schema_json = 3 [
+        (gogoproto.casttype) = "encoding/json.RawMessage",
+        json_name = "documentSchema"
+      ];
+      // Composite key of documents (if known), as JSON-Pointers.
+      repeated string key = 4;
+    }
+    repeated Binding bindings = 1;
+  }
+  Discovered discovered = 2;
+
+  // Validated responds to Request.Validate.
+  message Validated {
+    // Validation responses for each binding of the request, and matching the
+    // request ordering. Each Binding must have a unique resource_path.
+    message Binding {
+      // Components of the resource path which fully qualify the resource
+      // identified by this binding.
+      // - For an RDBMS, this might be []{dbname, schema, table}.
+      // - For Kafka, this might be []{topic}.
+      // - For Redis, this might be []{key_prefix}.
+      repeated string resource_path = 1;
+    }
+    repeated Binding bindings = 1;
+  }
+  Validated validated = 3;
+
+  // Applied responds to Request.Apply.
+  message Applied {
+    // Human-readable description of the action that the Driver took (or, if
+    // dry_run, would have taken). If empty, this Apply is to be considered a
+    // "no-op".
+    string action_description = 1;
+  }
+  Applied applied = 4;
+
+  // Opened responds to Request.Open.
+  // After Opened, the connector beings sending Captured and Checkpoint.
   message Opened {
-    // If true then the runtime will send one PullRequest.Acknowledge
-    // for each PullResponse.DriverCheckpoint sent by the connector,
-    // upon that DriverCheckpoint having fully committed.
+    // If true then the runtime will send one Request.Acknowledge
+    // for each Response.Checkpoint sent by the connector,
+    // upon that Checkpoint having fully committed.
     bool explicit_acknowledgements = 1;
   }
-  Opened opened = 1;
+  Opened opened = 5;
 
-  // Captured documents of the stream.
-  Documents documents = 2;
-
-  // Checkpoint all preceeding Documents of this stream.
-  flow.DriverCheckpoint checkpoint = 3;
-}
-
-// PushRequest is the request message of the Runtime.Push RPC.
-message PushRequest {
-  // Open opens a Push of the runtime, and is sent exactly once as the first
-  // message of the stream.
-  message Open {
-    // Header identifies a specific Shard and Route to which this stream is
-    // directed. It's optional, and is typically attached by a proxying peer.
-    protocol.Header header = 1;
-    // Name of the capture under which we're pushing.
-    string capture = 2
-        [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Capture" ];
-  }
-  Open open = 1;
-
-  // Captured documents of the stream.
-  Documents documents = 2;
-
-  // Checkpoint all preceeding Documents of this stream.
-  flow.DriverCheckpoint checkpoint = 3;
-}
-
-// PushResponse is the response message of the Runtime.Push RPC.
-message PushResponse {
-  // Opened responds to PushRequest.Open of the driver,
-  // and is sent exactly once as the first message of the stream.
-  message Opened {
-    // Status of the Push open.
-    consumer.Status status = 1;
-    // Header of the response.
-    protocol.Header header = 2 [ (gogoproto.nullable) = false ];
-    // CaptureSpec to be pushed.
-    flow.CaptureSpec capture = 3;
-    // Version of the opened CaptureSpec.
-    // The driver may want to require that this match the version last
-    // provided to a successful Apply RPC. It's possible that it won't,
-    // due to expected propagation races in Flow's distributed runtime.
-    string version = 4;
-    // [key_begin, key_end] inclusive range of keys processed by this
-    // transaction stream. Ranges reflect the disjoint chunks of ownership
-    // specific to each instance of a scale-out capture implementation.
-    fixed32 key_begin = 5;
-    fixed32 key_end = 6;
-    // Last-persisted driver checkpoint from a previous capture stream.
-    // Or empty, if the driver has cleared or never set its checkpoint.
-    bytes driver_checkpoint_json = 7 [
-      (gogoproto.casttype) = "encoding/json.RawMessage",
-      json_name = "driverCheckpoint"
+  // Document captured by this connector invocation.
+  // Emitted documents are pending, and are not committed to their bound collection
+  // until a following Checkpoint is emitted.
+  message Captured {
+    // Index of the Open binding for which this document is captured.
+    uint32 binding = 1;
+    // Published JSON document.
+    string doc_json = 2 [
+        (gogoproto.casttype) = "encoding/json.RawMessage",
+        json_name = "doc"
     ];
   }
-  Opened opened = 1;
+  Captured captured = 6;
 
-  // Tell the driver that its Checkpoint has committed to the Flow recovery log.
-  // Unlike PullRequest.Acknowledge, which is only sent if explicitly opted into,
-  // PushResponse.Acknowledge is always sent.
-  Acknowledge acknowledge = 2;
+  // Checkpoint all preceding documents of this invocation since the last checkpoint.
+  // The Flow runtime may begin to commit documents in a transaction.
+  // Note that the runtime may include more than one checkpoint in a single transaction.
+  message Checkpoint {
+    flow.ConnectorState state = 1;
+  }
+  Checkpoint checkpoint = 7;
+
+  // Reserved for internal use.
+  google.protobuf.Any internal = 100;
 }
