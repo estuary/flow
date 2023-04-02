@@ -1,5 +1,5 @@
 [package]
-name = "derive"
+name = "runtime"
 version.workspace = true
 rust-version.workspace = true
 edition.workspace = true
@@ -9,32 +9,32 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-allocator = { path = "../allocator" }
-cgo = { path = "../cgo" }
+connector-init = { path = "../connector-init"  }
 doc = { path = "../doc" }
-json = { path = "../json" }
-models = { path = "../models" }
+ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
-tables = { path = "../tables" }
+proto-grpc = { path = "../proto-grpc", features = ["derive_server"] }
+derive-sqlite = { path = "../derive-sqlite" }
 tuple = { path = "../tuple" }
 
 anyhow = { workspace = true }
 bytes = { workspace = true }
+clap = { workspace = true }
 futures = { workspace = true }
-itertools = { workspace = true }
+json-patch = { workspace = true }
 librocksdb-sys = { workspace = true }
+pbjson-types = { workspace = true }
 prost = { workspace = true }
 rocksdb = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
-thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
 tracing = { workspace = true }
-url = { workspace = true }
-uuid = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
-rand = { workspace = true }
-rand_distr = { workspace = true }
