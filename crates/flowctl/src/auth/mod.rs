@@ -91,15 +91,20 @@ async fn do_login(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
 
     let url = ctx.config().get_dashboard_url("/admin/api")?.to_string();
 
-    println!("\nopening browser to: {url}");
-    open::that(&url).context("failed to open web browser")?;
+    println!("\nOpening browser to: {url}");
+    if let Err(_) = open::that(&url) {
+        println!(
+            "... Failed to open your browser. You can continue by manually clicking the link."
+        );
+    };
 
     if std::io::stdin().is_tty() {
         println!("please paste the token from the CLI auth page and hit Enter");
         let token = tokio::task::spawn_blocking(|| rpassword::prompt_password("Auth Token: "))
             .await?
             .context("failed to read auth token")?;
-        // copied credentials will often accidentally contain extra whitespace characters
+
+        // Copied credentials will often accidentally contain extra whitespace characters.
         let token = token.trim().to_string();
         controlplane::configure_new_access_token(ctx, token).await?;
         println!("\nConfigured access token.");

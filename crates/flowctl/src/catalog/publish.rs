@@ -1,20 +1,20 @@
-use std::collections::HashMap;
-
-use crate::{api_exec, controlplane, draft, source, CliContext};
+use crate::{api_exec, controlplane, draft, local_specs, CliContext};
 use anyhow::Context;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, clap::Args)]
 pub struct Publish {
-    #[clap(flatten)]
-    pub source_args: source::SourceArgs,
+    /// Path or URL to a Flow specification file to author.
+    #[clap(long)]
+    source: String,
     /// Proceed with the publication without prompting for confirmation.
     ///
     /// Normally, publish will stop and ask for confirmation before it proceeds. This disables that confirmation.
     /// This flag is required if running flowctl non-interactively, such as in a shell script.
     #[clap(long)]
-    pub auto_approve: bool,
+    auto_approve: bool,
 }
 
 // TODO(whb): This page size is pretty arbitrary, but seemed to work fine during my tests. It needs
@@ -107,8 +107,9 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
 
     anyhow::ensure!(args.auto_approve || std::io::stdin().is_tty(), "The publish command must be run interactively unless the `--auto-approve` flag is provided");
 
-    let catalog =
-        remove_unchanged(&client, crate::source::bundle(&args.source_args).await?).await?;
+    let (sources, _validations) =
+        local_specs::load_and_validate(client.clone(), &args.source).await?;
+    let catalog = remove_unchanged(&client, local_specs::into_catalog(sources)).await?;
 
     if catalog.is_empty() {
         println!("No specs would be changed by this publication, nothing to publish.");
