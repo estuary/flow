@@ -132,7 +132,7 @@ function start_control_plane_agent() {
     # Use the resolved flow project directory to set the --bin-dir argument.
     # We're counting on `make package` to have completed successfully at this point, which should be
     # the case if the temp-data-plane is running.
-    export RUST_LOG=info
+    export RUST_LOG=${RUST_LOG:-info}
     must_run cargo run -p agent -- --bin-dir "$flow_bin_dir" --connector-network=supabase_network_flow
 }
 
