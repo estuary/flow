@@ -23,7 +23,11 @@ prost = { workspace = true }
 serde = { workspace = true }
 
 [build-dependencies]
-proto-build = { path = "../proto-build" }
+proto-build = { path = "../proto-build", optional = true }
 
-pbjson-build = { workspace = true }
-prost-build = { workspace = true }
+pbjson-build = { workspace = true, optional = true }
+prost-build = { workspace = true, optional = true }
+
+[features]
+default = []
+generate = ["proto-build", "pbjson-build", "prost-build"]

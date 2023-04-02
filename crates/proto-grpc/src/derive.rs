@@ -1,54 +1,9 @@
 /// Generated client implementations.
-#[cfg(feature = "capture_client")]
+#[cfg(feature = "derive_client")]
 pub mod connector_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
-    /// Captures is a very long lived RPC through which the Flow runtime and a
-    /// connector cooperatively execute an unbounded number of transactions.
-    ///
-    /// The Pull workflow pulls streams of documents into capturing Flow
-    /// collections. Streams are incremental and resume-able, with resumption
-    /// semantics defined by the connector. The Flow Runtime uses a transactional
-    /// recovery log to support this workflow, and the connector may persist arbitrary
-    /// driver checkpoints into that log as part of the RPC lifecycle,
-    /// to power its chosen resumption semantics.
-    ///
-    /// Pull tasks are split-able, and many concurrent invocations of the RPC
-    /// may collectively capture from a source, where each task split has an
-    /// identified range of keys it's responsible for. The meaning of a "key",
-    /// and it's application within the remote store being captured from, is up
-    /// to the connector. The connector might map partitions or shards into the keyspace,
-    /// and from there to a covering task split. Or, it might map distinct files,
-    /// or some other unit of scaling.
-    ///
-    /// RPC Lifecycle
-    /// =============
-    ///
-    /// :Request.Open:
-    ///    - The Flow runtime opens the pull stream.
-    /// :Response.Opened:
-    ///    - The connector responds with Opened.
-    ///
-    /// Request.Open and Request.Opened are sent only once, at the
-    /// commencement of the stream. Thereafter the protocol loops:
-    ///
-    /// :Response.Captured:
-    ///    - The connector tells the runtime of documents,
-    ///      which are pending a future Checkpoint.
-    ///    - If the connector sends multiple Documents messages without an
-    ///      interleaving Checkpoint, the Flow runtime MUST commit
-    ///      documents of all such messages in a single transaction.
-    /// :Response.Checkpoint:
-    ///    - The connector tells the runtime of a checkpoint: a watermark in the
-    ///      captured documents stream which is eligble to be used as a
-    ///      transaction commit boundary.
-    ///    - Whether the checkpoint becomes a commit boundary is at the
-    ///      discretion of the Flow runtime. It may combine multiple checkpoints
-    ///      into a single transaction.
-    /// :Request.Acknowledge:
-    ///    - The Flow runtime tells the connector that its Checkpoint has committed.
-    ///    - The runtime sends one ordered Acknowledge for each Checkpoint.
     #[derive(Debug, Clone)]
     pub struct ConnectorClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -113,13 +68,13 @@ pub mod connector_client {
             self.inner = self.inner.accept_compressed(encoding);
             self
         }
-        pub async fn capture(
+        pub async fn derive(
             &mut self,
             request: impl tonic::IntoStreamingRequest<
-                Message = ::proto_flow::capture::Request,
+                Message = ::proto_flow::derive::Request,
             >,
         ) -> Result<
-            tonic::Response<tonic::codec::Streaming<::proto_flow::capture::Response>>,
+            tonic::Response<tonic::codec::Streaming<::proto_flow::derive::Response>>,
             tonic::Status,
         > {
             self.inner
@@ -132,77 +87,30 @@ pub mod connector_client {
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/capture.Connector/Capture",
-            );
+            let path = http::uri::PathAndQuery::from_static("/derive.Connector/Derive");
             self.inner.streaming(request.into_streaming_request(), path, codec).await
         }
     }
 }
 /// Generated server implementations.
-#[cfg(feature = "capture_server")]
+#[cfg(feature = "derive_server")]
 pub mod connector_server {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
     /// Generated trait containing gRPC methods that should be implemented for use with ConnectorServer.
     #[async_trait]
     pub trait Connector: Send + Sync + 'static {
-        /// Server streaming response type for the Capture method.
-        type CaptureStream: futures_core::Stream<
-                Item = Result<::proto_flow::capture::Response, tonic::Status>,
+        /// Server streaming response type for the Derive method.
+        type DeriveStream: futures_core::Stream<
+                Item = Result<::proto_flow::derive::Response, tonic::Status>,
             >
             + Send
             + 'static;
-        async fn capture(
+        async fn derive(
             &self,
-            request: tonic::Request<tonic::Streaming<::proto_flow::capture::Request>>,
-        ) -> Result<tonic::Response<Self::CaptureStream>, tonic::Status>;
+            request: tonic::Request<tonic::Streaming<::proto_flow::derive::Request>>,
+        ) -> Result<tonic::Response<Self::DeriveStream>, tonic::Status>;
     }
-    /// Captures is a very long lived RPC through which the Flow runtime and a
-    /// connector cooperatively execute an unbounded number of transactions.
-    ///
-    /// The Pull workflow pulls streams of documents into capturing Flow
-    /// collections. Streams are incremental and resume-able, with resumption
-    /// semantics defined by the connector. The Flow Runtime uses a transactional
-    /// recovery log to support this workflow, and the connector may persist arbitrary
-    /// driver checkpoints into that log as part of the RPC lifecycle,
-    /// to power its chosen resumption semantics.
-    ///
-    /// Pull tasks are split-able, and many concurrent invocations of the RPC
-    /// may collectively capture from a source, where each task split has an
-    /// identified range of keys it's responsible for. The meaning of a "key",
-    /// and it's application within the remote store being captured from, is up
-    /// to the connector. The connector might map partitions or shards into the keyspace,
-    /// and from there to a covering task split. Or, it might map distinct files,
-    /// or some other unit of scaling.
-    ///
-    /// RPC Lifecycle
-    /// =============
-    ///
-    /// :Request.Open:
-    ///    - The Flow runtime opens the pull stream.
-    /// :Response.Opened:
-    ///    - The connector responds with Opened.
-    ///
-    /// Request.Open and Request.Opened are sent only once, at the
-    /// commencement of the stream. Thereafter the protocol loops:
-    ///
-    /// :Response.Captured:
-    ///    - The connector tells the runtime of documents,
-    ///      which are pending a future Checkpoint.
-    ///    - If the connector sends multiple Documents messages without an
-    ///      interleaving Checkpoint, the Flow runtime MUST commit
-    ///      documents of all such messages in a single transaction.
-    /// :Response.Checkpoint:
-    ///    - The connector tells the runtime of a checkpoint: a watermark in the
-    ///      captured documents stream which is eligble to be used as a
-    ///      transaction commit boundary.
-    ///    - Whether the checkpoint becomes a commit boundary is at the
-    ///      discretion of the Flow runtime. It may combine multiple checkpoints
-    ///      into a single transaction.
-    /// :Request.Acknowledge:
-    ///    - The Flow runtime tells the connector that its Checkpoint has committed.
-    ///    - The runtime sends one ordered Acknowledge for each Checkpoint.
     #[derive(Debug)]
     pub struct ConnectorServer<T: Connector> {
         inner: _Inner<T>,
@@ -262,15 +170,15 @@ pub mod connector_server {
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             let inner = self.inner.clone();
             match req.uri().path() {
-                "/capture.Connector/Capture" => {
+                "/derive.Connector/Derive" => {
                     #[allow(non_camel_case_types)]
-                    struct CaptureSvc<T: Connector>(pub Arc<T>);
+                    struct DeriveSvc<T: Connector>(pub Arc<T>);
                     impl<
                         T: Connector,
-                    > tonic::server::StreamingService<::proto_flow::capture::Request>
-                    for CaptureSvc<T> {
-                        type Response = ::proto_flow::capture::Response;
-                        type ResponseStream = T::CaptureStream;
+                    > tonic::server::StreamingService<::proto_flow::derive::Request>
+                    for DeriveSvc<T> {
+                        type Response = ::proto_flow::derive::Response;
+                        type ResponseStream = T::DeriveStream;
                         type Future = BoxFuture<
                             tonic::Response<Self::ResponseStream>,
                             tonic::Status,
@@ -278,11 +186,11 @@ pub mod connector_server {
                         fn call(
                             &mut self,
                             request: tonic::Request<
-                                tonic::Streaming<::proto_flow::capture::Request>,
+                                tonic::Streaming<::proto_flow::derive::Request>,
                             >,
                         ) -> Self::Future {
                             let inner = self.0.clone();
-                            let fut = async move { (*inner).capture(request).await };
+                            let fut = async move { (*inner).derive(request).await };
                             Box::pin(fut)
                         }
                     }
@@ -291,7 +199,7 @@ pub mod connector_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
-                        let method = CaptureSvc(inner);
+                        let method = DeriveSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -339,6 +247,6 @@ pub mod connector_server {
         }
     }
     impl<T: Connector> tonic::server::NamedService for ConnectorServer<T> {
-        const NAME: &'static str = "capture.Connector";
+        const NAME: &'static str = "derive.Connector";
     }
 }

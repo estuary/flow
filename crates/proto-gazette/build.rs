@@ -1,3 +1,4 @@
+#[cfg(feature = "generate")]
 fn main() {
     let b = proto_build::Boilerplate::create();
     let proto_build = b.resolve_gazette_targets();
@@ -11,8 +12,12 @@ fn main() {
         .expect("failed to compile protobuf");
 
     pbjson_build::Builder::new()
+        .out_dir(&b.src_dir)
         .register_descriptors(&std::fs::read(b.descriptor_path).expect("read descriptors"))
         .unwrap()
         .build(&[".protocol", ".consumer", ".recoverylog"])
         .expect("building pbjson");
 }
+
+#[cfg(not(feature = "generate"))]
+fn main() {}
