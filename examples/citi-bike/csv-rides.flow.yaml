@@ -1,16 +1,17 @@
 collections:
   examples/citi-bike/csv-rides:
-    key: ['/Bike ID', '/Start Time']
+    key: ["/Bike ID", "/Start Time"]
     schema: csv-ride.schema.yaml
 
 captures:
   examples/citi-bike/rides-from-s3:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-s3:dev
+        image: ghcr.io/estuary/source-s3:3be4f86
         config: rides.config.yaml
     bindings:
       - resource:
           stream: tripdata/JC-201703
           syncMode: incremental
         target: examples/citi-bike/csv-rides
+    interval: 1m

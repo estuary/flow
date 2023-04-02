@@ -11,10 +11,11 @@ collections:
         last: { $ref: ride.schema.yaml#/$defs/terminus }
       required: [bike_id, last]
 
-    derivation:
-      transform:
-        locationFromRide:
+    derive:
+      using:
+        sqlite:
+          migrations: []
+      transforms:
+        - name: locationFromRide
           source: { name: examples/citi-bike/rides }
-          publish:
-            lambda:
-              sql: select bike_id, end as last from source
+          lambda: select $bike_id, $end as last;

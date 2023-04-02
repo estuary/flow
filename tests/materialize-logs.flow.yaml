@@ -5,7 +5,7 @@ materializations:
   examples/stats:
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-postgres:dev
+        image: ghcr.io/estuary/materialize-postgres:3be4f86
         config:
           address: postgres:5432
           user: flow
@@ -17,13 +17,15 @@ materializations:
     bindings:
       - resource:
           table: flow_logs
-        source: ops.us-central1.v1/logs
-        partitions:
-          # Exclude our own logs so we don't create an infinite loop.
-          exclude: { "name": ["examples/stats"] }
+        source:
+          name: ops.us-central1.v1/logs
+          partitions:
+            # Exclude our own logs so we don't create an infinite loop.
+            exclude: { "name": ["examples/stats"] }
       - resource:
           table: flow_stats
-        source: ops.us-central1.v1/stats
-        partitions:
-          # Exclude our own stats so we don't create an infinite loop.
-          exclude: { "name": ["examples/stats"] }
+        source:
+          name: ops.us-central1.v1/stats
+          partitions:
+            # Exclude our own stats so we don't create an infinite loop.
+            exclude: { "name": ["examples/stats"] }

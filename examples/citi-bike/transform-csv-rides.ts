@@ -1,8 +1,10 @@
-import { IDerivation, Document, Register, FromCsvRidesSource } from 'flow/examples/citi-bike/rides';
+import { IDerivation, Document, SourceFromCsvRides } from 'flow/examples/citi-bike/rides.ts';
 
-// Implementation for derivation rides.flow.yaml#/collections/examples~1citi-bike~1rides/derivation.
-export class Derivation implements IDerivation {
-    fromCsvRidesPublish(source: FromCsvRidesSource, _register: Register, _previous: Register): Document[] {
+// Implementation for derivation examples/citi-bike/rides.
+export class Derivation extends IDerivation {
+    fromCsvRides(read: { doc: SourceFromCsvRides }): Document[] {
+        const source = read.doc;
+
         let birth_year: number | null = null;
         if (source['Birth Year']) {
             birth_year = parseInt(source['Birth Year']);

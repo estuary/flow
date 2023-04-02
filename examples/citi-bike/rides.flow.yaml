@@ -1,13 +1,12 @@
-import: [ csv-rides.flow.yaml ]
+import: [csv-rides.flow.yaml]
 
 collections:
   examples/citi-bike/rides:
     key: [/bike_id, /begin/timestamp]
     schema: ride.schema.yaml
-    derivation:
-      transform:
-        fromCsvRides:
+    derive:
+      using:
+        typescript: { module: transform-csv-rides.ts }
+      transforms:
+        - name: fromCsvRides
           source: { name: examples/citi-bike/csv-rides }
-          publish: { lambda: typescript }
-      typescript: { module: transform-csv-rides.ts }
-

@@ -18,17 +18,15 @@ collections:
         location: /exchange
         partition: true
 
-    derivation:
-      transform:
-        fromTicks:
+    derive:
+      using:
+        typescript:
+          module: flow.ts
+      transforms:
+        - name: fromTicks
           source:
             name: stock/ticks
             partitions: { include: { exchange: [NYSE, NASDAQ] } }
-          publish: { lambda: typescript }
-      typescript:
-        module: flow.ts
-        npmDependencies:
-          moment: "^2.24"
 
 tests:
   # TODO this is a pretty silly test, and is the result of my messing around
@@ -75,8 +73,9 @@ tests:
         collection: stock/ticks
         documents: *ingest2
     - verify:
-        collection: stock/daily-stats
-        partitions: { include: { exchange: [NYSE] } }
+        collection:
+          name: stock/daily-stats
+          partitions: { include: { exchange: [NYSE] } }
         documents:
           - "ask": { "avgD": 4, "avgN": 1285.78, "high": 321.45, "low": 321.44 }
             "bid": { "avgD": 4, "avgN": 1284.38, "high": 321.1, "low": 321.09 }
@@ -98,8 +97,9 @@ tests:
           - security: GOOG
             first: { price: 150.07 }
     - verify:
-        collection: stock/daily-stats
-        partitions: { include: { exchange: [NASDAQ] } }
+        collection:
+          name: stock/daily-stats
+          partitions: { include: { exchange: [NASDAQ] } }
         documents:
           - security: Foob
             first: { price: 321.15 }

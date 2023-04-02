@@ -8,12 +8,11 @@ collections:
     projections:
       currentBikes: /stable/add
 
-    derivation:
-      transform:
-        ridesAndMoves:
+    derive:
+      using:
+        typescript:
+          module: stations.flow.ts
+      transforms:
+        - name: ridesAndMoves
           source:
             name: examples/citi-bike/rides-and-relocations
-          publish:
-            lambda: typescript
-      typescript:
-        module: stations.flow.ts
