@@ -6,7 +6,6 @@ mod test;
 use crate::{
     api_exec, controlplane,
     output::{to_table_row, CliOutput, JsonCell},
-    source,
 };
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -50,7 +49,7 @@ pub enum Command {
     ///
     /// Runs catalog tests based on specifications in a
     /// local directory or a remote URL. This
-    Test(source::SourceArgs),
+    Test(test::TestArgs),
     /// History of a catalog specification.
     ///
     /// Print all historical publications of catalog specifications.
@@ -249,19 +248,6 @@ pub struct List {
     pub deleted: bool,
 }
 
-impl List {
-    /// Helper to construct `List` args for a single named catalog entity.
-    pub fn single(name: impl Into<String>) -> List {
-        List {
-            name_selector: NameSelector {
-                name: vec![name.into()],
-                ..Default::default()
-            },
-            ..Default::default()
-        }
-    }
-}
-
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct History {
@@ -341,15 +327,6 @@ pub struct LiveSpecRow {
     pub spec: Option<Box<serde_json::value::RawValue>>,
 }
 
-impl LiveSpecRow {
-    pub fn parse_spec<T: serde::de::DeserializeOwned>(&self) -> anyhow::Result<T> {
-        let spec = self.spec.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("missing spec for catalog item: '{}'", self.catalog_name)
-        })?;
-        let parsed = serde_json::from_str::<T>(spec.get())?;
-        Ok(parsed)
-    }
-}
 impl crate::output::CliOutput for LiveSpecRow {
     type TableAlt = bool;
     type CellValue = String;
