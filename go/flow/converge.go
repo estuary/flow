@@ -8,6 +8,7 @@ import (
 
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/flow/go/protocols/ops"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -21,7 +22,7 @@ func ListShardsRequest(task pf.Task) pc.ListRequest {
 		Selector: pb.LabelSelector{
 			Include: pb.MustLabelSet(
 				labels.TaskName, task.TaskName(),
-				labels.TaskType, taskType(task),
+				labels.TaskType, taskType(task).String(),
 			),
 		},
 	}
@@ -34,7 +35,7 @@ func ListRecoveryLogsRequest(task pf.Task) pb.ListRequest {
 			Include: pb.MustLabelSet(
 				glabels.ContentType, glabels.ContentType_RecoveryLog,
 				labels.TaskName, task.TaskName(),
-				labels.TaskType, taskType(task),
+				labels.TaskType, taskType(task).String(),
 			),
 		},
 	}
@@ -44,7 +45,7 @@ func ListRecoveryLogsRequest(task pf.Task) pb.ListRequest {
 func ListPartitionsRequest(collection *pf.CollectionSpec) pb.ListRequest {
 	return pb.ListRequest{
 		Selector: pf.LabelSelector{
-			Include: pb.MustLabelSet(labels.Collection, collection.Collection.String()),
+			Include: pb.MustLabelSet(labels.Collection, collection.Name.String()),
 		},
 	}
 }
@@ -356,14 +357,14 @@ func ActivationChanges(
 	for _, collection := range collections {
 		var resp, err = client.ListAllJournals(ctx, jc, ListPartitionsRequest(collection))
 		if err != nil {
-			return nil, nil, fmt.Errorf("listing partitions of %s: %w", collection.Collection, err)
+			return nil, nil, fmt.Errorf("listing partitions of %s: %w", collection.Name, err)
 		}
 
 		var desired = MapPartitionsToCurrentSplits(resp.Journals)
 		journals, err = CollectionChanges(collection, resp.Journals, desired, journals)
 
 		if err != nil {
-			return nil, nil, fmt.Errorf("processing collection %s: %w", collection.Collection, err)
+			return nil, nil, fmt.Errorf("processing collection %s: %w", collection.Name, err)
 		}
 	}
 
@@ -411,7 +412,7 @@ func DeletionChanges(
 	for _, collection := range collections {
 		var resp, err = client.ListAllJournals(ctx, jc, ListPartitionsRequest(collection))
 		if err != nil {
-			return nil, nil, fmt.Errorf("listing partitions of %s: %w", collection.Collection, err)
+			return nil, nil, fmt.Errorf("listing partitions of %s: %w", collection.Name, err)
 		}
 
 		for _, cur := range resp.Journals {
@@ -452,14 +453,14 @@ func DeletionChanges(
 }
 
 // taskType returns the label matching this Task.
-func taskType(task pf.Task) string {
+func taskType(task pf.Task) ops.TaskType {
 	switch task.(type) {
 	case *pf.CaptureSpec:
-		return labels.TaskTypeCapture
-	case *pf.DerivationSpec:
-		return labels.TaskTypeDerivation
+		return ops.TaskType_capture
+	case *pf.CollectionSpec:
+		return ops.TaskType_derivation
 	case *pf.MaterializationSpec:
-		return labels.TaskTypeMaterialization
+		return ops.TaskType_materialization
 	default:
 		panic(task)
 	}

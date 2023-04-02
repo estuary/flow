@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/estuary/flow/go/bindings"
@@ -20,24 +19,16 @@ import (
 
 type apiBuild struct {
 	BuildID     string                `long:"build-id" required:"true" description:"ID of this build"`
-	Directory   string                `long:"directory" default:"." description:"Build directory"`
+	BuildDB     string                `long:"build-db" required:"true" description:"Output build database"`
 	FileRoot    string                `long:"fs-root" default:"/" description:"Filesystem root of fetched file:// resources"`
 	Network     string                `long:"network" description:"The Docker network that connector containers are given access to."`
 	Source      string                `long:"source" required:"true" description:"Catalog source file or URL to build"`
 	SourceType  string                `long:"source-type" default:"catalog" choice:"catalog" choice:"jsonSchema" description:"Type of the source to build."`
-	TSCompile   bool                  `long:"ts-compile" description:"Should TypeScript modules be compiled and linted? Implies generation."`
-	TSGenerate  bool                  `long:"ts-generate" description:"Should TypeScript types be generated?"`
-	TSPackage   bool                  `long:"ts-package" description:"Should TypeScript modules be packaged? Implies generation and compilation."`
 	Log         mbp.LogConfig         `group:"Logging" namespace:"log" env-namespace:"LOG"`
 	Diagnostics mbp.DiagnosticsConfig `group:"Debug" namespace:"debug" env-namespace:"DEBUG"`
 }
 
 func (cmd apiBuild) execute(ctx context.Context) error {
-	var err error
-	if cmd.Directory, err = filepath.Abs(cmd.Directory); err != nil {
-		return fmt.Errorf("filepath.Abs: %w", err)
-	}
-
 	var sourceType pf.ContentType
 	switch cmd.SourceType {
 	case "catalog":
@@ -50,14 +41,10 @@ func (cmd apiBuild) execute(ctx context.Context) error {
 		Context: ctx,
 		BuildAPI_Config: pf.BuildAPI_Config{
 			BuildId:          cmd.BuildID,
-			Directory:        cmd.Directory,
+			BuildDb:          cmd.BuildDB,
 			Source:           cmd.Source,
 			SourceType:       sourceType,
 			ConnectorNetwork: cmd.Network,
-
-			TypescriptGenerate: cmd.TSGenerate,
-			TypescriptCompile:  cmd.TSCompile,
-			TypescriptPackage:  cmd.TSPackage,
 		},
 		FileRoot: cmd.FileRoot,
 	}
@@ -68,7 +55,7 @@ func (cmd apiBuild) execute(ctx context.Context) error {
 	// We manually open the database, rather than use catalog.Extract,
 	// because we explicitly check for and handle errors.
 	// Essentially all other accesses of the catalog DB should prefer catalog.Extract.
-	db, err := sql.Open("sqlite3", fmt.Sprintf("file://%s?mode=ro", args.OutputPath()))
+	var db, err = sql.Open("sqlite3", fmt.Sprintf("file://%s?mode=ro", args.BuildDb))
 	if err != nil {
 		return fmt.Errorf("opening DB: %w", err)
 	}
@@ -80,7 +67,7 @@ func (cmd apiBuild) execute(ctx context.Context) error {
 	}
 
 	for _, be := range errors {
-		var path, ptr = scopeToPathAndPtr(args.Directory, be.Scope)
+		var path, ptr = scopeToPathAndPtr(args.Source, be.Scope)
 		fmt.Println(yellow(path), "error at", red(ptr), ":")
 		fmt.Println(be.Error)
 	}
@@ -107,18 +94,34 @@ func (cmd apiBuild) Execute(_ []string) error {
 	return cmd.execute(ctx)
 }
 
-func scopeToPathAndPtr(dir, scope string) (path, ptr string) {
-	u, err := url.Parse(scope)
+func scopeToPathAndPtr(source, scope string) (path, ptr string) {
+	sourceURL, err := url.Parse(source)
 	if err != nil {
 		panic(err)
 	}
 
-	ptr, u.Fragment = u.Fragment, ""
-	path = u.String()
-
-	if u.Scheme == "file" && strings.HasPrefix(u.Path, dir) {
-		path = path[len(dir)+len("file://")+1:]
+	// If `source` is relative, attempt to resolve it as an absolute path to a local file.
+	if !sourceURL.IsAbs() {
+		if abs, err := filepath.Abs(source); err == nil {
+			sourceURL.Scheme = "file"
+			sourceURL.Path = abs
+		}
 	}
+
+	scopeURL, err := url.Parse(scope)
+	if err != nil {
+		panic(err)
+	}
+
+	if sourceURL.Scheme == "file" && scopeURL.Scheme == "file" {
+		if rel, err := filepath.Rel(filepath.Dir(sourceURL.Path), scopeURL.Path); err == nil {
+			return rel, scopeURL.Fragment
+		}
+	}
+
+	ptr, scopeURL.Fragment = scopeURL.Fragment, ""
+	path = scopeURL.String()
+
 	if ptr == "" {
 		ptr = "<root>"
 	}

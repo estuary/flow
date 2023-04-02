@@ -16,29 +16,6 @@ func main() {
 Locally test a Flow catalog.
 		`, &cmdTest{})
 
-	addCmd(parser, "check", "Check a Flow catalog for errors", `
-Quickly load and validate a Flow catalog, and generate updated TypeScript types.
-`, &cmdCheck{})
-
-	addCmd(parser, "discover", "Discover available captures of an endpoint", `
-Inspect a configured endpoint, and generate a Flow catalog of collections,
-schemas, and capture bindings which reflect its available resources.
-
-Discover is a two-stage workflow:
-
-In the first invocation, the command will generate a stub
-configuration YAML derived from the connector's specification.
-The user reviews this YAML file, and updates it with appropriate
-credentials and configuration.
-
-In the second invocation, the command applies the completed
-configuration to the endpoint and determines its available resource
-bindings. It generates a Flow catalog YAML file with a Flow Capture
-and associated Collection definitions. The user may then review,
-update, refactor, and otherwise incorporate the generated entities
-into their broader Flow catalog.
-`, &cmdDiscover{})
-
 	addCmd(parser, "json-schema", "Print the catalog JSON schema", `
 Print the JSON schema specification of Flow catalogs, as understood by this
 specific build of Flow. This JSON schema can be used to enable IDE support
@@ -51,14 +28,6 @@ A local data plane is intended for local development and testing, and doesn't pe
 fragments to the configured storage mappings of collections and Flow tasks.
 Upon exit, all data is discarded.
 `, &cmdTempDataPlane{})
-
-	addCmd(parser, "deploy", "Build a catalog and deploy it to a data plane", `
-Build a catalog from --source. Then, activate it into a data plane.
-
-If --block-and-cleanup, then await a Ctrl-C from the user and then fully remove
-the deployment, cleaning up all its effects and restoring the data plane to
-its original state.
-`, &cmdDeploy{})
 
 	serve, err := parser.Command.AddCommand("serve", "Serve a component of Flow", "", &struct{}{})
 	mbp.Must(err, "failed to add command")
