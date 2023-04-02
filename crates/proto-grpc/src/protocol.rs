@@ -218,7 +218,7 @@ pub mod journal_client {
 pub mod journal_server {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
-    ///Generated trait containing gRPC methods that should be implemented for use with JournalServer.
+    /// Generated trait containing gRPC methods that should be implemented for use with JournalServer.
     #[async_trait]
     pub trait Journal: Send + Sync + 'static {
         /// List Journals, their JournalSpecs and current Routes.
@@ -237,7 +237,7 @@ pub mod journal_server {
             tonic::Response<::proto_gazette::broker::ApplyResponse>,
             tonic::Status,
         >;
-        ///Server streaming response type for the Read method.
+        /// Server streaming response type for the Read method.
         type ReadStream: futures_core::Stream<
                 Item = Result<::proto_gazette::broker::ReadResponse, tonic::Status>,
             >
@@ -258,7 +258,7 @@ pub mod journal_server {
             tonic::Response<::proto_gazette::broker::AppendResponse>,
             tonic::Status,
         >;
-        ///Server streaming response type for the Replicate method.
+        /// Server streaming response type for the Replicate method.
         type ReplicateStream: futures_core::Stream<
                 Item = Result<::proto_gazette::broker::ReplicateResponse, tonic::Status>,
             >
