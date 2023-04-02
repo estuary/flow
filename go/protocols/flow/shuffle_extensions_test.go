@@ -28,7 +28,7 @@ func TestJournalShuffle(t *testing.T) {
 	require.EqualError(t, m.Validate(), "Shuffle: missing SourceUuidPtr")
 	m.SourceUuidPtr = "/uuid"
 
-	require.EqualError(t, m.Validate(), "Shuffle: expected one of ShuffleKeyPtr or ShuffleLambda")
+	require.EqualError(t, m.Validate(), "Shuffle: missing ShuffleKeyPtr")
 	m.Shuffle.ShuffleKeyPtrs = []string{"/foo"}
 
 	require.EqualError(t, m.Validate(), "missing BuildId")
