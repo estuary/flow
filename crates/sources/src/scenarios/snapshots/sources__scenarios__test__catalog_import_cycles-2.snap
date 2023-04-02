@@ -6,24 +6,7 @@ Sources {
     captures: [],
     collections: [],
     errors: [],
-    fetches: [
-        Fetch {
-            depth: 1,
-            resource: test://example/catalog.yaml,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/A,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/B,
-        },
-        Fetch {
-            depth: 3,
-            resource: test://example/C,
-        },
-    ],
+    fetches: [],
     imports: [
         Import {
             scope: test://example/A#/import/0,
@@ -59,32 +42,7 @@ Sources {
         },
     ],
     materializations: [],
-    resources: [
-        Resource {
-            resource: test://example/A,
-            content_type: "CATALOG",
-            content: ".. binary ..",
-            content_dom: {"import":["C","B"]},
-        },
-        Resource {
-            resource: test://example/B,
-            content_type: "CATALOG",
-            content: ".. binary ..",
-            content_dom: {"import":["C","A"]},
-        },
-        Resource {
-            resource: test://example/C,
-            content_type: "CATALOG",
-            content: ".. binary ..",
-            content_dom: {"import":["catalog.yaml","B"]},
-        },
-        Resource {
-            resource: test://example/catalog.yaml,
-            content_type: "CATALOG",
-            content: ".. binary ..",
-            content_dom: {"import":["A","B"]},
-        },
-    ],
+    resources: [],
     storage_mappings: [],
     tests: [],
 }

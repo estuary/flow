@@ -1,0 +1,31 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+expression: tables
+---
+Sources {
+    captures: [],
+    collections: [
+        Collection {
+            scope: test://example/catalog.yaml#/collections/test,
+            collection: test,
+            spec: {
+              "schema": {"$defs":{"lowercase":{"$anchor":"lowercase","type":"integer"},"matches":{"$anchor":"Match_es","type":"integer"},"punctuation":{"$anchor":"Spa ce","type":"integer"}},"$id":"test://example/schema.json","type":"string"},
+              "key": [
+                "/a"
+              ]
+            },
+        },
+    ],
+    errors: [],
+    fetches: [],
+    imports: [
+        Import {
+            scope: test://example/catalog.yaml#/collections/test/schema,
+            to_resource: test://example/schema.json,
+        },
+    ],
+    materializations: [],
+    resources: [],
+    storage_mappings: [],
+    tests: [],
+}

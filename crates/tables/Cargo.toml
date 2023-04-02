@@ -14,7 +14,6 @@ json = { path = "../json" }
 labels = { path = "../labels" }
 models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
-proto-gazette = { path = "../proto-gazette" }
 
 anyhow = { workspace = true }
 bytes = { workspace = true }

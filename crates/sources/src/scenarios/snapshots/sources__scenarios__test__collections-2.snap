@@ -9,7 +9,7 @@ Sources {
             scope: test://example/catalog.yaml#/collections/test~1collection,
             collection: test/collection,
             spec: {
-              "schema": "schema.json",
+              "schema": {"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"},
               "key": [
                 "/key/1",
                 "/key/0"
@@ -39,8 +39,8 @@ Sources {
             scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read,
             collection: test/collection-with-write-and-read,
             spec: {
-              "writeSchema": "schema.json",
-              "readSchema": "schema.json#/properties/a",
+              "writeSchema": {"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"},
+              "readSchema": {"$defs":{"__flowInline1":{"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"}},"$id":"test://example/catalog.yaml?ptr=/collections/test~1collection-with-write-and-read/readSchema","$ref":"schema.json#/properties/a"},
               "key": [
                 "/key/1",
                 "/key/0"
@@ -51,7 +51,7 @@ Sources {
             scope: test://example/catalog.yaml#/collections/test~1collection~1with-journals,
             collection: test/collection/with-journals,
             spec: {
-              "schema": "schema.json#foobar",
+              "schema": {"$defs":{"__flowInline1":{"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"}},"$id":"test://example/catalog.yaml?ptr=/collections/test~1collection~1with-journals/schema","$ref":"schema.json#foobar"},
               "key": [
                 "/a/key"
               ],
@@ -67,16 +67,7 @@ Sources {
         },
     ],
     errors: [],
-    fetches: [
-        Fetch {
-            depth: 1,
-            resource: test://example/catalog.yaml,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/schema.json,
-        },
-    ],
+    fetches: [],
     imports: [
         Import {
             scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read/readSchema,
@@ -96,20 +87,7 @@ Sources {
         },
     ],
     materializations: [],
-    resources: [
-        Resource {
-            resource: test://example/catalog.yaml,
-            content_type: "CATALOG",
-            content: ".. binary ..",
-            content_dom: {"collections":{"test/collection":{"key":["/key/1","/key/0"],"projections":{"field_a":{"location":"/a/a","partition":true},"field_b":{"location":"/b/b","partition":false}},"schema":"schema.json"},"test/collection-no-schema":{"key":["/key"]},"test/collection-with-write-and-read":{"key":["/key/1","/key/0"],"readSchema":"schema.json#/properties/a","writeSchema":"schema.json"},"test/collection/with-journals":{"journals":{"fragments":{"compressionCodec":"GZIP_OFFLOAD_DECOMPRESSION","flushInterval":"15m","length":12345,"retention":"320h"}},"key":["/a/key"],"schema":"schema.json#foobar"}}},
-        },
-        Resource {
-            resource: test://example/schema.json,
-            content_type: "JSON_SCHEMA",
-            content: ".. binary ..",
-            content_dom: {"$anchor":"foobar","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"},
-        },
-    ],
+    resources: [],
     storage_mappings: [],
     tests: [],
 }

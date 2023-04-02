@@ -2,80 +2,90 @@ use superslice::Ext;
 use url::Url;
 
 impl super::Resource {
-    pub fn fetch_content_dom<'s>(
-        resources: &'s [Self],
-        url: &Url,
-    ) -> Option<&'s serde_json::value::RawValue> {
+    pub fn fetch<'s>(resources: &'s [Self], url: &Url) -> Option<&'s Self> {
         let range = resources.equal_range_by_key(&url, |resource| &resource.resource);
-        resources[range]
-            .iter()
-            .map(|resource| resource.content_dom.as_ref())
-            .next()
+        resources[range].iter().next()
     }
 
-    pub fn compile_all_json_schemas(
-        slice: &[Self],
-    ) -> Result<Vec<(url::Url, doc::Schema)>, json::schema::build::Error> {
-        slice
-            .iter()
-            .filter_map(|resource| {
-                if resource.content_type == proto_flow::flow::ContentType::JsonSchema {
-                    let v = serde_json::from_str::<serde_json::Value>(resource.content_dom.get())
-                        .unwrap();
-                    let schema = json::schema::build::build_schema(resource.resource.clone(), &v);
+    pub fn upsert_if_changed(self, resources: &mut super::Resources) {
+        let index = resources.binary_search_by(|l| l.resource.cmp(&self.resource));
 
-                    match schema {
-                        Ok(schema) => Some(Ok((resource.resource.clone(), schema))),
-                        Err(err) => Some(Err(err)),
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect::<Result<Vec<_>, _>>()
+        match index {
+            Ok(index) if self.content_dom.get() != resources[index].content_dom.get() => {
+                resources[index] = self;
+            }
+            Ok(_) => {
+                // If DOM isn't changing then don't overwrite the on-disk serialization.
+                // This preserves YAML comments or anchors the user may have.
+            }
+            Err(_) => {
+                resources.insert(self);
+            }
+        }
     }
 }
 
 impl super::Import {
-    // path_exists determines whether a forward or backwards import path exists between
-    // |src_scope| and |tgt_scope|.
-    pub fn path_exists(imports: &[Self], src_scope: &Url, tgt_scope: &Url) -> bool {
-        let edges = |from: &Url| {
-            let range = imports.equal_range_by_key(&from, |import| &import.from_resource);
-            imports[range].iter().map(|import| &import.to_resource)
-        };
-
-        // Trim any fragment suffix of each scope to obtain the base resource.
-        let (mut src, mut tgt) = (src_scope.clone(), tgt_scope.clone());
-        src.set_fragment(None);
-        tgt.set_fragment(None);
-
-        // Search forward paths.
-        if let Some(_) = pathfinding::directed::bfs::bfs(&&src, |f| edges(f), |s| s == &&tgt) {
-            true
-        } else if let Some(_) =
-            // Search backward paths.
-            pathfinding::directed::bfs::bfs(&&tgt, |f| edges(f), |s| s == &&src)
-        {
-            true
-        } else {
-            false
-        }
-    }
-
-    // transitive_imports returns an iterator over the resources that |src|
-    // directly or indirectly imports, where |src| is included as the first item.
-    // |src| must not have a fragment or transitive_imports will panic.
+    // transitive_imports returns an iterator over the resources that `src`
+    // directly or indirectly imports. `src` may have a fragment location,
+    // and all imports from scopes which are prefixed by `src` are considered.
+    // In other words, if `src` has a fragment location then only imports at
+    // or below that location are traversed.
+    //
+    // `src` itself is not included in the iterator output.
     pub fn transitive_imports<'a>(
         imports: &'a [Self],
         src: &'a Url,
     ) -> impl Iterator<Item = &'a Url> + 'a {
-        assert!(!src.fragment().is_some());
-
         let edges = move |from: &Url| {
-            let range = imports.equal_range_by_key(&from, |import| &import.from_resource);
+            let range = imports.equal_range_by(|import| {
+                if import.scope.as_str().starts_with(from.as_str()) {
+                    std::cmp::Ordering::Equal
+                } else {
+                    import.scope.cmp(from)
+                }
+            });
             imports[range].iter().map(|import| &import.to_resource)
         };
-        pathfinding::directed::bfs::bfs_reach(src, move |f| edges(f))
+        pathfinding::directed::bfs::bfs_reach(src, move |f| edges(f)).skip(1)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::super::{Import, Imports};
+
+    #[test]
+    fn test_transitive() {
+        let u = |s: &str| -> url::Url { url::Url::parse(s).unwrap() };
+
+        let mut tbl = Imports::new();
+        tbl.insert_row(u("https://example/root#/foo/one/a"), u("https://A"));
+        tbl.insert_row(u("https://example/root#/foo/one/b/extra"), u("https://B"));
+        tbl.insert_row(u("https://example/root#/foo/two/c"), u("https://C"));
+        tbl.insert_row(u("https://A"), u("https://Z"));
+        tbl.insert_row(u("https://B"), u("https://Z"));
+
+        for case in [u("https://example/root"), u("https://example/root#/foo")] {
+            assert_eq!(
+                Import::transitive_imports(&tbl, &case).collect::<Vec<_>>(),
+                vec![
+                    &u("https://A"),
+                    &u("https://B"),
+                    &u("https://C"),
+                    &u("https://Z"),
+                ],
+            );
+        }
+        assert_eq!(
+            Import::transitive_imports(&tbl, &u("https://example/root#/foo/one/b"))
+                .collect::<Vec<_>>(),
+            vec![&u("https://B"), &u("https://Z")],
+        );
+        assert!(
+            Import::transitive_imports(&tbl, &u("https://example/root#/foo/not/found"))
+                .collect::<Vec<_>>()
+                .is_empty()
+        );
     }
 }

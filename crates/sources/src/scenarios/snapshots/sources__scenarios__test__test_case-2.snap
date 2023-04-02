@@ -1,0 +1,135 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+expression: tables
+---
+Sources {
+    captures: [],
+    collections: [],
+    errors: [],
+    fetches: [],
+    imports: [
+        Import {
+            scope: test://example/catalog.yaml#/import/0,
+            to_resource: test://example/catalog-err-not-an-array.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/import/1,
+            to_resource: test://example/catalog-err-not-an-object.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/0/documents,
+            to_resource: test://example/not-an-array.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/1/documents,
+            to_resource: test://example/not-found.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/3/documents,
+            to_resource: test://example/snapshots/ingest.json,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/4/documents,
+            to_resource: test://example/snapshots/verify.json,
+        },
+    ],
+    materializations: [],
+    resources: [],
+    storage_mappings: [],
+    tests: [
+        Test {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test,
+            test: acmeCo/errors/test,
+            spec: [
+              {
+                "ingest": {
+                  "description": "This isn't an array.",
+                  "collection": "test/collection",
+                  "documents": {"whoops":true}
+                }
+              },
+              {
+                "verify": {
+                  "description": "This is missing.",
+                  "collection": "test/collection",
+                  "documents": "test://example/not-found.json"
+                }
+              }
+            ],
+        },
+        Test {
+            scope: test://example/catalog-err-not-an-array.yaml#/tests/acmeCo~1parse~1failure,
+            test: acmeCo/parse/failure,
+            spec: [
+              {
+                "ingest": {
+                  "collection": "test/collection",
+                  "documents": {"not":"an array"}
+                }
+              }
+            ],
+        },
+        Test {
+            scope: test://example/catalog-err-not-an-object.yaml#/tests/acmeCo~1parse~1failure,
+            test: acmeCo/parse/failure,
+            spec: [
+              {
+                "ingest": {
+                  "collection": "test/collection",
+                  "documents": ["not-an-object"]
+                }
+              }
+            ],
+        },
+        Test {
+            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test,
+            test: acmeCo/widgest/test,
+            spec: [
+              {
+                "ingest": {
+                  "description": "Import some foos",
+                  "collection": "test/collection",
+                  "documents": [{"ingest":1},{"next":"ingest"}]
+                }
+              },
+              {
+                "verify": {
+                  "description": "Verify without a selector.",
+                  "collection": "test/collection",
+                  "documents": [{"verify":2},{"next":false}]
+                }
+              },
+              {
+                "verify": {
+                  "collection": {
+                    "name": "test/collection",
+                    "partitions": {
+                      "include": {
+                        "a_field": [
+                          "some-val"
+                        ]
+                      },
+                      "exclude": {}
+                    }
+                  },
+                  "documents": [{"verify":3},{"fin":null}]
+                }
+              },
+              {
+                "ingest": {
+                  "description": "Import more foos via file fixture.",
+                  "collection": "test/collection",
+                  "documents": [{"an":"ingest"}]
+                }
+              },
+              {
+                "verify": {
+                  "description": "Verify via file fixture.",
+                  "collection": "test/collection",
+                  "documents": [{"a":"verify"},{"another":"one that is pretty long and causes this not to be inline"}]
+                }
+              }
+            ],
+        },
+    ],
+}

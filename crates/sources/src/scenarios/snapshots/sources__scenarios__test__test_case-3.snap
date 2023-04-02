@@ -5,66 +5,8 @@ expression: tables
 Sources {
     captures: [],
     collections: [],
-    errors: [
-        Error {
-            scope: test://example/catalog-err-not-an-array.yaml#/tests/acmeCo~1parse~1failure/0/documents,
-            error: failed to parse document fixtures as an array of objects
-            
-            Caused by:
-                invalid type: map, expected a sequence at line 1 column 0,
-        },
-        Error {
-            scope: test://example/catalog-err-not-an-object.yaml#/tests/acmeCo~1parse~1failure/0/documents,
-            error: failed to parse document fixtures as an array of objects
-            
-            Caused by:
-                invalid type: string "not-an-object", expected a map at line 1 column 16,
-        },
-        Error {
-            scope: test://example/not-an-array.json,
-            error: failed to parse document fixtures as an array of objects
-            
-            Caused by:
-                invalid type: map, expected a sequence at line 1 column 0,
-        },
-        Error {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/1/documents,
-            error: failed to fetch resource test://example/not-found.json
-            
-            Caused by:
-                fixture not found,
-        },
-    ],
-    fetches: [
-        Fetch {
-            depth: 1,
-            resource: test://example/catalog.yaml,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/catalog-err-not-an-array.yaml,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/catalog-err-not-an-object.yaml,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/not-an-array.json,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/not-found.json,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/snapshots/ingest.json,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/snapshots/verify.json,
-        },
-    ],
+    errors: [],
+    fetches: [],
     imports: [
         Import {
             scope: test://example/catalog.yaml#/import/0,
@@ -109,23 +51,11 @@ Sources {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"import":["catalog-err-not-an-array.yaml","catalog-err-not-an-object.yaml"],"tests":{"acmeCo/errors/test":[{"ingest":{"collection":"test/collection","description":"This isn't an array.","documents":"./not-an-array.json"}},{"verify":{"collection":"test/collection","description":"This is missing.","documents":"./not-found.json"}}],"acmeCo/widgest/test":[{"ingest":{"collection":"test/collection","description":"Import some foos","documents":[{"ingest":1},{"next":"ingest"}]}},{"verify":{"collection":"test/collection","description":"Verify without a selector.","documents":[{"verify":2},{"next":false}]}},{"verify":{"collection":{"name":"test/collection","partitions":{"exclude":{},"include":{"a_field":["some-val"]}}},"documents":[{"verify":3},{"fin":null}]}},{"ingest":{"collection":"test/collection","description":"Import more foos via file fixture.","documents":"./snapshots/ingest.json"}},{"verify":{"collection":"test/collection","description":"Verify via file fixture.","documents":"./snapshots/verify.json"}}]}},
+            content_dom: {"import":["catalog-err-not-an-array.yaml","catalog-err-not-an-object.yaml"],"tests":{"acmeCo/errors/test":[{"ingest":{"description":"This isn't an array.","collection":"test/collection","documents":{"whoops":true}}},{"verify":{"description":"This is missing.","collection":"test/collection","documents":"test://example/not-found.json"}}],"acmeCo/widgest/test":[{"ingest":{"description":"Import some foos","collection":"test/collection","documents":[{"ingest":1},{"next":"ingest"}]}},{"verify":{"description":"Verify without a selector.","collection":"test/collection","documents":[{"verify":2},{"next":false}]}},{"verify":{"collection":{"name":"test/collection","partitions":{"include":{"a_field":["some-val"]},"exclude":{}}},"documents":[{"verify":3},{"fin":null}]}},{"ingest":{"description":"Import more foos via file fixture.","collection":"test/collection","documents":[{"an":"ingest"}]}},{"verify":{"description":"Verify via file fixture.","collection":"test/collection","documents":"test.step.4.yaml"}}]}},
         },
         Resource {
-            resource: test://example/not-an-array.json,
-            content_type: "DOCUMENTS_FIXTURE",
-            content: ".. binary ..",
-            content_dom: {"whoops":true},
-        },
-        Resource {
-            resource: test://example/snapshots/ingest.json,
-            content_type: "DOCUMENTS_FIXTURE",
-            content: ".. binary ..",
-            content_dom: [{"an":"ingest"}],
-        },
-        Resource {
-            resource: test://example/snapshots/verify.json,
-            content_type: "DOCUMENTS_FIXTURE",
+            resource: test://example/test.step.4.yaml,
+            content_type: "CONFIG",
             content: ".. binary ..",
             content_dom: [{"a":"verify"},{"another":"one that is pretty long and causes this not to be inline"}],
         },
@@ -140,14 +70,14 @@ Sources {
                 "ingest": {
                   "description": "This isn't an array.",
                   "collection": "test/collection",
-                  "documents": "./not-an-array.json"
+                  "documents": {"whoops":true}
                 }
               },
               {
                 "verify": {
                   "description": "This is missing.",
                   "collection": "test/collection",
-                  "documents": "./not-found.json"
+                  "documents": "test://example/not-found.json"
                 }
               }
             ],
@@ -214,14 +144,14 @@ Sources {
                 "ingest": {
                   "description": "Import more foos via file fixture.",
                   "collection": "test/collection",
-                  "documents": "./snapshots/ingest.json"
+                  "documents": [{"an":"ingest"}]
                 }
               },
               {
                 "verify": {
                   "description": "Verify via file fixture.",
                   "collection": "test/collection",
-                  "documents": "./snapshots/verify.json"
+                  "documents": "test.step.4.yaml"
                 }
               }
             ],

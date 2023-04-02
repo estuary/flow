@@ -9,14 +9,14 @@ Sources {
             scope: test://example/catalog.yaml#/collections/d1~1collection,
             collection: d1/collection,
             spec: {
-              "schema": "a-schema.json",
+              "schema": {"$id":"test://example/a-schema.json","allOf":[true]},
               "key": [
                 "/d1-key"
               ],
               "derive": {
                 "using": {
                   "typescript": {
-                    "module": "catalog.ts"
+                    "module": "a typescript module placeholder that's fairly \"long\", at least long enough to not be inline\n"
                   }
                 },
                 "transforms": [
@@ -55,7 +55,7 @@ Sources {
             scope: test://example/catalog.yaml#/collections/d2~1collection,
             collection: d2/collection,
             spec: {
-              "schema": "a-schema.json",
+              "schema": {"$id":"test://example/a-schema.json","allOf":[true]},
               "key": [
                 "/d2-key"
               ],
@@ -94,8 +94,8 @@ Sources {
             scope: test://example/catalog.yaml#/collections/d3~1collection,
             collection: d3/collection,
             spec: {
-              "writeSchema": "a-schema.json",
-              "readSchema": "other-schema.json",
+              "writeSchema": {"$id":"test://example/a-schema.json","allOf":[true]},
+              "readSchema": {"$anchor":"foobar","$id":"test://example/other-schema.json","properties":{"d1-key":{"type":"string"},"key":{"description":"the key description","title":"the key title","type":"integer"},"moar":{"type":"number"},"shuffle":{"type":"integer"}},"type":"object"},
               "key": [
                 "/some/key"
               ],
@@ -104,7 +104,7 @@ Sources {
                   "sqlite": {
                     "migrations": [
                       "create table foo(bar int);\n",
-                      "sql/migration_two.sql"
+                      "alter table baz add column value text not null;\ndrop table other_thing;\n"
                     ]
                   }
                 },
@@ -113,7 +113,7 @@ Sources {
                     "name": "frob",
                     "source": "src/collection",
                     "shuffle": {
-                      "lambda": "sql/shuffle_lambda.sql"
+                      "lambda": "select a whole bunch of fields and stuff from source documents to shuffle upon;\n"
                     },
                     "lambda": "select 'a long string which makes this a larger lambda' * from foo;\n"
                   }
@@ -127,32 +127,7 @@ Sources {
         },
     ],
     errors: [],
-    fetches: [
-        Fetch {
-            depth: 1,
-            resource: test://example/catalog.yaml,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/a-schema.json,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/catalog.ts,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/other-schema.json,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/sql/migration_two.sql,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/sql/shuffle_lambda.sql,
-        },
-    ],
+    fetches: [],
     imports: [
         Import {
             scope: test://example/catalog.yaml#/collections/d1~1collection/derive/using/typescript/module,
@@ -184,44 +159,7 @@ Sources {
         },
     ],
     materializations: [],
-    resources: [
-        Resource {
-            resource: test://example/a-schema.json,
-            content_type: "JSON_SCHEMA",
-            content: ".. binary ..",
-            content_dom: true,
-        },
-        Resource {
-            resource: test://example/catalog.ts,
-            content_type: "CONFIG",
-            content: ".. binary ..",
-            content_dom: "a typescript module placeholder that's fairly \"long\", at least long enough to not be inline\n",
-        },
-        Resource {
-            resource: test://example/catalog.yaml,
-            content_type: "CATALOG",
-            content: ".. binary ..",
-            content_dom: {"collections":{"d1/collection":{"derive":{"transforms":[{"name":"some-name","priority":32,"readDelay":"1 hour","shuffle":{"key":["/shuffle","/key"]},"source":{"name":"src/collection","partitions":{"exclude":{"other_field":[false]},"include":{"a_field":["foo",42]}}}}],"using":{"typescript":{"module":"catalog.ts"}}},"key":["/d1-key"],"schema":"a-schema.json"},"d2/collection":{"derive":{"shards":{"disable":true,"hotStandbys":2,"maxTxnDuration":"6m","minTxnDuration":"15s","readChannelSize":6789,"ringBufferSize":12345},"transforms":[{"lambda":42,"name":"do-the-thing","source":"src/collection"}],"using":{"connector":{"config":{"remote":"https://example/api"},"image":"some/image:tag"}}},"journals":{"fragments":{"compressionCodec":"ZSTANDARD","flushInterval":"15m"}},"key":["/d2-key"],"schema":"a-schema.json"},"d3/collection":{"derive":{"shuffleKeyTypes":["string","integer"],"transforms":[{"lambda":"select 'a long string which makes this a larger lambda' * from foo;\n","name":"frob","shuffle":{"lambda":"sql/shuffle_lambda.sql"},"source":"src/collection"}],"using":{"sqlite":{"migrations":["create table foo(bar int);\n","sql/migration_two.sql"]}}},"key":["/some/key"],"readSchema":"other-schema.json","writeSchema":"a-schema.json"}}},
-        },
-        Resource {
-            resource: test://example/other-schema.json,
-            content_type: "JSON_SCHEMA",
-            content: ".. binary ..",
-            content_dom: {"$anchor":"foobar","properties":{"d1-key":{"type":"string"},"key":{"description":"the key description","title":"the key title","type":"integer"},"moar":{"type":"number"},"shuffle":{"type":"integer"}},"type":"object"},
-        },
-        Resource {
-            resource: test://example/sql/migration_two.sql,
-            content_type: "CONFIG",
-            content: ".. binary ..",
-            content_dom: "alter table baz add column value text not null;\ndrop table other_thing;\n",
-        },
-        Resource {
-            resource: test://example/sql/shuffle_lambda.sql,
-            content_type: "CONFIG",
-            content: ".. binary ..",
-            content_dom: "select a whole bunch of fields and stuff from source documents to shuffle upon;\n",
-        },
-    ],
+    resources: [],
     storage_mappings: [],
     tests: [],
 }
