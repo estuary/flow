@@ -6,22 +6,10 @@ Sources {
     captures: [],
     collections: [],
     errors: [],
-    fetches: [
-        Fetch {
-            depth: 1,
-            resource: test://example/catalog.yaml,
-        },
-    ],
+    fetches: [],
     imports: [],
     materializations: [],
-    resources: [
-        Resource {
-            resource: test://example/catalog.yaml,
-            content_type: "CATALOG",
-            content: ".. binary ..",
-            content_dom: {"storageMappings":{"":{"stores":[{"bucket":"root-bucket","provider":"S3"}]},"foo/bar/baz/":{"stores":[{"bucket":"a-bucket","prefix":"and-prefix/","provider":"GCS"},{"bucket":"s3-bucket","provider":"S3"}]},"other/thing/":{"stores":[{"bucket":"s3-bucket","provider":"AZURE"}]}}},
-        },
-    ],
+    resources: [],
     storage_mappings: [
         StorageMapping {
             scope: test://example/catalog.yaml#/storageMappings/,

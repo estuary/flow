@@ -16,10 +16,11 @@ test://example/catalog.yaml:
           documents: [{ "verify": 2 }, { "next": false }]
       # With selector.
       - verify:
-          collection: test/collection
-          partitions:
-            include: { "a_field": ["some-val"] }
-            exclude: {}
+          collection:
+            name: test/collection
+            partitions:
+              include: { "a_field": ["some-val"] }
+              exclude: {}
           documents: [{ "verify": 3 }, { "fin": null }]
       - ingest:
           description: Import more foos via file fixture.
@@ -42,7 +43,9 @@ test://example/catalog.yaml:
 
 test://example/snapshots/ingest.json: [{ an: ingest }]
 
-test://example/snapshots/verify.json: [{ a: verify }]
+test://example/snapshots/verify.json:
+  - { a: verify }
+  - { another: one that is pretty long and causes this not to be inline }
 
 test://example/not-an-array.json: { whoops: true }
 

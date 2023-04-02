@@ -11,12 +11,12 @@ Sources {
               "endpoint": {
                 "connector": {
                   "image": "another/image",
-                  "config": "config/not/found.yaml"
+                  "config": "test://example/config/not/found.yaml"
                 }
               },
               "bindings": [
                 {
-                  "resource": "resource/not/found.yaml",
+                  "resource": "test://example/resource/not/found.yaml",
                   "target": "some/collection"
                 }
               ]
@@ -29,7 +29,7 @@ Sources {
               "endpoint": {
                 "connector": {
                   "image": "another/image",
-                  "config": "raw-config.foo"
+                  "config": "fn main() {\n  do_the_thing();\n  do_another_really_long_thing_that_does_stuff_boy_this_is_running_on_huh()?;\n}\n"
                 }
               },
               "bindings": []
@@ -42,12 +42,12 @@ Sources {
               "endpoint": {
                 "connector": {
                   "image": "another/image",
-                  "config": "referenced/config.yaml"
+                  "config": {"referenced":"config that's fairly long and does not inline"}
                 }
               },
               "bindings": [
                 {
-                  "resource": "referenced/resource.yaml",
+                  "resource": {"referenced":"resource that's fairly long and does not inline"},
                   "target": "third/collection"
                 }
               ],
@@ -82,66 +82,8 @@ Sources {
         },
     ],
     collections: [],
-    errors: [
-        Error {
-            scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment/endpoint/connector/config,
-            error: failed to fetch resource test://example/referenced/config.yaml#/bad/fragment
-            
-            Caused by:
-                resources cannot have fragments,
-        },
-        Error {
-            scope: test://example/catalog.yaml#/captures/capture~1config-missing/endpoint/connector/config,
-            error: failed to fetch resource test://example/config/not/found.yaml
-            
-            Caused by:
-                fixture not found,
-        },
-        Error {
-            scope: test://example/catalog.yaml#/captures/capture~1config-missing/bindings/0/resource,
-            error: failed to fetch resource test://example/resource/not/found.yaml
-            
-            Caused by:
-                fixture not found,
-        },
-        Error {
-            scope: test://example/catalog.yaml#/materializations/materialization~1missing-config/bindings/0/resource,
-            error: failed to fetch resource test://example/referenced/not/found.yaml
-            
-            Caused by:
-                fixture not found,
-        },
-    ],
-    fetches: [
-        Fetch {
-            depth: 1,
-            resource: test://example/catalog.yaml,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/config/not/found.yaml,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/raw-config.foo,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/referenced/config.yaml,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/referenced/not/found.yaml,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/referenced/resource.yaml,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/resource/not/found.yaml,
-        },
-    ],
+    errors: [],
+    fetches: [],
     imports: [
         Import {
             scope: test://example/catalog.yaml#/captures/capture~1config-missing/bindings/0/resource,
@@ -240,12 +182,12 @@ Sources {
               "endpoint": {
                 "connector": {
                   "image": "materialization/image",
-                  "config": "config/not/found.yaml"
+                  "config": "test://example/config/not/found.yaml"
                 }
               },
               "bindings": [
                 {
-                  "resource": "referenced/not/found.yaml",
+                  "resource": "test://example/referenced/not/found.yaml",
                   "source": "other/source/collection",
                   "fields": {
                     "recommended": true
@@ -261,12 +203,12 @@ Sources {
               "endpoint": {
                 "connector": {
                   "image": "materialization/another:image",
-                  "config": "referenced/config.yaml"
+                  "config": {"referenced":"config that's fairly long and does not inline"}
                 }
               },
               "bindings": [
                 {
-                  "resource": "referenced/resource.yaml",
+                  "resource": {"referenced":"resource that's fairly long and does not inline"},
                   "source": "some/source/collection",
                   "fields": {
                     "recommended": true
@@ -282,7 +224,7 @@ Sources {
               "endpoint": {
                 "connector": {
                   "image": "materialization/another:image",
-                  "config": "referenced/config.yaml#/bad/fragment"
+                  "config": "test://example/referenced/config.yaml#/bad/fragment"
                 }
               },
               "bindings": []
@@ -294,7 +236,7 @@ Sources {
             spec: {
               "endpoint": {
                 "sqlite": {
-                  "path": "relative/to/scope.db"
+                  "path": "test://example/relative/to/scope.db"
                 }
               },
               "bindings": [
@@ -312,32 +254,7 @@ Sources {
             },
         },
     ],
-    resources: [
-        Resource {
-            resource: test://example/catalog.yaml,
-            content_type: "CATALOG",
-            content: ".. binary ..",
-            content_dom: {"captures":{"capture/config-missing":{"bindings":[{"resource":"resource/not/found.yaml","target":"some/collection"}],"endpoint":{"connector":{"config":"config/not/found.yaml","image":"another/image"}}},"capture/config-raw":{"bindings":[],"endpoint":{"connector":{"config":"raw-config.foo","image":"another/image"}}},"capture/second":{"bindings":[{"resource":"referenced/resource.yaml","target":"third/collection"}],"endpoint":{"connector":{"config":"referenced/config.yaml","image":"another/image"}},"interval":"3m","shards":{"logLevel":"debug","maxTxnDuration":"30s"}},"first/capture":{"bindings":[{"resource":{"stream":"contents"},"target":"a/collection"},{"resource":{"extra":"stuff"},"target":"other/collection"}],"endpoint":{"connector":{"config":{"bucket":"foobar","prefix":"path/prefix"},"image":"an/image"}}}},"materializations":{"a/materialization":{"bindings":[{"resource":{"table":"table_one"},"source":"source/collection"},{"fields":{"exclude":["del"],"include":{"add":{}},"recommended":true},"resource":{"table":"table_two"},"source":{"name":"other/source/collection","partitions":{"exclude":{"other":[42]},"include":{"a_field":["some-val"]}}}}],"endpoint":{"connector":{"config":{"its":"config"},"image":"materialization/image"}}},"materialization/missing-config":{"bindings":[{"resource":"referenced/not/found.yaml","source":"other/source/collection"}],"endpoint":{"connector":{"config":"config/not/found.yaml","image":"materialization/image"}}},"materialization/with-config":{"bindings":[{"resource":"referenced/resource.yaml","source":"some/source/collection"}],"endpoint":{"connector":{"config":"referenced/config.yaml","image":"materialization/another:image"}}},"materialization/with-config-fragment":{"bindings":[],"endpoint":{"connector":{"config":"referenced/config.yaml#/bad/fragment","image":"materialization/another:image"}}},"to/sqlite":{"bindings":[{"resource":{"table":"table_three"},"source":"final/source/collection"}],"endpoint":{"sqlite":{"path":"relative/to/scope.db"}},"shards":{"ringBufferSize":12345}}}},
-        },
-        Resource {
-            resource: test://example/raw-config.foo,
-            content_type: "CONFIG",
-            content: ".. binary ..",
-            content_dom: "fn main() {\n  do_the_thing();\n  do_another_really_long_thing_that_does_stuff_boy_this_is_running_on_huh()?;\n}\n",
-        },
-        Resource {
-            resource: test://example/referenced/config.yaml,
-            content_type: "CONFIG",
-            content: ".. binary ..",
-            content_dom: {"referenced":"config that's fairly long and does not inline"},
-        },
-        Resource {
-            resource: test://example/referenced/resource.yaml,
-            content_type: "CONFIG",
-            content: ".. binary ..",
-            content_dom: {"referenced":"resource that's fairly long and does not inline"},
-        },
-    ],
+    resources: [],
     storage_mappings: [],
     tests: [],
 }

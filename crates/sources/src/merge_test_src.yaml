@@ -1,0 +1,42 @@
+captures:
+  acmeCo/one/new:
+    endpoint:
+      connector:
+        image: other/image
+        config: 42
+    bindings: []
+
+  acmeCo/captures/exists:
+    endpoint:
+      connector:
+        image: an/image
+        config: [updated]
+    bindings: []
+
+collections:
+  acmeCo/one/new:
+    schema: true
+    key: [/int]
+
+  acmeCo/collections/exists:
+    schema:
+      const: [updated-value]
+    key: [/int]
+
+materializations:
+  acmeCo/two/new:
+    endpoint:
+      connector:
+        image: an/image
+        config: 42
+    bindings: []
+
+  acmeCo/materializations/exists:
+    endpoint:
+      connector:
+        image: an/image
+        config: [also-updated]
+    bindings: []
+
+tests:
+  acmeCo/two/new: []

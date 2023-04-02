@@ -9,7 +9,7 @@ Sources {
             scope: test://example/catalog.yaml#/collections/test,
             collection: test,
             spec: {
-              "schema": {"additionalProperties":true,"type":"object"},
+              "schema": "test.schema.yaml",
               "key": [
                 "/some-key"
               ]
@@ -17,12 +17,7 @@ Sources {
         },
     ],
     errors: [],
-    fetches: [
-        Fetch {
-            depth: 1,
-            resource: test://example/catalog.yaml,
-        },
-    ],
+    fetches: [],
     imports: [],
     materializations: [],
     resources: [
@@ -30,7 +25,13 @@ Sources {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"test":{"key":["/some-key"],"schema":{"additionalProperties":true,"type":"object"}}}},
+            content_dom: {"collections":{"test":{"schema":"test.schema.yaml","key":["/some-key"]}}},
+        },
+        Resource {
+            resource: test://example/test.schema.yaml,
+            content_type: "CONFIG",
+            content: ".. binary ..",
+            content_dom: {"$id":"test://example/catalog.yaml?ptr=/collections/test/schema","additionalProperties":true,"type":"object"},
         },
     ],
     storage_mappings: [],

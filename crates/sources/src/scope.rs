@@ -70,7 +70,11 @@ impl<'a> Scope<'a> {
         let mut f = self.resource().clone();
 
         if !matches!(self.location, Location::Root) {
-            f.set_fragment(Some(&self.location.pointer_str().to_string()))
+            f.set_fragment(Some(&format!(
+                "{}{}",
+                f.fragment().unwrap_or(""),
+                self.location.pointer_str().to_string()
+            )));
         }
         f
     }
@@ -82,7 +86,7 @@ mod test {
 
     #[test]
     fn test_scope_errors() {
-        let ra = Url::parse("http://example/A").unwrap();
+        let ra = Url::parse("http://example/A#/path/prefix").unwrap();
         let rb = Url::parse("http://example/B").unwrap();
 
         let s1 = Scope::new(&ra);
@@ -91,8 +95,11 @@ mod test {
         let s4 = s3.push_resource(&rb);
         let s5 = s4.push_prop("something");
 
-        assert_eq!(s1.flatten().as_str(), "http://example/A");
-        assert_eq!(s3.flatten().as_str(), "http://example/A#/foo/32");
+        assert_eq!(s1.flatten().as_str(), "http://example/A#/path/prefix");
+        assert_eq!(
+            s3.flatten().as_str(),
+            "http://example/A#/path/prefix/foo/32"
+        );
         assert_eq!(s5.flatten().as_str(), "http://example/B#/something");
 
         assert_eq!(s1.resource_depth(), 1);
