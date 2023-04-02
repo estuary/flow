@@ -234,7 +234,6 @@ jobs:
       # Package and push images.
       - run: make docker-image
 
-      # TODO(johnny) re-enable
       - run: make docker-push
       - if: ${{ github.ref == 'refs/heads/master' }}
         run: make docker-push-dev
@@ -249,5 +248,19 @@ jobs:
           draft: false
           prerelease: true
           tag_name: dev
+          generate_release_notes: false
+          files: .build/package/flow-x86-linux.tar.gz
+
+      # TODO remove me when merged.
+      - if: ${{ github.ref == 'refs/pull/985/merge' }}
+        name: Upload release assets (dev-sql)
+        uses: softprops/action-gh-release@v1
+        with:
+          body: |
+            This is the latest development build of the sql branch, which gets updated on every successful build of its branch.
+          target_commitish: ${{ github.sha }}
+          draft: false
+          prerelease: true
+          tag_name: dev-sql
           generate_release_notes: false
           files: .build/package/flow-x86-linux.tar.gz
