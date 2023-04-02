@@ -1,0 +1,70 @@
+---
+source: crates/proto-flow/tests/regression.rs
+expression: json_test(msg)
+---
+{
+  "name": "acmeCo/collection",
+  "writeSchema": {"write":"schema"},
+  "readSchema": {"read":"schema"},
+  "key": [
+    "/key/one",
+    "/key/two"
+  ],
+  "uuidPtr": "/_meta/uuid",
+  "partitionFields": [
+    "type",
+    "region"
+  ],
+  "projections": [
+    {
+      "ptr": "/json/ptr",
+      "field": "a-field",
+      "isPartitionKey": true,
+      "inference": {
+        "types": [
+          "integer",
+          "string"
+        ],
+        "string": {
+          "contentType": "typ",
+          "format": "date",
+          "contentEncoding": "enc",
+          "maxLength": 12345
+        },
+        "title": "title",
+        "description": "desc",
+        "default": {"def":"ault"},
+        "exists": "MUST"
+      }
+    }
+  ],
+  "ackTemplate": {"ack":"true"},
+  "partitionTemplate": {
+    "name": "partition/template",
+    "replication": 3,
+    "labels": {
+      "labels": [
+        {
+          "name": "estuary.dev/foo",
+          "value": "label-value"
+        },
+        {
+          "name": "estuary.dev/bar",
+          "value": "other-value"
+        }
+      ]
+    },
+    "fragment": {
+      "length": "112233",
+      "compressionCodec": "ZSTANDARD",
+      "stores": [
+        "s3://bucket/prefix"
+      ],
+      "refreshInterval": "300s",
+      "flushInterval": "62.250s",
+      "pathPostfixTemplate": "Path{{Postfix.Template}}"
+    },
+    "flags": 4,
+    "maxAppendRate": "4020303"
+  }
+}

@@ -83,10 +83,13 @@ impl Boilerplate {
 
     pub fn resolve_flow_targets(&self) -> Vec<PathBuf> {
         let targets = vec![
-            self.repo_root.join("go/protocols/flow/flow.proto"),
             self.repo_root.join("go/protocols/capture/capture.proto"),
+            self.repo_root.join("go/protocols/derive/derive.proto"),
+            self.repo_root.join("go/protocols/flow/flow.proto"),
             self.repo_root
                 .join("go/protocols/materialize/materialize.proto"),
+            self.repo_root.join("go/protocols/ops/ops.proto"),
+            self.repo_root.join("go/protocols/runtime/runtime.proto"),
         ];
         Self::rerun_if_changed(&targets);
         targets
@@ -96,9 +99,6 @@ impl Boilerplate {
         for path in targets.iter() {
             println!("cargo:rerun-if-changed={}", path.display());
         }
-        // Emitting explicit paths drops the default behavior of watching
-        // for changes to files in the crate root, which we also want:
-        // See https://doc.rust-lang.org/cargo/reference/build-scripts.html#rerun-if-changed
-        println!("cargo:rerun-if-changed=.");
+        println!("cargo:rerun-if-changed=build.rs");
     }
 }
