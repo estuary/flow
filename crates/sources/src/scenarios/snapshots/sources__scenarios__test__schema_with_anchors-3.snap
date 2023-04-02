@@ -9,7 +9,7 @@ Sources {
             scope: test://example/catalog.yaml#/collections/test,
             collection: test,
             spec: {
-              "schema": "schema.json",
+              "schema": "test.schema.yaml",
               "key": [
                 "/a"
               ]
@@ -17,16 +17,7 @@ Sources {
         },
     ],
     errors: [],
-    fetches: [
-        Fetch {
-            depth: 1,
-            resource: test://example/catalog.yaml,
-        },
-        Fetch {
-            depth: 2,
-            resource: test://example/schema.json,
-        },
-    ],
+    fetches: [],
     imports: [
         Import {
             scope: test://example/catalog.yaml#/collections/test/schema,
@@ -39,13 +30,13 @@ Sources {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"test":{"key":["/a"],"schema":"schema.json"}}},
+            content_dom: {"collections":{"test":{"schema":"test.schema.yaml","key":["/a"]}}},
         },
         Resource {
-            resource: test://example/schema.json,
-            content_type: "JSON_SCHEMA",
+            resource: test://example/test.schema.yaml,
+            content_type: "CONFIG",
             content: ".. binary ..",
-            content_dom: {"$defs":{"lowercase":{"$anchor":"lowercase","type":"integer"},"matches":{"$anchor":"Match_es","type":"integer"},"punctuation":{"$anchor":"Spa ce","type":"integer"}},"type":"string"},
+            content_dom: {"$defs":{"lowercase":{"$anchor":"lowercase","type":"integer"},"matches":{"$anchor":"Match_es","type":"integer"},"punctuation":{"$anchor":"Spa ce","type":"integer"}},"$id":"test://example/schema.json","type":"string"},
         },
     ],
     storage_mappings: [],

@@ -1,0 +1,29 @@
+test://example/catalog.yaml:
+  import:
+    - acmeCo/flow.yaml
+  captures:
+    acmeCo/captures/exists:
+      endpoint:
+        connector:
+          image: an/image
+          config: [old]
+      bindings: []
+
+  collections:
+    acmeCo/collections/exists:
+      schema:
+        const: old-value
+      key: [/int]
+
+  materializations:
+    acmeCo/materializations/exists:
+      endpoint:
+        connector:
+          image: an/image
+          config: [also-old]
+      bindings: []
+
+  tests:
+    acmeCo/tests/exists: []
+
+test://example/acmeCo/flow.yaml: {}

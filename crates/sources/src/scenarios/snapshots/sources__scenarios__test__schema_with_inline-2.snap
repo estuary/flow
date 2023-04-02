@@ -1,0 +1,26 @@
+---
+source: crates/sources/src/scenarios/mod.rs
+expression: tables
+---
+Sources {
+    captures: [],
+    collections: [
+        Collection {
+            scope: test://example/catalog.yaml#/collections/test,
+            collection: test,
+            spec: {
+              "schema": {"$id":"test://example/catalog.yaml?ptr=/collections/test/schema","additionalProperties":true,"type":"object"},
+              "key": [
+                "/some-key"
+              ]
+            },
+        },
+    ],
+    errors: [],
+    fetches: [],
+    imports: [],
+    materializations: [],
+    resources: [],
+    storage_mappings: [],
+    tests: [],
+}
