@@ -50,7 +50,8 @@ WORKDIR  = $(realpath .)/.build
 # Packaged build outputs.
 PKGDIR = ${WORKDIR}/package
 
-# Etcd release we pin within Flow distributions.
+# Deno and Etcd release we pin within Flow distributions.
+DENO_VERSION = v1.32.1
 ETCD_VERSION = v3.5.5
 
 # PROTOC_INC_GO_MODULES are Go modules which must be resolved and included
@@ -63,8 +64,11 @@ PROTOC_INC_GO_MODULES = \
 # Targets of Go protobufs which must be compiled.
 GO_PROTO_TARGETS = \
 	./go/protocols/capture/capture.pb.go \
+	./go/protocols/derive/derive.pb.go \
 	./go/protocols/flow/flow.pb.go \
-	./go/protocols/materialize/materialize.pb.go
+	./go/protocols/materialize/materialize.pb.go \
+	./go/protocols/ops/ops.pb.go \
+	./go/protocols/runtime/runtime.pb.go
 
 # GO_MODULE_PATH expands a $(module), like "go.gazette.dev/core", to the local path
 # of its respository as currently specified by go.mod. The `go list` tool
@@ -102,27 +106,37 @@ protoc-gen-gogo:
 %.pb.go: %.proto protoc-gen-gogo
 	PATH=$$PATH:$(shell go env GOPATH)/bin ;\
 	protoc -I . $(foreach module, $(PROTOC_INC_GO_MODULES), -I$(GO_MODULE_PATH)) \
-		--gogo_out=paths=source_relative,plugins=grpc:. $*.proto
+		--gogo_out=paths=source_relative,Mgoogle/protobuf/any.proto=github.com/gogo/protobuf/types,Mgoogle/protobuf/timestamp.proto=github.com/gogo/protobuf/types,plugins=grpc:. $*.proto
 
 go-protobufs: $(GO_PROTO_TARGETS)
 
+rust-protobufs:
+	cargo build --release -p proto-gazette -p proto-flow -p proto-grpc --all-features
+
+${PKGDIR}/bin/deno:
+	curl -L -o /tmp/deno.zip \
+			https://github.com/denoland/deno/releases/download/${DENO_VERSION}/deno-${CARGO_BUILD_TARGET}.zip \
+		&& unzip /tmp/deno.zip -d /tmp \
+		&& rm /tmp/deno.zip \
+		&& mkdir -p ${PKGDIR}/bin/ \
+		&& mv /tmp/deno ${PKGDIR}/bin/
 
 # `etcd` is used for testing, and packaged as a release artifact.
 ${PKGDIR}/bin/etcd:
-		curl -L -o /tmp/etcd.${ETCD_EXT} \
-										https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-${ETCD_ARCH}.${ETCD_EXT} \
-						&& echo "${ETCD_SHASUM} /tmp/etcd.${ETCD_EXT}" | sha256sum -c - \
-						&& if [ "${ETCD_EXT}" = "zip" ]; then \
-								unzip /tmp/etcd.${ETCD_EXT} -d /tmp; \
-							else \
-								tar --extract --file /tmp/etcd.${ETCD_EXT} --directory /tmp/; \
-						fi \
-						&& mkdir -p ${PKGDIR}/bin/ \
-						&& mv /tmp/etcd-${ETCD_VERSION}-${ETCD_ARCH}/etcd /tmp/etcd-${ETCD_VERSION}-${ETCD_ARCH}/etcdctl ${PKGDIR}/bin/ \
-						&& chown ${UID}:${UID} ${PKGDIR}/bin/etcd ${PKGDIR}/bin/etcdctl \
-						&& rm -r /tmp/etcd-${ETCD_VERSION}-${ETCD_ARCH}/ \
-						&& rm /tmp/etcd.${ETCD_EXT} \
-						&& $@ --version; \
+	curl -L -o /tmp/etcd.${ETCD_EXT} \
+			https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-${ETCD_ARCH}.${ETCD_EXT} \
+		&& echo "${ETCD_SHASUM} /tmp/etcd.${ETCD_EXT}" | sha256sum -c - \
+		&& if [ "${ETCD_EXT}" = "zip" ]; then \
+				unzip /tmp/etcd.${ETCD_EXT} -d /tmp; \
+			else \
+				tar --extract --file /tmp/etcd.${ETCD_EXT} --directory /tmp/; \
+		fi \
+		&& mkdir -p ${PKGDIR}/bin/ \
+		&& mv /tmp/etcd-${ETCD_VERSION}-${ETCD_ARCH}/etcd /tmp/etcd-${ETCD_VERSION}-${ETCD_ARCH}/etcdctl ${PKGDIR}/bin/ \
+		&& chown ${UID}:${UID} ${PKGDIR}/bin/etcd ${PKGDIR}/bin/etcdctl \
+		&& rm -r /tmp/etcd-${ETCD_VERSION}-${ETCD_ARCH}/ \
+		&& rm /tmp/etcd.${ETCD_EXT} \
+		&& $@ --version; \
 
 # Rule for building Go targets.
 # go-install rules never correspond to actual files, and are always re-run each invocation.
@@ -192,11 +206,12 @@ ${RUST_MUSL_BIN}/flow-schemalate:
 
 GNU_TARGETS = \
 	${PKGDIR}/bin/agent \
+	${PKGDIR}/bin/deno \
 	${PKGDIR}/bin/etcd \
+	${PKGDIR}/bin/flowctl \
 	${PKGDIR}/bin/flowctl-go \
 	${PKGDIR}/bin/gazette \
-	${PKGDIR}/bin/sops \
-	${PKGDIR}/bin/flowctl \
+	${PKGDIR}/bin/sops
 
 MUSL_TARGETS = \
 	${PKGDIR}/bin/flow-connector-init \
@@ -281,7 +296,7 @@ print-versions:
 		&& rustc --version \
 
 .PHONY: install-tools
-install-tools: ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
+install-tools: ${PKGDIR}/bin/deno ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 
 .PHONY: rust-gnu-test
 rust-gnu-test:
@@ -296,7 +311,7 @@ rust-musl-test:
 # and these binaries cannot expect `sops` to be co-located alongside.
 
 .PHONY: go-test-fast
-go-test-fast: $(GO_BUILD_DEPS) | ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
+go-test-fast: $(GO_BUILD_DEPS) | ${PKGDIR}/bin/deno ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 	PATH=${PKGDIR}/bin:$$PATH ;\
 	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./go/...
 
@@ -315,13 +330,13 @@ data-plane-test-setup:
 	@ls -al ${PKGDIR}/bin/
 	${PKGDIR}/bin/flowctl-go json-schema > flow.schema.json
 else
-data-plane-test-setup: ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/flow-connector-init ${PKGDIR}/bin/gazette ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops flow.schema.json
+data-plane-test-setup: ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/flow-connector-init ${PKGDIR}/bin/gazette ${PKGDIR}/bin/deno ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops flow.schema.json
 endif
 
 
 .PHONY: catalog-test
 catalog-test: data-plane-test-setup
-	${PKGDIR}/bin/flowctl-go test --source examples/local-sqlite.flow.yaml $(ARGS)
+	${PKGDIR}/bin/flowctl-go test --source examples/flow.yaml $(ARGS)
 
 .PHONY: end-to-end-test
 end-to-end-test: data-plane-test-setup
