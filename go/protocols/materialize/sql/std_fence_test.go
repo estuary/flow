@@ -1,7 +1,6 @@
 package sql
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/base64"
@@ -10,9 +9,25 @@ import (
 	"github.com/bradleyjkemp/cupaloy"
 	_ "github.com/mattn/go-sqlite3" // Import for register side-effects.
 	"github.com/stretchr/testify/require"
+	pb "go.gazette.dev/core/broker/protocol"
+	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 func TestStdEndpointFencingCases(t *testing.T) {
+
+	var fakeCheckpointBase64 = func(i int) string {
+		var checkpointFixture = &pc.Checkpoint{
+			Sources: map[pb.Journal]pc.Checkpoint_Source{
+				"a/journal": {ReadThrough: int64(i)},
+			},
+		}
+		var buf, err = checkpointFixture.Marshal()
+		if err != nil {
+			panic(err) // Cannot fail.
+		}
+		return base64.StdEncoding.EncodeToString(buf)
+	}
+
 	// runTest takes zero or more key range fixtures, followed by a final pair
 	// which is the key range under test.
 	var runTest = func(t *testing.T, ranges ...uint32) {
@@ -39,7 +54,7 @@ func TestStdEndpointFencingCases(t *testing.T) {
 				VALUES ("the/materialization", 5, ?, ?, ?)`,
 				ranges[i*2],
 				ranges[i*2+1],
-				base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{byte(i + 1)}, 10)),
+				fakeCheckpointBase64(i),
 			)
 			require.NoError(t, err)
 		}
@@ -48,7 +63,7 @@ func TestStdEndpointFencingCases(t *testing.T) {
 		_, err = db.Exec(`
 			INSERT INTO ` + endpoint.FlowTables().Checkpoints.Identifier + `
 				(materialization, fence, key_begin, key_end, checkpoint)
-				VALUES ("other/one", 99, 0, 4294967295, "other-checkpoint")`)
+				VALUES ("other/one", 99, 0, 4294967295, "` + fakeCheckpointBase64(99999999) + `")`)
 		require.NoError(t, err)
 
 		dump1, err := DumpTables(db, endpoint.FlowTables().Checkpoints)
@@ -62,7 +77,7 @@ func TestStdEndpointFencingCases(t *testing.T) {
 		require.NoError(t, err)
 
 		// Update it once.
-		fence.SetCheckpoint(append(fence.Checkpoint(), []byte{0, 0, 0, 0, 0, 0, 0, 0}...))
+		fence.Checkpoint().Sources["a/journal"] = pc.Checkpoint_Source{ReadThrough: 456}
 		err = fence.(*StdFence).Update(ctx, func(ctx context.Context, sql string, arguments ...interface{}) (rowsAffected int64, _ error) {
 			var result, err = db.ExecContext(ctx, sql, arguments...)
 			if err == nil {
