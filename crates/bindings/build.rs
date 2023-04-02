@@ -15,4 +15,6 @@ fn main() {
         .generate()
         .expect("Unable to generate bindings")
         .write_to_file("flow_bindings.h");
+
+    println!("cargo:rerun-if-changed=flow_bindings.h");
 }

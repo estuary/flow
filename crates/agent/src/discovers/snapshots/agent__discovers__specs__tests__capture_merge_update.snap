@@ -31,9 +31,8 @@ expression: json!(out)
       "documentSchema": {
         "const": "discovered"
       },
-      "keyPtrs": [],
       "recommendedName": "suggested",
-      "resourceSpec": {
+      "resourceConfig": {
         "stream": "foo"
       }
     }

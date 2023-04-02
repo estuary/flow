@@ -1,55 +1,42 @@
 use serde::{de::Error, Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::io::Write;
 
 pub mod decode;
 pub mod tracing;
 
-// Re-export LogLevel for usage as ops::LogLevel elsewhere.
-pub use proto_flow::flow::LogLevel;
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Log {
-    /// Timestamp at which the Log was created.
-    #[serde(
-        serialize_with = "time::serde::rfc3339::serialize",
-        deserialize_with = "time::serde::rfc3339::deserialize"
-    )]
-    ts: time::OffsetDateTime,
-    /// Level of the log.
-    level: LogLevel,
-    /// Message of the log.
-    message: String,
-    /// Supplemental fields of the log.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    fields: BTreeMap<String, Box<serde_json::value::RawValue>>,
-    /// Metadata of the shard which created the Log.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    shard: Option<Shard>,
-    /// Spans of the shard.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    spans: Vec<Log>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
-#[serde(rename_all = "lowercase")]
-pub enum ShardKind {
-    Capture,
-    Derivation,
-    Materialization,
-}
+pub use proto_flow::ops::log::Level as LogLevel;
+pub use proto_flow::ops::Log;
+pub use proto_flow::ops::TaskType;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Shard {
     /// The type of the shard's catalog task.
-    kind: ShardKind,
+    kind: TaskType,
     /// The name of the shard's catalog task.
     name: String,
     /// The inclusive beginning of the shard's assigned key range.
     key_begin: HexU32,
     /// The inclusive beginning of the shard's assigned rClock range.
     r_clock_begin: HexU32,
+}
+
+impl From<Shard> for proto_flow::ops::ShardRef {
+    fn from(
+        Shard {
+            kind,
+            name,
+            key_begin,
+            r_clock_begin,
+        }: Shard,
+    ) -> Self {
+        Self {
+            kind: kind as i32,
+            name,
+            key_begin: format!("{:08x}", key_begin.0),
+            r_clock_begin: format!("{:08x}", r_clock_begin.0),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -90,7 +77,7 @@ pub fn stderr_log_handler(log: Log) {
 /// writes canonical JSON log serializations to the given writer.
 pub fn new_encoded_json_write_handler<W>(
     writer: std::sync::Arc<std::sync::Mutex<W>>,
-) -> impl Fn(Log) + Send + Sync + 'static
+) -> impl Fn(Log) + Send + Sync + Clone + 'static
 where
     W: std::io::Write + Send + 'static,
 {
@@ -104,10 +91,39 @@ where
     }
 }
 
+// new_tracing_dispatch_handler returns a log handler that
+// writes tracing events using the given dispatcher.
+pub fn new_tracing_dispatch_handler(
+    dispatcher: ::tracing::Dispatch,
+) -> impl Fn(Log) + Send + Sync + Clone + 'static {
+    move |log| ::tracing::dispatcher::with_default(&dispatcher, || tracing_log_handler(log))
+}
+
+/// tracing_log_handler is a log handler that writes logs
+/// as tracing events.
+pub fn tracing_log_handler(
+    Log {
+        level,
+        fields_json_map: fields,
+        message,
+        ..
+    }: Log,
+) {
+    match LogLevel::from_i32(level).unwrap_or_default() {
+        LogLevel::Trace => ::tracing::trace!(?fields, message),
+        LogLevel::Debug => ::tracing::debug!(?fields, message),
+        LogLevel::Info => ::tracing::info!(?fields, message),
+        LogLevel::Warn => ::tracing::warn!(?fields, message),
+        LogLevel::Error => ::tracing::error!(?fields, message),
+        LogLevel::UndefinedLevel => (),
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::{Log, LogLevel};
     use crate::new_encoded_json_write_handler;
+    use serde_json::json;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -116,15 +132,11 @@ mod test {
         let handler = new_encoded_json_write_handler(writer.clone());
 
         let mut log = Log {
-            ts: time::OffsetDateTime::UNIX_EPOCH,
-            level: LogLevel::Warn,
+            meta: None,
+            timestamp: Some(proto_flow::as_timestamp(std::time::UNIX_EPOCH)),
+            level: LogLevel::Warn as i32,
             message: "hello world".to_string(),
-            fields: [(
-                "name".to_string(),
-                serde_json::value::to_raw_value("value").unwrap(),
-            )]
-            .into_iter()
-            .collect(),
+            fields_json_map: [("name".to_string(), json!("value").to_string())].into(),
             shard: None,
             spans: Vec::new(),
         };
@@ -137,8 +149,8 @@ mod test {
         let writer = Arc::try_unwrap(writer).unwrap().into_inner().unwrap();
 
         insta::assert_snapshot!(String::from_utf8_lossy(&writer), @r###"
-        {"ts":"1970-01-01T00:00:00Z","level":"warn","message":"hello world","fields":{"name":"value"}}
-        {"ts":"1970-01-01T00:00:00Z","level":"warn","message":"I'm different!","fields":{"name":"value"}}
+        {"ts":"1970-01-01T00:00:00+00:00","level":"warn","message":"hello world","fields":{"name":"value"}}
+        {"ts":"1970-01-01T00:00:00+00:00","level":"warn","message":"I'm different!","fields":{"name":"value"}}
         "###);
     }
 }

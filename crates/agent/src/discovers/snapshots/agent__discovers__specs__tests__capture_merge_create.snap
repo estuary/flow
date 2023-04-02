@@ -26,11 +26,11 @@ expression: json!(out)
       "documentSchema": {
         "const": "foo"
       },
-      "keyPtrs": [
+      "key": [
         "/foo-key"
       ],
       "recommendedName": "foo",
-      "resourceSpec": {
+      "resourceConfig": {
         "stream": "foo"
       }
     }

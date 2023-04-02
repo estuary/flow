@@ -5,8 +5,8 @@ use super::firebolt_types::{Column, FireboltType, Table, TableSchema, TableType}
 use doc::inference::Shape;
 use doc::{Annotation, Pointer};
 use json::schema::{self, types};
-use protocol::flow::materialization_spec::Binding;
-use protocol::flow::MaterializationSpec;
+use proto_flow::flow::materialization_spec::Binding;
+use proto_flow::flow::MaterializationSpec;
 use serde::{Deserialize, Serialize};
 
 pub const FAKE_BUNDLE_URL: &str = "https://fake-bundle-schema.estuary.io";
@@ -100,10 +100,10 @@ pub fn build_firebolt_schema(binding: &Binding) -> Result<TableSchema, Error> {
 pub fn build_firebolt_queries_bundle(
     spec: MaterializationSpec,
 ) -> Result<FireboltQueriesBundle, Error> {
-    let config: EndpointConfig = serde_json::from_str(&spec.endpoint_spec_json)?;
+    let config: EndpointConfig = serde_json::from_str(&spec.config_json)?;
 
     let bindings : Result<Vec<BindingBundle>, Error> = spec.bindings.iter().map(|binding| {
-        let resource: Resource = serde_json::from_str(&binding.resource_spec_json)?;
+        let resource: Resource = serde_json::from_str(&binding.resource_config_json)?;
         let mut schema = build_firebolt_schema(binding)?;
 
         let external_table_name = format!("{}_external", resource.table);
@@ -195,21 +195,21 @@ fn projection_type_to_firebolt_type(shape: &Shape) -> Option<FireboltType> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use protocol::flow::{CollectionSpec, FieldSelection, Projection};
+    use proto_flow::flow::{CollectionSpec, FieldSelection, Projection};
     use serde_json::json;
 
     #[test]
     fn test_build_firebolt_queries_bundle() {
         assert_eq!(
             build_firebolt_queries_bundle(MaterializationSpec {
-                endpoint_spec_json: json!({
+                config_json: json!({
                     "aws_key_id": "aws_key",
                     "aws_secret_key": "aws_secret",
                     "s3_bucket": "my-bucket",
                     "s3_prefix": "/test"
                 }).to_string(),
                 bindings: vec![Binding {
-                    resource_spec_json: json!({
+                    resource_config_json: json!({
                         "table": "test_table",
                         "table_type": "fact"
                     }).to_string(),

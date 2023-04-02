@@ -40,9 +40,8 @@ expression: json!(out)
       "documentSchema": {
         "const": 1
       },
-      "keyPtrs": [],
       "recommendedName": "foo",
-      "resourceSpec": {
+      "resourceConfig": {
         "stream": "foo"
       }
     },
@@ -50,9 +49,8 @@ expression: json!(out)
       "documentSchema": {
         "const": 2
       },
-      "keyPtrs": [],
       "recommendedName": "bar",
-      "resourceSpec": {
+      "resourceConfig": {
         "stream": "bar"
       }
     },
@@ -60,9 +58,8 @@ expression: json!(out)
       "documentSchema": {
         "const": 3
       },
-      "keyPtrs": [],
       "recommendedName": "baz",
-      "resourceSpec": {
+      "resourceConfig": {
         "stream": "baz"
       }
     }
