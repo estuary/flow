@@ -1,5 +1,5 @@
 ---
-source: crates/sqlite-lambda/tests/examples.rs
+source: crates/derive-sqlite/src/lambda.rs
 expression: output
 ---
 [
@@ -65,12 +65,18 @@ expression: output
   ],
   [
     {
+      "$str_int * 10": 120,
+      "$str_num * 2.5": 18.75,
       "blob_fixture": "YSByYXcgc3RyaW5n",
       "case": "string-types",
       "str_base64": "VGhpcyBpcyBiYXNlNjQ=",
-      "str_base64_text": "This is base64",
-      "str_int * 10": 120,
-      "str_num * 2.5": 18.75
+      "str_base64_text": "This is base64"
+    }
+  ],
+  [
+    {
+      "case": "top-level-object",
+      "str-int": 12
     }
   ]
 ]
