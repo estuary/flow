@@ -1,13 +1,14 @@
 use anyhow::Context;
-use codec::Codec;
+pub use codec::Codec;
 use tokio::signal::unix;
 
 mod capture;
 mod codec;
+mod derive;
 mod inspect;
 mod materialize;
 mod proxy;
-mod rpc;
+pub mod rpc;
 
 #[derive(clap::Parser, Debug)]
 #[clap(about = "Command to start connector proxies for Flow runtime.")]
@@ -26,29 +27,29 @@ pub struct Args {
 pub async fn run(args: Args) -> anyhow::Result<()> {
     let image = inspect::Image::parse_from_json_file(&args.image_inspect_json_path)
         .context("reading image inspect JSON")?;
-    let mut entrypoint = image.get_argv()?;
+    let entrypoint = image.get_argv()?;
 
-    // TODO(johnny): Remove this in preference of always using the LOG_LEVEL variable.
-    if let Ok(log_level) = std::env::var("LOG_LEVEL") {
-        entrypoint.push(format!("--log.level={log_level}"));
-    }
-
-    let proxy_handler = proxy::ProxyHandler::new("localhost");
-
-    let codec = match image.config.labels.get("FLOW_RUNTIME_CODEC") {
+    let codec = match image.get_label_or_env("FLOW_RUNTIME_CODEC") {
         Some(protocol) if protocol == "json" => Codec::Json,
         _ => Codec::Proto,
     };
-    let capture = proto_grpc::capture::driver_server::DriverServer::new(capture::Driver {
+    check_protocol(&entrypoint, codec).await?;
+
+    let capture = proto_grpc::capture::connector_server::ConnectorServer::new(capture::Proxy {
+        entrypoint: entrypoint.clone(),
+        codec,
+    });
+    let derive = proto_grpc::derive::connector_server::ConnectorServer::new(derive::Proxy {
         entrypoint: entrypoint.clone(),
         codec,
     });
     let materialize =
-        proto_grpc::materialize::driver_server::DriverServer::new(materialize::Driver {
+        proto_grpc::materialize::connector_server::ConnectorServer::new(materialize::Proxy {
             entrypoint: entrypoint.clone(),
             codec,
         });
 
+    let proxy_handler = proxy::ProxyHandler::new("localhost");
     let proxy = proto_grpc::flow::network_proxy_server::NetworkProxyServer::new(proxy_handler);
 
     let addr = format!("0.0.0.0:{}", args.port).parse().unwrap();
@@ -67,6 +68,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
 
     let () = tonic::transport::Server::builder()
         .add_service(capture)
+        .add_service(derive)
         .add_service(materialize)
         .add_service(proxy)
         .serve_with_shutdown(addr, signal)
@@ -74,3 +76,31 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+async fn check_protocol(entrypoint: &[String], codec: Codec) -> anyhow::Result<()> {
+    // All protocols - capture, derive, & materialize - use the same tags for
+    // request::Spec and for response::Spec::protocol.
+    let spec_response: proto_flow::capture::Response = rpc::unary(
+        rpc::new_command(&entrypoint),
+        codec,
+        proto_flow::capture::Request {
+            spec: Some(proto_flow::capture::request::Spec {
+                connector_type: 0,
+                config_json: String::new(),
+            }),
+            ..Default::default()
+        },
+        ops::stderr_log_handler,
+    )
+    .await
+    .map_err(|status| anyhow::anyhow!(status.message().to_string()))
+    .context("querying for spec response")?;
+
+    let actual_protocol = spec_response.spec.map(|s| s.protocol).unwrap_or_default();
+    if EXPECT_PROTOCOL != actual_protocol {
+        anyhow::bail!("connector returned an unexpected protocol version {actual_protocol} (expected {EXPECT_PROTOCOL}");
+    }
+    Ok(())
+}
+
+const EXPECT_PROTOCOL: u32 = 3032023;

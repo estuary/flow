@@ -1,6 +1,6 @@
 use super::{codec::Codec, rpc};
 use futures::StreamExt;
-use proto_flow::materialize::{Request, Response};
+use proto_flow::derive::{Request, Response};
 
 pub struct Proxy {
     pub entrypoint: Vec<String>,
@@ -8,14 +8,14 @@ pub struct Proxy {
 }
 
 #[tonic::async_trait]
-impl proto_grpc::materialize::connector_server::Connector for Proxy {
-    type MaterializeStream =
+impl proto_grpc::derive::connector_server::Connector for Proxy {
+    type DeriveStream =
         std::pin::Pin<Box<dyn futures::Stream<Item = Result<Response, tonic::Status>> + Send>>;
 
-    async fn materialize(
+    async fn derive(
         &self,
         request: tonic::Request<tonic::Streaming<Request>>,
-    ) -> Result<tonic::Response<Self::MaterializeStream>, tonic::Status> {
+    ) -> Result<tonic::Response<Self::DeriveStream>, tonic::Status> {
         Ok(tonic::Response::new(
             rpc::bidi::<Request, Response, _, _>(
                 rpc::new_command(&self.entrypoint),
