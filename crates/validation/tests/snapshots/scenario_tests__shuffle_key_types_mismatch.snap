@@ -4,7 +4,11 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
-        error: transform halveIntString shuffled key types ["integer", "string"] don't align with transform halveSelf types ["string", "integer"],
+        scope: test://example/int-halve#/collections/testing~1int-halve/derive/transforms/0,
+        error: transform halveIntString shuffled key types [Integer, String] don't align with declared shuffle key types [Integer, Boolean],
+    },
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve/derive/transforms/1,
+        error: transform halveSelf shuffled key types [String, Integer] don't align with declared shuffle key types [Integer, Boolean],
     },
 ]

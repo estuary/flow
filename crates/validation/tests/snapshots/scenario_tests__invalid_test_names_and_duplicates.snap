@@ -1,55 +1,54 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
-
 ---
 [
     Error {
-        scope: test://example/catalog.yaml#/tests//0,
+        scope: test://example/catalog.yaml#/tests/,
         error: test name cannot be empty,
     },
     Error {
-        scope: test://example/catalog.yaml#/tests/~1testing~1bad~1name/0,
+        scope: test://example/catalog.yaml#/tests/~1testing~1bad~1name,
         error: /testing/bad/name cannot be used as name for test ("/" is invalid),
     },
     Error {
-        scope: test://example/catalog.yaml#/tests/testing~1bad%20name/0,
+        scope: test://example/catalog.yaml#/tests/testing~1bad%20name,
         error: testing/bad name cannot be used as name for test (" name" is invalid),
     },
     Error {
-        scope: test://example/catalog.yaml#/tests/testing~1bad!name/0,
+        scope: test://example/catalog.yaml#/tests/testing~1bad!name,
         error: testing/bad!name cannot be used as name for test ("!name" is invalid),
     },
     Error {
-        scope: test://example/catalog.yaml#/tests/testing~1bad~1~1name/0,
+        scope: test://example/catalog.yaml#/tests/testing~1bad~1~1name,
         error: testing/bad//name cannot be used as name for test ("//name" is invalid),
     },
     Error {
-        scope: test://example/catalog.yaml#/tests/testing~1bad~1name~1/0,
+        scope: test://example/catalog.yaml#/tests/testing~1bad~1name~1,
         error: testing/bad/name/ cannot be used as name for test ("/" is invalid),
     },
     Error {
-        scope: test://example/catalog.yaml#/tests//0,
-        error: test  is a prohibited prefix of test /testing/bad/name, defined at test://example/catalog.yaml#/tests/~1testing~1bad~1name/0,
+        scope: test://example/catalog.yaml#/tests/,
+        error: test  is a prohibited prefix of test /testing/bad/name, defined at test://example/catalog.yaml#/tests/~1testing~1bad~1name,
     },
     Error {
-        scope: test://example/catalog.yaml#/tests/testing/0,
-        error: test testing is a prohibited prefix of test testing/bad name, defined at test://example/catalog.yaml#/tests/testing~1bad%20name/0,
+        scope: test://example/catalog.yaml#/tests/testing,
+        error: test testing is a prohibited prefix of test testing/bad name, defined at test://example/catalog.yaml#/tests/testing~1bad%20name,
     },
     Error {
-        scope: test://example/catalog.yaml#/tests/testing~1TeSt/0,
-        error: test testing/TeSt collides with test testing/test, defined at test://example/int-string-tests#/tests/testing~1test/0,
+        scope: test://example/catalog.yaml#/tests/testing~1TeSt,
+        error: test testing/TeSt collides with test testing/test, defined at test://example/int-string-tests#/tests/testing~1test,
     },
     Error {
-        scope: test://example/catalog.yaml#/tests//0,
-        error: test  is a prohibited prefix of test /testing/bad/name, defined at test://example/catalog.yaml#/tests/~1testing~1bad~1name/0,
+        scope: test://example/catalog.yaml#/tests/,
+        error: test  is a prohibited prefix of test /testing/bad/name, defined at test://example/catalog.yaml#/tests/~1testing~1bad~1name,
     },
     Error {
-        scope: test://example/catalog.yaml#/tests/testing/0,
+        scope: test://example/catalog.yaml#/tests/testing,
         error: test testing is a prohibited prefix of collection testing/array-key, defined at test://example/array-key#/collections/testing~1array-key,
     },
     Error {
-        scope: test://example/catalog.yaml#/tests/testing~1TeSt/0,
-        error: test testing/TeSt collides with test testing/test, defined at test://example/int-string-tests#/tests/testing~1test/0,
+        scope: test://example/catalog.yaml#/tests/testing~1TeSt,
+        error: test testing/TeSt collides with test testing/test, defined at test://example/int-string-tests#/tests/testing~1test,
     },
 ]

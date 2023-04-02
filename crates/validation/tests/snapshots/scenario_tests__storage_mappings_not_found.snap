@@ -32,24 +32,24 @@ expression: errors
         error: could not map collection testing/int-string.v2 into a storage mapping; did you mean TestinG/ defined at test://example/int-string#/storageMappings/TestinG~1?,
     },
     Error {
-        scope: test://example/from-array-key#/collections/testing~1from-array-key/derivation,
-        error: could not map derivation recovery/testing/from-array-key into a storage mapping; did you mean RecoverY/TestinG/ defined at test://example/int-string#/storageMappings/RecoverY~1TestinG~1?,
-    },
-    Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve/derivation,
-        error: could not map derivation recovery/testing/int-halve into a storage mapping; did you mean RecoverY/TestinG/ defined at test://example/int-string#/storageMappings/RecoverY~1TestinG~1?,
-    },
-    Error {
-        scope: test://example/int-reverse#/collections/testing~1int-reverse/derivation,
-        error: could not map derivation recovery/testing/int-reverse into a storage mapping; did you mean RecoverY/TestinG/ defined at test://example/int-string#/storageMappings/RecoverY~1TestinG~1?,
-    },
-    Error {
         scope: test://example/int-string-captures#/captures/testing~1db-cdc,
         error: could not map capture recovery/testing/db-cdc into a storage mapping; did you mean RecoverY/TestinG/ defined at test://example/int-string#/storageMappings/RecoverY~1TestinG~1?,
     },
     Error {
         scope: test://example/int-string-captures#/captures/testing~1s3-source,
         error: could not map capture recovery/testing/s3-source into a storage mapping; did you mean RecoverY/TestinG/ defined at test://example/int-string#/storageMappings/RecoverY~1TestinG~1?,
+    },
+    Error {
+        scope: test://example/from-array-key#/collections/testing~1from-array-key,
+        error: could not map derivation recovery/testing/from-array-key into a storage mapping; did you mean RecoverY/TestinG/ defined at test://example/int-string#/storageMappings/RecoverY~1TestinG~1?,
+    },
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve,
+        error: could not map derivation recovery/testing/int-halve into a storage mapping; did you mean RecoverY/TestinG/ defined at test://example/int-string#/storageMappings/RecoverY~1TestinG~1?,
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse,
+        error: could not map derivation recovery/testing/int-reverse into a storage mapping; did you mean RecoverY/TestinG/ defined at test://example/int-string#/storageMappings/RecoverY~1TestinG~1?,
     },
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views,

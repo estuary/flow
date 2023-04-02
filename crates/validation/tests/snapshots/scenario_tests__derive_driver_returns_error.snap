@@ -4,8 +4,8 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-string-captures#/captures/testing~1s3-source,
-        error: connector error while validating capture testing/s3-source
+        scope: test://example/int-halve#/collections/testing~1int-halve,
+        error: connector error while validating derivation testing/int-halve
         
         Caused by:
             A driver error!,

@@ -4,31 +4,47 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-string-len.schema,
+        scope: test://example/int-halve#/collections/testing~1int-halve/schema,
         error: '/int' has reduction strategy, but its parent does not,
     },
     Error {
-        scope: test://example/int-string-len.schema,
+        scope: test://example/int-halve#/collections/testing~1int-halve/schema,
         error: /int has 'set' reduction strategy, restricted to objects, but has types "integer",
     },
     Error {
-        scope: test://example/int-string-len.schema,
+        scope: test://example/int-halve#/collections/testing~1int-halve/schema,
         error: '/str' has reduction strategy, but its parent does not,
     },
     Error {
-        scope: test://example/int-string-len.schema,
+        scope: test://example/int-halve#/collections/testing~1int-halve/schema,
         error: /str has 'sum' reduction strategy, restricted to numbers, but has types "string",
     },
     Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve,
-        error: keyed location /int has a disallowed Set reduction strategy (https://go.estuary.dev/V5RRHc),
+        scope: test://example/int-halve#/collections/testing~1int-halve/key/0,
+        error: location /int has a reduction strategy Set, which is disallowed because the location is used as a key,
     },
     Error {
-        scope: test://example/int-string#/collections/testing~1int-string-rw,
-        error: keyed location /int has a disallowed Set reduction strategy (https://go.estuary.dev/V5RRHc),
+        scope: test://example/int-string#/collections/testing~1int-string-rw/readSchema,
+        error: '/int' has reduction strategy, but its parent does not,
     },
     Error {
-        scope: test://example/int-halve#/collections/testing~1int-halve/derivation/transform/halveIntString,
-        error: keyed location /str has a disallowed Sum reduction strategy (https://go.estuary.dev/V5RRHc),
+        scope: test://example/int-string#/collections/testing~1int-string-rw/readSchema,
+        error: /int has 'set' reduction strategy, restricted to objects, but has types "integer",
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw/readSchema,
+        error: '/str' has reduction strategy, but its parent does not,
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw/readSchema,
+        error: /str has 'sum' reduction strategy, restricted to numbers, but has types "string",
+    },
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string-rw/key/0,
+        error: location /int has a reduction strategy Set, which is disallowed because the location is used as a key,
+    },
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve/derive/transforms/0/shuffle/key/1,
+        error: location /str has a reduction strategy Sum, which is disallowed because the location is used as a key,
     },
 ]

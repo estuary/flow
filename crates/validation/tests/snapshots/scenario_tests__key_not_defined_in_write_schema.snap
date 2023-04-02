@@ -4,15 +4,15 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-string#/collections/testing~1int-string-rw,
-        error: keyed location /missing-in-read-and-write-schemas must be required to exist by schema test://example/int-string-len.schema (https://go.estuary.dev/KUYbal),
+        scope: test://example/int-string#/collections/testing~1int-string-rw/key/1,
+        error: location /len is unknown in schema test://example/int-string.schema,
     },
     Error {
-        scope: test://example/int-string#/collections/testing~1int-string-rw,
-        error: location /len is unknown in schema test://example/int-string.schema (https://go.estuary.dev/rdCMNB),
+        scope: test://example/int-string#/collections/testing~1int-string-rw/key/2,
+        error: location /missing-in-read-and-write-schemas is unknown in schema test://example/int-string.schema,
     },
     Error {
-        scope: test://example/int-string#/collections/testing~1int-string-rw,
-        error: location /missing-in-read-and-write-schemas is unknown in schema test://example/int-string.schema (https://go.estuary.dev/rdCMNB),
+        scope: test://example/int-string#/collections/testing~1int-string-rw/key/2,
+        error: keyed location /missing-in-read-and-write-schemas must be required to exist, but is not required within schema test://example/canonical/int-string-len.schema,
     },
 ]

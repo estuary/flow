@@ -45,6 +45,7 @@ test://example/catalog.yaml:
 
 driver:
   # Expect that no actual driver calls are made.
-  materializations: {}
   captures: {}
+  derivations: {}
   imageInspections: {}
+  materializations: {}
