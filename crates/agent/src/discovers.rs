@@ -102,7 +102,7 @@ impl DiscoverHandler {
                 "pull",
                 &self.logs_tx,
                 row.logs_token,
-                tokio::process::Command::new("docker")
+                async_process::Command::new("docker")
                     .arg("pull")
                     .arg("--quiet")
                     .arg(&image_composed),
@@ -119,7 +119,7 @@ impl DiscoverHandler {
             &self.logs_tx,
             row.logs_token,
             row.endpoint_config.0.get().as_bytes(),
-            tokio::process::Command::new(format!("{}/flowctl-go", &self.bindir))
+            async_process::Command::new(format!("{}/flowctl-go", &self.bindir))
                 .arg("api")
                 .arg("discover")
                 .arg("--config=/dev/stdin")
@@ -323,9 +323,9 @@ mod test {
 
         let discover_output = json!({
             "bindings": [
-                {"documentSchema": {"const": "write!"}, "keyPtrs": ["/foo"], "recommendedName": "foo", "resourceSpec": {"table": "foo"}},
-                {"documentSchema": {"const": "bar"}, "keyPtrs": ["/bar"], "recommendedName": "bar", "resourceSpec": {"table": "bar"}},
-                {"documentSchema": {"const": "quz"}, "keyPtrs": ["/quz"], "recommendedName": "quz", "resourceSpec": {"table": "quz"}},
+                {"documentSchema": {"const": "write!"}, "key": ["/foo"], "recommendedName": "foo", "resourceConfig": {"table": "foo"}},
+                {"documentSchema": {"const": "bar"}, "key": ["/bar"], "recommendedName": "bar", "resourceConfig": {"table": "bar"}},
+                {"documentSchema": {"const": "quz"}, "key": ["/quz"], "recommendedName": "quz", "resourceConfig": {"table": "quz"}},
             ],
         }).to_string();
 
@@ -376,7 +376,7 @@ mod test {
 
         let discover_output = json!({
             "bindings": [
-                {"documentSchema": {"const": 42}, "keyPtrs": ["/key"], "recommendedName": "bad", "resourceSpec": {"table": "bad"}},
+                {"documentSchema": {"const": 42}, "key": ["/key"], "recommendedName": "bad", "resourceConfig": {"table": "bad"}},
             ],
         }).to_string();
 

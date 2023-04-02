@@ -1,21 +1,17 @@
 ---
 source: crates/agent/src/discovers/specs.rs
-expression: out
+expression: "serde_json::to_string_pretty(&out).unwrap()"
 ---
 {
   "case/1": {
-    "schema": {
-      "const": 42
-    },
+    "schema": {"const":42},
     "key": [
       "/foo",
       "/bar"
     ]
   },
   "case/2": {
-    "schema": {
-      "const": 42
-    },
+    "schema": {"const":42},
     "key": [
       "/foo",
       "/bar"
@@ -23,31 +19,28 @@ expression: out
     "projections": {
       "field": "/ptr"
     },
-    "derivation": {
-      "transform": {}
-    },
     "journals": {
       "fragments": {
         "length": 1234
       }
+    },
+    "derive": {
+      "using": {
+        "sqlite": {}
+      },
+      "transforms": []
     }
   },
   "case/3": {
-    "schema": {
-      "const": 42
-    },
+    "schema": {"const":42},
     "key": [
       "/one",
       "/two"
     ]
   },
   "case/4": {
-    "writeSchema": {
-      "const": "write!"
-    },
-    "readSchema": {
-      "const": "read!"
-    },
+    "writeSchema": {"const":"write!"},
+    "readSchema": {"const":"read!"},
     "key": [
       "/foo",
       "/bar"
