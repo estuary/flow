@@ -1,32 +1,74 @@
 use super::ast::{ASTProperty, ASTTuple, AST};
-use doc::{
-    inference::{ArrayShape, ObjShape, Provenance, Shape},
-    SchemaIndex,
-};
-use json::schema::types;
+use doc::inference::{ArrayShape, ObjShape, Provenance, Shape};
+use json::schema::{types, Keyword};
 use regex::Regex;
 use std::collections::BTreeMap;
 
-pub struct Mapper<'a> {
-    pub index: SchemaIndex<'a>,
-    pub schema: url::Url,
-    pub top_level: BTreeMap<&'a url::Url, String>,
+pub struct Mapper {
+    pub top_level: BTreeMap<url::Url, String>,
+    validator: doc::Validator,
+    anchor_prefix: String,
 }
 
-impl<'a> Mapper<'a> {
+impl Mapper {
+    pub fn new(bundle: &str, anchor_prefix: &str) -> Self {
+        let schema = doc::validation::build_bundle(bundle).unwrap();
+        let validator = doc::validation::Validator::new(schema).unwrap();
+
+        let mut top_level = BTreeMap::new();
+
+        if !anchor_prefix.is_empty() {
+            let mut stack = vec![&validator.schemas()[0]];
+            while let Some(schema) = stack.pop() {
+                for kw in &schema.kw {
+                    match kw {
+                        Keyword::Anchor(anchor_uri) => {
+                            // Does this anchor meet our definition of a named schema?
+                            if let Some((_, anchor)) = anchor_uri
+                                .as_str()
+                                .split_once('#')
+                                .filter(|(_, s)| NAMED_SCHEMA_RE.is_match(s))
+                            {
+                                top_level.insert(anchor_uri.clone(), anchor.to_owned());
+                            }
+                        }
+                        Keyword::Application(_, child) => {
+                            stack.push(child);
+                        }
+                        _ => (),
+                    }
+                }
+            }
+        }
+
+        // We don't verify index references, as validation is handled
+        // elsewhere and this is a best-effort attempt.
+
+        Mapper {
+            validator,
+            top_level,
+            anchor_prefix: anchor_prefix.to_string(),
+        }
+    }
+
     // Map the schema having |url| into an abstract syntax tree.
     pub fn map(&self, url: &url::Url) -> AST {
-        let shape = match self.index.fetch(url) {
-            Some(schema) => Shape::infer(schema, &self.index),
+        let index = self.validator.schema_index();
+        let shape = match index.fetch(url) {
+            Some(schema) => Shape::infer(schema, index),
             None => Shape::default(),
         };
         self.to_ast(&shape)
     }
 
+    pub fn root(&self) -> &url::Url {
+        &self.validator.schemas()[0].curi
+    }
+
     fn to_ast(&self, shape: &Shape) -> AST {
         if let Provenance::Reference(uri) = &shape.provenance {
             if let Some(anchor) = self.top_level.get(uri) {
-                let mut ast = AST::Anchor((*anchor).to_owned());
+                let mut ast = AST::Anchor(format!("{}{anchor}", &self.anchor_prefix));
 
                 // Wrap with a `title` keyword comment, but not `description`.
                 if let Some(title) = &shape.title {
@@ -180,9 +222,9 @@ impl<'a> Mapper<'a> {
         AST::Object { properties: props }
     }
 
-    fn array_to_ast(&self, obj: &ArrayShape) -> AST {
-        if obj.tuple.is_empty() {
-            let spread = match &obj.additional {
+    fn array_to_ast(&self, arr: &ArrayShape) -> AST {
+        if arr.tuple.is_empty() {
+            let spread = match &arr.additional {
                 None => AST::Unknown,
                 Some(shape) => self.to_ast(&shape),
             };
@@ -191,9 +233,9 @@ impl<'a> Mapper<'a> {
             };
         }
 
-        let items = obj.tuple.iter().map(|l| self.to_ast(l)).collect::<Vec<_>>();
+        let items = arr.tuple.iter().map(|l| self.to_ast(l)).collect::<Vec<_>>();
 
-        let spread = match &obj.additional {
+        let spread = match &arr.additional {
             // The test filters cases of, eg, additionalItems: false.
             Some(addl) if addl.type_ != types::INVALID => Some(Box::new(self.to_ast(&addl))),
             _ => None,
@@ -202,7 +244,7 @@ impl<'a> Mapper<'a> {
         AST::Tuple(ASTTuple {
             items,
             spread,
-            min_items: obj.min.unwrap_or(0),
+            min_items: arr.min.unwrap_or(0),
         })
     }
 }
@@ -210,4 +252,63 @@ impl<'a> Mapper<'a> {
 lazy_static::lazy_static! {
     // The set of allowed characters in a bare TypeScript variable name.
     static ref TS_VARIABLE_RE : Regex = Regex::new(r"^\pL[\pL\pN_]*$").unwrap();
+    // The set of allowed characters in a schema `$anchor` is quite limited,
+    // by Sec 8.2.3.
+    //
+    // To identify named schemas, we further restrict to anchors which start
+    // with a capital letter and include only '_' as punctuation.
+    // See: https://json-schema.org/draft/2019-09/json-schema-core.html#anchor
+    static ref NAMED_SCHEMA_RE: regex::Regex = regex::Regex::new("^[A-Z][\\w_]+$").unwrap();
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::super::ast::Context;
+    use super::Mapper;
+    use std::fmt::Write;
+
+    #[test]
+    fn schema_generation() {
+        let fixture = serde_yaml::from_slice(include_bytes!("mapper_test.yaml")).unwrap();
+        let mut sources = sources::scenarios::evaluate_fixtures(Default::default(), &fixture);
+        sources::inline_sources(&mut sources);
+
+        let tables::Sources {
+            collections,
+            errors,
+            ..
+        } = sources;
+
+        if !errors.is_empty() {
+            panic!("unexpected errors: {errors:?}");
+        }
+        let mut w = String::new();
+
+        for collection in collections.iter() {
+            let m = Mapper::new(collection.spec.schema.as_ref().unwrap().get(), "Doc");
+            writeln!(
+                &mut w,
+                "Schema for {name} with CURI {curi} with anchors:",
+                name = collection.collection.as_str(),
+                curi = m.root(),
+            )
+            .unwrap();
+            m.map(m.root()).render(&mut Context::new(&mut w));
+            w.push_str("\n\n");
+
+            let m = Mapper::new(collection.spec.schema.as_ref().unwrap().get(), "");
+            writeln!(
+                &mut w,
+                "Schema for {name} with CURI {curi} without anchors:",
+                name = collection.collection.as_str(),
+                curi = m.root(),
+            )
+            .unwrap();
+            m.map(m.root()).render(&mut Context::new(&mut w));
+            w.push_str("\n\n");
+        }
+
+        insta::assert_display_snapshot!(w);
+    }
 }
