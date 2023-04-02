@@ -14,11 +14,11 @@ import (
 	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/ops"
 	pfc "github.com/estuary/flow/go/protocols/capture"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
+	"github.com/estuary/flow/go/protocols/ops"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -86,39 +86,40 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 		var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
 			Build:    spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
 			TaskName: spec.TaskName(),
-			TaskType: labels.TaskTypeCapture,
+			TaskType: ops.TaskType_capture,
 		})
 
 		if spec.ShardTemplate.Disable {
-			log.WithField("capture", spec.Capture.String()).
+			log.WithField("capture", spec.Name).
 				Info("Will skip applying capture because it's shards are disabled")
 			continue
 		}
 
-		var request = &pfc.ApplyRequest{
-			Capture: spec,
-			Version: publisher.Labels().Build,
-			DryRun:  cmd.DryRun,
+		var request = &pfc.Request{
+			Apply: &pfc.Request_Apply{
+				Capture: spec,
+				Version: publisher.Labels().Build,
+				DryRun:  cmd.DryRun,
+			},
 		}
-		var response, err = connector.Invoke(
+		var response, err = connector.Invoke[pfc.Response](
 			ctx,
 			request,
 			cmd.Network,
 			publisher,
-			func(driver *connector.Driver, request *pfc.ApplyRequest) (*pfc.ApplyResponse, error) {
-				return driver.CaptureClient().ApplyUpsert(ctx, request)
+			func(driver *connector.Driver) (pfc.Connector_CaptureClient, error) {
+				return driver.CaptureClient().Capture(ctx)
 			},
 		)
 		if err != nil {
-			return fmt.Errorf("applying capture %q: %w", spec.Capture, err)
+			return fmt.Errorf("applying capture %q: %w", spec.Name, err)
 		}
 
-		if response.ActionDescription != "" {
-			fmt.Println("Applying capture ", spec.Capture, ":")
-			fmt.Println(response.ActionDescription)
+		if response.Applied != nil && response.Applied.ActionDescription != "" {
+			fmt.Println("Applying capture ", spec.Name, ":")
+			fmt.Println(response.Applied.ActionDescription)
 		}
-		log.WithFields(log.Fields{"name": spec.Capture}).
-			Info("applied capture to endpoint")
+		log.WithFields(log.Fields{"name": spec.Name}).Info("applied capture to endpoint")
 	}
 
 	// As with captures, apply materializations before we create or update the
@@ -131,39 +132,40 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 		var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
 			Build:    spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
 			TaskName: spec.TaskName(),
-			TaskType: labels.TaskTypeMaterialization,
+			TaskType: ops.TaskType_materialization,
 		})
 
 		if spec.ShardTemplate.Disable {
-			log.WithField("materialization", spec.Materialization.String()).
+			log.WithField("materialization", spec.Name).
 				Info("Will skip applying materialization because it's shards are disabled")
 			continue
 		}
 
-		var request = &pm.ApplyRequest{
-			Materialization: spec,
-			Version:         publisher.Labels().Build,
-			DryRun:          cmd.DryRun,
+		var request = &pm.Request{
+			Apply: &pm.Request_Apply{
+				Materialization: spec,
+				Version:         publisher.Labels().Build,
+				DryRun:          cmd.DryRun,
+			},
 		}
-		var response, err = connector.Invoke(
+		var response, err = connector.Invoke[pm.Response](
 			ctx,
 			request,
 			cmd.Network,
 			publisher,
-			func(driver *connector.Driver, request *pm.ApplyRequest) (*pm.ApplyResponse, error) {
-				return driver.MaterializeClient().ApplyUpsert(ctx, request)
+			func(driver *connector.Driver) (pm.Connector_MaterializeClient, error) {
+				return driver.MaterializeClient().Materialize(ctx)
 			},
 		)
 		if err != nil {
-			return fmt.Errorf("applying materialization %q: %w", spec.Materialization, err)
+			return fmt.Errorf("applying materialization %q: %w", spec.Name, err)
 		}
 
-		if response.ActionDescription != "" {
-			fmt.Println("Applying materialization ", spec.Materialization, ":")
-			fmt.Println(response.ActionDescription)
+		if response.Applied != nil && response.Applied.ActionDescription != "" {
+			fmt.Println("Applying materialization ", spec.Name, ":")
+			fmt.Println(response.Applied.ActionDescription)
 		}
-		log.WithFields(log.Fields{"name": spec.Materialization}).
-			Info("applied materialization to endpoint")
+		log.WithFields(log.Fields{"name": spec.Name}).Info("applied materialization to endpoint")
 	}
 
 	shards, journals, err := flow.ActivationChanges(ctx, rjc, sc, collections, tasks, cmd.InitialSplits)
@@ -171,7 +173,7 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 		return err
 	}
 	if err = applyAllChanges(ctx, sc, rjc, shards, journals, cmd.DryRun); err == errNoChangesToApply {
-		log.Warn("there are no changes to apply")
+		log.Info("there are no changes to apply")
 	} else if err != nil {
 		return err
 	}
@@ -364,11 +366,15 @@ func loadFromCatalog(db *sql.DB, names []string, all, allDerivations bool) ([]*p
 		return nil, nil, err
 	} else {
 		for _, c := range loaded {
-			var name = c.Collection.String()
+			var name = c.Name.String()
 			var _, ok = idx[name]
 			if ok || all || allDerivations {
 				collections = append(collections, c)
 				idx[name] = idx[name] + 1
+
+				if c.Derivation != nil {
+					tasks = append(tasks, c)
+				}
 			}
 		}
 	}
@@ -378,17 +384,6 @@ func loadFromCatalog(db *sql.DB, names []string, all, allDerivations bool) ([]*p
 		for _, t := range loaded {
 			var _, ok = idx[t.TaskName()]
 			if ok || all {
-				tasks = append(tasks, t)
-				idx[t.TaskName()] = idx[t.TaskName()] + 1
-			}
-		}
-	}
-	if loaded, err := catalog.LoadAllDerivations(db); err != nil {
-		return nil, nil, err
-	} else {
-		for _, t := range loaded {
-			var _, ok = idx[t.TaskName()]
-			if ok || all || allDerivations {
 				tasks = append(tasks, t)
 				idx[t.TaskName()] = idx[t.TaskName()] + 1
 			}

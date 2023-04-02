@@ -130,12 +130,10 @@ func (cmd cmdTempDataPlane) etcdCmd(ctx context.Context, tempdir string) (*exec.
 		"--data-dir", filepath.Join(tempdir, "data-plane.etcd"),
 		"--listen-client-urls", "unix://client.sock:0",
 		"--listen-peer-urls", "unix://peer.sock:0",
+		"--log-level", "error",
+		"--logger", "zap",
 		"--name", "data-plane",
 	)
-	// The Etcd --log-level flag was added in v3.4. Use it's environment variable
-	// version to remain compatible with older `etcd` binaries.
-	out.Env = append(out.Env, "ETCD_LOG_LEVEL=error", "ETCD_LOGGER=zap")
-	out.Env = append(out.Env, os.Environ()...)
 
 	out.Dir = tempdir
 	out.Stdout = os.Stdout

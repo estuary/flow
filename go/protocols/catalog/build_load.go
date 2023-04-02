@@ -98,23 +98,6 @@ func LoadCapture(db *sql.DB, name string) (*pf.CaptureSpec, error) {
 	return out, loadOneSpec(db, `SELECT spec FROM built_captures WHERE capture = ?;`, out, name)
 }
 
-// LoadAllDerivations loads all derivations.
-func LoadAllDerivations(db *sql.DB) ([]*pf.DerivationSpec, error) {
-	var out []*pf.DerivationSpec
-	var err = loadSpecs(db,
-		`SELECT spec FROM built_derivations ORDER BY derivation ASC;`,
-		func() loadableSpec { return new(pf.DerivationSpec) },
-		func(l loadableSpec) { out = append(out, l.(*pf.DerivationSpec)) },
-	)
-	return out, err
-}
-
-// LoadDerivation by its name.
-func LoadDerivation(db *sql.DB, name string) (*pf.DerivationSpec, error) {
-	var out = new(pf.DerivationSpec)
-	return out, loadOneSpec(db, `SELECT spec FROM built_derivations WHERE derivation = ?;`, out, name)
-}
-
 // LoadAllMaterializations loads all materializations.
 func LoadAllMaterializations(db *sql.DB) ([]*pf.MaterializationSpec, error) {
 	var out []*pf.MaterializationSpec
@@ -141,63 +124,6 @@ func LoadAllTests(db *sql.DB) ([]*pf.TestSpec, error) {
 		func(l loadableSpec) {
 			out = append(out, l.(*pf.TestSpec))
 		},
-	)
-	return out, err
-}
-
-// LoadNPMPackage loads the NPM package of the catalog.
-func LoadNPMPackage(db *sql.DB) ([]byte, error) {
-	var out []byte
-	var err = db.QueryRow(
-		`SELECT content FROM resources WHERE content_type = '"NPM_PACKAGE"';`,
-	).Scan(&out)
-
-	if err != nil {
-		return nil, fmt.Errorf("loading NPM package: %w", err)
-	}
-	return out, nil
-}
-
-// SchemaLocation is static inference of a location within a schema document.
-type SchemaLocation struct {
-	// URL of the schema which is inferred, inclusive of any fragment pointer.
-	Schema string
-	// A location within a document verified by this schema,
-	// relative to the schema root.
-	Location string
-	// Inference at this schema location.
-	Spec pf.Inference
-}
-
-// LoadAllInferences loads all inferences.
-func LoadAllInferences(db *sql.DB) ([]SchemaLocation, error) {
-	var out []SchemaLocation
-	var err = loadRows(db,
-		`SELECT schema, location, spec FROM inferences ORDER BY schema, location ASC;`,
-		func() []interface{} { return []interface{}{new(string), new(string), new([]byte)} },
-		func(l []interface{}) {
-			var loc = SchemaLocation{
-				Schema:   *l[0].(*string),
-				Location: *l[1].(*string),
-			}
-			if err := loc.Spec.Unmarshal(*l[2].(*[]byte)); err != nil {
-				panic(err) // TODO plumb this better.
-			}
-			out = append(out, loc)
-		},
-	)
-	return out, err
-}
-
-// LoadSchemaBundle loads the bundle of schema documents.
-// DEPRECATED. This is being kept as a short-term migration capability
-// and can be removed after ~May 15th 2022.
-func LoadSchemaBundle(db *sql.DB) (map[string]string, error) {
-	var out = make(map[string]string)
-	var err = loadRows(db,
-		`SELECT schema, dom FROM schema_docs;`,
-		func() []interface{} { return []interface{}{new(string), new(string)} },
-		func(l []interface{}) { out[*l[0].(*string)] = *l[1].(*string) },
 	)
 	return out, err
 }

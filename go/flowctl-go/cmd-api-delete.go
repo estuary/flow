@@ -8,11 +8,10 @@ import (
 	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/ops"
-	pc "github.com/estuary/flow/go/protocols/capture"
 	pfc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
+	"github.com/estuary/flow/go/protocols/ops"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
@@ -70,7 +69,7 @@ func (cmd apiDelete) execute(ctx context.Context) error {
 		return err
 	}
 	if err = applyAllChanges(ctx, sc, rjc, shards, journals, cmd.DryRun); err == errNoChangesToApply {
-		log.Warn("there are no changes to apply")
+		log.Info("there are no changes to apply")
 	} else if err != nil {
 		return err
 	}
@@ -83,42 +82,46 @@ func (cmd apiDelete) execute(ctx context.Context) error {
 			continue
 		}
 		var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
-			TaskName: spec.TaskName(),
-			TaskType: labels.TaskTypeCapture,
 			Build:    spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
+			TaskName: spec.TaskName(),
+			TaskType: ops.TaskType_capture,
 		})
 
 		if spec.ShardTemplate.Disable {
-			log.WithField("capture", spec.Capture.String()).
-				Info("Will skip un-applying capture because it's disabled")
+			log.WithField("capture", spec.Name.String()).
+				Info("Will skip deleting capture because it's disabled")
 			continue
 		}
 
-		var request = &pc.ApplyRequest{
-			Capture: spec,
-			Version: publisher.Labels().Build,
-			DryRun:  cmd.DryRun,
+		// Communicate a deletion to the connector as a semantic apply of this capture with no bindings.
+		spec.Bindings = nil
+
+		var request = &pfc.Request{
+			Apply: &pfc.Request_Apply{
+				Capture: spec,
+				Version: publisher.Labels().Build,
+				DryRun:  cmd.DryRun,
+			},
 		}
-		var response, err = connector.Invoke(
+		var response, err = connector.Invoke[pfc.Response](
 			ctx,
 			request,
 			cmd.Network,
 			publisher,
-			func(driver *connector.Driver, request *pfc.ApplyRequest) (*pfc.ApplyResponse, error) {
-				return driver.CaptureClient().ApplyDelete(ctx, request)
+			func(driver *connector.Driver) (pfc.Connector_CaptureClient, error) {
+				return driver.CaptureClient().Capture(ctx)
 			},
 		)
 		if err != nil {
-			return fmt.Errorf("deleting capture %q: %w", spec.Capture, err)
+			return fmt.Errorf("deleting capture %q: %w", spec.Name, err)
 		}
 
-		if response.ActionDescription != "" {
-			fmt.Println("Deleting capture ", spec.Capture, ":")
-			fmt.Println(response.ActionDescription)
+		if response.Applied != nil && response.Applied.ActionDescription != "" {
+			fmt.Println("Deleting capture ", spec.Name, ":")
+			fmt.Println(response.Applied.ActionDescription)
 		}
 
-		log.WithFields(log.Fields{"name": spec.Capture}).
-			Info("deleted capture from endpoint")
+		log.WithFields(log.Fields{"name": spec.Name}).Info("deleted capture from endpoint")
 	}
 
 	// Remove materializations from endpoints, now that we've deleted the
@@ -128,42 +131,47 @@ func (cmd apiDelete) execute(ctx context.Context) error {
 		if !ok {
 			continue
 		}
-		var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
-			TaskName: spec.TaskName(),
-			TaskType: labels.TaskTypeCapture,
+		var publisher = ops.NewLocalPublisher(ops.ShardLabeling{
 			Build:    spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
+			TaskName: spec.TaskName(),
+			TaskType: ops.TaskType_materialization,
 		})
 
 		if spec.ShardTemplate.Disable {
-			log.WithField("materialization", spec.Materialization.String()).
-				Info("Will skip un-applying materialization because it's disabled")
+			log.WithField("materialization", spec.Name.String()).
+				Info("Will skip deleting materialization because it's disabled")
 			continue
 		}
 
-		var request = &pm.ApplyRequest{
-			Materialization: spec,
-			Version:         publisher.Labels().Build,
-			DryRun:          cmd.DryRun,
+		// Communicate a deletion to the connector as a semantic apply of this materialization with no bindings.
+		spec.Bindings = nil
+
+		var request = &pm.Request{
+			Apply: &pm.Request_Apply{
+				Materialization: spec,
+				Version:         publisher.Labels().Build,
+				DryRun:          cmd.DryRun,
+			},
 		}
-		var response, err = connector.Invoke(
+		var response, err = connector.Invoke[pm.Response](
 			ctx,
 			request,
 			cmd.Network,
 			publisher,
-			func(driver *connector.Driver, request *pm.ApplyRequest) (*pm.ApplyResponse, error) {
-				return driver.MaterializeClient().ApplyDelete(ctx, request)
+			func(driver *connector.Driver) (pm.Connector_MaterializeClient, error) {
+				return driver.MaterializeClient().Materialize(ctx)
 			},
 		)
 		if err != nil {
-			return fmt.Errorf("deleting materialization %q: %w", spec.Materialization, err)
+			return fmt.Errorf("deleting materialization %q: %w", spec.Name, err)
 		}
 
-		if response.ActionDescription != "" {
-			fmt.Println("Deleting materialization ", spec.Materialization, ":")
-			fmt.Println(response.ActionDescription)
+		if response.Applied != nil && response.Applied.ActionDescription != "" {
+			fmt.Println("Deleting materialization ", spec.Name, ":")
+			fmt.Println(response.Applied.ActionDescription)
 		}
 
-		log.WithFields(log.Fields{"name": spec.Materialization}).
+		log.WithFields(log.Fields{"name": spec.Name}).
 			Info("deleted materialization from endpoint")
 	}
 

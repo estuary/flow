@@ -57,7 +57,6 @@ func (cmd apiTest) execute(ctx context.Context) error {
 	// Identify tests to verify and associated collections & schemas.
 	var config pf.BuildAPI_Config
 	var collections []*pf.CollectionSpec
-	var derivations []*pf.DerivationSpec
 	var tests []*pf.TestSpec
 
 	if err := build.Extract(func(db *sql.DB) error {
@@ -65,9 +64,6 @@ func (cmd apiTest) execute(ctx context.Context) error {
 			return err
 		}
 		if collections, err = catalog.LoadAllCollections(db); err != nil {
-			return err
-		}
-		if derivations, err = catalog.LoadAllDerivations(db); err != nil {
 			return err
 		}
 		if tests, err = catalog.LoadAllTests(db); err != nil {
@@ -89,7 +85,7 @@ func (cmd apiTest) execute(ctx context.Context) error {
 		return fmt.Errorf("building test driver: %w", err)
 	}
 
-	var graph = testing.NewGraph(nil, derivations, nil)
+	var graph = testing.NewGraph(nil, collections, nil)
 	if err = testing.Initialize(ctx, driver, graph); err != nil {
 		return fmt.Errorf("initializing dataflow tracking: %w", err)
 	}
@@ -103,10 +99,10 @@ func (cmd apiTest) execute(ctx context.Context) error {
 		}
 
 		if scope, err := testing.RunTestCase(ctx, graph, driver, testCase); err != nil {
-			var path, ptr = scopeToPathAndPtr(config.Directory, scope)
+			var path, ptr = scopeToPathAndPtr(config.Source, scope)
 			fmt.Println("❌", yellow(path), "failure at step", red(ptr), ":")
 			fmt.Println(err)
-			failed = append(failed, testCase.Test)
+			failed = append(failed, testCase.Name)
 
 			var verify testing.FailedVerifies
 			if errors.As(err, &verify) {
@@ -115,8 +111,8 @@ func (cmd apiTest) execute(ctx context.Context) error {
 				}
 			}
 		} else {
-			var path, _ = scopeToPathAndPtr(config.Directory, testCase.Steps[0].StepScope)
-			fmt.Println("✔️", path, "::", green(testCase.Test))
+			var path, _ = scopeToPathAndPtr(config.Source, testCase.Steps[0].StepScope)
+			fmt.Println("✔️", path, "::", green(testCase.Name))
 		}
 
 		var _, err = tc.ResetState(ctx, &pf.ResetStateRequest{})
@@ -159,7 +155,7 @@ func (cmd apiTest) snapshot(verify testing.FailedVerifies) error {
 		return nil
 	}
 
-	var dir = filepath.Join(cmd.Snapshot, verify.Test.Test)
+	var dir = filepath.Join(cmd.Snapshot, verify.Test.Name)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
