@@ -1,179 +1,119 @@
-use std::collections::BTreeMap;
-
-use crate::PortMap;
-
-use super::{
-    indexed, parse_image_inspection, reference, storage_mapping, Drivers, Error, NoOpDrivers,
-};
-use futures::FutureExt;
-use itertools::{EitherOrBoth, Itertools};
+use super::{image, indexed, reference, storage_mapping, Connectors, Error, NoOpDrivers, Scope};
+use itertools::Itertools;
 use proto_flow::{capture, flow};
 
-pub async fn walk_all_captures<D: Drivers>(
+pub async fn walk_all_captures<C: Connectors>(
     build_config: &flow::build_api::Config,
-    drivers: &D,
-    image_inspections: &[tables::ImageInspection],
     built_collections: &[tables::BuiltCollection],
-    capture_bindings: &[tables::CaptureBinding],
     captures: &[tables::Capture],
-    resources: &[tables::Resource],
+    connectors: &C,
+    images: &[image::Image],
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
 ) -> tables::BuiltCaptures {
     let mut validations = Vec::new();
 
-    // Group |capture_bindings| on bindings having the same capture.
-    let capture_bindings = capture_bindings.iter().group_by(|c| &c.capture);
-
-    // Walk ordered captures, left-joined by their bindings.
-    for (capture, bindings) in captures
-        .iter()
-        .merge_join_by(capture_bindings.into_iter(), |l, (r, _)| l.capture.cmp(r))
-        .filter_map(|eob| match eob {
-            EitherOrBoth::Both(capture, (_, bindings)) => Some((capture, Some(bindings))),
-            EitherOrBoth::Left(capture) => Some((capture, None)),
-            EitherOrBoth::Right(_) => None,
-        })
-    {
+    for capture in captures {
         let mut capture_errors = tables::Errors::new();
+        let validation =
+            walk_capture_request(built_collections, capture, images, &mut capture_errors);
 
-        // Require the capture name is valid.
-        indexed::walk_name(
-            &capture.scope,
-            "capture",
-            &capture.capture,
-            models::Capture::regex(),
-            &mut capture_errors,
-        );
-
-        let (capture, bindings, req) = walk_capture_request(
-            built_collections,
-            capture,
-            bindings.into_iter().flatten().collect_vec(),
-            resources,
-            &mut capture_errors,
-        );
-
-        let port_configs =
-            if let models::CaptureEndpoint::Connector(config) = &capture.spec.endpoint {
-                match parse_image_inspection(&config.image, image_inspections) {
-                    Ok(ports) => ports,
-                    Err(err) => {
-                        // push directly to errors instead of capture_errors because there's
-                        // no need to skip the validation in this case. It's arguable that
-                        // we should fail _faster_ if the image inspection fails, but I erred
-                        // on the side of thoroughness.
-                        err.push(&capture.scope, errors);
-                        BTreeMap::new()
-                    }
-                }
-            } else {
-                BTreeMap::new()
-            };
-
-        // Skip validation if errors were encountered building the request.
-        if capture_errors.is_empty() {
-            validations.push((capture, bindings, req, port_configs));
-        } else {
+        // Skip validation if errors were encountered while building the request.
+        if !capture_errors.is_empty() {
             errors.extend(capture_errors.into_iter());
+        } else if let Some(validation) = validation {
+            validations.push(validation);
         }
     }
 
-    // Run all validations concurrently. We do this even if there was an error parsing the image inspection json.
-    let validations =
-        validations
-            .into_iter()
-            .map(|(capture, binding_models, request, ports)| async move {
-                // If shards are disabled, then don't ask the connector to validate. Users may
-                // disable captures in response to the source system being unreachable, and we
-                // wouldn't want a validation error for a disabled task to terminate the build.
-                if capture.spec.shards.disable {
-                    NoOpDrivers {}.validate_capture(request.clone())
-                } else {
-                    drivers.validate_capture(request.clone())
-                }
-                .map(|response| (capture, binding_models, request, response, ports))
-                .await
-            });
+    // Run all validations concurrently.
+    let validations = validations
+        .into_iter()
+        .map(|(capture, request)| async move {
+            // If shards are disabled, then don't ask the connector to validate. Users may
+            // disable captures in response to the source system being unreachable, and we
+            // wouldn't want a validation error for a disabled task to terminate the build.
+            let response = if capture.spec.shards.disable {
+                NoOpDrivers {}.validate_capture(request.clone())
+            } else {
+                connectors.validate_capture(request.clone())
+            };
+            (capture, request, response.await)
+        });
 
     let validations: Vec<(
         &tables::Capture,
-        Vec<&tables::CaptureBinding>,
-        proto_flow::capture::ValidateRequest,
-        anyhow::Result<proto_flow::capture::ValidateResponse>,
-        PortMap,
+        capture::request::Validate,
+        anyhow::Result<capture::response::Validated>,
     )> = futures::future::join_all(validations).await;
 
     let mut built_captures = tables::BuiltCaptures::new();
 
-    for (capture, binding_models, request, response, ports) in validations {
-        // Unwrap |response| and continue if an Err.
-        let response = match response {
+    for (capture, request, response) in validations {
+        let tables::Capture {
+            scope,
+            capture: _,
+            spec: models::CaptureDef {
+                interval, shards, ..
+            },
+        } = capture;
+        let scope = Scope::new(scope);
+
+        // Unwrap `response` and bail out if it failed.
+        let validated = match response {
             Err(err) => {
-                Error::CaptureDriver {
-                    name: request.capture,
+                Error::CaptureConnector {
+                    name: request.name,
                     detail: err,
                 }
-                .push(&capture.scope, errors);
-
+                .push(scope, errors);
                 continue;
             }
             Ok(response) => response,
         };
 
-        let tables::Capture {
-            scope,
-            spec: models::CaptureDef {
-                interval, shards, ..
-            },
-            ..
-        } = capture;
-
-        let capture::ValidateRequest {
-            endpoint_type,
-            endpoint_spec_json,
+        let capture::request::Validate {
+            connector_type,
+            config_json,
             bindings: binding_requests,
-            capture: name,
+            name,
+            network_ports,
         } = request;
 
-        let capture::ValidateResponse {
+        let capture::response::Validated {
             bindings: binding_responses,
-        } = response;
-
-        // We constructed |binding_requests| while processing binding models.
-        assert!(binding_requests.len() == binding_models.len());
+        } = &validated;
 
         if binding_requests.len() != binding_responses.len() {
-            Error::CaptureDriver {
+            Error::CaptureConnector {
                 name: name.to_string(),
                 detail: anyhow::anyhow!(
-                    "driver returned wrong number of bindings (expected {}, got {})",
+                    "connector returned wrong number of bindings (expected {}, got {})",
                     binding_requests.len(),
                     binding_responses.len()
                 ),
             }
-            .push(&scope, errors);
+            .push(scope, errors);
         }
 
-        // Join requests, responses and models to produce tuples
-        // of (binding scope, built binding).
-        let bindings: Vec<_> = binding_requests
+        // Join requests and responses to produce tuples
+        // of (binding index, built binding).
+        let built_bindings: Vec<_> = binding_requests
             .into_iter()
             .zip(binding_responses.into_iter())
-            .zip(binding_models.into_iter())
-            .map(|((binding_request, binding_response), binding_model)| {
-                let capture::validate_request::Binding {
+            .enumerate()
+            .map(|(binding_index, (binding_request, binding_response))| {
+                let capture::request::validate::Binding {
+                    resource_config_json,
                     collection,
-                    resource_spec_json,
                 } = binding_request;
 
-                let capture::validate_response::Binding { resource_path } = binding_response;
-
+                let capture::response::validated::Binding { resource_path } = binding_response;
                 (
-                    &binding_model.scope,
+                    binding_index,
                     flow::capture_spec::Binding {
-                        resource_spec_json,
-                        resource_path,
+                        resource_config_json,
+                        resource_path: resource_path.clone(),
                         collection,
                     },
                 )
@@ -181,23 +121,27 @@ pub async fn walk_all_captures<D: Drivers>(
             .collect();
 
         // Look for (and error on) duplicated resource paths within the bindings.
-        for ((l_scope, _), (r_scope, binding)) in bindings
+        for ((l_index, _), (r_index, binding)) in built_bindings
             .iter()
             .sorted_by(|(_, l), (_, r)| l.resource_path.cmp(&r.resource_path))
             .tuple_windows()
             .filter(|((_, l), (_, r))| l.resource_path == r.resource_path)
         {
+            let scope = scope.push_prop("bindings");
+            let lhs_scope = scope.push_item(*l_index);
+            let rhs_scope = scope.push_item(*r_index).flatten();
+
             Error::BindingDuplicatesResource {
                 entity: "capture",
                 name: name.to_string(),
                 resource: binding.resource_path.iter().join("."),
-                rhs_scope: (*r_scope).clone(),
+                rhs_scope,
             }
-            .push(l_scope, errors);
+            .push(lhs_scope, errors);
         }
 
-        // Unzip to strip scopes, leaving built bindings.
-        let (_, bindings): (Vec<_>, Vec<_>) = bindings.into_iter().unzip();
+        // Unzip to strip binding indices, leaving built bindings.
+        let (_, built_bindings): (Vec<_>, Vec<_>) = built_bindings.into_iter().unzip();
 
         let recovery_stores = storage_mapping::mapped_stores(
             scope,
@@ -208,10 +152,10 @@ pub async fn walk_all_captures<D: Drivers>(
         );
 
         let spec = flow::CaptureSpec {
-            capture: name.clone(),
-            endpoint_type,
-            endpoint_spec_json,
-            bindings,
+            name: name.clone(),
+            connector_type,
+            config_json,
+            bindings: built_bindings,
             interval_seconds: interval.as_secs() as u32,
             recovery_log_template: Some(assemble::recovery_log_template(
                 build_config,
@@ -225,10 +169,11 @@ pub async fn walk_all_captures<D: Drivers>(
                 labels::TASK_TYPE_CAPTURE,
                 &shards,
                 false, // Don't disable wait_for_ack.
-                ports,
+                &network_ports,
             )),
+            network_ports,
         };
-        built_captures.insert_row(scope, name, spec);
+        built_captures.insert_row(scope.flatten(), name, validated, spec);
     }
 
     built_captures
@@ -237,87 +182,98 @@ pub async fn walk_all_captures<D: Drivers>(
 fn walk_capture_request<'a>(
     built_collections: &'a [tables::BuiltCollection],
     capture: &'a tables::Capture,
-    capture_bindings: Vec<&'a tables::CaptureBinding>,
-    resources: &[tables::Resource],
+    images: &[image::Image],
     errors: &mut tables::Errors,
-) -> (
-    &'a tables::Capture,
-    Vec<&'a tables::CaptureBinding>,
-    capture::ValidateRequest,
-) {
+) -> Option<(&'a tables::Capture, capture::request::Validate)> {
     let tables::Capture {
-        scope: _,
+        scope,
         capture: name,
-        spec: models::CaptureDef { endpoint, .. },
-        endpoint_config,
+        spec:
+            models::CaptureDef {
+                endpoint,
+                bindings,
+                shards,
+                ..
+            },
     } = capture;
+    let scope = Scope::new(scope);
 
-    let (binding_models, binding_requests): (Vec<_>, Vec<_>) = capture_bindings
+    // Require the capture name is valid.
+    indexed::walk_name(
+        scope,
+        "capture",
+        &capture.capture,
+        models::Capture::regex(),
+        errors,
+    );
+
+    let (connector_type, config_json, network_ports) = match endpoint {
+        models::CaptureEndpoint::Connector(config) => (
+            flow::capture_spec::ConnectorType::Image as i32,
+            serde_json::to_string(config).unwrap(),
+            image::walk_image_network_ports(
+                scope
+                    .push_prop("endpoint")
+                    .push_prop("connector")
+                    .push_prop("image"),
+                shards.disable,
+                &config.image,
+                images,
+                errors,
+            ),
+        ),
+    };
+
+    let bindings = bindings
         .iter()
-        .filter_map(|capture_binding| {
-            walk_capture_binding(built_collections, capture_binding, errors)
-                .map(|binding_request| (*capture_binding, binding_request))
+        .enumerate()
+        .map(|(binding_index, binding)| {
+            walk_capture_binding(
+                scope.push_prop("bindings").push_item(binding_index),
+                binding,
+                built_collections,
+                errors,
+            )
         })
-        .unzip();
+        // Force eager evaluation of all results.
+        .collect::<Vec<Option<_>>>()
+        .into_iter()
+        .collect::<Option<Vec<_>>>()?
+        .into_iter()
+        .collect();
 
-    let endpoint_spec_json = match endpoint {
-        models::CaptureEndpoint::Connector(models::ConnectorConfig { image, config }) => {
-            let config = match endpoint_config
-                .as_ref()
-                .and_then(|url| tables::Resource::fetch_content_dom(resources, url))
-            {
-                Some(external) => external.to_owned(),
-                None => config.to_owned(),
-            };
-
-            serde_json::to_string(&models::ConnectorConfig {
-                image: image.to_owned(),
-                config,
-            })
-            .unwrap()
-        }
-        models::CaptureEndpoint::Ingest(ingest) => serde_json::to_string(ingest).unwrap(),
+    let request = capture::request::Validate {
+        name: name.to_string(),
+        connector_type,
+        config_json,
+        bindings,
+        network_ports,
     };
 
-    let request = capture::ValidateRequest {
-        capture: name.to_string(),
-        bindings: binding_requests,
-        endpoint_type: assemble::capture_endpoint_type(endpoint) as i32,
-        endpoint_spec_json,
-    };
-
-    (capture, binding_models, request)
+    Some((capture, request))
 }
 
 fn walk_capture_binding<'a>(
+    scope: Scope,
+    binding: &'a models::CaptureBinding,
     built_collections: &'a [tables::BuiltCollection],
-    capture_binding: &tables::CaptureBinding,
     errors: &mut tables::Errors,
-) -> Option<capture::validate_request::Binding> {
-    let tables::CaptureBinding {
-        scope,
-        capture: _,
-        capture_index: _,
-        spec:
-            models::CaptureBinding {
-                resource,
-                target: collection,
-            },
-    } = capture_binding;
+) -> Option<capture::request::validate::Binding> {
+    let models::CaptureBinding { resource, target } = binding;
 
     // We must resolve the target collection to continue.
     let built_collection = reference::walk_reference(
         scope,
-        "capture",
+        "this capture binding",
         "collection",
-        collection,
+        target,
         built_collections,
-        |c| (&c.collection, &c.scope),
+        |c| (&c.collection, Scope::new(&c.scope)),
         errors,
     )?;
 
-    let request = capture::validate_request::Binding {
-        resource_spec_json: serde_json::to_string(&resource).unwrap(),
+    let request = capture::request::validate::Binding {
+        resource_config_json: resource.to_string(),
         collection: Some(built_collection.spec.clone()),
     };
 

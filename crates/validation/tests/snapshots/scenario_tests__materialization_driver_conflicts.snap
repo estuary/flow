@@ -1,27 +1,26 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
-
 ---
 [
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
-        error: materialization testing/db-views field bit is not satisfiable (selector excludes field, but driver requires it with reason: field required),
+        error: materialization testing/db-views field bit is not satisfiable (selector excludes field, but connector requires it with reason: field required),
     },
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
-        error: materialization testing/db-views field str is not satisfiable (selector includes field, but driver forbids it with reason: field forbidden),
+        error: materialization testing/db-views field str is not satisfiable (selector includes field, but connector forbids it with reason: field forbidden),
     },
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
-        error: materialization testing/db-views field int is not satisfiable (driver reports as unsatisfiable with reason: field unsatisfiable),
+        error: materialization testing/db-views field int is not satisfiable (connector reports as unsatisfiable with reason: field unsatisfiable),
     },
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
-        error: driver error while validating materialization testing/db-views
+        error: connector error while validating materialization testing/db-views
         
         Caused by:
-            driver sent constraint for unknown field Unknown,
+            connector sent constraint for unknown field Unknown,
     },
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
