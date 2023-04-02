@@ -4,8 +4,8 @@ use serde_json::{from_value, json};
 use std::collections::BTreeMap;
 
 use super::{
-    Capture, CaptureDef, Collection, CollectionDef, Import, Materialization, MaterializationDef,
-    Prefix, ResourceDef, StorageDef, Test, TestStep,
+    Capture, CaptureDef, Collection, CollectionDef, Materialization, MaterializationDef, Prefix,
+    RelativeUrl, StorageDef, Test, TestStep,
 };
 
 /// Each catalog source defines a portion of a Flow Catalog, by defining
@@ -18,20 +18,16 @@ pub struct Catalog {
     /// # JSON-Schema against which the Catalog is validated.
     #[serde(default, rename = "$schema", skip_serializing_if = "Option::is_none")]
     pub _schema: Option<String>,
-    /// # Inlined resources of the catalog.
-    /// Inline resources are intended for Flow API clients (only), and are used
-    /// to bundle multiple resources into a single POSTed catalog document.
-    /// Each key must be an absolute URL which is referenced from elsewhere in
-    /// the Catalog, which is also the URL from which this resource was fetched.
-    #[schemars(skip)]
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub resources: BTreeMap<String, ResourceDef>,
     /// # Import other Flow catalog sources.
-    /// By importing another Flow catalog source, the collections, schemas, and derivations
-    /// it defines become usable within this Catalog source. Each import is an absolute URI,
-    /// or a URI which is relative to this source location.
+    /// By importing another Flow catalog source, its collections, schemas, and derivations
+    /// are bundled into the publication context of this specification.
+    /// Imports are relative or absolute URLs, relative to this specification's location.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub import: Vec<Import>,
+    pub import: Vec<RelativeUrl>,
+    /// # Captures of this Catalog.
+    #[schemars(schema_with = "captures_schema")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub captures: BTreeMap<Capture, CaptureDef>,
     /// # Collections of this Catalog.
     #[schemars(schema_with = "collections_schema")]
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -40,24 +36,22 @@ pub struct Catalog {
     #[schemars(schema_with = "materializations_schema")]
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub materializations: BTreeMap<Materialization, MaterializationDef>,
-    /// # Captures of this Catalog.
-    #[schemars(schema_with = "captures_schema")]
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub captures: BTreeMap<Capture, CaptureDef>,
     /// # Tests of this Catalog.
     #[schemars(schema_with = "tests_schema")]
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub tests: BTreeMap<Test, Vec<TestStep>>,
     // # Storage mappings of this Catalog.
-    #[schemars(schema_with = "storage_mappings_schema")]
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(skip)]
     pub storage_mappings: BTreeMap<Prefix, StorageDef>,
 }
 
 impl Catalog {
     /// Build a root JSON schema for the Catalog model.
     pub fn root_json_schema() -> schemars::schema::RootSchema {
-        let settings = schemars::gen::SchemaSettings::draft2019_09();
+        let mut settings = schemars::gen::SchemaSettings::draft2019_09();
+        settings.option_add_null_type = false;
+
         let generator = schemars::gen::SchemaGenerator::new(settings);
         generator.into_root_schema_for::<Self>()
     }
@@ -195,29 +189,6 @@ fn tests_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::S
                 TestStep::example_ingest(),
                 TestStep::example_verify(),
             ],
-        }],
-    }))
-    .unwrap()
-}
-
-fn storage_mappings_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    let schema = Prefix::json_schema(gen);
-    gen.definitions_mut().insert(Prefix::schema_name(), schema);
-
-    let schema = StorageDef::json_schema(gen);
-    gen.definitions_mut()
-        .insert(StorageDef::schema_name(), schema);
-
-    from_value(json!({
-        "type": "object",
-        "patternProperties": {
-            Prefix::schema_pattern(): {
-                "$ref": format!("#/definitions/{}", StorageDef::schema_name()),
-            },
-        },
-        "additionalProperties": false,
-        "examples": [{
-            Prefix::example().as_str(): StorageDef::example()
         }],
     }))
     .unwrap()
