@@ -1,7 +1,9 @@
-import { IDerivation, Document, Register, LogsSource, StatsSource } from 'flow/ops.us-central1.v1/catalog-stats-L1';
+import { IDerivation, Document, SourceLogs, SourceStats } from 'flow/ops.us-central1.v1/catalog-stats-L1.ts';
 
-export class Derivation implements IDerivation {
-    logsPublish(source: LogsSource, _register: Register, _previous: Register): Document[] {
+// Implementation for derivation ops.us-central1.v1/catalog-stats-L1.
+export class Derivation extends IDerivation {
+    logs(read: { doc: SourceLogs }): Document[] {
+        const source = read.doc;
         let stats: Document['statsSummary'] = {};
 
         if (source.level == 'error' && source.message == 'shard failed') {
@@ -18,7 +20,8 @@ export class Derivation implements IDerivation {
         return mapStatsToDocsByGrain(grains, { [source.shard.name]: stats });
     }
 
-    statsPublish(source: StatsSource, _register: Register, _previous: Register): Document[] {
+    stats(read: { doc: SourceStats }): Document[] {
+        const source = read.doc;
         const ts = new Date(source.ts);
         const grains = grainsFromTS(ts);
 
@@ -87,7 +90,7 @@ const mapStatsToDocsByGrain = (grains: TimeGrain[], stats: StatsData): Document[
         })),
     );
 
-const taskStats = (source: StatsSource): StatsData => {
+const taskStats = (source: SourceStats): StatsData => {
     const stats: Document['statsSummary'] = {};
 
     switch (source.shard.kind) {
@@ -118,7 +121,7 @@ const taskStats = (source: StatsSource): StatsData => {
     return output;
 };
 
-const collectionStats = (source: StatsSource): StatsData => {
+const collectionStats = (source: SourceStats): StatsData => {
     const output: StatsData = {};
 
     switch (true) {

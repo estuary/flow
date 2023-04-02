@@ -25,23 +25,29 @@ collections:
     schema: ops-catalog-stats-schema.json
     key: [/catalogName, /grain, /ts]
 
-    derivation:
+    # NOTE(johnny): Enable this temporarily, locally, to run tests.
+    # projections:
+    #  name:
+    #    location: /catalogName
+    #    partition: true
+
+    derive:
+      using:
+        typescript:
+          module: catalog-stats.ts
       shards:
         minTxnDuration: 5s
-      typescript: { module: "catalog-stats.ts" }
-      transform:
-        logs:
+      transforms:
+        - name: logs
           shuffle:
             key: [/shard/name]
           source:
             name: ops.us-central1.v1/logs
-          publish: { lambda: typescript }
-        stats:
+        - name: stats
           shuffle:
             key: [/shard/name]
           source:
             name: ops.us-central1.v1/stats
-          publish: { lambda: typescript }
 
   ops.us-central1.v1/catalog-stats-L2:
     schema: ops-catalog-stats-schema.json
@@ -60,10 +66,16 @@ collections:
       errors: /statsSummary/errors
       failures: /statsSummary/failures
 
-    derivation:
-      typescript: { module: "catalog-stats-rollup.ts" }
-      transform:
-        fromOps.us-central1.v1:
+      # NOTE(johnny): Enable this temporarily, locally, to run tests.
+      # name:
+      #  location: /catalogName
+      #  partition: true
+
+    derive:
+      using:
+        typescript:
+          module: catalog-stats-rollup.ts
+      transforms:
+        - name: fromOps.us-central1.v1
           source:
             name: ops.us-central1.v1/catalog-stats-L1
-          publish: { lambda: typescript }
