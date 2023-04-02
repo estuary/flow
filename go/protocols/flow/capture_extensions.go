@@ -19,12 +19,12 @@ func (c Capture) Validate() error {
 
 // Validate returns an error if the CaptureSpec is malformed.
 func (m *CaptureSpec) Validate() error {
-	if err := m.Capture.Validate(); err != nil {
-		return pb.ExtendContext(err, "Capture")
-	} else if _, ok := EndpointType_name[int32(m.EndpointType)]; !ok {
-		return pb.NewValidationError("unknown EndpointType %v", m.EndpointType)
-	} else if len(m.EndpointSpecJson) == 0 {
-		return pb.NewValidationError("missing EndpointSpecJson")
+	if err := m.Name.Validate(); err != nil {
+		return pb.ExtendContext(err, "Name")
+	} else if _, ok := CaptureSpec_ConnectorType_name[int32(m.ConnectorType)]; !ok {
+		return pb.NewValidationError("unknown ConnectorType %v", m.ConnectorType)
+	} else if len(m.ConfigJson) == 0 {
+		return pb.NewValidationError("missing ConfigJson")
 	}
 
 	for i := range m.Bindings {
@@ -40,19 +40,12 @@ func (m *CaptureSpec) Validate() error {
 	return nil
 }
 
-func (m *CaptureSpec) GetEndpointType() EndpointType {
-	return m.EndpointType
-}
-func (m *CaptureSpec) GetEndpointSpecPtr() *json.RawMessage {
-	return &m.EndpointSpecJson
-}
-
 // Validate returns an error if the CaptureSpec_Binding is malformed.
 func (m *CaptureSpec_Binding) Validate() error {
 	if err := m.Collection.Validate(); err != nil {
 		return pb.ExtendContext(err, "Collection")
-	} else if len(m.ResourceSpecJson) == 0 {
-		return pb.NewValidationError("missing EndpointSpecJson")
+	} else if len(m.ResourceConfigJson) == 0 {
+		return pb.NewValidationError("missing ResourceConfigJson")
 	} else if len(m.ResourcePath) == 0 {
 		return pb.NewValidationError("missing ResourcePath")
 	}
@@ -63,4 +56,8 @@ func (m *CaptureSpec_Binding) Validate() error {
 		}
 	}
 	return nil
+}
+
+func (m *CaptureSpec) InvokeConfig() (*json.RawMessage, string) {
+	return &m.ConfigJson, m.ConnectorType.String()
 }
