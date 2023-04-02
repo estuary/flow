@@ -1,6 +1,4 @@
-use crate::errors::Error;
-
-use super::{indexed, reference};
+use super::{indexed, Error, Scope};
 use models::Store;
 use superslice::Ext;
 
@@ -9,37 +7,43 @@ pub fn walk_all_storage_mappings(
     errors: &mut tables::Errors,
 ) {
     for m in storage_mappings {
-        for store in m.stores.iter() {
-            // TODO: it seems like we should also be calling `walk_name` for the bucket and prefix, right?
+        let scope = Scope::new(&m.scope);
+
+        for (index, store) in m.stores.iter().enumerate() {
+            let scope = scope.push_item(index);
 
             // Disallow specifying custom storage endpoints for the 'default/' prefix and empty prefix.
             // See: https://github.com/estuary/flow/issues/892#issuecomment-1403873100
             if let Store::Custom(cfg) = store {
+                let scope = scope.push_prop("custom");
+
                 indexed::walk_name(
-                    &m.scope,
-                    "endpoint",
+                    scope.push_prop("endpoint"),
+                    "custom storage endpoint",
                     &cfg.endpoint,
                     models::StorageEndpoint::regex(),
                     errors,
                 );
+
+                let scope = scope.push_prop("prefix");
                 if m.prefix.is_empty() {
                     Error::InvalidCustomStoragePrefix {
                         prefix: m.prefix.to_string(),
                         disallowed: "empty",
                     }
-                    .push(&m.scope, errors);
+                    .push(scope, errors);
                 } else if m.prefix.starts_with("default/") {
                     Error::InvalidCustomStoragePrefix {
                         prefix: m.prefix.to_string(),
                         disallowed: "'default/'",
                     }
-                    .push(&m.scope, errors);
+                    .push(scope, errors);
                 } else if m.prefix.starts_with("recovery/default/") {
                     Error::InvalidCustomStoragePrefix {
                         prefix: m.prefix.to_string(),
                         disallowed: "'recovery/default/'",
                     }
-                    .push(&m.scope, errors);
+                    .push(scope, errors);
                 }
             }
         }
@@ -50,7 +54,7 @@ pub fn walk_all_storage_mappings(
             continue;
         }
         indexed::walk_name(
-            &m.scope,
+            scope,
             "storageMappings",
             m.prefix.as_ref(),
             models::Prefix::regex(),
@@ -68,7 +72,7 @@ pub fn walk_all_storage_mappings(
                     .as_str()
                     .strip_suffix("/")
                     .unwrap_or(m.prefix.as_str()),
-                &m.scope,
+                Scope::new(&m.scope),
             )
         }),
         errors,
@@ -79,30 +83,17 @@ pub fn walk_all_storage_mappings(
 // StorageMapping stores. Or, if no StorageMapping is matched, it returns an
 // empty slice and records an error.
 pub fn mapped_stores<'a>(
-    scope: &url::Url,
+    scope: Scope<'a>,
     entity: &'static str,
     name: &str,
     storage_mappings: &'a [tables::StorageMapping],
     errors: &mut tables::Errors,
 ) -> &'a [models::Store] {
     match lookup_mapping(storage_mappings, name) {
-        Some(m) => {
-            // Ensure that there is an import path.
-            reference::walk_reference(
-                scope,
-                entity,
-                "storageMapping",
-                &m.prefix,
-                storage_mappings,
-                |m| (&m.prefix, &m.scope),
-                errors,
-            );
-
-            &m.stores
-        }
+        Some(m) => &m.stores,
         None if storage_mappings.is_empty() => {
             // We produce a single, top-level error if no mappings are defined.
-            &EMPTY_STORES
+            &[]
         }
         None => {
             let (_, suggest_name, suggest_scope) = storage_mappings
@@ -119,7 +110,7 @@ pub fn mapped_stores<'a>(
             }
             .push(scope, errors);
 
-            &EMPTY_STORES
+            &[]
         }
     }
 }
@@ -140,8 +131,6 @@ fn lookup_mapping<'a>(
         // Then test if it's indeed a prefix of |name|. It may not be.
         .filter(|m| name.starts_with(m.prefix.as_str()))
 }
-
-static EMPTY_STORES: Vec<models::Store> = Vec::new();
 
 #[cfg(test)]
 mod test {

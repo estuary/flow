@@ -1,0 +1,10 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve/derive/transforms,
+        error: cannot infer shuffle key types because all transforms use computed shuffle lambdas. Please add an explicit `shuffleKeyTypes` to this derivation.,
+    },
+]

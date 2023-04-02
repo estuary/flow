@@ -4,7 +4,7 @@ expression: errors
 ---
 [
     Error {
-        scope: test://example/int-string#/collections/testing~1int-string,
+        scope: test://example/int-string#/collections/testing~1int-string/key/0,
         error: int is not a valid JSON pointer (missing leading '/' slash),
     },
     Error {

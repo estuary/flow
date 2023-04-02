@@ -1,11 +1,17 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
 expression: errors
-
 ---
 [
     Error {
-        scope: test://example/int-string#/collections/testing~1int-string,
+        scope: test://example/int-string#/collections/testing~1int-string/key,
         error: collection testing/int-string key cannot be empty (https://go.estuary.dev/Zq6zVB),
+    },
+    Error {
+        scope: test://example/int-reverse#/collections/testing~1int-reverse,
+        error: connector error while validating derivation testing/int-reverse
+        
+        Caused by:
+            shuffle types mismatch: [Integer] vs [],
     },
 ]

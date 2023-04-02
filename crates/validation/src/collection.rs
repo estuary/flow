@@ -1,57 +1,48 @@
-use super::{indexed, schema, storage_mapping, Error};
-use itertools::{EitherOrBoth, Itertools};
+use super::{indexed, schema, storage_mapping, Error, Scope};
 use json::schema::types;
 use proto_flow::flow;
-use std::iter::FromIterator;
-use superslice::Ext;
-use url::Url;
+use std::collections::BTreeMap;
 
 pub fn walk_all_collections(
-    build_config: &flow::build_api::Config,
+    build_config: &proto_flow::flow::build_api::Config,
     collections: &[tables::Collection],
-    projections: &[tables::Projection],
-    schema_shapes: &[schema::Shape],
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
 ) -> tables::BuiltCollections {
     let mut built_collections = tables::BuiltCollections::new();
 
     for collection in collections {
-        let projections = &projections
-            [projections.equal_range_by_key(&&collection.collection, |p| &p.collection)];
-
-        built_collections.insert_row(
-            &collection.scope,
-            &collection.collection,
-            walk_collection(
-                build_config,
-                collection,
-                projections,
-                schema_shapes,
-                storage_mappings,
-                errors,
-            ),
-        );
+        if let Some(spec) = walk_collection(build_config, collection, storage_mappings, errors) {
+            built_collections.insert_row(&collection.scope, &collection.collection, None, spec);
+        }
     }
-
     built_collections
 }
 
-fn walk_collection(
-    build_config: &flow::build_api::Config,
+// TODO(johnny): this is temporarily public, as we switch over to built
+// specs being explicitly represented by the control plane.
+pub fn walk_collection(
+    build_config: &proto_flow::flow::build_api::Config,
     collection: &tables::Collection,
-    projections: &[tables::Projection],
-    schema_shapes: &[schema::Shape],
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
-) -> flow::CollectionSpec {
+) -> Option<flow::CollectionSpec> {
     let tables::Collection {
         scope,
         collection: name,
-        spec: models::CollectionDef { key, .. },
-        write_schema,
-        read_schema,
+        spec:
+            models::CollectionDef {
+                schema,
+                write_schema,
+                read_schema,
+                key,
+                projections,
+                journals: _,
+                derive: _,
+                derivation: _,
+            },
     } = collection;
+    let scope = Scope::new(scope);
 
     indexed::walk_name(
         scope,
@@ -65,39 +56,55 @@ fn walk_collection(
         Error::CollectionKeyEmpty {
             collection: name.to_string(),
         }
-        .push(scope, errors);
+        .push(scope.push_prop("key"), errors);
     }
 
-    let write_shape = schema_shapes
-        .iter()
-        .find(|s| s.schema == *write_schema)
-        .unwrap();
-    let read_shape = schema_shapes
-        .iter()
-        .find(|s| s.schema == *read_schema)
-        .unwrap();
-
-    if read_shape.shape.type_ != types::OBJECT {
-        Error::CollectionSchemaNotObject {
-            collection: name.to_string(),
+    let (write_schema, read_schema) = match (schema, write_schema, read_schema) {
+        // One schema used for both writes and reads.
+        (Some(schema), None, None) => (
+            walk_collection_schema(scope.push_prop("schema"), schema, errors)?,
+            None,
+        ),
+        // Separate schemas used for writes and reads.
+        (None, Some(write_schema), Some(read_schema)) => {
+            let write =
+                walk_collection_schema(scope.push_prop("writeSchema"), write_schema, errors);
+            let read = walk_collection_schema(scope.push_prop("readSchema"), read_schema, errors);
+            (write?, Some(read?))
         }
-        .push(scope, errors);
-    }
-    schema::walk_composite_key(scope, key, read_shape, errors);
-
-    if write_schema != read_schema {
-        // These checks must also validate against a differentiated write schema.
-        if write_shape.shape.type_ != types::OBJECT {
-            Error::CollectionSchemaNotObject {
+        _ => {
+            Error::InvalidSchemaCombination {
                 collection: name.to_string(),
             }
             .push(scope, errors);
+            return None;
         }
-        schema::walk_composite_key(scope, key, write_shape, errors);
+    };
+
+    // The collection key must validate as a key-able location
+    // across both read and write schemas.
+    for (index, ptr) in key.iter().enumerate() {
+        let scope = scope.push_prop("key");
+        let scope = scope.push_item(index);
+
+        if let Err(err) = write_schema.walk_ptr(ptr, true) {
+            Error::from(err).push(scope, errors);
+        }
+        if let Some(read_schema) = &read_schema {
+            if let Err(err) = read_schema.walk_ptr(ptr, true) {
+                Error::from(err).push(scope, errors);
+            }
+        }
     }
 
-    let projections =
-        walk_collection_projections(collection, projections, write_shape, read_shape, errors);
+    let projections = walk_collection_projections(
+        scope.push_prop("projections"),
+        &write_schema,
+        read_schema.as_ref(),
+        key,
+        projections,
+        errors,
+    );
 
     let partition_stores = storage_mapping::mapped_stores(
         scope,
@@ -107,145 +114,196 @@ fn walk_collection(
         errors,
     );
 
-    assemble::collection_spec(
+    Some(assemble::collection_spec(
         build_config,
         collection,
         projections,
-        &write_shape.bundle,
-        &read_shape.bundle,
         partition_stores,
-    )
+    ))
+}
+
+fn walk_collection_schema(
+    scope: Scope,
+    bundle: &models::RawValue,
+    errors: &mut tables::Errors,
+) -> Option<schema::Schema> {
+    let schema = match schema::Schema::new(bundle.get()) {
+        Ok(schema) => schema,
+        Err(err) => {
+            err.push(scope, errors);
+            return None;
+        }
+    };
+
+    if schema.shape.type_ != types::OBJECT {
+        Error::CollectionSchemaNotObject {
+            schema: schema.curi.clone(),
+        }
+        .push(scope, errors);
+        return None; // Squelch further errors.
+    }
+
+    for err in schema.shape.inspect() {
+        Error::from(err).push(scope, errors);
+    }
+
+    Some(schema)
 }
 
 fn walk_collection_projections(
-    collection: &tables::Collection,
-    projections: &[tables::Projection],
-    write_shape: &schema::Shape,
-    read_shape: &schema::Shape,
+    scope: Scope,
+    write_schema: &schema::Schema,
+    read_schema: Option<&schema::Schema>,
+    key: &models::CompositeKey,
+    projections: &BTreeMap<models::Field, models::Projection>,
     errors: &mut tables::Errors,
 ) -> Vec<flow::Projection> {
+    let effective_read_schema = if let Some(read_schema) = read_schema {
+        read_schema
+    } else {
+        write_schema
+    };
+
     // Require that projection fields have no duplicates under our collation.
     // This restricts *manually* specified projections, but not canonical ones.
     // Most importantly, this ensures there are no collation-duplicated partitions.
     indexed::walk_duplicates(
         projections
             .iter()
-            .map(|p| ("projection", p.field.as_str(), &p.scope)),
+            .map(|(field, _)| ("projection", field.as_str(), scope.push_prop(field))),
         errors,
     );
 
-    // Projections which are statically inferred from the JSON schema.
-    let implied_projections = read_shape
-        .fields
+    // Map explicit projections into built flow::Projection instances.
+    let mut saw_root_projection = false;
+    let mut projections = projections
         .iter()
-        .map(|(f, p)| (models::Field::new(f), p));
+        .map(|(field, projection)| {
+            let scope = scope.push_prop(field);
 
-    // Walk merged projections, mapping each to a flow::Projection and producing errors.
-    projections
-        .iter()
-        .merge_join_by(implied_projections, |projection, (infer_field, _)| {
-            projection.field.cmp(infer_field)
-        })
-        .map(|eob| walk_projection_with_inference(collection, eob, write_shape, read_shape, errors))
-        .collect()
-}
-
-fn walk_projection_with_inference(
-    collection: &tables::Collection,
-    eob: EitherOrBoth<&tables::Projection, (models::Field, &models::JsonPointer)>,
-    write_shape: &schema::Shape,
-    read_shape: &schema::Shape,
-    errors: &mut tables::Errors,
-) -> flow::Projection {
-    let (scope, field, location, projection) = match &eob {
-        EitherOrBoth::Both(projection, (_, canonical_location)) => {
-            let (user_location, _) = projection.spec.as_parts();
-
-            if user_location != *canonical_location {
-                Error::ProjectionRemapsCanonicalField {
-                    field: projection.field.to_string(),
-                    canonical_ptr: canonical_location.to_string(),
-                    wrong_ptr: user_location.to_string(),
-                }
-                .push(&projection.scope, errors);
-            }
-            (
-                &projection.scope,
-                &projection.field,
-                user_location,
-                Some(&projection.spec),
-            )
-        }
-        EitherOrBoth::Left(projection) => {
-            let (location, _) = projection.spec.as_parts();
-            (
-                &projection.scope,
-                &projection.field,
-                location,
-                Some(&projection.spec),
-            )
-        }
-        EitherOrBoth::Right((field, location)) => (&collection.scope, field, *location, None),
-    };
-
-    let (r_inference, r_exists) = read_shape.shape.locate(&doc::Pointer::from_str(location));
-
-    let mut spec = flow::Projection {
-        ptr: location.to_string(),
-        field: field.to_string(),
-        explicit: false,
-        is_primary_key: collection.spec.key.iter().any(|k| k == location),
-        is_partition_key: false,
-        inference: Some(assemble::inference(r_inference, r_exists)),
-    };
-
-    if let Some(projection) = projection {
-        let (_, partition) = projection.as_parts();
-
-        if partition {
-            indexed::walk_name(
-                scope,
-                "partition",
-                field,
-                models::PartitionField::regex(),
-                errors,
-            );
-
-            if write_shape.schema != read_shape.schema {
-                // Partitioned projections must also validated against a differentiated write schema.
-                let (w_inference, w_exists) =
-                    write_shape.shape.locate(&doc::Pointer::from_str(location));
-
-                schema::walk_explicit_location(
-                    scope,
-                    &write_shape.schema,
+            let (ptr, partition) = match projection {
+                models::Projection::Pointer(ptr) => (ptr, false),
+                models::Projection::Extended {
                     location,
-                    true,
-                    w_inference,
-                    w_exists,
+                    partition,
+                } => (location, *partition),
+            };
+
+            if ptr.as_str() == "" {
+                saw_root_projection = true;
+            }
+            if partition {
+                indexed::walk_name(
+                    scope,
+                    "partition",
+                    field,
+                    models::PartitionField::regex(),
                     errors,
                 );
             }
-        }
-        schema::walk_explicit_location(
-            scope,
-            &read_shape.schema,
-            location,
-            partition,
-            r_inference,
-            r_exists,
-            errors,
-        );
 
-        spec.explicit = true;
-        spec.is_partition_key = partition;
+            if let Err(err) = effective_read_schema.walk_ptr(ptr, partition) {
+                Error::from(err).push(scope, errors);
+            }
+            if matches!(read_schema, Some(_) if partition) {
+                // Partitioned projections must also be key-able within the write schema.
+                if let Err(err) = write_schema.walk_ptr(ptr, true) {
+                    Error::from(err).push(scope, errors);
+                }
+            }
+
+            let (r_shape, r_exists) = effective_read_schema
+                .shape
+                .locate(&doc::Pointer::from_str(ptr));
+
+            flow::Projection {
+                ptr: ptr.to_string(),
+                field: field.to_string(),
+                explicit: true,
+                is_primary_key: key.iter().any(|k| k == ptr),
+                is_partition_key: partition,
+                inference: Some(assemble::inference(r_shape, r_exists)),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    // If we didn't see an explicit projection of the root document,
+    // add an implicit projection with field "flow_document".
+    if !saw_root_projection {
+        let (r_shape, r_exists) = effective_read_schema
+            .shape
+            .locate(&doc::Pointer::from_str(""));
+
+        projections.push(flow::Projection {
+            ptr: "".to_string(),
+            field: "flow_document".to_string(),
+            explicit: false,
+            is_primary_key: false,
+            is_partition_key: false,
+            inference: Some(assemble::inference(r_shape, r_exists)),
+        });
     }
 
-    spec
+    // Now add implicit projections for the collection key.
+    // These may duplicate explicit projections -- that's okay, we'll dedup them later.
+    for ptr in key.iter() {
+        let (r_shape, r_exists) = effective_read_schema
+            .shape
+            .locate(&doc::Pointer::from_str(ptr));
+
+        projections.push(flow::Projection {
+            ptr: ptr.to_string(),
+            field: ptr[1..].to_string(), // Canonical-ize by stripping the leading "/".
+            explicit: false,
+            is_primary_key: true,
+            is_partition_key: false,
+            inference: Some(assemble::inference(r_shape, r_exists)),
+        });
+    }
+
+    // Now add all statically inferred locations from the read-time JSON schema
+    // which are not patterns or the document root.
+    for (ptr, pattern, r_shape, r_exists) in effective_read_schema.shape.locations() {
+        if pattern || ptr.is_empty() {
+            continue;
+        }
+        projections.push(flow::Projection {
+            ptr: ptr.to_string(),
+            field: ptr[1..].to_string(), // Canonical-ize by stripping the leading "/".
+            explicit: false,
+            is_primary_key: false,
+            is_partition_key: false,
+            inference: Some(assemble::inference(r_shape, r_exists)),
+        });
+    }
+
+    // Stable-sort on ascending projection field, which preserves the
+    // construction order on a per-field basis:
+    // * An explicit projection is first, then
+    // * A keyed location, then
+    // * An inferred location
+    projections.sort_by(|l, r| l.field.cmp(&r.field));
+
+    // Look for projections which re-map canonical projections (which is disallowed).
+    for (lhs, rhs) in projections.windows(2).map(|pair| (&pair[0], &pair[1])) {
+        if lhs.field == rhs.field && lhs.ptr != rhs.ptr {
+            Error::ProjectionRemapsCanonicalField {
+                field: lhs.field.clone(),
+                canonical_ptr: rhs.ptr.to_string(),
+                wrong_ptr: lhs.ptr.to_string(),
+            }
+            .push(scope.push_prop(&lhs.field), errors);
+        }
+    }
+
+    // Now de-duplicate on field, taking the first entry. Recall that user projections are first.
+    projections.dedup_by(|l, r| l.field.cmp(&r.field).is_eq());
+
+    projections
 }
 
 pub fn walk_selector(
-    scope: &Url,
+    scope: Scope,
     collection: &flow::CollectionSpec,
     selector: &models::PartitionSelector,
     errors: &mut tables::Errors,
@@ -253,14 +311,18 @@ pub fn walk_selector(
     let models::PartitionSelector { include, exclude } = selector;
 
     for (category, labels) in &[("include", include), ("exclude", exclude)] {
+        let scope = scope.push_prop(category);
+
         for (field, values) in labels.iter() {
+            let scope = scope.push_prop(field);
+
             let partition = match collection.projections.iter().find(|p| p.field == *field) {
                 Some(projection) => {
                     if !projection.is_partition_key {
                         Error::ProjectionNotPartitioned {
                             category: category.to_string(),
                             field: field.clone(),
-                            collection: collection.collection.clone(),
+                            collection: collection.name.clone(),
                         }
                         .push(scope, errors);
                     }
@@ -270,7 +332,7 @@ pub fn walk_selector(
                     Error::NoSuchProjection {
                         category: category.to_string(),
                         field: field.clone(),
-                        collection: collection.collection.clone(),
+                        collection: collection.name.clone(),
                     }
                     .push(scope, errors);
                     continue;
@@ -284,7 +346,9 @@ pub fn walk_selector(
                 .map(|i| types::Set::from_iter(&i.types))
                 .unwrap_or(types::ANY);
 
-            for value in values {
+            for (index, value) in values.iter().enumerate() {
+                let scope = scope.push_item(index);
+
                 if !type_.overlaps(types::Set::for_value(value)) {
                     Error::SelectorTypeMismatch {
                         category: category.to_string(),
