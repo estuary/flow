@@ -106,7 +106,7 @@ impl AST {
         }
         // Tack on spread AST, if present.
         if let Some(spread) = &tuple.spread {
-            ctx.into.push_str("...(");
+            ctx.into.push_str(", ...(");
             spread.render(ctx);
             ctx.into.push_str(")[]");
         }
