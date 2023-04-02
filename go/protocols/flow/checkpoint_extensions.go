@@ -6,33 +6,30 @@ import (
 )
 
 // Validate returns an error if the DriverCheckpoint is malformed.
-func (c *DriverCheckpoint) Validate() error {
-	if len(c.DriverCheckpointJson) == 0 && c.Rfc7396MergePatch {
-		return pb.NewValidationError("DriverCheckpointJson cannot be empty if Rfc7396MergePatch")
+func (c *ConnectorState) Validate() error {
+	if len(c.UpdatedJson) == 0 && c.MergePatch {
+		return pb.NewValidationError("UpdatedJson cannot be empty if MergePatch is set")
 	}
 	return nil
 }
 
 // Reduce the other DriverCheckpoint into this one.
 // Reduce is associative: (a.Reduce(b)).Reduce(c) equals a.Reduce(b.Reduce(c)).
-func (c *DriverCheckpoint) Reduce(other DriverCheckpoint) error {
+func (c *ConnectorState) Reduce(other ConnectorState) error {
 	// If |other| is not a patch we simply take its value.
-	if !other.Rfc7396MergePatch {
-		c.DriverCheckpointJson = other.DriverCheckpointJson
-		c.Rfc7396MergePatch = false
+	if !other.MergePatch {
+		c.UpdatedJson = other.UpdatedJson
+		c.MergePatch = false
 		return nil
 	}
 
 	var err error
-	if c.Rfc7396MergePatch {
-		c.DriverCheckpointJson, err = jsonpatch.MergeMergePatches(
-			c.DriverCheckpointJson, other.DriverCheckpointJson)
-	} else if len(c.DriverCheckpointJson) != 0 {
-		c.DriverCheckpointJson, err = jsonpatch.MergePatch(
-			c.DriverCheckpointJson, other.DriverCheckpointJson)
+	if c.MergePatch {
+		c.UpdatedJson, err = jsonpatch.MergeMergePatches(c.UpdatedJson, other.UpdatedJson)
+	} else if len(c.UpdatedJson) != 0 {
+		c.UpdatedJson, err = jsonpatch.MergePatch(c.UpdatedJson, other.UpdatedJson)
 	} else {
-		c.DriverCheckpointJson, err = jsonpatch.MergePatch(
-			[]byte("{}"), other.DriverCheckpointJson)
+		c.UpdatedJson, err = jsonpatch.MergePatch([]byte("{}"), other.UpdatedJson)
 	}
 
 	return err
