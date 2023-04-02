@@ -89,7 +89,7 @@ func ZeroBytes(b []byte) {
 // and avoid making any copies.
 func WithUnsealed[M interface {
 	proto.Message
-	GetEndpointSpecPtr() *json.RawMessage
+	InvokeConfig() (*json.RawMessage, string)
 }](d *Driver, spec M, cb func(M) error) error {
 	var decrypted, err = DecryptConfig(context.Background(), d.config)
 	if err != nil {
@@ -98,7 +98,9 @@ func WithUnsealed[M interface {
 	defer ZeroBytes(decrypted)
 
 	var cloned = proto.Clone(spec).(M)
-	*cloned.GetEndpointSpecPtr() = decrypted
+
+	var configPtr, _ = cloned.InvokeConfig()
+	*configPtr = decrypted
 
 	return cb(cloned)
 }

@@ -3,17 +3,19 @@ package runtime
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/connector"
-	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
+	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/estuary/flow/go/shuffle"
+	"github.com/gogo/protobuf/types"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/recoverylog"
@@ -31,16 +33,14 @@ type Materialize struct {
 	store *consumer.JSONFileStore
 	// Specification under which the materialization is currently running.
 	spec pf.MaterializationSpec
-	// Stats are handled differently for materializations than they are for other task types,
-	// because materializations don't have stats available until after the transaction starts to
-	// commit. pendingStats is populated during FinalizeTxn, and resolved in StartCommit.
-	pendingStats message.PendingPublish
 	// Embedded task reader scoped to current task version.
 	// Initialized in RestoreCheckpoint.
 	taskReader
 	// Embedded processing state scoped to a current task version.
 	// Initialized in RestoreCheckpoint.
 	taskTerm
+	// Accumulated stats of a current transaction.
+	txnStats ops.Stats
 }
 
 var _ Application = (*Materialize)(nil)
@@ -75,14 +75,14 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 	var checkpointSource = "n/a"
 	defer func() {
 		if err == nil {
-			ops.PublishLog(m.opsPublisher, pf.LogLevel_debug,
+			ops.PublishLog(m.opsPublisher, ops.Log_debug,
 				"initialized processing term",
 				"build", m.labels.Build,
 				"checkpoint", cp,
 				"checkpointSource", checkpointSource,
 			)
 		} else if !errors.Is(err, context.Canceled) {
-			ops.PublishLog(m.opsPublisher, pf.LogLevel_error,
+			ops.PublishLog(m.opsPublisher, ops.Log_error,
 				"failed to initialize processing term",
 				"error", err,
 			)
@@ -114,7 +114,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 	if err != nil {
 		return pf.Checkpoint{}, err
 	}
-	ops.PublishLog(m.opsPublisher, pf.LogLevel_debug,
+	ops.PublishLog(m.opsPublisher, ops.Log_debug,
 		"loaded specification",
 		"spec", m.spec, "build", m.labels.Build)
 
@@ -131,10 +131,10 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		}
 		return combiner, combiner.Configure(
 			shard.FQN(),
-			binding.Collection.Collection,
+			binding.Collection.Name,
 			binding.Collection.GetReadSchemaJson(),
 			"", // Don't generate UUID placeholders.
-			binding.Collection.KeyPtrs,
+			binding.Collection.Key,
 			binding.FieldValuePtrs(),
 		)
 	}
@@ -143,8 +143,8 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 	// Start driver and Transactions RPC client.
 	m.driver, err = connector.NewDriver(
 		shard.Context(),
-		m.spec.EndpointSpecJson,
-		m.spec.EndpointType,
+		m.spec.ConfigJson,
+		m.spec.ConnectorType.String(),
 		m.opsPublisher,
 		m.host.Config.Flow.Network,
 		configHandle,
@@ -173,10 +173,8 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 
 	// If the store provided a Flow checkpoint, prefer that over
 	// the `checkpoint` recovered from the local recovery log store.
-	if b := m.client.Opened().RuntimeCheckpoint; len(b) != 0 {
-		if err = cp.Unmarshal(b); err != nil {
-			return pf.Checkpoint{}, fmt.Errorf("unmarshal Opened.RuntimeCheckpoint: %w", err)
-		}
+	if m.client.Opened().RuntimeCheckpoint != nil {
+		cp = *m.client.Opened().RuntimeCheckpoint
 		checkpointSource = "driver"
 	} else {
 		// Otherwise restore locally persisted checkpoint.
@@ -191,12 +189,10 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 
 // StartCommit implements consumer.Store.StartCommit
 func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
-	driverCP, opAcknowledged, err := m.client.StartCommit(cp)
+	driverCP, opAcknowledged, err := m.client.StartCommit(&cp)
 	if err != nil {
 		return client.FinishedOperation(err)
-	} else if driverCP == nil {
-		// No update of driver checkpoint.
-	} else if err = updateDriverCheckpoint(m.store, *driverCP); err != nil {
+	} else if err = updateDriverCheckpoint(m.store, driverCP); err != nil {
 		return client.FinishedOperation(err)
 	}
 
@@ -209,35 +205,13 @@ func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFo
 		return client.FinishedOperation(err)
 	}
 
-	ops.PublishLog(m.opsPublisher, pf.LogLevel_debug, "started commit",
+	ops.PublishLog(m.opsPublisher, ops.Log_debug, "started commit",
 		"runtimeCheckpoint", cp,
 		"driverCheckpoint", driverCP)
 
 	// Return `opAcknowledged` so that the next transaction will remain open
 	// so long as the driver is still committing the current transaction.
 	return opAcknowledged
-}
-
-func (m *Materialize) materializationStats(statsPerBinding []*pf.CombineAPI_Stats) ops.StatsEvent {
-	var stats = make(map[string]ops.MaterializeBindingStats)
-	for i, bindingStats := range statsPerBinding {
-		// Skip bindings that didn't participate
-		if bindingStats == nil {
-			continue
-		}
-		var name = m.spec.Bindings[i].Collection.Collection.String()
-		// It's possible for multiple bindings to use the same collection, in which case the
-		// stats should be summed.
-		var prevStats = stats[name]
-		stats[name] = ops.MaterializeBindingStats{
-			Left:  prevStats.Left.With(bindingStats.Left),
-			Right: prevStats.Right.With(bindingStats.Right),
-			Out:   prevStats.Out.With(bindingStats.Out),
-		}
-	}
-	var event = m.NewStatsEvent()
-	event.Materialize = stats
-	return event
 }
 
 // Destroy implements consumer.Store.Destroy
@@ -258,9 +232,14 @@ var _ shuffle.Store = (*Materialize)(nil)
 // Implementing runtime.Application for Materialize
 var _ Application = (*Materialize)(nil)
 
-// BeginTxn implements Application.BeginTxn and is a no-op.
+// BeginTxn implements Application.BeginTxn.
 func (m *Materialize) BeginTxn(shard consumer.Shard) error {
-	m.TxnOpened()
+	m.txnStats = ops.Stats{
+		Shard:       ops.NewShardRef(m.labels),
+		Timestamp:   types.TimestampNow(),
+		TxnCount:    1,
+		Materialize: make(map[string]*ops.Stats_Binding),
+	}
 	return nil
 }
 
@@ -272,38 +251,32 @@ func (m *Materialize) ConsumeMessage(shard consumer.Shard, envelope message.Enve
 		return nil // We just ignore the ACK documents.
 	}
 
-	// Find *Shuffle with equal pointer.
-	var binding = -1 // Panic if no *Shuffle is matched.
+	var keyPacked = isr.Arena.Bytes(isr.PackedKey[isr.Index])
+	var keyJSON json.RawMessage // TODO(johnny).
+	var doc = isr.Arena.Bytes(isr.Docs[isr.Index])
 
-	for i := range m.spec.Bindings {
-		if &m.spec.Bindings[i].Shuffle == isr.Shuffle {
-			binding = i
-		}
-	}
-
-	var packedKey = isr.Arena.Bytes(isr.PackedKey[isr.Index])
-	var doc = isr.Arena.Bytes(isr.DocsJson[isr.Index])
-	return m.client.AddDocument(binding, packedKey, doc)
+	return m.client.AddDocument(isr.ShuffleIndex, keyPacked, keyJSON, doc)
 }
 
 func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error {
 	if err := m.client.Flush(); err != nil {
 		return err
 	}
-	ops.PublishLog(m.opsPublisher, pf.LogLevel_debug, "flushed loads")
+	ops.PublishLog(m.opsPublisher, ops.Log_debug, "flushed loads")
 
-	var stats, err = m.client.Store()
+	var bindingStats, err = m.client.Store()
 	if err != nil {
 		return err
 	}
-	ops.PublishLog(m.opsPublisher, pf.LogLevel_debug, "stored documents")
+	ops.PublishLog(m.opsPublisher, ops.Log_debug, "stored documents")
 
-	var mapper = flow.NewMapper(shard.Context(), m.host.Service.Etcd, m.host.Journals, shard.FQN())
-	var statsEvent = m.materializationStats(stats)
-	var statsMessage = m.StatsFormatter.FormatEvent(statsEvent)
+	for i, s := range bindingStats {
+		mergeBinding(m.txnStats.Materialize, m.spec.Bindings[i].Collection.Name.String(), s)
+	}
+	m.txnStats.OpenSecondsTotal = time.Since(m.txnStats.GoTimestamp()).Seconds()
 
-	if _, err := pub.PublishUncommitted(mapper.Map, statsMessage); err != nil {
-		return fmt.Errorf("publishing stats document: %w", err)
+	if err := m.opsPublisher.PublishStats(m.txnStats, false); err != nil {
+		return fmt.Errorf("publishing stats: %w", err)
 	}
 	return nil
 }

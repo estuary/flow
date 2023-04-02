@@ -12,8 +12,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/pkgbin"
+	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
