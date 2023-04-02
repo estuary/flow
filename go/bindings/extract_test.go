@@ -5,14 +5,16 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
+	"path"
 	"strconv"
 	"testing"
 
 	"github.com/bradleyjkemp/cupaloy"
-	"github.com/estuary/flow/go/ops"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	"github.com/estuary/flow/go/protocols/ops"
+	"github.com/gogo/protobuf/jsonpb"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/message"
 )
@@ -36,12 +38,12 @@ func TestExtractorBasic(t *testing.T) {
 
 	require.Equal(t, []pf.UUIDParts{
 		{
-			ProducerAndFlags: 0x0806070503090000 + uint64(message.Flag_ACK_TXN),
-			Clock:            0x1eac6a39f2952f32,
+			Node:  0x0806070503090000 + uint64(message.Flag_ACK_TXN),
+			Clock: 0x1eac6a39f2952f32,
 		},
 		{
-			ProducerAndFlags: 0x0806070503090000 + uint64(message.Flag_CONTINUE_TXN),
-			Clock:            0x2fbc6a39f2952f32,
+			Node:  0x0806070503090000 + uint64(message.Flag_CONTINUE_TXN),
+			Clock: 0x2fbc6a39f2952f32,
 		},
 	}, uuids)
 
@@ -57,7 +59,7 @@ func TestExtractorValidation(t *testing.T) {
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			BuildId:    "fixture",
-			Directory:  t.TempDir(),
+			BuildDb:    path.Join(t.TempDir(), "build-db"),
 			Source:     "file:///int-string.flow.yaml",
 			SourceType: pf.ContentType_CATALOG,
 		}}
@@ -65,7 +67,7 @@ func TestExtractorValidation(t *testing.T) {
 
 	var collection *pf.CollectionSpec
 
-	require.NoError(t, catalog.Extract(args.OutputPath(), func(db *sql.DB) (err error) {
+	require.NoError(t, catalog.Extract(args.BuildDb, func(db *sql.DB) (err error) {
 		if collection, err = catalog.LoadCollection(db, "int-string"); err != nil {
 			return fmt.Errorf("loading collection: %w", err)
 		}
@@ -73,7 +75,7 @@ func TestExtractorValidation(t *testing.T) {
 	}))
 
 	var opsLogs = make(chan ops.Log)
-	var ex, err = NewExtractor(newChanPublisher(opsLogs, pf.LogLevel_warn))
+	var ex, err = NewExtractor(newChanPublisher(opsLogs, ops.Log_warn))
 	require.NoError(t, err)
 	require.NoError(t, ex.Configure("/uuid", []string{"/s"}, collection.WriteSchemaJson))
 
@@ -84,7 +86,9 @@ func TestExtractorValidation(t *testing.T) {
 	_, _, err = ex.Extract()
 
 	var opsLog = <-opsLogs
-	cupaloy.SnapshotT(t, err, opsLog.Level, opsLog.Message, string(opsLog.Fields))
+	opsLog.Timestamp = nil
+	opsLogStr, _ := (&jsonpb.Marshaler{}).MarshalToString(&opsLog)
+	cupaloy.SnapshotT(t, err, opsLogStr)
 }
 
 func TestExtractorIntegerBoundaryCases(t *testing.T) {

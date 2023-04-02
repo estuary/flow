@@ -12,18 +12,17 @@ import (
 	"strings"
 
 	"github.com/estuary/flow/go/connector"
-	"github.com/estuary/flow/go/labels"
-	"github.com/estuary/flow/go/ops"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
+	"github.com/estuary/flow/go/protocols/ops"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 )
 
 // CatalogJSONSchema returns the source catalog JSON schema understood by Flow.
 func CatalogJSONSchema() string {
-	var publisher = ops.NewLocalPublisher(labels.ShardLabeling{})
+	var publisher = ops.NewLocalPublisher(ops.ShardLabeling{})
 	var svc, err = newBuildSvc(publisher)
 	if err != nil {
 		panic(err)
@@ -67,7 +66,7 @@ func BuildCatalog(args BuildArgs) error {
 		transport.RegisterProtocol("file", http.NewFileTransport(http.Dir(args.FileRoot)))
 	}
 	if args.OpsPublisher == nil {
-		args.OpsPublisher = ops.NewLocalPublisher(labels.ShardLabeling{
+		args.OpsPublisher = ops.NewLocalPublisher(ops.ShardLabeling{
 			Build: args.BuildId,
 		})
 	}
@@ -118,31 +117,32 @@ func BuildCatalog(args BuildArgs) error {
 		trampolineHandler{
 			taskCode: uint32(pf.BuildAPI_TRAMPOLINE_VALIDATE_CAPTURE),
 			decode: func(request []byte) (interface{}, error) {
-				var m = new(pc.ValidateRequest)
+				var m = new(pc.Request_Validate)
 				var err = m.Unmarshal(request)
 				return m, err
 			},
 			exec: func(ctx context.Context, i interface{}) ([]byte, error) {
-				var request = i.(*pc.ValidateRequest)
+				var request = i.(*pc.Request_Validate)
 				log.WithField("request", request).Debug("capture validation requested")
 
-				var response, err = connector.Invoke(
+				var response, err = connector.Invoke[pc.Response](
 					ctx,
-					request,
+					&pc.Request{Validate: request},
 					args.BuildAPI_Config.ConnectorNetwork,
 					args.OpsPublisher,
-					func(driver *connector.Driver, request *pc.ValidateRequest) (*pc.ValidateResponse, error) {
-						return driver.CaptureClient().Validate(ctx, request)
+					func(driver *connector.Driver) (pc.Connector_CaptureClient, error) {
+						return driver.CaptureClient().Capture(ctx)
 					},
 				)
 				if err != nil {
 					return nil, err
 				}
 				log.WithField("response", response).Debug("capture validation response")
+				var validated = response.Validated
 
 				// Return marshaled response with a |taskResponseHeader| prefix.
-				var out = make([]byte, taskResponseHeader+response.ProtoSize())
-				if _, err = response.MarshalTo(out[taskResponseHeader:]); err != nil {
+				var out = make([]byte, taskResponseHeader+validated.ProtoSize())
+				if _, err = validated.MarshalTo(out[taskResponseHeader:]); err != nil {
 					return nil, fmt.Errorf("marshal response: %w", err)
 				}
 				return out, err
@@ -151,34 +151,35 @@ func BuildCatalog(args BuildArgs) error {
 		trampolineHandler{
 			taskCode: uint32(pf.BuildAPI_TRAMPOLINE_VALIDATE_MATERIALIZATION),
 			decode: func(request []byte) (interface{}, error) {
-				var m = new(pm.ValidateRequest)
+				var m = new(pm.Request_Validate)
 				var err = m.Unmarshal(request)
 				return m, err
 			},
 			exec: func(ctx context.Context, i interface{}) ([]byte, error) {
-				var request = i.(*pm.ValidateRequest)
+				var request = i.(*pm.Request_Validate)
 				log.WithField("request", request).Debug("materialize validation requested")
 
-				var response, err = connector.Invoke(
+				var response, err = connector.Invoke[pm.Response](
 					ctx,
-					request,
+					&pm.Request{Validate: request},
 					args.BuildAPI_Config.ConnectorNetwork,
 					args.OpsPublisher,
-					func(driver *connector.Driver, request *pm.ValidateRequest) (*pm.ValidateResponse, error) {
+					func(driver *connector.Driver) (pm.Connector_MaterializeClient, error) {
 						// TODO(johnny): This is to make the gRPC loopback used by sqlite.InProcessServer
 						// work properly, and can be removed once that implementation is removed.
 						ctx = pb.WithDispatchDefault(ctx)
-						return driver.MaterializeClient().Validate(ctx, request)
+						return driver.MaterializeClient().Materialize(ctx)
 					},
 				)
 				if err != nil {
 					return nil, err
 				}
 				log.WithField("response", response).Debug("materialize validation response")
+				var validated = response.Validated
 
 				// Return marshaled response with a |taskResponseHeader| prefix.
-				var out = make([]byte, taskResponseHeader+response.ProtoSize())
-				if _, err = response.MarshalTo(out[taskResponseHeader:]); err != nil {
+				var out = make([]byte, taskResponseHeader+validated.ProtoSize())
+				if _, err = validated.MarshalTo(out[taskResponseHeader:]); err != nil {
 					return nil, fmt.Errorf("marshal response: %w", err)
 				}
 				return out, err
