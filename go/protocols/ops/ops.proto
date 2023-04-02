@@ -1,0 +1,130 @@
+syntax = "proto3";
+
+package ops;
+option go_package = "github.com/estuary/flow/go/protocols/ops";
+
+import "google/protobuf/timestamp.proto";
+import "gogoproto/gogo.proto";
+
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.protosizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+option (gogoproto.goproto_getters_all) = false;
+
+// The type of a catalog task.
+enum TaskType {
+    invalid_type = 0;
+    capture = 1;
+    derivation = 2;
+    materialization = 3;
+}
+
+// Common `shard` sub-document logged by Stats and Log.
+message ShardRef {
+  // The type of catalog task.
+  TaskType kind = 1;
+  // The name of the catalog task.
+  string name = 2;
+  // The hex-encoded inclusive beginning of the shard's assigned key range.
+  string key_begin = 3;
+  // The hex-encoded inclusive beginning of the shard's assigned r_clock range.
+  string r_clock_begin = 4;
+}
+
+// Common Meta sub-document of Log and Stats documents.
+message Meta {
+    string uuid = 1;
+}
+
+message Log {
+  // Meta sub-document added by the Flow runtime.
+  Meta meta = 1 [json_name = "_meta"];
+  // The shard which produced this document..
+  ShardRef shard = 2;
+  // Timestamp corresponding to the start of the transaction.
+  // When aggregating, the timestamp is rounded to various UTC
+  // intervals (for example hour, day, and month).
+  google.protobuf.Timestamp timestamp = 3 [json_name = "ts"];
+  // Level of the log.
+  enum Level {
+    undefined_level = 0;
+    error = 1;
+    warn = 2;
+    info = 3;
+    debug = 4;
+    trace = 5;
+  };
+  Level level = 4;
+  // Message of the log.
+  string message = 5;
+  // Structured Fields of the log.
+  map<string, string> fields_json_map = 6 [
+    (gogoproto.castvalue) = "encoding/json.RawMessage",
+    json_name = "fields"
+  ];
+  // Parent spans of this log event.
+  repeated Log spans = 7;
+}
+
+message Stats {
+  // TODO(johnny): We should evolve this into a consolidated message
+  // having a serde serialization corresponding to the ops/stats
+  // collection.
+  //
+  // Let's make this the one true representation for stats.
+  // So far, I've just done Derive and top-level fields.
+
+  // Meta sub-document added by the Flow runtime.
+  Meta meta = 1 [json_name = "_meta"];
+  // The shard which produced this document..
+  ShardRef shard = 2;
+  // Timestamp corresponding to the start of the transaction.
+  // When aggregating, the timestamp is rounded to various UTC
+  // intervals (for example hour, day, and month).
+  google.protobuf.Timestamp timestamp = 3 [json_name = "ts"];
+  // Duration of time spent evaluating the transaction,
+  // When aggregating, this is total spent evaluating all transactions
+  // within the interval.
+  double open_seconds_total = 4;
+  // Number of transactions represented by this document.
+  uint32 txn_count = 5;
+
+  // DocsAndBytes represents a count of JSON documents and their
+  // cumulative total size in bytes.
+  message DocsAndBytes {
+    uint32 docs_total = 1;
+    uint32 bytes_total = 2;
+  }
+
+  // Binding represents counts of JSON documents and their
+  // cumulative total size in bytes, passing through the binding
+  // of a capture or materialization.
+  message Binding {
+      DocsAndBytes left = 1;
+      DocsAndBytes right = 2;
+      DocsAndBytes out = 3;
+  }
+
+  // Capture metrics.
+  map<string, Binding> capture = 6;
+
+  // Derivation metrics.
+  message Derive {
+    message Transform {
+      // The name of the collection that this transform sourced from.
+      string source = 1;
+      // Input documents that were read by this transform.
+      DocsAndBytes input = 2;
+    }
+    // A map from transform name (not collection name), to metrics for that transform.
+    map<string, Transform> transforms = 1;
+    // Documents published by the derivation connector.
+    DocsAndBytes published = 2;
+    // Documents written to the derived collection, after combining over published documents.
+    DocsAndBytes out = 3;
+  }
+  Derive derive = 7;
+
+  // Materialization metrics.
+  map<string, Binding> materialize = 8;
+}
