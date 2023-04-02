@@ -1,0 +1,8 @@
+---
+source: crates/derive-sqlite/src/lambda.rs
+expression: snap(&lambda)
+---
+{
+  "bindings": [],
+  "outputs": []
+}

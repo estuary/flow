@@ -1,0 +1,92 @@
+---
+source: crates/derive-sqlite/src/lambda.rs
+expression: snap(&lambda)
+---
+{
+  "bindings": [
+    {
+      "encoding": "$id",
+      "projection": {
+        "field": "id",
+        "inference": {
+          "string": {}
+        },
+        "ptr": "/id"
+      }
+    },
+    {
+      "encoding": "$sender",
+      "projection": {
+        "field": "sender",
+        "inference": {
+          "string": {}
+        },
+        "ptr": "/sender"
+      }
+    },
+    {
+      "encoding": "$recipient",
+      "projection": {
+        "field": "recipient",
+        "inference": {
+          "string": {}
+        },
+        "ptr": "/recipient"
+      }
+    },
+    {
+      "encoding": "$amount",
+      "projection": {
+        "field": "amount",
+        "inference": {
+          "string": {}
+        },
+        "ptr": "/amount"
+      }
+    },
+    {
+      "encoding": "$p::(nested/prop)",
+      "projection": {
+        "field": "nested/prop",
+        "inference": {
+          "string": {}
+        },
+        "ptr": "/nested/prop"
+      }
+    }
+  ],
+  "outputs": [
+    [
+      "$id",
+      0
+    ],
+    [
+      "$sender",
+      1
+    ],
+    [
+      "$recipient",
+      2
+    ],
+    [
+      "$amount",
+      3
+    ],
+    [
+      "$p::(nested/prop)",
+      4
+    ],
+    [
+      "json_object('foo', 'bar')",
+      null
+    ],
+    [
+      "outcome",
+      null
+    ],
+    [
+      "sender_balance",
+      null
+    ]
+  ]
+}
