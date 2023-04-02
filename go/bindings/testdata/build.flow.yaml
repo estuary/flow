@@ -16,24 +16,28 @@ collections:
       required: [a_key]
     key: [/a_key]
 
-    derivation:
-      typescript:
-        module: |
-          import stuff;
+    derive:
+      using:
+        typescript:
+          module: |
+            import { IDerivation, Document, SourceSwizzle } from 'flow/a/derivation.ts';
 
-          doTheThing();
-      transform:
-        fromCollection:
+            export class Derivation extends IDerivation {
+                swizzle(source: { doc: SourceSwizzle }): Document[] {
+                  const doc = source.doc;
+                  return [{a_key: doc.a_key.repeat(doc.a_val ? doc.a_val : 1)}];
+                }
+            }
+      transforms:
+        - name: swizzle
           source:
             name: a/collection
-          publish:
-            lambda: typescript
 
 captures:
   example/capture:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-test:dev
+        image: ghcr.io/estuary/source-test:3be4f86
         config:
           greetings: 1000
     bindings:
