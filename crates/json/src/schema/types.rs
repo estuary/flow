@@ -256,6 +256,35 @@ impl Set {
             _ => false,
         }
     }
+
+    /// Returns true if this Set represents a key-able type,
+    /// which is restricted to integers, strings, booleans,
+    /// where each is further allowed to be null.
+    ///
+    /// ```
+    /// use json::schema::types::*;
+    ///
+    /// assert!(STRING.is_keyable_type());
+    /// assert!(INTEGER.is_keyable_type());
+    /// assert!(!FRACTIONAL.is_keyable_type());
+    /// assert!(BOOLEAN.is_keyable_type());
+    /// assert!(!INT_OR_FRAC.is_keyable_type());
+    /// assert!((STRING | NULL).is_keyable_type());
+    ///
+    /// assert!(!(NULL.is_keyable_type()));
+    /// assert!(!(OBJECT.is_keyable_type()));
+    /// assert!(!(ARRAY.is_keyable_type()));
+    /// assert!(!(INVALID.is_keyable_type()));
+    ///
+    /// assert!(!((OBJECT | INTEGER).is_keyable_type()));
+    /// assert!(!((STRING | BOOLEAN).is_keyable_type()));
+    /// ```
+    pub fn is_keyable_type(&self) -> bool {
+        match *self - NULL {
+            BOOLEAN | INTEGER | STRING => true,
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Debug for Set {

@@ -15,8 +15,8 @@ use firebolt_projections::{
 };
 use firebolt_schema_builder::build_firebolt_queries_bundle;
 use prost::Message;
-use protocol::flow::MaterializationSpec;
-use protocol::materialize::{extra, validate_request};
+use proto_flow::flow::MaterializationSpec;
+use proto_flow::materialize::{extra, request::validate};
 
 use self::firebolt_schema_builder::build_drop_query;
 
@@ -60,7 +60,7 @@ pub fn run(args: Args) -> Result<(), anyhow::Error> {
             result
         }
         Action::ValidateNewProjection => {
-            let projection = validate_request::Binding::decode(Cursor::new(buf))?;
+            let projection = validate::Binding::decode(Cursor::new(buf))?;
 
             let result = validate_new_projection(projection);
             serde_json::to_string(&result)?

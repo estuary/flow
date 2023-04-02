@@ -1,35 +1,16 @@
+use proto_flow::capture::{response::discovered::Binding, response::Discovered};
 use std::collections::BTreeMap;
-
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiscoveredBinding {
-    /// A recommended display name for this discovered binding.
-    pub recommended_name: String,
-    /// JSON-encoded object which specifies the endpoint resource to be captured.
-    pub resource_spec: models::Object,
-    /// JSON schema of documents produced by this binding.
-    pub document_schema: models::Schema,
-    /// Composite key of documents (if known), as JSON-Pointers.
-    #[serde(default)]
-    pub key_ptrs: Vec<models::JsonPointer>,
-}
 
 pub fn parse_response(
     endpoint_config: &serde_json::value::RawValue,
     image_name: &str,
     image_tag: &str,
     response: &[u8],
-) -> Result<(models::CaptureEndpoint, Vec<DiscoveredBinding>), serde_json::Error> {
+) -> Result<(models::CaptureEndpoint, Vec<Binding>), serde_json::Error> {
     let image_composed = format!("{image_name}{image_tag}");
     tracing::debug!(%image_composed, response=%String::from_utf8_lossy(response), "converting response");
 
-    // Response is the expected shape of a discover response.
-    #[derive(serde::Deserialize)]
-    struct Response {
-        #[serde(default)]
-        bindings: Vec<DiscoveredBinding>,
-    }
-    let Response { mut bindings } = serde_json::from_slice(response)?;
+    let Discovered { mut bindings } = serde_json::from_slice(response)?;
 
     // Sort bindings so they're consistently ordered on their recommended name.
     // This reduces potential churn if an established capture is refreshed.
@@ -38,7 +19,7 @@ pub fn parse_response(
     Ok((
         models::CaptureEndpoint::Connector(models::ConnectorConfig {
             image: image_composed,
-            config: endpoint_config.to_owned(),
+            config: endpoint_config.to_owned().into(),
         }),
         bindings,
     ))
@@ -47,10 +28,10 @@ pub fn parse_response(
 pub fn merge_capture(
     capture_name: &str,
     endpoint: models::CaptureEndpoint,
-    discovered_bindings: Vec<DiscoveredBinding>,
+    discovered_bindings: Vec<Binding>,
     fetched_capture: Option<models::CaptureDef>,
     update_only: bool,
-) -> (models::CaptureDef, Vec<DiscoveredBinding>) {
+) -> (models::CaptureDef, Vec<Binding>) {
     let capture_prefix = capture_name.rsplit_once("/").unwrap().0;
 
     let (fetched_bindings, interval, shards) = match fetched_capture {
@@ -72,11 +53,13 @@ pub fn merge_capture(
     let mut filtered_bindings = Vec::new();
 
     for discovered_binding in discovered_bindings {
-        let DiscoveredBinding {
+        let Binding {
             recommended_name,
-            resource_spec,
+            resource_config_json,
             ..
         } = &discovered_binding;
+
+        let resource: serde_json::Value = serde_json::from_str(&resource_config_json).unwrap();
 
         // Attempt to find a fetched binding such that the discovered resource
         // spec is a strict subset of the fetched resource spec. In other
@@ -85,11 +68,7 @@ pub fn merge_capture(
         let fetched_binding = fetched_bindings
             .iter()
             .filter(|fetched| {
-                doc::diff(
-                    Some(&serde_json::json!(&fetched.resource)),
-                    Some(&serde_json::json!(resource_spec)),
-                )
-                .is_empty()
+                doc::diff(Some(&serde_json::json!(&fetched.resource)), Some(&resource)).is_empty()
             })
             .next();
 
@@ -101,7 +80,7 @@ pub fn merge_capture(
             // Create a new CaptureBinding.
             capture_bindings.push(models::CaptureBinding {
                 target: models::Collection::new(format!("{capture_prefix}/{recommended_name}")),
-                resource: resource_spec.clone(),
+                resource: models::RawValue::from_value(&resource),
             });
             filtered_bindings.push(discovered_binding);
         }
@@ -119,7 +98,7 @@ pub fn merge_capture(
 }
 
 pub fn merge_collections(
-    discovered_bindings: Vec<DiscoveredBinding>,
+    discovered_bindings: Vec<Binding>,
     mut fetched_collections: BTreeMap<models::Collection, models::CollectionDef>,
     targets: Vec<models::Collection>,
 ) -> BTreeMap<models::Collection, models::CollectionDef> {
@@ -129,13 +108,14 @@ pub fn merge_collections(
 
     for (
         target,
-        DiscoveredBinding {
-            key_ptrs,
-            document_schema,
+        Binding {
+            key,
+            document_schema_json,
             ..
         },
     ) in targets.into_iter().zip(discovered_bindings.into_iter())
     {
+        let document_schema: models::Schema = serde_json::from_str(&document_schema_json).unwrap();
         // Unwrap a fetched collection, or initialize a blank one.
         let mut collection =
             fetched_collections
@@ -146,8 +126,9 @@ pub fn merge_collections(
                     read_schema: None,
                     key: models::CompositeKey::new(Vec::new()),
                     projections: Default::default(),
-                    derivation: None,
                     journals: Default::default(),
+                    derive: None,
+                    derivation: None,
                 });
 
         if collection.read_schema.is_some() {
@@ -157,8 +138,12 @@ pub fn merge_collections(
         }
 
         // If the discover didn't provide a key, don't over-write a user's chosen key.
-        if !key_ptrs.is_empty() {
-            collection.key = models::CompositeKey::new(key_ptrs);
+        if !key.is_empty() {
+            let pointers = key
+                .into_iter()
+                .map(models::JsonPointer::new)
+                .collect::<Vec<_>>();
+            collection.key = models::CompositeKey::new(pointers);
         }
 
         collections.insert(target.clone(), collection);
@@ -169,7 +154,7 @@ pub fn merge_collections(
 
 #[cfg(test)]
 mod tests {
-    use super::{BTreeMap, DiscoveredBinding};
+    use super::{BTreeMap, Binding};
     use serde_json::json;
 
     #[test]
@@ -178,7 +163,7 @@ mod tests {
             "bindings": [
                 {
                     "recommendedName": "greetings",
-                    "resourceSpec": {
+                    "resourceConfig": {
                         "stream": "greetings",
                         "syncMode": "incremental"
                     },
@@ -190,11 +175,11 @@ mod tests {
                         },
                         "required": [ "count", "message" ]
                     },
-                    "keyPtrs": [ "/count" ]
+                    "key": [ "/count" ]
                 },
                 {
                     "recommendedName": "frogs",
-                    "resourceSpec": {
+                    "resourceConfig": {
                         "stream": "greetings",
                         "syncMode": "incremental"
                     },
@@ -205,7 +190,7 @@ mod tests {
                         },
                         "required": [ "croak" ]
                     },
-                    "keyPtrs": [ "/croak" ]
+                    "key": [ "/croak" ]
                 }
             ]
         })
@@ -225,26 +210,29 @@ mod tests {
     #[test]
     fn test_merge_collection() {
         let (discovered_bindings, fetched_collections, targets): (
-            Vec<DiscoveredBinding>,
+            Vec<Binding>,
             BTreeMap<models::Collection, models::CollectionDef>,
             Vec<models::Collection>,
         ) = serde_json::from_value(json!([
             [
                 // case/1: if there is no fetched collection, one is assembled.
-                {"documentSchema": {"const": 42}, "keyPtrs": ["/foo", "/bar"], "recommendedName": "", "resourceSpec": {}},
+                {"documentSchema": {"const": 42}, "key": ["/foo", "/bar"], "recommendedName": "", "resourceConfig": {}},
                 // case/2: expect key and schema are updated, but other fields remain.
-                {"documentSchema": {"const": 42}, "keyPtrs": ["/foo", "/bar"], "recommendedName": "", "resourceSpec": {}},
+                {"documentSchema": {"const": 42}, "key": ["/foo", "/bar"], "recommendedName": "", "resourceConfig": {}},
                 // case/3: If discovered key is empty, it doesn't replace the collection key.
-                {"documentSchema": {"const": 42}, "keyPtrs": [], "recommendedName": "", "resourceSpec": {}},
+                {"documentSchema": {"const": 42}, "key": [], "recommendedName": "", "resourceConfig": {}},
                 // case/4: If fetched collection has read & write schemas, only the write schema is updated.
-                {"documentSchema": {"const": "write!"}, "keyPtrs": ["/foo", "/bar"], "recommendedName": "", "resourceSpec": {}},
+                {"documentSchema": {"const": "write!"}, "key": ["/foo", "/bar"], "recommendedName": "", "resourceConfig": {}},
             ],
             {
                 "case/2": {
                     "schema": false,
                     "key": ["/old"],
                     "projections": {"field": "/ptr"},
-                    "derivation": { "transform": {} },
+                    "derive": {
+                        "using": {"sqlite": {}},
+                        "transforms": [],
+                    },
                     "journals": {"fragments": {"length": 1234}},
                 },
                 "case/3": {
@@ -268,7 +256,7 @@ mod tests {
 
         let out = super::merge_collections(discovered_bindings, fetched_collections, targets);
 
-        insta::assert_json_snapshot!(out);
+        insta::assert_display_snapshot!(serde_json::to_string_pretty(&out).unwrap());
     }
 
     #[test]
@@ -277,7 +265,7 @@ mod tests {
             serde_json::from_value(json!([
                 { "connector": { "config": { "discovered": 1 }, "image": "new/image" } },
                 [
-                    { "recommendedName": "foo", "resourceSpec": { "stream": "foo" }, "keyPtrs": ["/foo-key"], "documentSchema": { "const": "foo" } },
+                    { "recommendedName": "foo", "resourceConfig": { "stream": "foo" }, "key": ["/foo-key"], "documentSchema": { "const": "foo" } },
                 ],
             ]))
             .unwrap();
@@ -301,8 +289,8 @@ mod tests {
             serde_json::from_value(json!([
                 { "connector": { "config": { "discovered": 1 }, "image": "new/image" } },
                 [
-                    { "recommendedName": "suggested", "resourceSpec": { "stream": "foo" }, "documentSchema": { "const": "discovered" } },
-                    { "recommendedName": "other", "resourceSpec": { "stream": "bar" }, "documentSchema": false },
+                    { "recommendedName": "suggested", "resourceConfig": { "stream": "foo" }, "documentSchema": { "const": "discovered" } },
+                    { "recommendedName": "other", "resourceConfig": { "stream": "bar" }, "documentSchema": false },
                 ],
                 {
                   "bindings": [
@@ -342,9 +330,9 @@ mod tests {
             serde_json::from_value(json!([
                 { "connector": { "config": { "discovered": 1 }, "image": "new/image" } },
                 [
-                    { "recommendedName": "foo", "resourceSpec": { "stream": "foo" }, "documentSchema": { "const": 1 } },
-                    { "recommendedName": "bar", "resourceSpec": { "stream": "bar" }, "documentSchema": { "const": 2 } },
-                    { "recommendedName": "baz", "resourceSpec": { "stream": "baz" }, "documentSchema": { "const": 3 } },
+                    { "recommendedName": "foo", "resourceConfig": { "stream": "foo" }, "documentSchema": { "const": 1 } },
+                    { "recommendedName": "bar", "resourceConfig": { "stream": "bar" }, "documentSchema": { "const": 2 } },
+                    { "recommendedName": "baz", "resourceConfig": { "stream": "baz" }, "documentSchema": { "const": 3 } },
                 ],
                 {
                   "bindings": [

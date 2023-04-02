@@ -1,4 +1,5 @@
 use super::{Log, LogLevel};
+use serde_json::json;
 
 // Credit to this blog for a high-level overview for implementing custom tracing layer:
 // https://burgers.io/custom-logging-in-rust-using-tracing
@@ -14,12 +15,12 @@ use super::{Log, LogLevel};
 pub struct Layer<H, T>(H, T)
 where
     H: Fn(Log),
-    T: Fn() -> time::OffsetDateTime;
+    T: Fn() -> std::time::SystemTime;
 
 impl<H, T> Layer<H, T>
 where
     H: Fn(Log),
-    T: Fn() -> time::OffsetDateTime,
+    T: Fn() -> std::time::SystemTime,
 {
     pub fn new(handler: H, timesource: T) -> Self {
         Self(handler, timesource)
@@ -27,18 +28,17 @@ where
 
     fn log_from_metadata(&self, metadata: &tracing::Metadata) -> Log {
         let mut log = Log {
-            ts: self.1(),
-            level: level_from_tracing(metadata.level()),
+            meta: None,
+            timestamp: Some(proto_flow::as_timestamp(self.1())),
+            level: level_from_tracing(metadata.level()) as i32,
             message: String::new(),
-            fields: Default::default(),
+            fields_json_map: Default::default(),
             shard: None,
             spans: Default::default(),
         };
 
-        log.fields.insert(
-            "module".to_string(),
-            serde_json::value::to_raw_value(metadata.target()).unwrap(),
-        );
+        log.fields_json_map
+            .insert("module".to_string(), json!(metadata.target()).to_string());
 
         log
     }
@@ -49,7 +49,7 @@ where
     S: tracing::Subscriber,
     S: for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>,
     H: Fn(Log) + 'static,
-    T: Fn() -> time::OffsetDateTime + 'static,
+    T: Fn() -> std::time::SystemTime + 'static,
 {
     fn on_new_span(
         &self,
@@ -106,14 +106,15 @@ impl<'a> FieldVisitor<'a> {
     {
         if field.name() == "message" && self.0.message.is_empty() {
             self.0.message = value.to_string();
-        } else if let Ok(value) = serde_json::value::to_raw_value(&value) {
-            self.0.fields.insert(field.name().to_string(), value);
+        } else if let Ok(value) = serde_json::to_string(&value) {
+            self.0
+                .fields_json_map
+                .insert(field.name().to_string(), value);
         } else {
             // If `value` doesn't serialize, fall back to serializing its string representation.
-            self.0.fields.insert(
+            self.0.fields_json_map.insert(
                 field.name().to_string(),
-                serde_json::value::to_raw_value(&value.to_string())
-                    .expect("string never fails to serialize"),
+                json!(value.to_string()).to_string(),
             );
         }
     }
@@ -165,10 +166,9 @@ impl<'a> tracing::field::Visit for FieldVisitor<'a> {
             next = cur.source();
         }
 
-        self.0.fields.insert(
-            field.name().to_string(),
-            serde_json::value::to_raw_value(&chain).expect("Vec<serde_json::Value> must serialize"),
-        );
+        self.0
+            .fields_json_map
+            .insert(field.name().to_string(), json!(chain).to_string());
     }
 
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
@@ -232,7 +232,9 @@ mod test {
                     move || {
                         let mut seq = seq.lock().unwrap();
                         *seq += 10;
-                        time::OffsetDateTime::from_unix_timestamp(1660000000 + *seq).unwrap()
+                        time::OffsetDateTime::from_unix_timestamp(1660000000 + *seq)
+                            .unwrap()
+                            .into()
                     },
                 )
                 .with_filter(tracing::level_filters::LevelFilter::DEBUG),
@@ -289,7 +291,7 @@ mod test {
         insta::assert_snapshot!(out, @r###"
         [
           {
-            "ts": "2022-08-08T23:07:10Z",
+            "ts": "2022-08-08T23:07:10+00:00",
             "level": "warn",
             "message": "a scary warning",
             "fields": {
@@ -301,7 +303,7 @@ mod test {
             },
             "spans": [
               {
-                "ts": "2022-08-08T23:06:50Z",
+                "ts": "2022-08-08T23:06:50+00:00",
                 "level": "debug",
                 "message": "first span",
                 "fields": {
@@ -310,7 +312,7 @@ mod test {
                 }
               },
               {
-                "ts": "2022-08-08T23:07:00Z",
+                "ts": "2022-08-08T23:07:00+00:00",
                 "level": "info",
                 "message": "second testing span",
                 "fields": {
@@ -324,7 +326,7 @@ mod test {
             ]
           },
           {
-            "ts": "2022-08-08T23:07:20Z",
+            "ts": "2022-08-08T23:07:20+00:00",
             "level": "info",
             "message": "an info message",
             "fields": {
@@ -332,7 +334,7 @@ mod test {
             },
             "spans": [
               {
-                "ts": "2022-08-08T23:06:50Z",
+                "ts": "2022-08-08T23:06:50+00:00",
                 "level": "debug",
                 "message": "first span",
                 "fields": {
@@ -343,16 +345,15 @@ mod test {
             ]
           },
           {
-            "ts": "2022-08-08T23:07:40Z",
+            "ts": "2022-08-08T23:07:40+00:00",
             "level": "debug",
-            "message": "",
             "fields": {
               "module": "ops::tracing::test",
               "return": "\"ok\""
             },
             "spans": [
               {
-                "ts": "2022-08-08T23:07:30Z",
+                "ts": "2022-08-08T23:07:30+00:00",
                 "level": "debug",
                 "message": "some_tracing_instrument_func",
                 "fields": {
@@ -363,16 +364,15 @@ mod test {
             ]
           },
           {
-            "ts": "2022-08-08T23:08:00Z",
+            "ts": "2022-08-08T23:08:00+00:00",
             "level": "error",
-            "message": "",
             "fields": {
               "error": "whoops",
               "module": "ops::tracing::test"
             },
             "spans": [
               {
-                "ts": "2022-08-08T23:07:50Z",
+                "ts": "2022-08-08T23:07:50+00:00",
                 "level": "debug",
                 "message": "some_tracing_instrument_func",
                 "fields": {
@@ -383,7 +383,7 @@ mod test {
             ]
           },
           {
-            "ts": "2022-08-08T23:08:10Z",
+            "ts": "2022-08-08T23:08:10+00:00",
             "level": "error",
             "message": "a final error",
             "fields": {

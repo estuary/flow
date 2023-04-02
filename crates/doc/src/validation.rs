@@ -10,7 +10,30 @@ pub type FullContext = json::validator::FullContext;
 pub type SpanContext = json::validator::SpanContext;
 pub type RawValidator<'sm> = json::validator::Validator<'sm, Annotation, SpanContext>;
 
+// Re-export build_schema for lower-level usages.
 pub use json::schema::build::build_schema;
+
+// Build an already-bundled Schema.
+pub fn build_bundle(bundle: &str) -> Result<Schema, json::schema::build::Error> {
+    let mut schema = build_schema(
+        url::Url::parse("schema://bundle").unwrap(),
+        &serde_json::from_str(bundle).unwrap(),
+    )?;
+
+    // Tweak scope to remove a synthetic resource pointer previously
+    // embedded in the $id during schema bundling.
+    for (key, value) in schema.curi.query_pairs() {
+        if key != "ptr" {
+            continue;
+        }
+        let fragment = value.to_string();
+        schema.curi.set_fragment(Some(&fragment));
+        schema.curi.set_query(None);
+        break;
+    }
+
+    Ok(schema)
+}
 
 // Validator wraps a json::Validator and manages ownership of the schemas under validation.
 pub struct Validator {

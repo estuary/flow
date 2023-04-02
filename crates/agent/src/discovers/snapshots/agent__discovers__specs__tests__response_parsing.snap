@@ -24,11 +24,11 @@ expression: json!(out)
         ],
         "type": "object"
       },
-      "keyPtrs": [
+      "key": [
         "/croak"
       ],
       "recommendedName": "frogs",
-      "resourceSpec": {
+      "resourceConfig": {
         "stream": "greetings",
         "syncMode": "incremental"
       }
@@ -49,11 +49,11 @@ expression: json!(out)
         ],
         "type": "object"
       },
-      "keyPtrs": [
+      "key": [
         "/count"
       ],
       "recommendedName": "greetings",
-      "resourceSpec": {
+      "resourceConfig": {
         "stream": "greetings",
         "syncMode": "incremental"
       }

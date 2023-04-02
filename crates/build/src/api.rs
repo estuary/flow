@@ -1,10 +1,10 @@
+use anyhow::Context;
 use futures::future::LocalBoxFuture;
-use futures::{channel::oneshot, FutureExt};
+use futures::{channel::oneshot, FutureExt, StreamExt, TryStreamExt};
 use prost::Message;
-use protocol::{
-    capture, flow,
+use proto_flow::{
+    flow,
     flow::build_api::{self, Code},
-    materialize,
 };
 use std::rc::Rc;
 use std::task::Poll;
@@ -49,22 +49,22 @@ impl sources::Fetcher for Fetcher {
     }
 }
 
-// Drivers implements validation::Drivers, and delegates to Go via Trampoline.
-struct Drivers(Rc<cgo::Trampoline>);
+// Connectors implements validation::Connectors, and delegates to Go via Trampoline.
+struct Connectors(Rc<cgo::Trampoline>);
 
-impl validation::Drivers for Drivers {
-    fn validate_materialization<'a>(
+impl validation::Connectors for Connectors {
+    fn validate_capture<'a>(
         &'a self,
-        request: materialize::ValidateRequest,
-    ) -> LocalBoxFuture<'a, Result<materialize::ValidateResponse, anyhow::Error>> {
+        request: proto_flow::capture::request::Validate,
+    ) -> LocalBoxFuture<'a, anyhow::Result<proto_flow::capture::response::Validated>> {
         let (tx, rx) = oneshot::channel();
 
         self.0.start_task(
-            build_api::Code::TrampolineValidateMaterialization as u32,
+            build_api::Code::TrampolineValidateCapture as u32,
             move |arena: &mut Vec<u8>| request.encode_raw(arena),
             move |result: Result<&[u8], anyhow::Error>| {
                 let result = result.and_then(|data| {
-                    materialize::ValidateResponse::decode(data).map_err(Into::into)
+                    proto_flow::capture::response::Validated::decode(data).map_err(Into::into)
                 });
                 tx.send(result).unwrap();
             },
@@ -72,18 +72,61 @@ impl validation::Drivers for Drivers {
         rx.map(|r| r.unwrap()).boxed_local()
     }
 
-    fn validate_capture<'a>(
+    fn validate_derivation<'a>(
         &'a self,
-        request: protocol::capture::ValidateRequest,
-    ) -> LocalBoxFuture<'a, Result<protocol::capture::ValidateResponse, anyhow::Error>> {
+        request: proto_flow::derive::request::Validate,
+    ) -> LocalBoxFuture<'a, anyhow::Result<proto_flow::derive::response::Validated>> {
+        use proto_flow::derive;
+
+        async move {
+            // This is a bit gross, but we synchronously drive the derivation middleware
+            // to determine its validation outcome. We must do it this way because we
+            // cannot return a non-ready future from this code path, unless it's using
+            // trampoline polling (which we're not doing here).
+            // TODO(johnny): Have *all* connector invocations happen from Rust via tokio,
+            // and remove trampoline polling back to the Go runtime.
+
+            let response = tracing::dispatcher::get_default(move |dispatch| {
+                let task_runtime = runtime::TaskRuntime::new("build".to_string(), dispatch.clone());
+                let middleware = runtime::derive::Middleware::new(
+                    ops::new_tracing_dispatch_handler(dispatch.clone()),
+                    None,
+                );
+
+                let request = derive::Request {
+                    validate: Some(request.clone()),
+                    ..Default::default()
+                };
+                let request_rx = futures::stream::once(async move { Ok(request) }).boxed();
+
+                task_runtime
+                    .block_on(async move { middleware.serve(request_rx).await?.try_next().await })
+            });
+
+            let validated = response
+                .map_err(|status| anyhow::Error::msg(status.message().to_string()))?
+                .context("derive connector did not return a response")?
+                .validated
+                .context("derive Response is not Validated")?;
+
+            Ok(validated)
+        }
+        .boxed_local()
+    }
+
+    fn validate_materialization<'a>(
+        &'a self,
+        request: proto_flow::materialize::request::Validate,
+    ) -> LocalBoxFuture<'a, anyhow::Result<proto_flow::materialize::response::Validated>> {
         let (tx, rx) = oneshot::channel();
 
         self.0.start_task(
-            build_api::Code::TrampolineValidateCapture as u32,
+            build_api::Code::TrampolineValidateMaterialization as u32,
             move |arena: &mut Vec<u8>| request.encode_raw(arena),
             move |result: Result<&[u8], anyhow::Error>| {
-                let result = result
-                    .and_then(|data| capture::ValidateResponse::decode(data).map_err(Into::into));
+                let result = result.and_then(|data| {
+                    proto_flow::materialize::response::Validated::decode(data).map_err(Into::into)
+                });
                 tx.send(result).unwrap();
             },
         );
@@ -117,7 +160,7 @@ impl BuildFuture {
     fn new(config: build_api::Config) -> Result<Self, Error> {
         let trampoline = Rc::new(cgo::Trampoline::new());
         let fetcher = Fetcher(trampoline.clone());
-        let drivers = Drivers(trampoline.clone());
+        let drivers = Connectors(trampoline.clone());
         let future = crate::configured_build(config, fetcher, drivers);
 
         Ok(BuildFuture {
