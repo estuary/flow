@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/stretchr/testify/require"
 )
@@ -26,38 +25,35 @@ func TestWriteAdapter(t *testing.T) {
 	w.Write([]byte(`more invalid json!` + "\n"))
 	w.Write([]byte(`{"message":"5", "fields":{"f1":1, "fTwo":"two"}}` + "\n"))
 
-	var shard = ShardRef{
+	var shard = &ShardRef{
 		Name:        "task/name",
-		Kind:        "capture",
+		Kind:        TaskType_capture,
 		KeyBegin:    "00001111",
 		RClockBegin: "00003333",
 	}
 
 	require.Equal(t, []Log{
-		{Message: "hello world", Shard: shard, Fields: json.RawMessage(`{"stuff": 42 }`)},
-		{Message: "1", Shard: shard, Fields: json.RawMessage("{}")},
-		{Message: "2", Shard: shard, Fields: json.RawMessage("{}")},
-		{Message: "3", Shard: shard, Fields: json.RawMessage("{}")},
-		{Message: "4", Shard: shard, Fields: json.RawMessage("{}")},
-		{Message: "5", Shard: shard, Fields: json.RawMessage(`{"f1":1, "fTwo":"two"}`)},
+		{Message: "hello world", Shard: shard, FieldsJsonMap: map[string]json.RawMessage{"stuff": []byte("42")}},
+		{Message: "1", Shard: shard},
+		{Message: "2", Shard: shard},
+		{Message: "3", Shard: shard},
+		{Message: "4", Shard: shard},
+		{Message: "5", Shard: shard, FieldsJsonMap: map[string]json.RawMessage{"f1": []byte("1"), "fTwo": []byte("\"two\"")}},
 	}, pub.logs)
 }
 
 type appendPublisher struct{ logs []Log }
 
-// PublishStats implements Publisher
-func (*appendPublisher) PublishStats(StatsEvent) {
-	// no-op
-}
-
 var _ Publisher = &appendPublisher{}
 
-func (p *appendPublisher) PublishLog(log Log) { p.logs = append(p.logs, log) }
-func (p *appendPublisher) Labels() labels.ShardLabeling {
-	return labels.ShardLabeling{
-		LogLevel: pf.LogLevel_debug,
+func (p *appendPublisher) PublishLog(log Log)           { p.logs = append(p.logs, log) }
+func (*appendPublisher) PublishStats(Stats, bool) error { panic("not called") }
+
+func (p *appendPublisher) Labels() ShardLabeling {
+	return ShardLabeling{
+		LogLevel: Log_debug,
 		TaskName: "task/name",
-		TaskType: labels.TaskTypeCapture,
+		TaskType: TaskType_capture,
 		Range: pf.RangeSpec{
 			KeyBegin:    0x00001111,
 			KeyEnd:      0x22220000,
