@@ -16,7 +16,7 @@ captures:
   acmeCo/source-test:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-test:3be4f86
+        image: ghcr.io/estuary/source-test:8952e37
         config:
           greetings: 100
           # Number of greeting documents to produce when running in non-tailing mode
