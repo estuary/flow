@@ -379,7 +379,7 @@ func (c *Capture) BeginTxn(consumer.Shard) error {
 	return nil
 }
 
-func (c *Capture) FinalizeTxn(consumer.Shard, *message.Publisher) error {
+func (c *Capture) FinalizeTxn(_ consumer.Shard, pub *message.Publisher) error {
 	c.txnStats.OpenSecondsTotal = time.Since(c.txnStats.GoTimestamp()).Seconds()
 
 	if len(c.txnStats.Capture) == 0 {
@@ -387,7 +387,7 @@ func (c *Capture) FinalizeTxn(consumer.Shard, *message.Publisher) error {
 		// Don't publish stats in this case.
 		ops.PublishLog(c.opsPublisher, ops.Log_debug,
 			"capture transaction committing updating driver checkpoint only")
-	} else if err := c.opsPublisher.PublishStats(c.txnStats, false); err != nil {
+	} else if err := c.opsPublisher.PublishStats(c.txnStats, pub.PublishUncommitted); err != nil {
 		return fmt.Errorf("publishing stats: %w", err)
 	}
 

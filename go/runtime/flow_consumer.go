@@ -59,7 +59,7 @@ type FlowConsumer struct {
 	// LogAppendService is used to append log messages to the ops logs collections. It's important
 	// that we use an AppendService with a context that's scoped to the life of the process, rather
 	// than the lives of individual shards.
-	LogAppendService *client.AppendService
+	LogPublisher *message.Publisher
 }
 
 var _ consumer.Application = (*FlowConsumer)(nil)
@@ -188,7 +188,7 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 		return flow.ShardStat(ctx, svc, req, journals)
 	}
 
-	f.LogAppendService = client.NewAppendService(args.Context, args.Service.Journals)
+	f.LogPublisher = message.NewPublisher(client.NewAppendService(args.Context, args.Service.Journals), nil)
 	f.Config = &config
 	f.Service = args.Service
 	f.Builds = builds
