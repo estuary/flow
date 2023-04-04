@@ -183,6 +183,11 @@ func (it *LoadIterator) Next() bool {
 	if it.request.Acknowledge == nil && it.request.Load == nil {
 		panic(fmt.Sprintf("expected prior request is Acknowledge or Load, got %#v", it.request))
 	}
+
+	// Fully zero the request prior to reading the next, because the
+	// client may retain internal buffers that we previously returned.
+	*it.request = Request{}
+
 	// Read next `Load` request from `stream`.
 	if err := recv(it.stream, it.request); err == io.EOF {
 		if it.total != 0 {
@@ -262,6 +267,11 @@ func (it *StoreIterator) Next() bool {
 	if it.request.Flush == nil && it.request.Store == nil {
 		panic(fmt.Sprintf("expected prior request is Flush or Store, got %#v", it.request))
 	}
+
+	// Fully zero the request prior to reading the next, because the
+	// client may retain internal buffers that we previously returned.
+	*it.request = Request{}
+
 	// Read next `Store` request from `stream`.
 	if err := recv(it.stream, it.request); err != nil {
 		it.err = fmt.Errorf("reading Store: %w", err)
