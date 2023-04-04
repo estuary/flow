@@ -7,7 +7,7 @@ captures:
   examples/citi-bike/rides-from-s3:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-s3:3be4f86
+        image: ghcr.io/estuary/source-s3:8952e37
         config: rides.config.yaml
     bindings:
       - resource:

@@ -19,7 +19,7 @@ captures:
   examples/source-test:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-test:3be4f86
+        image: ghcr.io/estuary/source-test:8952e37
         config:
           exit_after: 100
           greetings: 100
@@ -37,7 +37,7 @@ materializations:
   test/hello-world/ssh-postgresl:
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-postgres:3be4f86
+        image: ghcr.io/estuary/materialize-postgres:8952e37
         config: ../sshforwarding/materialize-postgres.ssh.config.yaml
     bindings:
       - resource:
