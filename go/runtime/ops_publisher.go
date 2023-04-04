@@ -18,19 +18,19 @@ import (
 )
 
 type OpsPublisher struct {
-	labels       labels.ShardLabeling
-	shard        *ops.ShardRef
-	mapper       flow.Mapper
-	opsLogsSpec  *pf.CollectionSpec
-	opsStatsSpec *pf.CollectionSpec
-	publisher    *message.Publisher
+	labels        labels.ShardLabeling
+	logsPublisher *message.Publisher
+	mapper        flow.Mapper
+	opsLogsSpec   *pf.CollectionSpec
+	opsStatsSpec  *pf.CollectionSpec
+	shard         *ops.ShardRef
 }
 
 var _ ops.Publisher = &OpsPublisher{}
 
 func NewOpsPublisher(
-	ajc client.AsyncJournalClient,
 	labels labels.ShardLabeling,
+	logsPublisher *message.Publisher,
 	mapper flow.Mapper,
 	opsLogsSpec *pf.CollectionSpec,
 	opsStatsSpec *pf.CollectionSpec,
@@ -42,26 +42,23 @@ func NewOpsPublisher(
 		return nil, err
 	}
 
-	// Passing a nil timepoint to NewPublisher means that the timepoint that's encoded in the
-	// UUID of log documents will always reflect the current wall-clock time, even when those
-	// log documents were produced during test runs, where `readDelay`s might normally cause
-	// time to skip forward. This probably only matters in extremely outlandish test scenarios,
-	// and so it doesn't seem worth the complexity to modify this timepoint during tests.
-	var publisher = message.NewPublisher(ajc, nil)
-
 	return &OpsPublisher{
-		labels:       labels,
-		shard:        ops.NewShardRef(labels),
-		mapper:       mapper,
-		opsLogsSpec:  opsLogsSpec,
-		opsStatsSpec: opsStatsSpec,
-		publisher:    publisher,
+		labels:        labels,
+		logsPublisher: logsPublisher,
+		mapper:        mapper,
+		opsLogsSpec:   opsLogsSpec,
+		opsStatsSpec:  opsStatsSpec,
+		shard:         ops.NewShardRef(labels),
 	}, nil
 }
 
 func (p *OpsPublisher) Labels() labels.ShardLabeling { return p.labels }
 
-func (p *OpsPublisher) PublishStats(out ops.Stats, immediate bool) error {
+func (p *OpsPublisher) PublishStats(
+	out ops.Stats,
+	pub func(mapping message.MappingFunc, msg message.Message) (*client.AsyncAppend, error),
+) error {
+
 	var key, partitions = shardKeyAndPartitions(out.Shard, out.Timestamp)
 	out.Meta = &ops.Meta{Uuid: string(pf.DocumentUUIDPlaceholder)}
 
@@ -77,13 +74,8 @@ func (p *OpsPublisher) PublishStats(out ops.Stats, immediate bool) error {
 		PackedKey:  key.Pack(),
 	}
 
-	if immediate {
-		var _, err = p.publisher.PublishCommitted(p.mapper.Map, msg)
-		return err
-	} else {
-		var _, err = p.publisher.PublishUncommitted(p.mapper.Map, msg)
-		return err
-	}
+	var _, err = pub(p.mapper.Map, msg)
+	return err
 }
 
 func (p *OpsPublisher) PublishLog(out ops.Log) {
@@ -102,7 +94,7 @@ func (p *OpsPublisher) PublishLog(out ops.Log) {
 		PackedKey:  key.Pack(),
 	}
 	// Best effort. PublishCommitted only fails if the publisher itself is cancelled.
-	_, _ = p.publisher.PublishCommitted(p.mapper.Map, msg)
+	_, _ = p.logsPublisher.PublishCommitted(p.mapper.Map, msg)
 }
 
 func shardKeyAndPartitions(shard *ops.ShardRef, ts *types.Timestamp) (tuple.Tuple, tuple.Tuple) {

@@ -46,8 +46,7 @@ type appendPublisher struct{ logs []Log }
 
 var _ Publisher = &appendPublisher{}
 
-func (p *appendPublisher) PublishLog(log Log)           { p.logs = append(p.logs, log) }
-func (*appendPublisher) PublishStats(Stats, bool) error { panic("not called") }
+func (p *appendPublisher) PublishLog(log Log) { p.logs = append(p.logs, log) }
 
 func (p *appendPublisher) Labels() ShardLabeling {
 	return ShardLabeling{

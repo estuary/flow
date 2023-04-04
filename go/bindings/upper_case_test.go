@@ -306,6 +306,5 @@ func newChanPublisher(ch chan<- ops.Log, level ops.Log_Level) *chanPublisher {
 	}
 }
 
-func (*chanPublisher) PublishStats(ops.Stats, bool) error { panic("not called") }
-func (c *chanPublisher) PublishLog(log ops.Log)           { c.logs <- log }
-func (c *chanPublisher) Labels() ops.ShardLabeling        { return c.labels }
+func (c *chanPublisher) PublishLog(log ops.Log)    { c.logs <- log }
+func (c *chanPublisher) Labels() ops.ShardLabeling { return c.labels }

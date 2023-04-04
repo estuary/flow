@@ -144,8 +144,6 @@ func (p *testPublisher) PublishLog(log ops.Log) {
 	p.logs += 1
 }
 
-func (p *testPublisher) PublishStats(ops.Stats, bool) error { panic("not called") }
-
 func (p *testPublisher) Labels() ops.ShardLabeling {
 	return ops.ShardLabeling{
 		TaskName: "some/task",
