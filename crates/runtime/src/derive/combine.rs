@@ -453,8 +453,8 @@ impl State {
             capture: Default::default(),
             derive: Some(ops::stats::Derive {
                 transforms,
-                published: Some(std::mem::take(&mut self.publish_stats)),
-                out: Some(std::mem::take(&mut self.drain_stats)),
+                published: maybe_counts(&mut self.publish_stats),
+                out: maybe_counts(&mut self.drain_stats),
             }),
             materialize: Default::default(),
         };
@@ -472,5 +472,13 @@ impl State {
             }),
             ..Default::default()
         }
+    }
+}
+
+fn maybe_counts(s: &mut ops::stats::DocsAndBytes) -> Option<ops::stats::DocsAndBytes> {
+    if s.bytes_total != 0 {
+        Some(std::mem::take(s))
+    } else {
+        None
     }
 }
