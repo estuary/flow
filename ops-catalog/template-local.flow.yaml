@@ -5,7 +5,7 @@ materializations:
   ops.us-central1.v1/stats-view:
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-postgres:v4
+        image: ghcr.io/estuary/materialize-postgres:8952e37
         config: stats-local-endpoint.sops.yaml
 
     bindings:
