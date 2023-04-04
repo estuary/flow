@@ -275,7 +275,7 @@ func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) 
 	}
 	m.txnStats.OpenSecondsTotal = time.Since(m.txnStats.GoTimestamp()).Seconds()
 
-	if err := m.opsPublisher.PublishStats(m.txnStats, false); err != nil {
+	if err := m.opsPublisher.PublishStats(m.txnStats, pub.PublishUncommitted); err != nil {
 		return fmt.Errorf("publishing stats: %w", err)
 	}
 	return nil

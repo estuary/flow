@@ -7,13 +7,11 @@ import (
 	"github.com/gogo/protobuf/types"
 )
 
-// Publisher of operation Logs and Stats.
+// Publisher of operation Logs.
 type Publisher interface {
 	// PublishLog publishes a Log instance.
 	PublishLog(Log)
-	// PublishStats publishes a StatsEvent.
-	PublishStats(stats Stats, immediate bool) error
-	// Level to log at.
+	// Labels which define the publisher's context.
 	Labels() ShardLabeling
 }
 

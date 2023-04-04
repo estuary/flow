@@ -235,7 +235,7 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 
 		} else if response.Flushed != nil {
 
-			if err := d.opsPublisher.PublishStats(*responseExt.Flushed.Stats, false); err != nil {
+			if err := d.opsPublisher.PublishStats(*responseExt.Flushed.Stats, pub.PublishUncommitted); err != nil {
 				return fmt.Errorf("publishing stats: %w", err)
 			}
 			return nil

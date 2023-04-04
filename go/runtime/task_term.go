@@ -75,8 +75,8 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 	}
 
 	if t.opsPublisher, err = NewOpsPublisher(
-		host.LogAppendService,
 		t.labels,
+		host.LogPublisher,
 		flow.NewMapper(shard.Context(), host.Service.Etcd, host.Journals, shard.FQN()),
 		logsCollectionSpec,
 		statsCollectionSpec,
