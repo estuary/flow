@@ -3,7 +3,7 @@ package runtime
 import (
 	"testing"
 
-	"github.com/estuary/flow/go/labels"
+	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/stretchr/testify/require"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -21,8 +21,8 @@ func TestExposeCalledAfterUnexpose(t *testing.T) {
 	}
 
 	var shard = pc.ShardID("foo/bar/test/shard")
-	var ports = map[uint16]*labels.PortConfig{
-		1234: {},
+	var ports = []pf.NetworkPort{
+		{Number: 1234},
 	}
 
 	var handle = networkConfigHandle{
@@ -49,8 +49,8 @@ func TestExposeCalledBeforePreviousInstanceIsUnexposed(t *testing.T) {
 	}
 
 	var shard = pc.ShardID("foo/bar/test/shard")
-	var ports = map[uint16]*labels.PortConfig{
-		1234: {},
+	var ports = []pf.NetworkPort{
+		{Number: 1234},
 	}
 
 	var connA = &grpc.ClientConn{}

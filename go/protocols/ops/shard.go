@@ -6,11 +6,6 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 )
 
-type PortConfig struct {
-	Protocol string
-	Public   bool
-}
-
 // ShardLabeling is a parsed and validated representation of the Flow
 // labels which are attached to Gazette ShardSpecs, that are understood
 // by the Flow runtime and influence its behavior with respect to the shard.
@@ -25,7 +20,7 @@ type ShardLabeling struct {
 	// for the port. The runtime itself doesn't actually care
 	// about the alpn protocol, but it's there for the sake of
 	// completeness.
-	Ports map[uint16]*PortConfig `json:",omitempty"`
+	Ports []pf.NetworkPort `json:",omitempty"`
 	// Key and R-Clock range of the shard.
 	Range pf.RangeSpec
 	// If non-empty, the shard which this task is splitting from.

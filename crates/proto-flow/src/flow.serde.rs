@@ -4350,10 +4350,16 @@ impl serde::Serialize for materialization_spec::binding::DeprecatedShuffle {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
+        if !self.group_name.is_empty() {
+            len += 1;
+        }
         if self.partition_selector.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("flow.MaterializationSpec.Binding.DeprecatedShuffle", len)?;
+        if !self.group_name.is_empty() {
+            struct_ser.serialize_field("groupName", &self.group_name)?;
+        }
         if let Some(v) = self.partition_selector.as_ref() {
             struct_ser.serialize_field("partitionSelector", v)?;
         }
@@ -4367,12 +4373,15 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::binding::DeprecatedS
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "group_name",
+            "groupName",
             "partition_selector",
             "partitionSelector",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            GroupName,
             PartitionSelector,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4395,6 +4404,7 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::binding::DeprecatedS
                         E: serde::de::Error,
                     {
                         match value {
+                            "groupName" | "group_name" => Ok(GeneratedField::GroupName),
                             "partitionSelector" | "partition_selector" => Ok(GeneratedField::PartitionSelector),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -4415,9 +4425,16 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::binding::DeprecatedS
                 where
                     V: serde::de::MapAccess<'de>,
             {
+                let mut group_name__ = None;
                 let mut partition_selector__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
+                        GeneratedField::GroupName => {
+                            if group_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("groupName"));
+                            }
+                            group_name__ = Some(map.next_value()?);
+                        }
                         GeneratedField::PartitionSelector => {
                             if partition_selector__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("partitionSelector"));
@@ -4427,6 +4444,7 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::binding::DeprecatedS
                     }
                 }
                 Ok(materialization_spec::binding::DeprecatedShuffle {
+                    group_name: group_name__.unwrap_or_default(),
                     partition_selector: partition_selector__,
                 })
             }

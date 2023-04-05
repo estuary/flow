@@ -5,7 +5,7 @@ materializations:
   examples/stats:
     endpoint:
       connector:
-        image: ghcr.io/estuary/materialize-postgres:8952e37
+        image: ghcr.io/estuary/materialize-postgres:dev
         config:
           address: postgres:5432
           user: flow

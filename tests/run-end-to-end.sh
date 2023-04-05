@@ -138,8 +138,8 @@ if [ $AWAIT_STATUS -ne 0 ]; then
     echo "flowctl api await exited with an error (which may be expected by the test):"
     cat $TESTDIR/await.out
     echo
-    echo "TODO(johnny) MAKE THIS TIGHTER. Sleeping for 15s to allow the materialization to finish."
-    sleep 15 # This is large because airbyte-to-flow currently takes a long time to start.
+    echo "Sleeping for 5s to allow the materialization to finish."
+    sleep 5
 fi
 
 ###############################################################################
