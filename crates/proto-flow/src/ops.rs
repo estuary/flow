@@ -22,6 +22,7 @@ pub struct Meta {
     #[prost(string, tag = "1")]
     pub uuid: ::prost::alloc::string::String,
 }
+/// Log is Flow's unified representation of task logs.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Log {
@@ -103,6 +104,8 @@ pub mod log {
         }
     }
 }
+/// Stats is Flow's unified representation of task metrics and statistics.
+///
 /// TODO(johnny): We should evolve this into a consolidated message
 /// having a serde serialization corresponding to the ops/stats
 /// collection.

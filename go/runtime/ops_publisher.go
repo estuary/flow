@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/labels"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
@@ -18,7 +17,7 @@ import (
 )
 
 type OpsPublisher struct {
-	labels        labels.ShardLabeling
+	labels        ops.ShardLabeling
 	logsPublisher *message.Publisher
 	mapper        flow.Mapper
 	opsLogsSpec   *pf.CollectionSpec
@@ -29,7 +28,7 @@ type OpsPublisher struct {
 var _ ops.Publisher = &OpsPublisher{}
 
 func NewOpsPublisher(
-	labels labels.ShardLabeling,
+	labels ops.ShardLabeling,
 	logsPublisher *message.Publisher,
 	mapper flow.Mapper,
 	opsLogsSpec *pf.CollectionSpec,
@@ -52,7 +51,7 @@ func NewOpsPublisher(
 	}, nil
 }
 
-func (p *OpsPublisher) Labels() labels.ShardLabeling { return p.labels }
+func (p *OpsPublisher) Labels() ops.ShardLabeling { return p.labels }
 
 func (p *OpsPublisher) PublishStats(
 	out ops.Stats,

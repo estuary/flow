@@ -37,7 +37,7 @@ captures:
   example/capture:
     endpoint:
       connector:
-        image: ghcr.io/estuary/source-test:8952e37
+        image: ghcr.io/estuary/source-test:dev
         config:
           greetings: 1000
     bindings:

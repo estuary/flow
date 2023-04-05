@@ -19,22 +19,13 @@ collections:
 
     derive:
       using:
-        typescript:
-          module: |
-            import { IDerivation, Document, SourceSwizzle } from 'flow/a/derivation.ts';
-
-            export class Derivation extends IDerivation {
-                swizzle(source: { doc: SourceSwizzle }): Document[] {
-                  return [];
-                }
-            }
+        sqlite:
+          migrations: []
       transforms:
         # Note that our test depends on this transform being validated as `readOnly`.
-        # TODO(johnny): Switch this to a SQL SELECT that's actually read-only,
-        # rather than the current manual twiddling.
         - name: swizzle
-          source:
-            name: a/collection
+          source: a/collection
+          lambda: SELECT 1;
 
 storageMappings:
   "": { stores: [{ provider: S3, bucket: a-bucket }] }

@@ -30,14 +30,14 @@ func TestParsingShardLabels(t *testing.T) {
 	var out, err = ParseShardLabels(set)
 	require.NoError(t, err)
 
-	require.Equal(t, ShardLabeling{
+	require.Equal(t, ops.ShardLabeling{
 		Build:    "a-build",
 		Hostname: "test-host",
 		LogLevel: ops.Log_debug,
-		Ports: map[uint16]*PortConfig{
-			8080: {Protocol: "http/1.1", Public: false},
-			9000: {Protocol: "", Public: true},
-			9001: {Protocol: "", Public: false},
+		Ports: []pf.NetworkPort{
+			{Number: 8080, Protocol: "http/1.1", Public: false},
+			{Number: 9000, Protocol: "", Public: true},
+			{Number: 9001, Protocol: "", Public: false},
 		},
 		Range: pf.RangeSpec{
 			KeyBegin:    0xaaaaaaaa,

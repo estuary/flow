@@ -30,7 +30,7 @@ type taskTerm struct {
 	// when the taskTerm's |shardSpec| has become out of date.
 	ctx context.Context
 	// Parsed and validated labels of the shard.
-	labels labels.ShardLabeling
+	labels ops.ShardLabeling
 	// Resolved *Build of the task's build ID.
 	build *flow.Build
 	// ops.Publisher of ops.Logs and (in the future) ops.Stats.

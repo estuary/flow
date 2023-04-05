@@ -83,7 +83,7 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 		if !ok {
 			continue
 		}
-		var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
+		var publisher = ops.NewLocalPublisher(ops.ShardLabeling{
 			Build:    spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
 			TaskName: spec.TaskName(),
 			TaskType: ops.TaskType_capture,
@@ -129,7 +129,7 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 		if !ok {
 			continue
 		}
-		var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
+		var publisher = ops.NewLocalPublisher(ops.ShardLabeling{
 			Build:    spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
 			TaskName: spec.TaskName(),
 			TaskType: ops.TaskType_materialization,

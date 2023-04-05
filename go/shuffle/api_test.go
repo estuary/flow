@@ -49,9 +49,6 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 		return err
 	}))
 
-	// TODO(johnny): update the fixture to make it validate as readOnly (SQL SELECT).
-	derivation.Derivation.Transforms[0].ReadOnly = true
-
 	var backgroundCtx = pb.WithDispatchDefault(context.Background())
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
@@ -248,7 +245,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 }
 
 var localPublisher = ops.NewLocalPublisher(
-	labels.ShardLabeling{
+	ops.ShardLabeling{
 		Build:    "the-build",
 		LogLevel: ops.Log_debug,
 		Range: pf.RangeSpec{

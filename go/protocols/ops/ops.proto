@@ -36,6 +36,7 @@ message Meta {
     string uuid = 1;
 }
 
+// Log is Flow's unified representation of task logs.
 message Log {
   // Meta sub-document added by the Flow runtime.
   Meta meta = 1 [json_name = "_meta"];
@@ -66,6 +67,7 @@ message Log {
   repeated Log spans = 7;
 }
 
+// Stats is Flow's unified representation of task metrics and statistics.
 message Stats {
   // TODO(johnny): We should evolve this into a consolidated message
   // having a serde serialization corresponding to the ops/stats

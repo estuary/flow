@@ -185,6 +185,7 @@ func (m *Meta) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_Meta proto.InternalMessageInfo
 
+// Log is Flow's unified representation of task logs.
 type Log struct {
 	// Meta sub-document added by the Flow runtime.
 	Meta *Meta `protobuf:"bytes,1,opt,name=meta,json=_meta,proto3" json:"meta,omitempty"`
@@ -239,6 +240,7 @@ func (m *Log) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_Log proto.InternalMessageInfo
 
+// Stats is Flow's unified representation of task metrics and statistics.
 type Stats struct {
 	// Meta sub-document added by the Flow runtime.
 	Meta *Meta `protobuf:"bytes,1,opt,name=meta,json=_meta,proto3" json:"meta,omitempty"`
