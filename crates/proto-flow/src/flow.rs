@@ -677,6 +677,8 @@ pub mod materialization_spec {
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct DeprecatedShuffle {
+            #[prost(string, tag = "1")]
+            pub group_name: ::prost::alloc::string::String,
             #[prost(message, optional, tag = "3")]
             pub partition_selector: ::core::option::Option<
                 ::proto_gazette::broker::LabelSelector,

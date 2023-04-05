@@ -65,17 +65,13 @@ jobs:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
-      # Build and test all the things.
       - run: make install-tools
       - run: go mod download
       - run: make rust-gnu-test
       - run: make linux-gnu-binaries
 
-      - name: Ensure that generated files are unchanged.
-        run: |
-          git clean --force -d
-          git diff
-          [[ -z "$(git status --porcelain)" ]] || exit 1
+      - name: Ensure that we didn't dirty the tree.
+        run: git clean --force -d && git diff --exit-code || exit 1
 
       - name: Upload Binaries
         uses: actions/upload-artifact@v2
@@ -112,7 +108,6 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # Build and test all the things.
       - run: go mod download
       - run: make rust-musl-test
       - run: make linux-musl-binaries
@@ -155,7 +150,6 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # We require a minimal Go version of 1.17.
       - uses: actions/setup-go@v2
         with:
           go-version: "1.19"
@@ -212,9 +206,6 @@ jobs:
       - name: Add PKGDIR/bin to PATH
         run: echo "$GITHUB_WORKSPACE/.build/package/bin" >> $GITHUB_PATH
 
-      # Use make's `-o` flag to mark the binary artifacts they depend on as
-      # "very old", which prevents Make from attempting to rebuild them from
-      # scratch. This prevents us from recompiling them again here.
       - name: make catalog-test
         run: |
           make catalog-test SKIP_BUILD=true
@@ -231,7 +222,9 @@ jobs:
         run: |
           make /home/runner/work/flow/flow/.build/package/flow-x86-linux.tar.gz
 
-      # Package and push images.
+      - name: Ensure that we didn't dirty the tree.
+        run: git clean --force -d && git diff --exit-code || exit 1
+
       - run: make docker-image
 
       - run: make docker-push
@@ -248,19 +241,5 @@ jobs:
           draft: false
           prerelease: true
           tag_name: dev
-          generate_release_notes: false
-          files: .build/package/flow-x86-linux.tar.gz
-
-      # TODO remove me when merged.
-      - if: ${{ github.ref == 'refs/pull/985/merge' }}
-        name: Upload release assets (dev-sql)
-        uses: softprops/action-gh-release@v1
-        with:
-          body: |
-            This is the latest development build of the sql branch, which gets updated on every successful build of its branch.
-          target_commitish: ${{ github.sha }}
-          draft: false
-          prerelease: true
-          tag_name: dev-sql
           generate_release_notes: false
           files: .build/package/flow-x86-linux.tar.gz

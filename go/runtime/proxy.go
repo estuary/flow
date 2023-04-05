@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/connector"
-	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/prometheus/client_golang/prometheus"
@@ -39,7 +38,7 @@ func NewProxyServer(resolver *consumer.Resolver) *ProxyServer {
 
 // NetworkConfigHandle returns a handle that can be passed to `connector.StartContainer` to expose the given set of ports when
 // the container is started, and stop exposing them once the container is stopped.
-func (ps *ProxyServer) NetworkConfigHandle(shardID pc.ShardID, ports map[uint16]*labels.PortConfig) connector.ExposePorts {
+func (ps *ProxyServer) NetworkConfigHandle(shardID pc.ShardID, ports []pf.NetworkPort) connector.ExposePorts {
 	return &networkConfigHandle{
 		server:  ps,
 		shardID: shardID,
@@ -208,7 +207,14 @@ func (ps *ProxyServer) openConnection(ctx context.Context, open *pf.TaskNetworkP
 		resp.Status = pf.TaskNetworkProxyResponse_PORT_NOT_ALLOWED
 		return resp, container, nil
 	}
-	if _, isExposed := container.ports[uint16(open.TargetPort)]; !isExposed {
+	// Ensure the requested port is exposed.
+	var found bool
+	for _, port := range container.ports {
+		if open.TargetPort == port.Number {
+			found = true
+		}
+	}
+	if !found {
 		resp.Status = pf.TaskNetworkProxyResponse_PORT_NOT_ALLOWED
 		return resp, container, nil
 	}
@@ -332,7 +338,7 @@ func copyRequests(streaming pf.NetworkProxy_ProxyServer, client pf.NetworkProxy_
 
 type runningContainer struct {
 	instanceVersion int
-	ports           map[uint16]*labels.PortConfig
+	ports           []pf.NetworkPort
 	connection      *grpc.ClientConn
 	logger          ops.Publisher
 }
@@ -345,7 +351,7 @@ type networkConfigHandle struct {
 	// in scenarios where things may be called out of order.
 	instanceVersion int
 	shardID         pc.ShardID
-	ports           map[uint16]*labels.PortConfig
+	ports           []pf.NetworkPort
 }
 
 func (h *networkConfigHandle) Expose(connection *grpc.ClientConn, logger ops.Publisher) {

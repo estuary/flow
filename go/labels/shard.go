@@ -8,15 +8,10 @@ import (
 	"github.com/estuary/flow/go/protocols/ops"
 )
 
-// TODO(johnny): Remove these re-exports and update remaining usages
-// to point to `ops` package instead.
-type PortConfig = ops.PortConfig
-type ShardLabeling = ops.ShardLabeling
-
 // ParseShardLabels parses and validates ShardLabels from their defined
 // label names, and returns any encountered error in the representation.
-func ParseShardLabels(set pf.LabelSet) (ShardLabeling, error) {
-	var out ShardLabeling
+func ParseShardLabels(set pf.LabelSet) (ops.ShardLabeling, error) {
+	var out ops.ShardLabeling
 	var err error
 
 	if levelStr, err := ExpectOne(set, LogLevel); err != nil {
@@ -90,27 +85,31 @@ func maybeOne(set pf.LabelSet, name string) (string, error) {
 	}
 }
 
-func parsePorts(set pf.LabelSet) (map[uint16]*PortConfig, error) {
-	var out = make(map[uint16]*PortConfig)
+func parsePorts(set pf.LabelSet) ([]pf.NetworkPort, error) {
+	var out []pf.NetworkPort
 
 	for _, value := range set.ValuesOf(ExposePort) {
-		var portNumber, err = strconv.ParseUint(value, 10, 16)
+		var number, err = strconv.ParseUint(value, 10, 16)
 		if err != nil {
 			return nil, fmt.Errorf("parsing value '%s' of label '%s': %w", value, ExposePort, err)
 		}
-		if portNumber == 0 || portNumber > 65535 {
+		if number == 0 || number > 65535 {
 			return nil, fmt.Errorf("invalid '%s' value: '%s'", ExposePort, value)
 		}
 
-		var config = new(PortConfig)
-		config.Protocol = set.ValueOf(PortProtoPrefix + value)
+		var public bool
 		if publicVal := set.ValueOf(PortPublicPrefix + value); publicVal != "" {
-			config.Public, err = strconv.ParseBool(publicVal)
+			public, err = strconv.ParseBool(publicVal)
 			if err != nil {
 				return nil, fmt.Errorf("parsing '%s=%s': %w", PortPublicPrefix, publicVal, err)
 			}
 		}
-		out[uint16(portNumber)] = config
+
+		out = append(out, pf.NetworkPort{
+			Number:   uint32(number),
+			Public:   public,
+			Protocol: set.ValueOf(PortProtoPrefix + value),
+		})
 	}
 	return out, nil
 }

@@ -8,9 +8,7 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/connector"
-	"github.com/estuary/flow/go/labels"
 	pc "github.com/estuary/flow/go/protocols/capture"
-	pfc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/gogo/protobuf/jsonpb"
@@ -46,7 +44,7 @@ func (cmd apiDiscover) execute(ctx context.Context) (*pc.Response_Discovered, er
 	if err != nil {
 		return nil, err
 	}
-	var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
+	var publisher = ops.NewLocalPublisher(ops.ShardLabeling{
 		TaskName: cmd.Name,
 	})
 
@@ -56,12 +54,12 @@ func (cmd apiDiscover) execute(ctx context.Context) (*pc.Response_Discovered, er
 			ConfigJson:    spec,
 		},
 	}
-	response, err := connector.Invoke[pfc.Response](
+	response, err := connector.Invoke[pc.Response](
 		ctx,
 		request,
 		cmd.Network,
 		publisher,
-		func(driver *connector.Driver) (pfc.Connector_CaptureClient, error) {
+		func(driver *connector.Driver) (pc.Connector_CaptureClient, error) {
 			return driver.CaptureClient().Capture(ctx)
 		},
 	)

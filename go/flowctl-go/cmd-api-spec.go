@@ -12,7 +12,6 @@ import (
 	"github.com/gogo/protobuf/jsonpb"
 
 	"github.com/estuary/flow/go/connector"
-	"github.com/estuary/flow/go/labels"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
@@ -81,7 +80,7 @@ func (cmd apiSpec) execute(ctx context.Context) (specResponse, error) {
 }
 
 func (cmd apiSpec) specCapture(ctx context.Context, spec json.RawMessage) (specResponse, error) {
-	var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
+	var publisher = ops.NewLocalPublisher(ops.ShardLabeling{
 		TaskName: cmd.Name,
 	})
 	var request = &pc.Request{
@@ -124,7 +123,7 @@ func (cmd apiSpec) specCapture(ctx context.Context, spec json.RawMessage) (specR
 }
 
 func (cmd apiSpec) specMaterialization(ctx context.Context, spec json.RawMessage) (specResponse, error) {
-	var publisher = ops.NewLocalPublisher(labels.ShardLabeling{
+	var publisher = ops.NewLocalPublisher(ops.ShardLabeling{
 		TaskName: cmd.Name,
 	})
 	var request = &pm.Request{
