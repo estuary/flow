@@ -147,8 +147,13 @@ func (m *MaterializationSpec) TaskShuffles() []*Shuffle {
 			partitionSelector = binding.DeprecatedShuffle.PartitionSelector
 		}
 
+		var journalReadSuffix = binding.JournalReadSuffix
+		if journalReadSuffix == "" {
+			journalReadSuffix = binding.DeprecatedShuffle.GroupName
+		}
+
 		shuffles[i] = &Shuffle{
-			GroupName:                 binding.JournalReadSuffix,
+			GroupName:                 journalReadSuffix,
 			SourceCollection:          binding.Collection.Name,
 			SourcePartitions:          partitionSelector,
 			SourceUuidPtr:             binding.Collection.UuidPtr,
