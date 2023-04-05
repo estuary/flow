@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"time"
 
 	"github.com/estuary/flow/go/bindings"
@@ -20,6 +21,7 @@ import (
 	"github.com/estuary/flow/go/shuffle"
 	"github.com/gogo/protobuf/types"
 	"go.gazette.dev/core/broker/client"
+	"go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/recoverylog"
 	"go.gazette.dev/core/message"
@@ -118,7 +120,24 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err
 		return pf.Checkpoint{}, err
 	}
 
+	removeOldOpsJournalAckIntents(cp.AckIntents)
+
 	return cp, nil
+}
+
+// TODO(whb): Remove this and associated code when the tasks writing to the "old" ops journals are
+// no longer blocked since these journals don't exist anymore. This is a temporary hack to remove
+// ack intents for journals like `ops/tenant/stats` and `ops/tenant/logs` since we have cleared
+// those journals out. Any tasks with ackIntents in their recovery log for these are currently stuck
+// forever retrying to write to the non-existant journal.
+var oldOpsJournalRe = regexp.MustCompile(`^ops\/.+?\/(stats|logs)`)
+
+func removeOldOpsJournalAckIntents(ackIntents map[protocol.Journal][]byte) {
+	for journal := range ackIntents {
+		if oldOpsJournalRe.MatchString(journal.String()) {
+			delete(ackIntents, journal)
+		}
+	}
 }
 
 // StartReadingMessages starts a concurrent read of the pull RPC,

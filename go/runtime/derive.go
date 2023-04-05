@@ -162,6 +162,8 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 	}
 	var openedExt = pr.FromAny[pr.DeriveResponseExt](opened.Internal)
 
+	removeOldOpsJournalAckIntents(openedExt.Opened.RuntimeCheckpoint.AckIntents)
+
 	return *openedExt.Opened.RuntimeCheckpoint, nil
 }
 
