@@ -8,6 +8,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRemoveOldOpsJournalAckIntents(t *testing.T) {
+	cp := pf.Checkpoint{
+		AckIntents: map[pf.Journal][]byte{
+			pf.Journal("a/good/journal"): []byte("keep1"),
+			pf.Journal("ops/estuary/logs/kind=materialization/name=materialization"):       []byte("drop1"),
+			pf.Journal("ops/estuary/stats/kind=capture/name=capture"):                      []byte("drop2"),
+			pf.Journal("ops/some.tenant/logs/kind=derivation/name=something"):              []byte("drop3"),
+			pf.Journal("ops/other-tenant/stats/kind=materialization/name=someting/else"):   []byte("drop4"),
+			pf.Journal("ops.us-central1.v1/stats/kind=materialization/name=something"):     []byte("keep2"),
+			pf.Journal("ops.us-central1.v1/logs/kind=capture/name=another"):                []byte("keep3"),
+			pf.Journal("hello/ops/estuary/logs/kind=materialization/name=materialization"): []byte("keep4"),
+		},
+	}
+
+	removeOldOpsJournalAckIntents(cp.AckIntents)
+
+	want := pf.Checkpoint{
+		AckIntents: map[pf.Journal][]byte{
+			pf.Journal("a/good/journal"): []byte("keep1"),
+			pf.Journal("ops.us-central1.v1/stats/kind=materialization/name=something"):     []byte("keep2"),
+			pf.Journal("ops.us-central1.v1/logs/kind=capture/name=another"):                []byte("keep3"),
+			pf.Journal("hello/ops/estuary/logs/kind=materialization/name=materialization"): []byte("keep4"),
+		},
+	}
+
+	require.Equal(t, want, cp)
+}
+
 func TestStatsAccumulation(t *testing.T) {
 	var actual = make(map[string]*ops.Stats_Binding)
 
