@@ -57,10 +57,8 @@ pub async fn do_pull_specs(ctx: &mut CliContext, args: &PullSpecs) -> anyhow::Re
 
     println!("Wrote {count} specifications under {target}.");
 
-    // Validate to generate associated files.
-    let ((sources, validations), errors) =
-        local_specs::inline_and_validate(client.clone(), sources).await;
-    local_specs::write_generated_files(&sources, &validations)?;
+    // Build to generate associated files.
+    let (_, errors) = local_specs::build(client, sources).await;
 
     if !errors.is_empty() {
         tracing::warn!(
