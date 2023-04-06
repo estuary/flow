@@ -30,7 +30,6 @@
   "required": [
     "shard",
     "ts",
-    "level",
-    "message"
+    "level"
   ]
 }
