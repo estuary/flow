@@ -81,7 +81,7 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
 export type SourceLogs = /* Flow task logs Logs related to the processing of a Flow capture, derivation, or materialization */ {
     fields?: /* Map of keys and values that are associated with this log entry. */ Record<string, unknown>;
     level: "debug" | "error" | "info" | "trace" | "warn";
-    message: string;
+    message?: string;
     shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
         keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
         kind: /* The type of the catalog task */ "capture" | "derivation" | "materialization";
