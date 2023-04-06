@@ -219,7 +219,7 @@ impl RocksDB {
                 rocksdb_path,
                 rocksdb_env_memptr,
             }) => {
-                tracing::info!(
+                tracing::debug!(
                     ?rocksdb_path,
                     ?rocksdb_env_memptr,
                     "opening hooked RocksDB database"
@@ -240,7 +240,7 @@ impl RocksDB {
                 let dir = tempfile::TempDir::new().unwrap();
                 let opts = rocksdb::Options::default();
 
-                tracing::info!(
+                tracing::debug!(
                     rocksdb_path = ?dir.path(),
                     "opening temporary RocksDB database"
                 );
