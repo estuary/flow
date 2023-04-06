@@ -45,7 +45,7 @@ fn apply_migrations(conn: &Connection, migrations: &[String]) -> anyhow::Result<
         )
         .context("failed to updated flow_migrations table for applied migrations")?;
 
-        tracing::info!(%index, %block, "applied SQLite migration");
+        tracing::debug!(%index, %block, "applied SQLite migration");
     }
 
     Ok(())
