@@ -116,8 +116,8 @@ tests:
           - {
               shard: *shard,
               ts: "2022-04-03T02:02:06Z",
-              level: warn,
-              message: darn,
+              level: warn
+              # Message is deliberately omitted.
             }
 
     - verify:
