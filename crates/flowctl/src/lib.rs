@@ -67,7 +67,13 @@ pub enum Command {
     Generate(generate::Generate),
     /// Locally run and preview the output of a derivation.
     ///
-    /// TODO(johnny): document me!
+    /// Preview runs a temporary, local instance of your derivation by reading
+    /// documents from your source collections and applying them to your
+    /// derivation's transforms. The output of your derivation is combined and
+    /// periodically written to stdout as newline-delimited JSON.
+    ///
+    /// Preview is also able to infer and update the schema of your collection,
+    /// based on the documents that your transforms are observed to publish.
     Preview(preview::Preview),
     /// Work with your Flow catalog drafts.
     ///

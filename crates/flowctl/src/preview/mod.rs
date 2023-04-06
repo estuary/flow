@@ -1,9 +1,11 @@
 use crate::{dataplane, local_specs};
 use anyhow::Context;
+use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt, TryStreamExt};
 use prost::Message;
 use proto_flow::{derive, flow, flow::collection_spec::derivation::Transform};
 use proto_gazette::broker;
+use tokio::sync::broadcast;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -12,31 +14,57 @@ pub struct Preview {
     #[clap(long)]
     source: String,
     /// Name of the derived collection to preview within the Flow specification file.
+    /// Collection is required if there are multiple derivations in --source specifications.
     #[clap(long)]
-    collection: String,
+    collection: Option<String>,
+    /// When exiting (for example, upon Ctrl-C), should we update the derivation schema
+    /// based on observed output documents?
+    #[clap(long)]
+    infer_schema: bool,
+    /// How frequently should we close transactions and emit combined documents?
+    /// If not specified, the default is one second.
+    #[clap(long)]
+    interval: Option<humantime::Duration>,
 }
 
 impl Preview {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-        let Self { source, collection } = self;
+        let Self {
+            source,
+            collection,
+            infer_schema,
+            interval: flush_interval,
+        } = self;
 
         let client = ctx.controlplane_client().await?;
-        let (_sources, validations) = local_specs::load_and_validate(client, source).await?;
+        let (mut sources, validations) = local_specs::load_and_validate(client, source).await?;
 
-        let built_collection = match validations
-            .built_collections
-            .binary_search_by_key(&collection.as_str(), |b| b.collection.as_str())
-        {
-            Ok(index) => &validations.built_collections[index],
-            Err(_) => anyhow::bail!("could not find the collection {collection}"),
+        // Identify the derivation to preview.
+        let needle = if let Some(needle) = collection {
+            needle.as_str()
+        } else if sources.collections.len() == 1 {
+            sources.collections.first().unwrap().collection.as_str()
+        } else if sources.collections.is_empty() {
+            anyhow::bail!("sourced specification files do not contain any derivations");
+        } else {
+            anyhow::bail!("sourced specification files contain multiple derivations. Use --collection to identify the specific one to preview");
         };
 
+        // Resolve the built collection and its contained derivation.
+        let built_collection = match validations
+            .built_collections
+            .binary_search_by_key(&needle, |b| b.collection.as_str())
+        {
+            Ok(index) => &validations.built_collections[index],
+            Err(_) => anyhow::bail!("could not find the collection {needle}"),
+        };
         let derivation = &built_collection
             .spec
             .derivation
             .as_ref()
             .context("collection is not a derivation")?;
 
+        // We must be able to access all of its sourced collections.
         let access_prefixes = derivation
             .transforms
             .iter()
@@ -74,7 +102,7 @@ impl Preview {
         .await?;
 
         // Start derivation connector.
-        let (mut request_tx, request_rx) = futures::channel::mpsc::channel(64);
+        let (mut request_tx, request_rx) = mpsc::channel(64);
 
         request_tx
             .send(Ok(derive::Request {
@@ -106,6 +134,8 @@ impl Preview {
             .opened
             .context("expected Opened")?;
 
+        let (cancel_tx, cancel_rx) = broadcast::channel(1);
+
         // Start reads of all journals.
         let reads = listings
             .into_iter()
@@ -116,6 +146,7 @@ impl Preview {
             })
             .map(|(transform, journal)| {
                 read_journal(
+                    cancel_rx.resubscribe(),
                     journal,
                     transform.clone(),
                     request_tx.clone(),
@@ -125,51 +156,47 @@ impl Preview {
             .collect::<futures::stream::FuturesUnordered<_>>()
             .try_collect();
 
-        // Send in a periodic Flush request.
-        let flushes = tick_flushes(request_tx.clone());
+        // Future that sends a periodic Flush request.
+        let flushes = tick_flushes(cancel_rx.resubscribe(), request_tx, flush_interval.as_ref());
 
-        // Write published documents to stdout.
-        let output = async move {
-            while let Some(response) = responses_rx.next().await {
-                let response = response.map_err(status_to_anyhow)?;
+        // Future that emits previewed documents and gathers inference.
+        let output = output(responses_rx, *infer_schema);
 
-                let internal: proto_flow::runtime::DeriveResponseExt =
-                    Message::decode(response.internal.map(|i| i.value).unwrap_or_default())
-                        .context("failed to decode internal runtime.DeriveResponseExt")?;
-
-                if let Some(derive::response::Published { doc_json }) = response.published {
-                    let proto_flow::runtime::derive_response_ext::Published {
-                        max_clock,
-                        key_packed,
-                        partitions_packed,
-                    } = internal.published.unwrap_or_default();
-
-                    tracing::debug!(?max_clock, ?key_packed, ?partitions_packed, "published");
-                    print!("{doc_json}\n");
-                } else if let Some(derive::response::Flushed {}) = response.flushed {
-                    let proto_flow::runtime::derive_response_ext::Flushed { stats } =
-                        internal.flushed.unwrap_or_default();
-                    let stats = serde_json::to_string(&stats).unwrap();
-
-                    tracing::info!(%stats, "flushed");
-                } else if let Some(derive::response::StartedCommit { state }) =
-                    response.started_commit
-                {
-                    tracing::info!(?state, "started commit");
-                }
-            }
-            Ok(())
+        let cancel = async move {
+            let _cancel_tx = cancel_tx; // Owned and dropped by this future.
+            let () = tokio::signal::ctrl_c().await?;
+            Ok::<(), anyhow::Error>(())
         };
 
-        let ((), (), ()) = futures::try_join!(reads, flushes, output)?;
+        let ((), (), (), schema) = futures::try_join!(cancel, reads, flushes, output)?;
+
+        // Write out the inferred schema.
+        if let Some(schema) = schema {
+            let index = sources
+                .collections
+                .binary_search_by_key(&needle, |b| b.collection.as_str())
+                .unwrap();
+
+            let collection = &mut sources.collections[index].spec;
+
+            collection.read_schema = None;
+            collection.write_schema = None;
+            collection.schema = Some(models::Schema::new(models::RawValue::from_value(&schema)));
+
+            _ = local_specs::indirect_and_write_resources(sources)?;
+        }
+
+        tracing::error!("all done");
+
         Ok(())
     }
 }
 
 async fn read_journal(
+    mut cancel_rx: broadcast::Receiver<()>,
     journal: broker::JournalSpec,
     transform: usize,
-    mut request_tx: futures::channel::mpsc::Sender<tonic::Result<derive::Request>>,
+    mut request_tx: mpsc::Sender<tonic::Result<derive::Request>>,
     client: journal_client::Client,
 ) -> anyhow::Result<()> {
     use futures::AsyncBufReadExt;
@@ -188,7 +215,19 @@ async fn read_journal(
     // TODO(johnny): Reader should directly implement futures::io::AsyncBufRead.
     let mut lines = futures::io::BufReader::new(reader).lines();
 
-    while let Some(doc_json) = lines.try_next().await? {
+    loop {
+        let doc_json = tokio::select! {
+            doc_json = lines.try_next() => match doc_json? {
+                Some(doc_json) => doc_json,
+                None => {
+                    return Ok(()) // All done.
+                }
+            },
+            _ = cancel_rx.recv() => {
+                return Ok(()) // Cancelled.
+            }
+        };
+
         // TODO(johnny): This is pretty janky.
         if doc_json.starts_with("{\"_meta\":{\"ack\":true,") {
             continue;
@@ -205,16 +244,25 @@ async fn read_journal(
             }))
             .await?;
     }
-
-    Ok(())
 }
 
 async fn tick_flushes(
-    mut request_tx: futures::channel::mpsc::Sender<tonic::Result<derive::Request>>,
+    mut cancel_rx: broadcast::Receiver<()>,
+    mut request_tx: mpsc::Sender<tonic::Result<derive::Request>>,
+    flush_interval: Option<&humantime::Duration>,
 ) -> anyhow::Result<()> {
-    let mut ticker = tokio::time::interval(std::time::Duration::from_secs(1));
+    let period = flush_interval
+        .map(|i| i.clone().into())
+        .unwrap_or(std::time::Duration::from_secs(1));
+
+    let mut ticker = tokio::time::interval(period);
     loop {
-        _ = ticker.tick().await;
+        tokio::select! {
+            _ = ticker.tick() => (), // Fall through.
+            _ = cancel_rx.recv() => {
+                return Ok(()) // Cancelled.
+            }
+        }
 
         if let Err(_) = request_tx
             .send_all(&mut futures::stream::iter([
@@ -247,6 +295,61 @@ async fn tick_flushes(
             return Ok(());
         }
     }
+}
+
+async fn output<R>(
+    mut responses_rx: R,
+    infer_schema: bool,
+) -> anyhow::Result<Option<serde_json::Value>>
+where
+    R: futures::Stream<Item = tonic::Result<derive::Response>> + Unpin,
+{
+    let mut inferred_shape = None;
+
+    while let Some(response) = responses_rx.next().await {
+        let response = response.map_err(status_to_anyhow)?;
+
+        let internal: proto_flow::runtime::DeriveResponseExt =
+            Message::decode(response.internal.map(|i| i.value).unwrap_or_default())
+                .context("failed to decode internal runtime.DeriveResponseExt")?;
+
+        if let Some(derive::response::Published { doc_json }) = response.published {
+            let proto_flow::runtime::derive_response_ext::Published {
+                max_clock,
+                key_packed,
+                partitions_packed,
+            } = internal.published.unwrap_or_default();
+
+            tracing::debug!(?max_clock, ?key_packed, ?partitions_packed, "published");
+
+            if infer_schema {
+                let doc: serde_json::Value =
+                    serde_json::from_str(&doc_json).context("failed to parse derived document")?;
+
+                if let Some(prev_shape) = inferred_shape.take() {
+                    inferred_shape = Some(schema_inference::shape::merge(
+                        prev_shape,
+                        schema_inference::inference::infer_shape(&doc),
+                    ))
+                } else {
+                    inferred_shape = Some(schema_inference::inference::infer_shape(&doc));
+                }
+            }
+
+            print!("{doc_json}\n");
+        } else if let Some(derive::response::Flushed {}) = response.flushed {
+            let proto_flow::runtime::derive_response_ext::Flushed { stats } =
+                internal.flushed.unwrap_or_default();
+            let stats = serde_json::to_string(&stats).unwrap();
+
+            tracing::debug!(%stats, "flushed");
+        } else if let Some(derive::response::StartedCommit { state }) = response.started_commit {
+            tracing::debug!(?state, "started commit");
+        }
+    }
+
+    Ok(inferred_shape
+        .map(|shape| serde_json::to_value(schema_inference::schema::to_schema(&shape)).unwrap()))
 }
 
 fn status_to_anyhow(status: tonic::Status) -> anyhow::Error {
