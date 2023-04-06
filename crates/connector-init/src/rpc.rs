@@ -128,7 +128,7 @@ where
                 "connector failed ({status}) with stderr:\n{stderr}"
             )))
         } else {
-            tracing::info!(%status, "connector exited");
+            tracing::debug!(%status, "connector exited");
             Ok(())
         }
     };

@@ -462,7 +462,7 @@ impl validation::ControlPlane for Resolver {
             // NameSelector will return *all* collections, rather than *no*
             // collections, if its selector is empty.
             if collections.is_empty() {
-                tracing::info!("there are no remote collections to resolve");
+                tracing::debug!("there are no remote collections to resolve");
                 return Ok(vec![]);
             }
 
