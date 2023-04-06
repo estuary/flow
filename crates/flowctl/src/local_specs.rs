@@ -113,12 +113,6 @@ pub(crate) async fn build(
     let mut errors = std::mem::take(&mut validations.errors)
         .into_iter()
         .filter(|err| match err.error.downcast_ref() {
-            // Ok if a referenced collection doesn't exist
-            // (it may within the control-plane).
-            Some(
-                validation::Error::NoSuchEntity { ref_entity, .. }
-                | validation::Error::NoSuchEntitySuggest { ref_entity, .. },
-            ) if *ref_entity == "collection" => false,
             // Ok if *no* storage mappings are defined.
             // If at least one mapping is defined, then we do require that all
             // collections have appropriate mappings.
@@ -493,7 +487,7 @@ impl validation::ControlPlane for Resolver {
                 .await
                 .context("failed to fetch collection specs")?;
 
-            tracing::info!(name=?list.name_selector.name, rows=?rows.len(), "resolved remote collections");
+            tracing::debug!(name=?list.name_selector.name, rows=?rows.len(), "resolved remote collections");
 
             rows.into_iter()
                 .map(|row| {
