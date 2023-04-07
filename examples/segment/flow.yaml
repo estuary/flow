@@ -155,7 +155,9 @@ collections:
 materializations:
   examples/segment/views:
     endpoint:
-      sqlite: { path: ../examples.db?_journal=WAL }
+      connector:
+        image: ghcr.io/estuary/materialize-sqlite:dev
+        config: {}
 
     bindings:
       - resource: { table: segment_memberships }
