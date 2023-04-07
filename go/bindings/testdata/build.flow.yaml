@@ -49,8 +49,9 @@ captures:
 materializations:
   example/materialization:
     endpoint:
-      sqlite:
-        path: ":memory:"
+      connector:
+        image: ghcr.io/estuary/materialize-sqlite:dev
+        config: {}
     bindings:
       - source: a/derivation
         resource: { table: a_table }

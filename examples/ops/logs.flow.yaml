@@ -1,8 +1,9 @@
 materializations:
   examples/collection-stats:
     endpoint:
-      sqlite:
-        path: ../examples.db?_journal=WAL
+      connector:
+        image: ghcr.io/estuary/materialize-sqlite:dev
+        config: {}
     bindings:
       - resource:
           table: logs

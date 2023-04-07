@@ -27,8 +27,9 @@ collections:
 materializations:
   examples/net-trace/views:
     endpoint:
-      sqlite:
-        path: ../examples.db?_journal=WAL
+      connector:
+        image: ghcr.io/estuary/materialize-sqlite:dev
+        config: {}
     bindings:
       - source: examples/net-trace/services
         resource: { table: net_services }
