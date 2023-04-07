@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/estuary/flow/go/materialize/driver/sqlite"
 	pc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
@@ -31,7 +30,6 @@ type Driver struct {
 	// The following are variants of a driver's enumeration type.
 	// A "remote: *grpc.ClientConn" variant may be added in the future if there's a well-defined use case.
 	container *Container
-	sqlite    *sqlite.InProcessServer
 
 	// Unwrapped configuration of the endpoint.
 	config json.RawMessage
@@ -61,19 +59,6 @@ func NewDriver(
 	exposePorts ExposePorts,
 ) (*Driver, error) {
 
-	if connectorType == "SQLITE" {
-		var srv, err = sqlite.NewInProcessServer(ctx)
-		if err != nil {
-			return nil, err
-		}
-
-		return &Driver{
-			container: nil,
-			sqlite:    srv,
-			config:    config,
-		}, nil
-	}
-
 	if connectorType == "IMAGE" {
 		var parsedSpec = new(imageSpec)
 
@@ -87,7 +72,6 @@ func NewDriver(
 
 		return &Driver{
 			container: container,
-			sqlite:    nil,
 			config:    parsedSpec.Config,
 		}, nil
 	}
@@ -100,8 +84,6 @@ func NewDriver(
 func (d *Driver) MaterializeClient() pm.ConnectorClient {
 	if d.container != nil {
 		return pm.NewConnectorClient(d.container.conn)
-	} else if d.sqlite != nil {
-		return d.sqlite.Client()
 	} else {
 		panic("invalid driver type for materialization")
 	}
@@ -130,8 +112,6 @@ func (d *Driver) Close() error {
 	var err error
 	if d.container != nil {
 		err = d.container.Stop()
-	} else if d.sqlite != nil {
-		err = d.sqlite.Stop()
 	}
 
 	return err
