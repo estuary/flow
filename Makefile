@@ -337,9 +337,6 @@ endif
 .PHONY: catalog-test
 catalog-test: data-plane-test-setup
 	${PKGDIR}/bin/flowctl-go test --source examples/flow.yaml $(ARGS)
-	# Cleanup generated SQLite DB.
-	# TODO(johnny): Remove with in-process SQLite.
-	rm examples/examples.db*
 
 .PHONY: end-to-end-test
 end-to-end-test: data-plane-test-setup

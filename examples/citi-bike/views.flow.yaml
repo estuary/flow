@@ -5,10 +5,9 @@ import:
 materializations:
   examples/citi-bike/views:
     endpoint:
-      sqlite:
-        # Use WAL mode so that Flow-external reads (e.x. from `sqlite3`)
-        # don't fail with "database is locked" errors.
-        path: ../examples.db?_journal=WAL
+      connector:
+        image: ghcr.io/estuary/materialize-sqlite:dev
+        config: {}
     bindings:
       - source: examples/citi-bike/stations
         resource: { table: citi_stations }

@@ -118,10 +118,11 @@ $ examples/citi-bike/load-rides.sh
 
 [last-seen.flow.yaml](last-seen.flow.yaml) is a derivation that derives,
 for each bike, the station it last arrived at. It's materialized into
-`citi_last_seen` in examples.db.
+`citi_last_seen` in a `materialize-sqlite` instance.
 
 ```console
-$ sqlite examples/examples.db 'select bike_id, "last/station/name", "last/timestamp" from last_seen limit 10;
+$ docker ps | grep materialize-sqlite # find the docker container name or id
+$ docker exec -it <container-name> sqlite3 /tmp/sqlite.db 'select bike_id, "last/station/name", "last/timestamp" from last_seen limit 10
 ```
 
 The materialization updates continuously as bikes move around the system.
