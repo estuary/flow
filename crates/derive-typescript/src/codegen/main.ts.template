@@ -59,7 +59,8 @@ for await (const line of stdin) {
         flush?: Record<string, never>,
         startCommit?: {
             runtimeCheckpoint: any,
-        }
+        },
+        reset?: {}
     };
 
     if (request.read) {
@@ -83,5 +84,9 @@ for await (const line of stdin) {
     } else if (request.startCommit) {
         const startedCommit = derivation.startCommit(request.startCommit);
         await emit({ startedCommit: startedCommit })
+    } else if (request.reset) {
+        await derivation.reset();
+    } else {
+        throw new Error(`unexpected request: ${JSON.stringify(request)}`);
     }
 }
