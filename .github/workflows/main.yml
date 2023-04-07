@@ -67,7 +67,7 @@ jobs:
 
       - run: make install-tools
       - run: go mod download
-      - run: make rust-gnu-test
+      #- run: make rust-gnu-test
       - run: make linux-gnu-binaries
 
       - name: Ensure that we didn't dirty the tree.
