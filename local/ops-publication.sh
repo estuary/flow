@@ -4,7 +4,7 @@ set -o errexit
 set -o pipefail
 set -o nounset
 
-bundled_ops_catalog="$(.build/package/bin/flowctl raw bundle --source ops-catalog/template-local.flow.yaml | sed "s/'/''/g")"
+bundled_ops_catalog="$(.build/package/bin/flowctl --profile local raw bundle --source ops-catalog/template-local.flow.yaml | sed "s/'/''/g")"
 
 cat << EOF
 begin;
