@@ -33,7 +33,7 @@ type taskTerm struct {
 	labels ops.ShardLabeling
 	// Resolved *Build of the task's build ID.
 	build *flow.Build
-	// ops.Publisher of ops.Logs and (in the future) ops.Stats.
+	// ops.Publisher of ops.Logs and ops.Stats.
 	opsPublisher *OpsPublisher
 }
 
@@ -74,10 +74,15 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 		return err
 	}
 
-	if t.opsPublisher, err = NewOpsPublisher(
+	// OpsPublisher is instantiated once, but updates with labels of each term.
+	if t.opsPublisher == nil {
+		t.opsPublisher = NewOpsPublisher(
+			host.LogPublisher,
+			flow.NewMapper(shard.Context(), host.Service.Etcd, host.Journals, shard.FQN()),
+		)
+	}
+	if err = t.opsPublisher.UpdateLabels(
 		t.labels,
-		host.LogPublisher,
-		flow.NewMapper(shard.Context(), host.Service.Etcd, host.Journals, shard.FQN()),
 		logsCollectionSpec,
 		statsCollectionSpec,
 	); err != nil {
@@ -121,13 +126,14 @@ func (r *taskReader) initReader(
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Coordinator will shed reads upon |term.ctx| cancellation.
-	r.coordinator = shuffle.NewCoordinator(
-		term.ctx,
-		host.Builds,
-		term.opsPublisher,
-		shard.JournalClient(),
-	)
+	// Coordinator is instantiated once, and has the lifetime of the shard.
+	if r.coordinator == nil {
+		r.coordinator = shuffle.NewCoordinator(
+			shard.Context(),
+			term.opsPublisher,
+			shard.JournalClient(),
+		)
+	}
 
 	// Use the taskTerm's Context.Done as the |drainCh| monitored
 	// by the ReadBuilder. When the term's context is cancelled,
@@ -136,7 +142,7 @@ func (r *taskReader) initReader(
 	var err error
 	r.readBuilder, err = shuffle.NewReadBuilder(
 		term.labels.Build,
-		term.ctx.Done(),
+		term.ctx.Done(), // Drain reads upon term cancellation.
 		host.Journals,
 		term.opsPublisher,
 		host.Service,
