@@ -24,9 +24,9 @@ const config = {
       {
         // @ts-ignore
         excludeRoutes: [
-            'blog/**/*',
+          'blog/**/*',
         ]
-    },],
+      },],
     [
       '@docusaurus/plugin-client-redirects',
       {
@@ -36,6 +36,12 @@ const config = {
             from: '/guides/create-derivation/',
           },
         ],
+      },
+    ],
+    [
+      '@docusaurus/plugin-google-tag-manager',
+      {
+        containerId: 'GTM-WK8SB2L',
       },
     ],
   ],
