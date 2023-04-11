@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/estuary/flow/go/bindings"
-	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/pkg/errors"
@@ -22,7 +21,6 @@ import (
 // Coordinator collects a set of rings servicing ongoing shuffle reads,
 // and matches new ShuffleConfigs to a new or existing ring.
 type Coordinator struct {
-	builds    *flow.BuildService
 	ctx       context.Context
 	publisher ops.Publisher
 	mu        sync.Mutex
@@ -33,12 +31,10 @@ type Coordinator struct {
 // NewCoordinator returns a new *Coordinator using the given clients.
 func NewCoordinator(
 	ctx context.Context,
-	builds *flow.BuildService,
 	publisher ops.Publisher,
 	rjc pb.RoutedJournalClient,
 ) *Coordinator {
 	return &Coordinator{
-		builds:    builds,
 		ctx:       ctx,
 		publisher: publisher,
 		rings:     make(map[*ring]struct{}),
@@ -216,11 +212,9 @@ func (r *ring) serve() {
 	r.log(ops.Log_debug, "started shuffle ring")
 
 	var (
-		build     = r.coordinator.builds.Open(r.shuffle.BuildId)
 		extractor *bindings.Extractor
 		initErr   error
 	)
-	defer build.Close()
 	// TODO(johnny): defer |extractor| cleanup (not yet implemented).
 
 	if extractor, initErr = bindings.NewExtractor(r.coordinator.publisher); initErr != nil {

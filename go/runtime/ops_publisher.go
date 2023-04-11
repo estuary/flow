@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/estuary/flow/go/flow"
@@ -17,41 +18,59 @@ import (
 )
 
 type OpsPublisher struct {
-	labels        ops.ShardLabeling
 	logsPublisher *message.Publisher
 	mapper        flow.Mapper
-	opsLogsSpec   *pf.CollectionSpec
-	opsStatsSpec  *pf.CollectionSpec
-	shard         *ops.ShardRef
+	mu            sync.Mutex
+
+	// Fields that update with each task term:
+	labels       ops.ShardLabeling
+	opsLogsSpec  *pf.CollectionSpec
+	opsStatsSpec *pf.CollectionSpec
+	shard        *ops.ShardRef
 }
 
 var _ ops.Publisher = &OpsPublisher{}
 
 func NewOpsPublisher(
-	labels ops.ShardLabeling,
 	logsPublisher *message.Publisher,
 	mapper flow.Mapper,
-	opsLogsSpec *pf.CollectionSpec,
-	opsStatsSpec *pf.CollectionSpec,
-) (*OpsPublisher, error) {
-	// Sanity-check the shape of logs and stats collections.
-	if err := ops.ValidateLogsCollection(opsLogsSpec); err != nil {
-		return nil, err
-	} else if err := ops.ValidateStatsCollection(opsStatsSpec); err != nil {
-		return nil, err
-	}
-
+) *OpsPublisher {
 	return &OpsPublisher{
-		labels:        labels,
 		logsPublisher: logsPublisher,
 		mapper:        mapper,
-		opsLogsSpec:   opsLogsSpec,
-		opsStatsSpec:  opsStatsSpec,
-		shard:         ops.NewShardRef(labels),
-	}, nil
+		mu:            sync.Mutex{},
+	}
 }
 
-func (p *OpsPublisher) Labels() ops.ShardLabeling { return p.labels }
+func (p *OpsPublisher) UpdateLabels(
+	labels ops.ShardLabeling,
+	opsLogsSpec *pf.CollectionSpec,
+	opsStatsSpec *pf.CollectionSpec,
+) error {
+	// Sanity-check the shape of logs and stats collections.
+	if err := ops.ValidateLogsCollection(opsLogsSpec); err != nil {
+		return err
+	} else if err := ops.ValidateStatsCollection(opsStatsSpec); err != nil {
+		return err
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.labels = labels
+	p.opsLogsSpec = opsLogsSpec
+	p.opsStatsSpec = opsStatsSpec
+	p.shard = ops.NewShardRef(labels)
+
+	return nil
+}
+
+func (p *OpsPublisher) Labels() ops.ShardLabeling {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.labels
+}
 
 func (p *OpsPublisher) PublishStats(
 	out ops.Stats,
@@ -65,6 +84,9 @@ func (p *OpsPublisher) PublishStats(
 	if err := (&jsonpb.Marshaler{}).Marshal(&buf, &out); err != nil {
 		panic(fmt.Errorf("marshal of *ops.Stats should always succeed but: %w", err))
 	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	var msg = flow.Mappable{
 		Spec:       p.opsStatsSpec,
@@ -85,6 +107,9 @@ func (p *OpsPublisher) PublishLog(out ops.Log) {
 	if err := (&jsonpb.Marshaler{}).Marshal(&buf, &out); err != nil {
 		panic(fmt.Errorf("marshal of *ops.Log should always succeed but: %w", err))
 	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	var msg = flow.Mappable{
 		Spec:       p.opsLogsSpec,
