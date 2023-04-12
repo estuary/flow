@@ -214,13 +214,13 @@ All {
                         hint_backups: 2,
                         max_txn_duration: Some(
                             Duration {
-                                seconds: 1,
+                                seconds: 10,
                                 nanos: 0,
                             },
                         ),
                         min_txn_duration: Some(
                             Duration {
-                                seconds: 0,
+                                seconds: 10,
                                 nanos: 0,
                             },
                         ),
@@ -4748,7 +4748,7 @@ All {
                         hint_backups: 2,
                         max_txn_duration: Some(
                             Duration {
-                                seconds: 1,
+                                seconds: 300,
                                 nanos: 0,
                             },
                         ),
@@ -4971,6 +4971,7 @@ All {
                 }
               ],
               "shards": {
+                "minTxnDuration": "10s",
                 "hotStandbys": 1
               }
             },
@@ -5568,7 +5569,7 @@ All {
             resource: test://example/int-string-captures,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"captures":{"testing/db-cdc":{"bindings":[{"resource":{"namespace":"and namespace","stream":"other-stream"},"target":"testing/int-string"}],"endpoint":{"connector":{"config":"cdc-config.yaml","image":"database"}},"shards":{"hotStandbys":1}},"testing/s3-source":{"bindings":[{"resource":{"stream":"a-stream"},"target":"testing/int-string"},{"resource":{"stream":"v2-stream"},"target":"testing/int-string.v2"}],"endpoint":{"connector":{"config":{"bucket":"a-bucket","prefix":"and-prefix"},"image":"s3"}},"interval":"10m"}},"import":["test://example/int-string"]},
+            content_dom: {"captures":{"testing/db-cdc":{"bindings":[{"resource":{"namespace":"and namespace","stream":"other-stream"},"target":"testing/int-string"}],"endpoint":{"connector":{"config":"cdc-config.yaml","image":"database"}},"shards":{"hotStandbys":1,"minTxnDuration":"10s"}},"testing/s3-source":{"bindings":[{"resource":{"stream":"a-stream"},"target":"testing/int-string"},{"resource":{"stream":"v2-stream"},"target":"testing/int-string.v2"}],"endpoint":{"connector":{"config":{"bucket":"a-bucket","prefix":"and-prefix"},"image":"s3"}},"interval":"10m"}},"import":["test://example/int-string"]},
         },
         Resource {
             resource: test://example/int-string-len.schema,
