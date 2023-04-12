@@ -66,7 +66,6 @@
         "published": { "$ref": "#/$defs/docsAndBytes" },
         "out": { "$ref": "#/$defs/docsAndBytes" }
       },
-      "required": ["transforms"],
       "reduce": { "strategy": "merge" }
     }
   },
