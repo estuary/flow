@@ -30,9 +30,8 @@ pub struct ShardTemplate {
     /// may process documents before it must flush and commit.
     /// It may run for less time if there aren't additional ready documents for
     /// it to process.
-    /// If not set, the maximum duration defaults to one second.
-    /// Some tasks, particularly materializations to large analytic warehouses
-    /// like Snowflake, may benefit from a longer duration such as thirty seconds.
+    /// If not set, the maximum duration defaults to five minutes for materializations,
+    /// and one second for captures and derivations.
     /// EXPERIMENTAL: this field MAY be removed.
     #[serde(
         default,
