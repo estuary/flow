@@ -49,7 +49,7 @@ func TestReadingDocuments(t *testing.T) {
 		Arena:     make(pf.Arena, 1),
 	}
 
-	var coordinator = NewCoordinator(ctx, nil, localPublisher, bk.Client())
+	var coordinator = NewCoordinator(ctx, localPublisher, bk.Client())
 	var ring = newRing(coordinator, pf.JournalShuffle{
 		Journal:     "a/journal",
 		BuildId:     "a-build",
@@ -133,7 +133,7 @@ func TestReadingDocuments(t *testing.T) {
 }
 
 func TestDocumentExtraction(t *testing.T) {
-	var coordinator = NewCoordinator(context.Background(), nil, localPublisher, nil)
+	var coordinator = NewCoordinator(context.Background(), localPublisher, nil)
 	var r = newRing(coordinator, pf.JournalShuffle{
 		Journal:     "a/journal",
 		BuildId:     "a-build",

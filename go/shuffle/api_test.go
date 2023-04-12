@@ -31,13 +31,12 @@ import (
 )
 
 func TestAPIIntegrationWithFixtures(t *testing.T) {
-	var dir = t.TempDir()
 	var args = bindings.BuildArgs{
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			BuildId:    "a-build-id",
-			BuildDb:    path.Join(dir, "a-build-db"),
+			BuildDb:    path.Join(t.TempDir(), "build.db"),
 			Source:     "file:///ab.flow.yaml",
 			SourceType: pf.ContentType_CATALOG,
 		}}
@@ -53,8 +52,6 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
 
-	var builds, err = flow.NewBuildService("file://" + dir + "/")
-	require.NoError(t, err)
 	var bk = brokertest.NewBroker(t, etcd, "local", "broker")
 	var journalSpec = brokertest.Journal(pb.JournalSpec{
 		Name:     "a/journal",
@@ -100,7 +97,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	// Use a resolve() fixture which returns a mocked store with our |coordinator|.
 	var srv = server.MustLoopback()
 	var apiCtx, cancelAPICtx = context.WithCancel(backgroundCtx)
-	var coordinator = NewCoordinator(apiCtx, builds, localPublisher, bk.Client())
+	var coordinator = NewCoordinator(apiCtx, localPublisher, bk.Client())
 
 	pf.RegisterShufflerServer(srv.GRPCServer, &API{
 		resolve: func(args consumer.ResolveArgs) (consumer.Resolution, error) {

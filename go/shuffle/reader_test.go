@@ -64,13 +64,12 @@ func TestStuffedMessageChannel(t *testing.T) {
 }
 
 func TestConsumerIntegration(t *testing.T) {
-	var dir = t.TempDir()
 	var args = bindings.BuildArgs{
 		Context:  context.Background(),
 		FileRoot: "./testdata",
 		BuildAPI_Config: pf.BuildAPI_Config{
 			BuildId:    "a-build-id",
-			BuildDb:    path.Join(dir, "a-build-id"),
+			BuildDb:    path.Join(t.TempDir(), "build.id"),
 			Source:     "file:///ab.flow.yaml",
 			SourceType: pf.ContentType_CATALOG,
 		}}
@@ -88,8 +87,6 @@ func TestConsumerIntegration(t *testing.T) {
 	var etcd = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
 
-	var builds, err = flow.NewBuildService("file://" + dir + "/")
-	require.NoError(t, err)
 	// Fixtures which parameterize the test:
 	var (
 		sourcePartitions = []pb.Journal{
@@ -169,7 +166,6 @@ func TestConsumerIntegration(t *testing.T) {
 			Journals: broker.Client(),
 			App: &testApp{
 				journals: journals,
-				builds:   builds,
 				shuffles: derivation.TaskShuffles(),
 				buildID:  "a-build-id",
 			},
@@ -282,7 +278,6 @@ func TestConsumerIntegration(t *testing.T) {
 type testApp struct {
 	service  *consumer.Service
 	journals flow.Journals
-	builds   *flow.BuildService
 	shuffles []*pf.Shuffle
 	buildID  string
 }
@@ -315,7 +310,7 @@ func (a testApp) NewStore(shard consumer.Shard, recorder *recoverylog.Recorder) 
 		return nil, err
 	}
 
-	var coordinator = NewCoordinator(shard.Context(), a.builds, localPublisher, shard.JournalClient())
+	var coordinator = NewCoordinator(shard.Context(), localPublisher, shard.JournalClient())
 
 	return &testStore{
 		JSONFileStore: store,

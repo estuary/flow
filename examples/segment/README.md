@@ -106,7 +106,8 @@ newline JSON:
 We can range-read over user profiles from our SQLite key/value store stand-in:
 
 ```console
-$ sqlite3 examples/examples.db 'SELECT flow_document FROM segment_profiles limit 5;' |
+$ docker ps | grep materialize-sqlite # find the docker container name or id
+$ docker exec -it <container-name> sqlite3 /tmp/sqlite.db 'SELECT flow_document FROM segment_profiles limit 5;' |
     jq -c '{user: .user, segments: [.segments[] | select (.member) | .segment.name ] }'
 {"user":"usr-000000","segments":["seg-0","seg-11B1","seg-178F","seg-3","seg-55","seg-65","seg-7E"]}
 {"user":"usr-000001","segments":["seg-0","seg-111","seg-19","seg-275","seg-2A","seg-3","seg-331","seg-35E","seg-8","seg-B","seg-F8E"]}
@@ -118,7 +119,8 @@ $ sqlite3 examples/examples.db 'SELECT flow_document FROM segment_profiles limit
 Or do a point lookup of a specific user:
 
 ```console
-$ sqlite3 examples/examples.db 'SELECT flow_document FROM segment_profiles WHERE user = "usr-000fce"' | \
+$ docker ps | grep materialize-sqlite # find the docker container name or id
+$ docker exec -it <container-name> sqlite3 /tmp/sqlite.db 'SELECT flow_document FROM segment_profiles WHERE user = "usr-000fce"' | \
     jq  '.segments'
 [
   {
@@ -164,7 +166,8 @@ $ sqlite3 examples/examples.db 'SELECT flow_document FROM segment_profiles WHERE
 We can range-read over members currently in a segment:
 
 ```console
-$ sqlite3 examples/examples.db 'SELECT vendor, segment_name, user, first, last FROM segment_memberships WHERE member LIMIT 10;'
+$ docker ps | grep materialize-sqlite # find the docker container name or id
+$ docker exec -it <container-name> sqlite3 /tmp/sqlite.db 'SELECT vendor, segment_name, user, first, last FROM segment_memberships WHERE member LIMIT 10;'
 1|seg-0|usr-000000|2021-03-19T15:55:31-04:00|2021-03-19T18:00:00-04:00
 1|seg-0|usr-000004|2021-03-19T15:53:58-04:00|2021-03-19T18:04:26-04:00
 1|seg-0|usr-000010|2021-03-19T15:54:51-04:00|2021-03-19T17:23:19-04:00
@@ -242,8 +245,7 @@ webhook server.
 
 ## Cleanup
 
-Stop `flowctl-go`, remove the `flowctl_develop` runtime directory, and remove
-`examples/examples.db` to complete a development session and restore
+Stop `flowctl-go`, remove the `flowctl_develop` runtime directory to complete a development session and restore
 to a pristine state. If you're working from a Git clone of the Flow repo,
 simply `git clean -f -d`.
 
