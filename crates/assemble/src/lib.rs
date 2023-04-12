@@ -273,11 +273,22 @@ pub fn shard_template(
     // We hard-code two hint backups per shard.
     let hint_backups = 2;
 
-    // If not set, the maximum transaction duration is one second and the minimum is zero.
-    let max_txn_duration = max_txn_duration
-        .or(Some(Duration::from_secs(1)))
-        .map(Into::into);
-    let min_txn_duration = min_txn_duration.or(Some(Duration::ZERO)).map(Into::into);
+    // If not set, the maximum transaction duration is five minutes
+    // for materializations and one second for captures and derivations.
+    let mut max_txn_duration = if let Some(max_txn_duration) = max_txn_duration {
+        *max_txn_duration
+    } else if task_type == labels::TASK_TYPE_MATERIALIZATION {
+        Duration::from_secs(5 * 60)
+    } else {
+        Duration::from_secs(1)
+    };
+    // By default, there is no minimum duration.
+    let min_txn_duration = min_txn_duration.unwrap_or(Duration::ZERO);
+
+    if min_txn_duration > max_txn_duration {
+        max_txn_duration = min_txn_duration;
+    }
+
     // If not set, no hot standbys are used.
     let hot_standbys = hot_standbys.unwrap_or(0);
 
@@ -353,8 +364,8 @@ pub fn shard_template(
         hint_prefix,
         hot_standbys,
         labels: Some(broker::LabelSet { labels }),
-        max_txn_duration,
-        min_txn_duration,
+        max_txn_duration: Some(max_txn_duration.into()),
+        min_txn_duration: Some(min_txn_duration.into()),
         read_channel_size,
         recovery_log_prefix,
         ring_buffer_size,
