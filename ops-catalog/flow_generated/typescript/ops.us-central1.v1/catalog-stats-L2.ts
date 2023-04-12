@@ -46,7 +46,7 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
                 bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
                 docsTotal: /* Total number of documents */ number;
             };
-            transforms: /* A map of each transform (transform name, not collection name) to stats for that transform */ {
+            transforms?: /* A map of each transform (transform name, not collection name) to stats for that transform */ {
                 [k: string]: /* Stats for a specific transform of a derivation, which will have an update, publish, or both. */ {
                     input: /* The input documents that were fed into this transform. */ {
                         bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
@@ -124,7 +124,7 @@ export type SourceFromOpsUsCentral1V1 = /* Flow catalog task stats Statistics re
                 bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
                 docsTotal: /* Total number of documents */ number;
             };
-            transforms: /* A map of each transform (transform name, not collection name) to stats for that transform */ {
+            transforms?: /* A map of each transform (transform name, not collection name) to stats for that transform */ {
                 [k: string]: /* Stats for a specific transform of a derivation, which will have an update, publish, or both. */ {
                     input: /* The input documents that were fed into this transform. */ {
                         bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
@@ -165,11 +165,14 @@ export abstract class IDerivation {
         return [];
     }
 
+    // reset is called only when running catalog tests, and must reset any internal state.
+    async reset() { }
+
     // startCommit is notified of a runtime commit in progress, and returns an optional
     // connector state update to be committed.
     startCommit(_startCommit: { runtimeCheckpoint: unknown }): { state?: { updated: unknown, mergePatch: boolean } } {
         return {};
     }
 
-    abstract fromOpsUsCentral1V1(source: { doc: SourceFromOpsUsCentral1V1 }): Document[];
+    abstract fromOpsUsCentral1V1(read: { doc: SourceFromOpsUsCentral1V1 }): Document[];
 }

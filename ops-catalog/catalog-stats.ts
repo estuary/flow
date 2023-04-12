@@ -111,7 +111,7 @@ const taskStats = (source: SourceStats): StatsData => {
         case 'derivation':
             stats.writtenByMe = accumulateStats(stats.writtenByMe, source.derive!.out);
 
-            for (const transformStats of Object.values(source.derive!.transforms)) {
+            for (const transformStats of Object.values(source.derive!.transforms || {})) {
                 stats.readByMe = accumulateStats(stats.readByMe, transformStats.input);
             }
     }
@@ -159,7 +159,7 @@ const collectionStats = (source: SourceStats): StatsData => {
             );
 
             // Each transform will include a source collection that is read from.
-            for (const transform of Object.values(source.derive!.transforms)) {
+            for (const transform of Object.values(source.derive!.transforms || {})) {
                 if (!transform.source) {
                     // Legacy stats docs may not list a source collection for derivations.
                     continue;
