@@ -24,6 +24,10 @@ type KeySpace struct {
 	// Key prefix which roots this KeySpace.
 	Root string
 	// Header is the last Etcd operation header which updated this KeySpace.
+	// It's important (for reasons I don't fully understand) that this revision is
+	// not updated by events that don't affect the range of keys in this keyspace.
+	// In other words, the `Header.Revision` should always be the greatest `ModRevision`
+	// of any key prefixed by the `Root`.
 	Header etcdserverpb.ResponseHeader
 	// KeyValues is a complete and decoded mirror of the (prefixed) Etcd key/value space.
 	KeyValues
@@ -132,11 +136,13 @@ func (ks *KeySpace) Watch(ctx context.Context, client clientv3.Watcher) error {
 
 	// TODO(johnny): this lock guards a current race in scenarios_test.go.
 	ks.Mu.RLock()
-	var nextRevision = ks.Header.Revision + 1
+	// resumeRevision is the point at which we'll resume watch operations.
+	// This is separate from the `ks.Header.Revision`, which tracks the latest
+	// revision that's actually modified the keyspace. ProgressNofify responses
+	// should update the `resumeRevision`, but _not_ the `ks.Header.Revision`.
+	var resumeRevision = ks.Header.Revision
 	ks.Mu.RUnlock()
-
 	for attempt := 0; true; attempt++ {
-
 		// Start (or restart) a new long-lived Watch. Note this is very similar to
 		// mirror.Syncer: A key difference (and the reason that API is not used) is
 		// the additional WithProgressNotify option - without this option, in the
@@ -158,7 +164,7 @@ func (ks *KeySpace) Watch(ctx context.Context, client clientv3.Watcher) error {
 			watchCh = client.Watch(clientv3.WithRequireLeader(ctx), ks.Root,
 				clientv3.WithPrefix(),
 				clientv3.WithProgressNotify(),
-				clientv3.WithRev(nextRevision),
+				clientv3.WithRev(resumeRevision),
 			)
 		}
 
@@ -184,24 +190,32 @@ func (ks *KeySpace) Watch(ctx context.Context, client clientv3.Watcher) error {
 				}
 			} else if err != nil {
 				return err // All other errors are fatal.
-			} else if resp.Header.Revision < nextRevision {
-				// TODO(johnny): Extra logging to better understand root cause(s) of issue #248.
+			} else if len(resp.Events) > 0 {
+				// Events are ordered by ModRevision, so the first is the min, and last is max
+				var minRevision = resp.Events[0].Kv.ModRevision
+				resumeRevision = resp.Events[len(resp.Events)-1].Kv.ModRevision
 				log.WithFields(log.Fields{
-					"header":           resp.Header,
-					"isProgressNotify": resp.IsProgressNotify(),
-					"cancelled":        resp.Canceled,
-					"created":          resp.Created,
-					"compactRevision":  resp.CompactRevision,
-					"numEvents":        len(resp.Events),
-					"watchIter":        attempt,
-				}).Warn("received duplicate Etcd watch revision (ignoring)")
-			} else {
+					"header":          resp.Header,
+					"compactRevision": resp.CompactRevision,
+					"numEvents":       len(resp.Events),
+					"watchIter":       attempt,
+					"minModRevision":  minRevision,
+					"maxModRevision":  resumeRevision,
+				}).Trace("received etcd watch response")
 				if len(responses) == 0 {
 					applyTimer.Reset(ks.WatchApplyDelay)
 				}
 				responses = append(responses, resp)
-				nextRevision = resp.Header.Revision + 1
 				attempt = 0 // Restart sequence.
+			} else {
+				log.WithFields(log.Fields{
+					"header":             resp.Header,
+					"compactRevision":    resp.CompactRevision,
+					"watchIter":          attempt,
+					"prevResumeRevision": resumeRevision,
+					"isProgressNotify":   resp.IsProgressNotify(),
+				}).Debug("etcd watch response updating resumeRevision only")
+				resumeRevision = resp.Header.Revision
 			}
 		case <-applyTimer.C:
 			// Apply all previously buffered WatchResponses. |applyTimer| is now
@@ -255,20 +269,36 @@ func (ks *KeySpace) WaitForRevision(ctx context.Context, revision int64) error {
 // fixtures; most clients should instead use Watch. Clients must ensure
 // concurrent calls to Apply are not made.
 func (ks *KeySpace) Apply(responses ...clientv3.WatchResponse) error {
-	var hdr = ks.Header
 	var wr clientv3.WatchResponse
 
+	// This will become the new Keyspace.Header after we're done applying all the responses.
+	// We'll validate each response header to make sure that it's consistent with this one,
+	// but we'll only update this header based on either a progress notification or the `ModRevision`
+	// of the events within the response.
+	var lastHeader = ks.Header
+
 	for _, wr = range responses {
-		// Do not apply progress notify events to |hdr| as they may contain
-		// a revision increase without a corresponding modification of this
-		// KeySpace, and we track only modifying revisions.
-		if !wr.IsProgressNotify() {
-			if err := patchHeader(&hdr, wr.Header, false); err != nil {
-				return err
-			}
+		// Sanity check that the response header is consistent, without updating lastHeader.
+		if err := checkHeader(&lastHeader, wr.Header, true); err != nil {
+			return err
 		}
-		// Events are already ordered on ascending ModRevision. Order on key, while
-		// preserving relative ModRevision order of events of the same key.
+		if len(wr.Events) == 0 {
+			continue
+		}
+		// Events are sorted on ModRevision in ascending order, so the last one will
+		// have the greatest ModRevision.
+		if wr.Events[len(wr.Events)-1].Kv.ModRevision >= lastHeader.Revision {
+			lastHeader.Revision = wr.Events[len(wr.Events)-1].Kv.ModRevision
+		} else {
+			// This shouldn't ever happen, but we it may not necessarily cause a problem if it does,
+			// since applying the same event twice ought to be OK. Just log noisily.
+			log.WithFields(log.Fields{
+				"response":     wr,
+				"lastRevision": lastHeader.Revision,
+			}).Error("received Etcd watch response with revision less than lastRevision")
+		}
+
+		// Order on key, while preserving relative ModRevision order of events of the same key.
 		sort.SliceStable(wr.Events, func(i, j int) bool {
 			return bytes.Compare(wr.Events[i].Kv.Key, wr.Events[j].Kv.Key) < 0
 		})
@@ -313,7 +343,7 @@ func (ks *KeySpace) Apply(responses ...clientv3.WatchResponse) error {
 
 	// Critical section: update header, swap out rebuilt KeyValues, and notify observers.
 	ks.Mu.Lock()
-	ks.Header = hdr
+	ks.Header = lastHeader
 	ks.KeyValues, ks.next = next, ks.KeyValues[:0]
 	ks.onUpdate()
 	ks.Mu.Unlock()
@@ -334,6 +364,14 @@ func (ks *KeySpace) onUpdate() {
 // expected to be greater than or equal to the current one; otherwise, it
 // should be strictly greater.
 func patchHeader(h *etcdserverpb.ResponseHeader, update etcdserverpb.ResponseHeader, allowSameRevision bool) error {
+	if err := checkHeader(h, update, allowSameRevision); err != nil {
+		return err
+	}
+	*h = update
+	return nil
+}
+
+func checkHeader(h *etcdserverpb.ResponseHeader, update etcdserverpb.ResponseHeader, allowSameRevision bool) error {
 	if h.ClusterId != 0 && h.ClusterId != update.ClusterId {
 		return fmt.Errorf("etcd ClusterID mismatch (expected %d, got %d)", h.ClusterId, update.ClusterId)
 	} else if allowSameRevision && update.Revision < h.Revision {
@@ -350,8 +388,6 @@ func patchHeader(h *etcdserverpb.ResponseHeader, update etcdserverpb.ResponseHea
 			"update.RaftTerm": update.RaftTerm,
 		}).Info("etcd MemberId/RaftTerm changed")
 	}
-
-	*h = update
 	return nil
 }
 

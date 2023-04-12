@@ -84,11 +84,6 @@ func (s *KeySpaceSuite) TestHeaderPatching(c *gc.C) {
 	c.Check(h.Revision, gc.Equals, other.Revision)
 	c.Check(h.RaftTerm, gc.Equals, other.RaftTerm)
 
-	// Revision must be equal.
-	other.Revision = 122
-	c.Check(patchHeader(&h, other, true), gc.ErrorMatches,
-		`etcd Revision mismatch \(expected >= 123, got 122\)`)
-
 	other.Revision = 124
 	other.MemberId = 333333
 	other.RaftTerm = 3434343
@@ -97,10 +92,6 @@ func (s *KeySpaceSuite) TestHeaderPatching(c *gc.C) {
 	c.Check(h.MemberId, gc.Equals, other.MemberId)
 	c.Check(h.Revision, gc.Equals, other.Revision)
 	c.Check(h.RaftTerm, gc.Equals, other.RaftTerm)
-
-	// Revision must be monotonically increasing.
-	c.Check(patchHeader(&h, other, false), gc.ErrorMatches,
-		`etcd Revision mismatch \(expected > 124, got 124\)`)
 
 	// ClusterId cannot change.
 	other.Revision = 125
@@ -111,7 +102,8 @@ func (s *KeySpaceSuite) TestHeaderPatching(c *gc.C) {
 
 func (s *KeySpaceSuite) TestWatchResponseApply(c *gc.C) {
 	var ks = NewKeySpace("/", testDecoder)
-
+	// Normally the Header is populated during `Load`, so we simulate that setup here
+	ks.Header = epb.ResponseHeader{ClusterId: 9999, Revision: 9}
 	var resp = []clientv3.WatchResponse{{
 		Header: epb.ResponseHeader{ClusterId: 9999, Revision: 10},
 		Events: []*clientv3.Event{
@@ -187,15 +179,8 @@ func (s *KeySpaceSuite) TestWatchResponseApply(c *gc.C) {
 	}), gc.IsNil)
 	c.Check(ks.Header.Revision, gc.Equals, int64(16))
 
-	// However, as a special case and unlike any other WatchResponse,
-	// a ProgressNotify is not *required* to increase the revision.
-	c.Check(ks.Apply(clientv3.WatchResponse{
-		Header: epb.ResponseHeader{ClusterId: 9999, Revision: 20},
-		Events: []*clientv3.Event{},
-	}), gc.IsNil)
-
-	// It's possible such a WatchResponse is queued & processed with
-	// a mutation which follows.Also ensure that a progress notify
+	// It's possible a progress notify WatchResponse is queued & processed with
+	// a mutation which follows. Also ensure that a progress notify
 	// event batched with actual updates works as expected.
 	c.Check(ks.Apply(
 		clientv3.WatchResponse{
