@@ -88,6 +88,7 @@ test://example/int-string-captures:
             namespace: and namespace
       shards:
         hotStandbys: 1
+        minTxnDuration: 10s
 
 test://example/cdc-config.yaml:
   host: a.host.name
@@ -277,11 +278,11 @@ driver:
   imageInspections:
     s3:
       output: &imageInspect '[{
-          "Id": "foo",
-          "Config":{
-            "ExposedPorts": {"567/tcp":{}, "123/udp": {}, "789":{} },
-            "Labels":{"dev.estuary.port-public.567":"true","dev.estuary.port-proto.789":"h2"}
-          }
+        "Id": "foo",
+        "Config":{
+        "ExposedPorts": {"567/tcp":{}, "123/udp": {}, "789":{} },
+        "Labels":{"dev.estuary.port-public.567":"true","dev.estuary.port-proto.789":"h2"}
+        }
         }]'
     database:
       output: *imageInspect
