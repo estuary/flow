@@ -13,7 +13,7 @@ interface OauthSettings {
 }
 
 export async function accessToken(req: Record<string, any>) {
-    const { state, config, redirect_uri, ...params } = req;
+    const { state, code_verifier, config, redirect_uri, ...params } = req;
 
     const decodedState = JSON.parse(atob(state));
     const { connector_id } = decodedState;
@@ -38,6 +38,7 @@ export async function accessToken(req: Record<string, any>) {
             client_id: oauth2_client_id,
             client_secret: oauth2_client_secret,
             config,
+            code_verifier,
             ...oauth2_injected_values,
             ...params,
         },
@@ -53,6 +54,7 @@ export async function accessToken(req: Record<string, any>) {
                 client_id: oauth2_client_id,
                 client_secret: oauth2_client_secret,
                 config,
+                code_verifier,
                 ...oauth2_injected_values,
                 ...params,
             },
@@ -70,6 +72,7 @@ export async function accessToken(req: Record<string, any>) {
                     client_id: oauth2_client_id,
                     client_secret: oauth2_client_secret,
                     config,
+                    code_verifier,
                     ...oauth2_injected_values,
                     ...params,
                 },

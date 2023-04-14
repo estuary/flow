@@ -4,6 +4,8 @@ import { corsHeaders } from '../_shared/cors.ts';
 import { returnPostgresError, compileTemplate } from '../_shared/helpers.ts';
 import { supabaseClient } from '../_shared/supabaseClient.ts';
 
+import { sha256 } from "https://denopkg.com/chiefbiiko/sha256@v1.0.0/mod.ts";
+
 const generateUniqueRandomKey = () => {
     const validChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     let array = new Uint8Array(40) as any;
@@ -11,6 +13,11 @@ const generateUniqueRandomKey = () => {
     array = array.map((x: number) => validChars.codePointAt(x % validChars.length));
     return String.fromCharCode.apply(null, array);
 };
+
+const base64UrlEncode = (str: string) =>
+  str.replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/\=+/, '')
 
 interface OauthSettings {
     oauth2_client_id: string;
@@ -41,6 +48,11 @@ export async function authURL(req: { connector_id: string; config: object; redir
         }),
     );
 
+    // See https://www.oauth.com/oauth2-servers/pkce/authorization-request/
+    const codeVerifier = generateUniqueRandomKey();
+    const codeChallenge = base64UrlEncode(sha256(codeVerifier, "utf8", "base64") as string);
+    const codeChallengeMethod = 'S256';
+
     const url = compileTemplate(
         oauth2_spec.authUrlTemplate,
         {
@@ -48,11 +60,13 @@ export async function authURL(req: { connector_id: string; config: object; redir
             redirect_uri: redirect_uri ?? 'https://dashboard.estuary.dev/oauth',
             client_id: oauth2_client_id,
             config,
+            code_challenge: codeChallenge,
+            code_challenge_method: codeChallengeMethod,
         },
         connector_id,
     );
 
-    return new Response(JSON.stringify({ url: url, state: finalState }), {
+    return new Response(JSON.stringify({ url: url, state: finalState, code_verifier: codeVerifier }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 }
