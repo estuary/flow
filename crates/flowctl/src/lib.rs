@@ -17,6 +17,7 @@ mod output;
 mod poll;
 mod preview;
 mod raw;
+mod checkpoint;
 
 use output::{Output, OutputType};
 use poll::poll_while_queued;
@@ -95,6 +96,7 @@ pub enum Command {
     Stats(ops::Stats),
     /// Advanced, low-level, and experimental commands which are less common.
     Raw(raw::Advanced),
+    PullCheckpoint(checkpoint::PullCheckpoint),
 }
 
 #[derive(Debug)]
@@ -175,6 +177,7 @@ impl Cli {
             Command::Logs(logs) => logs.run(&mut context).await,
             Command::Stats(stats) => stats.run(&mut context).await,
             Command::Raw(advanced) => advanced.run(&mut context).await,
+            Command::PullCheckpoint(checkpoint) => checkpoint.run(&mut context).await,
         }?;
 
         context.config().write(&self.profile)?;
