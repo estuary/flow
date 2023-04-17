@@ -14,7 +14,7 @@ for i in $(seq 0 $((MIN_REPLICAS - 1))); do
 done
 
 # Re-joining after failure?
-if [ -e /var/run/etcd/default.etcd ]; then
+if [ -f /var/run/etcd/member_id ]; then
   echo "Re-joining etcd member"
   member_id=$(cat /var/run/etcd/member_id)
 
