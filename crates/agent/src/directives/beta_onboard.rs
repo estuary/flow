@@ -14,6 +14,11 @@ pub struct Claims {
     // TODO(johnny): Introduce models::Tenant which, like PartitionField, also uses TOKEN_RE.
     #[validate]
     requested_tenant: models::PartitionField,
+    // Survey results for the tenant.
+    // This is persisted in the DB but is not actually used by the agent.
+    #[allow(dead_code)]
+    #[serde(default)]
+    survey: serde_json::Value,
 }
 
 #[tracing::instrument(skip_all, fields(directive, row.claims))]
@@ -23,7 +28,13 @@ pub async fn apply(
     accounts_user_email: &str,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<JobStatus> {
-    let (Directive {}, Claims { requested_tenant }) = match extract(directive, &row.user_claims) {
+    let (
+        Directive {},
+        Claims {
+            requested_tenant,
+            survey: _,
+        },
+    ) = match extract(directive, &row.user_claims) {
         Err(status) => return Ok(status),
         Ok(ok) => ok,
     };
@@ -114,7 +125,7 @@ mod test {
           -- Fails: tenant already exists.
           ('cc00000000000000', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"requestedTenant":"TakenTeNaNt"}'),
           -- Success: creates AcmeTenant.
-          ('cc00000000000000', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"requestedTenant":"AcmeTenant"}')
+          ('cc00000000000000', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '{"requestedTenant":"AcmeTenant","survey":"feedback"}')
         )
         select 1;
         "#,
@@ -181,7 +192,7 @@ mod test {
             },
             "did": "cc:00:00:00:00:00:00:00",
             "status": {
-              "error": "unknown field `invalid`, expected `requestedTenant` at line 1 column 10",
+              "error": "unknown field `invalid`, expected `requestedTenant` or `survey` at line 1 column 10",
               "type": "invalidClaims"
             }
           },
@@ -207,7 +218,8 @@ mod test {
           },
           {
             "claims": {
-              "requestedTenant": "AcmeTenant"
+              "requestedTenant": "AcmeTenant",
+              "survey": "feedback"
             },
             "did": "cc:00:00:00:00:00:00:00",
             "status": {
