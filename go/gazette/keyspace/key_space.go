@@ -96,9 +96,10 @@ func (ks *KeySpace) Load(ctx context.Context, client *clientv3.Client, rev int64
 		case resp, ok := <-respCh:
 			if !ok {
 				respCh = nil // Finished draining |respCh|.
-			} else if err := patchHeader(&ks.Header, *resp.Header, true); err != nil {
+			} else if err := checkHeader(&ks.Header, *resp.Header); err != nil {
 				return err
 			} else {
+				ks.Header = *resp.Header
 				for _, kv := range resp.Kvs {
 					if ks.KeyValues, err = appendKeyValue(ks.KeyValues, ks.decode, kv); err != nil {
 						log.WithFields(log.Fields{"key": string(kv.Key), "err": err}).
@@ -289,7 +290,7 @@ func (ks *KeySpace) Apply(responses ...clientv3.WatchResponse) error {
 	var lastModRevision int64 = 0
 	for _, wr = range responses {
 		// Sanity check that the response header is consistent, without updating lastHeader.
-		if err := checkHeader(&lastHeader, wr.Header, true); err != nil {
+		if err := checkHeader(&lastHeader, wr.Header); err != nil {
 			return err
 		}
 		// Sanity check that the earliest ModRevision in each response is greater than the
@@ -369,25 +370,13 @@ func (ks *KeySpace) onUpdate() {
 	ks.updateCh = make(chan struct{})
 }
 
-// patchHeader updates |h| with an Etcd ResponseHeader. It returns an error if
-// the headers are inconsistent. If |allowSameRevision|, |update| Revision is
-// expected to be greater than or equal to the current one; otherwise, it
-// should be strictly greater.
-func patchHeader(h *etcdserverpb.ResponseHeader, update etcdserverpb.ResponseHeader, allowSameRevision bool) error {
-	if err := checkHeader(h, update, allowSameRevision); err != nil {
-		return err
-	}
-	*h = update
-	return nil
-}
-
-func checkHeader(h *etcdserverpb.ResponseHeader, update etcdserverpb.ResponseHeader, allowSameRevision bool) error {
+// checkHeader returns an error if the ClusterIds are not the same, or if the Revision of `update` is less than the
+// Revision of `h`.
+func checkHeader(h *etcdserverpb.ResponseHeader, update etcdserverpb.ResponseHeader) error {
 	if h.ClusterId != 0 && h.ClusterId != update.ClusterId {
 		return fmt.Errorf("etcd ClusterID mismatch (expected %d, got %d)", h.ClusterId, update.ClusterId)
-	} else if allowSameRevision && update.Revision < h.Revision {
+	} else if update.Revision < h.Revision {
 		return fmt.Errorf("etcd Revision mismatch (expected >= %d, got %d)", h.Revision, update.Revision)
-	} else if !allowSameRevision && update.Revision <= h.Revision {
-		return fmt.Errorf("etcd Revision mismatch (expected > %d, got %d)", h.Revision, update.Revision)
 	}
 
 	if h.ClusterId != 0 && (h.MemberId != update.MemberId || h.RaftTerm != update.RaftTerm) {

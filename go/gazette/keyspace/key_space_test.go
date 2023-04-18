@@ -62,8 +62,11 @@ func (s *KeySpaceSuite) TestLoadAndWatch(c *gc.C) {
 		map[string]int{"/two": 2, "/three": 4, "/foo": 5, "/raced": 999})
 }
 
-func (s *KeySpaceSuite) TestHeaderPatching(c *gc.C) {
-	var h epb.ResponseHeader
+func (s *KeySpaceSuite) TestHeaderChecking(c *gc.C) {
+	var h = epb.ResponseHeader{
+		ClusterId: 8675309,
+		Revision:  100,
+	}
 
 	var other = epb.ResponseHeader{
 		ClusterId: 8675309,
@@ -71,32 +74,20 @@ func (s *KeySpaceSuite) TestHeaderPatching(c *gc.C) {
 		Revision:  123,
 		RaftTerm:  232323,
 	}
-	c.Check(patchHeader(&h, other, true), gc.IsNil)
-	c.Check(h.ClusterId, gc.Equals, other.ClusterId)
-	c.Check(h.MemberId, gc.Equals, other.MemberId)
-	c.Check(h.Revision, gc.Equals, other.Revision)
-	c.Check(h.RaftTerm, gc.Equals, other.RaftTerm)
+	c.Check(checkHeader(&h, other), gc.IsNil)
 
 	other.MemberId = 222222
-	c.Check(patchHeader(&h, other, true), gc.IsNil)
-	c.Check(h.ClusterId, gc.Equals, other.ClusterId)
-	c.Check(h.MemberId, gc.Equals, other.MemberId)
-	c.Check(h.Revision, gc.Equals, other.Revision)
-	c.Check(h.RaftTerm, gc.Equals, other.RaftTerm)
+	c.Check(checkHeader(&h, other), gc.IsNil)
 
 	other.Revision = 124
 	other.MemberId = 333333
 	other.RaftTerm = 3434343
-	c.Check(patchHeader(&h, other, false), gc.IsNil)
-	c.Check(h.ClusterId, gc.Equals, other.ClusterId)
-	c.Check(h.MemberId, gc.Equals, other.MemberId)
-	c.Check(h.Revision, gc.Equals, other.Revision)
-	c.Check(h.RaftTerm, gc.Equals, other.RaftTerm)
+	c.Check(checkHeader(&h, other), gc.IsNil)
 
 	// ClusterId cannot change.
 	other.Revision = 125
 	other.ClusterId = 1337
-	c.Check(patchHeader(&h, other, false), gc.ErrorMatches,
+	c.Check(checkHeader(&h, other), gc.ErrorMatches,
 		`etcd ClusterID mismatch \(expected 8675309, got 1337\)`)
 }
 
