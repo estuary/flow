@@ -23,11 +23,13 @@ import (
 type KeySpace struct {
 	// Key prefix which roots this KeySpace.
 	Root string
-	// Header is the last Etcd operation header which updated this KeySpace.
-	// It's important (for reasons I don't fully understand) that this revision is
-	// not updated by events that don't affect the range of keys in this keyspace.
-	// In other words, the `Header.Revision` should always be the greatest `ModRevision`
-	// of any key prefixed by the `Root`.
+	// Header is the last Etcd operation revision which actually updated this KeySpace:
+	// in other words, `Header.Revision` is the greatest `ModRevision` of any key under
+	// the `Root`. It is not incremented by other Etcd operations which don't actually
+	// change the KeySpace, such as progress notifications. This property means, for
+	// all watched KeySpaces having a common Root, their revisions are always directly
+	// comparable and will be equal if (and only if) they reflect the same keys and
+	// values.
 	Header etcdserverpb.ResponseHeader
 	// KeyValues is a complete and decoded mirror of the (prefixed) Etcd key/value space.
 	KeyValues
@@ -140,7 +142,7 @@ func (ks *KeySpace) Watch(ctx context.Context, client clientv3.Watcher) error {
 	// This is separate from the `ks.Header.Revision`, which tracks the latest
 	// revision that's actually modified the keyspace. ProgressNofify responses
 	// should update the `resumeRevision`, but _not_ the `ks.Header.Revision`.
-	var resumeRevision = ks.Header.Revision
+	var resumeRevision = ks.Header.Revision + 1
 	ks.Mu.RUnlock()
 	for attempt := 0; true; attempt++ {
 		// Start (or restart) a new long-lived Watch. Note this is very similar to
@@ -191,31 +193,38 @@ func (ks *KeySpace) Watch(ctx context.Context, client clientv3.Watcher) error {
 			} else if err != nil {
 				return err // All other errors are fatal.
 			} else if len(resp.Events) > 0 {
-				// Events are ordered by ModRevision, so the first is the min, and last is max
-				var minRevision = resp.Events[0].Kv.ModRevision
-				resumeRevision = resp.Events[len(resp.Events)-1].Kv.ModRevision
 				log.WithFields(log.Fields{
 					"header":          resp.Header,
 					"compactRevision": resp.CompactRevision,
 					"numEvents":       len(resp.Events),
 					"watchIter":       attempt,
-					"minModRevision":  minRevision,
-					"maxModRevision":  resumeRevision,
+					"minModRevision":  resp.Events[0].Kv.ModRevision,
+					"maxModRevision":  resp.Events[len(resp.Events)-1].Kv.ModRevision,
 				}).Trace("received etcd watch response")
+
+				// Update resumeRevision to be the greatest observed ModRevision
+				// Events are ordered by ModRevision, so the last is the max.
+				resumeRevision = resp.Events[len(resp.Events)-1].Kv.ModRevision + 1
 				if len(responses) == 0 {
 					applyTimer.Reset(ks.WatchApplyDelay)
 				}
 				responses = append(responses, resp)
 				attempt = 0 // Restart sequence.
-			} else {
+			} else if resp.IsProgressNotify() {
 				log.WithFields(log.Fields{
 					"header":             resp.Header,
 					"compactRevision":    resp.CompactRevision,
 					"watchIter":          attempt,
 					"prevResumeRevision": resumeRevision,
-					"isProgressNotify":   resp.IsProgressNotify(),
-				}).Debug("etcd watch response updating resumeRevision only")
-				resumeRevision = resp.Header.Revision
+				}).Debug("received watch progress notification")
+				// A subsequent watch should start at the next revision
+				resumeRevision = resp.Header.Revision + 1
+			} else {
+				log.WithFields(log.Fields{
+					"watchIter":      attempt,
+					"resumeRevision": resumeRevision,
+					"response":       resp,
+				}).Debug("ignoring empty watch response")
 			}
 		case <-applyTimer.C:
 			// Apply all previously buffered WatchResponses. |applyTimer| is now
@@ -277,25 +286,26 @@ func (ks *KeySpace) Apply(responses ...clientv3.WatchResponse) error {
 	// of the events within the response.
 	var lastHeader = ks.Header
 
+	var lastModRevision int64 = 0
 	for _, wr = range responses {
 		// Sanity check that the response header is consistent, without updating lastHeader.
 		if err := checkHeader(&lastHeader, wr.Header, true); err != nil {
 			return err
 		}
-		if len(wr.Events) == 0 {
-			continue
+		// Sanity check that the earliest ModRevision in each response is greater than the
+		// greatest ModRevision in the previous response. This is guaranteed by ETCD, but
+		// this is just making that explicit.
+		if wr.Events[0].Kv.ModRevision <= lastModRevision {
+			return fmt.Errorf("received watch response with first event mod revision %d, which is <= lastModRevision %d",
+				wr.Events[0].Kv.ModRevision, lastModRevision)
 		}
-		// Events are sorted on ModRevision in ascending order, so the last one will
-		// have the greatest ModRevision.
-		if wr.Events[len(wr.Events)-1].Kv.ModRevision >= lastHeader.Revision {
+		lastModRevision = wr.Events[len(wr.Events)-1].Kv.ModRevision
+
+		if lastModRevision > lastHeader.Revision {
 			lastHeader.Revision = wr.Events[len(wr.Events)-1].Kv.ModRevision
 		} else {
-			// This shouldn't ever happen, but we it may not necessarily cause a problem if it does,
-			// since applying the same event twice ought to be OK. Just log noisily.
-			log.WithFields(log.Fields{
-				"response":     wr,
-				"lastRevision": lastHeader.Revision,
-			}).Error("received Etcd watch response with revision less than lastRevision")
+			return fmt.Errorf("received Etcd watch response with max mod revision (%d) less than last Header.Revision (%d)",
+				lastModRevision, ks.Header.Revision)
 		}
 
 		// Order on key, while preserving relative ModRevision order of events of the same key.
