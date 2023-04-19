@@ -114,7 +114,11 @@ export async function accessToken(req: Record<string, any>) {
 
     let mappedData: Record<string, any> = {};
     for (const key in accessTokenResponseMap) {
-        mappedData[key] = jsonpointer.get(responseData, accessTokenResponseMap[key]);
+        if (accessTokenResponseMap[key].startsWith('/')) {
+          mappedData[key] = jsonpointer.get(responseData, accessTokenResponseMap[key]);
+        } else {
+          mappedData[key] = compileTemplate(accessTokenResponseMap[key], responseData);
+        }
     }
 
     return new Response(JSON.stringify(mappedData), {
