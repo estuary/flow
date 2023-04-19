@@ -1,24 +1,21 @@
-import:
-  - last-large-send.flow.yaml
-
 tests:
-  examples/acmeBank/tests/last-large-send:
+  acmeBank/tests/last-large-send:
     - ingest:
-        collection: examples/acmeBank/transfers
+        collection: acmeBank/transfers
         description: Initial set of transfers amongst users
         documents:
           - { id: 1, sender: alice, recipient: bob, amount: 125.10 }
           - { id: 2, sender: bob, recipient: alice, amount: 10.22 }
           - { id: 3, sender: carol, recipient: bob, amount: 327.00 }
     - ingest:
-        collection: examples/acmeBank/transfers
+        collection: acmeBank/transfers
         description: Alice and Carol later send additional transfers.
         documents:
           - { id: 4, sender: alice, recipient: carol, amount: 32.50 }
           - { id: 5, sender: carol, recipient: alice, amount: 226.73 }
     - verify:
-        collection: examples/acmeBank/last-large-send
-        description: |
+        collection: acmeBank/last-large-send
+        description:
           Expect the most-recent of Carol's large transfers is tracked,
           along with Alice's only large transfer.
         documents:
