@@ -77,7 +77,7 @@ local_resource('config-encryption', serve_cmd='%s/config-encryption/target/debug
     --gcp-kms %s' % (REPO_BASE, TEST_KMS_KEY),
     deps=[])
 
-local_resource('oauth', serve_cmd='cd %s/flow && supabase functions serve oauth' % REPO_BASE, deps=['config-encryption'])
+local_resource('edge-functions', serve_cmd='cd %s/flow && supabase functions serve --env-file ./supabase/.env.local' % REPO_BASE, deps=['config-encryption'], links='http://localhost:5431/functions/v1',)
 
 local_resource('ui', serve_dir='%s/ui' % REPO_BASE, serve_cmd='BROWSER=none npm start', deps=[], links='http://localhost:3000')
 
@@ -102,8 +102,7 @@ local_resource('data-plane-gateway',
         --broker-address=localhost:8080 \
         --consumer-address=localhost:9000 \
         --log.level=debug \
-        --inference-address=localhost:9090 \
-        --control-plane-auth-url=http://localhost:3000' % (
+        --inference-address=localhost:9090' % (
             DPG_TLS_KEY_PATH,
             DPG_TLS_CERT_PATH
         ),
