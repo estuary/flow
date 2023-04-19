@@ -1,0 +1,47 @@
+collections:
+  acmeBank/transfer-outcomes:
+    schema:
+      # Enrich transfer schema with outcome and the sender's balance.
+      $ref: transfers.schema.yaml
+      required: [outcome, sender_balance]
+      properties:
+        outcome:
+          description: Transfer was approved, or denied for insufficient funds.
+          enum: [approve, deny]
+        sender_balance: { type: number }
+    key: [/id]
+
+    derive:
+      using:
+        sqlite:
+          migrations:
+            - CREATE TABLE current_balances (
+              account TEXT PRIMARY KEY NOT NULL,
+              balance REAL NOT NULL
+              );
+
+      transforms:
+        - name: debitSender
+          source: acmeBank/transfers
+          # Shuffle on the sender, as we'll debit their balance.
+          shuffle: { key: [/sender] }
+          lambda: debitSender.sql
+
+        - name: creditRecipient
+          # When a transfer is approved, we've debited the sender but still need to
+          # credit the recipient. Read approved transfers from ourselves to do so.
+          source:
+            name: acmeBank/transfer-outcomes
+            partitions:
+              include:
+                outcome: [approve]
+          shuffle: { key: [/recipient] }
+          lambda:
+            INSERT INTO current_balances (account, balance) VALUES ($recipient, $amount)
+            ON CONFLICT DO UPDATE SET balance = balance + $amount;
+
+    # Partition output based on the transfer outcome.
+    projections:
+      outcome:
+        location: /outcome
+        partition: true
