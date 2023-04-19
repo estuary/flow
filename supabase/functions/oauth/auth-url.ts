@@ -6,9 +6,9 @@ import { supabaseClient } from '../_shared/supabaseClient.ts';
 
 import { sha256 } from "https://denopkg.com/chiefbiiko/sha256@v1.0.0/mod.ts";
 
-const generateUniqueRandomKey = () => {
+const generateUniqueRandomKey = (size: number = 40) => {
     const validChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let array = new Uint8Array(40) as any;
+    let array = new Uint8Array(size) as any;
     window.crypto.getRandomValues(array);
     array = array.map((x: number) => validChars.codePointAt(x % validChars.length));
     return String.fromCharCode.apply(null, array);
@@ -51,7 +51,7 @@ export async function authURL(req: { connector_id: string; config: object; redir
     );
 
     // See https://www.oauth.com/oauth2-servers/pkce/authorization-request/
-    const codeVerifier = generateUniqueRandomKey();
+    const codeVerifier = generateUniqueRandomKey(50);
     const codeChallenge = base64URLSafe(sha256(codeVerifier, "utf8", "base64") as string);
     const codeChallengeMethod = 'S256';
 
