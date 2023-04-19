@@ -1,17 +1,12 @@
-import:
-  - transfers.flow.yaml
-
 collections:
-  examples/acmeBank/last-large-send:
+  acmeBank/last-large-send:
     schema: transfers.schema.yaml
     key: [/sender]
 
-    derivation:
-      typescript:
-        module: last-large-send.ts
-      transform:
-        fromTransfers:
-          source:
-            name: examples/acmeBank/transfers
-          publish:
-            lambda: typescript
+    derive:
+      using:
+        sqlite: { migrations: [] }
+      transforms:
+        - name: filterTransfers
+          source: acmeBank/transfers
+          lambda: SELECT $id, $sender, $recipient, $amount WHERE $amount > 100;

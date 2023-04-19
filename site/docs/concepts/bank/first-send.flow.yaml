@@ -2,29 +2,26 @@ import:
   - transfers.flow.yaml
 
 collections:
-  examples/acmeBank/first-send:
+  acmeBank/first-send:
     schema: transfers.schema.yaml
     key: [/id]
 
-    derivation:
-      # We'll store a `true/false` boolean in our register documents,
-      # which is initially `false` and becomes `true` after the first transfer.
-      register:
-        schema: { type: boolean }
-        initial: false
+    derive:
+      using:
+        sqlite:
+          migrations:
+            - CREATE TABLE seen_pairs (
+              sender    TEXT NOT NULL,
+              recipient TEXT NOT NULL,
+              PRIMARY KEY (sender, recipient)
+              );
 
-      typescript:
-        module: first-send.ts
-
-      transform:
-        fromTransfers:
-          source:
-            name: examples/acmeBank/transfers
-          # Shuffle so that each account pair
-          # is allocated its own register.
+      transforms:
+        - name: fromTransfers
+          source: acmeBank/transfers
           shuffle:
             key: [/sender, /recipient]
-          update:
-            lambda: typescript
-          publish:
-            lambda: typescript
+          lambda:
+            INSERT INTO seen_pairs (sender, recipient) VALUES ($sender, $recipient)
+            ON CONFLICT DO NOTHING
+            RETURNING $id, $sender, $recipient, $amount;

@@ -1,25 +1,16 @@
-import:
-  - transfers.flow.yaml
-
 collections:
-  examples/acmeBank/balances:
-    schema:
-      type: object
-      required: [user]
-      reduce: { strategy: merge }
-      properties:
-        user: { type: string }
-        balance:
-          type: number
-          reduce: { strategy: sum }
+  acmeBank/balances:
+    schema: balances.schema.yaml
     key: [/user]
 
-    derivation:
-      typescript:
-        module: balances.ts
-      transform:
-        fromTransfers:
+    derive:
+      using:
+        typescript:
+          module: balances.ts
+      transforms:
+        - name: fromOutcomes
           source:
-            name: examples/acmeBank/transfers
-          publish:
-            lambda: typescript
+            name: acmeBank/transfer-outcomes
+            partitions:
+              include:
+                outcome: [approve]

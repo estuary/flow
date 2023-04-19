@@ -1,10 +1,7 @@
-import:
-  - first-send.flow.yaml
-
 tests:
-  examples/acmeBank/tests/first-send:
+  acmeBank/tests/first-send:
     - ingest:
-        collection: examples/acmeBank/transfers
+        collection: acmeBank/transfers
         documents:
           - { id: 1, sender: alice, recipient: bob, amount: 10.25 }
           - { id: 2, sender: alice, recipient: bob, amount: 13.40 }
@@ -14,9 +11,8 @@ tests:
           - { id: 6, sender: alice, recipient: carol, amount: 7.13 }
 
     - verify:
-        collection: examples/acmeBank/first-send
-        description: |
-          Expect we filtered to the first interaction of each account pair.
+        collection: acmeBank/first-send
+        description: Expect to see only the first interaction of each account pair.
         documents:
           - { id: 1, sender: alice, recipient: bob, amount: 10.25 }
           - { id: 3, sender: carol, recipient: alice, amount: 12.50 }

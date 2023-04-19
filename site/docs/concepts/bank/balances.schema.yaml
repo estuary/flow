@@ -1,0 +1,8 @@
+type: object
+required: [user, balance]
+reduce: { strategy: merge }
+properties:
+  user: { type: string }
+  balance:
+    type: number
+    reduce: { strategy: sum }
