@@ -2,12 +2,11 @@ import:
   - transfers.flow.yaml
   - last-large-send.flow.yaml
   - last-large-send-test.flow.yaml
-  - balances.flow.yaml
-  - balances-test.flow.yaml
   - first-send.flow.yaml
   - first-send-test.flow.yaml
-  - flagged-transfers.flow.yaml
-  - flagged-transfers-test.flow.yaml
-
-storageMappings:
-  "": { stores: [{ provider: S3, bucket: a-bucket }] }
+  - outcomes.flow.yaml
+  - outcomes-test.flow.yaml
+  - grouped.flow.yaml
+  - grouped-test.flow.yaml
+  - balances.flow.yaml
+  - balances-test.flow.yaml

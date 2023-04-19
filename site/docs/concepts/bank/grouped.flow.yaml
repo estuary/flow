@@ -1,0 +1,30 @@
+collections:
+  acmeBank/grouped-transfers:
+    schema:
+      # Enrich transfer with a window of *other* transfers.
+      $ref: transfers.schema.yaml
+      required: [window]
+      properties:
+        window: { type: array }
+    key: [/id]
+
+    derive:
+      using:
+        sqlite:
+          migrations:
+            - CREATE TABLE transfers (
+              id        INTEGER PRIMARY KEY NOT NULL,
+              sender    TEXT NOT NULL,
+              recipient TEXT NOT NULL,
+              amount    REAL NOT NULL
+              );
+              CREATE INDEX idx_transfers_sender ON transfers (sender);
+      transforms:
+        - name: enrichAndAddToWindow
+          source: acmeBank/transfers
+          lambda: enrichAndAddToWindow.sql
+
+        - name: removeFromWindow
+          source: acmeBank/transfers
+          readDelay: 24h
+          lambda: DELETE FROM transfers WHERE id = $id;
