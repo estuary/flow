@@ -141,10 +141,11 @@ func (ks *KeySpace) Watch(ctx context.Context, client clientv3.Watcher) error {
 	ks.Mu.RLock()
 	// resumeRevision is the point at which we'll resume watch operations.
 	// This is separate from the `ks.Header.Revision`, which tracks the latest
-	// revision that's actually modified the keyspace. ProgressNofify responses
+	// revision that's actually modified the KeySpace. ProgressNotify responses
 	// should update the `resumeRevision`, but _not_ the `ks.Header.Revision`.
 	var resumeRevision = ks.Header.Revision + 1
 	ks.Mu.RUnlock()
+
 	for attempt := 0; true; attempt++ {
 		// Start (or restart) a new long-lived Watch. Note this is very similar to
 		// mirror.Syncer: A key difference (and the reason that API is not used) is
@@ -225,7 +226,7 @@ func (ks *KeySpace) Watch(ctx context.Context, client clientv3.Watcher) error {
 					"watchIter":      attempt,
 					"resumeRevision": resumeRevision,
 					"response":       resp,
-				}).Debug("ignoring empty watch response")
+				}).Warn("ignoring unexpected empty watch response")
 			}
 		case <-applyTimer.C:
 			// Apply all previously buffered WatchResponses. |applyTimer| is now
@@ -281,32 +282,27 @@ func (ks *KeySpace) WaitForRevision(ctx context.Context, revision int64) error {
 func (ks *KeySpace) Apply(responses ...clientv3.WatchResponse) error {
 	var wr clientv3.WatchResponse
 
-	// This will become the new Keyspace.Header after we're done applying all the responses.
+	// This will become the new KeySpace.Header after we're done applying all the responses.
 	// We'll validate each response header to make sure that it's consistent with this one,
-	// but we'll only update this header based on either a progress notification or the `ModRevision`
-	// of the events within the response.
-	var lastHeader = ks.Header
+	// but we'll only update this header with `ModRevision` of the events within the response.
+	var nextHeader = ks.Header
 
-	var lastModRevision int64 = 0
 	for _, wr = range responses {
-		// Sanity check that the response header is consistent, without updating lastHeader.
-		if err := checkHeader(&lastHeader, wr.Header); err != nil {
+		if err := checkHeader(&nextHeader, wr.Header); err != nil {
 			return err
 		}
 		// Sanity check that the earliest ModRevision in each response is greater than the
-		// greatest ModRevision in the previous response. This is guaranteed by ETCD, but
-		// this is just making that explicit.
-		if wr.Events[0].Kv.ModRevision <= lastModRevision {
-			return fmt.Errorf("received watch response with first event mod revision %d, which is <= lastModRevision %d",
-				wr.Events[0].Kv.ModRevision, lastModRevision)
-		}
-		lastModRevision = wr.Events[len(wr.Events)-1].Kv.ModRevision
-
-		if lastModRevision > lastHeader.Revision {
-			lastHeader.Revision = wr.Events[len(wr.Events)-1].Kv.ModRevision
+		// greatest ModRevision in the previous response, and that the last ModRevision is
+		// at least as large as the first ModRevision (they should be monotonic).
+		// This is all guaranteed by ETCD, but this is just making that explicit.
+		if firstRevision := wr.Events[0].Kv.ModRevision; firstRevision <= nextHeader.Revision {
+			return fmt.Errorf("received watch response with first ModRevision %d, which is <= last Revision %d",
+				firstRevision, nextHeader.Revision)
+		} else if lastRevision := wr.Events[len(wr.Events)-1].Kv.ModRevision; lastRevision < firstRevision {
+			return fmt.Errorf("received watch response with last ModRevision %d less than first ModRevision %d",
+				lastRevision, firstRevision)
 		} else {
-			return fmt.Errorf("received Etcd watch response with max mod revision (%d) less than last Header.Revision (%d)",
-				lastModRevision, ks.Header.Revision)
+			nextHeader.Revision = lastRevision
 		}
 
 		// Order on key, while preserving relative ModRevision order of events of the same key.
@@ -354,7 +350,7 @@ func (ks *KeySpace) Apply(responses ...clientv3.WatchResponse) error {
 
 	// Critical section: update header, swap out rebuilt KeyValues, and notify observers.
 	ks.Mu.Lock()
-	ks.Header = lastHeader
+	ks.Header = nextHeader
 	ks.KeyValues, ks.next = next, ks.KeyValues[:0]
 	ks.onUpdate()
 	ks.Mu.Unlock()

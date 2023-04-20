@@ -143,7 +143,18 @@ func (s *KeySpaceSuite) TestWatchResponseApply(c *gc.C) {
 		},
 	}}
 	c.Check(ks.Apply(resp...), gc.ErrorMatches,
-		`received Etcd watch response with max mod revision \(11\) less than last Header.Revision \(11\)`)
+		`received watch response with first ModRevision 11, which is <= last Revision 11`)
+
+	// WatchResponse with out-of-order inner events.
+	resp = []clientv3.WatchResponse{{
+		Header: epb.ResponseHeader{ClusterId: 9999, Revision: 13},
+		Events: []*clientv3.Event{
+			putEvent("/one/fish", "1", 13, 13, 1),
+			putEvent("/two/fish", "2", 12, 12, 1),
+		},
+	}}
+	c.Check(ks.Apply(resp...), gc.ErrorMatches,
+		`received watch response with last ModRevision 12 less than first ModRevision 13`)
 
 	// Multiple WatchResponses may be applied at once. Keys may be in any order,
 	// and mutated multiple times within the batch apply.
