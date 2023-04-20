@@ -9,8 +9,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.0.5";
 serve(async (req) => {
     let res: ConstructorParameters<typeof Response> = [null, {}];
     try {
-        // This is needed if you're planning to invoke your function from a browser.
-        // Remember to add the corsHeaders on the other responses as well.
         if (req.method === "OPTIONS") {
             res = ["ok", { status: 200 }];
         } else {
@@ -18,13 +16,10 @@ serve(async (req) => {
 
             const requested_tenant = request.tenant;
             // Create a Supabase client with the Auth context of the logged in user.
+            // This is required in order to get the user's name and email address
             const supabaseClient = createClient(
-                // Supabase API URL - env var exported by default.
                 Deno.env.get("SUPABASE_URL") ?? "",
-                // Supabase API ANON KEY - env var exported by default.
                 Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-                // Create client with Auth context of the user that called the function.
-                // This way your row-level-security (RLS) policies are applied.
                 {
                     global: {
                         headers: { Authorization: req.headers.get("Authorization")! },
