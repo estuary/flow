@@ -88,6 +88,7 @@ impl Auth {
 
 async fn do_login(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
     use crossterm::tty::IsTty;
+    use std::io::{BufRead, Write};
 
     let url = ctx.config().get_dashboard_url("/admin/api")?.to_string();
 
@@ -99,10 +100,17 @@ async fn do_login(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
     };
 
     if std::io::stdin().is_tty() {
-        println!("please paste the token from the CLI auth page and hit Enter");
-        let token = tokio::task::spawn_blocking(|| rpassword::prompt_password("Auth Token: "))
-            .await?
-            .context("failed to read auth token")?;
+        let token = tokio::task::spawn_blocking::<_, std::io::Result<String>>(|| {
+            print!("please paste the token from the CLI auth page and hit Enter\nAuth token: ");
+            // flush is necessary because stdout is newline buffered and our output doesn't end with a newline.
+            std::io::stdout().flush()?;
+            let mut stdin = std::io::stdin().lock();
+            let mut line = String::with_capacity(64);
+            stdin.read_line(&mut line)?;
+            Ok(line)
+        })
+        .await?
+        .context("failed to read auth token")?;
 
         // Copied credentials will often accidentally contain extra whitespace characters.
         let token = token.trim().to_string();
