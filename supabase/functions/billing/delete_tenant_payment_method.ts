@@ -14,7 +14,7 @@ export async function deleteTenantPaymentMethod(
     const customer = (await StripeClient.customers.search({ query: customerQuery(req_body.tenant) })).data[0];
     if (customer) {
         const methods = (await StripeClient.customers.listPaymentMethods(customer.id)).data;
-        const validMethod = methods.filter((m) => m.id !== req_body.id)[0];
+        const validMethod = methods.filter((m: { id: string }) => m.id !== req_body.id)[0];
         if (validMethod) {
             await StripeClient.customers.update(customer.id, { invoice_settings: { default_payment_method: validMethod.id } });
         }
