@@ -71,7 +71,5 @@ serve(async (req) => {
 
     res[1] = { ...res[1], headers: { ...res[1]?.headers || {}, ...corsHeaders } };
 
-    console.log(JSON.stringify(res, null, 4));
-
     return new Response(...res);
 });
