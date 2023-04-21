@@ -47,8 +47,6 @@ tonic = { workspace = true }
 open = { workspace = true }
 postgrest = { workspace = true }
 reqwest = { workspace = true }
-# rpassword is used for reading credentials from stdin
-rpassword = { workspace = true }
 
 serde = { workspace = true }
 serde-transcode = { workspace = true }
