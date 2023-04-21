@@ -6,6 +6,9 @@ import { deleteTenantPaymentMethod } from "./delete_tenant_payment_method.ts";
 import { setTenantPrimaryPaymentMethod } from "./set_tenant_primary_payment_method.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.0.5";
 
+// Now that the supabase CLI supports multiple edge functions,
+// we should refactor this into individual functions instead
+// of multiplexing endpoints via the request body
 serve(async (req) => {
     let res: ConstructorParameters<typeof Response> = [null, {}];
     try {
