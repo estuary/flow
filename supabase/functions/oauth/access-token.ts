@@ -81,12 +81,14 @@ export async function accessToken(req: Record<string, any>) {
         );
     }
 
+    const defaultContentType = Object.keys(headers).some(h => h.toLowerCase() == 'content-type') ? {} : { 'content-type': 'application/json' };
+
     const response = await fetch(url, {
         method: 'POST',
         body: body,
         headers: {
             accept: 'application/json',
-            'content-type': 'application/json',
+            ...defaultContentType,
             ...corsHeaders,
             ...headers,
         },
