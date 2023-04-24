@@ -22,7 +22,7 @@ all while remaining aware of your data's complete history.
 A few examples of what you can do with Flow:
 
  * Perform *change data capture* from MySQL tables into PostgreSQL or a cloud analytics warehouse
- * Fetch, transform, and load logs from cloud delivery networks (CDNs) into Elastic Search or BigQuery
+ * Fetch, transform, and load logs from cloud delivery networks (CDNs) into Elasticsearch or BigQuery
  * Instrument real-time analytics over your business events, accessible from current tools like PostgreSQL or even Google Sheets
  * Capture and organize your data from your SaaS vendors (like Hubspot or Facebook), into a Parquet data lake
 
