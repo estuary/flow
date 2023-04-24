@@ -1,5 +1,3 @@
-import { serve } from 'https://deno.land/std@0.131.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js';
 import jsonpointer from 'https://esm.sh/jsonpointer.js';
 import { returnPostgresError, compileTemplate } from '../_shared/helpers.ts';
 import { corsHeaders } from '../_shared/cors.ts';
@@ -81,7 +79,8 @@ export async function accessToken(req: Record<string, any>) {
         );
     }
 
-    const defaultContentType = Object.keys(headers).some(h => h.toLowerCase() == 'content-type') ? {} : { 'content-type': 'application/json' };
+    const defaultContentType: Record<string, string> = Object.keys(headers).some(
+        h => h.toLowerCase() == 'content-type') ? {} : { 'content-type': 'application/json' };
 
     const response = await fetch(url, {
         method: 'POST',
@@ -112,9 +111,9 @@ export async function accessToken(req: Record<string, any>) {
         );
     }
 
-    let responseData = JSON.parse(responseText);
+    const responseData = JSON.parse(responseText);
 
-    let mappedData: Record<string, any> = {};
+    const mappedData: Record<string, any> = {};
     for (const key in accessTokenResponseMap) {
         mappedData[key] = jsonpointer.get(responseData, accessTokenResponseMap[key]);
     }

@@ -25,5 +25,6 @@
     // Disable SQL formatting because it's - frankly - terrible.
     "editor.formatOnSave": false
   },
-  "deno.enable": true
+  "deno.enable": true,
+  "deno.path": ".build/package/bin/deno"
 }
