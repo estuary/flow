@@ -19,8 +19,6 @@ struct Args {
 enum Subcommand {
     /// Generates Markdown documentation of the fields in a schema.
     Markdown(schemalate::markdown::Args),
-    /// Generates an Elasticsearch schema
-    ElasticsearchSchema(schemalate::elasticsearch::Args),
     // Generates a Firebolt table schema
     FireboltSchema(schemalate::firebolt::Args),
 }
@@ -37,7 +35,6 @@ fn main() -> Result<(), anyhow::Error> {
 fn run_subcommand(subcommand: Subcommand) -> Result<(), anyhow::Error> {
     let result = match subcommand {
         Subcommand::Markdown(md_args) => schemalate::markdown::run(md_args),
-        Subcommand::ElasticsearchSchema(es_args) => schemalate::elasticsearch::run(es_args),
         Subcommand::FireboltSchema(fb_args) => schemalate::firebolt::run(fb_args),
     };
 
