@@ -4,6 +4,7 @@ use doc::combine;
 use std::io::{self, Write};
 
 mod materialize_fixture;
+mod discover;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -42,6 +43,8 @@ pub enum Command {
     DenoDerive(DenoDerive),
     /// Generate a materialization fixture.
     MaterializeFixture(materialize_fixture::MaterializeFixture),
+    /// Discover a connector and write catalog files
+    Discover(discover::Discover),
 }
 
 #[derive(Debug, clap::Args)]
@@ -117,7 +120,8 @@ impl Advanced {
             Command::DenoDerive(_deno) => derive_typescript::run(),
             Command::MaterializeFixture(fixture) => {
                 materialize_fixture::do_materialize_fixture(ctx, fixture).await
-            }
+            },
+            Command::Discover(args) => discover::do_discover(ctx, args).await,
         }
     }
 }

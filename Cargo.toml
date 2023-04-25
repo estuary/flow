@@ -124,6 +124,8 @@ sqlx = { version = "0.6", features = [
 ] }
 
 tempfile = "3.3"
+quale = "1.0.0"
+portpicker = "0.1.1"
 tempdir = "0.3"
 thiserror = "1.0"
 time = { version = "0.3", features = [

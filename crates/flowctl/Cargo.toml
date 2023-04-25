@@ -20,12 +20,14 @@ labels = { path = "../labels" }
 models = { path = "../models" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
+proto-grpc = { path = "../proto-grpc", features = ["capture_client"] }
 proto-gazette = { path = "../proto-gazette" }
 runtime = { path = "../runtime" }
 schema-inference = { path = "../schema-inference" }
 sources = { path = "../sources" }
-tables = { path = "../tables" }
+tables = { path = "../tables", features = ["persist"] }
 validation = { path = "../validation" }
+async-process = { path = "../async-process" }
 
 anyhow = { workspace = true }
 base64 = { workspace = true }
@@ -42,6 +44,7 @@ md5 = { workspace = true }
 pbjson-types = { workspace = true }
 prost = { workspace = true }
 tonic = { workspace = true }
+rusqlite = { workspace = true }
 
 # open is used for opening URLs in the user's browser
 open = { workspace = true }
@@ -56,6 +59,8 @@ size = { workspace = true }
 superslice = { workspace = true }
 
 tempfile = { workspace = true }
+quale = { workspace = true }
+portpicker = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
