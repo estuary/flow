@@ -118,6 +118,12 @@ tables!(
         error: anyhow::Error,
     }
 
+    table Inferences (row Inference, order_by [schema], sql "inferences") {
+        schema:  String,
+        location: String,
+        spec: proto_flow::flow::Inference,
+    }
+
     table Meta (row Build, order_by [], sql "meta") {
         build_config: proto_flow::flow::build_api::Config,
     }
@@ -294,6 +300,7 @@ json_sql_types!(
     models::MaterializationDef,
     models::RawValue,
     proto_flow::flow::ContentType,
+    proto_flow::flow::Inference,
 );
 
 proto_sql_types!(
