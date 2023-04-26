@@ -1,6 +1,7 @@
 use super::codec::{reader_to_message_stream, Codec};
 use anyhow::Context;
 use futures::{StreamExt, TryStreamExt};
+use prost::Message;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tonic::Status;
 
@@ -24,7 +25,7 @@ pub async fn unary<In, Out, H>(
 where
     In: prost::Message + serde::Serialize + 'static,
     Out: prost::Message + for<'de> serde::Deserialize<'de> + Default + Unpin,
-    H: Fn(ops::Log) + Send + Sync + 'static,
+    H: Fn(&ops::Log) + Send + Sync + 'static,
 {
     let requests = futures::stream::once(async { Ok(request) });
     let responses = bidi(connector, codec, requests, log_handler)?;
@@ -53,7 +54,7 @@ where
     In: prost::Message + serde::Serialize + 'static,
     Out: prost::Message + for<'de> serde::Deserialize<'de> + Default,
     InStream: futures::Stream<Item = tonic::Result<In>> + Send + 'static,
-    H: Fn(ops::Log) + Send + Sync + 'static,
+    H: Fn(&ops::Log) + Send + Sync + 'static,
 {
     let args: Vec<String> = std::iter::once(connector.get_program())
         .chain(connector.get_args())
@@ -104,27 +105,30 @@ async fn service_connector<M, S, H>(
 where
     M: prost::Message + serde::Serialize + 'static,
     S: futures::Stream<Item = tonic::Result<M>>,
-    H: Fn(ops::Log) + Send + Sync + 'static,
+    H: Fn(&ops::Log) + Send + Sync + 'static,
 {
     let mut stdin = connector.stdin.take().expect("connector stdin is a pipe");
     let stderr = connector.stderr.take().expect("connector stderr is a pipe");
 
     // Future which processes decoded logs from the connector's stderr, forwarding to
-    // our own stderr and, when stderr closes, resolving to a smallish ring-buffer of
-    // the very last stderr output.
-    let stderr = process_logs(stderr, log_handler, std::time::SystemTime::now, 8192);
+    // our `log_handler` and, when stderr closes, resolving to a final Log.
+    let last_log = process_logs(stderr, log_handler, std::time::SystemTime::now);
 
     // Future which awaits the connector's exit and stderr result, and returns Ok(())
     // if it exited successfully or an error with embedded stderr content otherwise.
     let exit = async {
-        let (wait, stderr) = futures::join!(connector.wait(), stderr);
+        let (wait, last_log) = futures::join!(connector.wait(), last_log);
         let status = wait.map_err(|err| map_status("failed to wait for connector", err))?;
 
         if !status.success() {
             tracing::error!(%status, "connector failed");
-            Err(Status::internal(format!(
-                "connector failed ({status}) with stderr:\n{stderr}"
-            )))
+
+            let mut status = Status::internal(&last_log.message);
+            status.metadata_mut().insert_bin(
+                "last-log-bin",
+                tonic::metadata::MetadataValue::from_bytes(&last_log.encode_to_vec()),
+            );
+            Err(status)
         } else {
             tracing::debug!(%status, "connector exited");
             Ok(())
@@ -175,16 +179,20 @@ where
 /// Decode ops::Logs from the AsyncRead, passing each to the given handler,
 /// and also accumulate up to `ring_capacity` of final stderr output
 /// which is returned upon the first clean EOF or other error of the reader.
-async fn process_logs<R, H, T>(reader: R, handler: H, timesource: T, ring_capacity: usize) -> String
+async fn process_logs<R, H, T>(reader: R, handler: H, timesource: T) -> ops::Log
 where
     R: tokio::io::AsyncRead + Unpin,
-    H: Fn(ops::Log),
+    H: Fn(&ops::Log),
     T: Fn() -> std::time::SystemTime,
 {
     let mut reader = tokio::io::BufReader::new(reader);
-    let mut ring = std::collections::VecDeque::<u8>::with_capacity(ring_capacity);
     let mut line = String::new();
     let decoder = ops::decode::Decoder::new(timesource);
+    let mut last_log = ops::Log {
+        level: ops::LogLevel::Warn as i32,
+        message: "connector exited with no log output".to_string(),
+        ..Default::default()
+    };
 
     loop {
         line.clear();
@@ -198,31 +206,15 @@ where
             Ok(_) => (),
         }
 
-        // Drop lines from the head of the ring while there's insufficient
-        // capacity for the current `line`. Then push `line`.
-        // We (currently) allow a single line to violate `ring_capacity`.
-        while !ring.is_empty() && ring.len() + line.len() > ring_capacity {
-            match ring.iter().position(|c| *c == b'\n') {
-                Some(ind) => {
-                    ring.drain(..ind + 1);
-                }
-                None => ring.clear(),
-            }
-        }
+        // Extract the next log line, passing a look-ahead buffer that allows
+        // multiple unstructured lines to map into a single Log instance.
         let (log, consume) = decoder.line_to_log(&line, reader.buffer());
-
-        // Extend `ring` with `line` and the consumed portion of the look-ahead buffer.
-        ring.extend(
-            line.as_bytes()
-                .iter()
-                .chain(reader.buffer().iter().take(consume)),
-        );
         reader.consume(consume);
 
-        handler(log);
+        handler(&log);
+        last_log = log;
     }
-
-    String::from_utf8_lossy(ring.make_contiguous()).to_string()
+    last_log
 }
 
 fn map_status<E: Into<anyhow::Error>>(message: &'static str, err: E) -> Status {
@@ -232,7 +224,7 @@ fn map_status<E: Into<anyhow::Error>>(message: &'static str, err: E) -> Status {
 #[cfg(test)]
 mod test {
     use super::{bidi, new_command, process_logs, unary, Codec};
-    use futures::StreamExt;
+    use futures::{StreamExt, TryStreamExt};
     use proto_flow::flow::TestSpec;
 
     #[tokio::test]
@@ -257,18 +249,29 @@ mod test {
         };
 
         let logs = std::cell::RefCell::new(Vec::new());
-        let recent = process_logs(
+        let last_log = process_logs(
             fixture.as_bytes(),
-            |log| logs.borrow_mut().push(log),
+            |log| logs.borrow_mut().push(log.clone()),
             timesource,
-            64,
         )
         .await;
 
-        // Expect a bounded amount of recent logs are returned.
-        insta::assert_snapshot!(recent, @r###"
-        to boldly go
-           smol(1)
+        // Expect the last log is returned.
+        insta::assert_debug_snapshot!(last_log, @r###"
+        Log {
+            meta: None,
+            shard: None,
+            timestamp: Some(
+                Timestamp {
+                    seconds: 1660000050,
+                    nanos: 0,
+                },
+            ),
+            level: Warn,
+            message: "to boldly go\n   smol(1)",
+            fields_json_map: {},
+            spans: [],
+        }
         "###);
 
         // All logs were decoded and mapped into their structured equivalents.
@@ -395,6 +398,7 @@ mod test {
                 ops::stderr_log_handler,
             )
             .unwrap()
+            .map_err(strip_log)
             .collect()
             .await;
 
@@ -404,7 +408,12 @@ mod test {
                 Err(
                     Status {
                         code: Internal,
-                        message: "connector failed (exit status: 1) with stderr:\ncat: /this/path/does/not/exist: No such file or directory\n",
+                        message: "cat: /this/path/does/not/exist: No such file or directory",
+                        metadata: MetadataMap {
+                            headers: {
+                                "last-log-bin": "dmFs",
+                            },
+                        },
                         source: None,
                     },
                 ),
@@ -440,6 +449,7 @@ mod test {
             ops::stderr_log_handler,
         )
         .unwrap()
+        .map_err(strip_log)
         .collect()
         .await;
 
@@ -455,7 +465,12 @@ mod test {
             Err(
                 Status {
                     code: Internal,
-                    message: "connector failed (exit status: 1) with stderr:\ncat: /this/path/does/not/exist: No such file or directory\n",
+                    message: "cat: /this/path/does/not/exist: No such file or directory",
+                    metadata: MetadataMap {
+                        headers: {
+                            "last-log-bin": "dmFs",
+                        },
+                    },
                     source: None,
                 },
             ),
@@ -511,6 +526,13 @@ mod test {
             "###);
             }
         }
+    }
+
+    fn strip_log(mut status: tonic::Status) -> tonic::Status {
+        if let Some(m) = status.metadata_mut().get_bin_mut("last-log-bin") {
+            *m = tonic::metadata::MetadataValue::from_bytes(b"val");
+        }
+        status
     }
 }
 
