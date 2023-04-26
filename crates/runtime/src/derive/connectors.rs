@@ -3,13 +3,13 @@ use proto_flow::derive::{Request, Response};
 use proto_flow::ops;
 use std::path::Path;
 
-pub fn typescript_connector<L, R>(
+pub fn typescript_connector<H, R>(
     _peek_request: &Request,
-    log_handler: L,
+    log_handler: H,
     request_rx: R,
 ) -> tonic::Result<impl Stream<Item = tonic::Result<Response>>>
 where
-    L: Fn(ops::Log) + Send + Sync + 'static,
+    H: Fn(&ops::Log) + Send + Sync + 'static,
     R: futures::stream::Stream<Item = tonic::Result<Request>> + Send + 'static,
 {
     // Look for `flowctl` alongside the current running program (or perhaps it *is* the
