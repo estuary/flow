@@ -67,7 +67,7 @@ impl<'de> Deserialize<'de> for HexU32 {
 
 /// stderr_log_handler is a log handler that writes canonical
 /// JSON log serializations to stderr.
-pub fn stderr_log_handler(log: Log) {
+pub fn stderr_log_handler(log: &Log) {
     let mut buf = serde_json::to_vec(&log).expect("Log always serializes");
     buf.push(b'\n');
     _ = std::io::stderr().write_all(&buf); // Best-effort.
@@ -77,12 +77,12 @@ pub fn stderr_log_handler(log: Log) {
 /// writes canonical JSON log serializations to the given writer.
 pub fn new_encoded_json_write_handler<W>(
     writer: std::sync::Arc<std::sync::Mutex<W>>,
-) -> impl Fn(Log) + Send + Sync + Clone + 'static
+) -> impl Fn(&Log) + Send + Sync + Clone + 'static
 where
     W: std::io::Write + Send + 'static,
 {
-    move |log: Log| {
-        let mut buf = serde_json::to_vec(&log).expect("Log always serializes");
+    move |log: &Log| {
+        let mut buf = serde_json::to_vec(log).expect("Log always serializes");
         buf.push(b'\n');
         _ = writer
             .lock()
@@ -95,7 +95,7 @@ where
 // writes tracing events using the given dispatcher.
 pub fn new_tracing_dispatch_handler(
     dispatcher: ::tracing::Dispatch,
-) -> impl Fn(Log) + Send + Sync + Clone + 'static {
+) -> impl Fn(&Log) + Send + Sync + Clone + 'static {
     move |log| ::tracing::dispatcher::with_default(&dispatcher, || tracing_log_handler(log))
 }
 
@@ -107,9 +107,9 @@ pub fn tracing_log_handler(
         fields_json_map: fields,
         message,
         ..
-    }: Log,
+    }: &Log,
 ) {
-    match LogLevel::from_i32(level).unwrap_or_default() {
+    match LogLevel::from_i32(*level).unwrap_or_default() {
         LogLevel::Trace => ::tracing::trace!(?fields, message),
         LogLevel::Debug => ::tracing::debug!(?fields, message),
         LogLevel::Info => ::tracing::info!(?fields, message),
@@ -141,9 +141,9 @@ mod test {
             spans: Vec::new(),
         };
 
-        handler(log.clone());
+        handler(&log);
         log.message = "I'm different!".to_string();
-        handler(log);
+        handler(&log);
 
         std::mem::drop(handler);
         let writer = Arc::try_unwrap(writer).unwrap().into_inner().unwrap();
