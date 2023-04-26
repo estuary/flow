@@ -79,7 +79,7 @@ local_resource('config-encryption', serve_cmd='%s/config-encryption/target/debug
 
 local_resource(
     'edge-functions',
-    serve_cmd=serve_cmd='cd %s/flow && supabase functions serve --env-file ./supabase/.env.local --import-map ./supabase/functions/import-map.json' % REPO_BASE,
+    serve_cmd=serve_cmd='cd %s/flow && supabase functions serve --env-file supabase/env.local --import-map supabase/functions/import-map.json' % REPO_BASE,
     deps=['config-encryption'])
 
 local_resource('ui', serve_dir='%s/ui' % REPO_BASE, serve_cmd='BROWSER=none npm start', deps=[], links='http://localhost:3000')
