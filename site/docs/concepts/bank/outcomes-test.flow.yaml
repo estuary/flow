@@ -1,0 +1,49 @@
+tests:
+  acmeBank/tests/transfer-outcomes:
+    - ingest:
+        description: Initial deposits.
+        collection: acmeBank/transfers
+        documents:
+          - { id: 1, sender: DEPOSIT, recipient: Alice, amount: 20 }
+          - { id: 2, sender: DEPOSIT, recipient: Bob, amount: 20 }
+
+    - ingest:
+        description: Transfers between users.
+        collection: acmeBank/transfers
+        documents:
+          - { id: 3, sender: Alice, recipient: Bob, amount: 32.50 }
+          - { id: 4, sender: Bob, recipient: Carol, amount: 10.75 }
+
+    - verify:
+        description: Expect transfers were enriched with outcome and balance.
+        collection: acmeBank/transfer-outcomes
+        documents:
+          - {
+              id: 1,
+              sender: DEPOSIT,
+              recipient: Alice,
+              amount: 20,
+              outcome: approve,
+            }
+          - {
+              id: 2,
+              sender: DEPOSIT,
+              recipient: Bob,
+              amount: 20,
+              outcome: approve,
+            }
+          - {
+              id: 3,
+              sender: Alice,
+              recipient: Bob,
+              amount: 32.50,
+              outcome: deny,
+            }
+          - {
+              id: 4,
+              sender: Bob,
+              recipient: Carol,
+              amount: 10.75,
+              outcome: approve,
+              sender_balance: 9.25,
+            }

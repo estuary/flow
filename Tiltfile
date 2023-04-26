@@ -1,7 +1,7 @@
 # This file is interpreted by `tilt`, and describes how to get a local flow environment running.
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/postgres"
 os.putenv("DATABASE_URL", DATABASE_URL)
-os.putenv ("RUST_LOG", "info")
+os.putenv("RUST_LOG", "info")
 
 
 REPO_BASE= '%s/..' % os.getcwd()
@@ -77,7 +77,10 @@ local_resource('config-encryption', serve_cmd='%s/config-encryption/target/debug
     --gcp-kms %s' % (REPO_BASE, TEST_KMS_KEY),
     deps=[])
 
-local_resource('edge-functions', serve_cmd='cd %s/flow && supabase functions serve --env-file ./supabase/.env.local --import-map ./supabase/functions/import-map.json' % REPO_BASE, deps=['config-encryption'], links='http://localhost:5431/functions/v1',)
+local_resource(
+    'edge-functions',
+    serve_cmd=serve_cmd='cd %s/flow && supabase functions serve --env-file ./supabase/.env.local --import-map ./supabase/functions/import-map.json' % REPO_BASE,
+    deps=['config-encryption'])
 
 local_resource('ui', serve_dir='%s/ui' % REPO_BASE, serve_cmd='BROWSER=none npm start', deps=[], links='http://localhost:3000')
 

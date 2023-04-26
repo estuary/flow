@@ -1,0 +1,61 @@
+tests:
+  acmeBank/tests/grouped-transfers:
+    - ingest:
+        description: Initial transfers.
+        collection: acmeBank/transfers
+        documents:
+          - { id: 1, sender: alice, recipient: bob, amount: 6.45 }
+          - { id: 2, sender: bob, recipient: carol, amount: 9.72 }
+          - { id: 3, sender: bob, recipient: alice, amount: 12.50 }
+
+    - verify:
+        description: Expect transfers were enriched with their current window.
+          Note that a verify step will advance test time forward until all
+          source documents have been read by all transforms,
+          meaning that the window has been reset.
+        collection: acmeBank/grouped-transfers
+        documents:
+          - { amount: 6.45, id: 1, sender: alice, recipient: bob, window: [] }
+          - { amount: 9.72, id: 2, sender: bob, recipient: carol, window: [] }
+          - {
+              id: 3,
+              sender: bob,
+              recipient: alice,
+              amount: 12.5,
+              window: [{ id: 2, recipient: carol, amount: 9.72 }],
+            }
+
+    - ingest:
+        collection: acmeBank/transfers
+        documents:
+          - { id: 4, sender: alice, recipient: bob, amount: 1.96 }
+          - { id: 5, sender: alice, recipient: carol, amount: 2.36 }
+          - { id: 6, sender: bob, recipient: alice, amount: 7.13 }
+          - { id: 7, sender: alice, recipient: bob, amount: 2.57 }
+
+    - verify:
+        collection: acmeBank/grouped-transfers
+        documents:
+          - { id: 1 }
+          - { id: 2 }
+          - { id: 3 }
+          - { id: 4, amount: 1.96, sender: alice, recipient: bob, window: [] }
+          - {
+              id: 5,
+              amount: 2.36,
+              sender: alice,
+              recipient: carol,
+              window: [{ id: 4, amount: 1.96, recipient: bob }],
+            }
+          - { id: 6, sender: bob, recipient: alice, amount: 7.13, window: [] }
+          - {
+              id: 7,
+              amount: 2.57,
+              sender: alice,
+              recipient: bob,
+              window:
+                [
+                  { id: 4, amount: 1.96, recipient: bob },
+                  { id: 5, amount: 2.36, recipient: carol },
+                ],
+            }
