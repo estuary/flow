@@ -12,6 +12,7 @@ license.workspace = true
 doc = { path = "../doc" }
 json = { path = "../json" }
 proto-flow = { path = "../proto-flow" }
+locate-bin = { path = "../locate-bin" }
 
 anyhow = { workspace = true }
 itertools = { workspace = true }
