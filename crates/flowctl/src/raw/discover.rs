@@ -201,7 +201,7 @@ pub fn docker_spawn(image: &str, args: &[&str]) -> anyhow::Result<(Child, TempDi
     let host_inspect_str = host_inspect.clone().into_os_string().into_string().unwrap();
 
     fs::write(&host_inspect, inspect_output.stdout)?;
-    let host_connector_init = quale::which("flow-connector-init").ok_or(anyhow::anyhow!("could not locate flow-connector-init"))?;
+    let host_connector_init = locate_bin::locate("flow-connector-init").context("locating flow-connector-init")?;
     let host_connector_init_str = host_connector_init.into_os_string().into_string().unwrap();
     let target_connector_init = "/tmp/connector_init";
 
