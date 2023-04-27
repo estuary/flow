@@ -1,5 +1,4 @@
 use anyhow::anyhow;
-use serde::Serialize;
 use std::{fs, process::{Command, Stdio, Output, Child}};
 use anyhow::Context;
 use futures::stream;
@@ -34,37 +33,27 @@ pub struct Discover {
     flat: bool,
 }
 
-fn to_yaml<T: Serialize>(input: T) -> Result<String, anyhow::Error> {
-    // This is necessary for serde_json to handle `RawValue`s properly
-    let json_string = serde_json::to_string(&input)?;
-    return Ok(serde_yaml::to_string(&serde_yaml::from_str::<serde_yaml::Value>(&json_string)?)?)
-}
-
-fn raw_json_to_yaml(input: &str) -> Result<String, anyhow::Error> {
-    return Ok(to_yaml(serde_json::from_str::<serde_json::Value>(input)?)?);
-}
-
-fn raw_yaml_to_json(input: &str) -> Result<String, anyhow::Error> {
-    return Ok(serde_json::to_string(&serde_yaml::from_str::<serde_yaml::Value>(input)?)?);
-}
-
 pub async fn do_discover(_ctx: &mut crate::CliContext, Discover { image, prefix, overwrite, flat }: &Discover) -> anyhow::Result<()> {
-    let root = prefix;
     let connector_name = image.rsplit_once('/').expect("image must include slashes").1.split_once(':').expect("image must include tag").0;
-    let config_file = format!("{connector_name}.config.yaml");
+
     let catalog_file = format!("{connector_name}.flow.yaml");
+
+    let target = local_specs::arg_source_to_url(&catalog_file, true)?;
+    let mut sources = local_specs::surface_errors(local_specs::load(&target).await)?;
 
     let capture_name = format!("{prefix}/{connector_name}");
 
-    let _ = std::fs::create_dir(&root);
-    let _ = std::fs::create_dir(format!("{root}/collections"));
+    let cfg = sources.captures.first()
+        .and_then(|c| match &c.spec.endpoint {
+            CaptureEndpoint::Connector(conn) => Some(conn.config.clone())
+        });
 
     // If config file exists, try a Discover RPC with the config file
-    if let Ok(config) = fs::read_to_string(&format!("{root}/{config_file}")) {
+    if let Some(config) = cfg {
         let discover_output = docker_run(image, Request {
             discover: Some(request::Discover {
                 connector_type: ConnectorType::Image.into(),
-                config_json: raw_yaml_to_json(&config)?,
+                config_json: config.to_string(),
             }),
             ..Default::default()
         }).await.context("connector discover")?;
@@ -77,9 +66,7 @@ pub async fn do_discover(_ctx: &mut crate::CliContext, Discover { image, prefix,
         // Create a catalog with the discovered bindings
         for binding in bindings.iter() {
             let collection_name = format!("{prefix}/{}", binding.recommended_name);
-            let schema_file = format!("collections/{}.schema.yaml", binding.recommended_name);
             let collection = Collection::new(collection_name);
-            std::fs::write(&format!("{root}/{schema_file}"), raw_json_to_yaml(&binding.document_schema_json)?)?;
 
             capture_bindings.push(
                 CaptureBinding {
@@ -90,7 +77,7 @@ pub async fn do_discover(_ctx: &mut crate::CliContext, Discover { image, prefix,
 
             collections.insert(collection,
                 CollectionDef {
-                    schema: Some(Schema::new(serde_json::from_value(json!(schema_file))?)),
+                    schema: Some(Schema::new(RawValue::from_string(binding.document_schema_json.clone())?.into())),
                     write_schema: None,
                     read_schema: None,
                     key: CompositeKey::new(binding.key.iter().map(JsonPointer::new).collect::<Vec<JsonPointer>>()),
@@ -108,7 +95,7 @@ pub async fn do_discover(_ctx: &mut crate::CliContext, Discover { image, prefix,
                 CaptureDef {
                     endpoint: CaptureEndpoint::Connector(ConnectorConfig {
                         image: image.to_string(),
-                        config: serde_json::value::to_raw_value(&config_file)?.into(),
+                        config,
                     }),
                     bindings: capture_bindings,
                     interval: CaptureDef::default_interval(),
@@ -119,7 +106,15 @@ pub async fn do_discover(_ctx: &mut crate::CliContext, Discover { image, prefix,
             ..Default::default()
         };
 
-        std::fs::write(&format!("{root}/{catalog_file}"), to_yaml(&catalog)?)?;
+        let count = local_specs::extend_from_catalog(
+            &mut sources,
+            catalog,
+            // We need to overwrite here to allow for bindings to be added to the capture
+            local_specs::pick_policy(true, *flat),
+        );
+
+        local_specs::indirect_and_write_resources(sources)?;
+        println!("Wrote {count} specifications under {target}.");
     } else {
         // Otherwise send a Spec RPC and use that to write a sample config file
         let spec_output = docker_run(image, Request {
@@ -144,9 +139,6 @@ pub async fn do_discover(_ctx: &mut crate::CliContext, Discover { image, prefix,
 
         // Create a stub config file
         let config = schema_to_sample_json(&shape)?;
-
-        let target = local_specs::arg_source_to_url(&catalog_file, true)?;
-        let mut sources = local_specs::surface_errors(local_specs::load(&target).await)?;
 
         let catalog = Catalog {
             captures: BTreeMap::from([

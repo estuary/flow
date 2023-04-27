@@ -294,7 +294,6 @@ json_sql_types!(
     models::MaterializationDef,
     models::RawValue,
     proto_flow::flow::ContentType,
-    proto_flow::flow::Inference,
 );
 
 proto_sql_types!(
