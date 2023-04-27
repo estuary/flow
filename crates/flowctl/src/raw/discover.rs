@@ -13,6 +13,8 @@ use proto_grpc::capture::connector_client::ConnectorClient;
 use serde_json::{json, value::RawValue};
 use std::collections::BTreeMap;
 
+use crate::local_specs;
+
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct Discover {
@@ -22,6 +24,14 @@ pub struct Discover {
     /// Prefix
     #[clap(default_value_t = String::from("acmeCo"))]
     prefix: String,
+
+    /// Should existing specs be over-written by specs from the Flow control plane?
+    #[clap(long)]
+    overwrite: bool,
+
+    /// Should specs be written to the single specification file, or written in the canonical layout?
+    #[clap(long)]
+    flat: bool,
 }
 
 fn to_yaml<T: Serialize>(input: T) -> Result<String, anyhow::Error> {
@@ -38,11 +48,13 @@ fn raw_yaml_to_json(input: &str) -> Result<String, anyhow::Error> {
     return Ok(serde_json::to_string(&serde_yaml::from_str::<serde_yaml::Value>(input)?)?);
 }
 
-pub async fn do_discover(_ctx: &mut crate::CliContext, Discover { image, prefix }: &Discover) -> anyhow::Result<()> {
+pub async fn do_discover(_ctx: &mut crate::CliContext, Discover { image, prefix, overwrite, flat }: &Discover) -> anyhow::Result<()> {
     let root = prefix;
     let connector_name = image.rsplit_once('/').expect("image must include slashes").1.split_once(':').expect("image must include tag").0;
     let config_file = format!("{connector_name}.config.yaml");
     let catalog_file = format!("{connector_name}.flow.yaml");
+
+    let capture_name = format!("{prefix}/{connector_name}");
 
     let _ = std::fs::create_dir(&root);
     let _ = std::fs::create_dir(format!("{root}/collections"));
@@ -90,7 +102,6 @@ pub async fn do_discover(_ctx: &mut crate::CliContext, Discover { image, prefix 
             );
         };
 
-        let capture_name = format!("{prefix}/{connector_name}");
         let catalog = Catalog {
             captures: BTreeMap::from([
                 (Capture::new(capture_name),
@@ -131,9 +142,36 @@ pub async fn do_discover(_ctx: &mut crate::CliContext, Discover { image, prefix 
         let index = index.into_index();
         let shape = Shape::infer(&schema_root, &index);
 
+        // Create a stub config file
         let config = schema_to_sample_json(&shape)?;
 
-        std::fs::write(&format!("{root}/{config_file}"), to_yaml(&config)?)?;
+        let target = local_specs::arg_source_to_url(&catalog_file, true)?;
+        let mut sources = local_specs::surface_errors(local_specs::load(&target).await)?;
+
+        let catalog = Catalog {
+            captures: BTreeMap::from([
+                (Capture::new(capture_name),
+                CaptureDef {
+                    endpoint: CaptureEndpoint::Connector(ConnectorConfig {
+                        image: image.to_string(),
+                        config: serde_json::from_value(config)?,
+                    }),
+                    bindings: Vec::new(),
+                    interval: CaptureDef::default_interval(),
+                    shards: ShardTemplate::default(),
+                })
+            ]),
+            ..Default::default()
+        };
+
+        let count = local_specs::extend_from_catalog(
+            &mut sources,
+            catalog,
+            local_specs::pick_policy(*overwrite, *flat),
+        );
+        local_specs::indirect_and_write_resources(sources)?;
+
+        println!("Wrote {count} specifications under {target}.");
     }
 
 
