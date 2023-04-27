@@ -3,6 +3,7 @@ use proto_flow::{derive, flow};
 use serde_json::json;
 use std::io::{BufRead, Write};
 use std::{collections::BTreeMap, process::Stdio};
+use locate_bin::locate;
 
 mod codegen;
 
@@ -88,7 +89,7 @@ pub fn run() -> anyhow::Result<()> {
     std::fs::write(temp_dir.join(MODULE_NAME), config.module)?;
     std::fs::write(temp_dir.join(MAIN_NAME), codegen::main_ts(&transforms))?;
 
-    let mut child = std::process::Command::new(find_deno())
+    let mut child = std::process::Command::new(locate("deno")?)
         .stdin(Stdio::piped())
         .current_dir(temp_dir)
         .args(["run", MAIN_NAME])
@@ -214,7 +215,7 @@ fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::respo
     std::fs::write(temp_dir.join(MODULE_NAME), config.module)?;
     std::fs::write(temp_dir.join(MAIN_NAME), codegen::main_ts(&transforms))?;
 
-    let output = std::process::Command::new(find_deno())
+    let output = std::process::Command::new(locate("deno")?)
         .current_dir(temp_dir)
         .args(["check", MAIN_NAME])
         .output()
@@ -262,26 +263,6 @@ fn rewrite_deno_stderr(
     );
 
     stderr
-}
-
-fn find_deno() -> std::path::PathBuf {
-    // Look for deno alongside this program.
-    let this_program = std::env::args().next().unwrap();
-
-    tracing::debug!(%this_program, "attempting for find 'deno'");
-    let mut deno = std::path::Path::new(&this_program)
-        .parent()
-        .unwrap()
-        .join("deno");
-
-    // Fall back to the $PATH.
-    if !deno.exists() {
-        deno = "deno".into();
-    } else {
-        deno = deno.canonicalize().unwrap();
-    }
-    tracing::debug!(executable = %deno.display(), "resolved deno");
-    deno
 }
 
 const DENO_NAME: &str = "deno.json";
