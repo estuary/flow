@@ -1413,6 +1413,7 @@ dependencies = [
  "humantime",
  "itertools 0.10.5",
  "journal-client",
+ "json",
  "labels",
  "lazy_static",
  "md5",

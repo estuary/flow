@@ -15,6 +15,7 @@ assemble = { path = "../assemble" }
 connector-init = { path = "../connector-init" }
 derive-typescript = { path = "../derive-typescript" }
 doc = { path = "../doc" }
+json = { path = "../json" }
 journal-client = { path = "../journal-client" }
 labels = { path = "../labels" }
 models = { path = "../models" }

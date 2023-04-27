@@ -1,0 +1,6 @@
+---
+credentials:
+  client_id: ""
+  client_secret: ""
+  refresh_token: ""
+is_sandbox: false

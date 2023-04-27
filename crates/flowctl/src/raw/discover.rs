@@ -3,6 +3,9 @@ use serde::Serialize;
 use std::{fs, process::{Command, Stdio, Output, Child}};
 use anyhow::Context;
 use futures::stream;
+use json::schema::{types, build::build_schema};
+use url::Url;
+use doc::{inference::Shape, SchemaIndexBuilder};
 use models::{ Catalog, CaptureDef, CaptureEndpoint, ConnectorConfig, Capture, ShardTemplate, CaptureBinding, Collection, CollectionDef, CompositeKey, JsonPointer, Schema };
 use proto_flow::{capture::{request, Request, Response}, flow::capture_spec::ConnectorType};
 use tempfile::{tempdir, TempDir};
@@ -16,9 +19,9 @@ pub struct Discover {
     /// Connector image to discover
     image: String,
 
-    /// Tenant name
+    /// Prefix
     #[clap(default_value_t = String::from("acmeCo"))]
-    tenant: String,
+    prefix: String,
 }
 
 fn to_yaml<T: Serialize>(input: T) -> Result<String, anyhow::Error> {
@@ -35,8 +38,8 @@ fn raw_yaml_to_json(input: &str) -> Result<String, anyhow::Error> {
     return Ok(serde_json::to_string(&serde_yaml::from_str::<serde_yaml::Value>(input)?)?);
 }
 
-pub async fn do_discover(_ctx: &mut crate::CliContext, Discover { image, tenant }: &Discover) -> anyhow::Result<()> {
-    let root = tenant;
+pub async fn do_discover(_ctx: &mut crate::CliContext, Discover { image, prefix }: &Discover) -> anyhow::Result<()> {
+    let root = prefix;
     let connector_name = image.rsplit_once('/').expect("image must include slashes").1.split_once(':').expect("image must include tag").0;
     let config_file = format!("{connector_name}.config.yaml");
     let catalog_file = format!("{connector_name}.flow.yaml");
@@ -61,7 +64,7 @@ pub async fn do_discover(_ctx: &mut crate::CliContext, Discover { image, tenant 
 
         // Create a catalog with the discovered bindings
         for binding in bindings.iter() {
-            let collection_name = format!("{tenant}/{}", binding.recommended_name);
+            let collection_name = format!("{prefix}/{}", binding.recommended_name);
             let schema_file = format!("collections/{}.schema.yaml", binding.recommended_name);
             let collection = Collection::new(collection_name);
             std::fs::write(&format!("{root}/{schema_file}"), raw_json_to_yaml(&binding.document_schema_json)?)?;
@@ -87,7 +90,7 @@ pub async fn do_discover(_ctx: &mut crate::CliContext, Discover { image, tenant 
             );
         };
 
-        let capture_name = format!("{tenant}/{connector_name}");
+        let capture_name = format!("{prefix}/{connector_name}");
         let catalog = Catalog {
             captures: BTreeMap::from([
                 (Capture::new(capture_name),
@@ -118,7 +121,17 @@ pub async fn do_discover(_ctx: &mut crate::CliContext, Discover { image, tenant 
 
         let config_schema_json = serde_json::from_str::<serde_json::Value>(&spec_output.spec.unwrap().config_schema_json)?;
 
-        let config = jsonschema_to_sample_json(&config_schema_json, "")?;
+        // Run inference on the schema
+        let curi = Url::parse("https://example/schema").unwrap();
+        let schema_root = build_schema(curi, &config_schema_json).context("failed to build JSON schema")?;
+
+        let mut index = SchemaIndexBuilder::new();
+        index.add(&schema_root).unwrap();
+        index.verify_references().unwrap();
+        let index = index.into_index();
+        let shape = Shape::infer(&schema_root, &index);
+
+        let config = schema_to_sample_json(&shape)?;
 
         std::fs::write(&format!("{root}/{config_file}"), to_yaml(&config)?)?;
     }
@@ -127,45 +140,40 @@ pub async fn do_discover(_ctx: &mut crate::CliContext, Discover { image, tenant 
     Ok(())
 }
 
-fn jsonschema_to_sample_json(schema: &serde_json::Value, root_ptr: &str) -> Result<serde_json::Map<String, serde_json::Value>, anyhow::Error> {
-    let mut map = serde_json::Map::new();
-    let default_required = Vec::new();
-    let required = schema.pointer(&format!("{root_ptr}/required"))
-        .and_then(|rs| rs.as_array())
-        .unwrap_or(&default_required)
-        .iter()
-        .filter_map(|x| match x {
-            serde_json::Value::String(s) => Some(s),
-            _ => None
-        });
+fn schema_to_sample_json(schema_shape: &Shape) -> Result<serde_json::Value, anyhow::Error> {
+    let mut config = json!({});
+    let locs = schema_shape.locations();
 
-    for key in required {
-        let ptr = format!("{root_ptr}/properties/{key}");
-        let types = schema.pointer(&format!("{ptr}/type")).expect(&format!("required property {ptr} in schema"));
-        let typ = match types {
-            serde_json::Value::String(t) => t,
-            serde_json::Value::Array(ts) => ts.iter().filter_map(|x| match x {
-                serde_json::Value::String(t) if t != "null" => Some(t),
-                _ => None,
-            }).next().ok_or(anyhow!("null type for required property"))?,
-            _ => return Err(anyhow!("unexpected `types`"))
+    for (ptr, _is_pattern, shape, _exists) in locs.iter() {
+        let p = doc::Pointer::from_str(ptr);
+        let v = p.create_value(&mut config).expect("structure must be valid");
+
+        // If there is a default value for this location, use that
+        if let Some((default_value, _)) = &shape.default {
+            *v = default_value.clone()
+        }
+        // Otherwise set a value depending on the type
+
+        let value = if shape.type_.overlaps(types::STRING) {
+            json!("")
+        } else if shape.type_.overlaps(types::INTEGER) {
+            json!(0)
+        } else if shape.type_.overlaps(types::BOOLEAN) {
+            json!(false)
+        } else if shape.type_.overlaps(types::FRACTIONAL) {
+            json!(0.0)
+        } else if shape.type_.overlaps(types::ARRAY) {
+            json!([])
+        } else if shape.type_.overlaps(types::OBJECT) {
+            json!({})
+        } else {
+            json!(null)
         };
 
-        if typ.as_str() == "object" {
-            map.insert(key.to_string(), serde_json::Value::Object(jsonschema_to_sample_json(&schema, &ptr)?));
-        } else {
-            let default = schema.pointer(&format!("{root_ptr}/properties/{key}/default")).map(|v| v.clone());
-            map.insert(key.to_string(), match typ.as_str() {
-                "string" => default.unwrap_or(json!("")),
-                "number" => default.unwrap_or(json!(0)),
-                "integer" => default.unwrap_or(json!(0)),
-                "array" => default.unwrap_or(json!([])),
-                _ => json!(null),
-            });
-        }
+        *v = value;
     }
 
-    Ok(map)
+    Ok(config)
 }
 
 fn pull(image: &str) -> anyhow::Result<Output> {
