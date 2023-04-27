@@ -29,6 +29,7 @@ sources = { path = "../sources" }
 tables = { path = "../tables", features = ["persist"] }
 validation = { path = "../validation" }
 async-process = { path = "../async-process" }
+locate-bin = { path = "../locate-bin" }
 
 anyhow = { workspace = true }
 base64 = { workspace = true }
@@ -60,7 +61,6 @@ size = { workspace = true }
 superslice = { workspace = true }
 
 tempfile = { workspace = true }
-quale = { workspace = true }
 portpicker = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
