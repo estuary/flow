@@ -50,7 +50,7 @@ encoding_rs = { version = "0.8", features = ["serde"] }
 exponential-backoff = "1.1.0"
 fancy-regex = "0.10"
 flate2 = "1.0"
-futures = "0.3"
+futures = { version = "0.3", features = ["executor", "thread-pool"] }
 futures-core = "0.3"
 futures-util = "0.3"
 fxhash = "0.2"

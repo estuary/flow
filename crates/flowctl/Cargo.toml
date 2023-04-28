@@ -38,7 +38,7 @@ clap = { workspace = true }
 comfy-table = { workspace = true }
 crossterm = { workspace = true }
 dirs = { workspace = true }
-futures = { workspace = true }
+futures = { workspace = true, features = ["executor", "thread-pool"] }
 humantime = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
@@ -47,6 +47,7 @@ pbjson-types = { workspace = true }
 prost = { workspace = true }
 tonic = { workspace = true }
 rusqlite = { workspace = true }
+json-patch = { workspace = true }
 
 # open is used for opening URLs in the user's browser
 open = { workspace = true }
