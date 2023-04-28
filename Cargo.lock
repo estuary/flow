@@ -1417,6 +1417,7 @@ dependencies = [
  "itertools 0.10.5",
  "journal-client",
  "json",
+ "json-patch",
  "labels",
  "lazy_static",
  "locate-bin",
@@ -1544,6 +1545,7 @@ dependencies = [
  "futures-core",
  "futures-task",
  "futures-util",
+ "num_cpus",
 ]
 
 [[package]]
