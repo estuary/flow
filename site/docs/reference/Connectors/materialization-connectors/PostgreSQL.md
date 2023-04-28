@@ -23,7 +23,7 @@ Use the below properties to configure a Postgres materialization, which will dir
 | Property        | Title    | Description                                     | Type    | Required/Default |
 |-----------------|----------|-------------------------------------------------|---------|------------------|
 | `/database`     | Database | Name of the logical database to materialize to. | string  |                  |
-| **`/address`**  | Address  | Host and port of the database                   | string  | Required         |
+| **`/address`**  | Address  | Host and port of the database. If only the host is specified, port will default to `5432`. | string  | Required         |
 | **`/password`** | Password | Password for the specified database user.       | string  | Required         |
 | `/schema` | Database Schema | Database [schema](https://www.postgresql.org/docs/current/ddl-schemas.html) to use for materialized tables (unless overridden within the binding resource configuration) as well as associated materialization metadata tables | string | `"public"` |
 | **`/user`**     | User     | Database user to connect as.                    | string  | Required         |
@@ -90,7 +90,7 @@ See [Connecting to endpoints on secure networks](../../../concepts/connectors.md
 for additional details and a sample.
 
 :::tip Configuration Tip
-To configure the connector, you must specify the database address in the format `host:port`.
+To configure the connector, you must specify the database address in the format `host:port`. (You can also supply `host` only; the connector will use the port `5432` by default, which is correct in many cases.)
 You can find the host and port in the following locations in each platform's console:
 * Amazon RDS and Amazon Aurora: host as Endpoint; port as Port.
 * Google Cloud SQL: host as Private IP Address; port is always `5432`. You may need to [configure private IP](https://cloud.google.com/sql/docs/postgres/configure-private-ip) on your database.
