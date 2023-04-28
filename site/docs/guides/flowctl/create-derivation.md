@@ -11,9 +11,9 @@ This transformed stream of data keeps the order of the source data intact,
 and can then be **materialized** to an outside system or further transformed with another derivation.
 When you master derivations, you unlock the full flexibility and power of your Data Flows.
 
-:::info Beta
-Derivation creation is currently a developer workflow that uses [flowctl](../../concepts/flowctl.md).
-Support for derivations in the Flow web application will be added in the future.
+:::caution
+This tutorial is out of date due to recent improvements to derivations.
+To learn more about current capabilities, see the [derivations](../../concepts/derivations.md) page
 :::
 
 ## Prerequisites
