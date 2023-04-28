@@ -17,6 +17,7 @@ mod output;
 mod poll;
 mod preview;
 mod raw;
+mod connector;
 
 use output::{Output, OutputType};
 use poll::poll_while_queued;
