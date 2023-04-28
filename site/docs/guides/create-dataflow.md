@@ -6,10 +6,6 @@ sidebar_position: 1
 This guide walks you through the process of creating an end-to-end Data Flow in the
 Flow web application.
 
-:::info Beta
-The Flow web application is currently available to users in the Estuary beta program. Sign up for a [free account](https://go.estuary.dev/sign-up).
-:::
-
 ## Prerequisites
 
 This guide is intended for new Flow users and briefly introduces Flow's key concepts.
