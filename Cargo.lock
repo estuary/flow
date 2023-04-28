@@ -195,6 +195,7 @@ name = "async-process"
 version = "0.0.0"
 dependencies = [
  "tokio",
+ "tracing",
 ]
 
 [[package]]

@@ -71,6 +71,9 @@ local_resource('agent', serve_cmd='%s/flow/.build/package/bin/agent \
     --connector-network supabase_network_flow \
     --bin-dir %s/flow/.build/package/bin' % (REPO_BASE, REPO_BASE),
     deps=[],
+    serve_env={
+        "RUST_LOG": "agent=debug,async_process=debug,info",
+    },
     resource_deps=['reactor', 'gazette'])
 
 local_resource('config-encryption', serve_cmd='%s/config-encryption/target/debug/flow-config-encryption \

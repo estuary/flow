@@ -46,7 +46,9 @@ impl Child {
 impl Drop for Child {
     fn drop(&mut self) {
         if self.kill_on_drop {
-            _ = self.inner.kill()
+            let pid = self.inner.id();
+            let result = self.inner.kill();
+            tracing::debug!(%pid, ?result, "killed dropped child process");
         }
     }
 }

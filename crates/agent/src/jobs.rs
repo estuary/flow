@@ -120,12 +120,17 @@ fn spawn(name: &str, cmd: &mut async_process::Command) -> Result<async_process::
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
-    debug!(program = ?cmd.get_program(), args = ?cmd.get_args().collect::<Vec<_>>(), "invoking");
+    tracing::trace!(program = ?cmd.get_program(), args = ?cmd.get_args().collect::<Vec<_>>(), "invoking");
 
     cmd.spawn()
         .map_err(Error::Spawn)
         .map_err(|err| Error::detail(err, name, cmd))
-        .map(Into::into)
+        .map(|child| {
+            tracing::debug!(%name, pid = %child.id(), "spawned process");
+            let mut c: async_process::Child = child.into();
+            c.kill_on_drop(true);
+            c
+        })
 }
 
 /// Wait for the child to exit while servicing its IO.
