@@ -25,7 +25,12 @@ impl Config {
         let config_file = Config::file_path(profile)?;
         let config = match std::fs::read(&config_file) {
             Ok(v) => {
-                let cfg = serde_json::from_slice(&v).context("parsing config")?;
+                let cfg = serde_json::from_slice(&v).with_context(|| {
+                    format!(
+                        "failed to parse flowctl config at {}",
+                        config_file.to_string_lossy(),
+                    )
+                })?;
                 tracing::debug!(path = %config_file.display(), "loaded and used config");
                 cfg
             }
