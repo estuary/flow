@@ -150,7 +150,13 @@ tokio-util = { version = "0.7", features = ["io", "compat"] }
 tonic = { version = "0.8", features = ["tls", "tls-roots"] }
 tower = "0.4"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["time", "json", "env-filter", "fmt"] }
+tracing-subscriber = { version = "0.3", features = [
+    "time",
+    "json",
+    "env-filter",
+    "fmt",
+] }
+shared_child = "1.0.0"
 
 unicode-bom = "1.1"
 unicode-normalization = "0.1"
