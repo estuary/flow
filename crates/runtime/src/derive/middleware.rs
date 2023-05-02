@@ -131,6 +131,18 @@ where
 
         Ok(response_rx)
     }
+
+    pub async fn serve_unary(self, request: Request) -> tonic::Result<Response> {
+        let request_rx = futures::stream::once(async move { Ok(request) }).boxed();
+        let mut responses: Vec<Response> = self.serve(request_rx).await?.try_collect().await?;
+
+        if responses.len() != 1 {
+            return Err(tonic::Status::unknown(
+                "unary request didn't return a response",
+            ));
+        }
+        Ok(responses.pop().unwrap())
+    }
 }
 
 // NOTE(johnny): This is a temporary joint to extract the ConnectorType for
