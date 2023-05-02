@@ -113,6 +113,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 &logs_tx,
             )),
             Box::new(agent::DirectiveHandler::new(args.accounts_email)),
+            Box::new(agent::EvolutionHandler),
         ],
         pg_pool.clone(),
         tokio::signal::ctrl_c().map(|_| ()),

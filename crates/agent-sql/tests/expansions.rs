@@ -1,5 +1,5 @@
 use agent_sql::Id;
-use sqlx::Connection;
+use sqlx::{types::Uuid, Connection};
 
 const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
@@ -327,7 +327,8 @@ async fn assert_set(
     let seed_ids: Vec<Id> = seed_ids.into_iter().map(|id| as_id(id)).collect();
     let expect_ids: Vec<Id> = expect_ids.into_iter().map(|id| as_id(id)).collect();
 
-    let rows = agent_sql::publications::resolve_expanded_rows(seed_ids.clone(), txn)
+    let dummy_user_id = Uuid::parse_str("02f09a3f-1624-3b1d-8409-44eff7708208").unwrap();
+    let rows = agent_sql::publications::resolve_expanded_rows(dummy_user_id, seed_ids.clone(), txn)
         .await
         .unwrap();
 

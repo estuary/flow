@@ -2,8 +2,10 @@ pub mod connector_tags;
 pub mod directives;
 pub mod discovers;
 pub mod drafts;
+pub mod evolutions;
 pub mod publications;
 use serde::{Deserialize, Serialize};
+use std::fmt::{self, Display};
 
 mod id;
 pub use id::Id;
@@ -19,6 +21,18 @@ pub enum CatalogType {
     Collection,
     Materialization,
     Test,
+}
+
+impl Display for CatalogType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match *self {
+            CatalogType::Capture => "capture",
+            CatalogType::Collection => "collection",
+            CatalogType::Materialization => "materialization",
+            CatalogType::Test => "test",
+        };
+        f.write_str(s)
+    }
 }
 
 #[derive(
