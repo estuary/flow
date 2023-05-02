@@ -69,8 +69,6 @@ where
         .map_err(|err| map_status("could not start connector entrypoint", err))?
         .into();
 
-    connector.kill_on_drop(true);
-
     // Map connector's stdout into a stream of output messages.
     let responses = reader_to_message_stream(
         codec,

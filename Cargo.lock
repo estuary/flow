@@ -194,6 +194,7 @@ dependencies = [
 name = "async-process"
 version = "0.0.0"
 dependencies = [
+ "libc",
  "shared_child",
  "tokio",
  "tracing",
