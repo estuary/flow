@@ -9,6 +9,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+libc = { workspace = true }
+shared_child = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-shared_child = { workspace = true }

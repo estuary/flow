@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 pub struct Child {
     inner: Arc<SharedChild>,
-    kill_on_drop: bool,
 
     pub stdin: Option<ChildStdio>,
     pub stdout: Option<ChildStdio>,
@@ -26,7 +25,6 @@ impl From<std::process::Child> for Child {
 
         Self {
             inner: Arc::new(SharedChild::new(inner).unwrap()),
-            kill_on_drop: false,
             stdin,
             stdout,
             stderr,
@@ -35,40 +33,52 @@ impl From<std::process::Child> for Child {
 }
 
 impl Child {
-    pub fn kill_on_drop(&mut self, v: bool) {
-        self.kill_on_drop = v;
-    }
-
-    pub async fn wait(&self) -> std::io::Result<std::process::ExitStatus> {
+    pub fn wait(
+        &self,
+    ) -> impl std::future::Future<Output = std::io::Result<std::process::ExitStatus>> {
         let cloned_inner = self.inner.clone();
         let handle = tokio::runtime::Handle::current().spawn_blocking(move || cloned_inner.wait());
-        handle.await.expect("wait does not panic")
-    }
-
-    pub fn kill(&self) -> Result<(), std::io::Error> {
-        self.inner.kill()
+        async move { handle.await.expect("wait does not panic") }
     }
 }
 
 impl Drop for Child {
     fn drop(&mut self) {
-        if self.kill_on_drop {
-            let pid = self.inner.id();
-            match self.inner.try_wait() {
-                // Child has exited
-                Ok(Some(exit_code)) => {
-                    tracing::debug!(%pid, ?exit_code, "not killing already-exited dropped child process")
-                }
-                Ok(None) => {
-                    let result = self.inner.kill();
-                    tracing::debug!(%pid, ?result, "killing dropped child process")
-                }
-                Err(err) => {
-                    let result = self.inner.kill();
-                    tracing::debug!(%pid, ?err, ?result, "error checking status of dropped child process, killing anyway");
-                }
+        let pid = self.inner.id();
+
+        #[cfg(unix)]
+        {
+            use shared_child::unix::SharedChildExt;
+
+            // Note that send_signal() returns Ok() if the child has been waited on.
+            if let Err(error) = self.inner.send_signal(libc::SIGTERM) {
+                tracing::error!(%pid, ?error, "failed to deliver SIGTERM to child process");
             }
         }
+
+        let wait = self.wait();
+
+        _ = tokio::runtime::Handle::current().spawn(async move {
+            // Note that the default docker run --stop-timeout is ten seconds.
+            let timeout = tokio::time::sleep(std::time::Duration::from_secs(15));
+
+            tokio::select! {
+                exit_code = wait => match exit_code {
+                    Err(error) => {
+                        tracing::error!(%pid, ?error, "failed to wait for dropped child process");
+                    },
+                    Ok(exit_code) if !exit_code.success() => {
+                        tracing::warn!(%pid, ?exit_code, "dropped child process exited with an error");
+                    }
+                    Ok(_) => {
+                        tracing::debug!(%pid, "dropped child process exited cleanly");
+                    }
+                },
+                _ = timeout => {
+                    tracing::error!(%pid, "dropped child process is not exiting");
+                }
+            };
+        });
     }
 }
 
@@ -79,4 +89,29 @@ where
     let f: Option<OwnedImpl> = f.map(Into::into);
     let f: Option<std::fs::File> = f.map(Into::into);
     f.map(Into::into)
+}
+
+#[cfg(test)]
+mod test {
+    use super::{Child, Command};
+
+    #[tokio::test]
+    async fn test_wait() {
+        let child: Child = Command::new("true").spawn().unwrap().into();
+        assert!(child.wait().await.unwrap().success());
+        let child: Child = Command::new("false").spawn().unwrap().into();
+        assert!(!child.wait().await.unwrap().success());
+    }
+
+    #[tokio::test]
+    async fn test_drop_cancellation() {
+        // Sleep for six hours.
+        let child: Child = Command::new("sleep").arg("21600").spawn().unwrap().into();
+        let wait = child.wait();
+
+        std::mem::drop(child);
+
+        #[cfg(unix)]
+        assert_eq!(wait.await.unwrap().to_string(), "signal: 15 (SIGTERM)");
+    }
 }
