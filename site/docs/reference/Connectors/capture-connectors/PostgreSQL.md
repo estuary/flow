@@ -64,11 +64,11 @@ CREATE USER flow_capture WITH PASSWORD 'secret' REPLICATION;
 
     ```sql
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES to flow_capture;
-    GRANT SELECT ON ALL TABLES IN SCHEMA public, <others> TO flow_capture;
+    GRANT SELECT ON ALL TABLES IN SCHEMA public, <other_schema> TO flow_capture;
     GRANT SELECT ON ALL TABLES IN SCHEMA information_schema, pg_catalog TO flow_capture;
     ```
 
-    where `<others>` lists all schemas that will be captured from.
+    where `<other_schema>` lists all schemas that will be captured from.
     :::info
     If an even more restricted set of permissions is desired, you can also grant SELECT on
     just the specific table(s) which should be captured from. The ‘information_schema’ and
@@ -80,8 +80,12 @@ CREATE USER flow_capture WITH PASSWORD 'secret' REPLICATION;
 ```sql
 CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
 GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
-CREATE PUBLICATION flow_publication FOR ALL TABLES;
+CREATE PUBLICATION flow_publication;
+ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
 ```
+
+where `<other_tables>` lists all tables that will be captured from.
+
 4. Set WAL level to logical:
 ```sql
 ALTER SYSTEM SET wal_level = logical;
@@ -130,8 +134,11 @@ and set up the watermarks table and publication.
   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO flow_capture;
   CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
   GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
-  CREATE PUBLICATION flow_publication FOR ALL TABLES;
+  CREATE PUBLICATION flow_publication;
+  ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
   ```
+
+  where `<other_tables>` lists all tables that will be captured from.
 
 6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
 
@@ -180,8 +187,11 @@ and set up the watermarks table and publication.
   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO flow_capture;
   CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
   GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
-  CREATE PUBLICATION flow_publication FOR ALL TABLES;
+  CREATE PUBLICATION flow_publication;
+  ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
   ```
+
+  where `<other_tables>` lists all tables that will be captured from.
 
 6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
 
@@ -213,8 +223,11 @@ and set up the watermarks table and publication.
   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO flow_capture;
   CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
   GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
-  CREATE PUBLICATION flow_publication FOR ALL TABLES;
+  CREATE PUBLICATION flow_publication;
+  ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
   ```
+
+  where `<other_tables>` lists all tables that will be captured from.
 
 4. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `5432`.
 Together, you'll use the host:port as the `address` property when you configure the connector.
@@ -298,27 +311,27 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 #### Endpoint
 
-| Property | Title | Description | Type | Required/Default |
-|---|---|---|---|---|
-| **`/address`** | Address | The host or host:port at which the database can be reached. | string | Required |
-| **`/database`** | Database | Logical database name to capture from. | string | Required, `"postgres"` |
-| **`/user`** | User | The database user to authenticate as. | string | Required, `"flow_capture"` |
-| **`/password`** | Password | Password for the specified database user. | string | Required |
-| `/advanced` | Advanced Options | Options for advanced users. You should not typically need to modify these. | object |  |
-| `/advanced/backfill_chunk_size` | Backfill Chunk Size | The number of rows which should be fetched from the database in a single backfill query. | integer | `4096` |
-| `/advanced/publicationName` | Publication Name | The name of the PostgreSQL publication to replicate from. | string | `"flow_publication"` |
-| `/advanced/skip_backfills` | Skip Backfills | A comma-separated list of fully-qualified table names which should not be backfilled. | string |  |
-| `/advanced/slotName` | Slot Name | The name of the PostgreSQL replication slot to replicate from. | string | `"flow_slot"` |
-| `/advanced/watermarksTable` | Watermarks Table | The name of the table used for watermark writes during backfills. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form. | string | `"public.flow_watermarks"` |
+| Property                        | Title               | Description                                                                                                                                 | Type    | Required/Default           |
+|---------------------------------|---------------------|---------------------------------------------------------------------------------------------------------------------------------------------|---------|----------------------------|
+| **`/address`**                  | Address             | The host or host:port at which the database can be reached.                                                                                 | string  | Required                   |
+| **`/database`**                 | Database            | Logical database name to capture from.                                                                                                      | string  | Required, `"postgres"`     |
+| **`/user`**                     | User                | The database user to authenticate as.                                                                                                       | string  | Required, `"flow_capture"` |
+| **`/password`**                 | Password            | Password for the specified database user.                                                                                                   | string  | Required                   |
+| `/advanced`                     | Advanced Options    | Options for advanced users. You should not typically need to modify these.                                                                  | object  |                            |
+| `/advanced/backfill_chunk_size` | Backfill Chunk Size | The number of rows which should be fetched from the database in a single backfill query.                                                    | integer | `4096`                     |
+| `/advanced/publicationName`     | Publication Name    | The name of the PostgreSQL publication to replicate from.                                                                                   | string  | `"flow_publication"`       |
+| `/advanced/skip_backfills`      | Skip Backfills      | A comma-separated list of fully-qualified table names which should not be backfilled.                                                       | string  |                            |
+| `/advanced/slotName`            | Slot Name           | The name of the PostgreSQL replication slot to replicate from.                                                                              | string  | `"flow_slot"`              |
+| `/advanced/watermarksTable`     | Watermarks Table    | The name of the table used for watermark writes during backfills. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form. | string  | `"public.flow_watermarks"` |
 
 
 #### Bindings
 
-| Property | Title | Description | Type | Required/Default |
-|-------|------|------|---------| --------|
-| **`/namespace`** | Namespace | The [namespace/schema](https://www.postgresql.org/docs/9.1/ddl-schemas.html) of the table. | string | Required |
-| **`/stream`** | Stream | Table name. | string | Required |
-| **`/syncMode`** | Sync mode | Connection method. Always set to `incremental`. | string | Required |
+| Property         | Title     | Description                                                                                | Type   | Required/Default |
+|------------------|-----------|--------------------------------------------------------------------------------------------|--------|------------------|
+| **`/namespace`** | Namespace | The [namespace/schema](https://www.postgresql.org/docs/9.1/ddl-schemas.html) of the table. | string | Required         |
+| **`/stream`**    | Stream    | Table name.                                                                                | string | Required         |
+| **`/syncMode`**  | Sync mode | Connection method. Always set to `incremental`.                                            | string | Required         |
 
 ### Sample
 
@@ -378,3 +391,13 @@ If you encounter an issue that you suspect is due to TOASTed values, try the fol
 - [Set REPLICA IDENTITY to FULL](https://www.postgresql.org/docs/9.4/sql-altertable.html) for the table. This circumvents the problem by forcing the
 WAL to record all values regardless of size. However, this can have performance impacts on your database and must be carefully evaluated.
 - [Contact Estuary support](mailto:support@estuary.dev) for assistance.
+
+## Publications
+
+It is recommended that the publication used by the capture only contain the tables that will be captured. In some cases it may be desirable to create this publication for all tables in the database instead of specific tables, for example using:
+
+```sql
+CREATE PUBLICATION flow_publication FOR ALL TABLES;
+```
+
+Caution must be used if creating the publication in this way as all existing tables (even those not part of the capture) will be included in it, and if any of them do not have a primary key they will no longer be able to process updates or deletes.
