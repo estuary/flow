@@ -43,6 +43,8 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
+| **`/start_date`** | Start Date | The date from which you would like to replicate data for Zendesk Support API, in the format YYYY-MM-DDT00:00:00Z. All data generated after this date will be replicated. | string | Required |
+| **`/subdomain`** | Subdomain | This is your Zendesk subdomain that can be found in your account URL. | string | Required |
 
 #### Bindings
 
@@ -50,3 +52,24 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 |---|---|---|---|---|
 | **`/stream`** | Stream | Resource in Zendesk from which collections are captured. | string | Required |
 | **`/syncMode`** | Sync Mode | Connection method. | string | Required |
+
+### Sample
+
+```yaml
+captures:
+  ${PREFIX}/${CAPTURE_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/source-zendesk-chat:dev
+        config:
+            credentials:
+              access_token: <secret>
+              credentials: access_token
+            start_date: 2022-03-01T00:00:00Z
+            subdomain: my_subdomain
+    bindings:
+      - resource:
+          stream: accounts
+          syncMode: full_refresh
+        target: ${PREFIX}/accounts
+```
