@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"math"
 	"path"
 	"testing"
@@ -123,7 +124,11 @@ func TestSimpleDerive(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, startedCommit.StartedCommit)
 
+	// Send Close, and expect to read EOF.
 	stream.CloseSend()
+	_, err = stream.Recv()
+	require.Equal(t, io.EOF, err)
+
 	svc.Drop()
 
 	cupaloy.SnapshotT(t, published)
