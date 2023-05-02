@@ -187,8 +187,6 @@ impl NetworkTunnel for SshForwarding {
             .spawn()?
             .into();
 
-        child.kill_on_drop(true);
-
         // Read stderr of SSH until we find a signal message that
         // the ports are open and we are ready to serve requests
         let stderr = child.stderr.take().unwrap();
