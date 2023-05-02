@@ -26,6 +26,8 @@ chrono = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
+lazy_static = { workspace = true }
+regex = { workspace = true }
 reqwest = { workspace = true }
 rusqlite = { workspace = true }
 schemars = { workspace = true }
@@ -46,3 +48,4 @@ derivative = { workspace = true }
 insta = { workspace = true }
 tokio = { workspace = true }
 serial_test = { workspace = true }
+uuid = { workspace = true }

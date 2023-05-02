@@ -73,6 +73,7 @@ pub async fn resolve_specifications(
 // but (if not a dry-run) we do re-activate each specification within the
 // data-plane with the outcome of this publication's build.
 pub async fn expanded_specifications(
+    user_id: Uuid,
     spec_rows: &[SpecRow],
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<Vec<ExpandedRow>> {
@@ -86,7 +87,7 @@ pub async fn expanded_specifications(
         })
         .collect();
 
-    let expanded_rows = agent_sql::publications::resolve_expanded_rows(seed_ids, txn)
+    let expanded_rows = agent_sql::publications::resolve_expanded_rows(user_id, seed_ids, txn)
         .await
         .context("selecting expanded specs")?;
 
@@ -543,8 +544,7 @@ fn split_tag(image_full: &str) -> (String, String) {
 
 #[cfg(test)]
 mod test {
-
-    use crate::publications::JobStatus;
+    use crate::{publications::JobStatus, FIXED_DATABASE_URL};
 
     use super::super::PublishHandler;
     use agent_sql::Id;
@@ -574,8 +574,6 @@ mod test {
         errors: Vec<String>,
         live_specs: Vec<LiveSpec>,
     }
-
-    const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
     async fn execute_publications(txn: &mut Transaction<'_, Postgres>) -> Vec<ScenarioResult> {
         let bs_url: Url = "http://example.com".parse().unwrap();
