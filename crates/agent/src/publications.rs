@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 mod builds;
-mod specs;
+pub mod specs;
 mod storage;
 
 /// JobStatus is the possible outcomes of a handled draft submission.
@@ -204,7 +204,7 @@ impl PublishHandler {
             return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
         }
 
-        let expanded_rows = specs::expanded_specifications(&spec_rows, txn).await?;
+        let expanded_rows = specs::expanded_specifications(row.user_id, &spec_rows, txn).await?;
         tracing::debug!(specs = %expanded_rows.len(), "resolved expanded specifications");
 
         // Touch all expanded specifications to update their build ID.

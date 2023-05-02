@@ -264,9 +264,12 @@ pub struct ExpandedRow {
     pub live_spec_id: Id,
     // Spec type of the live specification.
     pub live_type: CatalogType,
+    // User's capability to the specification `catalog_name`.
+    pub user_capability: Option<Capability>,
 }
 
 pub async fn resolve_expanded_rows(
+    user_id: Uuid,
     seed_ids: Vec<Id>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<Vec<ExpandedRow>> {
@@ -336,13 +339,18 @@ pub async fn resolve_expanded_rows(
             l.catalog_name as "catalog_name!",
             l.last_build_id as "last_build_id!: Id",
             l.spec as "live_spec!: Json<Box<RawValue>>",
-            l.spec_type as "live_type!: CatalogType"
+            l.spec_type as "live_type!: CatalogType",
+            (
+                select max(capability) from internal.user_roles($2) r
+                where starts_with(l.catalog_name, r.role_prefix)
+            ) as "user_capability: Capability"
         from live_specs l join backprop_derivations_and_tests p on l.id = p.id
         -- Strip deleted specs which are still reach-able through a dataflow edge,
         -- and strip rows already part of the seed set.
         where l.spec is not null and l.id not in (select id from seeds)
         "#,
         seed_ids as Vec<Id>,
+        user_id,
     )
     .fetch_all(&mut *txn)
     .await
