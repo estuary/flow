@@ -1,0 +1,147 @@
+---
+source: crates/agent/src/evolution/test.rs
+expression: new_draft
+---
+[
+    Record {
+        catalog_name: "evolution/CaptureA",
+        spec_type: Some(
+            Capture,
+        ),
+        spec: Some(
+            Object {
+                "bindings": Array [
+                    Object {
+                        "resource": Object {
+                            "thingy": String("foo"),
+                        },
+                        "target": String("evolution/CollectionA_v2"),
+                    },
+                    Object {
+                        "resource": Object {
+                            "thingy": String("bar"),
+                        },
+                        "target": String("evolution/NewCollectionB"),
+                    },
+                ],
+                "endpoint": Object {
+                    "connector": Object {
+                        "config": Object {},
+                        "image": String("captureImage:v1"),
+                    },
+                },
+            },
+        ),
+    },
+    Record {
+        catalog_name: "evolution/CollectionA_v2",
+        spec_type: Some(
+            Collection,
+        ),
+        spec: Some(
+            Object {
+                "key": Array [
+                    String("id"),
+                ],
+                "schema": Object {
+                    "properties": Object {
+                        "id": Object {
+                            "type": String("integer"),
+                        },
+                    },
+                    "required": Array [
+                        String("id"),
+                    ],
+                    "type": String("object"),
+                },
+            },
+        ),
+    },
+    Record {
+        catalog_name: "evolution/MaterializationA",
+        spec_type: Some(
+            Materialization,
+        ),
+        spec: Some(
+            Object {
+                "bindings": Array [
+                    Object {
+                        "fields": Object {
+                            "recommended": Bool(true),
+                        },
+                        "resource": Object {
+                            "targetThingy": String("CollectionA_v2"),
+                        },
+                        "source": String("evolution/CollectionA_v2"),
+                    },
+                    Object {
+                        "fields": Object {
+                            "recommended": Bool(true),
+                        },
+                        "resource": Object {
+                            "targetThingy": String("NewCollectionB"),
+                        },
+                        "source": String("evolution/NewCollectionB"),
+                    },
+                ],
+                "endpoint": Object {
+                    "connector": Object {
+                        "config": Object {},
+                        "image": String("matImage:v1"),
+                    },
+                },
+            },
+        ),
+    },
+    Record {
+        catalog_name: "evolution/MaterializationC",
+        spec_type: Some(
+            Materialization,
+        ),
+        spec: Some(
+            Object {
+                "bindings": Array [
+                    Object {
+                        "fields": Object {
+                            "recommended": Bool(true),
+                        },
+                        "resource": Object {
+                            "targetThingy": String("NewCollectionB"),
+                        },
+                        "source": String("evolution/NewCollectionB"),
+                    },
+                ],
+                "endpoint": Object {
+                    "connector": Object {
+                        "config": Object {},
+                        "image": String("matImage:v1"),
+                    },
+                },
+            },
+        ),
+    },
+    Record {
+        catalog_name: "evolution/NewCollectionB",
+        spec_type: Some(
+            Collection,
+        ),
+        spec: Some(
+            Object {
+                "key": Array [
+                    String("id"),
+                ],
+                "schema": Object {
+                    "properties": Object {
+                        "id": Object {
+                            "type": String("integer"),
+                        },
+                    },
+                    "required": Array [
+                        String("id"),
+                    ],
+                    "type": String("object"),
+                },
+            },
+        ),
+    },
+]
