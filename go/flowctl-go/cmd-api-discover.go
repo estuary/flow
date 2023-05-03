@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -83,7 +84,12 @@ func (cmd apiDiscover) Execute(_ []string) error {
 	pb.RegisterGRPCDispatcher("local")
 
 	var resp, err = cmd.execute(ctx)
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		err = fmt.Errorf("Timeout while communicating with the endpoint. Please verify any address or firewall settings.")
+	}
 	if err != nil {
+		fmt.Println(err.Error()) // Write to stdout so the agent can map into a draft error.
 		return err
 	}
 
