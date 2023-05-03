@@ -1,0 +1,28 @@
+---
+source: crates/proto-flow/tests/regression.rs
+expression: json_test(msg)
+---
+{
+  "build": "a-build-id",
+  "hostname": "a-hostname",
+  "logLevel": "info",
+  "ports": [
+    {
+      "number": 8080,
+      "protocol": "https",
+      "public": true
+    },
+    {
+      "number": 9000
+    }
+  ],
+  "range": {
+    "keyBegin": 1122867,
+    "keyEnd": 1146447479,
+    "rClockBegin": 2291772091,
+    "rClockEnd": 3437096703
+  },
+  "splitSource": "split/source/shard",
+  "taskName": "the/task/name",
+  "taskType": "derivation"
+}

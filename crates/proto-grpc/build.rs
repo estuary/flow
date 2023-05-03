@@ -22,6 +22,7 @@ fn main() {
         .extern_path(".derive", "::proto_flow::derive")
         .extern_path(".flow", "::proto_flow::flow")
         .extern_path(".materialize", "::proto_flow::materialize")
+        .extern_path(".ops", "::proto_flow::ops")
         .extern_path(".protocol", "::proto_gazette::broker")
         .extern_path(".recoverylog", "::proto_gazette::recoverylog")
         .extern_path(".runtime", "::proto_flow::runtime")

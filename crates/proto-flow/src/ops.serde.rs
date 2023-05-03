@@ -374,6 +374,242 @@ impl<'de> serde::Deserialize<'de> for Meta {
         deserializer.deserialize_struct("ops.Meta", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for ShardLabeling {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.build.is_empty() {
+            len += 1;
+        }
+        if !self.hostname.is_empty() {
+            len += 1;
+        }
+        if self.log_level != 0 {
+            len += 1;
+        }
+        if !self.ports.is_empty() {
+            len += 1;
+        }
+        if self.range.is_some() {
+            len += 1;
+        }
+        if !self.split_source.is_empty() {
+            len += 1;
+        }
+        if !self.split_target.is_empty() {
+            len += 1;
+        }
+        if !self.task_name.is_empty() {
+            len += 1;
+        }
+        if self.task_type != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("ops.ShardLabeling", len)?;
+        if !self.build.is_empty() {
+            struct_ser.serialize_field("build", &self.build)?;
+        }
+        if !self.hostname.is_empty() {
+            struct_ser.serialize_field("hostname", &self.hostname)?;
+        }
+        if self.log_level != 0 {
+            let v = log::Level::from_i32(self.log_level)
+                .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.log_level)))?;
+            struct_ser.serialize_field("logLevel", &v)?;
+        }
+        if !self.ports.is_empty() {
+            struct_ser.serialize_field("ports", &self.ports)?;
+        }
+        if let Some(v) = self.range.as_ref() {
+            struct_ser.serialize_field("range", v)?;
+        }
+        if !self.split_source.is_empty() {
+            struct_ser.serialize_field("splitSource", &self.split_source)?;
+        }
+        if !self.split_target.is_empty() {
+            struct_ser.serialize_field("splitTarget", &self.split_target)?;
+        }
+        if !self.task_name.is_empty() {
+            struct_ser.serialize_field("taskName", &self.task_name)?;
+        }
+        if self.task_type != 0 {
+            let v = TaskType::from_i32(self.task_type)
+                .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.task_type)))?;
+            struct_ser.serialize_field("taskType", &v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for ShardLabeling {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "build",
+            "hostname",
+            "log_level",
+            "logLevel",
+            "ports",
+            "range",
+            "split_source",
+            "splitSource",
+            "split_target",
+            "splitTarget",
+            "task_name",
+            "taskName",
+            "task_type",
+            "taskType",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Build,
+            Hostname,
+            LogLevel,
+            Ports,
+            Range,
+            SplitSource,
+            SplitTarget,
+            TaskName,
+            TaskType,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "build" => Ok(GeneratedField::Build),
+                            "hostname" => Ok(GeneratedField::Hostname),
+                            "logLevel" | "log_level" => Ok(GeneratedField::LogLevel),
+                            "ports" => Ok(GeneratedField::Ports),
+                            "range" => Ok(GeneratedField::Range),
+                            "splitSource" | "split_source" => Ok(GeneratedField::SplitSource),
+                            "splitTarget" | "split_target" => Ok(GeneratedField::SplitTarget),
+                            "taskName" | "task_name" => Ok(GeneratedField::TaskName),
+                            "taskType" | "task_type" => Ok(GeneratedField::TaskType),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ShardLabeling;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct ops.ShardLabeling")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<ShardLabeling, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut build__ = None;
+                let mut hostname__ = None;
+                let mut log_level__ = None;
+                let mut ports__ = None;
+                let mut range__ = None;
+                let mut split_source__ = None;
+                let mut split_target__ = None;
+                let mut task_name__ = None;
+                let mut task_type__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::Build => {
+                            if build__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("build"));
+                            }
+                            build__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::Hostname => {
+                            if hostname__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("hostname"));
+                            }
+                            hostname__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::LogLevel => {
+                            if log_level__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("logLevel"));
+                            }
+                            log_level__ = Some(map.next_value::<log::Level>()? as i32);
+                        }
+                        GeneratedField::Ports => {
+                            if ports__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("ports"));
+                            }
+                            ports__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::Range => {
+                            if range__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("range"));
+                            }
+                            range__ = map.next_value()?;
+                        }
+                        GeneratedField::SplitSource => {
+                            if split_source__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("splitSource"));
+                            }
+                            split_source__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::SplitTarget => {
+                            if split_target__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("splitTarget"));
+                            }
+                            split_target__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::TaskName => {
+                            if task_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("taskName"));
+                            }
+                            task_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::TaskType => {
+                            if task_type__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("taskType"));
+                            }
+                            task_type__ = Some(map.next_value::<TaskType>()? as i32);
+                        }
+                    }
+                }
+                Ok(ShardLabeling {
+                    build: build__.unwrap_or_default(),
+                    hostname: hostname__.unwrap_or_default(),
+                    log_level: log_level__.unwrap_or_default(),
+                    ports: ports__.unwrap_or_default(),
+                    range: range__,
+                    split_source: split_source__.unwrap_or_default(),
+                    split_target: split_target__.unwrap_or_default(),
+                    task_name: task_name__.unwrap_or_default(),
+                    task_type: task_type__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("ops.ShardLabeling", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for ShardRef {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>

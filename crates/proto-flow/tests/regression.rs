@@ -603,6 +603,20 @@ fn ex_materialize_response() -> materialize::Response {
     }
 }
 
+fn ex_shard_labeling() -> ops::ShardLabeling {
+    ops::ShardLabeling {
+        build: "a-build-id".to_string(),
+        hostname: "a-hostname".to_string(),
+        log_level: ops::log::Level::Info as i32,
+        ports: ex_network_ports(),
+        range: Some(ex_range()),
+        split_source: "split/source/shard".to_string(),
+        split_target: String::new(),
+        task_name: "the/task/name".to_string(),
+        task_type: ops::TaskType::Derivation as i32,
+    }
+}
+
 fn ex_log() -> ops::Log {
     ops::Log {
         meta: Some(ops::Meta {
@@ -819,6 +833,18 @@ fn test_oauth2_json() {
 #[test]
 fn test_oauth2_proto() {
     let msg = ex_oauth2();
+    insta::assert_display_snapshot!(proto_test(msg));
+}
+
+#[test]
+fn test_shard_labeling_json() {
+    let msg = ex_shard_labeling();
+    insta::assert_display_snapshot!(json_test(msg));
+}
+
+#[test]
+fn test_shard_labeling_proto() {
+    let msg = ex_shard_labeling();
     insta::assert_display_snapshot!(proto_test(msg));
 }
 
