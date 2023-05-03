@@ -1,3 +1,40 @@
+/// ShardLabeling is a parsed and validated representation of the Flow
+/// labels which are attached to Gazette ShardSpecs, that are understood
+/// by the Flow runtime and influence its behavior with respect to the shard.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ShardLabeling {
+    /// Catalog build identifier which the task uses.
+    #[prost(string, tag = "1")]
+    pub build: ::prost::alloc::string::String,
+    /// Network-addressable hostname of this task shard.
+    #[prost(string, tag = "2")]
+    pub hostname: ::prost::alloc::string::String,
+    /// Logging level of the task.
+    #[prost(enumeration = "log::Level", tag = "3")]
+    pub log_level: i32,
+    /// Ports is a map from port name to the combined configuration
+    /// for the port. The runtime itself doesn't actually care
+    /// about the alpn protocol, but it's there for the sake of
+    /// completeness.
+    #[prost(message, repeated, tag = "4")]
+    pub ports: ::prost::alloc::vec::Vec<super::flow::NetworkPort>,
+    /// Key and R-Clock range of the shard.
+    #[prost(message, optional, tag = "5")]
+    pub range: ::core::option::Option<super::flow::RangeSpec>,
+    /// If non-empty, the shard which this task is splitting from.
+    #[prost(string, tag = "6")]
+    pub split_source: ::prost::alloc::string::String,
+    /// If non-empty, the shard which this task is splitting into.
+    #[prost(string, tag = "7")]
+    pub split_target: ::prost::alloc::string::String,
+    /// Name of the shard's task.
+    #[prost(string, tag = "8")]
+    pub task_name: ::prost::alloc::string::String,
+    /// Type of this task (capture, derivation, or materialization).
+    #[prost(enumeration = "TaskType", tag = "9")]
+    pub task_type: i32,
+}
 /// Common `shard` sub-document logged by Stats and Log.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
