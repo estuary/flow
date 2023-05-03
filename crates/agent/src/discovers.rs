@@ -114,6 +114,11 @@ impl DiscoverHandler {
             }
         }
 
+        // Remove draft errors from a previous attempt.
+        agent_sql::drafts::delete_errors(row.draft_id, txn)
+            .await
+            .context("clearing old errors")?;
+
         let (discover, discover_output) = jobs::run_with_input_output(
             "discover",
             &self.logs_tx,
@@ -134,6 +139,14 @@ impl DiscoverHandler {
         .await?;
 
         if !discover.success() {
+            let error = draft::Error {
+                catalog_name: row.capture_name,
+                scope: None,
+                detail: String::from_utf8(discover_output)
+                    .context("discover error output is not UTF-8")?,
+            };
+            draft::insert_errors(row.draft_id, vec![error], txn).await?;
+
             return Ok((row.id, JobStatus::DiscoverFailed));
         }
 
