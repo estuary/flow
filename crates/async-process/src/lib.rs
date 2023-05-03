@@ -1,4 +1,5 @@
-pub use std::process::Command;
+pub use std::process::{Command, Output, Stdio};
+use tokio::io::AsyncReadExt;
 
 use shared_child::SharedChild;
 #[cfg(unix)]
@@ -82,6 +83,33 @@ impl Drop for Child {
     }
 }
 
+/// Spawn the command and wait for it to exit, buffering its stdout and stderr.
+/// Upon its exit return an Output having its stdout, stderr, and ExitStatus.
+pub async fn output(cmd: &mut Command) -> std::io::Result<Output> {
+    cmd.stdin(Stdio::null());
+    cmd.stderr(Stdio::piped());
+    cmd.stdout(Stdio::piped());
+
+    let mut child: Child = cmd.spawn()?.into();
+
+    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+    let (mut stdout_pipe, mut stderr_pipe) =
+        (child.stdout.take().unwrap(), child.stderr.take().unwrap());
+
+    let (_, _, wait) = tokio::join!(
+        stdout_pipe.read_to_end(&mut stdout),
+        stderr_pipe.read_to_end(&mut stderr),
+        child.wait(),
+    );
+    let status = wait?;
+
+    Ok(Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
 fn map_stdio<F>(f: Option<F>) -> Option<ChildStdio>
 where
     F: Into<OwnedImpl>,
@@ -93,7 +121,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::{Child, Command};
+    use super::{output, Child, Command};
 
     #[tokio::test]
     async fn test_wait() {
@@ -113,5 +141,24 @@ mod test {
 
         #[cfg(unix)]
         assert_eq!(wait.await.unwrap().to_string(), "signal: 15 (SIGTERM)");
+    }
+
+    #[tokio::test]
+    async fn test_output() {
+        let result = output(Command::new("cat").arg("/this/path/does/not/exist")).await;
+
+        insta::assert_debug_snapshot!(result, @r###"
+        Ok(
+            Output {
+                status: ExitStatus(
+                    unix_wait_status(
+                        256,
+                    ),
+                ),
+                stdout: "",
+                stderr: "cat: /this/path/does/not/exist: No such file or directory\n",
+            },
+        )
+        "###);
     }
 }
