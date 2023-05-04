@@ -7,6 +7,7 @@ use json::{
     LocatedProperty, Location,
 };
 use serde_json::Value;
+use std::collections::BTreeMap;
 use url::Url;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -28,6 +29,12 @@ pub struct Shape {
     pub default: Option<(Value, Option<super::FailedValidation>)>,
     /// Is this location sensitive? For example, a password or credential.
     pub secret: Option<bool>,
+
+    /// Annotations are any keywords starting with `X-` or `x-`.
+    /// Their keys and values are collected here, without performing any
+    /// normalization of prefix case. Technically both `x-foo` and `X-foo` may be
+    /// defined and included here.
+    pub annotations: BTreeMap<String, Value>,
 
     // Further type-specific inferences:
     pub string: StringShape,
@@ -569,6 +576,7 @@ impl Shape {
             provenance: Provenance::Unset,
             default: None,
             secret: None,
+            annotations: BTreeMap::new(),
             string: StringShape::new(),
             array: ArrayShape::new(),
             object: ObjShape::new(),
@@ -694,6 +702,9 @@ impl Shape {
                     }
                     Annotation::Core(_) => {} // Other CoreAnnotations are no-ops.
 
+                    Annotation::X(key, value) => {
+                        shape.annotations.insert(key.clone(), value.clone());
+                    }
                     // These annotations mostly just influence the UI. Most are ignored for now,
                     // but explicitly mentioned so that a compiler error will force us to check
                     // here as new annotations are added.
@@ -701,7 +712,6 @@ impl Shape {
                     Annotation::Multiline(_) => {}
                     Annotation::Advanced(_) => {}
                     Annotation::Order(_) => {}
-                    Annotation::X(_) => {}
                     Annotation::Discriminator(_) => {}
                 },
 
@@ -899,6 +909,11 @@ impl Shape {
         let default = union_option(lhs.default, rhs.default);
         let secret = union_option(lhs.secret, rhs.secret);
 
+        // Union of annotations is actually an _intersection_, which yields only
+        // the annotations that are guaranteed to apply at a given location.
+        let mut annotations = lhs.annotations;
+        annotations.retain(|k, _| rhs.annotations.contains_key(k));
+
         let string = match (
             lhs.type_.overlaps(types::STRING),
             rhs.type_.overlaps(types::STRING),
@@ -933,6 +948,7 @@ impl Shape {
             provenance,
             default,
             secret,
+            annotations,
             string,
             array,
             object,
@@ -957,6 +973,9 @@ impl Shape {
         let provenance = lhs.provenance.intersect(rhs.provenance);
         let default = lhs.default.or(rhs.default);
         let secret = lhs.secret.or(rhs.secret);
+
+        let mut annotations = rhs.annotations;
+        annotations.extend(lhs.annotations.into_iter());
 
         let string = match (
             lhs.type_.overlaps(types::STRING),
@@ -989,6 +1008,7 @@ impl Shape {
             provenance,
             default,
             secret,
+            annotations,
             string,
             array,
             object,
@@ -2414,6 +2434,45 @@ mod test {
                 Error::ChildWithoutParentReduction("/*/nested-sum".to_owned()),
             ]
         );
+    }
+
+    #[test]
+    fn test_annotation_collection() {
+        let obj = shape_from(
+            r#"
+            type: object
+            properties:
+                bar:
+                    X-bar-top-level: true
+                    oneOf:
+                        - type: string
+                          x-bar-one: oneVal
+                          x-bar-two: twoVal
+                          x-bar-three: threeVal
+                        - type: string
+                          x-bar-two: twoVal
+                          x-bar-four: fourVal
+                foo:
+                    X-foo-top-level: false
+                    allOf:
+                        - type: string
+                          x-foo-one: oneVal
+                        - type: string
+                          x-foo-two: twoVal
+                conflicting:
+                    description: |-
+                        this documents the behavior in the edge case where there's conflicting
+                        values for the same annotation. Technically, it would be more correct
+                        to use a multi-map and collect both values. But this seems like a weird
+                        enough edge case that we can safely ignore it for now and pick one of the
+                        values arbitrarily.
+                    x-conflicting-ann: yes please
+                    anyOf:
+                        - x-conflicting-ann: no thankyou
+            x-test-top-level: true
+            "#,
+        );
+        insta::assert_debug_snapshot!(obj);
     }
 
     #[test]
