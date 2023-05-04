@@ -94,11 +94,7 @@ pub async fn walk_all_derivations<C: Connectors>(
         // Unwrap `response` and bail out if it failed.
         let validated = match response {
             Err(err) => {
-                Error::DeriveConnector {
-                    name: name.clone(),
-                    detail: err,
-                }
-                .push(scope, errors);
+                Error::Connector { detail: err }.push(scope, errors);
                 continue;
             }
             Ok(response) => response,
@@ -121,13 +117,9 @@ pub async fn walk_all_derivations<C: Connectors>(
         } = &validated;
 
         if transform_requests.len() != transform_responses.len() {
-            Error::DeriveConnector {
-                name: name.clone(),
-                detail: anyhow::anyhow!(
-                    "connector returned wrong number of bindings (expected {}, got {})",
-                    transform_requests.len(),
-                    transform_responses.len()
-                ),
+            Error::WrongConnectorBindings {
+                expect: transform_requests.len(),
+                got: transform_responses.len(),
             }
             .push(scope, errors);
         }

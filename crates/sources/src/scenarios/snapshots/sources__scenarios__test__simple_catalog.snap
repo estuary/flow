@@ -26,17 +26,11 @@ Sources {
     errors: [
         Error {
             scope: test://example/catalog.yaml#/import/1,
-            error: failed to fetch resource test://example/sibling#/bad/fragment
-            
-            Caused by:
-                resources cannot have fragments,
+            error: failed to fetch resource test://example/sibling#/bad/fragment: resources cannot have fragments,
         },
         Error {
             scope: test://example/catalog.yaml#/import/2,
-            error: failed to fetch resource test://not/found
-            
-            Caused by:
-                fixture not found,
+            error: failed to fetch resource test://not/found: fixture not found,
         },
     ],
     fetches: [

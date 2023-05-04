@@ -185,7 +185,8 @@ pub async fn test_catalog(
 
     if !job.success() {
         errors.push(Error {
-            detail: "test setup failed".to_string(),
+            detail: "Test setup failed. View logs for details and reach out to support@estuary.dev"
+                .to_string(),
             ..Default::default()
         });
         return Ok(errors);
@@ -213,7 +214,7 @@ pub async fn test_catalog(
 
     if !job.success() {
         errors.push(Error {
-            detail: "one or more test cases failed".to_string(),
+            detail: "One or more test cases failed. View logs for details.".to_string(),
             ..Default::default()
         });
     }
@@ -242,7 +243,9 @@ pub async fn test_catalog(
 
     if !job.success() {
         errors.push(Error {
-            detail: "test cleanup failed".to_string(),
+            detail:
+                "Test cleanup failed. View logs for details and reach out to support@estuary.dev"
+                    .to_string(),
             ..Default::default()
         });
     }
@@ -309,8 +312,8 @@ pub async fn deploy_build(
 
     if !job.success() {
         errors.push(Error {
-            detail: "one or more activations failed".to_string(),
-            ..Default::default()
+            detail: "One or more task activations failed. View logs for details and reach out to support@estuary.dev".to_string(),
+             ..Default::default()
         });
     }
 
@@ -359,8 +362,8 @@ pub async fn deploy_build(
 
         if !job.success() {
             errors.push(Error {
-                detail: "one or more deletions failed".to_string(),
-                ..Default::default()
+            detail: "One or more task deletions failed. View logs for details and reach out to support@estuary.dev".to_string(),
+            ..Default::default()
             });
         }
     }

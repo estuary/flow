@@ -9,9 +9,6 @@ expression: errors
     },
     Error {
         scope: test://example/int-reverse#/collections/testing~1int-reverse,
-        error: connector error while validating derivation testing/int-reverse
-        
-        Caused by:
-            shuffle types mismatch: [Integer] vs [],
+        error: shuffle types mismatch: [Integer] vs [],
     },
 ]
