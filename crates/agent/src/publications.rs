@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::{
     draft::{self, Error},
     logs, Handler, HandlerStatus, Id,
@@ -12,14 +14,30 @@ pub mod specs;
 mod storage;
 
 /// JobStatus is the possible outcomes of a handled draft submission.
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
-#[serde(rename_all = "camelCase", tag = "type")]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub enum JobStatus {
     Queued,
     BuildFailed,
     TestFailed,
     PublishFailed,
     Success,
+}
+
+impl From<JobStatus> for PublishStatus {
+    fn from(value: JobStatus) -> Self {
+        PublishStatus {
+            r#type: value,
+            incompatible_collections: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct PublishStatus {
+    pub r#type: JobStatus,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub incompatible_collections: Vec<IncompatibleCollection>,
 }
 
 /// A PublishHandler is a Handler which publishes catalog specifications.
@@ -76,7 +94,7 @@ impl Handler for PublishHandler {
 
         // As a separate transaction, delete the draft if it has no draft_specs.
         // The user could have raced an insertion of a new spec.
-        if let (Some(delete_draft_id), JobStatus::Success) = (delete_draft_id, status) {
+        if let (Some(delete_draft_id), JobStatus::Success) = (delete_draft_id, status.r#type) {
             agent_sql::publications::delete_draft(delete_draft_id, pg_pool).await?;
         }
 
@@ -95,7 +113,7 @@ impl PublishHandler {
         row: Row,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         test_run: bool,
-    ) -> anyhow::Result<(Id, JobStatus)> {
+    ) -> anyhow::Result<(Id, PublishStatus)> {
         info!(
             %row.created_at,
             %row.draft_id,
@@ -249,13 +267,19 @@ impl PublishHandler {
         }
 
         if test_run {
-            return Ok((row.pub_id, JobStatus::Success));
+            return Ok((
+                row.pub_id,
+                PublishStatus {
+                    r#type: JobStatus::Success,
+                    incompatible_collections: Vec::new(),
+                },
+            ));
         }
 
         let tmpdir_handle = tempfile::TempDir::new().context("creating tempdir")?;
         let tmpdir = tmpdir_handle.path();
 
-        let errors = builds::build_catalog(
+        let build_output = builds::build_catalog(
             &self.builds_root,
             &draft_catalog,
             &self.connector_network,
@@ -266,8 +290,22 @@ impl PublishHandler {
             tmpdir,
         )
         .await?;
+
+        let errors = build_output.draft_errors();
         if !errors.is_empty() {
-            return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
+            // If there's a build error, then it's possible that it's due to incompatible collection changes.
+            // We'll report those in the status so that the UI can present a dialog allowing users to take action.
+            let incompatible_collections = get_incompatible_collections(&build_output);
+            return stop_with_errors(
+                errors,
+                PublishStatus {
+                    r#type: JobStatus::BuildFailed,
+                    incompatible_collections,
+                },
+                row,
+                txn,
+            )
+            .await;
         }
 
         if draft_catalog.tests.len() > 0 {
@@ -307,7 +345,13 @@ impl PublishHandler {
                 .await
                 .context("rolling back to savepoint")?;
 
-            return Ok((row.pub_id, JobStatus::Success));
+            return Ok((
+                row.pub_id,
+                PublishStatus {
+                    r#type: JobStatus::Success,
+                    incompatible_collections: Vec::new(),
+                },
+            ));
         }
 
         let errors = builds::deploy_build(
@@ -330,21 +374,80 @@ impl PublishHandler {
 
         // ensure that this tempdir doesn't get dropped before `deploy_build` is called, which depends on the files being there.
         std::mem::drop(tmpdir_handle);
-        Ok((row.pub_id, JobStatus::Success))
+        Ok((
+            row.pub_id,
+            PublishStatus {
+                r#type: JobStatus::Success,
+                incompatible_collections: Vec::new(),
+            },
+        ))
     }
 }
 
 async fn stop_with_errors(
     errors: Vec<Error>,
-    job_status: JobStatus,
+    job_status: impl Into<PublishStatus>,
     row: Row,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> anyhow::Result<(Id, JobStatus)> {
+) -> anyhow::Result<(Id, PublishStatus)> {
     agent_sql::publications::rollback_noop(txn)
         .await
         .context("rolling back to savepoint")?;
 
     draft::insert_errors(row.draft_id, errors, txn).await?;
 
-    Ok((row.pub_id, job_status))
+    Ok((row.pub_id, job_status.into()))
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct IncompatibleCollection {
+    pub collection: String,
+    pub affected_materializations: Vec<AffectedConsumer>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct AffectedConsumer {
+    pub name: String,
+    pub fields: Vec<RejectedField>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct RejectedField {
+    pub field: String,
+    pub reason: String,
+}
+
+fn get_incompatible_collections(build_output: &builds::BuildOutput) -> Vec<IncompatibleCollection> {
+    let mut collections = HashMap::new();
+
+    for mat in build_output.built_materializations.iter() {
+        for (i, binding) in mat.validated.bindings.iter().enumerate() {
+            let Some(collection_name) = mat.spec.bindings[i].collection.as_ref().map(|c| c.name.as_str()) else {
+                continue;
+            };
+            let naughty_fields: Vec<RejectedField> = binding.constraints.iter().filter(|(_, constraint)| {
+                constraint.r#type == proto_flow::materialize::response::validated::constraint::Type::Unsatisfiable as i32
+            }).map(|(field, constraint)| {
+                    RejectedField { field: field.clone(), reason: constraint.reason.clone() }
+                }).collect();
+            if !naughty_fields.is_empty() {
+                let affected_consumers = collections
+                    .entry(collection_name.to_owned())
+                    .or_insert_with(|| Vec::new());
+                affected_consumers.push(AffectedConsumer {
+                    name: mat.materialization.clone(),
+                    fields: naughty_fields,
+                });
+            }
+        }
+    }
+    collections
+        .into_iter()
+        .map(
+            |(collection, affected_materializations)| IncompatibleCollection {
+                collection,
+                affected_materializations,
+            },
+        )
+        .collect()
 }

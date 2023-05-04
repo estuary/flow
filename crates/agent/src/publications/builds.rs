@@ -8,6 +8,27 @@ use std::io::Write;
 use std::path;
 use tables::SqlTableObj;
 
+pub struct BuildOutput {
+    pub errors: tables::Errors,
+    pub built_captures: tables::BuiltCaptures,
+    pub built_collections: tables::BuiltCollections,
+    pub built_materializations: tables::BuiltMaterializations,
+    pub built_tests: tables::BuiltTests,
+}
+
+impl BuildOutput {
+    pub fn draft_errors(&self) -> Vec<Error> {
+        self.errors
+            .iter()
+            .map(|e| Error {
+                scope: Some(e.scope.to_string()),
+                detail: e.error.to_string(),
+                ..Default::default()
+            })
+            .collect()
+    }
+}
+
 pub async fn build_catalog(
     builds_root: &url::Url,
     catalog: &models::Catalog,
@@ -17,7 +38,7 @@ pub async fn build_catalog(
     logs_tx: &logs::Tx,
     pub_id: Id,
     tmpdir: &path::Path,
-) -> anyhow::Result<Vec<Error>> {
+) -> anyhow::Result<BuildOutput> {
     // We perform the build under a ./builds/ subdirectory, which is a
     // specific sub-path expected by temp-data-plane underneath its
     // working temporary directory. This lets temp-data-plane use the
@@ -95,14 +116,31 @@ pub async fn build_catalog(
         anyhow::bail!("build_job exited with failure but errors is empty");
     }
 
-    Ok(errors
-        .into_iter()
-        .map(|e| Error {
-            scope: Some(e.scope.into()),
-            detail: e.error.to_string(),
-            ..Default::default()
-        })
-        .collect())
+    let mut built_captures = tables::BuiltCaptures::new();
+    built_captures
+        .load_all(&db)
+        .context("loading built captures")?;
+
+    let mut built_collections = tables::BuiltCollections::new();
+    built_collections
+        .load_all(&db)
+        .context("loading built collections")?;
+
+    let mut built_materializations = tables::BuiltMaterializations::new();
+    built_materializations
+        .load_all(&db)
+        .context("loading built materailizations")?;
+
+    let mut built_tests = tables::BuiltTests::new();
+    built_tests.load_all(&db).context("loading built tests")?;
+
+    Ok(BuildOutput {
+        errors,
+        built_captures,
+        built_collections,
+        built_materializations,
+        built_tests,
+    })
 }
 
 pub async fn data_plane(

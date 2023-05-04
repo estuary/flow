@@ -545,7 +545,7 @@ fn split_tag(image_full: &str) -> (String, String) {
 #[cfg(test)]
 mod test {
 
-    use crate::publications::JobStatus;
+    use crate::publications::{JobStatus, PublishStatus};
 
     use super::super::PublishHandler;
     use agent_sql::Id;
@@ -571,7 +571,7 @@ mod test {
     #[derive(Debug)]
     struct ScenarioResult {
         draft_id: Id,
-        status: JobStatus,
+        status: PublishStatus,
         errors: Vec<String>,
         live_specs: Vec<LiveSpec>,
     }
@@ -598,7 +598,7 @@ mod test {
                 .await
                 .unwrap();
 
-            match status {
+            match status.r#type {
                 JobStatus::Success => {
                     let specs = sqlx::query_as!(
                         LiveSpec,
@@ -620,7 +620,7 @@ mod test {
 
                     results.push(ScenarioResult {
                         draft_id: row_draft_id,
-                        status: JobStatus::Success,
+                        status,
                         errors: vec![],
                         live_specs: specs,
                     })
@@ -672,7 +672,10 @@ mod test {
         [
             ScenarioResult {
                 draft_id: 1110000000000000,
-                status: Success,
+                status: PublishStatus {
+                    type: Success,
+                    incompatible_collections: [],
+                },
                 errors: [],
                 live_specs: [
                     LiveSpec {
@@ -755,18 +758,21 @@ mod test {
 
         let results = execute_publications(&mut txn).await;
 
-        insta::assert_debug_snapshot!(results, @r#"
+        insta::assert_debug_snapshot!(results, @r###"
         [
             ScenarioResult {
                 draft_id: 1110000000000000,
-                status: BuildFailed,
+                status: PublishStatus {
+                    type: BuildFailed,
+                    incompatible_collections: [],
+                },
                 errors: [
                     "Forbidden connector image 'forbidden_connector'",
                 ],
                 live_specs: [],
             },
         ]
-        "#);
+        "###);
     }
 
     #[tokio::test]
@@ -814,11 +820,14 @@ mod test {
 
         let results = execute_publications(&mut txn).await;
 
-        insta::assert_debug_snapshot!(results, @r#"
+        insta::assert_debug_snapshot!(results, @r###"
         [
             ScenarioResult {
                 draft_id: 1110000000000000,
-                status: Success,
+                status: PublishStatus {
+                    type: Success,
+                    incompatible_collections: [],
+                },
                 errors: [],
                 live_specs: [
                     LiveSpec {
@@ -861,7 +870,7 @@ mod test {
                 ],
             },
         ]
-        "#);
+        "###);
     }
 
     #[tokio::test]
@@ -917,18 +926,21 @@ mod test {
 
         let results = execute_publications(&mut txn).await;
 
-        insta::assert_debug_snapshot!(results, @r#"
+        insta::assert_debug_snapshot!(results, @r###"
         [
             ScenarioResult {
                 draft_id: 1110000000000000,
-                status: BuildFailed,
+                status: PublishStatus {
+                    type: BuildFailed,
+                    incompatible_collections: [],
+                },
                 errors: [
                     "Request to add 1 task(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
                 ],
                 live_specs: [],
             },
         ]
-        "#);
+        "###);
     }
 
     #[tokio::test]
@@ -981,11 +993,14 @@ mod test {
 
         let results = execute_publications(&mut txn).await;
 
-        insta::assert_debug_snapshot!(results, @r#"
+        insta::assert_debug_snapshot!(results, @r###"
         [
             ScenarioResult {
                 draft_id: 1120000000000000,
-                status: BuildFailed,
+                status: PublishStatus {
+                    type: BuildFailed,
+                    incompatible_collections: [],
+                },
                 errors: [
                     "Request to add 1 task(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
                     "Request to add 1 collections(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
@@ -993,7 +1008,7 @@ mod test {
                 live_specs: [],
             },
         ]
-        "#);
+        "###);
     }
 
     // Testing that we can disable tasks to reduce usage when at quota
@@ -1059,11 +1074,14 @@ mod test {
 
         let results = execute_publications(&mut txn).await;
 
-        insta::assert_debug_snapshot!(results, @r#"
+        insta::assert_debug_snapshot!(results, @r###"
         [
             ScenarioResult {
                 draft_id: 1130000000000000,
-                status: Success,
+                status: PublishStatus {
+                    type: Success,
+                    incompatible_collections: [],
+                },
                 errors: [],
                 live_specs: [
                     LiveSpec {
@@ -1109,6 +1127,6 @@ mod test {
                 ],
             },
         ]
-        "#);
+        "###);
     }
 }
