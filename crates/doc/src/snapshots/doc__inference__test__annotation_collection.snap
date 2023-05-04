@@ -1,0 +1,146 @@
+---
+source: crates/doc/src/inference.rs
+expression: obj
+---
+Shape {
+    type_: "object",
+    enum_: None,
+    title: None,
+    description: None,
+    reduction: Unset,
+    provenance: Inline,
+    default: None,
+    secret: None,
+    annotations: {
+        "x-test-top-level": Bool(true),
+    },
+    string: StringShape {
+        content_encoding: None,
+        content_type: None,
+        format: None,
+        max_length: None,
+        min_length: 0,
+    },
+    array: ArrayShape {
+        min: None,
+        max: None,
+        tuple: [],
+        additional: None,
+    },
+    object: ObjShape {
+        properties: [
+            ObjProperty {
+                name: "bar",
+                is_required: false,
+                shape: Shape {
+                    type_: "string",
+                    enum_: None,
+                    title: None,
+                    description: None,
+                    reduction: Unset,
+                    provenance: Inline,
+                    default: None,
+                    secret: None,
+                    annotations: {
+                        "X-bar-top-level": Bool(true),
+                        "x-bar-two": String("twoVal"),
+                    },
+                    string: StringShape {
+                        content_encoding: None,
+                        content_type: None,
+                        format: None,
+                        max_length: None,
+                        min_length: 0,
+                    },
+                    array: ArrayShape {
+                        min: None,
+                        max: None,
+                        tuple: [],
+                        additional: None,
+                    },
+                    object: ObjShape {
+                        properties: [],
+                        patterns: [],
+                        additional: None,
+                    },
+                },
+            },
+            ObjProperty {
+                name: "conflicting",
+                is_required: false,
+                shape: Shape {
+                    type_: "array", "boolean", "null", "number", "object", "string",
+                    enum_: None,
+                    title: None,
+                    description: Some(
+                        "this documents the behavior in the edge case where there's conflicting\nvalues for the same annotation. Technically, it would be more correct\nto use a multi-map and collect both values. But this seems like a weird\nenough edge case that we can safely ignore it for now and pick one of the\nvalues arbitrarily.",
+                    ),
+                    reduction: Unset,
+                    provenance: Inline,
+                    default: None,
+                    secret: None,
+                    annotations: {
+                        "x-conflicting-ann": String("yes please"),
+                    },
+                    string: StringShape {
+                        content_encoding: None,
+                        content_type: None,
+                        format: None,
+                        max_length: None,
+                        min_length: 0,
+                    },
+                    array: ArrayShape {
+                        min: None,
+                        max: None,
+                        tuple: [],
+                        additional: None,
+                    },
+                    object: ObjShape {
+                        properties: [],
+                        patterns: [],
+                        additional: None,
+                    },
+                },
+            },
+            ObjProperty {
+                name: "foo",
+                is_required: false,
+                shape: Shape {
+                    type_: "string",
+                    enum_: None,
+                    title: None,
+                    description: None,
+                    reduction: Unset,
+                    provenance: Inline,
+                    default: None,
+                    secret: None,
+                    annotations: {
+                        "X-foo-top-level": Bool(false),
+                        "x-foo-one": String("oneVal"),
+                        "x-foo-two": String("twoVal"),
+                    },
+                    string: StringShape {
+                        content_encoding: None,
+                        content_type: None,
+                        format: None,
+                        max_length: None,
+                        min_length: 0,
+                    },
+                    array: ArrayShape {
+                        min: None,
+                        max: None,
+                        tuple: [],
+                        additional: None,
+                    },
+                    object: ObjShape {
+                        properties: [],
+                        patterns: [],
+                        additional: None,
+                    },
+                },
+            },
+        ],
+        patterns: [],
+        additional: None,
+    },
+}
