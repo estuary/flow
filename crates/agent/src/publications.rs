@@ -1,3 +1,4 @@
+use self::builds::IncompatibleCollection;
 use super::{
     draft::{self, Error},
     logs, Handler, HandlerStatus, Id,
@@ -16,10 +17,21 @@ mod storage;
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum JobStatus {
     Queued,
-    BuildFailed,
+    BuildFailed {
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        incompatible_collections: Vec<IncompatibleCollection>,
+    },
     TestFailed,
     PublishFailed,
     Success,
+}
+
+impl JobStatus {
+    fn build_failed(incompatible_collections: Vec<IncompatibleCollection>) -> JobStatus {
+        JobStatus::BuildFailed {
+            incompatible_collections,
+        }
+    }
 }
 
 /// A PublishHandler is a Handler which publishes catalog specifications.
@@ -152,13 +164,13 @@ impl PublishHandler {
             }),
         );
         if !errors.is_empty() {
-            return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
+            return stop_with_errors(errors, JobStatus::build_failed(Vec::new()), row, txn).await;
         }
 
         let errors =
             specs::validate_transition(&draft_catalog, &live_catalog, row.pub_id, &spec_rows);
         if !errors.is_empty() {
-            return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
+            return stop_with_errors(errors, JobStatus::build_failed(Vec::new()), row, txn).await;
         }
 
         let live_spec_ids: Vec<_> = spec_rows.iter().map(|row| row.live_spec_id).collect();
@@ -180,7 +192,7 @@ impl PublishHandler {
 
         let errors = specs::enforce_resource_quotas(&spec_rows, prev_quota_usage, txn).await?;
         if !errors.is_empty() {
-            return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
+            return stop_with_errors(errors, JobStatus::build_failed(Vec::new()), row, txn).await;
         }
 
         let unknown_connectors =
@@ -201,7 +213,7 @@ impl PublishHandler {
             .collect();
 
         if !errors.is_empty() {
-            return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
+            return stop_with_errors(errors, JobStatus::build_failed(Vec::new()), row, txn).await;
         }
 
         let expanded_rows = specs::expanded_specifications(row.user_id, &spec_rows, txn).await?;
@@ -245,7 +257,7 @@ impl PublishHandler {
         )
         .await?;
         if !errors.is_empty() {
-            return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
+            return stop_with_errors(errors, JobStatus::build_failed(Vec::new()), row, txn).await;
         }
 
         if test_run {
@@ -255,7 +267,7 @@ impl PublishHandler {
         let tmpdir_handle = tempfile::TempDir::new().context("creating tempdir")?;
         let tmpdir = tmpdir_handle.path();
 
-        let errors = builds::build_catalog(
+        let build_output = builds::build_catalog(
             &self.builds_root,
             &draft_catalog,
             &self.connector_network,
@@ -266,8 +278,21 @@ impl PublishHandler {
             tmpdir,
         )
         .await?;
+
+        let errors = build_output.draft_errors();
         if !errors.is_empty() {
-            return stop_with_errors(errors, JobStatus::BuildFailed, row, txn).await;
+            // If there's a build error, then it's possible that it's due to incompatible collection changes.
+            // We'll report those in the status so that the UI can present a dialog allowing users to take action.
+            let incompatible_collections = build_output.get_incompatible_collections();
+            return stop_with_errors(
+                errors,
+                JobStatus::BuildFailed {
+                    incompatible_collections,
+                },
+                row,
+                txn,
+            )
+            .await;
         }
 
         if draft_catalog.tests.len() > 0 {
@@ -346,5 +371,5 @@ async fn stop_with_errors(
 
     draft::insert_errors(row.draft_id, errors, txn).await?;
 
-    Ok((row.pub_id, job_status))
+    Ok((row.pub_id, job_status.into()))
 }
