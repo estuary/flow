@@ -142,12 +142,14 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 			// * The database was opened and a `gazette_checkpoints` table was created.
 			// * We closed the actual database from the Go side and we won't use it again,
 			//   but we WILL use the registered VFS from Rust.
-			requestExt.Open.SqliteVfsUri = d.sqlite.URIForDB("primary.db")
 		} else {
 			requestExt.Open.RocksdbDescriptor = bindings.NewRocksDBDescriptor(d.recorder)
 		}
 	}
 
+	if d.sqlite != nil {
+		requestExt.Open.SqliteVfsUri = d.sqlite.URIForDB("primary.db")
+	}
 	_ = doSend(d.client, &pd.Request{
 		Open: &pd.Request_Open{
 			Collection: d.collection,
