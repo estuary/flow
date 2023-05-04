@@ -24,7 +24,7 @@ pub enum Annotation {
     Order(i32),
     /// It has become a sort of convention in JSONSchema and OpenAPI to use X- prefixed fields
     /// for custom behavior. We parse these fields to avoid breaking on such custom fields.
-    X(Value),
+    X(String, Value),
     /// Discriminator is an annotation from the [openapi spec](https://spec.openapis.org/oas/latest.html#discriminator-object),
     /// which is used by the Estuary UI when rendering forms containing `oneOf`s.
     Discriminator(Value),
@@ -44,7 +44,7 @@ impl schema::build::AnnotationBuilder for Annotation {
         match keyword {
             "reduce" | "secret" | "airbyte_secret" | "multiline" | "advanced" | "order"
             | "discriminator" => true,
-            key if key.starts_with("x-") => true,
+            key if key.starts_with("x-") || key.starts_with("X-") => true,
             _ => schema::CoreAnnotation::uses_keyword(keyword),
         }
     }
@@ -78,10 +78,12 @@ impl schema::build::AnnotationBuilder for Annotation {
                 Ok(b) => Ok(Annotation::Advanced(b)),
             },
             "discriminator" => Ok(Annotation::Discriminator(value.clone())),
-            key if key.starts_with("x-") => match serde_json::to_value(value) {
-                Ok(v) => Ok(Annotation::X(v)),
-                Err(e) => Err(AnnotationErr(Box::new(e))),
-            },
+            key if key.starts_with("x-") || key.starts_with("X-") => {
+                match serde_json::to_value(value) {
+                    Ok(v) => Ok(Annotation::X(key.to_owned(), v)),
+                    Err(e) => Err(AnnotationErr(Box::new(e))),
+                }
+            }
             _ => Ok(Annotation::Core(Core::from_keyword(keyword, value)?)),
         }
     }
