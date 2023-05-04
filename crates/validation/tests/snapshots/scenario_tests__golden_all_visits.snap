@@ -5217,10 +5217,7 @@ All {
     errors: [
         Error {
             scope: test://example/from-array-key#/collections/testing~1from-array-key/derive/using/sqlite/migrations/1,
-            error: failed to fetch resource test://example/mi%C3%9F%C3%9Fing/migration.sql
-            
-            Caused by:
-                fixture not found,
+            error: failed to fetch resource test://example/mi%C3%9F%C3%9Fing/migration.sql: fixture not found,
         },
     ],
     fetches: [

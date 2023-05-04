@@ -313,7 +313,7 @@ mod behaviors;
 // Additional bespoke column implementations for types that require extra help.
 impl Column for anyhow::Error {
     fn column_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{:#}", self)
     }
 }
 
@@ -323,7 +323,7 @@ impl SqlColumn for anyhow::Error {
         "TEXT"
     }
     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-        Ok(format!("{:?}", self).into())
+        Ok(format!("{:#}", self).into())
     }
     fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
         Ok(anyhow::anyhow!(String::column_result(value)?))

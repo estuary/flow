@@ -5,9 +5,6 @@ expression: errors
 [
     Error {
         scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries,
-        error: connector error while validating materialization testing/webhook/deliveries
-        
-        Caused by:
-            A driver error!,
+        error: A driver error!,
     },
 ]

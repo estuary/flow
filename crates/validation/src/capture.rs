@@ -62,11 +62,7 @@ pub async fn walk_all_captures<C: Connectors>(
         // Unwrap `response` and bail out if it failed.
         let validated = match response {
             Err(err) => {
-                Error::CaptureConnector {
-                    name: request.name,
-                    detail: err,
-                }
-                .push(scope, errors);
+                Error::Connector { detail: err }.push(scope, errors);
                 continue;
             }
             Ok(response) => response,
@@ -85,13 +81,9 @@ pub async fn walk_all_captures<C: Connectors>(
         } = &validated;
 
         if binding_requests.len() != binding_responses.len() {
-            Error::CaptureConnector {
-                name: name.to_string(),
-                detail: anyhow::anyhow!(
-                    "connector returned wrong number of bindings (expected {}, got {})",
-                    binding_requests.len(),
-                    binding_responses.len()
-                ),
+            Error::WrongConnectorBindings {
+                expect: binding_requests.len(),
+                got: binding_responses.len(),
             }
             .push(scope, errors);
         }
