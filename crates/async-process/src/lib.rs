@@ -45,6 +45,9 @@ impl Child {
 
 impl Drop for Child {
     fn drop(&mut self) {
+        if let Ok(Some(_status)) = self.inner.try_wait() {
+            return; // Already exited.
+        }
         let pid = self.inner.id();
 
         #[cfg(unix)]
