@@ -617,7 +617,7 @@ mod test {
 
                     results.push(ScenarioResult {
                         draft_id: row_draft_id,
-                        status: JobStatus::Success,
+                        status,
                         errors: vec![],
                         live_specs: specs,
                     })
@@ -752,18 +752,20 @@ mod test {
 
         let results = execute_publications(&mut txn).await;
 
-        insta::assert_debug_snapshot!(results, @r#"
+        insta::assert_debug_snapshot!(results, @r###"
         [
             ScenarioResult {
                 draft_id: 1110000000000000,
-                status: BuildFailed,
+                status: BuildFailed {
+                    incompatible_collections: [],
+                },
                 errors: [
                     "Forbidden connector image 'forbidden_connector'",
                 ],
                 live_specs: [],
             },
         ]
-        "#);
+        "###);
     }
 
     #[tokio::test]
@@ -811,7 +813,7 @@ mod test {
 
         let results = execute_publications(&mut txn).await;
 
-        insta::assert_debug_snapshot!(results, @r#"
+        insta::assert_debug_snapshot!(results, @r###"
         [
             ScenarioResult {
                 draft_id: 1110000000000000,
@@ -858,7 +860,7 @@ mod test {
                 ],
             },
         ]
-        "#);
+        "###);
     }
 
     #[tokio::test]
@@ -914,18 +916,20 @@ mod test {
 
         let results = execute_publications(&mut txn).await;
 
-        insta::assert_debug_snapshot!(results, @r#"
+        insta::assert_debug_snapshot!(results, @r###"
         [
             ScenarioResult {
                 draft_id: 1110000000000000,
-                status: BuildFailed,
+                status: BuildFailed {
+                    incompatible_collections: [],
+                },
                 errors: [
                     "Request to add 1 task(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
                 ],
                 live_specs: [],
             },
         ]
-        "#);
+        "###);
     }
 
     #[tokio::test]
@@ -978,11 +982,13 @@ mod test {
 
         let results = execute_publications(&mut txn).await;
 
-        insta::assert_debug_snapshot!(results, @r#"
+        insta::assert_debug_snapshot!(results, @r###"
         [
             ScenarioResult {
                 draft_id: 1120000000000000,
-                status: BuildFailed,
+                status: BuildFailed {
+                    incompatible_collections: [],
+                },
                 errors: [
                     "Request to add 1 task(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
                     "Request to add 1 collections(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
@@ -990,7 +996,7 @@ mod test {
                 live_specs: [],
             },
         ]
-        "#);
+        "###);
     }
 
     // Testing that we can disable tasks to reduce usage when at quota
@@ -1056,7 +1062,7 @@ mod test {
 
         let results = execute_publications(&mut txn).await;
 
-        insta::assert_debug_snapshot!(results, @r#"
+        insta::assert_debug_snapshot!(results, @r###"
         [
             ScenarioResult {
                 draft_id: 1130000000000000,
@@ -1106,6 +1112,6 @@ mod test {
                 ],
             },
         ]
-        "#);
+        "###);
     }
 }
