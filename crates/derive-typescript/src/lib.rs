@@ -1,9 +1,9 @@
 use anyhow::Context;
+use locate_bin::locate;
 use proto_flow::{derive, flow};
 use serde_json::json;
 use std::io::{BufRead, Write};
 use std::{collections::BTreeMap, process::Stdio};
-use locate_bin::locate;
 
 mod codegen;
 
@@ -219,7 +219,7 @@ fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::respo
         .current_dir(temp_dir)
         .args(["check", MAIN_NAME])
         .output()
-        .unwrap();
+        .expect("The Deno runtime is a prerequisite for TypeScript but could not be found. Please install Deno from https://deno.com");
 
     if !output.status.success() {
         anyhow::bail!(rewrite_deno_stderr(
