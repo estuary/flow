@@ -8,31 +8,19 @@ Sources {
     errors: [
         Error {
             scope: test://example/catalog-err-not-an-array.yaml#/tests/acmeCo~1parse~1failure/0/documents,
-            error: failed to parse document fixtures as an array of objects
-            
-            Caused by:
-                invalid type: map, expected a sequence at line 1 column 0,
+            error: failed to parse document fixtures as an array of objects: invalid type: map, expected a sequence at line 1 column 0,
         },
         Error {
             scope: test://example/catalog-err-not-an-object.yaml#/tests/acmeCo~1parse~1failure/0/documents,
-            error: failed to parse document fixtures as an array of objects
-            
-            Caused by:
-                invalid type: string "not-an-object", expected a map at line 1 column 16,
+            error: failed to parse document fixtures as an array of objects: invalid type: string "not-an-object", expected a map at line 1 column 16,
         },
         Error {
             scope: test://example/not-an-array.json,
-            error: failed to parse document fixtures as an array of objects
-            
-            Caused by:
-                invalid type: map, expected a sequence at line 1 column 0,
+            error: failed to parse document fixtures as an array of objects: invalid type: map, expected a sequence at line 1 column 0,
         },
         Error {
             scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/1/documents,
-            error: failed to fetch resource test://example/not-found.json
-            
-            Caused by:
-                fixture not found,
+            error: failed to fetch resource test://example/not-found.json: fixture not found,
         },
     ],
     fetches: [

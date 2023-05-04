@@ -33,30 +33,18 @@ expression: errors
     },
     Error {
         scope: test://example/materializations#/materializations/good,
-        error: connector error while validating materialization good
-        
-        Caused by:
-            driver fixture not found: good,
+        error: driver fixture not found: good,
     },
     Error {
         scope: test://example/materializations#/materializations/testing,
-        error: connector error while validating materialization testing
-        
-        Caused by:
-            driver fixture not found: testing,
+        error: driver fixture not found: testing,
     },
     Error {
         scope: test://example/materializations#/materializations/testing~1SoMe-target,
-        error: connector error while validating materialization testing/SoMe-target
-        
-        Caused by:
-            driver fixture not found: testing/SoMe-target,
+        error: driver fixture not found: testing/SoMe-target,
     },
     Error {
         scope: test://example/materializations#/materializations/testing~1some-target,
-        error: connector error while validating materialization testing/some-target
-        
-        Caused by:
-            driver fixture not found: testing/some-target,
+        error: driver fixture not found: testing/some-target,
     },
 ]

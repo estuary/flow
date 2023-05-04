@@ -37,58 +37,34 @@ expression: errors
     },
     Error {
         scope: test://example/catalog.yaml#/captures/testing~1b~11,
-        error: connector error while validating capture testing/b/1
-        
-        Caused by:
-            driver fixture not found: testing/b/1,
+        error: driver fixture not found: testing/b/1,
     },
     Error {
         scope: test://example/catalog.yaml#/captures/testing~1b~12~1suffix,
-        error: connector error while validating capture testing/b/2/suffix
-        
-        Caused by:
-            driver fixture not found: testing/b/2/suffix,
+        error: driver fixture not found: testing/b/2/suffix,
     },
     Error {
         scope: test://example/catalog.yaml#/captures/testing~1b~13,
-        error: connector error while validating capture testing/b/3
-        
-        Caused by:
-            driver fixture not found: testing/b/3,
+        error: driver fixture not found: testing/b/3,
     },
     Error {
         scope: test://example/catalog.yaml#/captures/testing~1b~15~1suffix,
-        error: connector error while validating capture testing/b/5/suffix
-        
-        Caused by:
-            driver fixture not found: testing/b/5/suffix,
+        error: driver fixture not found: testing/b/5/suffix,
     },
     Error {
         scope: test://example/catalog.yaml#/materializations/testing~1b~11~1suffix,
-        error: connector error while validating materialization testing/b/1/suffix
-        
-        Caused by:
-            driver fixture not found: testing/b/1/suffix,
+        error: driver fixture not found: testing/b/1/suffix,
     },
     Error {
         scope: test://example/catalog.yaml#/materializations/testing~1b~12,
-        error: connector error while validating materialization testing/b/2
-        
-        Caused by:
-            driver fixture not found: testing/b/2,
+        error: driver fixture not found: testing/b/2,
     },
     Error {
         scope: test://example/catalog.yaml#/materializations/testing~1b~13,
-        error: connector error while validating materialization testing/b/3
-        
-        Caused by:
-            driver fixture not found: testing/b/3,
+        error: driver fixture not found: testing/b/3,
     },
     Error {
         scope: test://example/catalog.yaml#/materializations/testing~1b~14,
-        error: connector error while validating materialization testing/b/4
-        
-        Caused by:
-            driver fixture not found: testing/b/4,
+        error: driver fixture not found: testing/b/4,
     },
 ]

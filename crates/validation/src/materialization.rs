@@ -72,11 +72,7 @@ pub async fn walk_all_materializations<C: Connectors>(
         // Unwrap |response| and continue if an Err.
         let validated = match response {
             Err(err) => {
-                Error::MaterializationConnector {
-                    name: request.name,
-                    detail: err,
-                }
-                .push(scope, errors);
+                Error::Connector { detail: err }.push(scope, errors);
                 continue;
             }
             Ok(response) => response,
@@ -95,13 +91,9 @@ pub async fn walk_all_materializations<C: Connectors>(
         } = &validated;
 
         if binding_requests.len() != binding_responses.len() {
-            Error::MaterializationConnector {
-                name: name.to_string(),
-                detail: anyhow::anyhow!(
-                    "connector returned wrong number of bindings (expected {}, got {})",
-                    binding_requests.len(),
-                    binding_responses.len()
-                ),
+            Error::WrongConnectorBindings {
+                expect: binding_requests.len(),
+                got: binding_responses.len(),
             }
             .push(scope, errors);
         }
@@ -486,8 +478,7 @@ fn walk_materialization_response(
 
         let type_ = match Type::from_i32(constraint.r#type) {
             None | Some(Type::Invalid) => {
-                Error::MaterializationConnector {
-                    name: materialization.to_string(),
+                Error::Connector {
                     detail: anyhow::anyhow!("unknown constraint type {}", constraint.r#type),
                 }
                 .push(scope, errors);
@@ -587,8 +578,7 @@ fn walk_materialization_response(
 
     // Any left-over constraints were unexpectedly not in |projections|.
     for (field, _) in constraints {
-        Error::MaterializationConnector {
-            name: materialization.to_string(),
+        Error::Connector {
             detail: anyhow::anyhow!("connector sent constraint for unknown field {}", field),
         }
         .push(scope, errors);

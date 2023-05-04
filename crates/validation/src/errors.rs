@@ -151,24 +151,13 @@ pub enum Error {
         #[source]
         detail: anyhow::Error,
     },
-    #[error("connector error while validating capture {name}")]
-    CaptureConnector {
-        name: String,
-        #[source]
+    #[error(transparent)]
+    Connector {
+        #[from]
         detail: anyhow::Error,
     },
-    #[error("connector error while validating derivation {name}")]
-    DeriveConnector {
-        name: String,
-        #[source]
-        detail: anyhow::Error,
-    },
-    #[error("connector error while validating materialization {name}")]
-    MaterializationConnector {
-        name: String,
-        #[source]
-        detail: anyhow::Error,
-    },
+    #[error("connector returned wrong number of bindings (expected {expect}, got {got})")]
+    WrongConnectorBindings { expect: usize, got: usize },
     #[error("error while resolving referenced collections from the control plane")]
     ResolveCollections {
         #[source]

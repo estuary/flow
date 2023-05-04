@@ -9,10 +9,7 @@ expression: errors
     },
     Error {
         scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/0,
-        error: connector error while validating materialization testing/webhook/deliveries
-        
-        Caused by:
-            unknown constraint type 98,
+        error: unknown constraint type 98,
     },
     Error {
         scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1,
@@ -20,9 +17,6 @@ expression: errors
     },
     Error {
         scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/1,
-        error: connector error while validating materialization testing/webhook/deliveries
-        
-        Caused by:
-            unknown constraint type 99,
+        error: unknown constraint type 99,
     },
 ]

@@ -17,10 +17,7 @@ expression: errors
     },
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
-        error: connector error while validating materialization testing/db-views
-        
-        Caused by:
-            connector sent constraint for unknown field Unknown,
+        error: connector sent constraint for unknown field Unknown,
     },
     Error {
         scope: test://example/db-views#/materializations/testing~1db-views/bindings/0,
