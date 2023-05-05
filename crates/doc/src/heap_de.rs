@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use super::{BumpStr, BumpVec, HeapField, HeapNode};
 
 use serde::de;
@@ -104,8 +106,11 @@ impl<'alloc, 'de> de::Visitor<'de> for HeapDocVisitor<'alloc> {
         let mut fields = BumpVec::with_capacity_in(v.size_hint().unwrap_or_default(), alloc);
         let mut not_sorted = false;
 
-        while let Some(property) = v.next_key::<&str>()? {
-            let property = BumpStr::from_str(property, alloc);
+        // Using a `Cow` here is necessary to handle keys that contain escape sequences.
+        // In that case, serde will not be able to pass us a borrowed string
+        // because it needs to allocate in order to process the escapes.
+        while let Some(property) = v.next_key::<Cow<'_, str>>()? {
+            let property = BumpStr::from_str(property.as_ref(), alloc);
             let value = v.next_value_seed(HeapDocVisitor { alloc })?;
 
             not_sorted = not_sorted
