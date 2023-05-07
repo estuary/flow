@@ -30,7 +30,7 @@ By default, each resource is mapped to a Flow collection through a separate bind
 ## Prerequisites
 
 * A Zendesk Account with permission to access data from accounts you want to sync.
-* An Access Token (https://developer.zendesk.com/rest_api/docs/chat/auth). We recommend creating a restricted, read-only key specifically for Estuary access to allow you to control which resources Estuary should be able to access.
+* An [Access Token](https://developer.zendesk.com/rest_api/docs/chat/auth). We recommend creating a restricted, read-only key specifically for Estuary access to allow you to control which resources Estuary should be able to access.
 
 ## Configuration
 

@@ -34,7 +34,7 @@ By default, each resource is mapped to a Flow collection through a separate bind
 
 ## Prerequisites
 
-* SendGrid [API Key] (https://docs.sendgrid.com/api-reference/api-keys/create-api-keys) for authentication.
+* SendGrid [API Key](https://docs.sendgrid.com/api-reference/api-keys/create-api-keys) for authentication.
 
 ## Configuration
 

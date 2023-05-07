@@ -45,7 +45,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | `/site_api_key` | API Key | Chargebee API Key. | string | Required |
 | `/site` | Site | The site prefix for your Chargebee instance. | string | Required |
 | `/start_date` | Start Date | UTC date and time in the format 2021-01-25T00:00:00Z. Any data before this date will not be replicated. | string | Required |
-| `/product_catalog` | Product Catalog | Product Catalog version of your Chargebee site. Instructions on how to find your version you may find under 'API Version' section here: https://apidocs.chargebee.com/docs/api?prod_cat_ver=2 | string | Required |
+| `/product_catalog` | Product Catalog | Product Catalog version of your Chargebee site. Instructions on how to find your version you may find under 'API Version' section [in the Chargebee docs](https://apidocs.chargebee.com/docs/api/versioning?prod_cat_ver=2). | string | Required |
 
 #### Bindings
 

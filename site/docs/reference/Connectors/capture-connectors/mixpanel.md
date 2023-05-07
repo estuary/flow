@@ -40,9 +40,9 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| `/project_id` | Project ID | Your project ID number. See the docs for more information on how to obtain this: https://help.mixpanel.com/hc/en-us/articles/115004490503-Project-Settings#project-id | integer | Required |
+| `/project_id` | Project ID | Your project ID number. See the [docs](https://help.mixpanel.com/hc/en-us/articles/115004490503-Project-Settings#project-id) for more information on how to obtain this. | integer | Required |
 | `/attribution_window` | Attribution Window | A period of time for attributing results to ads and the lookback period after those actions occur during which ad results are counted. Default attribution window is 5 days. | integer | Default |
-| `/project_timezone` | Project Timezone | Time zone in which integer date times are stored. The project timezone may be found in the project settings in the Mixpanel console: https://help.mixpanel.com/hc/en-us/articles/115004547203-Manage-Timezones-for-Projects-in-Mixpanel | string | Default |
+| `/project_timezone` | Project Timezone | Time zone in which integer date times are stored. The project timezone may be found in the project settings in the [Mixpanel console](https://help.mixpanel.com/hc/en-us/articles/115004547203-Manage-Timezones-for-Projects-in-Mixpanel) | string | Default |
 | `/select_properties_by_default` | Select Properties By Default | boolean | Default |
 | `/start_date` | Start Date | The date in the format YYYY-MM-DD. Any data before this date will not be replicated. If this option is not set, the connector will replicate data from up to one year ago by default. | string | Required |
 | `/end_date` | End Date | The date in the format YYYY-MM-DD. Any data after this date will not be replicated. Left empty to always sync to most recent date. | string | Default |
