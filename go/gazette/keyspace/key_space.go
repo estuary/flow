@@ -303,6 +303,9 @@ func (ks *KeySpace) Apply(responses ...clientv3.WatchResponse) error {
 				lastRevision, firstRevision)
 		} else {
 			nextHeader.Revision = lastRevision
+			// If MemberId or RaftTerm have changed, it would have already been logged by `checkHeader`.
+			nextHeader.MemberId = wr.Header.MemberId
+			nextHeader.RaftTerm = wr.Header.RaftTerm
 		}
 
 		// Order on key, while preserving relative ModRevision order of events of the same key.
