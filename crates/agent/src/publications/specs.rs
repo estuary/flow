@@ -545,7 +545,10 @@ fn split_tag(image_full: &str) -> (String, String) {
 #[cfg(test)]
 mod test {
 
-    use crate::publications::{JobStatus, PublishStatus};
+    use crate::{
+        publications::{JobStatus, PublishStatus},
+        FIXED_DATABASE_URL,
+    };
 
     use super::super::PublishHandler;
     use agent_sql::Id;
@@ -575,8 +578,6 @@ mod test {
         errors: Vec<String>,
         live_specs: Vec<LiveSpec>,
     }
-
-    const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
     async fn execute_publications(txn: &mut Transaction<'_, Postgres>) -> Vec<ScenarioResult> {
         let bs_url: Url = "http://example.com".parse().unwrap();

@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod test;
+
 use super::{draft, Handler, HandlerStatus, Id};
 use agent_sql::{
     evolutions::{DraftSpecRow, Row},

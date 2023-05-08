@@ -48,3 +48,4 @@ derivative = { workspace = true }
 insta = { workspace = true }
 tokio = { workspace = true }
 serial_test = { workspace = true }
+uuid = { workspace = true }

@@ -15,3 +15,7 @@ pub use discovers::DiscoverHandler;
 pub use evolution::EvolutionHandler;
 pub use handlers::{serve, Handler, HandlerStatus};
 pub use publications::PublishHandler;
+
+// Used during tests.
+#[cfg(test)]
+const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
