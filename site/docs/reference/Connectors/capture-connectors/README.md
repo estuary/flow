@@ -72,6 +72,9 @@ Typically, we enable SaaS connectors from third parties to allow more diverse da
 All the third-party connectors available currently were created by [Airbyte](https://airbyte.com/connectors).
 The versions made available in Flow have been adapted for compatibility.
 
+* Airtable
+  * [Configuration](./airtable.md)
+  * Package - ghrc.io/estuary/source-airtable.dev
 * Amazon Ads
   * [Configuration](./amazon-ads.md)
   * Package - ghrc.io/estuary/source-amazon-ads.dev
@@ -81,6 +84,9 @@ The versions made available in Flow have been adapted for compatibility.
 * Bing Ads
   * [Configuration](./bing-ads.md)
   * Package - ghcr.io/estuary/source-bing-ads:dev
+* Chargebee
+  * [Configuration](./chargebee.md)
+  * Package - ghrc.io/estuary/source-chargebee.dev
 * Exchange Rates API
   * [Configuration](./exchange-rates.md)
   * Package - ghcr.io/estuary/source-exchange-rates:dev
@@ -108,30 +114,69 @@ The versions made available in Flow have been adapted for compatibility.
 * Google Sheets
   * [Configuration](./google-sheets.md)
   * Package - ghcr.io/estuary/source-google-sheets:dev
+* Greenhouse
+  * [Configuration](./greenhouse.md)
+  * Package - ghrc.io/estuary/source-greenhouse.dev
 * Hubspot
   * [Configuration](./hubspot.md)
   * Package - ghcr.io/estuary/source-hubspot:dev
 * Intercom
   * [Configuration](./intercom.md)
   * Package - ghcr.io/estuary/source-intercom:dev
+* Iterable
+  * [Configuration](./iterable.md)
+  * Package - ghrc.io/estuary/source-iterable.dev
+* Klaviyo
+  * [Configuration](./klaviyo.md)
+  * Package - ghrc.io/estuary/source-klaviyo.dev
 * LinkedIn Ads
   * [Configuration](./linkedin-ads.md)
   * Package - ghcr.io/estuary/source-linkedin-ads:dev
 * Mailchimp
   * [Configuration](./mailchimp.md)
   * Package - ghcr.io/estuary/source-mailchimp:dev
-* Salesforce (For historical data)
-  * [Configuration](./salesforce.md)
-  * Package - ghcr.io/estuary/source-salesforce:dev
+* Marketo
+  * [Configuration](./marketo.md)
+  * Package - ghrc.io/estuary/source-marketo.dev
+* MixPanel
+  * [Configuration](./mixpanel.md)
+  * Package - ghrc.io/estuary/source-mixpanel.dev
 * Notion
   * [Configuration](./notion.md)
   * Package - ghcr.io/estuary/source-notion:dev
+* Paypal Transaction
+  * [Configuration](./paypal-transaction.md)
+  * Package - ghrc.io/estuary/source-paypal-transaction.dev
+* Recharge
+  * [Configuration](./recharge.md)
+  * Package - ghcr.io/estuary/source-recharge:dev
+* Salesforce (For historical data)
+  * [Configuration](./salesforce.md)
+  * Package - ghcr.io/estuary/source-salesforce:dev
+* SendGrid
+  * [Configuration](./sendgrid.md)
+  * Package - ghcr.io/estuary/source-sendgrid:dev
+* Sentry
+  * [Configuration](./sentry.md)
+  * Package - ghcr.io/estuary/source-sentry:dev
+* Slack
+  * [Configuration](./slack.md)
+  * Package - ghcr.io/estuary/source-slack:dev
+* Snapchat
+  * [Configuration](./snapchat.md)
+  * Package - ghcr.io/estuary/source-snapchat:dev
 * Stripe
   * [Configuration](./stripe.md)
   * Package - ghcr.io/estuary/source-stripe:dev
 * SurveyMonkey
   * [Configuration](./survey-monkey.md)
   * Package - ghcr.io/estuary/source-surveymonkey:dev
+* Twilio
+  * [Configuration](./twilio.md)
+  * Package - ghcr.io/estuary/source-twilio:dev
+* Zendesk Chat
+  * [Configuration](./zendesk-chat.md)
+  * Package - ghcr.io/estuary/source-zendesk-chat:dev
 * Zendesk Support
   * [Configuration](./zendesk-support.md)
   * Package - ghcr.io/estuary/source-zendesk-support:dev
