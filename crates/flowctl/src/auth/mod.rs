@@ -88,7 +88,6 @@ impl Auth {
 
 async fn do_login(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
     use crossterm::tty::IsTty;
-    use std::io::{BufRead, Write};
 
     let url = ctx.config().get_dashboard_url("/admin/api")?.to_string();
 
@@ -100,13 +99,18 @@ async fn do_login(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
     };
 
     if std::io::stdin().is_tty() {
-        let token = tokio::task::spawn_blocking::<_, std::io::Result<String>>(|| {
-            print!("please paste the token from the CLI auth page and hit Enter\nAuth token: ");
-            // flush is necessary because stdout is newline buffered and our output doesn't end with a newline.
-            std::io::stdout().flush()?;
-            let mut stdin = std::io::stdin().lock();
-            let mut line = String::with_capacity(64);
-            stdin.read_line(&mut line)?;
+        let token = tokio::task::spawn_blocking::<_, anyhow::Result<String>>(|| {
+            // Use MemHistory because the default is file-backed, and we don't need it causing problems.
+            // History is not used at all, so this is just a bit of extra caution.
+            let mut rl: rustyline::Editor<(), rustyline::history::MemHistory> =
+                rustyline::Editor::with_history(
+                    rustyline::Config::default(),
+                    rustyline::history::MemHistory::new(),
+                )?;
+
+            let line = rl.readline(
+                "please paste the token from the CLI auth page and hit Enter\nAuth token: ",
+            )?;
             Ok(line)
         })
         .await?
