@@ -18,12 +18,14 @@ import (
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/keyspace"
+	"go.gazette.dev/core/mainboilerplate"
 	"go.gazette.dev/core/message"
 )
 
 // taskTerm holds task state used by Capture, Derive and Materialize runtimes,
 // which is re-initialized with each revision of the associated catalog task.
 type taskTerm struct {
+	consumerConfig *mainboilerplate.ServiceConfig
 	// Current ShardSpec under which the task term is running.
 	shardSpec *pf.ShardSpec
 	// The taskTerm Context wraps the Shard Context, and is further cancelled
@@ -35,6 +37,12 @@ type taskTerm struct {
 	build *flow.Build
 	// ops.Publisher of ops.Logs and ops.Stats.
 	opsPublisher *OpsPublisher
+}
+
+func newUninitializedTerm(consumerConfig *mainboilerplate.ServiceConfig) taskTerm {
+	return taskTerm{
+		consumerConfig: consumerConfig,
+	}
 }
 
 func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
@@ -93,6 +101,7 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 		"initialized catalog task term",
 		"labels", t.labels,
 		"lastLabels", lastLabels,
+		"reactorInstance", t.consumerConfig,
 	)
 	return nil
 }

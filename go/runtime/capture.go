@@ -62,7 +62,7 @@ func NewCaptureApp(host *FlowConsumer, shard consumer.Shard, recorder *recoveryl
 		host:        host,
 		spec:        pf.CaptureSpec{}, // Initialized in RestoreCheckpoint.
 		store:       store,
-		taskTerm:    taskTerm{}, // Initialized in RestoreCheckpoint.
+		taskTerm:    newUninitializedTerm(&host.Config.Consumer.ServiceConfig),
 	}, nil
 }
 
@@ -415,7 +415,7 @@ func (c *Capture) FinalizeTxn(_ consumer.Shard, pub *message.Publisher) error {
 
 // FinishedTxn logs if an error occurred.
 func (c *Capture) FinishedTxn(_ consumer.Shard, op consumer.OpFuture) {
-	logTxnFinished(c.opsPublisher, op)
+	logTxnFinished(c.opsPublisher, op, c.consumerConfig)
 }
 
 // Coordinator panics if called.

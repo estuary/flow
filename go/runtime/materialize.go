@@ -59,7 +59,7 @@ func NewMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recov
 		client:     nil,                      // Initialized in RestoreCheckpoint.
 		spec:       pf.MaterializationSpec{}, // Initialized in RestoreCheckpoint.
 		taskReader: taskReader{},             // Initialized in RestoreCheckpoint.
-		taskTerm:   taskTerm{},               // Initialized in RestoreCheckpoint.
+		taskTerm:   newUninitializedTerm(&host.Config.Consumer.ServiceConfig),
 	}
 
 	return out, nil
@@ -285,5 +285,5 @@ func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) 
 
 // FinishedTxn implements Application.FinishedTxn.
 func (m *Materialize) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {
-	logTxnFinished(m.opsPublisher, op)
+	logTxnFinished(m.opsPublisher, op, m.consumerConfig)
 }

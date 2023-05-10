@@ -54,7 +54,7 @@ func NewDeriveApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylo
 		client:     nil, // Lazily initialized.
 		host:       host,
 		recorder:   recorder,
-		taskTerm:   taskTerm{},
+		taskTerm:   newUninitializedTerm(&host.Config.Consumer.ServiceConfig),
 		taskReader: taskReader{},
 	}
 	return derive, nil
@@ -282,7 +282,7 @@ func (d *Derive) StartCommit(_ consumer.Shard, cp pf.Checkpoint, waitFor client.
 
 // FinishedTxn logs if an error occurred.
 func (d *Derive) FinishedTxn(_ consumer.Shard, op consumer.OpFuture) {
-	logTxnFinished(d.opsPublisher, op)
+	logTxnFinished(d.opsPublisher, op, d.consumerConfig)
 }
 
 // ClearRegistersForTest delegates the request to its worker.

@@ -19,6 +19,7 @@ import (
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
+	"go.gazette.dev/core/mainboilerplate"
 	"go.gazette.dev/core/mainboilerplate/runconsumer"
 	"go.gazette.dev/core/message"
 )
@@ -115,10 +116,10 @@ func (f *FlowConsumer) FinishedTxn(shard consumer.Shard, store consumer.Store, f
 // logTxnFinished spawns a goroutine that waits for the given op to complete and logs the error if
 // it fails. All task types should delegate to this function so that the error logging is
 // consistent.
-func logTxnFinished(publisher ops.Publisher, op consumer.OpFuture) {
+func logTxnFinished(publisher ops.Publisher, op consumer.OpFuture, consumerConfig *mainboilerplate.ServiceConfig) {
 	go func() {
 		if err := op.Err(); err != nil && errors.Cause(err) != context.Canceled {
-			ops.PublishLog(publisher, ops.Log_error, "shard failed", "error", err)
+			ops.PublishLog(publisher, ops.Log_error, "shard failed", "error", err, "reactorInstance", consumerConfig)
 		}
 	}()
 }
