@@ -38,7 +38,7 @@ clap = { workspace = true }
 comfy-table = { workspace = true }
 crossterm = { workspace = true }
 dirs = { workspace = true }
-futures = { workspace = true, features = ["executor", "thread-pool"] }
+futures = { workspace = true }
 humantime = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
