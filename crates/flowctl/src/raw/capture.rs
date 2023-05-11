@@ -124,7 +124,7 @@ pub async fn do_capture(ctx: &mut crate::CliContext, Capture { source }: &Captur
                         state.combine_right(&doc).unwrap();
                     }
                     Command::Drain => {
-                        let mut out = Vec::new();
+                        let mut out = Vec::with_capacity(32);
                         state = state.drain_chunk(&mut out).unwrap();
                         let collection_name = &state.collection_name;
 
@@ -234,20 +234,18 @@ impl State {
             doc::Combiner::Accumulator(accumulator) => accumulator.into_drainer()?,
             doc::Combiner::Drainer(d) => d,
         };
-        let _more = drainer.drain_while(|doc, _fully_reduced| {
+        let more = drainer.drain_while(|doc, _fully_reduced| {
             let doc_json = serde_json::to_string(&doc).expect("document serialization cannot fail");
             out.push(doc_json);
 
-            Ok::<bool, doc::combine::Error>(out.len() != out.capacity())
+            Ok::<bool, doc::combine::Error>(true)
         })?;
 
-        // FIXME: do we need this? do we need to have a specific capacity for the output? At the
-        // moment I'm using an open-ended Vec
-        /*if more {
+        if more {
             self.combiner = doc::Combiner::Drainer(drainer);
-        } else {*/
+        } else {
             self.combiner = doc::Combiner::Accumulator(drainer.into_new_accumulator()?);
-        //}
+        }
 
         Ok(self)
     }
