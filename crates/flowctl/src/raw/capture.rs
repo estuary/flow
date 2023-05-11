@@ -2,7 +2,6 @@ use std::sync::{Arc, Mutex};
 
 use futures::channel::mpsc::{Sender};
 use futures::{StreamExt, channel, stream};
-use futures::executor::ThreadPool;
 use proto_flow::flow::{CollectionSpec, ConnectorState};
 use serde::Deserialize;
 use anyhow::Context;
@@ -75,7 +74,6 @@ pub async fn do_capture(ctx: &mut crate::CliContext, Capture { source }: &Captur
 
     let bindings = capture.spec.bindings.clone();
     let mut channels: Vec<Arc<Mutex<Sender<Command>>>> = Vec::new();
-    let pool = ThreadPool::new().expect("Failed to build pool");
 
     for binding in bindings.clone().into_iter() {
         let (send, mut recv) = channel::mpsc::channel::<Command>(1);
@@ -108,7 +106,7 @@ pub async fn do_capture(ctx: &mut crate::CliContext, Capture { source }: &Captur
         ).expect("create combiner");
 
 
-        pool.spawn_ok(async move {
+        tokio::spawn(async move {
             let mut state = State {
                 combiner,
                 collection_name: name,
