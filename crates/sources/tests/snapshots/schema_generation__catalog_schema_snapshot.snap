@@ -936,6 +936,14 @@ expression: "&schema"
       ],
       "oneOf": [
         {
+          "title": "A Document may be shuffled to any task shard.",
+          "description": "Use 'any' if your transformation does not rely on internal task state, or if your derivation is not intended to scale beyond a single shard.",
+          "type": "string",
+          "enum": [
+            "any"
+          ]
+        },
+        {
           "title": "Key which identifies fields of sourced documents to extract and shuffle upon.",
           "type": "object",
           "required": [
@@ -1157,12 +1165,14 @@ expression: "&schema"
       "examples": [
         {
           "name": "my-transform",
+          "shuffle": "any",
           "source": "some/source/collection"
         }
       ],
       "type": "object",
       "required": [
         "name",
+        "shuffle",
         "source"
       ],
       "properties": {
@@ -1194,13 +1204,6 @@ expression: "&schema"
         "shuffle": {
           "title": "Shuffle by which source documents are mapped to processing shards.",
           "description": "If empty, the key of the source collection is used.",
-          "examples": [
-            {
-              "key": [
-                "/json/ptr"
-              ]
-            }
-          ],
           "$ref": "#/definitions/Shuffle"
         },
         "source": {

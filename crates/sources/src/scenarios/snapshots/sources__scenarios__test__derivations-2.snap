@@ -76,6 +76,7 @@ Sources {
                   {
                     "name": "do-the-thing",
                     "source": "src/collection",
+                    "shuffle": "any",
                     "lambda": 42
                   }
                 ],
