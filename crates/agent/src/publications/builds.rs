@@ -264,6 +264,8 @@ pub async fn test_catalog(
             .arg("--all-derivations")
             .arg("--build-id")
             .arg(&build_id)
+            // Use >1 splits to catch logic failures of shuffle configuration.
+            .arg("--initial-splits=3")
             .arg("--network")
             .arg(connector_network)
             .arg("--broker.address")
