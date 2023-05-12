@@ -22,9 +22,11 @@ collections:
       transforms:
         - name: enrichAndAddToWindow
           source: acmeBank/transfers
+          shuffle: { key: [/sender] }
           lambda: enrichAndAddToWindow.sql
 
         - name: removeFromWindow
           source: acmeBank/transfers
+          shuffle: { key: [/sender] }
           readDelay: 24h
           lambda: DELETE FROM transfers WHERE id = $id;

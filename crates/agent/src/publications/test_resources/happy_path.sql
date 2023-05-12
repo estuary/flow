@@ -24,7 +24,8 @@ p4 as (
             "transforms":[
                 {
                   "name": "my-name",
-                  "source": "usageB/CollectionA"
+                  "source": "usageB/CollectionA",
+                  "shuffle": "any"
                 }
             ]
         }
