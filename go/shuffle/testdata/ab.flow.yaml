@@ -19,12 +19,12 @@ collections:
 
     derive:
       using:
-        sqlite:
-          migrations: []
+        sqlite: {}
       transforms:
         # Note that our test depends on this transform being validated as `readOnly`.
         - name: swizzle
           source: a/collection
+          shuffle: any
           lambda: SELECT 1;
 
 storageMappings:

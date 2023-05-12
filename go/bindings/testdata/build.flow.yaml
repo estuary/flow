@@ -30,8 +30,8 @@ collections:
             }
       transforms:
         - name: swizzle
-          source:
-            name: a/collection
+          source: a/collection
+          shuffle: any
 
 captures:
   example/capture:

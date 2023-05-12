@@ -9,4 +9,5 @@ collections:
       transforms:
         - name: filterTransfers
           source: acmeBank/transfers
+          shuffle: any
           lambda: SELECT $id, $sender, $recipient, $amount WHERE $amount > 100;
