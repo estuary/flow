@@ -7,8 +7,4 @@ expression: errors
         scope: test://example/int-string#/collections/testing~1int-string/key,
         error: collection testing/int-string key cannot be empty (https://go.estuary.dev/Zq6zVB),
     },
-    Error {
-        scope: test://example/int-reverse#/collections/testing~1int-reverse,
-        error: shuffle types mismatch: [Integer] vs [],
-    },
 ]

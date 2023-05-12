@@ -183,7 +183,7 @@ impl cgo::Service for API {
                     arena,
                     out,
                     &mut state.stats.out,
-                    Some(&state.shape),
+                    &state.shape,
                 )?;
 
                 if !more {
@@ -232,7 +232,7 @@ pub fn drain_chunk(
     arena: &mut Vec<u8>,
     out: &mut Vec<cgo::Out>,
     stats: &mut DocCounter,
-    shape: Option<&doc::inference::Shape>,
+    shape: &doc::inference::Shape,
 ) -> Result<bool, doc::combine::Error> {
     // Convert target from a delta to an absolute target length of the arena.
     let target_length = target_length + arena.len();
@@ -277,17 +277,14 @@ pub fn drain_chunk(
 fn exists_or_default<T>(
     n: Option<doc::Node<T>>,
     p: &doc::Pointer,
-    shape: Option<&doc::inference::Shape>,
+    shape: &doc::inference::Shape,
     arena: &mut Vec<u8>,
 ) where
     T: doc::AsNode,
 {
-    match (n, shape) {
-        (Some(val), _) => val.pack(arena, TupleDepth::new().increment()),
-        (None, None) => {
-            doc::Node::Null::<serde_json::Value>.pack(arena, TupleDepth::new().increment())
-        }
-        (None, Some(shape)) => {
+    match n {
+        Some(val) => val.pack(arena, TupleDepth::new().increment()),
+        None => {
             let (inner, _) = shape.locate(p);
 
             match &inner.default {
