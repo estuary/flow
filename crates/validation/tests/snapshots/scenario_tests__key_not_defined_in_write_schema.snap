@@ -11,8 +11,4 @@ expression: errors
         scope: test://example/int-string#/collections/testing~1int-string-rw/key/2,
         error: location /missing-in-read-and-write-schemas is unknown in schema test://example/int-string.schema,
     },
-    Error {
-        scope: test://example/int-string#/collections/testing~1int-string-rw/key/2,
-        error: keyed location /missing-in-read-and-write-schemas must be required to exist, but is not required within schema test://example/canonical/int-string-len.schema,
-    },
 ]

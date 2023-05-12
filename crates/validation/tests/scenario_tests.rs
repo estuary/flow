@@ -190,17 +190,23 @@ test://example/int-reverse:
           - name: reverseIntString
             source: &source
               name: testing/int-string
+            shuffle: any
           - name: ""
             source: *source
+            shuffle: any
           - name: inv alid
             source: *source
+            shuffle: any
           - name: inv!alid
             source: *source
+            shuffle: any
           - name: inv/alid
             source: *source
+            shuffle: any
           # Illegal duplicate under collation.
           - name: reVeRsEIntString
             source: *source
+            shuffle: any
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -390,8 +396,11 @@ test://example/int-halve:
         transforms:
           - name: halveIntString
             source: testinG/Int-String
+            shuffle:
+              key: [/foo, /bar]
           - name: halveSelf
             source: wildly/off/name
+            shuffle: any
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -628,25 +637,6 @@ test://example/int-halve:
 }
 
 #[test]
-fn test_shuffle_key_is_implicit() {
-    let errors = run_test_errors(
-        &GOLDEN,
-        r#"
-test://example/int-halve:
-  collections:
-    testing/int-halve:
-      derive:
-        transforms:
-          - name: halveIntString
-            source: testing/int-string-rw
-            shuffle:
-              key: [/int]
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
 fn test_collection_key_empty() {
     let errors = run_test_errors(
         &GOLDEN,
@@ -700,6 +690,8 @@ test://example/int-halve:
                   bit: [false, "a string"]
                   Int: [false, "", 16]
                   AlsoUnknown: ["whoops"]
+            shuffle:
+              key: [/len, /str]
 "#,
     );
     insta::assert_debug_snapshot!(errors);
