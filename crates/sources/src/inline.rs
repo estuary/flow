@@ -126,7 +126,7 @@ fn inline_derivation(
     {
         inline_config(lambda, scope, resources);
 
-        if let Some(models::Shuffle::Lambda(lambda)) = shuffle {
+        if let models::Shuffle::Lambda(lambda) = shuffle {
             inline_config(lambda, scope, resources);
         }
     }

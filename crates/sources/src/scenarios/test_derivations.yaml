@@ -54,6 +54,7 @@ test://example/catalog.yaml:
           - name: do-the-thing
             source: src/collection
             lambda: 42
+            shuffle: any
         shards:
           disable: true
           minTxnDuration: 15s
