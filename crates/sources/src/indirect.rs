@@ -272,7 +272,7 @@ fn indirect_derivation(
                 resources,
                 threshold,
             );
-            if let Some(models::Shuffle::Lambda(lambda)) = shuffle {
+            if let models::Shuffle::Lambda(lambda) = shuffle {
                 indirect_raw(
                     scope,
                     lambda,
@@ -289,7 +289,7 @@ fn indirect_derivation(
                 resources,
                 threshold,
             );
-            if let Some(models::Shuffle::Lambda(lambda)) = shuffle {
+            if let models::Shuffle::Lambda(lambda) = shuffle {
                 indirect_dom(
                     scope,
                     lambda,

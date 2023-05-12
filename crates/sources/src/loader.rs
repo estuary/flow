@@ -557,7 +557,7 @@ impl<F: Fetcher> Loader<F> {
                 .boxed_local(),
             );
 
-            if let Some(models::Shuffle::Lambda(lambda)) = &transform.shuffle {
+            if let models::Shuffle::Lambda(lambda) = &transform.shuffle {
                 tasks.push(
                     async move {
                         self.load_config(

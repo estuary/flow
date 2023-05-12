@@ -52,9 +52,7 @@ pub struct TransformDef {
     pub source: Source,
     /// # Shuffle by which source documents are mapped to processing shards.
     /// If empty, the key of the source collection is used.
-    #[schemars(example = "Shuffle::example")]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shuffle: Option<Shuffle>,
+    pub shuffle: Shuffle,
     /// # Priority applied to documents processed by this transform.
     /// When all transforms are of equal priority, Flow processes documents
     /// according to their associated publishing time, as encoded in the
@@ -92,6 +90,10 @@ pub struct TransformDef {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[schemars(example = "Shuffle::example")]
 pub enum Shuffle {
+    /// # A Document may be shuffled to any task shard.
+    /// Use 'any' if your transformation does not rely on internal task state,
+    /// or if your derivation is not intended to scale beyond a single shard.
+    Any,
     /// # Key which identifies fields of sourced documents to extract and shuffle upon.
     Key(CompositeKey),
     /// # Lambda which extracts a shuffle key from the sourced documents of this transform.
@@ -119,6 +121,7 @@ impl TransformDef {
         from_value(json!({
             "name": "my-transform",
             "source": "some/source/collection",
+            "shuffle": "any",
         }))
         .unwrap()
     }
