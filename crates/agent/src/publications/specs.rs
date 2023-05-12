@@ -688,6 +688,7 @@ mod test {
                                     "transforms": Array [
                                         Object {
                                             "name": String("my-name"),
+                                            "shuffle": String("any"),
                                             "source": String("usageB/CollectionA"),
                                         },
                                     ],

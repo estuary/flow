@@ -10,3 +10,4 @@ collections:
       transforms:
         - name: fromCsvRides
           source: { name: examples/citi-bike/csv-rides }
+          shuffle: any

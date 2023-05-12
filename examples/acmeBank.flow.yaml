@@ -119,6 +119,7 @@ collections:
             partitions:
               include:
                 outcome: ["approve"]
+          shuffle: any
           lambda: |
             -- Map approved transfers to a credit for the recipient and a debit for the sender.
             select $recipient as account, $amount as balance

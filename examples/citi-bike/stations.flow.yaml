@@ -14,5 +14,5 @@ collections:
           module: stations.flow.ts
       transforms:
         - name: ridesAndMoves
-          source:
-            name: examples/citi-bike/rides-and-relocations
+          source: examples/citi-bike/rides-and-relocations
+          shuffle: any
