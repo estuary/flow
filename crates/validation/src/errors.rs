@@ -73,13 +73,11 @@ pub enum Error {
     #[error("collection schema {schema} must have type 'object'")]
     CollectionSchemaNotObject { schema: Url },
     #[error("{ptr} is not a valid JSON pointer (missing leading '/' slash)")]
-    KeyMissingLeadingSlash { ptr: String },
+    PtrMissingLeadingSlash { ptr: String },
     #[error("{ptr} is not a valid JSON pointer ({unmatched:?} is invalid)")]
-    KeyRegex { ptr: String, unmatched: String },
-    #[error("keyed location {ptr} must be required to exist, but is not required within schema {schema}")]
-    KeyMayNotExist { ptr: String, schema: Url },
+    PtrRegexUnmatched { ptr: String, unmatched: String },
     #[error("location {ptr} is prohibited from ever existing by the schema {schema}")]
-    KeyCannotExist { ptr: String, schema: Url },
+    PtrCannotExist { ptr: String, schema: Url },
     #[error("location {ptr} accepts {type_:?} in schema {schema}, but locations used as keys may only be null-able integers, strings, or booleans")]
     KeyWrongType {
         ptr: String,
@@ -87,7 +85,7 @@ pub enum Error {
         schema: Url,
     },
     #[error("location {ptr} is unknown in schema {schema}")]
-    KeyIsImplicit { ptr: String, schema: Url },
+    PtrIsImplicit { ptr: String, schema: Url },
     #[error("location {ptr} has a reduction strategy {strategy:?}, which is disallowed because the location is used as a key")]
     KeyHasReduction {
         ptr: String,
@@ -121,13 +119,8 @@ pub enum Error {
     },
     #[error("{category} partition selector field {field} cannot be an empty string")]
     SelectorEmptyString { category: String, field: String },
-    #[error("transform {transform} shuffle key is already the collection key of {collection} and should be omitted here")]
-    ShuffleKeyNotDifferent {
-        transform: String,
-        collection: String,
-    },
     #[error(
-        "cannot infer shuffle key types because all transforms use computed shuffle lambdas. Please add an explicit `shuffleKeyTypes` to this derivation."
+        "cannot infer shuffle key types because all transforms use a computed `lambda` or `any`.\nFlow must know the key types that your computed shuffle lambda will output.\nPlease add an explicit `shuffleKeyTypes` to this derivation."
     )]
     ShuffleKeyCannotInfer {},
     #[error("transform {transform} shuffle key cannot be empty")]

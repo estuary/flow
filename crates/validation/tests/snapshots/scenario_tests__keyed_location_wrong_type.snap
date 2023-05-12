@@ -27,8 +27,4 @@ expression: errors
         scope: test://example/int-string#/collections/testing~1int-string.v2/key/0,
         error: location /int accepts "number", "object" in schema test://inlined/canonical/id, but locations used as keys may only be null-able integers, strings, or booleans,
     },
-    Error {
-        scope: test://example/int-reverse#/collections/testing~1int-reverse,
-        error: shuffle types mismatch: [Integer] vs [0],
-    },
 ]

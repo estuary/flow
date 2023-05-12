@@ -3030,9 +3030,7 @@ All {
                                 journal_read_suffix: "derive/testing/int-reverse/reverseIntString",
                             },
                         ],
-                        shuffle_key_types: [
-                            Integer,
-                        ],
+                        shuffle_key_types: [],
                         shard_template: Some(
                             ShardSpec {
                                 id: "derivation/testing/int-reverse",
@@ -5155,7 +5153,8 @@ All {
                     "name": "reverseIntString",
                     "source": {
                       "name": "testing/int-string"
-                    }
+                    },
+                    "shuffle": "any"
                   }
                 ]
               }
@@ -5548,7 +5547,7 @@ All {
             resource: test://example/int-reverse,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"testing/int-reverse":{"derive":{"transforms":[{"name":"reverseIntString","source":{"name":"testing/int-string"}}],"using":{"typescript":{"module":"int-reverse.ts"}}},"key":["/int"],"schema":"test://example/int-string.schema"}},"import":["test://example/int-string"]},
+            content_dom: {"collections":{"testing/int-reverse":{"derive":{"transforms":[{"name":"reverseIntString","shuffle":"any","source":{"name":"testing/int-string"}}],"using":{"typescript":{"module":"int-reverse.ts"}}},"key":["/int"],"schema":"test://example/int-string.schema"}},"import":["test://example/int-string"]},
         },
         Resource {
             resource: test://example/int-reverse.ts,

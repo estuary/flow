@@ -181,6 +181,7 @@ test://example/int-reverse:
           - name: reverseIntString
             source:
               name: testing/int-string
+            shuffle: any
 
 test://example/int-reverse.ts: typescript module placeholder
 
@@ -335,7 +336,7 @@ driver:
       connectorType: TYPESCRIPT
       config:
         module: typescript module placeholder
-      shuffleKeyTypes: [INTEGER]
+      shuffleKeyTypes: []
       transforms:
         - readOnly: true
       generatedFiles: {}
