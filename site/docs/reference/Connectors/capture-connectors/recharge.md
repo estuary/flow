@@ -1,6 +1,3 @@
----
-sidebar_position: 1
----
 # Recharge
 
 This connector captures data from Recharge into Flow collections.

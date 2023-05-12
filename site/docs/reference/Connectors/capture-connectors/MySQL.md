@@ -315,6 +315,10 @@ You can:
 
 * Specify a named timezone in [IANA timezone format](https://www.iana.org/time-zones).
 
+* If you're using Amazon Aurora, create or modify the [DB cluster parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html)
+associated with your MySQL database.
+[Set](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.ModifyingCluster) the `time_zone` parameter to the correct value.
+
 For example, if you're located in New Jersey, USA, you could set `time_zone` to `-05:00` or `-04:00`, depending on the time of year.
 Because this region observes daylight savings time, you'd be responsible for changing the offset.
 Alternatively, you could set `time_zone` to `America/New_York`, and time changes would occur automatically.

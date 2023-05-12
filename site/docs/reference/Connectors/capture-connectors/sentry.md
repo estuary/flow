@@ -1,6 +1,3 @@
----
-sidebar_position: 1
----
 # Sentry
 
 This connector captures data from Sentry into Flow collections.
