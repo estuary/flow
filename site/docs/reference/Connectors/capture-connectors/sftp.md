@@ -1,6 +1,3 @@
----
-sidebar_position: 1
----
 # SFTP
 
 This connector captures data from an SFTP server.
