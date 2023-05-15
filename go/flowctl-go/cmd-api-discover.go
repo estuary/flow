@@ -73,7 +73,9 @@ func (cmd apiDiscover) execute(ctx context.Context) (*pc.Response_Discovered, er
 func (cmd apiDiscover) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
 	mbp.InitLog(cmd.Log)
-	var ctx, cancelFn = context.WithTimeout(context.Background(), time.Second*30)
+	// TODO(whb): Change this timeout back to 30 seconds. Temporarily bumping it up to allow
+	// longer-running discoveries to succeed.
+	var ctx, cancelFn = context.WithTimeout(context.Background(), time.Second*60)
 	defer cancelFn()
 
 	logrus.WithFields(logrus.Fields{
