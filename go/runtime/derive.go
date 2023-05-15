@@ -281,8 +281,8 @@ func (d *Derive) StartCommit(_ consumer.Shard, cp pf.Checkpoint, waitFor client.
 }
 
 // FinishedTxn logs if an error occurred.
-func (d *Derive) FinishedTxn(_ consumer.Shard, op consumer.OpFuture) {
-	logTxnFinished(d.opsPublisher, op)
+func (d *Derive) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {
+	logTxnFinished(d.opsPublisher, op, shard)
 }
 
 // ClearRegistersForTest delegates the request to its worker.

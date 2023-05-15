@@ -285,5 +285,5 @@ func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) 
 
 // FinishedTxn implements Application.FinishedTxn.
 func (m *Materialize) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {
-	logTxnFinished(m.opsPublisher, op)
+	logTxnFinished(m.opsPublisher, op, shard)
 }
