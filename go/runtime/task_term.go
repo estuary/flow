@@ -93,6 +93,7 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 		"initialized catalog task term",
 		"labels", t.labels,
 		"lastLabels", lastLabels,
+		"assignment", shard.Assignment().Decoded,
 	)
 	return nil
 }

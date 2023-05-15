@@ -414,8 +414,8 @@ func (c *Capture) FinalizeTxn(_ consumer.Shard, pub *message.Publisher) error {
 }
 
 // FinishedTxn logs if an error occurred.
-func (c *Capture) FinishedTxn(_ consumer.Shard, op consumer.OpFuture) {
-	logTxnFinished(c.opsPublisher, op)
+func (c *Capture) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {
+	logTxnFinished(c.opsPublisher, op, shard)
 }
 
 // Coordinator panics if called.
