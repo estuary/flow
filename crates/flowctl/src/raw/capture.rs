@@ -67,7 +67,7 @@ pub async fn do_capture(ctx: &mut crate::CliContext, Capture { source }: &Captur
         ..Default::default()
     };
 
-    let apply_output = docker_run(&cfg.image, apply).await.context("connector discover")?;
+    let apply_output = docker_run(&cfg.image, apply).await.context("connector apply")?;
 
     let apply_action = apply_output.applied.expect("applied rpc").action_description;
     eprintln!("Apply RPC Response: {apply_action}");
@@ -144,7 +144,7 @@ pub async fn do_capture(ctx: &mut crate::CliContext, Capture { source }: &Captur
             _ => None
         }
     });
-    let mut out_stream = docker_run_stream(&cfg.image, Box::pin(stream::once(async { open }).chain(in_stream))).await.context("connector discover")?;
+    let mut out_stream = docker_run_stream(&cfg.image, Box::pin(stream::once(async { open }).chain(in_stream))).await.context("connector output stream")?;
     let checkpoint = Arc::new(Mutex::new(json!({})));
     let explicit_acknowledgements = Arc::new(Mutex::new(false));
     eprintln!("Documents");
