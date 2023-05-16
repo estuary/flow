@@ -35,7 +35,7 @@ To use this connector, you'll need a MySQL database setup with the following.
   - Permission to read the tables being captured.
   - Permission to read from `information_schema` tables, if automatic discovery is used.
 * If the table(s) to be captured include columns of type `DATETIME`, the `time_zone` system variable
-  must be set to an IANA zone name or numerical offset.
+  must be set to an IANA zone name or numerical offset or the capture configured with a `timezone` to use by default.
 
 ## Setup
 
@@ -325,6 +325,10 @@ Alternatively, you could set `time_zone` to `America/New_York`, and time changes
 
 If using IANA time zones, your database must include time zone tables. [Learn more in the MySQL docs](https://dev.mysql.com/doc/refman/8.0/en/time-zone-support.html).
 
+:::tip Capture Timezone Configuration
+If you are unable to set the `time_zone` in the database and need to capture tables with `DATETIME` columns, the capture can be configured to assume a time zone using the `timezone` configuration property (see below). The `timezone` configuration property can be set as a numerical offset or IANA timezone format.
+:::
+
 ## Backfills and performance considerations
 
 When the a MySQL capture is initiated, by default, the connector first *backfills*, or captures the targeted tables in their current state. It then transitions to capturing change events on an ongoing basis.
@@ -347,6 +351,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | **`/address`** | Server Address | The host or host:port at which the database can be reached. | string | Required |
 | **`/user`** | Login User | The database user to authenticate as. | string | Required, `"flow_capture"` |
 | **`/password`** | Login Password | Password for the specified database user. | string | Required |
+| `/timezone` | Timezone | Timezone to use when capturing datetime columns. Should normally be left blank to use the database's `'time_zone'` system variable. Only required if the `'time_zone'` system variable cannot be set and columns with type datetime are being captured. Must be a valid IANA time zone name or +HH:MM offset. Takes precedence over the `'time_zone'` system variable if both are set. | string |  |
 | `/advanced/watermarks_table` | Watermarks Table Name | The name of the table used for watermark writes. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form. | string | `"flow.watermarks"` |
 | `/advanced/dbname` | Database Name | The name of database to connect to. In general this shouldn&#x27;t matter. The connector can discover and capture from all databases it&#x27;s authorized to access. | string | `"mysql"` |
 | `/advanced/node_id` | Node ID | Node ID for the capture. Each node in a replication cluster must have a unique 32-bit ID. The specific value doesn&#x27;t matter so long as it is unique. If unset or zero the connector will pick a value. | integer |  |
@@ -404,7 +409,7 @@ If your capture is failing with an `"unsupported operation {ALTER,DROP,TRUNCATE,
 
 In the case of `DROP TABLE` and other destructive operations this is not supported, and can only be resolved by removing the offending table(s) from the capture bindings list, after which you may recreate the capture if desired (causing the latest state of the table to be recaptured in its entirety).
 
-In the case of `ALTER TABLE` query we intend to support a limited subset of table alterations in the future, however this error indicates that whatever alteration took place is not currently supported. Practically speaking the immediate resolution is the same as for a `DROP` or `TRUNCATE TABLE`, but if you frequently perform schema migrations it may be worth reaching out to see if we can add support for whatever table alteration you just did.
+In the case of `ALTER TABLE` we currently support table alterations to add or drop columns from a table. This error indicates that whatever alteration took place is not currently supported. Practically speaking the immediate resolution is the same as for a `DROP` or `TRUNCATE TABLE`, but if you frequently perform schema migrations it may be worth reaching out to see if we can add support for whatever table alteration you just did.
 
 ### Data Manipulation Queries
 
