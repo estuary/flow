@@ -7,6 +7,7 @@ mod auth;
 mod catalog;
 mod collection;
 mod config;
+mod connector;
 mod controlplane;
 mod dataplane;
 mod draft;
@@ -17,7 +18,6 @@ mod output;
 mod poll;
 mod preview;
 mod raw;
-mod connector;
 
 use output::{Output, OutputType};
 use poll::poll_while_queued;
@@ -82,17 +82,21 @@ pub enum Command {
     /// They can be edited, developed, and tested while still a draft.
     /// Then when you're ready, publish your draft to make your changes live.
     Draft(draft::Draft),
+    /// This command does not (yet) work for end users
+    ///
+    /// Note: We're still working on allowing users access to task logs, and this command will not work until we do.
     /// Prints the runtime logs of a task (capture, derivation, or materialization).
-    ///
-    /// Reads contents from the `ops/<tenant>/logs` collection, selecting the partition
+    /// Reads contents from the `ops.<data-plane>/logs` collection, selecting the partition
     /// that corresponds to the selected task. This command is essentially equivalent to the much longer:
-    /// `flowctl collections read --collection ops/<tenant>/logs --include-partition estuary.dev/field/name=<task> --uncommitted`
+    /// `flowctl collections read --collection ops.<data-plane>/logs --include-partition estuary.dev/field/name=<task> --uncommitted`
     Logs(ops::Logs),
-    /// Prints the runtime stats of a task (capture, derivation, or materialization).
+    /// This command does not (yet) work for end users
     ///
-    /// Reads contents from the `ops/<tenant>/stats` collection, selecting the partition
+    /// Note: We're still working on allowing users access to task stats, and this command will not work until we do.
+    /// Prints the runtime stats of a task (capture, derivation, or materialization).
+    /// Reads contents from the `ops.<data-plane>/stats` collection, selecting the partition
     /// that corresponds to the selected task. This command is essentially equivalent to the much longer:
-    /// `flowctl collections read --collection ops/<tenant>/stats --include-partition estuary.dev/field/name=<task>`
+    /// `flowctl collections read --collection ops.<data-plane>/stats --include-partition estuary.dev/field/name=<task>`
     Stats(ops::Stats),
     /// Advanced, low-level, and experimental commands which are less common.
     Raw(raw::Advanced),
