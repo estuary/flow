@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use futures::channel::mpsc::{Sender};
-use futures::{StreamExt, channel, stream};
+use futures::{StreamExt, channel, stream, SinkExt};
 use proto_flow::flow::{CollectionSpec, ConnectorState};
 use serde::Deserialize;
 use anyhow::Context;
@@ -27,6 +27,7 @@ struct ConnectorConfig {
     config: Box<RawValue>,
 }
 
+#[derive(Debug)]
 enum Command {
     Drain,
     Combine(String),
@@ -123,7 +124,7 @@ pub async fn do_capture(ctx: &mut crate::CliContext, Capture { source }: &Captur
                     }
                     Command::Drain => {
                         let mut out = Vec::with_capacity(32);
-                        state = state.drain_chunk(&mut out).unwrap();
+                        state = state.drain_chunk(&mut out).expect("failed to drain chunk");
                         let collection_name = &state.collection_name;
 
                         out.iter().for_each(|v| {
@@ -165,7 +166,7 @@ pub async fn do_capture(ctx: &mut crate::CliContext, Capture { source }: &Captur
 
             let sender_mutex = &channels[captured.binding as usize];
             let mut sender = sender_mutex.lock().unwrap();
-            sender.try_send(Command::Combine(doc))?;
+            sender.send(Command::Combine(doc.clone())).await?;
         }
 
         if let Some(ConnectorState { updated_json, merge_patch }) = item.checkpoint.and_then(|c| c.state) {
@@ -179,18 +180,18 @@ pub async fn do_capture(ctx: &mut crate::CliContext, Capture { source }: &Captur
 
             for channel in channels.iter() {
                 let mut sender = channel.lock().unwrap();
-                sender.try_send(Command::Drain)?;
+                sender.send(Command::Drain).await?;
             }
 
             if *explicit_ack {
                 // Send acknowledge to connector
                 let mut ack_channel = req_send_arc.lock().unwrap();
-                ack_channel.try_send(Request {
+                ack_channel.send(Request {
                     acknowledge: Some(request::Acknowledge {
                         checkpoints: 1,
                     }),
                     ..Default::default()
-                })?;
+                }).await.context("failed to send ack")?;
             }
         }
     }
