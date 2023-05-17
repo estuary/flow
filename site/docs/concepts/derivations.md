@@ -32,32 +32,6 @@ Additional language support is in the works.
 
 ## Tutorial
 
-### Getting Started
-
-To create a derivation, navigate to the [Collections](https://dashboard.estuary.dev/collections) page in Flow, click on the **NEW TRANSFORMATION** button. This brings up a **Derive A New Collection** pop-up window.
-
-Deriving a new collection consists of three steps:
-
-* **Step 1:** Select source collections: In the **Available Collections** dropdown, select the collection you want to derive.
-
-* **Step 2:** Transformation Language: There are two language options to select: **SQL** and **Typescript**. In this tutorial, we will demonstrate how to use the **SQL** option.
-
-* **Step 3:** Write transformations: Give your derived collection a name. Then click the **PROCEED TO GITPOD** button.
-
-This opens up GitPod in another tab, where an environment is already set up for you.
-
-### GitPod Set-Up
-
-:::info
-We integrate with GitPod in order to let users leverage the full capabilities of SQLite. GitPod is free to use. It is an online Integrated Development Environment (IDE) that provides a complete development environment that can be accessed through a web browser, with all the necessary tools and dependencies pre-installed.
-:::
-
-In GitPod, you will set up your derivation's schema specs in the **flow.yaml** file. The following tutorial will walk you through what to put in flow.yaml depending on your use case.
-
-For the SQL transformation, depending on the complexity of your SQL statements, you can either place them in **flow.yaml**, or in the **{derivation name}.migrations.0.sql** and **{derivation name}.lambda.{source collection name}.sql** and have **flow.yaml** reference the sql files. See [Lambdas](#sql-lambdas) and [Migrations](#migrations) sections below for additional details.
-
-Your SQL statements are evaluated with each source collection document. [Here](#sqlite) is an example of what the output document from a derivation would look like given an input document and [SQL lambda](#sql-lambdas).
-
 ### Introducing AcmeBank
 
 The following tutorial sections use an illustrative example
@@ -356,10 +330,6 @@ Reduction annotations also have some benefits over task state (like SQLite table
   are much simpler to express through reduction annotations vs implementing yourself.
 
 [See "Where to Accumulate?" for more discussion](#where-to-accumulate).
-
-:::tip
-SQL statements are applied on a go-forward basis only. If you would like to make an update to an existing derivation (for example, adding columns to the derived collection), you can add a new transform by changing the name of your existing transform to a new name, and at the same time updating your lambda. From the platform's perspective, this is equivalent to deleting the old transform and adding a new one. This will backfill over the source collection again with the updated SQL statement.
-:::
 
 ## Specification
 

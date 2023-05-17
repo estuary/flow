@@ -11,11 +11,6 @@ This transformed stream of data keeps the order of the source data intact,
 and can then be **materialized** to an outside system or further transformed with another derivation.
 When you master derivations, you unlock the full flexibility and power of your Data Flows.
 
-:::caution
-This tutorial is out of date due to recent improvements to derivations.
-To learn more about current capabilities, see the [derivations](../../concepts/derivations.md) page
-:::
-
 ## Prerequisites
 
 * A Flow account and access to the web app.
@@ -24,88 +19,46 @@ If you don't have an account yet, [go to the web app](https://dashboard.estuary.
 * An existing Flow **collection**. Typically, you create this through a **capture** in the Flow web application.
 If you need help, see the [guide to create a Data Flow](../create-dataflow.md).
 
-* **flowctl** installed locally. For help, see the [installation instructions](../../concepts/flowctl.md#installation-and-setup).
+## Getting Started
 
-## Pull your specification files locally
+To create a derivation, navigate to the [Collections](https://dashboard.estuary.dev/collections) page in Flow, click on the **NEW TRANSFORMATION** button. This brings up a **Derive A New Collection** pop-up window.
 
-To begin working in your local environment, you must authenticate Flow from the command line.
-Then, you'll need to add your source collection's specification files to a **draft** and bring the draft into your local environment for editing.
+Deriving a new collection consists of three steps:
 
-1. Authorize flowctl.
+* **Step 1:** Select source collections: In the **Available Collections** dropdown, select the collection you want to derive.
 
-   1. Go to the [CLI-API tab of the web app](https://dashboard.estuary.dev/admin/api) and copy your access token.
+* **Step 2:** Transformation Language: There are two language options to select: **SQL** and **Typescript**.
 
-   2. Run `flowctl auth token --token <paste-token-here>`
+* **Step 3:** Write transformations: Give your derived collection a name. Then click the **PROCEED TO GITPOD** button.
 
-2. Begin by creating a fresh draft. This is where you'll add the specification files you need from the catalog.
+This opens up GitPod in another tab, where an environment is already set up for you.
 
-   ```console
-   flowctl draft create
-   ```
+## GitPod Set-Up
 
-   The output table shows the draft ID and creation time. It doesn't have any catalog entities in it yet.
-   You'll add the source collection's specification to the draft.
+We integrate with GitPod in order to let users leverage the full capabilities of SQLite. GitPod is free to use. It is an online Integrated Development Environment (IDE) that provides a complete development environment that can be accessed through a web browser, with all the necessary tools and dependencies pre-installed.
 
-3. Identify the collection (or collections) in the catalog that contains the data you want to derive, and add it to your draft.
+In GitPod, you will set up your derivation's schema specs in the **flow.yaml** file. The tutorial [here](https://docs.estuary.dev/concepts/derivations/#tutorial) walks through several examples on how to fill out **flow.yaml** depending on your use case.
 
-   ```console
-   flowctl catalog draft --name namespace/data-flow-name/my-collection
-   ```
+## Authentication
 
-   :::tip
-   If you're unsure of the name of the collection, check **Collections** page in the web application.
-   You can also use `flowctl draft list` locally
-   to begin exploring the catalog items available to you.
+When connecting to GitPod, you will have already authenticated Flow, but if you leave GitPod opened for too long, you may have to reauthenticate Flow.
 
-   The name of your collection may not follow the structure of the examples provided;
-   simply copy the entire name as you see it, including all prefixes.
-   :::
+To authorize flowctl:
 
-   The output confirms that the entity name you specified has been added to your draft, and is of the type `collection`.
+1. Go to the [CLI-API tab of the web app](https://dashboard.estuary.dev/admin/api) and copy your access token.
 
-   Your draft is set up, but still exists only on the Estuary servers.
+2. Run `flowctl auth token --token <paste-token-here>` on the Terminal tab in GitPod.
 
-4. Pull the draft locally to edit the specification files.
+## Add a SQL derivation
 
-   ```console
-   flowctl draft develop
-   ```
+1. In the Flow UI **Derive A New Collection** screen, select **SQL** as your transformation language.
 
-   The specification files are written to your working directory.
-
-## Add a derivation
-
-1. Locate the specification YAML file for the collection you want to transform.
+2. In GitPod, locate the specification YAML file for the collection you want to transform.
 
    In your working directory, you'll see a top-level file called `flow.yaml`.
    Within a subdirectory that shares the name of your Data Flow, you'll find a second `flow.yaml` — this contains the collection specification.
 
-   :::tip
-   Use `tree` to visualize your current working directory. This is a helpful tool to understand the [files that underlie your local draft](../../concepts/flowctl.md#development-directories).
-   For example:
-
-   ```console
-   .
-   ├── namespace
-   │   └── data-flow-name
-   │       └── flow.yaml
-   ├── flow.yaml
-   ├── flow_generated
-   │   ├── flow
-   │   │   ├── main.ts
-   │   │   ├── routes.ts
-   │   │   └── server.ts
-   │   ├── tsconfig-files.json
-   │   └── types
-   │       └── namespace
-   │           └── data-flow-name
-   │               └── my-collection.d.ts
-   ├── package.json
-   └── tsconfig.json
-   ```
-   :::
-
-2. Open the specification file in your preferred editor.
+3. Open the specification file `flow.yaml`.
 
    It will look similar to the following. (This example uses the default collection from the Hello World test capture, available in the web app):
 
@@ -125,65 +78,49 @@ Then, you'll need to add your source collection's specification files to a **dra
             type: object
          key:
             - /count
+      derive:
+         using:
+            sqlite:
+               migrations:
+                  - greetings.migrations.0.sql
+         transforms:
+              #The transform name can be anything you'd like.
+            - name: greetings-by-dozen
+              #Paste the full name of the source collection.
+              source: namespace/data-flow-name/greetings
+              #The lambda holds your SQL transformation statement(s). You can either place your SQL directly here or in the separate lambda file.
+              lambda: greetings.lambda.greetings-by-dozen.sql
     ```
 
-   You'll add the derivation to the same file.
+   Fill out the schema specs, key, sqlite migration, transform name, source, and lambda. [This tutorial](https://docs.estuary.dev/concepts/derivations/#tutorial) walks through several examples on how to fill out **flow.yaml** depending on your use case.
 
-   :::tip
-   You may also create the derivation specification in a separate file; the results will be the same.
-   However, if using separate files, you must make sure that the file with the derivation imports the source collection's specification,
-   and that the top-level `flow.yaml` in your working directory imports all specification files.
-   [Learn more about imports.](../../concepts/import.md)
+   See also [Lambdas](https://docs.estuary.dev/concepts/derivations/#sql-lambdas) and [Migrations](https://docs.estuary.dev/concepts/derivations/#migrations) for additional details.
 
-3. Add a new collection below the first one.
+   Your SQL statements are evaluated with each source collection document. [Here](https://docs.estuary.dev/concepts/derivations/#sqlite) is an example of what the output document from a derivation would look like given an input document and [SQL lambda](https://docs.estuary.dev/concepts/derivations/#sql-lambdas).
 
-   * The collection must have a schema that reflects your desired transformation output.
-     They can be whatever you want, as long as they follow Flow's standard formatting.
-     For help, see the [schemas](../../concepts/schemas.md) and [collection key](../../concepts/collections.md#keys) documentation.
-   * Add the `derivation` stanza. The TypeScript module you name will be generated next, and you'll define the transformation's function there.
+## Preview the derivation
 
-   ```yaml
-   collections:
-      namespace/data-flow-name/greetings:
-        {...}
-      #The name for your new collection can be whatever you want,
-      #so long as you have permissions in the namespace.
-      #Typically, you'll want to simply copy the source prefix
-      #and add a unique collection name.
-      namespace/data-flow-name/dozen-greetings:
-         #In this example, our objective is to round the number of greetings to the nearest dozen.
-         #We keep the `count` and `message` properties from the source,
-         #and add a new field called `dozens`.
-         schema:
-            properties:
-               count:
-                  type: integer
-               message:
-                  type: string
-               dozens:
-                  type: integer
-            required:
-            - dozens
-            - count
-            - message
-            type: object
-         #Since we're interested in estimating by the dozen, we make `dozens` our collection key.
-         key:
-            - /dozens
-         derivation:
-            transform:
-               #The transform name can be anything you'd like.
-               greetings-by-dozen:
-                  #Paste the full name of the source collection.
-                  source: {name: namespace/data-flow-name/greetings}
-                  #This simple transform only requires a **publish lambda* function.
-                  #More complex transforms also use **update lambdas**.
-                  #See the Derivations documentation to learn more about lambdas.
-                  publish: {lambda: typescript}
-            #The name you provide for the module will be generated next.
-            typescript: {module: divide-by-twelve.ts}
-      ```
-   Save the file.
+Type this command on the Terminal tab in GitPod to **preview** the derivation.
+
+```console
+flowctl preview --source flow.yaml --interval 200ms | jq -c 'del(._meta)'
+```
+
+## Publish the derivation from GitPod
+
+**Publish** the catalog.
+
+```console
+flowctl catalog publish --source flow.yaml
+```
+
+## Updating an existing derivation
+
+SQL statements are applied on a go-forward basis only.
+
+If you would like to make an update to an existing derivation (for example, adding columns to the derived collection), you can add a new transform by changing the name of your existing transform to a new name, and at the same time updating your lambda.
+
+From the platform's perspective, this is equivalent to deleting the old transform and adding a new one. This will backfill over the source collection again with the updated SQL statement.
 
 ## Transform with a TypeScript module
 
@@ -262,7 +199,7 @@ This helps you verify that your data is transformed correctly.
 
    [Learn about tests.](../../concepts/tests.md)
 
-## Publish the derivation
+## Publish the derivation in local terminal
 
 1. **Author** your draft. This adds the changes you made locally to the draft on the Estuary servers:
 
