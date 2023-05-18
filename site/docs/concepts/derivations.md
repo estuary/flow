@@ -439,6 +439,7 @@ derive:
   transforms:
     - name: fromOrders
       source: acmeCo/orders
+      shuffle: any
       lambda:
         SELECT $customer,
         DATE($timestamp) AS date,
@@ -741,9 +742,24 @@ that is uniquely responsible for maintaining the balance of a given account.
     p2-- sender: bob -->t2;
 `}/>
 
-If you don't provide a shuffle key,
-Flow will shuffle on the source collection key,
-which is typically what you want.
+Flow offers three modes for configuring document shuffles: `key`, `any`, and `lambda`.
+
+#### shuffle: key
+
+Shuffle keys are defined as an array of JSON pointers to locations
+that should be extracted from your source documents.
+This array forms the composite key over which your documents are shuffled:
+
+```yaml
+transforms:
+  - name: fromOrders
+    source: acmeCo/orders
+    shuffle:
+      key: [/item/product_id, /customer_id]
+    # Flow guarantees that the same shard will process the user's lambda
+    # for all instances of a specific (product ID, customer ID) tuple.
+    lambda: ...
+```
 
 If a derivation has more than one transformation,
 the shuffle keys of all transformations must align with one another
@@ -757,12 +773,69 @@ while another shuffles on `[/sender]`, because `sender` is a string and
 Similarly mixing a shuffle of `[/sender]` alongside `[/sender, /recipient]`
 is prohibited because the keys have different numbers of components.
 
-:::info Beta
-Eagle-eyed readers will notice that Flow supports extracted shuffle keys
-but not *computed* shuffle keys.
-Please reach out if computed shuffle keys are of interest to you!
-We have most of an implementation we'd be happy to complete.
+#### shuffle: any
+
+If your lambda doesn't rely on any task state then it may not matter which
+task shard processes a given source document.
+In these instances you can use `shuffle: any`, which allows source documents
+to be processed by any available task shard.
+
+This is common for transformation lambdas which perform basic filtering
+or mapping of source documents and which don't require any joined task state.
+
+```yaml
+transforms:
+  - name: fromOrders
+    source: acmeCo/orders
+    shuffle: any
+    # The user's lambda is a pure function and can be evaluated by any available shard.
+    lambda:
+      SELECT $customer_id, $item_price WHERE $item_price > 100;
+```
+
+#### shuffle: lambda
+
+:::info Warning
+Computed shuffles are in active development and are not yet functional.
 :::
+
+Your source documents may not always contain an appropriate value to shuffle upon.
+For instance, you might want to shuffle on product ID and order date,
+but your source documents contain only an order timestamp field.
+
+You can use `shuffle: lambda` to define a function that maps your
+source document into the appropriate shuffle key:
+
+```yaml
+transforms:
+  - name: fromOrders
+    source: acmeCo/orders
+    shuffle:
+      lambda: SELECT $product_id, DATE($order_timestamp);
+    # Flow guarantees that the same shard will process the user's lambda
+    # for all instances of a specific (product ID, date) tuple.
+    lambda: ...
+```
+
+Your shuffle lambda must return exactly one row, and its columns and
+types must align with the other shuffles of your derivation transformations.
+
+Flow must know the types of your composite shuffle key.
+In most cases it will infer these types from the `shuffle: key` of another transformation.
+If you have no `shuffle: key` transformations, Flow will ask that you explicitly tell it your shuffle types:
+
+```yaml
+derive:
+  using:
+    sqlite: {}
+  shuffleKeyTypes: [integer, string]
+  transforms:
+    - name: fromOrders
+      source: acmeCo/orders
+      shuffle:
+        lambda: SELECT $product_id, DATE($order_timestamp);
+      lambda: ...
+```
 
 ### Lambdas
 
