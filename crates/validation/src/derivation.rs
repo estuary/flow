@@ -496,6 +496,14 @@ fn walk_derive_transform(
         models::Shuffle::Lambda(lambda) => (Vec::new(), lambda.to_string()),
         // Source documents may be processed by any shard.
         models::Shuffle::Any => (Vec::new(), String::new()),
+        // Shuffle is unset.
+        models::Shuffle::Unset => {
+            Error::ShuffleUnset {
+                transform: name.to_string(),
+            }
+            .push(scope, errors);
+            (Vec::new(), String::new())
+        }
     };
 
     let request = derive::request::validate::Transform {
