@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use super::{
     Capture, CaptureDef, Collection, CollectionDef, Materialization, MaterializationDef, Prefix,
-    RelativeUrl, StorageDef, Test, TestStep,
+    RelativeUrl, StorageDef, Test, TestStep, TransformDef,
 };
 
 /// Each catalog source defines a portion of a Flow Catalog, by defining
@@ -53,7 +53,15 @@ impl Catalog {
         settings.option_add_null_type = false;
 
         let generator = schemars::gen::SchemaGenerator::new(settings);
-        generator.into_root_schema_for::<Self>()
+        let mut root = generator.into_root_schema_for::<Self>();
+
+        TransformDef::patch_schema(
+            root.definitions
+                .get_mut(&TransformDef::schema_name())
+                .unwrap(),
+        );
+
+        root
     }
 
     /// Returns the names of all specs that are directly included within this catalog.
