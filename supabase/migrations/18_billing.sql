@@ -89,6 +89,8 @@ begin
   return jsonb_build_object(
     'billed_prefix', billed_prefix,
     'billed_month', billed_month,
+    'total_processed_data_gb', greatest(0, actual_gb),
+    'max_concurrent_tasks', greatest(0, actual_tasks),
     'line_items', line_items,
     'subtotal', subtotal
   );
