@@ -21,6 +21,7 @@ pub struct BuildOutput {
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct IncompatibleCollection {
     pub collection: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub affected_materializations: Vec<AffectedConsumer>,
 }
 

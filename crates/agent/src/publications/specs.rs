@@ -1,3 +1,4 @@
+use super::builds::IncompatibleCollection;
 use super::draft::Error;
 use agent_sql::publications::{ExpandedRow, SpecRow, Tenant};
 use agent_sql::{Capability, CatalogType, Id};
@@ -99,8 +100,9 @@ pub fn validate_transition(
     live: &models::Catalog,
     pub_id: Id,
     spec_rows: &[SpecRow],
-) -> Vec<Error> {
+) -> Result<(), (Vec<Error>, Vec<IncompatibleCollection>)> {
     let mut errors = Vec::new();
+    let mut incompatible_collections = Vec::new();
 
     for spec_row @ SpecRow {
         catalog_name,
@@ -241,6 +243,10 @@ pub fn validate_transition(
                 ),
                 ..Default::default()
             });
+            incompatible_collections.push(IncompatibleCollection {
+                collection: catalog_name.to_string(),
+                affected_materializations: Vec::new(),
+            });
         }
 
         let partitions = |projections: &BTreeMap<models::Field, models::Projection>| {
@@ -273,10 +279,18 @@ pub fn validate_transition(
                 ),
                 ..Default::default()
             });
+            incompatible_collections.push(IncompatibleCollection {
+                collection: catalog_name.to_string(),
+                affected_materializations: Vec::new(),
+            });
         }
     }
 
-    errors
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err((errors, incompatible_collections))
+    }
 }
 
 pub async fn enforce_resource_quotas(
@@ -707,6 +721,99 @@ mod test {
                         ),
                     },
                 ],
+            },
+        ]
+        "###);
+    }
+
+    #[tokio::test]
+    #[serial_test::parallel]
+    async fn test_incompatible_collections() {
+        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+            .await
+            .unwrap();
+        let mut txn = conn.begin().await.unwrap();
+
+        sqlx::query(r#"
+            with p1 as (
+              insert into auth.users (id) values
+              ('43a18a3e-5a59-11ed-9b6a-0242ac120003')
+            ),
+            p2 as (
+              insert into drafts (id, user_id) values
+              ('2220000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120003')
+            ),
+            p3 as (
+                insert into live_specs (id, catalog_name, spec, spec_type, last_build_id, last_pub_id) values
+                ('6000000000000000', 'compat-test/CollectionA', '{"schema": {},"key": ["/foo"]}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+                ('7000000000000000', 'compat-test/CollectionB', '{
+                    "schema": {},
+                    "key": ["/foo"],
+                    "projections": {
+                        "foo": { "location": "/foo", "partition": true }
+                    }
+                }'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
+            ),
+            p4 as (
+              insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
+              (
+                '2222000000000000',
+                '2220000000000000',
+                'compat-test/CollectionA',
+                '{ "schema": {}, "key": ["/new_key"] }'::json,
+                'collection'
+              ),
+              (
+                '3333000000000000',
+                '2220000000000000',
+                'compat-test/CollectionB',
+                -- missing partition definition, which should be an error
+                '{ "schema": {}, "key": ["/foo"] }'::json,
+                'collection'
+              )
+            
+            ),
+            p5 as (
+              insert into publications (id, job_status, user_id, draft_id) values
+              ('2222200000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120003', '2220000000000000')
+            ),
+            p6 as (
+              insert into role_grants (subject_role, object_role, capability) values
+              ('compat-test/', 'compat-test/', 'admin')
+            ),
+            p7 as (
+              insert into user_grants (user_id, object_role, capability) values
+              ('43a18a3e-5a59-11ed-9b6a-0242ac120003', 'compat-test/', 'admin')
+            )
+            select 1;"#,
+        )
+        .execute(&mut txn)
+        .await
+        .unwrap();
+
+        let results = execute_publications(&mut txn).await;
+
+        insta::assert_debug_snapshot!(results, @r###"
+        [
+            ScenarioResult {
+                draft_id: 2220000000000000,
+                status: BuildFailed {
+                    incompatible_collections: [
+                        IncompatibleCollection {
+                            collection: "compat-test/CollectionA",
+                            affected_materializations: [],
+                        },
+                        IncompatibleCollection {
+                            collection: "compat-test/CollectionB",
+                            affected_materializations: [],
+                        },
+                    ],
+                },
+                errors: [
+                    "Cannot change key of an established collection from CompositeKey([JsonPointer(\"/foo\")]) to CompositeKey([JsonPointer(\"/new_key\")])",
+                    "Cannot change partitions of an established collection (from [\"foo\"] to [])",
+                ],
+                live_specs: [],
             },
         ]
         "###);
