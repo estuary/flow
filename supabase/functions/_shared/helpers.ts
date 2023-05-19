@@ -33,7 +33,7 @@ export const mustacheHelpers = {
     }
 };
 
-export const compileTemplate = (template: string, data: any, connector_id: string) => {
+export const compileTemplate = (template: string, data: any) => {
     const mustacheOutput = Mustache.render(template, {
         ...data,
         ...mustacheHelpers,
