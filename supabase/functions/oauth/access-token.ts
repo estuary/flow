@@ -39,8 +39,7 @@ export async function accessToken(req: Record<string, any>) {
             code_verifier,
             ...oauth2_injected_values,
             ...params,
-        },
-        connector_id,
+        }
     );
 
     let body = null;
@@ -55,8 +54,7 @@ export async function accessToken(req: Record<string, any>) {
                 code_verifier,
                 ...oauth2_injected_values,
                 ...params,
-            },
-            connector_id,
+            }
         );
     }
 
@@ -73,8 +71,7 @@ export async function accessToken(req: Record<string, any>) {
                     code_verifier,
                     ...oauth2_injected_values,
                     ...params,
-                },
-                connector_id,
+                }
             ),
         );
     }
