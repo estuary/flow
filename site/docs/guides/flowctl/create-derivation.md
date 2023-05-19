@@ -116,13 +116,40 @@ flowctl catalog publish --source flow.yaml
 
 ## Updating an existing derivation
 
-SQL statements are applied on a go-forward basis only.
+Derivations are applied on a go-forward basis only.
 
 If you would like to make an update to an existing derivation (for example, adding columns to the derived collection), you can add a new transform by changing the name of your existing transform to a new name, and at the same time updating your lambda.
 
 From the platform's perspective, this is equivalent to deleting the old transform and adding a new one. This will backfill over the source collection again with the updated SQL statement.
 
 ## Transform with a TypeScript module
+
+### Using GitPod
+
+1. In the Flow UI **Derive A New Collection** screen, select **Typescript** as your transformation language.
+
+2. In GitPod, locate the .ts file to put in your transformation logic. It will look similar to the following:
+
+   ```typescript
+   import { IDerivation, Document, Register, GreetingsByDozenSource } from 'flow/namespace/data-flow-name/dozen-greetings';
+
+   // Implementation for derivation flow.yaml#/collections/namespace~1data-flow-name~1dozen-greetings/derivation.
+   export class Derivation implements IDerivation {
+      greetingsByDozenPublish(
+         _source: GreetingsByDozenSource,
+         _register: Register,
+         _previous: Register,
+      ): Document[] {
+         throw new Error("Not implemented");
+      }
+   }
+   ```
+
+3. Follow these steps to [preview](#preview-the-derivation) and [publish](#publish-the-derivation-from-gitpod) your derivation.
+
+### Using local terminal
+
+If you are writing a derivation using Typescript from your local terminal rather than GitPod, follow the steps below:
 
 1. Generate the TypeScript module from the newly updated specification file.
 
