@@ -91,6 +91,7 @@ begin
     'billed_month', billed_month,
     'total_processed_data_gb', greatest(0, actual_gb),
     'max_concurrent_tasks', greatest(0, actual_tasks),
+    'max_concurrent_tasks_at', max_tasks_hour,
     'line_items', line_items,
     'subtotal', subtotal
   );
