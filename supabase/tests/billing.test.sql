@@ -58,7 +58,72 @@ begin
       }
     ],
     "billed_month": "2022-08-01T00:00:00+00:00",
-    "billed_prefix": "aliceCo/"
+    "billed_prefix": "aliceCo/",
+    "total_processed_data_gb": 43.125,
+    "max_concurrent_tasks": 3,
+    "max_concurrent_tasks_at": "2022-08-29T13:00:00+00:00"
+  }'::jsonb);
+
+  set role postgres;
+  delete from catalog_stats;
+
+  insert into catalog_stats (
+    catalog_name, grain, ts, flow_document, bytes_written_by_me, bytes_read_by_me
+  ) values
+    ('aliceCo/hello', 'hourly', '2022-08-29T13:00:00Z', '{}', 1, 0),
+    ('aliceCo/big',   'hourly', '2022-08-29T13:00:00Z', '{}', 0, 1),
+    ('aliceCo/world', 'hourly', '2022-08-29T13:00:00Z', '{}', 0, 1),
+
+    ('aliceCo/hello', 'hourly', '2022-08-29T14:00:00Z', '{}', 1, 0),
+    ('aliceCo/big',   'hourly', '2022-08-29T14:00:00Z', '{}', 0, 1),
+    ('aliceCo/world', 'hourly', '2022-08-29T14:00:00Z', '{}', 0, 1),
+    ('aliceCo/of',    'hourly', '2022-08-29T14:00:00Z', '{}', 0, 1),
+    ('aliceCo/data',  'hourly', '2022-08-29T14:00:00Z', '{}', 0, 1),
+
+    ('aliceCo/hello', 'monthly', '2022-08-01T00:00:00Z', '{}', 5.125 * 1024 * 1024 * 1024, 0),
+    ('aliceCo/big',   'monthly', '2022-08-01T00:00:00Z', '{}', 7::bigint * 1024 * 1024 * 1024, 9::bigint * 1024 * 1024 * 1024),
+    ('aliceCo/world', 'monthly', '2022-08-01T00:00:00Z', '{}', 0, 22::bigint * 1024 * 1024 * 1024)
+  ;
+
+  -- We're authorized as Alice.
+  perform set_authenticated_context('11111111-1111-1111-1111-111111111111');
+
+  return query select is(billing_report('aliceCo/', '2022-08-29T13:00:00Z'), '{
+    "subtotal": 6000,
+    "line_items": [
+      {
+        "rate": 0,
+        "count": 2,
+        "subtotal": 0,
+        "description": "Included task shards (up to 2)"
+      },
+      {
+        "rate": 2000,
+        "count": 3,
+        "subtotal": 6000,
+        "description": "Additional task shards minimum (assessed at 2022-08-29 14:00:00+00)"
+      },
+      {
+        "rate": 0,
+        "count": 10,
+        "subtotal": 0,
+        "description": "Included data processing (in GB, up to 10.0GB)"
+      },
+      {
+        "rate": 75,
+        "count": 33.125,
+        "subtotal": 2484,
+        "description": "Additional data processing (in GB)"
+      },
+      {
+        "description": "Subtotal is greater of task shards minimum, or data processing volume"
+      }
+    ],
+    "billed_month": "2022-08-01T00:00:00+00:00",
+    "billed_prefix": "aliceCo/",
+    "total_processed_data_gb": 43.125,
+    "max_concurrent_tasks": 5,
+    "max_concurrent_tasks_at": "2022-08-29T14:00:00+00:00"
   }'::jsonb);
 
   -- We're authorized as Bob.
