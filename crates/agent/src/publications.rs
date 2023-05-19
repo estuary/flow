@@ -167,10 +167,16 @@ impl PublishHandler {
             return stop_with_errors(errors, JobStatus::build_failed(Vec::new()), row, txn).await;
         }
 
-        let errors =
-            specs::validate_transition(&draft_catalog, &live_catalog, row.pub_id, &spec_rows);
-        if !errors.is_empty() {
-            return stop_with_errors(errors, JobStatus::build_failed(Vec::new()), row, txn).await;
+        if let Err((errors, incompatible_collections)) =
+            specs::validate_transition(&draft_catalog, &live_catalog, row.pub_id, &spec_rows)
+        {
+            return stop_with_errors(
+                errors,
+                JobStatus::build_failed(incompatible_collections),
+                row,
+                txn,
+            )
+            .await;
         }
 
         let live_spec_ids: Vec<_> = spec_rows.iter().map(|row| row.live_spec_id).collect();
