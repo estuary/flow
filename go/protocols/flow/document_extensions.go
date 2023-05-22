@@ -3,7 +3,6 @@ package flow
 import (
 	"encoding/binary"
 
-	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
 )
 
@@ -64,33 +63,6 @@ func (parts *UUIDParts) Pack() message.UUID {
 		parts.Clock,
 		message.Flags(parts.Node),
 	)
-}
-
-// IndexedShuffleResponse is an implementation of message.Message which
-// indexes a specific document within a ShuffleResponse.
-type IndexedShuffleResponse struct {
-	ShuffleResponse
-	Index int
-	// Index of the Transform or Binding on whose behalf this document was read.
-	ShuffleIndex int
-}
-
-var _ message.Message = IndexedShuffleResponse{}
-
-// GetUUID fetches the UUID of the Document.
-func (sd IndexedShuffleResponse) GetUUID() message.UUID { return sd.UuidParts[sd.Index].Pack() }
-
-// SetUUID panics if called.
-func (sd IndexedShuffleResponse) SetUUID(uuid message.UUID) { panic("not implemented") }
-
-// NewAcknowledgement panics if called.
-func (sd IndexedShuffleResponse) NewAcknowledgement(pb.Journal) message.Message {
-	panic("not implemented")
-}
-
-// Tailing returns whether the ShuffleResponse is at the tail of the journal's available content.
-func (m *ShuffleResponse) Tailing() bool {
-	return m != nil && m.ReadThrough == m.WriteHead
 }
 
 var (

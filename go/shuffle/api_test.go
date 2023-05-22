@@ -16,6 +16,7 @@ import (
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
+	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -76,13 +77,6 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	require.NoError(t, app.Close())
 
 	// Start a shuffled read of the fixtures.
-	var shuffle = pf.JournalShuffle{
-		Journal:     "a/journal",
-		Coordinator: "the-coordinator",
-		Shuffle:     derivation.TaskShuffles()[0],
-		BuildId:     "a-build-id",
-	}
-
 	// Observe only messages having {"a": 1, "aa": "1"}, and not 0 or 2.
 	var expectKey = tuple.Tuple{1, "1"}.Pack()
 	var range_ = pf.RangeSpec{
@@ -92,6 +86,18 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 		RClockBegin: 0,
 		RClockEnd:   1 << 31,
 	}
+	var req = pr.ShuffleRequest{
+		Journal:      "a/journal",
+		Replay:       false,
+		BuildId:      "a-build-id",
+		Offset:       app.Response.Commit.End,
+		EndOffset:    0,
+		Range:        range_,
+		Coordinator:  "the-coordinator",
+		Resolution:   &mockHeader,
+		ShuffleIndex: 0,
+		Derivation:   derivation,
+	}
 
 	// Build coordinator and start a gRPC ShuffleServer over loopback.
 	// Use a resolve() fixture which returns a mocked store with our |coordinator|.
@@ -99,7 +105,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	var apiCtx, cancelAPICtx = context.WithCancel(backgroundCtx)
 	var coordinator = NewCoordinator(apiCtx, localPublisher, bk.Client())
 
-	pf.RegisterShufflerServer(srv.GRPCServer, &API{
+	pr.RegisterShufflerServer(srv.GRPCServer, &API{
 		resolve: func(args consumer.ResolveArgs) (consumer.Resolution, error) {
 			require.Equal(t, args.ShardID, pc.ShardID("the-coordinator"))
 
@@ -110,23 +116,19 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 		},
 	})
 
-	var shuffler = pf.NewShufflerClient(srv.GRPCLoopback)
+	var shuffler = pr.NewShufflerClient(srv.GRPCLoopback)
 	var tasks = task.NewGroup(apiCtx)
 	srv.QueueTasks(tasks)
 	tasks.GoRun()
 
 	// Start a blocking read which starts at the current write head.
-	tailStream, err := shuffler.Shuffle(backgroundCtx, &pf.ShuffleRequest{
-		Shuffle: shuffle,
-		Range:   range_,
-		Offset:  app.Response.Commit.End,
-	})
+	tailStream, err := shuffler.Shuffle(backgroundCtx, &req)
 	require.NoError(t, err)
 
 	// Expect we read a ShuffleResponse which tells us we're currently tailing.
 	out, err := tailStream.Recv()
 	require.NoError(t, err)
-	require.Equal(t, &pf.ShuffleResponse{
+	require.Equal(t, &pr.ShuffleResponse{
 		ReadThrough: app.Response.Commit.End,
 		WriteHead:   app.Response.Commit.End,
 	}, out)
@@ -134,27 +136,17 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	// Start a non-blocking, fixed read which "replays" the written fixtures.
 	var mockResolveFn = func(args consumer.ResolveArgs) (consumer.Resolution, error) {
 		// This a no-op fixture intended only to Validate.
-		return consumer.Resolution{
-			Header: pb.Header{
-				Route: pb.Route{Primary: -1},
-				Etcd: pb.Header_Etcd{
-					ClusterId: 1234,
-					MemberId:  1234,
-					Revision:  1234,
-					RaftTerm:  1234,
-				},
-			},
-		}, nil
+		return consumer.Resolution{Header: mockHeader}, nil
 	}
+
+	req.Replay = true
+	req.Offset = 0
+	req.EndOffset = app.Response.Commit.End
+
 	var replayRead = &read{
 		publisher: localPublisher,
 		spec:      *journalSpec,
-		req: pf.ShuffleRequest{
-			Shuffle:   shuffle,
-			Range:     range_,
-			Offset:    0,
-			EndOffset: app.Response.Commit.End,
-		},
+		req:       req,
 	}
 	replayRead.start(backgroundCtx, 0, mockResolveFn, shuffler, nil)
 
@@ -168,7 +160,7 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 		require.NoError(t, err)
 
 		replayDocs++
-		var msg = env.Message.(pf.IndexedShuffleResponse)
+		var msg = env.Message.(pr.IndexedShuffleResponse)
 
 		// Verify expected record shape.
 		var record struct {
@@ -193,18 +185,13 @@ func TestAPIIntegrationWithFixtures(t *testing.T) {
 	// We see 1/3 of key values, and a further 1/2 of those clocks.
 	require.Equal(t, 16, replayDocs)
 
-	// Interlude: Another read, this time with an invalid schema.
-	var badShuffle = shuffle
-	badShuffle.ValidateSchema = `{"invalid":"keyword"}`
+	// Interlude: Another replay read, this time with an invalid schema.
+	derivation.Derivation.Transforms[0].Collection.ReadSchemaJson = []byte(`{"invalid":"keyword"}`)
 
 	var badRead = &read{
 		publisher: localPublisher,
 		spec:      *journalSpec,
-		req: pf.ShuffleRequest{
-			Shuffle:   badShuffle,
-			Range:     range_,
-			EndOffset: app.Response.Commit.End,
-		},
+		req:       req,
 	}
 	badRead.start(backgroundCtx, 0, mockResolveFn, shuffler, nil)
 
@@ -255,3 +242,13 @@ var localPublisher = ops.NewLocalPublisher(
 		TaskType: ops.TaskType_derivation,
 	},
 )
+
+var mockHeader = pb.Header{
+	Route: pb.Route{Primary: -1},
+	Etcd: pb.Header_Etcd{
+		ClusterId: 1234,
+		MemberId:  1234,
+		Revision:  1234,
+		RaftTerm:  1234,
+	},
+}

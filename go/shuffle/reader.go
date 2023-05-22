@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/estuary/flow/go/flow"
-	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
+	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -129,7 +129,7 @@ func StartReplayRead(ctx context.Context, rb *ReadBuilder, journal pb.Journal, b
 				return message.Envelope{}, err
 			} else {
 				r.start(ctx, attempt, rb.service.Resolver.Resolve,
-					pf.NewShufflerClient(rb.service.Loopback), nil)
+					pr.NewShufflerClient(rb.service.Loopback), nil)
 			}
 
 			if env, err = r.next(); err == nil {
@@ -227,7 +227,7 @@ func (g *governor) poll(ctx context.Context) error {
 	// polling each without blocking to see if one is now available.
 	for r := range g.pending {
 
-		var result *pf.ShuffleResponse
+		var result *pr.ShuffleResponse
 		var ok bool
 
 		select {
@@ -278,10 +278,10 @@ func (g *governor) poll(ctx context.Context) error {
 
 			// Clear tracking state for this drained read.
 			delete(g.pending, r)
-			delete(g.active, r.req.Shuffle.Journal)
+			delete(g.active, r.req.Journal)
 			g.setPollState(r, pollStateIdle)
-			// Perserve the journal offset for a possible restart of the read.
-			g.idle[r.req.Shuffle.Journal] = r.req.Offset
+			// Preserve the journal offset for a possible restart of the read.
+			g.idle[r.req.Journal] = r.req.Offset
 
 			// Converge again, as we may want to start a new read for this journal
 			// (i.e., if we drained this read because the coordinating shard has changed).
@@ -354,7 +354,7 @@ func (g *governor) onConverge(ctx context.Context) error {
 	for _, r := range added {
 		var attempts = g.attempts[r.spec.Name]
 		r.start(ctx, attempts, g.rb.service.Resolver.Resolve,
-			pf.NewShufflerClient(g.rb.service.Loopback), g.readReadyCh)
+			pr.NewShufflerClient(g.rb.service.Loopback), g.readReadyCh)
 
 		g.attempts[r.spec.Name] = g.attempts[r.spec.Name] + 1
 		g.active[r.spec.Name] = r
@@ -402,8 +402,8 @@ const (
 
 func (g *governor) setPollState(r *read, state float64) {
 	if state == pollStateIdle {
-		pollState.DeleteLabelValues(g.rb.shardID.String(), r.req.Shuffle.Journal.String())
+		pollState.DeleteLabelValues(g.rb.shardID.String(), r.req.Journal.String())
 	} else {
-		pollState.WithLabelValues(g.rb.shardID.String(), r.req.Shuffle.Journal.String()).Set(state)
+		pollState.WithLabelValues(g.rb.shardID.String(), r.req.Journal.String()).Set(state)
 	}
 }
