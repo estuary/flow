@@ -12,6 +12,7 @@ import (
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
+	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/estuary/flow/go/shuffle"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -195,7 +196,7 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 		pf.RegisterTestingServer(args.Server.GRPCServer, NewFlowTesting(f, ajc))
 	}
 
-	pf.RegisterShufflerServer(args.Server.GRPCServer, shuffle.NewAPI(args.Service.Resolver))
+	pr.RegisterShufflerServer(args.Server.GRPCServer, shuffle.NewAPI(args.Service.Resolver))
 
 	f.NetworkProxyServer = NewProxyServer(args.Service.Resolver)
 	pf.RegisterNetworkProxyServer(args.Server.GRPCServer, f.NetworkProxyServer)

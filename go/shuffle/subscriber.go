@@ -9,6 +9,7 @@ import (
 
 	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	pr "github.com/estuary/flow/go/protocols/runtime"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
 )
@@ -18,18 +19,22 @@ type subscriber struct {
 	// Context of the subscriber.
 	ctx context.Context
 	// Request of this subscriber.
-	pf.ShuffleRequest
+	pr.ShuffleRequest
+	// Should we filter on r-clocks?
+	// TODO(johnny): This could be applied client-side, by widening the r-clock range
+	// of shuffles initiated by non-read-only derivation transforms.
+	filterRClocks bool
 	// Callback which is invoked with each new ShuffleResponse, or with a final non-nil error.
 	// If a callback returns an error, that error is passed back in the final callback.
-	callback func(*pf.ShuffleResponse, error) error
+	callback func(*pr.ShuffleResponse, error) error
 	// Next ShuffleResponse to be sent to the subscriber.
-	staged *pf.ShuffleResponse
+	staged *pr.ShuffleResponse
 	// sentTailing is true if the previously sent |response| had Tailing set.
 	sentTailing bool
 }
 
 // stageDoc stages the document into the subscriber-specific response.
-func (s *subscriber) stageDoc(response *pf.ShuffleResponse, doc int) {
+func (s *subscriber) stageDoc(response *pr.ShuffleResponse, doc int) {
 	var offset = response.Offsets[2*doc]
 
 	if offset >= s.Offset && (s.EndOffset == 0 || offset < s.EndOffset) {
@@ -113,7 +118,7 @@ func rotateClock(c message.Clock) uint32 {
 
 // stageResponses distributes Documents of this ShuffleResponse into the staged
 // ShuffleResponses of each subscriber.
-func (s subscribers) stageResponses(from *pf.ShuffleResponse) {
+func (s subscribers) stageResponses(from *pr.ShuffleResponse) {
 	for i := range s {
 		s[i].staged.TerminalError = from.TerminalError
 		s[i].staged.ReadThrough = from.ReadThrough
@@ -136,7 +141,7 @@ func (s subscribers) stageResponses(from *pf.ShuffleResponse) {
 			// Stage to the reader if:
 			// * We're not filtering on r-clock values, or
 			// * We are, but the document's r-clock is within the reader's range.
-			if !s[i].Shuffle.Shuffle.FilterRClocks ||
+			if !s[i].filterRClocks ||
 				rClock >= s[i].Range.RClockBegin && rClock < s[i].Range.RClockEnd {
 				s[i].stageDoc(from, doc)
 			}
@@ -204,7 +209,7 @@ func (s *subscribers) add(add subscriber) *pb.ReadRequest {
 	// which will EOF on reaching the prior minimum.
 	if offset, ok := s.minOffset(); !ok || add.Offset < offset {
 		rr = &pb.ReadRequest{
-			Journal:   add.Shuffle.Journal,
+			Journal:   add.Journal,
 			Offset:    add.Offset,
 			EndOffset: offset,
 		}
@@ -248,12 +253,12 @@ func (s *subscribers) prune() {
 
 // newStagedResponse builds an empty ShuffleResponse with pre-allocated
 // slice memory, according to provided estimates of arena & docs utilization.
-// It differse from newReadResponse in that it also pre-allocates extracted fields.
-func newStagedResponse(arenaEstimate, docsEstimate int) *pf.ShuffleResponse {
+// It differs from newReadResponse in that it also pre-allocates extracted fields.
+func newStagedResponse(arenaEstimate, docsEstimate int) *pr.ShuffleResponse {
 	var arenaCap = roundUpPow2(arenaEstimate, arenaCapMin, arenaCapMax)
 	var docsCap = roundUpPow2(docsEstimate, docsCapMin, docsCapMax)
 
-	return &pf.ShuffleResponse{
+	return &pr.ShuffleResponse{
 		Arena:     make([]byte, 0, arenaCap),
 		Docs:      make([]pf.Slice, 0, docsCap),
 		Offsets:   make([]int64, 0, 2*docsCap),

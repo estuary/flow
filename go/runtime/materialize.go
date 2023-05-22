@@ -14,6 +14,7 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/estuary/flow/go/protocols/ops"
+	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/estuary/flow/go/shuffle"
 	"github.com/gogo/protobuf/types"
 	"go.gazette.dev/core/broker/client"
@@ -32,7 +33,7 @@ type Materialize struct {
 	// Store delegate for persisting local checkpoints.
 	store *consumer.JSONFileStore
 	// Specification under which the materialization is currently running.
-	spec pf.MaterializationSpec
+	materialization *pf.MaterializationSpec
 	// Embedded task reader scoped to current task version.
 	// Initialized in RestoreCheckpoint.
 	taskReader
@@ -53,13 +54,13 @@ func NewMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recov
 	}
 
 	var out = &Materialize{
-		host:       host,
-		store:      store,
-		driver:     nil,                      // Initialized in RestoreCheckpoint.
-		client:     nil,                      // Initialized in RestoreCheckpoint.
-		spec:       pf.MaterializationSpec{}, // Initialized in RestoreCheckpoint.
-		taskReader: taskReader{},             // Initialized in RestoreCheckpoint.
-		taskTerm:   taskTerm{},               // Initialized in RestoreCheckpoint.
+		host:            host,
+		store:           store,
+		driver:          nil,          // Initialized in RestoreCheckpoint.
+		client:          nil,          // Initialized in RestoreCheckpoint.
+		materialization: nil,          // Initialized in RestoreCheckpoint.
+		taskReader:      taskReader{}, // Initialized in RestoreCheckpoint.
+		taskTerm:        taskTerm{},   // Initialized in RestoreCheckpoint.
 	}
 
 	return out, nil
@@ -105,9 +106,9 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 
 	// Load the current term's MaterializationSpec.
 	err = m.build.Extract(func(db *sql.DB) error {
-		materializationSpec, err := catalog.LoadMaterialization(db, m.labels.TaskName)
-		if materializationSpec != nil {
-			m.spec = *materializationSpec
+		var materialization, err = catalog.LoadMaterialization(db, m.labels.TaskName)
+		if materialization != nil {
+			m.materialization = materialization
 		}
 		return err
 	})
@@ -116,10 +117,10 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 	}
 	ops.PublishLog(m.opsPublisher, ops.Log_debug,
 		"loaded specification",
-		"spec", m.spec, "build", m.labels.Build)
+		"spec", m.materialization, "build", m.labels.Build)
 
 	// Initialize for reading shuffled source collection journals.
-	if err = m.initReader(&m.taskTerm, shard, m.spec.TaskShuffles(), m.host); err != nil {
+	if err = m.initReader(m.host, shard, m.materialization, &m.taskTerm); err != nil {
 		return pf.Checkpoint{}, err
 	}
 
@@ -143,8 +144,8 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 	// Start driver and Transactions RPC client.
 	m.driver, err = connector.NewDriver(
 		shard.Context(),
-		m.spec.ConfigJson,
-		m.spec.ConnectorType.String(),
+		m.materialization.ConfigJson,
+		m.materialization.ConnectorType.String(),
 		m.opsPublisher,
 		m.host.Config.Flow.Network,
 		configHandle,
@@ -154,7 +155,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 	}
 
 	// Open a Transactions RPC stream for the materialization.
-	err = connector.WithUnsealed(m.driver, &m.spec, func(unsealed *pf.MaterializationSpec) error {
+	err = connector.WithUnsealed(m.driver, m.materialization, func(unsealed *pf.MaterializationSpec) error {
 		var err error
 		m.client, err = pm.OpenTransactions(
 			shard.Context(),
@@ -248,7 +249,7 @@ func (m *Materialize) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {}
 
 // ConsumeMessage implements Application.ConsumeMessage.
 func (m *Materialize) ConsumeMessage(shard consumer.Shard, envelope message.Envelope, pub *message.Publisher) error {
-	var isr = envelope.Message.(pf.IndexedShuffleResponse)
+	var isr = envelope.Message.(pr.IndexedShuffleResponse)
 
 	if message.GetFlags(isr.GetUUID()) == message.Flag_ACK_TXN {
 		return nil // We just ignore the ACK documents.
@@ -274,7 +275,7 @@ func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) 
 	ops.PublishLog(m.opsPublisher, ops.Log_debug, "stored documents")
 
 	for i, s := range bindingStats {
-		mergeBinding(m.txnStats.Materialize, m.spec.Bindings[i].Collection.Name.String(), s)
+		mergeBinding(m.txnStats.Materialize, m.materialization.Bindings[i].Collection.Name.String(), s)
 	}
 	m.txnStats.OpenSecondsTotal = time.Since(m.txnStats.GoTimestamp()).Seconds()
 

@@ -12,6 +12,7 @@ import (
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	"go.gazette.dev/core/allocator"
@@ -24,7 +25,7 @@ func TestReadBuilding(t *testing.T) {
 	var (
 		allJournals, allShards, task = buildReadTestJournalsAndTransforms()
 		ranges                       = labels.MustParseRangeSpec(allShards[1].LabelSet)
-		shuffles                     = task.TaskShuffles()
+		shuffles                     = derivationShuffles(task)
 		drainCh                      = make(chan struct{})
 		rb, rbErr                    = NewReadBuilder(
 			"build-id",
@@ -33,7 +34,7 @@ func TestReadBuilding(t *testing.T) {
 			localPublisher,
 			nil, // Service is not used.
 			allShards[1].Id,
-			shuffles,
+			task,
 		)
 		existing = map[pb.Journal]*read{}
 	)
@@ -43,7 +44,7 @@ func TestReadBuilding(t *testing.T) {
 	var toKeys = func(m map[pb.Journal]*read) (out []string) {
 		for j, r := range m {
 			require.Equal(t, j, r.spec.Name, "incorrect journalSpec name")
-			require.Equal(t, j, r.req.Shuffle.Journal, "incorrect shuffle journal name")
+			require.Equal(t, j, r.req.Journal, "incorrect shuffle journal name")
 			out = append(out, j.String())
 		}
 		sort.Strings(out)
@@ -70,18 +71,17 @@ func TestReadBuilding(t *testing.T) {
 				Name:     aJournal,
 				LabelSet: allJournals.KeyValues[0].Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec).LabelSet,
 			},
-			req: pf.ShuffleRequest{
-				Shuffle: pf.JournalShuffle{
-					Journal:     aJournal,
-					Coordinator: "shard/2",
-					Shuffle:     shuffles[0],
-					Replay:      false,
-					BuildId:     "build-id",
-				},
-				Range:  ranges,
-				Offset: 1122,
+			req: pr.ShuffleRequest{
+				Journal:      aJournal,
+				Replay:       false,
+				BuildId:      "build-id",
+				Offset:       1122,
+				Range:        ranges,
+				Coordinator:  "shard/2",
+				ShuffleIndex: 0,
+				Derivation:   task,
 			},
-			resp:      pf.IndexedShuffleResponse{ShuffleIndex: 0},
+			resp:      pr.IndexedShuffleResponse{ShuffleIndex: 0},
 			readDelay: 60e7 << 4, // 60 seconds as a message.Clock.
 		},
 	}, added)
@@ -102,40 +102,24 @@ func TestReadBuilding(t *testing.T) {
 			Name:     aJournal,
 			LabelSet: allJournals.KeyValues[0].Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec).LabelSet,
 		},
-		req: pf.ShuffleRequest{
-			Shuffle: pf.JournalShuffle{
-				Journal:     aJournal,
-				Coordinator: "shard/2",
-				Shuffle:     shuffles[0],
-				Replay:      true,
-				BuildId:     "build-id",
-			},
-			Range:     ranges,
-			Offset:    1000,
-			EndOffset: 2000,
+		req: pr.ShuffleRequest{
+			Journal:      aJournal,
+			Replay:       true,
+			BuildId:      "build-id",
+			Offset:       1000,
+			EndOffset:    2000,
+			Range:        ranges,
+			Coordinator:  "shard/2",
+			ShuffleIndex: 0,
+			Derivation:   task,
 		},
-		resp:      pf.IndexedShuffleResponse{ShuffleIndex: 0},
+		resp:      pr.IndexedShuffleResponse{ShuffleIndex: 0},
 		readDelay: 0,
 	}, r)
 
 	// Case: attempt to replay an unmatched journal.
 	_, err = rb.buildReplayRead("not/matched", 1000, 2000)
 	require.EqualError(t, err, "journal not matched for replay: not/matched")
-
-	// Case: if the configuration changes, the existing *read
-	// is drained so that it may be restarted.
-	// This is a functional test of the implementation details:
-	// ShuffleSpecs of a ReadBuilder are fixed and don't change dynamically.
-	var copied = *shuffles[0]
-	copied.ReadDelaySeconds++
-	rb.shuffles[0] = &copied
-
-	added, drain, err = rb.buildReads(existing, nil)
-	require.NoError(t, err)
-	require.Equal(t, []string{aJournal}, toKeys(drain))
-	require.Empty(t, added)
-
-	rb.shuffles[0] = shuffles[0] // Reset.
 
 	// Case: if membership changes, we'll add and drain *reads as needed.
 	rb.journals.KeyValues, rb.shuffles = allJournals.KeyValues[1:], shuffles
@@ -211,9 +195,9 @@ func TestReadIteration(t *testing.T) {
 		spec: pb.JournalSpec{
 			Name: "a/journal",
 		},
-		resp: pf.IndexedShuffleResponse{
+		resp: pr.IndexedShuffleResponse{
 			Index: 0,
-			ShuffleResponse: pf.ShuffleResponse{
+			ShuffleResponse: pr.ShuffleResponse{
 				Offsets: []pb.Offset{0, 100, 200, 300, 400, 500},
 			},
 		},
@@ -223,23 +207,23 @@ func TestReadIteration(t *testing.T) {
 	require.Equal(t, env.Journal.Name, pb.Journal("a/journal"))
 	require.Equal(t, env.Begin, int64(0))
 	require.Equal(t, env.End, int64(100))
-	require.Equal(t, env.Message.(pf.IndexedShuffleResponse).Index, 0)
+	require.Equal(t, env.Message.(pr.IndexedShuffleResponse).Index, 0)
 
 	env = r.dequeue()
 	require.Equal(t, env.Begin, int64(200))
 	require.Equal(t, env.End, int64(300))
-	require.Equal(t, env.Message.(pf.IndexedShuffleResponse).Index, 1)
+	require.Equal(t, env.Message.(pr.IndexedShuffleResponse).Index, 1)
 
 	env = r.dequeue()
 	require.Equal(t, env.Begin, int64(400))
 	require.Equal(t, env.End, int64(500))
-	require.Equal(t, env.Message.(pf.IndexedShuffleResponse).Index, 2)
+	require.Equal(t, env.Message.(pr.IndexedShuffleResponse).Index, 2)
 
 	require.Equal(t, 2*r.resp.Index, len(r.resp.Offsets))
 }
 
 func TestReadHeaping(t *testing.T) {
-	var resp = pf.ShuffleResponse{
+	var resp = pr.ShuffleResponse{
 		UuidParts: []pf.UUIDParts{
 			{Clock: 2000},
 			{Clock: 1001},
@@ -253,34 +237,20 @@ func TestReadHeaping(t *testing.T) {
 	}
 	var h readHeap
 
-	// |p1| reads have earlier clocks, which would ordinarily be preferred,
+	// priority: 1 reads have earlier clocks, which would ordinarily be preferred,
 	// but are withheld due to their lower priority.
-	var p1 = pf.ShuffleRequest{
-		Shuffle: pf.JournalShuffle{
-			Shuffle: &pf.Shuffle{
-				Priority: 1,
-			},
-		},
-	}
-	// |p2| reads have later clocks but are read first due to their higher priority.
-	var p2 = pf.ShuffleRequest{
-		Shuffle: pf.JournalShuffle{
-			Shuffle: &pf.Shuffle{
-				Priority: 2,
-			},
-		},
-	}
+	// priority: 2 reads have later clocks but are read first due to their higher priority.
 
 	// Push reads in a mixed order.
 	for _, r := range []*read{
-		{req: p2, resp: pf.IndexedShuffleResponse{Index: 3, ShuffleResponse: resp}, readDelay: 1000},
-		{req: p1, resp: pf.IndexedShuffleResponse{Index: 7, ShuffleResponse: resp}, readDelay: 0},
-		{req: p2, resp: pf.IndexedShuffleResponse{Index: 1, ShuffleResponse: resp}, readDelay: 2000},
-		{req: p2, resp: pf.IndexedShuffleResponse{Index: 0, ShuffleResponse: resp}, readDelay: 1000},
-		{req: p1, resp: pf.IndexedShuffleResponse{Index: 6, ShuffleResponse: resp}, readDelay: 0},
-		{req: p2, resp: pf.IndexedShuffleResponse{Index: 5, ShuffleResponse: resp}, readDelay: 2000},
-		{req: p2, resp: pf.IndexedShuffleResponse{Index: 2, ShuffleResponse: resp}, readDelay: 2000},
-		{req: p2, resp: pf.IndexedShuffleResponse{Index: 4, ShuffleResponse: resp}, readDelay: 2000},
+		{resp: pr.IndexedShuffleResponse{Index: 3, ShuffleResponse: resp}, priority: 2, readDelay: 1000},
+		{resp: pr.IndexedShuffleResponse{Index: 7, ShuffleResponse: resp}, priority: 1, readDelay: 0},
+		{resp: pr.IndexedShuffleResponse{Index: 1, ShuffleResponse: resp}, priority: 2, readDelay: 2000},
+		{resp: pr.IndexedShuffleResponse{Index: 0, ShuffleResponse: resp}, priority: 2, readDelay: 1000},
+		{resp: pr.IndexedShuffleResponse{Index: 6, ShuffleResponse: resp}, priority: 1, readDelay: 0},
+		{resp: pr.IndexedShuffleResponse{Index: 5, ShuffleResponse: resp}, priority: 2, readDelay: 2000},
+		{resp: pr.IndexedShuffleResponse{Index: 2, ShuffleResponse: resp}, priority: 2, readDelay: 2000},
+		{resp: pr.IndexedShuffleResponse{Index: 4, ShuffleResponse: resp}, priority: 2, readDelay: 2000},
 	} {
 		heap.Push(&h, r)
 	}
@@ -296,33 +266,33 @@ func TestReadSendBackoffAndCancel(t *testing.T) {
 	const capacity = 4
 	var r = &read{
 		publisher: localPublisher,
-		ch:        make(chan *pf.ShuffleResponse, capacity),
+		ch:        make(chan *pr.ShuffleResponse, capacity),
 	}
 	r.ctx, r.cancel = context.WithCancel(context.Background())
 	var wakeCh = make(chan struct{}, 1)
 
 	// If channel is regularly drained, sending is fast.
 	for i := 0; i != 20; i++ {
-		require.NoError(t, r.sendReadResult(new(pf.ShuffleResponse), nil, wakeCh))
+		require.NoError(t, r.sendReadResult(new(pr.ShuffleResponse), nil, wakeCh))
 		_, _ = <-r.ch, <-wakeCh // Both select.
 	}
 	// If channel is not drained, we can queue up to the channel capacity.
 	for i := 0; i != capacity; i++ {
-		require.NoError(t, r.sendReadResult(new(pf.ShuffleResponse), nil, wakeCh))
+		require.NoError(t, r.sendReadResult(new(pr.ShuffleResponse), nil, wakeCh))
 	}
 
 	// An attempt to send more cancels the context.
 	require.Equal(t, context.Canceled,
-		r.sendReadResult(new(pf.ShuffleResponse), nil, wakeCh))
+		r.sendReadResult(new(pr.ShuffleResponse), nil, wakeCh))
 
 	// Attempt to send again, which mimics a context that was cancelled elsewhere.
 	// Expect the cancellation aborts the send's exponential backoff timer.
 	<-r.ch // No longer full.
 	require.Equal(t, context.Canceled,
-		r.sendReadResult(new(pf.ShuffleResponse), nil, wakeCh))
+		r.sendReadResult(new(pr.ShuffleResponse), nil, wakeCh))
 
 	<-wakeCh                        // Now empty.
-	r.ch <- new(pf.ShuffleResponse) // Full again.
+	r.ch <- new(pr.ShuffleResponse) // Full again.
 
 	// Send an error. Expect it sets |chErr|, closes the channel, and wakes |wakeCh|.
 	// This must work despite the channel being at capacity (issue #226).
@@ -348,12 +318,12 @@ func TestReadSendBackoffAndWake(t *testing.T) {
 	const capacity = 24 // Very long backoff interval.
 	var r = &read{
 		ctx:       context.Background(),
-		ch:        make(chan *pf.ShuffleResponse, capacity),
+		ch:        make(chan *pr.ShuffleResponse, capacity),
 		drainedCh: make(chan struct{}, 1),
 	}
 
 	for i := 0; i != cap(r.ch)-1; i++ {
-		r.ch <- new(pf.ShuffleResponse)
+		r.ch <- new(pr.ShuffleResponse)
 	}
 
 	time.AfterFunc(time.Millisecond, func() {
@@ -365,7 +335,7 @@ func TestReadSendBackoffAndWake(t *testing.T) {
 
 	// A send starts a very long backoff timer, which is cancelled by
 	// the above routine draining the channel while we're waiting.
-	require.NoError(t, r.sendReadResult(new(pf.ShuffleResponse), nil, nil))
+	require.NoError(t, r.sendReadResult(new(pr.ShuffleResponse), nil, nil))
 
 	<-r.ch // Blocked response was sent.
 	require.Empty(t, r.ch)
@@ -373,7 +343,7 @@ func TestReadSendBackoffAndWake(t *testing.T) {
 
 func TestWalkingReads(t *testing.T) {
 	var journals, shards, task = buildReadTestJournalsAndTransforms()
-	var shuffles = task.TaskShuffles()
+	var shuffles = derivationShuffles(task)
 
 	// Expect coordinators align with physical partitions of logical groups.
 	for index := range shards {
@@ -412,7 +382,7 @@ func TestWalkingReads(t *testing.T) {
 		var err = walkReads(shards[index].Id, shards, journals, shuffles,
 			func(_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID) {
 				require.Equal(t, expect[0].journal, spec.Name.String())
-				require.Equal(t, expect[0].source, shuffles[shuffleIndex].SourceCollection.String())
+				require.Equal(t, expect[0].source, shuffles[shuffleIndex].sourceCollection.String())
 				require.Equal(t, expect[0].coordinator, coordinator)
 				expect = expect[1:]
 			})

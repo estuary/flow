@@ -12,6 +12,7 @@ import (
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
+	pr "github.com/estuary/flow/go/protocols/runtime"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -27,7 +28,11 @@ type ReadBuilder struct {
 	publisher ops.Publisher
 	service   *consumer.Service
 	shardID   pc.ShardID
-	shuffles  []*pf.Shuffle
+	shuffles  []shuffle
+
+	// Task on whose behalf we're reading.
+	derivation      *pf.CollectionSpec
+	materialization *pf.MaterializationSpec
 
 	// Members may change over the life of a ReadBuilder.
 	// We're careful not to assume that values are stable. If they change,
@@ -49,7 +54,7 @@ func NewReadBuilder(
 	publisher ops.Publisher,
 	service *consumer.Service,
 	shardID pc.ShardID,
-	shuffles []*pf.Shuffle,
+	task pf.Task,
 ) (*ReadBuilder, error) {
 	// Prefix is the "directory" portion of the ShardID,
 	// up-to and including a final '/'.
@@ -67,15 +72,32 @@ func NewReadBuilder(
 		return
 	}
 
+	var (
+		shuffles        []shuffle
+		derivation      *pf.CollectionSpec
+		materialization *pf.MaterializationSpec
+		ok              bool
+	)
+
+	if derivation, ok = task.(*pf.CollectionSpec); ok {
+		shuffles = derivationShuffles(derivation)
+	} else if materialization, ok = task.(*pf.MaterializationSpec); ok {
+		shuffles = materializationShuffles(materialization)
+	} else {
+		return nil, fmt.Errorf("task %#v is not a derivation or materialization", task)
+	}
+
 	return &ReadBuilder{
-		buildID:   buildID,
-		drainCh:   drainCh,
-		journals:  journals,
-		members:   members,
-		publisher: publisher,
-		service:   service,
-		shardID:   shardID,
-		shuffles:  shuffles,
+		buildID:         buildID,
+		drainCh:         drainCh,
+		journals:        journals,
+		members:         members,
+		publisher:       publisher,
+		service:         service,
+		shardID:         shardID,
+		shuffles:        shuffles,
+		derivation:      derivation,
+		materialization: materialization,
 	}, nil
 }
 
@@ -99,15 +121,18 @@ func (rb *ReadBuilder) ReadThrough(offsets pb.Offsets) (pb.Offsets, error) {
 
 type read struct {
 	publisher ops.Publisher
-	readDelay message.Clock
-	req       pf.ShuffleRequest
-	resp      pf.IndexedShuffleResponse
+	req       pr.ShuffleRequest
+	resp      pr.IndexedShuffleResponse
 	spec      pb.JournalSpec
+
+	// Fields used to order across *read instances.
+	priority  uint32
+	readDelay message.Clock
 
 	// Fields filled when a read is start()'d.
 	ctx       context.Context
 	cancel    context.CancelFunc       // Cancel this read.
-	ch        chan *pf.ShuffleResponse // Read responses.
+	ch        chan *pr.ShuffleResponse // Read responses.
 	drainedCh chan struct{}            // Signaled when |ch| is emptied.
 
 	// Terminal error, which is set immediately prior to |ch| being closed,
@@ -125,23 +150,24 @@ func (rb *ReadBuilder) buildReplayRead(journal pb.Journal, begin, end pb.Offset)
 				return
 			}
 
-			var journalShuffle = pf.JournalShuffle{
-				Journal:     spec.Name,
-				Coordinator: coordinator,
-				Shuffle:     rb.shuffles[shuffleIndex],
-				Replay:      true,
-				BuildId:     rb.buildID,
-			}
 			out = &read{
 				publisher: rb.publisher,
-				spec:      spec,
-				req: pf.ShuffleRequest{
-					Shuffle:   journalShuffle,
-					Range:     range_,
-					Offset:    begin,
-					EndOffset: end,
+				req: pr.ShuffleRequest{
+					Journal:         spec.Name,
+					Replay:          true,
+					BuildId:         rb.buildID,
+					Offset:          begin,
+					EndOffset:       end,
+					Range:           range_,
+					Coordinator:     coordinator,
+					Resolution:      nil,
+					ShuffleIndex:    uint32(shuffleIndex),
+					Derivation:      rb.derivation,
+					Materialization: rb.materialization,
 				},
-				resp:      pf.IndexedShuffleResponse{ShuffleIndex: shuffleIndex},
+				resp:      pr.IndexedShuffleResponse{ShuffleIndex: shuffleIndex},
+				spec:      spec,
+				priority:  0, // Not used during replay.
 				readDelay: 0, // Not used during replay.
 			}
 		})
@@ -186,29 +212,19 @@ func (rb *ReadBuilder) buildReads(
 
 	err = walkReads(rb.shardID, rb.members(), rb.journals, rb.shuffles,
 		func(range_ pf.RangeSpec, spec pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID) {
-			// Build the configuration under which we'll read.
-			var journalShuffle = pf.JournalShuffle{
-				Journal:     spec.Name,
-				Coordinator: coordinator,
-				Shuffle:     rb.shuffles[shuffleIndex],
-				Replay:      false,
-				BuildId:     rb.buildID,
-			}
-
-			var r, ok = existing[spec.Name]
-			if ok {
-				// A *read for this journal & transform already exists. If it's
-				// JournalShuffle hasn't changed, keep it active (i.e., don't drain).
-				if r.req.Shuffle.Equal(&journalShuffle) {
+			if r, ok := existing[spec.Name]; ok {
+				// A *read for this journal shuffle already exists.
+				// If it's coordinator is unchanged, keep it active (i.e., don't drain).
+				if r.req.Coordinator == coordinator {
 					delete(drain, spec.Name)
 				} else {
 					r.log(ops.Log_debug,
 						"draining read because its shuffle has changed",
 						"next", map[string]interface{}{
-							"build":       journalShuffle.BuildId,
-							"coordinator": journalShuffle.Coordinator,
-							"journal":     journalShuffle.Journal,
-							"replay":      journalShuffle.Replay,
+							"build":       rb.buildID,
+							"coordinator": coordinator,
+							"journal":     spec.Name,
+							"replay":      false,
 						},
 					)
 				}
@@ -216,18 +232,27 @@ func (rb *ReadBuilder) buildReads(
 			}
 
 			// A *read of this journal doesn't exist. Start one.
-			var readDelaySeconds = int64(rb.shuffles[shuffleIndex].ReadDelaySeconds)
+			var readDelaySeconds = int64(rb.shuffles[shuffleIndex].readDelaySeconds)
 			var readDelay = message.NewClock(time.Unix(readDelaySeconds, 0)) - message.NewClock(time.Unix(0, 0))
 
 			added[spec.Name] = &read{
 				publisher: rb.publisher,
-				spec:      spec,
-				req: pf.ShuffleRequest{
-					Shuffle: journalShuffle,
-					Range:   range_,
-					Offset:  offsets[spec.Name],
+				req: pr.ShuffleRequest{
+					Journal:         spec.Name,
+					Replay:          false,
+					BuildId:         rb.buildID,
+					Offset:          offsets[spec.Name],
+					EndOffset:       0,
+					Range:           range_,
+					Coordinator:     coordinator,
+					Resolution:      nil, // Set later, when starting a request.
+					ShuffleIndex:    uint32(shuffleIndex),
+					Derivation:      rb.derivation,
+					Materialization: rb.materialization,
 				},
-				resp:      pf.IndexedShuffleResponse{ShuffleIndex: shuffleIndex},
+				resp:      pr.IndexedShuffleResponse{ShuffleIndex: shuffleIndex},
+				spec:      spec,
+				priority:  rb.shuffles[shuffleIndex].priority,
 				readDelay: readDelay,
 			}
 		})
@@ -239,7 +264,7 @@ func (r *read) start(
 	ctx context.Context,
 	attempt int,
 	resolveFn resolveFn,
-	shuffler pf.ShufflerClient,
+	shuffler pr.ShufflerClient,
 	wakeCh chan<- struct{},
 ) {
 	// Wait for a back-off timer, or context cancellation.
@@ -251,21 +276,21 @@ func (r *read) start(
 	r.log(ops.Log_debug, "started shuffle read", "attempt", attempt)
 
 	ctx = pprof.WithLabels(ctx, pprof.Labels(
-		"build", r.req.Shuffle.BuildId,
-		"journal", r.req.Shuffle.Journal.String(),
-		"replay", fmt.Sprint(r.req.Shuffle.Replay),
+		"build", r.req.BuildId,
+		"journal", r.req.Journal.String(),
+		"replay", fmt.Sprint(r.req.Replay),
 		"endOffset", fmt.Sprint(r.req.EndOffset),
 		"offset", fmt.Sprint(r.req.Offset),
 	))
 
 	r.ctx, r.cancel = context.WithCancel(ctx)
-	r.ch = make(chan *pf.ShuffleResponse, readChannelCapacity)
+	r.ch = make(chan *pr.ShuffleResponse, readChannelCapacity)
 	r.drainedCh = make(chan struct{}, 1)
 
 	// Resolve coordinator shard to a current member process.
 	var resolution, err = resolveFn(consumer.ResolveArgs{
 		Context:  r.ctx,
-		ShardID:  r.req.Shuffle.Coordinator,
+		ShardID:  r.req.Coordinator,
 		MayProxy: true,
 	})
 	if err == nil && resolution.Status != pc.Status_OK {
@@ -285,7 +310,7 @@ func (r *read) start(
 		resolution.Store.(Store).Coordinator().Subscribe(
 			r.ctx,
 			r.req,
-			func(resp *pf.ShuffleResponse, err error) error {
+			func(resp *pr.ShuffleResponse, err error) error {
 				// Subscribe promises that that the last call (only) will deliver
 				// a final error. This matches sendReadResult's expectation.
 				return r.sendReadResult(resp, err, wakeCh)
@@ -338,7 +363,7 @@ func (r *read) start(
 // as the channel becomes full, up to the channel capacity, after which we
 // cancel the read to release its server-side resources and prevent the server
 // from blocking on send going forward.
-func (r *read) sendReadResult(resp *pf.ShuffleResponse, err error, wakeCh chan<- struct{}) error {
+func (r *read) sendReadResult(resp *pr.ShuffleResponse, err error, wakeCh chan<- struct{}) error {
 	if err != nil {
 		// This is a final call, delivering a terminal error.
 		r.chErr = err
@@ -424,7 +449,7 @@ func (r *read) next() (message.Envelope, error) {
 	return r.dequeue(), nil
 }
 
-func (r *read) onRead(p *pf.ShuffleResponse, ok bool) error {
+func (r *read) onRead(p *pr.ShuffleResponse, ok bool) error {
 	if !ok && r.chErr != nil {
 		return r.chErr
 	} else if !ok {
@@ -463,10 +488,10 @@ func (r *read) log(lvl ops.Log_Level, message string, fields ...interface{}) {
 
 	fields = append(fields,
 		"request", map[string]interface{}{
-			"build":       r.req.Shuffle.BuildId,
-			"coordinator": r.req.Shuffle.Coordinator,
+			"build":       r.req.BuildId,
+			"coordinator": r.req.Coordinator,
 			"endOffset":   r.req.EndOffset,
-			"journal":     r.req.Shuffle.Journal,
+			"journal":     r.req.Journal,
 			"offset":      r.req.Offset,
 			"range":       r.req.Range.String(),
 		},
@@ -488,8 +513,8 @@ func (h *readHeap) Less(i, j int) bool {
 	var lhs, rhs = (*h)[i], (*h)[j]
 
 	// Prefer a read with higher priority.
-	if lhs.req.Shuffle.Priority != rhs.req.Shuffle.Priority {
-		return lhs.req.Shuffle.Priority > rhs.req.Shuffle.Priority
+	if lhs.priority != rhs.priority {
+		return lhs.priority > rhs.priority
 	}
 	// Then prefer a document with an earlier adjusted clock.
 	var lc = lhs.resp.UuidParts[lhs.resp.Index].Clock + lhs.readDelay
@@ -508,7 +533,7 @@ func (h *readHeap) Pop() interface{} {
 	return x
 }
 
-func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, allJournals flow.Journals, shuffles []*pf.Shuffle,
+func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, allJournals flow.Journals, shuffles []shuffle,
 	cb func(_ pf.RangeSpec, _ pb.JournalSpec, shuffleIndex int, coordinator pc.ShardID)) error {
 
 	var members, err = newShuffleMembers(shardSpecs)
@@ -526,13 +551,13 @@ func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, allJournals flow.Journ
 	defer allJournals.Mu.RUnlock()
 
 	for shuffleIndex, shuffle := range shuffles {
-		var prefix = allocator.ItemKey(allJournals.KeySpace, shuffle.SourceCollection.String()) + "/"
+		var prefix = allocator.ItemKey(allJournals.KeySpace, shuffle.sourceCollection.String()) + "/"
 		var sources = allJournals.Prefixed(prefix)
 
 		for _, kv := range sources {
 			var source = kv.Decoded.(allocator.Item).ItemValue.(*pb.JournalSpec)
 
-			if !shuffle.SourcePartitions.Matches(source.LabelSet) {
+			if !shuffle.sourcePartitions.Matches(source.LabelSet) {
 				continue
 			}
 
@@ -542,12 +567,12 @@ func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, allJournals flow.Journ
 			// be directly responsible for handling documents of the journal.
 			var start, stop int
 
-			if len(shuffle.ShuffleKeyPartitionFields) != 0 {
+			if len(shuffle.shuffleKeyPartitionFields) != 0 {
 				// This transform shuffles on a key which is covered by logical partitions.
 				// This means we can statically determine the (singular) shuffle key hash
 				// that we will encounter for every document within the journal.
 
-				var key, err = labels.DecodePartitionLabels(shuffle.ShuffleKeyPartitionFields, source.LabelSet)
+				var key, err = labels.DecodePartitionLabels(shuffle.shuffleKeyPartitionFields, source.LabelSet)
 				if err != nil {
 					return fmt.Errorf("parsing shuffle key from partition fields: %w", err)
 				}
@@ -561,10 +586,10 @@ func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, allJournals flow.Journ
 					// and we can skip reading it altogether.
 					continue
 				}
-			} else if shuffle.UsesSourceKey {
+			} else if shuffle.usesSourceKey {
 				// This transform uses the source's key, which means that the key ranges
 				// present on JournalSpecs refer to the same keys as ShardSpecs. As an optimization
-				// to reduce data movement, select only from ShardSpecs which overlap the's target
+				// to reduce data movement, select only from ShardSpecs which overlap the target's
 				// key hash range. Note that the journal's target key range applies only to ongoing
 				// writes and it's possible the journal contains other key hashes, depending on its
 				// history over time.
@@ -590,9 +615,10 @@ func walkReads(id pc.ShardID, shardSpecs []*pc.ShardSpec, allJournals flow.Journ
 				start, stop = 0, len(members)
 			}
 
-			// Augment JournalSpec to capture the shuffle group name, as a Journal metadata path segment.
+			// Augment JournalSpec to included the shuffle's read suffix as a metadata path segment.
 			var copied = *source
-			copied.Name = pb.Journal(fmt.Sprintf("%s;%s", source.Name.String(), shuffle.GroupName))
+			copied.Name = pb.Journal(fmt.Sprintf("%s;%s",
+				source.Name.String(), shuffle.journalReadSuffix))
 
 			var m = pickHRW(hrwHash(copied.Name.String()), members, start, stop)
 			cb(members[index].range_, copied, shuffleIndex, members[m].spec.Id)

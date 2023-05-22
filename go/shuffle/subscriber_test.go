@@ -13,14 +13,15 @@ import (
 	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/require"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
 )
 
-func simpleResponseFixture() *pf.ShuffleResponse {
-	var resp = &pf.ShuffleResponse{
+func simpleResponseFixture() *pr.ShuffleResponse {
+	var resp = &pr.ShuffleResponse{
 		ReadThrough: 400,
 		WriteHead:   600,
 		Offsets:     []pb.Offset{200, 300, 300, 400},
@@ -82,7 +83,7 @@ func TestSubscriberKeyRangesWithShuffledAdd(t *testing.T) {
 		if err := ranges.Validate(); err != nil {
 			panic(err)
 		}
-		return subscriber{ShuffleRequest: pf.ShuffleRequest{Range: ranges}}
+		return subscriber{ShuffleRequest: pr.ShuffleRequest{Range: ranges}}
 	}
 
 	var fixtures = []subscriber{
@@ -206,39 +207,45 @@ func TestClockRotationRegression(t *testing.T) {
 }
 
 func TestSubscriberResponseStaging(t *testing.T) {
-	var requests = []pf.ShuffleRequest{
-		{ // Subscriber sees first half of keyspace, and first half of clocks.
-			Shuffle: pf.JournalShuffle{Shuffle: &pf.Shuffle{FilterRClocks: true}},
-			Range: pf.RangeSpec{
-				KeyBegin:    0,
-				KeyEnd:      1<<31 - 1,
-				RClockBegin: 0,
-				RClockEnd:   1<<31 - 1,
+	var fixtures = []subscriber{
+		{ // Subscriber sees first half of key space, and first half of clocks.
+			ShuffleRequest: pr.ShuffleRequest{
+				Range: pf.RangeSpec{
+					KeyBegin:    0,
+					KeyEnd:      1<<31 - 1,
+					RClockBegin: 0,
+					RClockEnd:   1<<31 - 1,
+				},
 			},
+			filterRClocks: true,
 		},
-		{ // Sees first half of keyspace, and second half of clocks.
-			Shuffle: pf.JournalShuffle{Shuffle: &pf.Shuffle{FilterRClocks: true}},
-			Range: pf.RangeSpec{
-				KeyBegin:    0x00000000,
-				KeyEnd:      1<<31 - 1,
-				RClockBegin: 1 << 31,
-				RClockEnd:   1<<32 - 1,
+		{ // Sees first half of key space, and second half of clocks.
+			ShuffleRequest: pr.ShuffleRequest{
+				Range: pf.RangeSpec{
+					KeyBegin:    0x00000000,
+					KeyEnd:      1<<31 - 1,
+					RClockBegin: 1 << 31,
+					RClockEnd:   1<<32 - 1,
+				},
 			},
+			filterRClocks: true,
 		},
 		{ // Sees keyspace 0x8 through 0xa, and clocks are ignored since !FilterRClocks.
-			Shuffle: pf.JournalShuffle{Shuffle: &pf.Shuffle{FilterRClocks: false}},
-			Range: pf.RangeSpec{
-				KeyBegin:    1 << 31,
-				KeyEnd:      0xa0000000,
-				RClockBegin: 0,
-				RClockEnd:   1,
+			ShuffleRequest: pr.ShuffleRequest{
+				Range: pf.RangeSpec{
+					KeyBegin:    1 << 31,
+					KeyEnd:      0xa0000000,
+					RClockBegin: 0,
+					RClockEnd:   1,
+				},
 			},
+			filterRClocks: false,
 		},
 	}
 
 	var s subscribers
-	for i, r := range requests {
-		var read = s.add(subscriber{ShuffleRequest: r})
+	for i, fixture := range fixtures {
+		var read = s.add(fixture)
 		// First add starts a read at offset 0.
 		require.Equal(t, i == 0, read != nil)
 	}
@@ -258,7 +265,7 @@ func TestSubscriberResponseStaging(t *testing.T) {
 	}
 
 	var tokens = bytes.Split([]byte("bar qib ACK foo fub"), []byte{' '})
-	var fixture = pf.ShuffleResponse{
+	var fixture = pr.ShuffleResponse{
 		TerminalError: "an error",
 		ReadThrough:   1000,
 		WriteHead:     2000,
@@ -295,7 +302,7 @@ func TestSubscriberSendAndPruneCases(t *testing.T) {
 	var errCh = make(chan error, 10)
 	var sends int
 
-	var callback = func(m *pf.ShuffleResponse, err error) error {
+	var callback = func(m *pr.ShuffleResponse, err error) error {
 		if err != nil {
 			errCh <- err
 		} else {
@@ -308,33 +315,33 @@ func TestSubscriberSendAndPruneCases(t *testing.T) {
 
 	var s = subscribers{
 		{ // A: Send completes this subscriber's response.
-			ShuffleRequest: pf.ShuffleRequest{Offset: 100, EndOffset: 200},
-			staged:         &pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
+			ShuffleRequest: pr.ShuffleRequest{Offset: 100, EndOffset: 200},
+			staged:         &pr.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
 			callback:       callback,
 			sentTailing:    true,
 		},
 		{ // B: Nothing to send (subscriber is already tailing).
-			ShuffleRequest: pf.ShuffleRequest{Offset: 300},
-			staged:         &pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
+			ShuffleRequest: pr.ShuffleRequest{Offset: 300},
+			staged:         &pr.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
 			ctx:            context.Background(),
 			callback:       callback,
 			sentTailing:    true,
 		},
 		{ // C: Nothing to send (not tailing yet as 299 != 300).
-			ShuffleRequest: pf.ShuffleRequest{Offset: 100},
-			staged:         &pf.ShuffleResponse{ReadThrough: 299, WriteHead: 300},
+			ShuffleRequest: pr.ShuffleRequest{Offset: 100},
+			staged:         &pr.ShuffleResponse{ReadThrough: 299, WriteHead: 300},
 			ctx:            context.Background(),
 			callback:       callback,
 		},
 		{ // D: Send tailing, but results in an error.
-			staged: &pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
-			callback: func(m *pf.ShuffleResponse, err error) error {
+			staged: &pr.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
+			callback: func(m *pr.ShuffleResponse, err error) error {
 				_ = callback(m, err)
 				return fmt.Errorf("an-error")
 			},
 		},
 		{ // E: Nothing to send (already tailing), but context is error'd.
-			staged:      &pf.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
+			staged:      &pr.ShuffleResponse{ReadThrough: 300, WriteHead: 300},
 			ctx:         errContext,
 			callback:    callback,
 			sentTailing: true,
@@ -368,7 +375,7 @@ func TestSubscriberSendAndPruneCases(t *testing.T) {
 	require.Equal(t, s[2].staged, newStagedResponse(0, 0))
 
 	s[1].staged.ReadThrough = 300                                       // C is now tailing.
-	s[2].staged = &pf.ShuffleResponse{ReadThrough: 400, WriteHead: 500} // F is not tailing.
+	s[2].staged = &pr.ShuffleResponse{ReadThrough: 400, WriteHead: 500} // F is not tailing.
 
 	for i, e := range []bool{false, true, false} {
 		require.Equal(t, e, s[i].shouldSendResponse())
@@ -397,7 +404,7 @@ func TestSubscriberSendAndPruneCases(t *testing.T) {
 func TestSubscriberAddCases(t *testing.T) {
 	// Retain callback error.
 	var callbackErr error
-	var callback = func(_ *pf.ShuffleResponse, err error) error {
+	var callback = func(_ *pr.ShuffleResponse, err error) error {
 		callbackErr = err
 		return nil
 	}
@@ -407,8 +414,8 @@ func TestSubscriberAddCases(t *testing.T) {
 	var s subscribers
 
 	var sub = subscriber{
-		ShuffleRequest: pf.ShuffleRequest{
-			Shuffle: pf.JournalShuffle{Journal: "a/journal"},
+		ShuffleRequest: pr.ShuffleRequest{
+			Journal: "a/journal",
 			Range: pf.RangeSpec{
 				KeyBegin:  0x100,
 				KeyEnd:    0x200,

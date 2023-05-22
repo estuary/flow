@@ -128,10 +128,10 @@ type taskReader struct {
 }
 
 func (r *taskReader) initReader(
-	term *taskTerm,
-	shard consumer.Shard,
-	shuffles []*pf.Shuffle,
 	host *FlowConsumer,
+	shard consumer.Shard,
+	task pf.Task,
+	term *taskTerm,
 ) error {
 	// Guard against a raced call to ReadThrough() or Coordinator().
 	r.mu.Lock()
@@ -158,7 +158,7 @@ func (r *taskReader) initReader(
 		term.opsPublisher,
 		host.Service,
 		term.shardSpec.Id,
-		shuffles,
+		task,
 	)
 	if err != nil {
 		return fmt.Errorf("NewReadBuilder: %w", err)

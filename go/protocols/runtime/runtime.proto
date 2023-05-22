@@ -3,7 +3,9 @@ syntax = "proto3";
 package runtime;
 option go_package = "github.com/estuary/flow/go/protocols/runtime";
 
+import "broker/protocol/protocol.proto";
 import "consumer/protocol/protocol.proto";
+import "go/protocols/flow/flow.proto";
 import "go/protocols/ops/ops.proto";
 import "gogoproto/gogo.proto";
 
@@ -16,6 +18,101 @@ message TaskServiceConfig {
   int32 log_file_fd = 1;
   string task_name = 2;
   string uds_path = 3;
+}
+
+// ShuffleRequest is the request message of a Shuffle RPC.
+// It's a description of a document shuffle,
+// where a journal is read and each document is mapped into:
+//   - An extracted, packed, and hashed composite key (a "shuffle key").
+//   - A rotated Clock value (an "r-clock").
+//
+// The packed key and r-clock can then be compared to individual reader
+// RangeSpec's.
+//
+// ShuffleRequest instances are keyed and compared on (`journal`, `replay`, `build_id`),
+// in order to identify and group related reads. Note that `journal` has a metadata path
+// segment which uniquely identifies its particular derivation transform
+// or materialization binding. Reads with equivalent shuffles are placed into
+// common "read rings" which consolidate their underlying journal reads.
+message ShuffleRequest {
+  // Journal to be shuffled.
+  string journal = 1
+      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Journal" ];
+  // Is this a reply of the journal's content? We separate ongoing vs replayed
+  // reads of a journal's content into distinct rings.
+  bool replay = 2;
+  // Build ID of the task which requested this JournalShuffle.
+  string build_id = 3;
+
+  // Offset to begin reading the journal from.
+  int64 offset = 4
+      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  // Offset to stop reading the journal at, or zero if unbounded.
+  int64 end_offset = 5
+      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  // Ranges of responsibility which are unique to this reader,
+  // against which document shuffle outcomes are matched to determine
+  // read eligibility.
+  flow.RangeSpec range = 6 [ (gogoproto.nullable) = false ];
+
+  // Coordinator is the Shard ID which is responsible for reads of this journal.
+  string coordinator = 7
+      [ (gogoproto.casttype) = "go.gazette.dev/core/consumer/protocol.ShardID" ];
+  // Resolution header of the |shuffle.coordinator| shard.
+  protocol.Header resolution = 8;
+
+  // Index of the derivation transform or materialization
+  // binding on whose behalf we're reading.
+  uint32 shuffle_index = 9;
+  // Derivation which is requesting the shuffle.
+  flow.CollectionSpec derivation = 10;
+  // Materialization which is requesting the shuffle.
+  flow.MaterializationSpec materialization = 11;
+}
+
+// ShuffleResponse is the streamed response message of a Shuffle RPC.
+message ShuffleResponse {
+  // Status of the Shuffle RPC.
+  consumer.Status status = 1;
+  // Header of the response.
+  protocol.Header header = 2;
+  // Terminal error encountered while serving this ShuffleRequest. A terminal
+  // error is only sent if a future ShuffleRequest of this same configuration
+  // and offset will fail in the exact same way, and operator intervention is
+  // required to properly recover. Such errors are returned so that the caller
+  // can also abort with a useful, contextual error message.
+  //
+  // Examples of terminal errors include the requested journal not existing,
+  // or data corruption. Errors *not* returned as |terminal_error| include
+  // network errors, process failures, and other conditions which can be
+  // retried.
+  string terminal_error = 3;
+  // Offset which was read through to produce this ShuffleResponse.
+  int64 read_through = 4
+      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  // WriteHead of the journal as reported by the broker, as of the creation of
+  // this ShuffleResponse.
+  int64 write_head = 5
+      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  // Memory arena of this message.
+  bytes arena = 6 [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Arena" ];
+  // Shuffled documents, each encoded in the 'application/json'
+  // media-type.
+  repeated flow.Slice docs = 7 [ (gogoproto.nullable) = false ];
+  // The journal offsets of each document within the requested journal.
+  // For a document at index i, its offsets are [ offsets[2*i], offsets[2*i+1]
+  // ).
+  repeated int64 offsets = 8
+      [ (gogoproto.casttype) = "go.gazette.dev/core/broker/protocol.Offset" ];
+  // UUIDParts of each document.
+  repeated flow.UUIDParts uuid_parts = 9 [ (gogoproto.nullable) = false ];
+  // Packed, embedded encoding of the shuffle key into a byte string.
+  // If the Shuffle specified a Hash to use, it's applied as well.
+  repeated flow.Slice packed_key = 10 [ (gogoproto.nullable) = false ];
+}
+
+service Shuffler {
+  rpc Shuffle(ShuffleRequest) returns (stream ShuffleResponse);
 }
 
 message RocksDBDescriptor {
