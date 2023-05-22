@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	pf "github.com/estuary/flow/go/protocols/flow"
+	pr "github.com/estuary/flow/go/protocols/runtime"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -33,17 +33,17 @@ func NewAPI(resolver *consumer.Resolver) *API {
 }
 
 // Shuffle implements the gRPC Shuffle endpoint.
-func (api *API) Shuffle(req *pf.ShuffleRequest, stream pf.Shuffler_ShuffleServer) error {
+func (api *API) Shuffle(req *pr.ShuffleRequest, stream pr.Shuffler_ShuffleServer) error {
 	if err := req.Validate(); err != nil {
 		return err
 	}
 	var res, err = api.resolve(consumer.ResolveArgs{
 		Context:     stream.Context(),
-		ShardID:     req.Shuffle.Coordinator,
+		ShardID:     req.Coordinator,
 		MayProxy:    false,
 		ProxyHeader: req.Resolution,
 	})
-	var resp = pf.ShuffleResponse{
+	var resp = pr.ShuffleResponse{
 		Status: res.Status,
 		Header: &res.Header,
 	}
@@ -62,13 +62,13 @@ func (api *API) Shuffle(req *pf.ShuffleRequest, stream pf.Shuffler_ShuffleServer
 	coordinator.Subscribe(
 		stream.Context(),
 		*req,
-		func(m *pf.ShuffleResponse, err error) error {
+		func(m *pr.ShuffleResponse, err error) error {
 			if err != nil {
 				errCh <- err
 				close(errCh)
 			} else if err = stream.Send(m); err == io.EOF {
 				// EOF means the stream is broken; we can read a more descriptive error.
-				err = stream.RecvMsg(new(pf.ShuffleRequest))
+				err = stream.RecvMsg(new(pr.ShuffleRequest))
 			}
 			return err
 		},
@@ -84,7 +84,7 @@ func (api *API) Shuffle(req *pf.ShuffleRequest, stream pf.Shuffler_ShuffleServer
 	} else if err != nil {
 		log.WithFields(log.Fields{
 			"err":     err,
-			"journal": req.Shuffle.Journal,
+			"journal": req.Journal,
 			"range":   req.Range,
 		}).Warn("failed to serve Shuffle API")
 	}

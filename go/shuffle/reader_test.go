@@ -17,6 +17,7 @@ import (
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -165,13 +166,14 @@ func TestConsumerIntegration(t *testing.T) {
 			Etcd:     etcd,
 			Journals: broker.Client(),
 			App: &testApp{
+				service:  nil, // Filled below.
 				journals: journals,
-				shuffles: derivation.TaskShuffles(),
+				task:     derivation,
 				buildID:  "a-build-id",
 			},
 		})
 		cmr.Service.App.(*testApp).service = cmr.Service
-		pf.RegisterShufflerServer(cmr.Server.GRPCServer, &API{resolve: cmr.Service.Resolver.Resolve})
+		pr.RegisterShufflerServer(cmr.Server.GRPCServer, &API{resolve: cmr.Service.Resolver.Resolve})
 		cmr.Tasks.GoRun()
 		return cmr
 
@@ -278,7 +280,7 @@ func TestConsumerIntegration(t *testing.T) {
 type testApp struct {
 	service  *consumer.Service
 	journals flow.Journals
-	shuffles []*pf.Shuffle
+	task     pf.Task
 	buildID  string
 }
 
@@ -304,7 +306,7 @@ func (a testApp) NewStore(shard consumer.Shard, recorder *recoverylog.Recorder) 
 		localPublisher,
 		a.service,
 		shard.Spec().Id,
-		a.shuffles,
+		a.task,
 	)
 	if err != nil {
 		return nil, err
@@ -339,7 +341,7 @@ func (a testApp) NewMessage(*pb.JournalSpec) (message.Message, error) { panic("n
 
 func (a testApp) ConsumeMessage(shard consumer.Shard, store consumer.Store, env message.Envelope, _ *message.Publisher) error {
 	var state = *store.(*testStore).State.(*map[string]int)
-	var msg = env.Message.(pf.IndexedShuffleResponse)
+	var msg = env.Message.(pr.IndexedShuffleResponse)
 
 	if message.GetFlags(env.GetUUID()) == message.Flag_ACK_TXN {
 		return nil

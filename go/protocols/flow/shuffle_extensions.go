@@ -29,21 +29,6 @@ func (t Transform) Validate() error {
 	return pb.ValidateToken(t.String(), pb.TokenSymbols, 1, 512)
 }
 
-// Validate returns a validation error of the JournalShuffle.
-func (m *JournalShuffle) Validate() error {
-	if err := m.Journal.Validate(); err != nil {
-		return pb.ExtendContext(err, "Journal")
-	} else if err = m.Coordinator.Validate(); err != nil {
-		return pb.ExtendContext(err, "Coordinator")
-	} else if err = m.Shuffle.Validate(); err != nil {
-		return pb.ExtendContext(err, "Shuffle")
-	} else if m.BuildId == "" {
-		return pb.NewValidationError("missing BuildId")
-	}
-
-	return nil
-}
-
 // NewFullRange returns a RangeSpec covering the full key and r-clock range.
 func NewFullRange() RangeSpec {
 	return RangeSpec{
@@ -91,44 +76,4 @@ func (m *RangeSpec) Equal(r *RangeSpec) bool {
 func (m RangeSpec) String() string {
 	return fmt.Sprintf("key:%08x-%08x;r-clock:%08x-%08x",
 		m.KeyBegin, m.KeyEnd, m.RClockBegin, m.RClockEnd)
-}
-
-// Validate returns a validation error of the Shuffle.
-func (m *Shuffle) Validate() error {
-	if m.GroupName == "" {
-		return pb.NewValidationError("missing GroupName")
-	}
-	if err := m.SourceCollection.Validate(); err != nil {
-		return pb.ExtendContext(err, "SourceCollection")
-	}
-	if err := m.SourcePartitions.Validate(); err != nil {
-		return pb.ExtendContext(err, "SourcePartitions")
-	}
-	if m.SourceUuidPtr == "" {
-		return pb.NewValidationError("missing SourceUuidPtr")
-	}
-	if len(m.ShuffleKeyPtrs) == 0 {
-		return pb.NewValidationError("missing ShuffleKeyPtr")
-	}
-	return nil
-}
-
-// Validate returns a validation error of the ShuffleRequest.
-func (m *ShuffleRequest) Validate() error {
-	if m.Resolution != nil {
-		if err := m.Resolution.Validate(); err != nil {
-			return pb.ExtendContext(err, "Resolution")
-		}
-	}
-	if err := m.Shuffle.Validate(); err != nil {
-		return pb.ExtendContext(err, "Shuffle")
-	} else if err = m.Range.Validate(); err != nil {
-		return pb.ExtendContext(err, "Range")
-	} else if m.Offset < 0 {
-		return pb.NewValidationError("invalid Offset (%d; expected 0 <= Offset <= MaxInt64)", m.Offset)
-	} else if m.EndOffset < 0 || m.EndOffset != 0 && m.EndOffset < m.Offset {
-		return pb.NewValidationError("invalid EndOffset (%d; expected 0 or Offset <= EndOffset)", m.EndOffset)
-	}
-
-	return nil
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
+	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/stretchr/testify/require"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -40,20 +41,20 @@ func TestReadingDocuments(t *testing.T) {
 	}
 	require.NoError(t, app.Close())
 
-	var ch = make(chan *pf.ShuffleResponse, 1)
+	var ch = make(chan *pr.ShuffleResponse, 1)
 
 	// Place a fixture in |ch| which has a non-empty arena with no remaining capacity.
 	// This exercises |readDocument|'s back-pressure handling.
-	ch <- &pf.ShuffleResponse{
+	ch <- &pr.ShuffleResponse{
 		WriteHead: 1, // Not tailing.
 		Arena:     make(pf.Arena, 1),
 	}
 
 	var coordinator = NewCoordinator(ctx, localPublisher, bk.Client())
-	var ring = newRing(coordinator, pf.JournalShuffle{
-		Journal:     "a/journal",
-		BuildId:     "a-build",
-		Coordinator: "a-coordinator",
+	var ring = newRing(coordinator, ringKey{
+		journal: "a/journal",
+		replay:  false,
+		buildID: "a-build",
 	})
 
 	go ring.readDocuments(ch, pb.ReadRequest{
@@ -67,7 +68,7 @@ func TestReadingDocuments(t *testing.T) {
 	time.Sleep(time.Millisecond)
 
 	// Expect to read our unmodified back-pressure fixture.
-	require.Equal(t, &pf.ShuffleResponse{
+	require.Equal(t, &pr.ShuffleResponse{
 		WriteHead: 1,
 		Arena:     make(pf.Arena, 1),
 	}, <-ch)
@@ -86,7 +87,7 @@ func TestReadingDocuments(t *testing.T) {
 	require.Equal(t, count, 0)
 
 	// Case: Start a read that's at the current write head.
-	ch = make(chan *pf.ShuffleResponse, 1)
+	ch = make(chan *pr.ShuffleResponse, 1)
 
 	go ring.readDocuments(ch, pb.ReadRequest{
 		Journal: "a/journal",
@@ -94,7 +95,7 @@ func TestReadingDocuments(t *testing.T) {
 	})
 
 	// Expect an initial ShuffleResponse which informs us that we're tailing the live log.
-	require.Equal(t, &pf.ShuffleResponse{
+	require.Equal(t, &pr.ShuffleResponse{
 		ReadThrough: app.Response.Commit.End,
 		WriteHead:   app.Response.Commit.End,
 	}, <-ch)
@@ -112,7 +113,7 @@ func TestReadingDocuments(t *testing.T) {
 	require.Equal(t, app.Response.Commit.End, out.WriteHead)
 
 	// Case: Start a read which errors. Expect it's passed through, then the channel is closed.
-	ch = make(chan *pf.ShuffleResponse, 1)
+	ch = make(chan *pr.ShuffleResponse, 1)
 
 	go ring.readDocuments(ch, pb.ReadRequest{
 		Journal:   "a/journal",
@@ -134,22 +135,18 @@ func TestReadingDocuments(t *testing.T) {
 
 func TestDocumentExtraction(t *testing.T) {
 	var coordinator = NewCoordinator(context.Background(), localPublisher, nil)
-	var r = newRing(coordinator, pf.JournalShuffle{
-		Journal:     "a/journal",
-		BuildId:     "a-build",
-		Coordinator: "a-coordinator",
-		Shuffle: &pf.Shuffle{
-			SourceUuidPtr:  "/_meta/uuid",
-			ShuffleKeyPtrs: []string{"/foo", "/bar"},
-		},
+	var r = newRing(coordinator, ringKey{
+		journal: "a/journal",
+		replay:  false,
+		buildID: "a-build",
 	})
 
-	var staged pf.ShuffleResponse
+	var staged pr.ShuffleResponse
 	staged.Docs = staged.Arena.AddAll([]byte("doc-1\n"), []byte("doc-2\n"))
 
 	// Case: extraction fails.
 	r.onExtract(&staged, nil, nil, fmt.Errorf("an error"))
-	require.Equal(t, pf.ShuffleResponse{
+	require.Equal(t, pr.ShuffleResponse{
 		Arena:         pf.Arena([]byte("doc-1\ndoc-2\n")),
 		Docs:          []pf.Slice{{Begin: 0, End: 6}, {Begin: 6, End: 12}},
 		TerminalError: "an error",
@@ -166,7 +163,7 @@ func TestDocumentExtraction(t *testing.T) {
 	}
 	r.onExtract(&staged, uuids, fields, nil)
 
-	require.Equal(t, pf.ShuffleResponse{
+	require.Equal(t, pr.ShuffleResponse{
 		Arena:     pf.Arena([]byte("doc-1\ndoc-2\n\025*\002some-string\000")),
 		Docs:      []pf.Slice{{Begin: 0, End: 6}, {Begin: 6, End: 12}},
 		UuidParts: []pf.UUIDParts{{Clock: 123}, {Clock: 456}},

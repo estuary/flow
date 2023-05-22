@@ -97,16 +97,19 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 		"loaded specification",
 		"spec", d.collection, "build", d.labels.Build)
 
-	if err = d.initReader(&d.taskTerm, shard, d.collection.TaskShuffles(), d.host); err != nil {
+	if err = d.initReader(d.host, shard, d.collection, &d.taskTerm); err != nil {
 		return pf.Checkpoint{}, err
 	}
 
 	if d.svc != nil {
 		// No-op.
-	} else if d.svc, err = bindings.NewTaskService(pr.TaskServiceConfig{
-		TaskName: d.collection.Name.String(),
-		UdsPath:  path.Join(d.recorder.Dir(), "socket"),
-	}, d.opsPublisher); err != nil {
+	} else if d.svc, err = bindings.NewTaskService(
+		pr.TaskServiceConfig{
+			TaskName: d.collection.Name.String(),
+			UdsPath:  path.Join(d.recorder.Dir(), "socket"),
+		},
+		d.opsPublisher,
+	); err != nil {
 		return pf.Checkpoint{}, fmt.Errorf("creating task service: %w", err)
 	}
 
@@ -188,7 +191,7 @@ func (d *Derive) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {}     
 
 // ConsumeMessage passes the message to the derive worker.
 func (d *Derive) ConsumeMessage(_ consumer.Shard, env message.Envelope, _ *message.Publisher) error {
-	var doc = env.Message.(pf.IndexedShuffleResponse)
+	var doc = env.Message.(pr.IndexedShuffleResponse)
 	var uuid = doc.UuidParts[doc.Index]
 	var keyPacked = doc.Arena.Bytes(doc.PackedKey[doc.Index])
 	var docJson = doc.Arena.Bytes(doc.Docs[doc.Index])

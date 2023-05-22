@@ -62,8 +62,6 @@ pub use pbjson_types::Any;
 pub use proto_gazette::consumer::checkpoint as runtime_checkpoint;
 pub use proto_gazette::consumer::Checkpoint as RuntimeCheckpoint;
 
-use proto_gazette::consumer;
-
 mod serde_capture {
     use crate::capture::*;
     include!("capture.serde.rs");

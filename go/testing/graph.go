@@ -103,17 +103,28 @@ func (g *Graph) addTask(t pf.Task) {
 	}
 
 	// Index into |readers|.
-	for _, shuffle := range t.TaskShuffles() {
-		g.readers[shuffle.SourceCollection] = append(
-			g.readers[shuffle.SourceCollection],
-			taskRead{
-				task:   name,
-				suffix: ";" + shuffle.GroupName,
-				delay:  TestTime(time.Second * time.Duration(shuffle.ReadDelaySeconds)),
-			})
-	}
-	// Synthesize a taskRead for pseudo-journals of a capture task.
-	if _, ok := t.(*pf.CaptureSpec); ok {
+	if derivation, ok := t.(*pf.CollectionSpec); ok && derivation.Derivation != nil {
+		for _, t := range derivation.Derivation.Transforms {
+			g.readers[t.Collection.Name] = append(
+				g.readers[t.Collection.Name],
+				taskRead{
+					task:   name,
+					suffix: ";" + t.JournalReadSuffix,
+					delay:  TestTime(time.Second * time.Duration(t.ReadDelaySeconds)),
+				})
+		}
+	} else if materialization, ok := t.(*pf.MaterializationSpec); ok {
+		for _, b := range materialization.Bindings {
+			g.readers[b.Collection.Name] = append(
+				g.readers[b.Collection.Name],
+				taskRead{
+					task:   name,
+					suffix: ";" + b.JournalReadSuffix,
+					delay:  0,
+				})
+		}
+	} else if _, ok := t.(*pf.CaptureSpec); ok {
+		// Synthesize a taskRead for pseudo-journals of a capture task.
 		g.readers[pf.Collection(name)] = []taskRead{{
 			task:   name,
 			suffix: "",
