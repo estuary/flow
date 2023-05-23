@@ -27,15 +27,15 @@ Deriving a new collection consists of three steps:
 
 * **Step 1:** Select source collections: In the **Available Collections** dropdown, select the collection you want to derive.
 
-* **Step 2:** Transformation Language: There are two language options to select: **SQL** and **Typescript**.
+* **Step 2:** Transformation Language: There are two language options to select: **SQL** and **TypeScript**.
 
 * **Step 3:** Write transformations: Give your derived collection a name. Then click the **PROCEED TO GITPOD** button.
 
 This opens up GitPod in another tab, where an environment is already set up for you.
 
-## GitPod Set-Up
+## GitPod Setup
 
-We integrate with GitPod in order to let users leverage the full capabilities of SQLite. GitPod is free to use. It is an online Integrated Development Environment (IDE) that provides a complete development environment that can be accessed through a web browser, with all the necessary tools and dependencies pre-installed.
+Flow integrates with GitPod so you can leverage the full capabilities of SQLite. GitPod is free to use. It is an online Integrated Development Environment (IDE) that provides a complete development environment that can be accessed through a web browser, with all the necessary tools and dependencies pre-installed.
 
 In GitPod, you will set up your derivation's schema specs in the **flow.yaml** file. The tutorial [here](https://docs.estuary.dev/concepts/derivations/#tutorial) walks through several examples on how to fill out **flow.yaml** depending on your use case.
 
@@ -126,7 +126,7 @@ From the platform's perspective, this is equivalent to deleting the old transfor
 
 ### Using GitPod
 
-1. In the Flow UI **Derive A New Collection** screen, select **Typescript** as your transformation language.
+1. In the Flow UI **Derive A New Collection** screen, select **TypeScript** as your transformation language.
 
 2. In GitPod, locate the .ts file to put in your transformation logic. It will look similar to the following:
 
@@ -149,7 +149,7 @@ From the platform's perspective, this is equivalent to deleting the old transfor
 
 ### Using local terminal
 
-If you are writing a derivation using Typescript from your local terminal rather than GitPod, follow the steps below:
+If you are writing a derivation using TypeScript from your local terminal rather than GitPod, follow the steps below:
 
 1. Generate the TypeScript module from the newly updated specification file.
 
