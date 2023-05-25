@@ -6,12 +6,6 @@ expression: schema
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
-  "required": [
-    "a",
-    "b",
-    "c",
-    "s"
-  ],
   "properties": {
     "a": {
       "type": "integer"
@@ -27,9 +21,6 @@ expression: schema
     },
     "c": {
       "type": "object",
-      "required": [
-        "inner"
-      ],
       "properties": {
         "inner": {
           "type": [
@@ -47,9 +38,6 @@ expression: schema
       "type": [
         "object",
         "string"
-      ],
-      "required": [
-        "sometimes"
       ],
       "properties": {
         "sometimes": {

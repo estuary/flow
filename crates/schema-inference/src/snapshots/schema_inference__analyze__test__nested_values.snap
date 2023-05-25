@@ -6,19 +6,9 @@ expression: schema
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
-  "required": [
-    "author",
-    "id",
-    "tags",
-    "title"
-  ],
   "properties": {
     "author": {
       "type": "object",
-      "required": [
-        "contact",
-        "name"
-      ],
       "properties": {
         "contact": {
           "type": "string"
