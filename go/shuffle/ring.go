@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"runtime/pprof"
@@ -12,7 +13,6 @@ import (
 	"github.com/estuary/flow/go/bindings"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
-	"github.com/pkg/errors"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/message"
@@ -354,7 +354,7 @@ func (r *ring) readDocuments(ch chan *pf.ShuffleResponse, req pb.ReadRequest) (_
 			)
 			line, err, offset = nil, nil, rr.AdjustedOffset(br)
 		default:
-			if errors.Cause(err) == client.ErrOffsetNotYetAvailable {
+			if errors.Is(err, client.ErrOffsetNotYetAvailable) {
 				// Non-blocking read cannot make further progress.
 				// Continue reading, now with blocking reads.
 				line, err, rr.Reader.Request.Block = nil, nil, true
