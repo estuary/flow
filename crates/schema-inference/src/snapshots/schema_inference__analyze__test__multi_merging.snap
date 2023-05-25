@@ -6,20 +6,11 @@ expression: schema
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
-  "required": [
-    "a",
-    "b",
-    "c"
-  ],
   "properties": {
     "a": {
       "type": [
         "integer",
         "object"
-      ],
-      "required": [
-        "imaginary",
-        "real"
       ],
       "properties": {
         "imaginary": {
@@ -36,9 +27,6 @@ expression: schema
         "type": [
           "boolean",
           "object"
-        ],
-        "required": [
-          "truthful"
         ],
         "properties": {
           "harmless": {
@@ -58,9 +46,6 @@ expression: schema
     },
     "c": {
       "type": "object",
-      "required": [
-        "inner"
-      ],
       "properties": {
         "even_more_optional": {
           "type": "boolean"
@@ -70,9 +55,6 @@ expression: schema
             "null",
             "object",
             "string"
-          ],
-          "required": [
-            "details"
           ],
           "properties": {
             "details": {
