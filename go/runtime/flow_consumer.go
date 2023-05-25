@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -13,7 +14,6 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/estuary/flow/go/shuffle"
-	"github.com/pkg/errors"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
@@ -117,8 +117,9 @@ func (f *FlowConsumer) FinishedTxn(shard consumer.Shard, store consumer.Store, f
 // consistent.
 func logTxnFinished(publisher ops.Publisher, op consumer.OpFuture, shard consumer.Shard) {
 	go func() {
-		if err := op.Err(); err != nil && errors.Cause(err) != context.Canceled {
-			ops.PublishLog(publisher, ops.Log_error, "shard failed", "error", err, "assignment", shard.Assignment().Decoded)
+		if err := op.Err(); err != nil && errors.Is(err, context.Canceled) {
+			ops.PublishLog(publisher, ops.Log_error,
+				"shard failed", "error", err, "assignment", shard.Assignment().Decoded)
 		}
 	}()
 }

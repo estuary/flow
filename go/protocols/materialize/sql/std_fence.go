@@ -8,7 +8,6 @@ import (
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
-	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	pc "go.gazette.dev/core/consumer/protocol"
 )
@@ -204,7 +203,7 @@ func (f *StdFence) Update(ctx context.Context, execFn ExecFn) error {
 		f.fence,
 	)
 	if err == nil && rowsAffected == 0 {
-		err = errors.Errorf("this transactions session was fenced off by another")
+		err = fmt.Errorf("this transactions session was fenced off by another")
 	}
 	return err
 }
