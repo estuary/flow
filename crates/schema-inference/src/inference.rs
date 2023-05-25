@@ -95,7 +95,9 @@ fn infer_object(inner: &serde_json::Map<String, JsonValue>) -> Shape {
         .iter()
         .map(|(key, value)| ObjProperty {
             name: key.to_owned(),
-            is_required: true,
+            // We don't mark any non-key property as required since it is hard to revert requirement on a
+            // property if we later realise that this value can sometimes be null
+            is_required: false,
             shape: infer_shape(value),
         })
         .collect();
