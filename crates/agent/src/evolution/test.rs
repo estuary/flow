@@ -18,7 +18,9 @@ async fn test_collection_evolution() {
 
     let input = serde_json::value::to_raw_value(&serde_json::json!([
         {"old_name": "evolution/CollectionA"},
-        {"old_name": "evolution/CollectionB", "new_name": "evolution/NewCollectionB"}
+        {"old_name": "evolution/CollectionB", "new_name": "evolution/NewCollectionB"},
+        {"old_name": "evolution/CollectionC"},
+        {"old_name": "evolution/CollectionD", "new_name": "evolution/NewCollectionD"}
     ]))
     .unwrap();
     let evolution_row = Row {

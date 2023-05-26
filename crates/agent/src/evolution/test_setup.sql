@@ -25,7 +25,27 @@ with s1 as (
       'bbbbbbbbbbbbbbbb'
     ), 
     (
-      'a300000000000000', 'evolution/CaptureA', 
+      'a300000000000000', 'evolution/CollectionC', 
+      '{"schema": {
+            "x-infer-schema": true,
+            "type": "object",
+            "properties": { "id": {"type": "string"}}, "required": ["id"]
+        }, "key": ["id"]}' :: json, 
+      'collection', 'bbbbbbbbbbbbbbbb', 
+      'bbbbbbbbbbbbbbbb'
+    ),
+    (
+      'a400000000000000', 'evolution/CollectionD', 
+      '{"schema": {
+            "x-infer-schema": true,
+            "type": "object",
+            "properties": { "id": {"type": "string"}}, "required": ["id"]
+        }, "key": ["id"]}' :: json, 
+      'collection', 'bbbbbbbbbbbbbbbb', 
+      'bbbbbbbbbbbbbbbb'
+    ), 
+    (
+      'a600000000000000', 'evolution/CaptureA', 
       '{
             "bindings": [
                 {"target": "evolution/CollectionA", "resource": {"thingy": "foo"}},
@@ -36,7 +56,18 @@ with s1 as (
       'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'
     ), 
     (
-      'a400000000000000', 'evolution/MaterializationA', 
+      'a700000000000000', 'evolution/CaptureB', 
+      '{
+            "bindings": [
+                {"target": "evolution/CollectionC", "resource": {"thingy": "baz"}},
+                {"target": "evolution/CollectionD", "resource": {"thingy": "qux"}}
+            ],
+            "endpoint": {"connector": {"image": "captureImage:v1", "config": {}}}
+        }' :: json, 
+      'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'
+    ), 
+    (
+      'a800000000000000', 'evolution/MaterializationA', 
       '{
             "bindings": [
                 {"source": "evolution/CollectionA", "resource": {"targetThingy": "aThing"}},
@@ -47,19 +78,37 @@ with s1 as (
       'materialization', 'bbbbbbbbbbbbbbbb', 
       'bbbbbbbbbbbbbbbb'
     ), 
+    (
+      'a900000000000000', 'evolution/MaterializationB', 
+      '{
+            "bindings": [
+                {"source": "evolution/CollectionC", "resource": {"targetThingy": "cThing"}},
+                {"source": "evolution/CollectionD", "resource": {"targetThingy": "dThing"}}
+            ],
+            "endpoint": {"connector": {"image": "matImage:v1", "config": {}}}
+        }' :: json, 
+      'materialization', 'bbbbbbbbbbbbbbbb', 
+      'bbbbbbbbbbbbbbbb'
+    ), 
 	-- These specs are here so that we can ensure we don't update tasks that the user isn't authorized to.
     (
       'b100000000000000', 'schmevolution/CaptureZ',
       '{
-            "bindings": [{"target": "evolution/CollectionB", "resource": {"thing": "testSourceThing"}}],
+            "bindings": [
+              {"target": "evolution/CollectionB", "resource": {"thing": "testSourceThingB"}},
+              {"target": "evolution/CollectionD", "resource": {"thing": "testSourceThingD"}}
+            ],
             "endpoint": {"connector": {"image": "captureImage:v1", "config": {}}}
         }' :: json, 
-      'materialization', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'
+      'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'
     ),
     (
       'b200000000000000', 'schmevolution/MaterializationZ',
       '{
-            "bindings": [{"source": "evolution/CollectionA", "resource": {"targetThingy": "testTargetThing"}}],
+            "bindings": [
+              {"source": "evolution/CollectionA", "resource": {"targetThingy": "testTargetThingA"}},
+              {"source": "evolution/CollectionC", "resource": {"targetThingy": "testTargetThingC"}}
+            ],
             "endpoint": {"connector": {"image": "matImage:v1", "config": {}}}
         }' :: json, 
       'materialization', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'
@@ -69,23 +118,52 @@ s2 as (
   insert into live_spec_flows (source_id, target_id, flow_type) 
   values 
     (
-      'a300000000000000', 'a100000000000000', 
+      'a600000000000000', 'a100000000000000',
       'capture'
     ), 
     (
-      'a300000000000000', 'a200000000000000', 
+      'a600000000000000', 'a200000000000000',
       'capture'
     ), 
     (
-      'a100000000000000', 'a400000000000000', 
+      'a700000000000000', 'a300000000000000',
+      'capture'
+    ), 
+    (
+      'a700000000000000', 'a400000000000000',
+      'capture'
+    ), 
+    (
+      'a100000000000000', 'a800000000000000',
       'materialization'
     ), 
     (
-      'a200000000000000', 'a400000000000000', 
+      'a200000000000000', 'a800000000000000',
       'materialization'
     ), 
     (
-      'a200000000000000', 'b100000000000000', 
+      'a300000000000000', 'a900000000000000',
+      'materialization'
+    ), 
+    (
+      'a400000000000000', 'a900000000000000',
+      'materialization'
+    ), 
+
+    (
+      'b100000000000000', 'a200000000000000',
+      'capture'
+    ),
+    (
+      'b100000000000000', 'a400000000000000',
+      'capture'
+    ),
+    (
+      'a100000000000000', 'b200000000000000',
+      'materialization'
+    ),
+    (
+      'a300000000000000', 'b200000000000000',
       'materialization'
     )
 ),
@@ -120,7 +198,7 @@ s6 as (
   ) 
   values 
     (
-      '1113000000000000', '2230000000000000', 
+      '1111000000000000', '2230000000000000',
       'evolution/CollectionA', '{"schema": {
             "type": "object",
             "properties": { "id": {"type": "integer"}}, "required": ["id"]
@@ -128,7 +206,7 @@ s6 as (
       'collection'
     ),
     (
-      '1114000000000000', '2230000000000000', 
+      '1112000000000000', '2230000000000000',
       'evolution/CollectionB', '{"schema": {
             "type": "object",
             "properties": { "id": {"type": "integer"}}, "required": ["id"]
@@ -136,7 +214,25 @@ s6 as (
       'collection'
     ),
     (
-      '1115000000000000', '2230000000000000', 
+      '1113000000000000', '2230000000000000',
+      'evolution/CollectionC', '{"schema": {
+            "x-infer-schema": true,
+            "type": "object",
+            "properties": { "id": {"type": "integer"}}, "required": ["id"]
+        }, "key": ["id"]}' :: json, 
+      'collection'
+    ),
+    (
+      '1114000000000000', '2230000000000000',
+      'evolution/CollectionD', '{"schema": {
+            "x-infer-schema": true,
+            "type": "object",
+            "properties": { "id": {"type": "integer"}}, "required": ["id"]
+        }, "key": ["id"]}' :: json, 
+      'collection'
+    ),
+    (
+      '1115000000000000', '2230000000000000',
       'evolution/MaterializationC', '{
         "endpoint": {"connector": {"image": "matImage:v1", "config": {}}},
         "bindings": [{
