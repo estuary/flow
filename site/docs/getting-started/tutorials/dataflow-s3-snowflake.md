@@ -11,7 +11,7 @@ The dataset you'll use is composed of zipped CSV files in an Amazon S3 cloud sto
 
 You'll need:
 
-* An Estuary Flow trial account (or a full account). If you don't have one, visit the [Flow web app](https://dashboard.estuary.dev) to register for your free trial.
+* An Estuary Flow account. If you don't have one, visit the [Flow web app](https://dashboard.estuary.dev) to register for free.
 
 * A [Snowflake free trial account](https://signup.snowflake.com/) (or a full account).
   Snowflake trials are valid for 30 days.
@@ -75,11 +75,10 @@ You'll start by creating your capture.
 
   Names of entities in Flow must be unique. They're organized by prefixes, similar to paths in a file system.
 
-  If you're using a Flow trial account, you'll see the `trial/` prefix available to you in the drop-down menu.
-  If you're not a trial user, you'll see one or more prefixes pertaining to your organization.
+  You'll see one or more prefixes pertaining to your organization.
   These prefixes represent the **namespaces** of Flow to which you have access.
 
-5. Click `trial/` (or another prefix) from the dropdown and append a unique name after it. For example, `trial/yourname/citibiketutorial`.
+5. Click your prefix from the dropdown and append a unique name after it. For example, `myOrg/yourname/citibiketutorial`.
 
 6. Next, fill out the required properties for S3.
 
@@ -189,7 +188,7 @@ All of the available materialization connectors — representing the possible da
 
 2. Click inside the **Name** box.
 
-3. Click `trial/` (or another prefix) from the dropdown and append a unique name after it. For example, `trial/yourname/citibiketutorial`.
+3. Click your prex from the dropdown and append a unique name after it. For example, `myOrg/yourname/citibiketutorial`.
 
 4. Next, fill out the required properties for Snowflake (most of these come from the script you just ran).
 

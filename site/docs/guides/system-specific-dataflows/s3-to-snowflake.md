@@ -11,7 +11,7 @@ You'll need:
 * (Recommended) understanding of the [basic Flow concepts](../../concepts/README.md#essential-concepts).
 
 * Access to the [**Flow web application**](http://dashboard.estuary.dev) through an Estuary account.
-If you don't have one, visit the web app to register for your free trial.
+If you don't have one, visit the web app to register for free.
 
 * An **S3 bucket** that contains the data you'd like to move to Snowflake.
 
