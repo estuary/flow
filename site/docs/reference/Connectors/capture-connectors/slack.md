@@ -1,6 +1,8 @@
+
 ---
 sidebar_position: 1
 ---
+
 # Slack
 
 This connector captures data from Slack into Flow collections.

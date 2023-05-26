@@ -39,8 +39,7 @@ export async function accessToken(req: Record<string, any>) {
             code_verifier,
             ...oauth2_injected_values,
             ...params,
-        },
-        connector_id,
+        }
     );
 
     let body = null;
@@ -55,8 +54,7 @@ export async function accessToken(req: Record<string, any>) {
                 code_verifier,
                 ...oauth2_injected_values,
                 ...params,
-            },
-            connector_id,
+            }
         );
     }
 
@@ -73,8 +71,7 @@ export async function accessToken(req: Record<string, any>) {
                     code_verifier,
                     ...oauth2_injected_values,
                     ...params,
-                },
-                connector_id,
+                }
             ),
         );
     }
@@ -115,7 +112,11 @@ export async function accessToken(req: Record<string, any>) {
 
     const mappedData: Record<string, any> = {};
     for (const key in accessTokenResponseMap) {
-        mappedData[key] = jsonpointer.get(responseData, accessTokenResponseMap[key]);
+        if (accessTokenResponseMap[key].startsWith('/')) {
+          mappedData[key] = jsonpointer.get(responseData, accessTokenResponseMap[key]);
+        } else {
+          mappedData[key] = compileTemplate(accessTokenResponseMap[key], responseData);
+        }
     }
 
     return new Response(JSON.stringify(mappedData), {

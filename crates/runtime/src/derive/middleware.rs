@@ -8,20 +8,20 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 #[derive(Clone)]
-pub struct Middleware<L>
+pub struct Middleware<H>
 where
-    L: Fn(ops::Log) + Send + Sync + Clone + 'static,
+    H: Fn(&ops::Log) + Send + Sync + Clone + 'static,
 {
-    log_handler: L,
+    log_handler: H,
     set_log_level: Option<Arc<dyn Fn(ops::log::Level) + Send + Sync>>,
 }
 
 pub type BoxStream = std::pin::Pin<Box<dyn futures::Stream<Item = tonic::Result<Response>> + Send>>;
 
 #[tonic::async_trait]
-impl<L> proto_grpc::derive::connector_server::Connector for Middleware<L>
+impl<H> proto_grpc::derive::connector_server::Connector for Middleware<H>
 where
-    L: Fn(ops::Log) + Send + Sync + Clone + 'static,
+    H: Fn(&ops::Log) + Send + Sync + Clone + 'static,
 {
     type DeriveStream = BoxStream;
 
@@ -40,12 +40,12 @@ where
     }
 }
 
-impl<L> Middleware<L>
+impl<H> Middleware<H>
 where
-    L: Fn(ops::Log) + Send + Sync + Clone + 'static,
+    H: Fn(&ops::Log) + Send + Sync + Clone + 'static,
 {
     pub fn new(
-        log_handler: L,
+        log_handler: H,
         set_log_level: Option<Arc<dyn Fn(ops::log::Level) + Send + Sync>>,
     ) -> Self {
         Self {
@@ -130,6 +130,18 @@ where
         };
 
         Ok(response_rx)
+    }
+
+    pub async fn serve_unary(self, request: Request) -> tonic::Result<Response> {
+        let request_rx = futures::stream::once(async move { Ok(request) }).boxed();
+        let mut responses: Vec<Response> = self.serve(request_rx).await?.try_collect().await?;
+
+        if responses.len() != 1 {
+            return Err(tonic::Status::unknown(
+                "unary request didn't return a response",
+            ));
+        }
+        Ok(responses.pop().unwrap())
     }
 }
 

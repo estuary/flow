@@ -14,12 +14,12 @@ use serde_json::json;
 
 pub struct Layer<H, T>(H, T)
 where
-    H: Fn(Log),
+    H: Fn(&Log),
     T: Fn() -> std::time::SystemTime;
 
 impl<H, T> Layer<H, T>
 where
-    H: Fn(Log),
+    H: Fn(&Log),
     T: Fn() -> std::time::SystemTime,
 {
     pub fn new(handler: H, timesource: T) -> Self {
@@ -48,7 +48,7 @@ impl<S, H, T> tracing_subscriber::Layer<S> for Layer<H, T>
 where
     S: tracing::Subscriber,
     S: for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>,
-    H: Fn(Log) + 'static,
+    H: Fn(&Log) + 'static,
     T: Fn() -> std::time::SystemTime + 'static,
 {
     fn on_new_span(
@@ -93,7 +93,7 @@ where
             }
         }
 
-        self.0(log)
+        self.0(&log)
     }
 }
 
@@ -228,7 +228,7 @@ mod test {
         let _guard = tracing_subscriber::registry()
             .with(
                 Layer::new(
-                    move |log| out_clone.lock().unwrap().push(log),
+                    move |log| out_clone.lock().unwrap().push(log.clone()),
                     move || {
                         let mut seq = seq.lock().unwrap();
                         *seq += 10;

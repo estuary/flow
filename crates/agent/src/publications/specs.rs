@@ -1,3 +1,4 @@
+use super::builds::IncompatibleCollection;
 use super::draft::Error;
 use agent_sql::publications::{ExpandedRow, SpecRow, Tenant};
 use agent_sql::{Capability, CatalogType, Id};
@@ -73,6 +74,7 @@ pub async fn resolve_specifications(
 // but (if not a dry-run) we do re-activate each specification within the
 // data-plane with the outcome of this publication's build.
 pub async fn expanded_specifications(
+    user_id: Uuid,
     spec_rows: &[SpecRow],
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<Vec<ExpandedRow>> {
@@ -86,7 +88,7 @@ pub async fn expanded_specifications(
         })
         .collect();
 
-    let expanded_rows = agent_sql::publications::resolve_expanded_rows(seed_ids, txn)
+    let expanded_rows = agent_sql::publications::resolve_expanded_rows(user_id, seed_ids, txn)
         .await
         .context("selecting expanded specs")?;
 
@@ -98,8 +100,9 @@ pub fn validate_transition(
     live: &models::Catalog,
     pub_id: Id,
     spec_rows: &[SpecRow],
-) -> Vec<Error> {
+) -> Result<(), (Vec<Error>, Vec<IncompatibleCollection>)> {
     let mut errors = Vec::new();
+    let mut incompatible_collections = Vec::new();
 
     for spec_row @ SpecRow {
         catalog_name,
@@ -240,6 +243,10 @@ pub fn validate_transition(
                 ),
                 ..Default::default()
             });
+            incompatible_collections.push(IncompatibleCollection {
+                collection: catalog_name.to_string(),
+                affected_materializations: Vec::new(),
+            });
         }
 
         let partitions = |projections: &BTreeMap<models::Field, models::Projection>| {
@@ -272,10 +279,18 @@ pub fn validate_transition(
                 ),
                 ..Default::default()
             });
+            incompatible_collections.push(IncompatibleCollection {
+                collection: catalog_name.to_string(),
+                affected_materializations: Vec::new(),
+            });
         }
     }
 
-    errors
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err((errors, incompatible_collections))
+    }
 }
 
 pub async fn enforce_resource_quotas(
@@ -543,8 +558,7 @@ fn split_tag(image_full: &str) -> (String, String) {
 
 #[cfg(test)]
 mod test {
-
-    use crate::publications::JobStatus;
+    use crate::{publications::JobStatus, FIXED_DATABASE_URL};
 
     use super::super::PublishHandler;
     use agent_sql::Id;
@@ -574,8 +588,6 @@ mod test {
         errors: Vec<String>,
         live_specs: Vec<LiveSpec>,
     }
-
-    const FIXED_DATABASE_URL: &str = "postgresql://postgres:postgres@localhost:5432/postgres";
 
     async fn execute_publications(txn: &mut Transaction<'_, Postgres>) -> Vec<ScenarioResult> {
         let bs_url: Url = "http://example.com".parse().unwrap();
@@ -619,7 +631,7 @@ mod test {
 
                     results.push(ScenarioResult {
                         draft_id: row_draft_id,
-                        status: JobStatus::Success,
+                        status,
                         errors: vec![],
                         live_specs: specs,
                     })
@@ -690,6 +702,7 @@ mod test {
                                     "transforms": Array [
                                         Object {
                                             "name": String("my-name"),
+                                            "shuffle": String("any"),
                                             "source": String("usageB/CollectionA"),
                                         },
                                     ],
@@ -708,6 +721,99 @@ mod test {
                         ),
                     },
                 ],
+            },
+        ]
+        "###);
+    }
+
+    #[tokio::test]
+    #[serial_test::parallel]
+    async fn test_incompatible_collections() {
+        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+            .await
+            .unwrap();
+        let mut txn = conn.begin().await.unwrap();
+
+        sqlx::query(r#"
+            with p1 as (
+              insert into auth.users (id) values
+              ('43a18a3e-5a59-11ed-9b6a-0242ac120003')
+            ),
+            p2 as (
+              insert into drafts (id, user_id) values
+              ('2220000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120003')
+            ),
+            p3 as (
+                insert into live_specs (id, catalog_name, spec, spec_type, last_build_id, last_pub_id) values
+                ('6000000000000000', 'compat-test/CollectionA', '{"schema": {},"key": ["/foo"]}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+                ('7000000000000000', 'compat-test/CollectionB', '{
+                    "schema": {},
+                    "key": ["/foo"],
+                    "projections": {
+                        "foo": { "location": "/foo", "partition": true }
+                    }
+                }'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb')
+            ),
+            p4 as (
+              insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
+              (
+                '2222000000000000',
+                '2220000000000000',
+                'compat-test/CollectionA',
+                '{ "schema": {}, "key": ["/new_key"] }'::json,
+                'collection'
+              ),
+              (
+                '3333000000000000',
+                '2220000000000000',
+                'compat-test/CollectionB',
+                -- missing partition definition, which should be an error
+                '{ "schema": {}, "key": ["/foo"] }'::json,
+                'collection'
+              )
+            
+            ),
+            p5 as (
+              insert into publications (id, job_status, user_id, draft_id) values
+              ('2222200000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120003', '2220000000000000')
+            ),
+            p6 as (
+              insert into role_grants (subject_role, object_role, capability) values
+              ('compat-test/', 'compat-test/', 'admin')
+            ),
+            p7 as (
+              insert into user_grants (user_id, object_role, capability) values
+              ('43a18a3e-5a59-11ed-9b6a-0242ac120003', 'compat-test/', 'admin')
+            )
+            select 1;"#,
+        )
+        .execute(&mut txn)
+        .await
+        .unwrap();
+
+        let results = execute_publications(&mut txn).await;
+
+        insta::assert_debug_snapshot!(results, @r###"
+        [
+            ScenarioResult {
+                draft_id: 2220000000000000,
+                status: BuildFailed {
+                    incompatible_collections: [
+                        IncompatibleCollection {
+                            collection: "compat-test/CollectionA",
+                            affected_materializations: [],
+                        },
+                        IncompatibleCollection {
+                            collection: "compat-test/CollectionB",
+                            affected_materializations: [],
+                        },
+                    ],
+                },
+                errors: [
+                    "Cannot change key of an established collection from CompositeKey([JsonPointer(\"/foo\")]) to CompositeKey([JsonPointer(\"/new_key\")])",
+                    "Cannot change partitions of an established collection (from [\"foo\"] to [])",
+                ],
+                live_specs: [],
             },
         ]
         "###);
@@ -754,18 +860,20 @@ mod test {
 
         let results = execute_publications(&mut txn).await;
 
-        insta::assert_debug_snapshot!(results, @r#"
+        insta::assert_debug_snapshot!(results, @r###"
         [
             ScenarioResult {
                 draft_id: 1110000000000000,
-                status: BuildFailed,
+                status: BuildFailed {
+                    incompatible_collections: [],
+                },
                 errors: [
                     "Forbidden connector image 'forbidden_connector'",
                 ],
                 live_specs: [],
             },
         ]
-        "#);
+        "###);
     }
 
     #[tokio::test]
@@ -813,7 +921,7 @@ mod test {
 
         let results = execute_publications(&mut txn).await;
 
-        insta::assert_debug_snapshot!(results, @r#"
+        insta::assert_debug_snapshot!(results, @r###"
         [
             ScenarioResult {
                 draft_id: 1110000000000000,
@@ -860,7 +968,7 @@ mod test {
                 ],
             },
         ]
-        "#);
+        "###);
     }
 
     #[tokio::test]
@@ -916,18 +1024,20 @@ mod test {
 
         let results = execute_publications(&mut txn).await;
 
-        insta::assert_debug_snapshot!(results, @r#"
+        insta::assert_debug_snapshot!(results, @r###"
         [
             ScenarioResult {
                 draft_id: 1110000000000000,
-                status: BuildFailed,
+                status: BuildFailed {
+                    incompatible_collections: [],
+                },
                 errors: [
                     "Request to add 1 task(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
                 ],
                 live_specs: [],
             },
         ]
-        "#);
+        "###);
     }
 
     #[tokio::test]
@@ -980,11 +1090,13 @@ mod test {
 
         let results = execute_publications(&mut txn).await;
 
-        insta::assert_debug_snapshot!(results, @r#"
+        insta::assert_debug_snapshot!(results, @r###"
         [
             ScenarioResult {
                 draft_id: 1120000000000000,
-                status: BuildFailed,
+                status: BuildFailed {
+                    incompatible_collections: [],
+                },
                 errors: [
                     "Request to add 1 task(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
                     "Request to add 1 collections(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
@@ -992,7 +1104,7 @@ mod test {
                 live_specs: [],
             },
         ]
-        "#);
+        "###);
     }
 
     // Testing that we can disable tasks to reduce usage when at quota
@@ -1058,7 +1170,7 @@ mod test {
 
         let results = execute_publications(&mut txn).await;
 
-        insta::assert_debug_snapshot!(results, @r#"
+        insta::assert_debug_snapshot!(results, @r###"
         [
             ScenarioResult {
                 draft_id: 1130000000000000,
@@ -1108,6 +1220,6 @@ mod test {
                 ],
             },
         ]
-        "#);
+        "###);
     }
 }

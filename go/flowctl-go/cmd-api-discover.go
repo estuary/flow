@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -72,7 +73,9 @@ func (cmd apiDiscover) execute(ctx context.Context) (*pc.Response_Discovered, er
 func (cmd apiDiscover) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
 	mbp.InitLog(cmd.Log)
-	var ctx, cancelFn = context.WithTimeout(context.Background(), time.Second*30)
+	// TODO(whb): Change this timeout back to 30 seconds. Temporarily bumping it up to allow
+	// longer-running discoveries to succeed.
+	var ctx, cancelFn = context.WithTimeout(context.Background(), time.Second*60)
 	defer cancelFn()
 
 	logrus.WithFields(logrus.Fields{
@@ -83,7 +86,12 @@ func (cmd apiDiscover) Execute(_ []string) error {
 	pb.RegisterGRPCDispatcher("local")
 
 	var resp, err = cmd.execute(ctx)
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		err = fmt.Errorf("Timeout while communicating with the endpoint. Please verify any address or firewall settings.")
+	}
 	if err != nil {
+		fmt.Println(err.Error()) // Write to stdout so the agent can map into a draft error.
 		return err
 	}
 

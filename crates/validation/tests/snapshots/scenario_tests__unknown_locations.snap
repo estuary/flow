@@ -15,11 +15,4 @@ expression: errors
         scope: test://example/int-halve#/collections/testing~1int-halve/derive/transforms/0/shuffle/key/2,
         error: location /unknown/shuffle is prohibited from ever existing by the schema test://example/canonical/int-string-len.schema,
     },
-    Error {
-        scope: test://example/int-reverse#/collections/testing~1int-reverse,
-        error: connector error while validating derivation testing/int-reverse
-        
-        Caused by:
-            shuffle types mismatch: [Integer] vs [2, 0],
-    },
 ]

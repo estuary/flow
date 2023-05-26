@@ -37,7 +37,8 @@ collections:
             }
       transforms:
         - name: swizzle
-          source: { name: example/collection }
+          source: example/collection
+          shuffle: any
       shards:
         # Expect this is reflected in shard specs.
         maxTxnDuration: 60s

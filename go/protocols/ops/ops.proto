@@ -3,8 +3,9 @@ syntax = "proto3";
 package ops;
 option go_package = "github.com/estuary/flow/go/protocols/ops";
 
-import "google/protobuf/timestamp.proto";
+import "go/protocols/flow/flow.proto";
 import "gogoproto/gogo.proto";
+import "google/protobuf/timestamp.proto";
 
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
@@ -17,6 +18,33 @@ enum TaskType {
     capture = 1;
     derivation = 2;
     materialization = 3;
+}
+
+// ShardLabeling is a parsed and validated representation of the Flow
+// labels which are attached to Gazette ShardSpecs, that are understood
+// by the Flow runtime and influence its behavior with respect to the shard.
+message ShardLabeling {
+	// Catalog build identifier which the task uses.
+  string build = 1;
+	// Network-addressable hostname of this task shard.
+	string hostname = 2;
+	// Logging level of the task.
+	Log.Level log_level = 3;
+	// Ports is a map from port name to the combined configuration
+	// for the port. The runtime itself doesn't actually care
+	// about the alpn protocol, but it's there for the sake of
+	// completeness.
+  repeated flow.NetworkPort ports = 4 [(gogoproto.nullable) = false];
+	// Key and R-Clock range of the shard.
+	flow.RangeSpec range = 5 [(gogoproto.nullable) = false];
+	// If non-empty, the shard which this task is splitting from.
+  string split_source = 6;
+	// If non-empty, the shard which this task is splitting into.
+	string split_target = 7;
+	// Name of the shard's task.
+  string task_name = 8;
+	// Type of this task (capture, derivation, or materialization).
+	TaskType task_type = 9;
 }
 
 // Common `shard` sub-document logged by Stats and Log.

@@ -5,6 +5,7 @@ use std::io::{self, Write};
 
 mod materialize_fixture;
 mod discover;
+mod capture;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -45,6 +46,8 @@ pub enum Command {
     MaterializeFixture(materialize_fixture::MaterializeFixture),
     /// Discover a connector and write catalog files
     Discover(discover::Discover),
+    /// Run a capture connector and combine its documents
+    Capture(capture::Capture),
 }
 
 #[derive(Debug, clap::Args)]
@@ -122,6 +125,7 @@ impl Advanced {
                 materialize_fixture::do_materialize_fixture(ctx, fixture).await
             },
             Command::Discover(args) => discover::do_discover(ctx, args).await,
+            Command::Capture(args) => capture::do_capture(ctx, args).await,
         }
     }
 }

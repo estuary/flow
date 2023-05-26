@@ -185,10 +185,16 @@ func Invoke[
 		}
 		return nil
 	}); err != nil {
-		if status, ok := status.FromError(err); ok && status.Code() == codes.Internal {
+		if status, ok := status.FromError(err); !ok {
+			// Leave `err` alone.
+		} else if status.Code() == codes.Internal || status.Code() == codes.Unknown {
 			err = errors.New(status.Message())
+		} else if status.Code() == codes.DeadlineExceeded {
+			err = context.DeadlineExceeded
+		} else if status.Code() == codes.Canceled {
+			err = context.Canceled
 		}
-		return nil, fmt.Errorf("invocation failed: %w", err)
+		return nil, err
 	} else if err = ResponsePtr(response).Validate(); err != nil {
 		return nil, fmt.Errorf("invocation succeeded but returned invalid response: %w", err)
 	}

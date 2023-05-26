@@ -1,6 +1,8 @@
+
 ---
 sidebar_position: 1
 ---
+
 # SendGrid
 
 This connector captures data from SendGrid into Flow collections.

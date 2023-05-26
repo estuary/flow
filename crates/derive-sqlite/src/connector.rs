@@ -4,7 +4,9 @@ use futures::channel::mpsc;
 use futures::TryStreamExt;
 use futures::{SinkExt, Stream};
 use prost::Message;
-use proto_flow::runtime::{derive_response_ext, DeriveRequestExt, DeriveResponseExt};
+use proto_flow::runtime::{
+    derive_request_ext, derive_response_ext, DeriveRequestExt, DeriveResponseExt,
+};
 use proto_flow::{
     derive::{request, response, Request, Response},
     flow, RuntimeCheckpoint,
@@ -71,6 +73,10 @@ where
                 let sqlite_uri: String;
                 (sqlite_uri, migrations, transforms) =
                     parse_open(open, internal).map_err(anyhow_to_status)?;
+
+                // Drop to close an open Database.
+                // This is required if we're re-opening the same database.
+                std::mem::drop(maybe_handle);
 
                 let (handle, runtime_checkpoint) =
                     Handle::new(&sqlite_uri, &migrations, &transforms).map_err(anyhow_to_status)?;
@@ -167,15 +173,22 @@ fn parse_open(
         version: _,
     } = open;
 
-    let internal = internal.unwrap_or_default();
-    let DeriveRequestExt { open: open_ext, .. } =
-        Message::decode(internal.value).context("internal is a DeriveRequestExt")?;
-    let open_ext = open_ext.unwrap_or_default();
+    let sqlite_uri = match internal {
+        // If DeriveRequestExt was not sent, then use a :memory: DB.
+        None => ":memory:".to_string(),
+        // If it was sent, *require* that `sqlite_vfs_uri` is populated.
+        Some(internal) => {
+            let DeriveRequestExt { open: open_ext, .. } =
+                Message::decode(internal.value).context("internal is a DeriveRequestExt")?;
+            let derive_request_ext::Open { sqlite_vfs_uri, .. } =
+                open_ext.context("expected DeriveRequestExt.open to be set")?;
 
-    let mut sqlite_uri = open_ext.sqlite_vfs_uri;
-    if sqlite_uri.is_empty() {
-        sqlite_uri = ":memory:".to_string();
-    }
+            if sqlite_vfs_uri.is_empty() {
+                anyhow::bail!("DeriveRequestExt.open.sqlite_vfs_uri is not set and must be");
+            }
+            sqlite_vfs_uri
+        }
+    };
 
     let flow::CollectionSpec { derivation, .. } = collection.unwrap();
 

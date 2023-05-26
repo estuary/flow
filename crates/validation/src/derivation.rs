@@ -94,11 +94,7 @@ pub async fn walk_all_derivations<C: Connectors>(
         // Unwrap `response` and bail out if it failed.
         let validated = match response {
             Err(err) => {
-                Error::DeriveConnector {
-                    name: name.clone(),
-                    detail: err,
-                }
-                .push(scope, errors);
+                Error::Connector { detail: err }.push(scope, errors);
                 continue;
             }
             Ok(response) => response,
@@ -121,13 +117,9 @@ pub async fn walk_all_derivations<C: Connectors>(
         } = &validated;
 
         if transform_requests.len() != transform_responses.len() {
-            Error::DeriveConnector {
-                name: name.clone(),
-                detail: anyhow::anyhow!(
-                    "connector returned wrong number of bindings (expected {}, got {})",
-                    transform_requests.len(),
-                    transform_responses.len()
-                ),
+            Error::WrongConnectorBindings {
+                expect: transform_requests.len(),
+                got: transform_responses.len(),
             }
             .push(scope, errors);
         }
@@ -156,11 +148,13 @@ pub async fn walk_all_derivations<C: Connectors>(
                     } = &transforms[transform_index];
 
                     let shuffle_key = match shuffle {
-                        Some(models::Shuffle::Key(key)) => {
+                        models::Shuffle::Key(key) => {
                             key.iter().map(|ptr| ptr.to_string()).collect()
                         }
                         _ => Vec::new(),
                     };
+                    // models::Shuffle::Any is represented as an empty `shuffle_key`
+                    // and an empty `shuffle_lambda_config_json`.
 
                     let read_delay_seconds =
                         read_delay.map(|d| d.as_secs() as u32).unwrap_or_default();
@@ -401,7 +395,7 @@ fn walk_derive_request<'a>(
     } else {
         if transforms
             .iter()
-            .all(|t| matches!(t.shuffle, Some(models::Shuffle::Lambda(_))))
+            .any(|t| matches!(t.shuffle, models::Shuffle::Lambda(_)))
         {
             Error::ShuffleKeyCannotInfer {}.push(scope, errors);
         }
@@ -477,21 +471,10 @@ fn walk_derive_transform(
     }
 
     let (shuffle_types, shuffle_lambda_config_json) = match shuffle {
-        Some(models::Shuffle::Key(shuffle_key)) => {
+        models::Shuffle::Key(shuffle_key) => {
             let scope = scope.push_prop("shuffle");
             let scope = scope.push_prop("key");
 
-            if shuffle_key
-                .iter()
-                .map(AsRef::as_ref)
-                .eq(source.spec.key.iter())
-            {
-                Error::ShuffleKeyNotDifferent {
-                    transform: name.to_string(),
-                    collection: source.collection.to_string(),
-                }
-                .push(scope, errors);
-            }
             if shuffle_key.is_empty() {
                 Error::ShuffleKeyEmpty {
                     transform: name.to_string(),
@@ -510,12 +493,17 @@ fn walk_derive_transform(
         }
         // When shuffling using a lambda, we pass shuffle key types to the connector
         // and let it verify and error if they are incompatible with the lambda.
-        Some(models::Shuffle::Lambda(lambda)) => (Vec::new(), lambda.to_string()),
-        // If no shuffle is configured, we shuffle on the collection's key.
-        None => (
-            source_schema.shuffle_key_types(source.spec.key.iter()),
-            String::new(),
-        ),
+        models::Shuffle::Lambda(lambda) => (Vec::new(), lambda.to_string()),
+        // Source documents may be processed by any shard.
+        models::Shuffle::Any => (Vec::new(), String::new()),
+        // Shuffle is unset.
+        models::Shuffle::Unset => {
+            Error::ShuffleUnset {
+                transform: name.to_string(),
+            }
+            .push(scope, errors);
+            (Vec::new(), String::new())
+        }
     };
 
     let request = derive::request::validate::Transform {
@@ -527,21 +515,3 @@ fn walk_derive_transform(
 
     Some((request, shuffle_types))
 }
-
-/*
-async fn perform_validate(
-    build_config: &flow::build_api::Config,
-    request: &derive::request::Validate,
-) -> anyhow::Result<derive::response::Validated> {
-
-    match ConnectorType::from_i32(request.connector_type) {
-        Some(ConnectorType::Image) => anyhow::bail!("image connectors are not supported (yet)"),
-        Some(ConnectorType::Sqlite) => anyhow::bail!("image connectors are not supported (yet)"),
-        Some(ConnectorType::Typescript) => Ok(derive_typescript::validate(
-            &std::path::Path::new(&build_config.directory),
-            request,
-        )?),
-        Some(ConnectorType::Invalid) | None => unreachable!("connector type is always valid"),
-    }
-}
-*/

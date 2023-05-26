@@ -1,5 +1,5 @@
 use anyhow::Context;
-use futures::{FutureExt, StreamExt, TryStreamExt};
+use futures::FutureExt;
 use proto_flow::{derive, flow};
 use std::collections::BTreeMap;
 
@@ -317,12 +317,12 @@ impl validation::Connectors for LocalConnectors {
                 validate: Some(request.clone()),
                 ..Default::default()
             };
-            let request_rx = futures::stream::once(async move { Ok(request) }).boxed();
-            let response = middleware.serve(request_rx).await?.try_next().await;
+            let response = middleware
+                .serve_unary(request)
+                .await
+                .map_err(|status| anyhow::Error::msg(status.message().to_string()))?;
 
             let validated = response
-                .map_err(|status| anyhow::Error::msg(status.message().to_string()))?
-                .context("derive connector did not return a response")?
                 .validated
                 .context("derive Response is not Validated")?;
 

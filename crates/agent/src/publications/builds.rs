@@ -3,10 +3,87 @@ use agent_sql::publications::{ExpandedRow, SpecRow};
 use agent_sql::CatalogType;
 use anyhow::Context;
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 use sqlx::types::Uuid;
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path;
 use tables::SqlTableObj;
+
+pub struct BuildOutput {
+    pub errors: tables::Errors,
+    pub built_captures: tables::BuiltCaptures,
+    pub built_collections: tables::BuiltCollections,
+    pub built_materializations: tables::BuiltMaterializations,
+    pub built_tests: tables::BuiltTests,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct IncompatibleCollection {
+    pub collection: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub affected_materializations: Vec<AffectedConsumer>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct AffectedConsumer {
+    pub name: String,
+    pub fields: Vec<RejectedField>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct RejectedField {
+    pub field: String,
+    pub reason: String,
+}
+
+impl BuildOutput {
+    pub fn draft_errors(&self) -> Vec<Error> {
+        self.errors
+            .iter()
+            .map(|e| Error {
+                scope: Some(e.scope.to_string()),
+                detail: e.error.to_string(),
+                ..Default::default()
+            })
+            .collect()
+    }
+
+    pub fn get_incompatible_collections(&self) -> Vec<IncompatibleCollection> {
+        let mut collections = BTreeMap::new();
+
+        for mat in self.built_materializations.iter() {
+            for (i, binding) in mat.validated.bindings.iter().enumerate() {
+                let Some(collection_name) = mat.spec.bindings[i].collection.as_ref().map(|c| c.name.as_str()) else {
+                    continue;
+                };
+                let naughty_fields: Vec<RejectedField> = binding.constraints.iter().filter(|(_, constraint)| {
+                    constraint.r#type == proto_flow::materialize::response::validated::constraint::Type::Unsatisfiable as i32
+                }).map(|(field, constraint)| {
+                        RejectedField { field: field.clone(), reason: constraint.reason.clone() }
+                    }).collect();
+                if !naughty_fields.is_empty() {
+                    let affected_consumers = collections
+                        .entry(collection_name.to_owned())
+                        .or_insert_with(|| Vec::new());
+                    affected_consumers.push(AffectedConsumer {
+                        name: mat.materialization.clone(),
+                        fields: naughty_fields,
+                    });
+                }
+            }
+        }
+        collections
+            .into_iter()
+            .map(
+                |(collection, affected_materializations)| IncompatibleCollection {
+                    collection,
+                    affected_materializations,
+                },
+            )
+            .collect()
+    }
+}
 
 pub async fn build_catalog(
     builds_root: &url::Url,
@@ -17,7 +94,7 @@ pub async fn build_catalog(
     logs_tx: &logs::Tx,
     pub_id: Id,
     tmpdir: &path::Path,
-) -> anyhow::Result<Vec<Error>> {
+) -> anyhow::Result<BuildOutput> {
     // We perform the build under a ./builds/ subdirectory, which is a
     // specific sub-path expected by temp-data-plane underneath its
     // working temporary directory. This lets temp-data-plane use the
@@ -95,14 +172,31 @@ pub async fn build_catalog(
         anyhow::bail!("build_job exited with failure but errors is empty");
     }
 
-    Ok(errors
-        .into_iter()
-        .map(|e| Error {
-            scope: Some(e.scope.into()),
-            detail: e.error.to_string(),
-            ..Default::default()
-        })
-        .collect())
+    let mut built_captures = tables::BuiltCaptures::new();
+    built_captures
+        .load_all(&db)
+        .context("loading built captures")?;
+
+    let mut built_collections = tables::BuiltCollections::new();
+    built_collections
+        .load_all(&db)
+        .context("loading built collections")?;
+
+    let mut built_materializations = tables::BuiltMaterializations::new();
+    built_materializations
+        .load_all(&db)
+        .context("loading built materailizations")?;
+
+    let mut built_tests = tables::BuiltTests::new();
+    built_tests.load_all(&db).context("loading built tests")?;
+
+    Ok(BuildOutput {
+        errors,
+        built_captures,
+        built_collections,
+        built_materializations,
+        built_tests,
+    })
 }
 
 pub async fn data_plane(
@@ -171,6 +265,8 @@ pub async fn test_catalog(
             .arg("--all-derivations")
             .arg("--build-id")
             .arg(&build_id)
+            // Use >1 splits to catch logic failures of shuffle configuration.
+            .arg("--initial-splits=3")
             .arg("--network")
             .arg(connector_network)
             .arg("--broker.address")
@@ -185,7 +281,8 @@ pub async fn test_catalog(
 
     if !job.success() {
         errors.push(Error {
-            detail: "test setup failed".to_string(),
+            detail: "Test setup failed. View logs for details and reach out to support@estuary.dev"
+                .to_string(),
             ..Default::default()
         });
         return Ok(errors);
@@ -213,7 +310,7 @@ pub async fn test_catalog(
 
     if !job.success() {
         errors.push(Error {
-            detail: "one or more test cases failed".to_string(),
+            detail: "One or more test cases failed. View logs for details.".to_string(),
             ..Default::default()
         });
     }
@@ -242,7 +339,9 @@ pub async fn test_catalog(
 
     if !job.success() {
         errors.push(Error {
-            detail: "test cleanup failed".to_string(),
+            detail:
+                "Test cleanup failed. View logs for details and reach out to support@estuary.dev"
+                    .to_string(),
             ..Default::default()
         });
     }
@@ -309,8 +408,8 @@ pub async fn deploy_build(
 
     if !job.success() {
         errors.push(Error {
-            detail: "one or more activations failed".to_string(),
-            ..Default::default()
+            detail: "One or more task activations failed. View logs for details and reach out to support@estuary.dev".to_string(),
+             ..Default::default()
         });
     }
 
@@ -359,8 +458,8 @@ pub async fn deploy_build(
 
         if !job.success() {
             errors.push(Error {
-                detail: "one or more deletions failed".to_string(),
-                ..Default::default()
+            detail: "One or more task deletions failed. View logs for details and reach out to support@estuary.dev".to_string(),
+            ..Default::default()
             });
         }
     }

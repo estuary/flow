@@ -76,7 +76,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	var activate = apiActivate{
 		BuildID:        buildID,
 		Network:        cmd.Network,
-		InitialSplits:  1,
+		InitialSplits:  3,
 		AllDerivations: true,
 	}
 	activate.Broker.Address = protocol.Endpoint(brokerAddr)

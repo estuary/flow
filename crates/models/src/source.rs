@@ -46,6 +46,13 @@ impl Source {
             Self::Source(FullSource { name, .. }) => name,
         }
     }
+
+    pub fn set_collection(&mut self, new_collection: Collection) {
+        match self {
+            Self::Collection(ref mut name) => *name = new_collection,
+            Self::Source(FullSource { name, .. }) => *name = new_collection,
+        }
+    }
 }
 
 impl Into<FullSource> for Source {

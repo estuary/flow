@@ -18,4 +18,5 @@ collections:
       transforms:
         - name: locationFromRide
           source: { name: examples/citi-bike/rides }
+          shuffle: any
           lambda: select $bike_id, $end as last;

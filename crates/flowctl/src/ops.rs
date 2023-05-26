@@ -50,8 +50,9 @@ fn read_args(
     bounds: &ReadBounds,
     uncommitted: bool,
 ) -> ReadArgs {
-    let tenant = tenant(task_name);
-    let collection = format!("ops/{tenant}/{logs_or_stats}");
+    // Once we implement federated data planes, we'll need to update this to
+    // fetch the name of the data plane based on the tenant.
+    let collection = format!("ops.us-central1.v1/{logs_or_stats}");
     let selector = CollectionJournalSelector {
         collection,
         include_partitions: vec![Partition {

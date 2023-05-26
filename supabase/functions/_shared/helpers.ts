@@ -22,9 +22,18 @@ export const mustacheHelpers = {
         return btoa(render(s));
       }
     },
+    now_plus: function(s: any) {
+      return (s: string, render: any) => {
+        const now = new Date();
+        const inputSeconds = parseInt(render(s));
+        const newDate = new Date(now.getTime() + inputSeconds * 1000);
+
+        return newDate.toISOString()
+      }
+    }
 };
 
-export const compileTemplate = (template: string, data: any, connector_id: string) => {
+export const compileTemplate = (template: string, data: any) => {
     const mustacheOutput = Mustache.render(template, {
         ...data,
         ...mustacheHelpers,

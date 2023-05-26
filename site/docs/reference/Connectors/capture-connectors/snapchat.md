@@ -1,6 +1,8 @@
+
 ---
 sidebar_position: 1
 ---
+
 # Snapchat Marketing
 
 This connector captures data from Snapchat Marketing into Flow collections.

@@ -183,7 +183,7 @@ impl cgo::Service for API {
                     arena,
                     out,
                     &mut state.stats.out,
-                    Some(&state.shape),
+                    &state.shape,
                 )?;
 
                 if !more {
@@ -232,7 +232,7 @@ pub fn drain_chunk(
     arena: &mut Vec<u8>,
     out: &mut Vec<cgo::Out>,
     stats: &mut DocCounter,
-    shape: Option<&doc::inference::Shape>,
+    shape: &doc::inference::Shape,
 ) -> Result<bool, doc::combine::Error> {
     // Convert target from a delta to an absolute target length of the arena.
     let target_length = target_length + arena.len();
@@ -277,17 +277,14 @@ pub fn drain_chunk(
 fn exists_or_default<T>(
     n: Option<doc::Node<T>>,
     p: &doc::Pointer,
-    shape: Option<&doc::inference::Shape>,
+    shape: &doc::inference::Shape,
     arena: &mut Vec<u8>,
 ) where
     T: doc::AsNode,
 {
-    match (n, shape) {
-        (Some(val), _) => val.pack(arena, TupleDepth::new().increment()),
-        (None, None) => {
-            doc::Node::Null::<serde_json::Value>.pack(arena, TupleDepth::new().increment())
-        }
-        (None, Some(shape)) => {
+    match n {
+        Some(val) => val.pack(arena, TupleDepth::new().increment()),
+        None => {
             let (inner, _) = shape.locate(p);
 
             match &inner.default {
@@ -403,6 +400,64 @@ pub mod test {
             String::from_utf8_lossy(&arena[..stats_out.begin as usize]),
             out
         ));
+    }
+
+    #[test]
+    fn test_weird_property_names() {
+        let mut svc = API::create();
+        let mut arena = Vec::new();
+        let mut out = Vec::new();
+
+        // Configure the service.
+        svc.invoke_message(
+            Code::Configure as u32,
+            combine_api::Config {
+                schema_json: build_min_max_sum_schema(),
+                key_ptrs: vec!["/key".to_owned()],
+                field_ptrs: vec![],
+                uuid_placeholder_ptr: "/foo".to_owned(),
+            },
+            &mut arena,
+            &mut out,
+        )
+        .unwrap();
+
+        for (left, doc) in &[
+            // keys with escape sequences tickle a special case in HeapNode deserialization
+            (
+                true,
+                r#"{"key": "one", "key\nwith\tescapes\ud83d\udca9": "escapey\\value\\is\ud83e\udee0escaping"}"#,
+            ),
+            // This just seemed like a thing we should have a test for
+            (false, r#"{"key": "two", "": "emptyKeyVal"}"#),
+        ] {
+            svc.invoke(
+                if *left {
+                    Code::ReduceLeft
+                } else {
+                    Code::CombineRight
+                } as u32,
+                doc.as_bytes(),
+                &mut arena,
+                &mut out,
+            )
+            .unwrap();
+        }
+
+        svc.invoke(
+            Code::DrainChunk as u32,
+            &(1024 as u32).to_be_bytes(),
+            &mut arena,
+            &mut out,
+        )
+        .unwrap();
+
+        // The last message in out should be stats
+        let stats_out = out.pop().expect("missing stats");
+        assert_eq!(Code::DrainedStats as u32, stats_out.code);
+
+        // Don't include the stats message in the snapshot here because it's binary encoded
+        insta::assert_snapshot!(String::from_utf8_lossy(&arena[..stats_out.begin as usize]));
     }
 
     #[test]

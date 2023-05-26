@@ -43,21 +43,21 @@ impl Schema {
         // These checks return early if matched because
         // further errors are likely spurious.
         if !ptr.is_empty() && !ptr.starts_with("/") {
-            return Err(Error::KeyMissingLeadingSlash {
+            return Err(Error::PtrMissingLeadingSlash {
                 ptr: ptr.to_string(),
             });
         } else if !unmatched.is_empty() {
-            return Err(Error::KeyRegex {
+            return Err(Error::PtrRegexUnmatched {
                 ptr: ptr.to_string(),
                 unmatched,
             });
         } else if exists == inference::Exists::Implicit {
-            return Err(Error::KeyIsImplicit {
+            return Err(Error::PtrIsImplicit {
                 ptr: ptr.to_string(),
                 schema: self.curi.clone(),
             });
         } else if exists == inference::Exists::Cannot {
-            return Err(Error::KeyCannotExist {
+            return Err(Error::PtrCannotExist {
                 ptr: ptr.to_string(),
                 schema: self.curi.clone(),
             });
@@ -66,13 +66,6 @@ impl Schema {
         // Remaining validations apply only to key locations.
         if !ptr_is_key {
             return Ok(());
-        }
-
-        if exists == inference::Exists::May {
-            return Err(Error::KeyMayNotExist {
-                ptr: ptr.to_string(),
-                schema: self.curi.clone(),
-            });
         }
 
         if !shape.type_.is_keyable_type() {

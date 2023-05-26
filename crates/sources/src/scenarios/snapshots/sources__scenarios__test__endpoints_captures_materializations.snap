@@ -85,31 +85,19 @@ Sources {
     errors: [
         Error {
             scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment/endpoint/connector/config,
-            error: failed to fetch resource test://example/referenced/config.yaml#/bad/fragment
-            
-            Caused by:
-                resources cannot have fragments,
+            error: failed to fetch resource test://example/referenced/config.yaml#/bad/fragment: resources cannot have fragments,
         },
         Error {
             scope: test://example/catalog.yaml#/captures/capture~1config-missing/endpoint/connector/config,
-            error: failed to fetch resource test://example/config/not/found.yaml
-            
-            Caused by:
-                fixture not found,
+            error: failed to fetch resource test://example/config/not/found.yaml: fixture not found,
         },
         Error {
             scope: test://example/catalog.yaml#/captures/capture~1config-missing/bindings/0/resource,
-            error: failed to fetch resource test://example/resource/not/found.yaml
-            
-            Caused by:
-                fixture not found,
+            error: failed to fetch resource test://example/resource/not/found.yaml: fixture not found,
         },
         Error {
             scope: test://example/catalog.yaml#/materializations/materialization~1missing-config/bindings/0/resource,
-            error: failed to fetch resource test://example/referenced/not/found.yaml
-            
-            Caused by:
-                fixture not found,
+            error: failed to fetch resource test://example/referenced/not/found.yaml: fixture not found,
         },
     ],
     fetches: [

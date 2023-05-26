@@ -182,7 +182,7 @@ To mitigate this, we recommend a two-pronged approach:
 
 * [Configure your Snowflake warehouse to auto-suspend](https://docs.snowflake.com/en/sql-reference/sql/create-warehouse.html#:~:text=Specifies%20the%20number%20of%20seconds%20of%20inactivity%20after%20which%20a%20warehouse%20is%20automatically%20suspended.) after 60 seconds.
 
-   This ensures that for each transaction, you'll only be charged for one minute of compute, Snowflake's smallest granularity.
+   This ensures that after each transaction completes, you'll only be charged for one minute of compute, Snowflake's smallest granularity.
 
    Use a query like the one shown below, being sure to substitute your warehouse name:
 
@@ -198,7 +198,7 @@ To mitigate this, we recommend a two-pronged approach:
    as described [below](#adding-the-shard-configuration).
 
 For example, if you set the warehouse to auto-suspend after 60 seconds and set the materialization's
-minimum transaction duration to 30 minutes, you'll never incur more than 48 minutes per day of active time in the warehouse.
+minimum transaction duration to 30 minutes, you can incur as little as 48 minutes per day of active time in the warehouse.
 
 #### Adding the shard configuration
 

@@ -59,6 +59,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 * Salesforce (for real-time data)
   * [Configuration](./salesforce-real-time.md)
   * Package - ghcr.io/estuary/source-salesforce-next:dev
+* SFTP
+  * [Configuration](./sftp.md)
+  * Package - ghcr.io/estuary/source-sftp:dev
 
 
 ### Third party connectors

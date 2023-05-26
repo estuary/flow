@@ -27,6 +27,7 @@ collections:
           source:
             name: stock/ticks
             partitions: { include: { exchange: [NYSE, NASDAQ] } }
+          shuffle: any
 
 tests:
   # TODO this is a pretty silly test, and is the result of my messing around

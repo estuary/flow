@@ -64,8 +64,7 @@ export async function authURL(req: { connector_id: string; config: object; redir
             config,
             code_challenge: codeChallenge,
             code_challenge_method: codeChallengeMethod,
-        },
-        connector_id,
+        }
     );
 
     return new Response(JSON.stringify({ url: url, state: finalState, code_verifier: codeVerifier }), {

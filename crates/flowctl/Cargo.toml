@@ -47,6 +47,8 @@ pbjson-types = { workspace = true }
 prost = { workspace = true }
 tonic = { workspace = true }
 rusqlite = { workspace = true }
+json-patch = { workspace = true }
+rustyline = { workspace = true }
 
 # open is used for opening URLs in the user's browser
 open = { workspace = true }
