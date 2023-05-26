@@ -34,6 +34,36 @@ expression: new_draft
         ),
     },
     Record {
+        catalog_name: "evolution/CaptureB",
+        spec_type: Some(
+            Capture,
+        ),
+        spec: Some(
+            Object {
+                "bindings": Array [
+                    Object {
+                        "resource": Object {
+                            "thingy": String("baz"),
+                        },
+                        "target": String("evolution/CollectionC"),
+                    },
+                    Object {
+                        "resource": Object {
+                            "thingy": String("qux"),
+                        },
+                        "target": String("evolution/NewCollectionD"),
+                    },
+                ],
+                "endpoint": Object {
+                    "connector": Object {
+                        "config": Object {},
+                        "image": String("captureImage:v1"),
+                    },
+                },
+            },
+        ),
+    },
+    Record {
         catalog_name: "evolution/CollectionA_v2",
         spec_type: Some(
             Collection,
@@ -58,6 +88,31 @@ expression: new_draft
         ),
     },
     Record {
+        catalog_name: "evolution/CollectionC",
+        spec_type: Some(
+            Collection,
+        ),
+        spec: Some(
+            Object {
+                "key": Array [
+                    String("id"),
+                ],
+                "schema": Object {
+                    "properties": Object {
+                        "id": Object {
+                            "type": String("integer"),
+                        },
+                    },
+                    "required": Array [
+                        String("id"),
+                    ],
+                    "type": String("object"),
+                    "x-infer-schema": Bool(true),
+                },
+            },
+        ),
+    },
+    Record {
         catalog_name: "evolution/MaterializationA",
         spec_type: Some(
             Materialization,
@@ -70,7 +125,7 @@ expression: new_draft
                             "recommended": Bool(true),
                         },
                         "resource": Object {
-                            "targetThingy": String("CollectionA_v2"),
+                            "targetThingy": String("aThing_v2"),
                         },
                         "source": String("evolution/CollectionA_v2"),
                     },
@@ -82,6 +137,42 @@ expression: new_draft
                             "targetThingy": String("NewCollectionB"),
                         },
                         "source": String("evolution/NewCollectionB"),
+                    },
+                ],
+                "endpoint": Object {
+                    "connector": Object {
+                        "config": Object {},
+                        "image": String("matImage:v1"),
+                    },
+                },
+            },
+        ),
+    },
+    Record {
+        catalog_name: "evolution/MaterializationB",
+        spec_type: Some(
+            Materialization,
+        ),
+        spec: Some(
+            Object {
+                "bindings": Array [
+                    Object {
+                        "fields": Object {
+                            "recommended": Bool(true),
+                        },
+                        "resource": Object {
+                            "targetThingy": String("cThing_v2"),
+                        },
+                        "source": String("evolution/CollectionC"),
+                    },
+                    Object {
+                        "fields": Object {
+                            "recommended": Bool(true),
+                        },
+                        "resource": Object {
+                            "targetThingy": String("NewCollectionD"),
+                        },
+                        "source": String("evolution/NewCollectionD"),
                     },
                 ],
                 "endpoint": Object {
@@ -140,6 +231,31 @@ expression: new_draft
                         String("id"),
                     ],
                     "type": String("object"),
+                },
+            },
+        ),
+    },
+    Record {
+        catalog_name: "evolution/NewCollectionD",
+        spec_type: Some(
+            Collection,
+        ),
+        spec: Some(
+            Object {
+                "key": Array [
+                    String("id"),
+                ],
+                "schema": Object {
+                    "properties": Object {
+                        "id": Object {
+                            "type": String("integer"),
+                        },
+                    },
+                    "required": Array [
+                        String("id"),
+                    ],
+                    "type": String("object"),
+                    "x-infer-schema": Bool(true),
                 },
             },
         ),

@@ -19,7 +19,7 @@ pub struct EvolutionHandler;
 /// Rust struct corresponding to each array element of the `collections` JSON
 /// input of an `evolutions` row.
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
-struct RenameRequest {
+struct EvolveRequest {
     old_name: String,
     new_name: Option<String>,
 }
@@ -37,9 +37,13 @@ pub enum JobStatus {
 
 #[derive(Serialize, Deserialize, PartialEq)]
 pub struct EvolvedCollection {
+    /// Original name of the collection
     pub old_name: String,
+    /// The new name of the collection, which may be the same as the original name if only materialization bindings were updated
     pub new_name: String,
+    /// The names of any materializations that were updated as a result of evolving this collection
     pub updated_materializations: Vec<String>,
+    /// The names of any captures that were updated as a result of evolving this collection
     pub updated_captures: Vec<String>,
 }
 
@@ -83,7 +87,7 @@ async fn process_row(
         collections,
         ..
     } = row;
-    let collections_requests: Vec<RenameRequest> =
+    let collections_requests: Vec<EvolveRequest> =
         serde_json::from_str(collections.get()).context("invalid 'collections' input")?;
 
     if collections_requests.is_empty() {
@@ -91,12 +95,9 @@ async fn process_row(
     }
 
     // collect the requests into a map of old_name to new_name
-    let collections: BTreeMap<String, String> = collections_requests
+    let collections: BTreeMap<String, Option<String>> = collections_requests
         .into_iter()
-        .map(|RenameRequest { old_name, new_name }| {
-            let new_name = new_name.unwrap_or_else(|| next_collection_name(old_name.as_str()));
-            (old_name, new_name)
-        })
+        .map(|EvolveRequest { old_name, new_name }| (old_name, new_name))
         .collect();
 
     // Fetch all the specs from the draft that we're operating on
@@ -172,24 +173,26 @@ async fn process_row(
         Err(err) => return error_status(format!("processing resource spec schemas: {err}")),
     };
 
-    let RecreatedCollections {
+    let EvolvedCollections {
         draft_catalog,
         changed_collections,
-    } = recreate_collections(&before_catalog, &collections, &update_helper)?;
+    } = evolve_collections(&before_catalog, &collections, &update_helper)?;
     draft::upsert_specs(draft_id, draft_catalog, txn)
         .await
         .context("inserting draft specs")?;
 
-    // Remove all of the old collection versions from the draft. This isn't
-    // technically necessary, as there may be no harm in re-publishing it if
-    // there are no remaining consumers of it. But the user may not have been
-    // authorized to update all consumers of the collection, in which case
-    // removing the old collection from the draft would be required in order for
-    // them to publish successfully.
-    for ds in draft_specs
-        .iter()
-        .filter(|ds| collections.contains_key(ds.catalog_name.as_str()))
-    {
+    // Remove any of the old collection versions from the draft if we've created
+    // new versions of them. The old draft specs are likely to be rejected
+    // during publication due to having incompatible changes, so removing
+    // them is likely necessary in order to allow publication to proceed after
+    // evolution. We only remove specs that have been re-added with new names,
+    // though. If the collection is _not_ being re-created, then the draft spec
+    // is left in place since it may contain desired schema updates.
+    for ds in draft_specs.iter().filter(|ds| {
+        changed_collections
+            .iter()
+            .any(|cc| cc.old_name == ds.catalog_name && cc.old_name != cc.new_name)
+    }) {
         agent_sql::drafts::delete_spec(ds.draft_spec_id, txn).await?;
     }
 
@@ -203,7 +206,7 @@ async fn process_row(
 
 fn validate_evolving_collections(
     spec_rows: &Vec<DraftSpecRow>,
-    evolving_collections: &BTreeMap<String, String>,
+    evolving_collections: &BTreeMap<String, Option<String>>,
 ) -> Result<(), String> {
     let collection_name_regex = models::Collection::regex();
     let mut seen = BTreeSet::new();
@@ -217,11 +220,13 @@ fn validate_evolving_collections(
         // Validate that the new collection name is a valid catalog name.
         // This results in a better error message, since an invalid name could
         // otherwise result in a database error due to a constraint violation.
-        let new_name = evolving_collections
+        if let Some(new_name) = evolving_collections
             .get(old_name)
-            .expect("already checked contains_key");
-        if !collection_name_regex.is_match(new_name.as_str()) {
-            return Err(format!("requested collection name '{new_name}' is invalid"));
+            .expect("already checked contains_key")
+        {
+            if !collection_name_regex.is_match(new_name.as_str()) {
+                return Err(format!("requested collection name '{new_name}' is invalid"));
+            }
         }
 
         // We have to validate that the collection has not been deleted in the draft because
@@ -254,52 +259,91 @@ fn validate_evolving_collections(
     Ok(())
 }
 
-pub struct RecreatedCollections {
+pub struct EvolvedCollections {
+    /// A new draft catalog that reflects all the changes required to evolve the collections.
     pub draft_catalog: models::Catalog,
+    /// A structured summary of all the changes that were applied.
     pub changed_collections: Vec<EvolvedCollection>,
 }
 
-fn recreate_collections(
+fn evolve_collections(
     catalog: &models::Catalog,
-    collections: &BTreeMap<String, String>,
+    collections: &BTreeMap<String, Option<String>>,
     update_helper: &ResourceSpecUpdater,
-) -> anyhow::Result<RecreatedCollections> {
+) -> anyhow::Result<EvolvedCollections> {
     let mut new_catalog = models::Catalog::default();
     let mut changed_collections = Vec::new();
     for (old_name, new_name) in collections.iter() {
-        let result = recreate_collection(
+        let result = evolve_collection(
             &mut new_catalog,
             catalog,
             old_name.as_str(),
-            new_name.as_str(),
+            new_name.as_deref(),
             update_helper,
         )
         .with_context(|| format!("processing collection '{old_name}'"))?;
         changed_collections.push(result);
     }
 
-    Ok(RecreatedCollections {
+    Ok(EvolvedCollections {
         draft_catalog: new_catalog,
         changed_collections,
     })
 }
 
-fn recreate_collection(
+/// This returns true if the given collection uses an inferred schema. For now,
+/// this must be determined by parsing the schema and checking for the presence
+/// of an `x-infer-schema` annotation, which is fallible. But the future plan is
+/// to hoist that annotation into a top-level collection property, which would
+/// eliminate the need for this function.
+fn uses_schema_inference(collection: &models::CollectionDef) -> anyhow::Result<bool> {
+    let effective_read_schema = collection
+        .schema
+        .as_ref()
+        .or(collection.read_schema.as_ref())
+        .ok_or_else(|| anyhow::anyhow!("invalid collection spec missing schema"))?;
+
+    let schema = doc::validation::build_bundle(effective_read_schema.get())?;
+    let mut builder = doc::SchemaIndexBuilder::new();
+    builder.add(&schema)?;
+    let index = builder.into_index();
+    let shape = doc::inference::Shape::infer(&schema, &index);
+
+    let uses_inference = shape.annotations.contains_key("x-infer-schema");
+    Ok(uses_inference)
+}
+
+fn evolve_collection(
     new_catalog: &mut models::Catalog,
     prev_catalog: &models::Catalog,
     old_collection_name: &str,
-    new_collection_name: &str,
+    new_collection_name: Option<&str>,
     update_helper: &ResourceSpecUpdater,
 ) -> anyhow::Result<EvolvedCollection> {
     let old_collection = models::Collection::new(old_collection_name);
-    let Some(prev_collection_spec) = prev_catalog.collections.get(&old_collection) else {
+    let Some(draft_collection_spec) = prev_catalog.collections.get(&old_collection) else {
         anyhow::bail!("catalog does not contain a collection named '{old_collection_name}'");
     };
 
-    let new_name = models::Collection::new(new_collection_name);
-    new_catalog
-        .collections
-        .insert(new_name.clone(), prev_collection_spec.clone());
+    let uses_inference = uses_schema_inference(draft_collection_spec)?;
+    let re_create_collection = new_collection_name.is_some() || !uses_inference;
+
+    // If the collection uses schema inference, then only re-create it if explicitly requested to do so.
+    // Otherwise, if it uses schema inference, then just update the materialization binding to use a new resource name.
+    let new_name = if re_create_collection {
+        new_collection_name
+            .map(|s| s.to_owned())
+            .unwrap_or_else(|| next_name(old_collection_name))
+    } else {
+        old_collection_name.to_owned()
+    };
+    let new_name = models::Collection::new(new_name);
+
+    if re_create_collection {
+        new_catalog
+            .collections
+            .insert(new_name.clone(), draft_collection_spec.clone());
+    }
 
     let mut updated_materializations = Vec::new();
 
@@ -314,56 +358,63 @@ fn recreate_collection(
             .entry(mat_name.clone())
             .or_insert_with(|| mat_spec.clone());
 
-        for binding in new_spec.bindings.iter_mut() {
-            if binding.source.collection() == &old_collection {
+        for binding in new_spec
+            .bindings
+            .iter_mut()
+            .filter(|b| b.source.collection() == &old_collection)
+        {
+            // If we're re-creating the collection, then update the source in place.
+            if re_create_collection {
                 binding
                     .source
                     .set_collection(models::Collection::new(new_name.clone()));
-
-                // Next we need to update the resource spec of the binding. This updates, for instance,
-                // a sql materialization to point to a new table name, based on the new name of the
-                // collection.
-                let models::MaterializationEndpoint::Connector(conn) = &mat_spec.endpoint else {
-                    continue;
-                };
-                // Parse the current resource spec into a `Value` that we can mutate
-                let mut resource_spec: Value = serde_json::from_str(binding.resource.get())
-                    .with_context(|| {
-                        format!(
-                            "parsing materialization resource spec of '{}' binding for '{}",
-                            mat_name, &new_name
-                        )
-                    })?;
-                update_helper
-                    .update_resource_spec(
-                        &conn.image,
-                        mat_name.as_str(),
-                        new_name.as_str(),
-                        &mut resource_spec,
-                    )
-                    .with_context(|| {
-                        format!("updating resource spec of '{mat_name}' binding '{new_name}'")
-                    })?;
-                binding.resource = models::RawValue::from_value(&resource_spec);
             }
+
+            // Next we need to update the resource spec of the binding. This updates, for instance,
+            // a sql materialization to point to a new table name.
+            let models::MaterializationEndpoint::Connector(conn) = &mat_spec.endpoint else {
+                continue;
+            };
+            // Parse the current resource spec into a `Value` that we can mutate
+            let mut resource_spec: Value = serde_json::from_str(binding.resource.get())
+                .with_context(|| {
+                    format!(
+                        "parsing materialization resource spec of '{}' binding for '{}",
+                        mat_name, &new_name
+                    )
+                })?;
+            update_helper
+                .update_resource_spec(
+                    &conn.image,
+                    mat_name.as_str(),
+                    new_collection_name.map(|s| s.to_owned()),
+                    &mut resource_spec,
+                )
+                .with_context(|| {
+                    format!("updating resource spec of '{mat_name}' binding '{old_collection}'")
+                })?;
+            binding.resource = models::RawValue::from_value(&resource_spec);
         }
     }
 
     let mut updated_captures = Vec::new();
-    for (cap_name, cap_spec) in prev_catalog
-        .captures
-        .iter()
-        .filter(|c| has_cap_binding(c.1, &old_collection))
-    {
-        updated_captures.push(cap_name.as_str().to_owned());
-        let new_spec = new_catalog
+    // We don't need to update any captures if the collection isn't being re-created.
+    if re_create_collection {
+        for (cap_name, cap_spec) in prev_catalog
             .captures
-            .entry(cap_name.clone())
-            .or_insert_with(|| cap_spec.clone());
+            .iter()
+            .filter(|c| has_cap_binding(c.1, &old_collection))
+        {
+            updated_captures.push(cap_name.as_str().to_owned());
+            let new_spec = new_catalog
+                .captures
+                .entry(cap_name.clone())
+                .or_insert_with(|| cap_spec.clone());
 
-        for binding in new_spec.bindings.iter_mut() {
-            if &binding.target == &old_collection {
-                binding.target = new_name.clone();
+            for binding in new_spec.bindings.iter_mut() {
+                if &binding.target == &old_collection {
+                    binding.target = new_name.clone();
+                }
             }
         }
     }
@@ -389,29 +440,32 @@ fn has_mat_binding(spec: &models::MaterializationDef, collection: &models::Colle
 }
 
 lazy_static! {
-    static ref COLLECTION_VERSION_RE: Regex = Regex::new(r#".*[_-][vV](\d+)$"#).unwrap();
+    static ref NAME_VERSION_RE: Regex = Regex::new(r#".*[_-][vV](\d+)$"#).unwrap();
 }
 
-fn next_collection_name(current_name: &str) -> String {
-    // Does the collection name already have a version suffix?
+fn next_name(current_name: &str) -> String {
+    // Does the name already have a version suffix?
     // We try to work with whatever suffix is already present. This way, if a user
     // is starting with a collection like `acmeCo/foo-V3`, they'll end up with
     // `acmeCo/foo-V4` instead of `acmeCo/foo_v4`.
-    if let Some(capture) = COLLECTION_VERSION_RE.captures_iter(current_name).next() {
+    if let Some(capture) = NAME_VERSION_RE.captures_iter(current_name).next() {
         if let Ok(current_version_num) = capture[1].parse::<u32>() {
             // wrapping_add is just to ensure we don't panic if someone passes
-            // a naughty collection name with a u32::MAX version.
+            // a naughty name with a u32::MAX version.
             return format!(
                 "{}{}",
                 current_name.strip_suffix(&capture[1]).unwrap(),
-                // We don't really care what the collection name ends up as if the old name is suffixed by "V-${u32::MAX}", as long as we don't panic.
+                // We don't really care what the collection name ends up as if
+                // the old name is suffixed by "V-${u32::MAX}", as long as we don't panic.
                 current_version_num.wrapping_add(1)
             );
         }
     }
-    // We always use an underscore as the separator. This might look a bit unseemly for collections
-    // that use dashes as separators elsewhere in the name, but any sort of heuristic for determining
-    // whether to use dashes or underscores is rife with edge cases and doesn't seem worth the complexity.
+    // We always use an underscore as the separator. This might look a bit
+    // unseemly if dashes are already used as separators elsewhere in the
+    // name, but any sort of heuristic for determining whether to use dashes
+    // or underscores is rife with edge cases and doesn't seem worth the
+    // complexity.
     format!("{current_name}_v2")
 }
 
@@ -455,35 +509,40 @@ impl ResourceSpecUpdater {
         Ok(ResourceSpecUpdater { pointers_by_image })
     }
 
-    /// Updates the given resource spec in place based on the x-collection-name.
+    /// Updates the given resource spec in place based on the x-collection-name annotation.
+    /// The new name
     fn update_resource_spec(
         &self,
         image_name: &str,
         materialization_name: &str,
-        new_collection_name: &str,
+        new_collection_name: Option<String>,
         resource_spec: &mut Value,
     ) -> anyhow::Result<()> {
         if let Some(pointer) = self.pointers_by_image.get(image_name) {
-            let has_existing = pointer
+            let Some(existing) = pointer
                 .query(&*resource_spec)
-                .map(|v| v.is_string())
-                .unwrap_or(false);
-            if has_existing {
-                let (_, new_base_name) = new_collection_name
-                    .rsplit_once('/')
-                    .expect("collection names must contain at least one forward slash");
-                if let Some(prev_val) = pointer.create_value(resource_spec) {
-                    let new_val = Value::String(new_base_name.to_owned());
-                    tracing::info!(%prev_val, %new_val, %materialization_name, %new_collection_name, "updating resource spec");
-                    *prev_val = new_val;
-                } else {
-                    anyhow::bail!("creating x-collection-name JSON location failed");
-                }
-            } else {
+                .and_then(|v| v.as_str()) else {
                 // Log noisily about this, but it's not clear that it shoudl be an error. It's
                 // possible, at least in principle, that a connector allows the field to be empty
                 // and will apply it's own default value based on the collection name.
-                tracing::warn!(%materialization_name, %new_collection_name, %pointer, "not updating resource spec because there is no existing value at that location");
+                tracing::warn!(%materialization_name, ?new_collection_name, %pointer, "not updating resource spec because there is no existing value at that location");
+                return Ok(())
+            };
+
+            let new_val = new_collection_name
+                .map(|n| {
+                    n.rsplit('/')
+                        .next()
+                        .expect("collection name must contain a slash")
+                        .to_owned()
+                })
+                .unwrap_or_else(|| next_name(existing).to_owned());
+
+            if let Some(prev_val) = pointer.create_value(resource_spec) {
+                tracing::info!(%prev_val, %new_val, %materialization_name, "updating resource spec");
+                *prev_val = Value::String(new_val);
+            } else {
+                anyhow::bail!("creating x-collection-name JSON location failed");
             }
         } else {
             anyhow::bail!(
