@@ -65,7 +65,8 @@ plug-able components that integrate Flow with external data systems.
 Estuary's [in-house connectors](https://github.com/orgs/estuary/packages?repo_name=connectors)
 focus on high-scale technology systems and change data capture (think databases, pub-sub, and filestores).
 
-Flow is compatible with the Airbyte community connector specification, allowing us to support a greater variety of SaaS systems.
+Flow is can run Airbyte community connectors using
+[airbyte-to-flow](https://github.com/estuary/airbyte/tree/master/airbyte-to-flow), allowing us to support a greater variety of SaaS systems.
 
 **See our website for the [full list of currently supported connectors](https://www.estuary.dev/integrations/).**
 
