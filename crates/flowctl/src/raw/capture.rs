@@ -19,6 +19,10 @@ use proto_flow::{capture::{request, Request}, flow::RangeSpec};
 pub struct Capture {
     /// Source flow catalog to run
     source: String,
+
+    /// Print the reduced checkpoint of the connector as it gets updated
+    #[clap(long, action)]
+    print_checkpoint: bool,
 }
 
 #[derive(Deserialize)]
@@ -33,7 +37,7 @@ enum Command {
     Combine(String),
 }
 
-pub async fn do_capture(ctx: &mut crate::CliContext, Capture { source }: &Capture) -> anyhow::Result<()> {
+pub async fn do_capture(ctx: &mut crate::CliContext, Capture { source, print_checkpoint }: &Capture) -> anyhow::Result<()> {
     let client = ctx.controlplane_client().await?;
     let (_sources, mut validations) = local_specs::load_and_validate(client, &source).await?;
 
@@ -173,9 +177,16 @@ pub async fn do_capture(ctx: &mut crate::CliContext, Capture { source }: &Captur
             let mut cp = checkpoint.lock().unwrap();
             let update = serde_json::from_str(&updated_json)?;
             if merge_patch {
+                if *print_checkpoint {
+                    eprintln!("Merge Patch for Checkpoint: {}", serde_json::to_string_pretty(&update)?);
+                }
                 json_patch::merge(&mut cp, &update);
             } else {
                 *cp = update;
+            }
+
+            if *print_checkpoint {
+                eprintln!("Checkpoint: {}", serde_json::to_string_pretty(&*cp)?);
             }
 
             for channel in channels.iter() {
