@@ -11,7 +11,7 @@ a materialized view that updates continuously based on a real-time data feed.
 
 ## Prerequisites
 
-* An Estuary Flow trial account (or a full account). If you don't have one, visit the [Flow web app](https://dashboard.estuary.dev) to register for your free trial.
+* An Estuary Flow account. If you don't have one, visit the [Flow web app](https://dashboard.estuary.dev) to register for free.
 
 * The [flowctl CLI installed](../installation.md#get-started-with-the-flow-cli) (for the optional section).
 

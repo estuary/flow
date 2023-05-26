@@ -46,6 +46,9 @@ OAuth is recommended in the web app; only manual configuration is supported when
 
 1. Go to [your integrations page](https://www.notion.so/my-integrations) and create a new [internal integration](https://developers.notion.com/docs/authorization#integration-types). Notion integrations are internal by default.
 
+   1. During setup, [change **User Capabilities**](https://www.notion.so/help/create-integrations-with-the-notion-api#granular-integration-permissions)
+   from **No user information** (the default) to **Read user information without email address**.
+
 2. Copy the generated token for use in the connector configuration.
 
 ## Configuration
