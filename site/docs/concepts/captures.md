@@ -35,7 +35,8 @@ See the [source connector reference documentation](../reference/Connectors/captu
 
 ### Airbyte sources
 
-Flow also natively supports Airbyte source connectors.
+Flow supports running Airbyte source connectors (through
+[airbyte-to-flow](https://github.com/estuary/airbyte/tree/master/airbyte-to-flow))
 These connectors tend to focus on SaaS APIs, and do not offer real-time streaming integrations.
 Flow runs the connector at regular intervals to capture updated documents.
 
