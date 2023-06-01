@@ -71,9 +71,9 @@ func (c *MockCombiner) Drain(fn func(full bool, doc json.RawMessage, packedKey, 
 	}
 
 	var dAndB = func(docs []json.RawMessage) *DocsAndBytes {
-		var bytes uint32 = 0
+		var bytes uint64 = 0
 		for _, d := range docs {
-			bytes = bytes + uint32(len(d))
+			bytes = bytes + uint64(len(d))
 		}
 		return &DocsAndBytes{
 			Docs:  uint32(len(docs)),

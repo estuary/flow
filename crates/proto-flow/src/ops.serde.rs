@@ -1357,7 +1357,7 @@ impl serde::Serialize for stats::DocsAndBytes {
             struct_ser.serialize_field("docsTotal", &self.docs_total)?;
         }
         if self.bytes_total != 0 {
-            struct_ser.serialize_field("bytesTotal", &self.bytes_total)?;
+            struct_ser.serialize_field("bytesTotal", ToString::to_string(&self.bytes_total).as_str())?;
         }
         struct_ser.end()
     }
