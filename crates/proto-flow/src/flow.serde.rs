@@ -2561,7 +2561,7 @@ impl serde::Serialize for DocsAndBytes {
             struct_ser.serialize_field("docs", &self.docs)?;
         }
         if self.bytes != 0 {
-            struct_ser.serialize_field("bytes", ToString::to_string(&self.bytes).as_str())?;
+            struct_ser.serialize_field("bytes", &self.bytes)?;
         }
         struct_ser.end()
     }
