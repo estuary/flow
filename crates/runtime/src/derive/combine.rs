@@ -83,7 +83,7 @@ impl Forward {
             }
             let read_stats = &mut self.read_stats[read.transform as usize];
             read_stats.docs_total += 1;
-            read_stats.bytes_total += read.doc_json.len() as u32;
+            read_stats.bytes_total += read.doc_json.len() as u64;
         }
 
         if let Some(_flush) = &request.flush {
@@ -351,7 +351,7 @@ impl State {
         memtable.add(doc, false)?;
 
         self.publish_stats.docs_total += 1;
-        self.publish_stats.bytes_total += published.doc_json.len() as u32;
+        self.publish_stats.bytes_total += published.doc_json.len() as u64;
 
         Ok(())
     }
@@ -371,7 +371,7 @@ impl State {
             let doc_json = serde_json::to_string(&doc).expect("document serialization cannot fail");
 
             self.drain_stats.docs_total += 1;
-            self.drain_stats.bytes_total += doc_json.len() as u32;
+            self.drain_stats.bytes_total += doc_json.len() as u64;
 
             let key_packed = crate::extract_packed_node(
                 &doc,
