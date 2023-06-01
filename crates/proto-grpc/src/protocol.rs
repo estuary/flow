@@ -13,7 +13,7 @@ pub mod journal_client {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
-            D: std::convert::TryInto<tonic::transport::Endpoint>,
+            D: TryInto<tonic::transport::Endpoint>,
             D::Error: Into<StdError>,
         {
             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
@@ -69,11 +69,27 @@ pub mod journal_client {
             self.inner = self.inner.accept_compressed(encoding);
             self
         }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
         /// List Journals, their JournalSpecs and current Routes.
         pub async fn list(
             &mut self,
             request: impl tonic::IntoRequest<::proto_gazette::broker::ListRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_gazette::broker::ListResponse>,
             tonic::Status,
         > {
@@ -88,13 +104,15 @@ pub mod journal_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/protocol.Journal/List");
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("protocol.Journal", "List"));
+            self.inner.unary(req, path, codec).await
         }
         /// Apply changes to the collection of Journals managed by the brokers.
         pub async fn apply(
             &mut self,
             request: impl tonic::IntoRequest<::proto_gazette::broker::ApplyRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_gazette::broker::ApplyResponse>,
             tonic::Status,
         > {
@@ -109,13 +127,15 @@ pub mod journal_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/protocol.Journal/Apply");
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("protocol.Journal", "Apply"));
+            self.inner.unary(req, path, codec).await
         }
         /// Read from a specific Journal.
         pub async fn read(
             &mut self,
             request: impl tonic::IntoRequest<::proto_gazette::broker::ReadRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<
                 tonic::codec::Streaming<::proto_gazette::broker::ReadResponse>,
             >,
@@ -132,7 +152,9 @@ pub mod journal_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/protocol.Journal/Read");
-            self.inner.server_streaming(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("protocol.Journal", "Read"));
+            self.inner.server_streaming(req, path, codec).await
         }
         /// Append content to a specific Journal.
         pub async fn append(
@@ -140,7 +162,7 @@ pub mod journal_client {
             request: impl tonic::IntoStreamingRequest<
                 Message = ::proto_gazette::broker::AppendRequest,
             >,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_gazette::broker::AppendResponse>,
             tonic::Status,
         > {
@@ -155,9 +177,9 @@ pub mod journal_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/protocol.Journal/Append");
-            self.inner
-                .client_streaming(request.into_streaming_request(), path, codec)
-                .await
+            let mut req = request.into_streaming_request();
+            req.extensions_mut().insert(GrpcMethod::new("protocol.Journal", "Append"));
+            self.inner.client_streaming(req, path, codec).await
         }
         /// Replicate appended content of a Journal. Replicate is used between broker
         /// peers in the course of processing Append transactions, but is not intended
@@ -167,7 +189,7 @@ pub mod journal_client {
             request: impl tonic::IntoStreamingRequest<
                 Message = ::proto_gazette::broker::ReplicateRequest,
             >,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<
                 tonic::codec::Streaming<::proto_gazette::broker::ReplicateResponse>,
             >,
@@ -186,13 +208,16 @@ pub mod journal_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/protocol.Journal/Replicate",
             );
-            self.inner.streaming(request.into_streaming_request(), path, codec).await
+            let mut req = request.into_streaming_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("protocol.Journal", "Replicate"));
+            self.inner.streaming(req, path, codec).await
         }
         /// List Fragments of a Journal.
         pub async fn list_fragments(
             &mut self,
             request: impl tonic::IntoRequest<::proto_gazette::broker::FragmentsRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_gazette::broker::FragmentsResponse>,
             tonic::Status,
         > {
@@ -209,7 +234,10 @@ pub mod journal_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/protocol.Journal/ListFragments",
             );
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("protocol.Journal", "ListFragments"));
+            self.inner.unary(req, path, codec).await
         }
     }
 }
@@ -225,7 +253,7 @@ pub mod journal_server {
         async fn list(
             &self,
             request: tonic::Request<::proto_gazette::broker::ListRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_gazette::broker::ListResponse>,
             tonic::Status,
         >;
@@ -233,13 +261,16 @@ pub mod journal_server {
         async fn apply(
             &self,
             request: tonic::Request<::proto_gazette::broker::ApplyRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_gazette::broker::ApplyResponse>,
             tonic::Status,
         >;
         /// Server streaming response type for the Read method.
         type ReadStream: futures_core::Stream<
-                Item = Result<::proto_gazette::broker::ReadResponse, tonic::Status>,
+                Item = std::result::Result<
+                    ::proto_gazette::broker::ReadResponse,
+                    tonic::Status,
+                >,
             >
             + Send
             + 'static;
@@ -247,20 +278,23 @@ pub mod journal_server {
         async fn read(
             &self,
             request: tonic::Request<::proto_gazette::broker::ReadRequest>,
-        ) -> Result<tonic::Response<Self::ReadStream>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<Self::ReadStream>, tonic::Status>;
         /// Append content to a specific Journal.
         async fn append(
             &self,
             request: tonic::Request<
                 tonic::Streaming<::proto_gazette::broker::AppendRequest>,
             >,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_gazette::broker::AppendResponse>,
             tonic::Status,
         >;
         /// Server streaming response type for the Replicate method.
         type ReplicateStream: futures_core::Stream<
-                Item = Result<::proto_gazette::broker::ReplicateResponse, tonic::Status>,
+                Item = std::result::Result<
+                    ::proto_gazette::broker::ReplicateResponse,
+                    tonic::Status,
+                >,
             >
             + Send
             + 'static;
@@ -272,12 +306,12 @@ pub mod journal_server {
             request: tonic::Request<
                 tonic::Streaming<::proto_gazette::broker::ReplicateRequest>,
             >,
-        ) -> Result<tonic::Response<Self::ReplicateStream>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<Self::ReplicateStream>, tonic::Status>;
         /// List Fragments of a Journal.
         async fn list_fragments(
             &self,
             request: tonic::Request<::proto_gazette::broker::FragmentsRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_gazette::broker::FragmentsResponse>,
             tonic::Status,
         >;
@@ -288,6 +322,8 @@ pub mod journal_server {
         inner: _Inner<T>,
         accept_compression_encodings: EnabledCompressionEncodings,
         send_compression_encodings: EnabledCompressionEncodings,
+        max_decoding_message_size: Option<usize>,
+        max_encoding_message_size: Option<usize>,
     }
     struct _Inner<T>(Arc<T>);
     impl<T: Journal> JournalServer<T> {
@@ -300,6 +336,8 @@ pub mod journal_server {
                 inner,
                 accept_compression_encodings: Default::default(),
                 send_compression_encodings: Default::default(),
+                max_decoding_message_size: None,
+                max_encoding_message_size: None,
             }
         }
         pub fn with_interceptor<F>(
@@ -323,6 +361,22 @@ pub mod journal_server {
             self.send_compression_encodings.enable(encoding);
             self
         }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.max_decoding_message_size = Some(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.max_encoding_message_size = Some(limit);
+            self
+        }
     }
     impl<T, B> tonic::codegen::Service<http::Request<B>> for JournalServer<T>
     where
@@ -336,7 +390,7 @@ pub mod journal_server {
         fn poll_ready(
             &mut self,
             _cx: &mut Context<'_>,
-        ) -> Poll<Result<(), Self::Error>> {
+        ) -> Poll<std::result::Result<(), Self::Error>> {
             Poll::Ready(Ok(()))
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
@@ -358,13 +412,15 @@ pub mod journal_server {
                             &mut self,
                             request: tonic::Request<::proto_gazette::broker::ListRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move { (*inner).list(request).await };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -374,6 +430,10 @@ pub mod journal_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -398,13 +458,15 @@ pub mod journal_server {
                                 ::proto_gazette::broker::ApplyRequest,
                             >,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move { (*inner).apply(request).await };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -414,6 +476,10 @@ pub mod journal_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -438,13 +504,15 @@ pub mod journal_server {
                             &mut self,
                             request: tonic::Request<::proto_gazette::broker::ReadRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move { (*inner).read(request).await };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -454,6 +522,10 @@ pub mod journal_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.server_streaming(method, req).await;
                         Ok(res)
@@ -479,13 +551,15 @@ pub mod journal_server {
                                 tonic::Streaming<::proto_gazette::broker::AppendRequest>,
                             >,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move { (*inner).append(request).await };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -495,6 +569,10 @@ pub mod journal_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.client_streaming(method, req).await;
                         Ok(res)
@@ -521,13 +599,15 @@ pub mod journal_server {
                                 tonic::Streaming<::proto_gazette::broker::ReplicateRequest>,
                             >,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move { (*inner).replicate(request).await };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -537,6 +617,10 @@ pub mod journal_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.streaming(method, req).await;
                         Ok(res)
@@ -562,7 +646,7 @@ pub mod journal_server {
                                 ::proto_gazette::broker::FragmentsRequest,
                             >,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move {
                                 (*inner).list_fragments(request).await
                             };
@@ -571,6 +655,8 @@ pub mod journal_server {
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -580,6 +666,10 @@ pub mod journal_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -608,12 +698,14 @@ pub mod journal_server {
                 inner,
                 accept_compression_encodings: self.accept_compression_encodings,
                 send_compression_encodings: self.send_compression_encodings,
+                max_decoding_message_size: self.max_decoding_message_size,
+                max_encoding_message_size: self.max_encoding_message_size,
             }
         }
     }
     impl<T: Journal> Clone for _Inner<T> {
         fn clone(&self) -> Self {
-            Self(self.0.clone())
+            Self(Arc::clone(&self.0))
         }
     }
     impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
