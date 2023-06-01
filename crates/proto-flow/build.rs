@@ -32,6 +32,9 @@ fn main() {
     //   to BTreeMap<&str, &RawValue>, and deserialize in reverse.
     // * Fields ending in "_json_vec" are mapped from Vec<String> to Vec<&RawValue>,
     //   and deserialize in reverse as well.
+    // * Our stats documents' "bytesTotal" field is typed as u64 to allow for
+    //   tallying relatively large values in a single document but we do not want
+    //   this value serialized as a string, so we remove the string conversion.
 
     let ser_json_re =
         regex::Regex::new(r#"struct_ser\.serialize_field\(".+", (&self\..*_json)\)\?;"#).unwrap();
@@ -40,6 +43,9 @@ fn main() {
             .unwrap();
     let ser_json_vec_re =
         regex::Regex::new(r#"struct_ser\.serialize_field\(".+", (&self\..*_json_vec)\)\?;"#)
+            .unwrap();
+    let ser_bytes_re =
+        regex::Regex::new(r#"struct_ser\.serialize_field\("(bytesTotal|bytes)", ToString::to_string\(&self\.(bytes_total|bytes)\).as_str\(\)\)\?;"#)
             .unwrap();
 
     let de_json_re_1 = regex::Regex::new(r#"let mut .+_json__ (= None);"#).unwrap();
@@ -119,6 +125,20 @@ fn main() {
             buf.replace_range(
                 range,
                 &format!(".into_iter().map(|value| Box::<str>::from(value).into()).collect()"),
+            );
+        }
+
+        // Handle serializing "bytesTotal"/"bytes" as an integer rather than a quoted integer.
+        while let Some(capture) = ser_bytes_re.captures(&buf) {
+            let range = capture.get(0).unwrap().range();
+            let name = capture.get(1).unwrap().as_str();
+            let field = capture.get(2).unwrap().as_str();
+            buf.replace_range(
+                range,
+                &format!(
+                    r#"struct_ser.serialize_field("{}", &self.{})?;"#,
+                    name, field
+                ),
             );
         }
 
