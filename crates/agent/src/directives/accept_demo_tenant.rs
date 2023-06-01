@@ -13,7 +13,7 @@ pub struct Directive {}
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Claims {
     #[validate]
-    tenant: models::PartitionField,
+    tenant: models::Prefix,
 }
 
 #[tracing::instrument(skip_all, fields(id=?row.apply_id))]
