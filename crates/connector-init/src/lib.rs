@@ -38,16 +38,24 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     let capture = proto_grpc::capture::connector_server::ConnectorServer::new(capture::Proxy {
         entrypoint: entrypoint.clone(),
         codec,
-    });
+    })
+    .max_decoding_message_size(usize::MAX) // Up from 4MB. Accept whatever the runtime sends.
+    .max_encoding_message_size(usize::MAX); // The default, made explicit.
+
     let derive = proto_grpc::derive::connector_server::ConnectorServer::new(derive::Proxy {
         entrypoint: entrypoint.clone(),
         codec,
-    });
+    })
+    .max_decoding_message_size(usize::MAX) // Up from 4MB. Accept whatever the runtime sends.
+    .max_encoding_message_size(usize::MAX); // The default, made explicit.
+
     let materialize =
         proto_grpc::materialize::connector_server::ConnectorServer::new(materialize::Proxy {
             entrypoint: entrypoint.clone(),
             codec,
-        });
+        })
+        .max_decoding_message_size(usize::MAX) // Up from 4MB. Accept whatever the runtime sends.
+        .max_encoding_message_size(usize::MAX); // The default, made explicit.
 
     let proxy_handler = proxy::ProxyHandler::new("localhost");
     let proxy = proto_grpc::flow::network_proxy_server::NetworkProxyServer::new(proxy_handler);
