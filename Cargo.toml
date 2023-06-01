@@ -148,7 +148,7 @@ tokio = { version = "1", features = [
     "time",
 ] }
 tokio-util = { version = "0.7", features = ["io", "compat"] }
-tonic = { version = "0.8", features = ["tls", "tls-roots"] }
+tonic = { version = "0.9", features = ["tls", "tls-roots"] }
 tower = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = [
@@ -191,7 +191,7 @@ wasm-bindgen-test = "0.3.13"
 cbindgen = "0.23"
 pbjson-build = "0.5"
 prost-build = "0.11"
-tonic-build = "0.8"
+tonic-build = "0.9"
 
 warp = "0.3.3"
 

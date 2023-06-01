@@ -320,5 +320,5 @@ func copyToTempFile(r io.Reader, mode os.FileMode) (*os.File, error) {
 	return tmp, nil
 }
 
-const maxMessageSize = 1 << 24 // 16 MB.
+const maxMessageSize = 1 << 25 // 32 MB.
 const flowConnectorInit = "flow-connector-init"

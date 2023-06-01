@@ -16,7 +16,7 @@ pub mod shard_client {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
-            D: std::convert::TryInto<tonic::transport::Endpoint>,
+            D: TryInto<tonic::transport::Endpoint>,
             D::Error: Into<StdError>,
         {
             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
@@ -72,11 +72,27 @@ pub mod shard_client {
             self.inner = self.inner.accept_compressed(encoding);
             self
         }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
         /// Stat returns detailed status of a given Shard.
         pub async fn stat(
             &mut self,
             request: impl tonic::IntoRequest<::proto_gazette::consumer::StatRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_gazette::consumer::StatResponse>,
             tonic::Status,
         > {
@@ -91,13 +107,15 @@ pub mod shard_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/consumer.Shard/Stat");
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("consumer.Shard", "Stat"));
+            self.inner.unary(req, path, codec).await
         }
         /// List Shards, their ShardSpecs and their processing status.
         pub async fn list(
             &mut self,
             request: impl tonic::IntoRequest<::proto_gazette::consumer::ListRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_gazette::consumer::ListResponse>,
             tonic::Status,
         > {
@@ -112,13 +130,15 @@ pub mod shard_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/consumer.Shard/List");
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("consumer.Shard", "List"));
+            self.inner.unary(req, path, codec).await
         }
         /// Apply changes to the collection of Shards managed by the consumer.
         pub async fn apply(
             &mut self,
             request: impl tonic::IntoRequest<::proto_gazette::consumer::ApplyRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_gazette::consumer::ApplyResponse>,
             tonic::Status,
         > {
@@ -133,13 +153,15 @@ pub mod shard_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/consumer.Shard/Apply");
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("consumer.Shard", "Apply"));
+            self.inner.unary(req, path, codec).await
         }
         /// GetHints fetches hints for a shard.
         pub async fn get_hints(
             &mut self,
             request: impl tonic::IntoRequest<::proto_gazette::consumer::GetHintsRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_gazette::consumer::GetHintsResponse>,
             tonic::Status,
         > {
@@ -154,13 +176,15 @@ pub mod shard_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/consumer.Shard/GetHints");
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("consumer.Shard", "GetHints"));
+            self.inner.unary(req, path, codec).await
         }
         /// Unassign a Shard.
         pub async fn unassign(
             &mut self,
             request: impl tonic::IntoRequest<::proto_gazette::consumer::UnassignRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_gazette::consumer::UnassignResponse>,
             tonic::Status,
         > {
@@ -175,7 +199,9 @@ pub mod shard_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/consumer.Shard/Unassign");
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("consumer.Shard", "Unassign"));
+            self.inner.unary(req, path, codec).await
         }
     }
 }
@@ -191,7 +217,7 @@ pub mod shard_server {
         async fn stat(
             &self,
             request: tonic::Request<::proto_gazette::consumer::StatRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_gazette::consumer::StatResponse>,
             tonic::Status,
         >;
@@ -199,7 +225,7 @@ pub mod shard_server {
         async fn list(
             &self,
             request: tonic::Request<::proto_gazette::consumer::ListRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_gazette::consumer::ListResponse>,
             tonic::Status,
         >;
@@ -207,7 +233,7 @@ pub mod shard_server {
         async fn apply(
             &self,
             request: tonic::Request<::proto_gazette::consumer::ApplyRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_gazette::consumer::ApplyResponse>,
             tonic::Status,
         >;
@@ -215,7 +241,7 @@ pub mod shard_server {
         async fn get_hints(
             &self,
             request: tonic::Request<::proto_gazette::consumer::GetHintsRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_gazette::consumer::GetHintsResponse>,
             tonic::Status,
         >;
@@ -223,7 +249,7 @@ pub mod shard_server {
         async fn unassign(
             &self,
             request: tonic::Request<::proto_gazette::consumer::UnassignRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_gazette::consumer::UnassignResponse>,
             tonic::Status,
         >;
@@ -237,6 +263,8 @@ pub mod shard_server {
         inner: _Inner<T>,
         accept_compression_encodings: EnabledCompressionEncodings,
         send_compression_encodings: EnabledCompressionEncodings,
+        max_decoding_message_size: Option<usize>,
+        max_encoding_message_size: Option<usize>,
     }
     struct _Inner<T>(Arc<T>);
     impl<T: Shard> ShardServer<T> {
@@ -249,6 +277,8 @@ pub mod shard_server {
                 inner,
                 accept_compression_encodings: Default::default(),
                 send_compression_encodings: Default::default(),
+                max_decoding_message_size: None,
+                max_encoding_message_size: None,
             }
         }
         pub fn with_interceptor<F>(
@@ -272,6 +302,22 @@ pub mod shard_server {
             self.send_compression_encodings.enable(encoding);
             self
         }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.max_decoding_message_size = Some(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.max_encoding_message_size = Some(limit);
+            self
+        }
     }
     impl<T, B> tonic::codegen::Service<http::Request<B>> for ShardServer<T>
     where
@@ -285,7 +331,7 @@ pub mod shard_server {
         fn poll_ready(
             &mut self,
             _cx: &mut Context<'_>,
-        ) -> Poll<Result<(), Self::Error>> {
+        ) -> Poll<std::result::Result<(), Self::Error>> {
             Poll::Ready(Ok(()))
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
@@ -309,13 +355,15 @@ pub mod shard_server {
                                 ::proto_gazette::consumer::StatRequest,
                             >,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move { (*inner).stat(request).await };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -325,6 +373,10 @@ pub mod shard_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -349,13 +401,15 @@ pub mod shard_server {
                                 ::proto_gazette::consumer::ListRequest,
                             >,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move { (*inner).list(request).await };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -365,6 +419,10 @@ pub mod shard_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -390,13 +448,15 @@ pub mod shard_server {
                                 ::proto_gazette::consumer::ApplyRequest,
                             >,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move { (*inner).apply(request).await };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -406,6 +466,10 @@ pub mod shard_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -431,13 +495,15 @@ pub mod shard_server {
                                 ::proto_gazette::consumer::GetHintsRequest,
                             >,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move { (*inner).get_hints(request).await };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -447,6 +513,10 @@ pub mod shard_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -472,13 +542,15 @@ pub mod shard_server {
                                 ::proto_gazette::consumer::UnassignRequest,
                             >,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move { (*inner).unassign(request).await };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -488,6 +560,10 @@ pub mod shard_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -516,12 +592,14 @@ pub mod shard_server {
                 inner,
                 accept_compression_encodings: self.accept_compression_encodings,
                 send_compression_encodings: self.send_compression_encodings,
+                max_decoding_message_size: self.max_decoding_message_size,
+                max_encoding_message_size: self.max_encoding_message_size,
             }
         }
     }
     impl<T: Shard> Clone for _Inner<T> {
         fn clone(&self) -> Self {
-            Self(self.0.clone())
+            Self(Arc::clone(&self.0))
         }
     }
     impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
