@@ -7,6 +7,7 @@ use sqlx::types::Uuid;
 
 pub mod beta_onboard;
 pub mod grant;
+pub mod accept_demo_tenant;
 
 // Row is the dequeued task shape of an applied directive operation.
 #[derive(Debug)]
