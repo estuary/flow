@@ -3,6 +3,7 @@ use anyhow::Context;
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt, TryStreamExt};
 use prost::Message;
+use proto_flow::runtime::{derive_request_ext, DeriveRequestExt};
 use proto_flow::{derive, flow, flow::collection_spec::derivation::Transform};
 use proto_gazette::broker;
 use tokio::sync::broadcast;
@@ -21,6 +22,11 @@ pub struct Preview {
     /// based on observed output documents?
     #[clap(long)]
     infer_schema: bool,
+    /// When previewing a SQLite derivation, the path URI of the database to use.
+    /// This can be useful for debugging the internal state of a database.
+    /// If not specified, an in-memory-only database is used.
+    #[clap(long, default_value = ":memory:")]
+    sqlite_uri: String,
     /// How frequently should we close transactions and emit combined documents?
     /// If not specified, the default is one second.
     #[clap(long)]
@@ -33,11 +39,18 @@ impl Preview {
             source,
             collection,
             infer_schema,
+            sqlite_uri: sqlite_path,
             interval: flush_interval,
         } = self;
+        let source = local_specs::arg_source_to_url(source, false)?;
+
+        if self.infer_schema && source.scheme() != "file" {
+            anyhow::bail!("schema inference can only be used with a local file --source");
+        }
 
         let client = ctx.controlplane_client().await?;
-        let (mut sources, validations) = local_specs::load_and_validate(client, source).await?;
+        let (sources, validations) =
+            local_specs::load_and_validate(client, source.as_str()).await?;
 
         // Identify the derivation to preview.
         let needle = if let Some(needle) = collection {
@@ -58,7 +71,7 @@ impl Preview {
             Ok(index) => &validations.built_collections[index],
             Err(_) => anyhow::bail!("could not find the collection {needle}"),
         };
-        let derivation = &built_collection
+        let derivation = built_collection
             .spec
             .derivation
             .as_ref()
@@ -104,10 +117,14 @@ impl Preview {
         // Start derivation connector.
         let (mut request_tx, request_rx) = mpsc::channel(64);
 
+        // Remove `uuid_ptr` so that UUID placeholders aren't included in preview output.
+        let mut spec = built_collection.spec.clone();
+        spec.uuid_ptr = String::new();
+
         request_tx
             .send(Ok(derive::Request {
                 open: Some(derive::request::Open {
-                    collection: Some(built_collection.spec.clone()),
+                    collection: Some(spec),
                     range: Some(flow::RangeSpec {
                         key_begin: 0,
                         key_end: u32::MAX,
@@ -116,6 +133,18 @@ impl Preview {
                     }),
                     version: "local".to_string(),
                     state_json: "{}".to_string(),
+                }),
+                internal: Some(proto_flow::Any {
+                    type_url: "flow://runtime.DeriveResponseExt".to_string(),
+                    value: DeriveRequestExt {
+                        open: Some(derive_request_ext::Open {
+                            sqlite_vfs_uri: sqlite_path.clone(),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }
+                    .encode_to_vec()
+                    .into(),
                 }),
                 ..Default::default()
             }))
@@ -164,29 +193,36 @@ impl Preview {
 
         let cancel = async move {
             let _cancel_tx = cancel_tx; // Owned and dropped by this future.
-            let () = tokio::signal::ctrl_c().await?;
+
+            // Blocking read until stdin is closed.
+            tokio::io::copy(&mut tokio::io::stdin(), &mut tokio::io::sink()).await?;
             Ok::<(), anyhow::Error>(())
         };
 
         let ((), (), (), schema) = futures::try_join!(cancel, reads, flushes, output)?;
 
-        // Write out the inferred schema.
+        // Update with an inferred schema and write out the updated Flow spec.
         if let Some(schema) = schema {
+            // Reload `sources`, this time without inlining them.
+            let mut sources = local_specs::surface_errors(local_specs::load(&source).await)
+                .expect("sources must load a second time");
+
+            // Find the derivation we just previewed.
             let index = sources
                 .collections
                 .binary_search_by_key(&needle, |b| b.collection.as_str())
                 .unwrap();
 
+            // Update (just) its schema, making no other changes to loaded `sources`.
+            // We don't attempt to inline it.
             let collection = &mut sources.collections[index].spec;
-
             collection.read_schema = None;
             collection.write_schema = None;
             collection.schema = Some(models::Schema::new(models::RawValue::from_value(&schema)));
 
-            _ = local_specs::indirect_and_write_resources(sources)?;
+            _ = local_specs::write_resources(sources)?;
         }
-
-        tracing::error!("all done");
+        tracing::info!("all done");
 
         Ok(())
     }

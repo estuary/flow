@@ -3,9 +3,9 @@ use anyhow::Context;
 use doc::combine;
 use std::io::{self, Write};
 
-mod materialize_fixture;
-mod discover;
 mod capture;
+mod discover;
+mod materialize_fixture;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -123,7 +123,7 @@ impl Advanced {
             Command::DenoDerive(_deno) => derive_typescript::run(),
             Command::MaterializeFixture(fixture) => {
                 materialize_fixture::do_materialize_fixture(ctx, fixture).await
-            },
+            }
             Command::Discover(args) => discover::do_discover(ctx, args).await,
             Command::Capture(args) => capture::do_capture(ctx, args).await,
         }

@@ -72,6 +72,9 @@ pub enum Command {
     /// documents from your source collections and applying them to your
     /// derivation's transforms. The output of your derivation is combined and
     /// periodically written to stdout as newline-delimited JSON.
+    /// Preview will process all of your historical source data and thereafter
+    /// will emit ongoing updates, until you ask it to exit by sending CTRL-D
+    /// (which closes stdin).
     ///
     /// Preview is also able to infer and update the schema of your collection,
     /// based on the documents that your transforms are observed to publish.
