@@ -6,19 +6,20 @@ use crate::inference::infer_shape;
 use crate::schema::SchemaBuilder;
 use crate::shape;
 
-type StreamResult = Result<JsonValue, serde_json::Error>;
-type DocumentStream = Box<dyn Iterator<Item = StreamResult>>;
+type StreamResult = serde_json::Result<JsonValue>;
 
 pub fn infer_schema<R: BufRead + 'static>(reader: R) -> Result<RootSchema, anyhow::Error> {
     let stream = serde_json::de::Deserializer::from_reader(reader).into_iter();
     let documents = stream;
-    let schema = analyze(Box::new(documents))?;
+    let schema = analyze(documents)?;
 
     Ok(schema)
 }
 
-fn analyze(values: DocumentStream) -> Result<RootSchema, anyhow::Error> {
-    // TODO: replace this mess with `try_reduce` when it is stablized.
+fn analyze<S>(values: S) -> anyhow::Result<RootSchema>
+where
+    S: Iterator<Item = StreamResult>,
+{
     let mut acc = None;
 
     for result in values {
@@ -42,7 +43,7 @@ mod test {
     use super::*;
     use serde_json::json;
 
-    fn to_stream(documents: Vec<JsonValue>) -> DocumentStream {
+    fn to_stream(documents: Vec<JsonValue>) -> impl Iterator<Item = StreamResult> {
         Box::new(documents.into_iter().map(Result::Ok))
     }
 

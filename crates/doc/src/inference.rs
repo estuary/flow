@@ -3,7 +3,7 @@ use fancy_regex::Regex;
 use itertools::{self, EitherOrBoth, Itertools};
 use json::{
     json_cmp,
-    schema::{formats, types, Application, CoreAnnotation, Keyword, Validation},
+    schema::{formats::Format, types, Application, CoreAnnotation, Keyword, Validation},
     LocatedProperty, Location,
 };
 use serde_json::Value;
@@ -46,7 +46,7 @@ pub struct Shape {
 pub struct StringShape {
     pub content_encoding: Option<String>,
     pub content_type: Option<String>,
-    pub format: Option<formats::Format>,
+    pub format: Option<Format>,
     pub max_length: Option<usize>,
     pub min_length: usize,
 }
@@ -178,7 +178,7 @@ impl From<&reduce::Strategy> for Reduction {
 }
 
 impl StringShape {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             content_encoding: None,
             content_type: None,
@@ -187,7 +187,7 @@ impl StringShape {
             min_length: 0,
         }
     }
-    fn intersect(lhs: Self, rhs: Self) -> Self {
+    pub fn intersect(lhs: Self, rhs: Self) -> Self {
         let max_length = match (lhs.max_length, rhs.max_length) {
             (Some(l), Some(r)) => Some(l.min(r)),
             (Some(l), None) => Some(l),
@@ -203,15 +203,25 @@ impl StringShape {
         }
     }
 
-    fn union(lhs: Self, rhs: Self) -> Self {
+    pub fn union(lhs: Self, rhs: Self) -> Self {
         let max_length = match (lhs.max_length, rhs.max_length) {
             (Some(l), Some(r)) => Some(l.max(r)),
             _ => None,
         };
+
+        let format = match (lhs.format, rhs.format) {
+            // Generally, keep `format` only if both sides agree.
+            (Some(l), Some(r)) if l == r => Some(l),
+            // As a special case, we can widen `format: integer || format: number` => `format: number`.
+            (Some(Format::Integer), Some(Format::Number))
+            | (Some(Format::Number), Some(Format::Integer)) => Some(Format::Number),
+            _ => None,
+        };
+
         StringShape {
             content_encoding: union_option(lhs.content_encoding, rhs.content_encoding),
             content_type: union_option(lhs.content_type, rhs.content_type),
-            format: union_option(lhs.format, rhs.format),
+            format,
             max_length,
             min_length: lhs.min_length.min(rhs.min_length),
         }
@@ -362,6 +372,14 @@ impl ObjShape {
             EitherOrBoth::Both(l, r) => Some(ObjPattern {
                 re: l.re,
                 shape: Shape::union(l.shape, r.shape),
+            }),
+            EitherOrBoth::Left(l) if rhs_addl.is_some() => Some(ObjPattern {
+                re: l.re,
+                shape: Shape::union(l.shape, *rhs_addl.clone().unwrap()),
+            }),
+            EitherOrBoth::Right(r) if lhs_addl.is_some() => Some(ObjPattern {
+                re: r.re,
+                shape: Shape::union(*lhs_addl.clone().unwrap(), r.shape),
             }),
             _ => None,
         })
@@ -1580,7 +1598,7 @@ mod test {
                 string: StringShape {
                     content_encoding: Some("base64".to_owned()),
                     content_type: Some("some/thing".to_owned()),
-                    format: Some(formats::Format::Email),
+                    format: Some(Format::Email),
                     max_length: None,
                     min_length: 0,
                 },
@@ -1668,18 +1686,18 @@ mod test {
     }
 
     #[test]
-    fn test_string_length() {
+    fn test_string_length_and_format_number_widening() {
         infer_test(
             &[
-                "{type: string, minLength: 3, maxLength: 33}",
+                "{type: string, minLength: 3, maxLength: 33, format: number}",
                 "{oneOf: [
-                  {type: string, minLength: 19, maxLength: 20},
-                  {type: string, minLength: 3, maxLength: 20},
-                  {type: string, minLength: 20, maxLength: 33}
+                  {type: string, minLength: 19, maxLength: 20, format: integer},
+                  {type: string, minLength: 3, maxLength: 20, format: number},
+                  {type: string, minLength: 20, maxLength: 33, format: integer}
                 ]}",
                 "{allOf: [
                   {type: string, maxLength: 60},
-                  {type: string, minLength: 3, maxLength: 78},
+                  {type: string, minLength: 3, maxLength: 78, format: number},
                   {type: string, minLength: 2, maxLength: 33}
                 ]}",
             ],
@@ -1689,6 +1707,7 @@ mod test {
                 string: StringShape {
                     min_length: 3,
                     max_length: Some(33),
+                    format: Some(Format::Number),
                     ..Default::default()
                 },
                 ..Default::default()
@@ -2138,7 +2157,42 @@ mod test {
                 },
                 ..Shape::default()
             },
-        )
+        );
+        infer_test(
+            &[
+                // Non-matched properties and patterns are preserved if the
+                // opposing sub-schemas have additionalProperties: false.
+                r#"
+                oneOf:
+                - required: [foo]
+                  properties:
+                    foo: {enum: [a, b]}
+                  additionalProperties: false
+                - patternProperties: {bar: {enum: [c, d]}}
+                  additionalProperties: false
+                "#,
+            ],
+            Shape {
+                provenance: Provenance::Inline,
+                object: ObjShape {
+                    properties: vec![ObjProperty {
+                        name: "foo".to_owned(),
+                        is_required: false,
+                        shape: enum_fixture(json!(["a", "b"])),
+                    }],
+                    patterns: vec![ObjPattern {
+                        re: fancy_regex::Regex::new("bar").unwrap(),
+                        shape: enum_fixture(json!(["c", "d"])),
+                    }],
+                    additional: Some(Box::new(Shape {
+                        type_: types::INVALID,
+                        provenance: Provenance::Inline,
+                        ..Default::default()
+                    })),
+                },
+                ..Shape::default()
+            },
+        );
     }
 
     #[test]
