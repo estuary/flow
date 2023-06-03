@@ -54,7 +54,7 @@ fn apply_migrations(conn: &Connection, migrations: &[String]) -> anyhow::Result<
 pub fn build_transforms<'db>(
     conn: &'db Connection,
     transforms: &[Transform],
-) -> anyhow::Result<Vec<Vec<Lambda<'db>>>> {
+) -> anyhow::Result<Vec<(String, Vec<Lambda<'db>>)>> {
     let mut out = Vec::new();
 
     for Transform {
@@ -64,8 +64,8 @@ pub fn build_transforms<'db>(
         params,
     } in transforms
     {
-        out.push(Vec::new());
-        let stack = out.last_mut().unwrap();
+        out.push((name.clone(), Vec::new()));
+        let (_, stack) = out.last_mut().unwrap();
 
         let block = if is_url_to_generate(block) {
             "SELECT 1;"

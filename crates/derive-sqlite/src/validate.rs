@@ -71,7 +71,7 @@ pub fn do_validate(
     let transform_responses = transforms
         .iter()
         .zip(transform_stacks.iter())
-        .map(|(transform, stack)| {
+        .map(|(transform, (_, stack))| {
             if is_url_to_generate(&transform.block) {
                 generated_files.push((transform.block.clone(), lambda_stub(transform)));
             }
