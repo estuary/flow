@@ -17,7 +17,6 @@ fxhash = { workspace = true }
 iri-string = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
-num-bigint = { workspace = true }
 percent-encoding = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
