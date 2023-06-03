@@ -7,10 +7,7 @@ expression: schema
   "type": "object",
   "properties": {
     "a": {
-      "type": [
-        "number",
-        "string"
-      ],
+      "type": "string",
       "format": "number"
     }
   }
