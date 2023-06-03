@@ -117,7 +117,7 @@ func (f *FlowConsumer) FinishedTxn(shard consumer.Shard, store consumer.Store, f
 // consistent.
 func logTxnFinished(publisher ops.Publisher, op consumer.OpFuture, shard consumer.Shard) {
 	go func() {
-		if err := op.Err(); err != nil && errors.Is(err, context.Canceled) {
+		if err := op.Err(); err != nil && !errors.Is(err, context.Canceled) {
 			ops.PublishLog(publisher, ops.Log_error,
 				"shard failed", "error", err, "assignment", shard.Assignment().Decoded)
 		}
