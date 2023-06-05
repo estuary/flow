@@ -1,5 +1,5 @@
 ---
-sidebar_position: 1
+sidebar_position: 3
 ---
 # Marketo
 
@@ -8,6 +8,7 @@ This connector captures data from Marketo into Flow collections.
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-marketo:dev`](https://ghcr.io/estuary/source-marketo:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/marketo/),
 but keep in mind that the two versions may be significantly different.
 
@@ -28,7 +29,7 @@ By default, each resource is mapped to a Flow collection through a separate bind
 
 * \(Optional\) Whitelist Estuary's IP address if needed
 * An API-only Marketo User Role
-* An Airbyte Marketo API-only user
+* An Estuary Marketo API-only user
 * A Marketo API Custom Service
 * Marketo Client ID & Client Secret
 * Marketo Base URL

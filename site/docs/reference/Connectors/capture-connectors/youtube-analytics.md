@@ -8,6 +8,7 @@ This connector captures data from YouTube Analytics into Flow collections.
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-youtube-analytics:dev`](https://ghcr.io/estuary/source-youtube-analytics:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/youtube-analytics/),
 but keep in mind that the two versions may be significantly different.
 
@@ -36,21 +37,20 @@ The following data resources are supported through the YouTube Analytics APIs:
 
 By default, each resource is mapped to a Flow collection through a separate binding.
 
-## Prerequisites
-
-* YouTube does not start to generate a report until you create a [reporting job](https://developers.google.com/youtube/reporting/v1/reports#step-3:-create-a-reporting-job) for that report.
-Airbyte creates a reporting job for your report or uses current reporting job if it's already exists.
-The report will be available within 48 hours of creating the reporting job and will be for the day that the job was scheduled.
-For example, if you schedule a job on September 1, 2015, then the report for September 1, 2015, will be ready on September 3, 2015.
-The report for September 2, 2015, will be posted on September 4, 2015, and so forth.
-Youtube also generates historical data reports covering the 30-day period prior to when you created the job. Airbyte syncs all available historical data too.
-
 ## Configuration
 
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the YouTube Analytics source connector.
 
 ### Properties
+
+#### Endpoint
+
+| Property | Title | Description | Type | Required/Default |
+|---|---|---|---|---|
+| **`/client_id`** | Client ID | Your Client ID | string | Required |
+| **`/client_secret`** | Secret Key | Your Client Secret | string | Required |
+| **`/refresh_token`** | Refresh Token | Your Refresh Token | string | Required |
 
 #### Bindings
 

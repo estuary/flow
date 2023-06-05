@@ -8,6 +8,7 @@ This connector captures data from Jira into Flow collections.
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-jira:dev`](https://ghcr.io/estuary/source-jira:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/jira/),
 but keep in mind that the two versions may be significantly different.
 
@@ -70,7 +71,7 @@ By default, each resource is mapped to a Flow collection through a separate bind
 
 ## Prerequisites
 
-- API Token
+- API Token: You can create an API token following [these steps from Jira](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/)
 - Domain
 - Email
 
@@ -85,7 +86,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| `/api_token` | API Token | ira API Token. See the docs for more information on how to generate this key. API Token is used for Authorization to your account by BasicAuth: https://go.estuary.dev/cVlN5P | string | Required |
+| `/api_token` | API Token | Jira API Token is used for Authorization to your account by BasicAuth. | string | Required |
 | `/domain` | Domain | The Domain for your Jira account, e.g. estuary.atlassian.net, estuary.jira.com, jira.your-domain.com | string | Required |
 | `/email` | Email | The user email for your Jira account which you used to generate the API token. This field is used for Authorization to your account by BasicAuth. | string | Required |
 
