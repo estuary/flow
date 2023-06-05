@@ -3,15 +3,12 @@ package capture
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	math "math"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"go.gazette.dev/core/broker/client"
-	codes "google.golang.org/grpc/codes"
-	status "google.golang.org/grpc/status"
 )
 
 // Client of a connector's Capture RPC. It provides a high-level
@@ -108,7 +105,7 @@ func Open(
 	// Read Opened response.
 	opened, err := rpc.Recv()
 	if err != nil {
-		return nil, fmt.Errorf("reading Opened: %w", err)
+		return nil, fmt.Errorf("reading Opened: %w", pf.UnwrapGRPCError(err))
 	} else if opened.Opened == nil {
 		return nil, fmt.Errorf("expected Opened, got %#v", opened.String())
 	}
@@ -365,10 +362,9 @@ func readResponses(stream Connector_CaptureClient, ch chan<- responseOrError) {
 			ch <- responseOrError{Response: m}
 			continue
 		}
+		err = pf.UnwrapGRPCError(err)
 
-		if status, ok := status.FromError(err); ok && status.Code() == codes.Internal {
-			err = errors.New(status.Message())
-		} else if ok && status.Code() == codes.Canceled {
+		if err == context.Canceled {
 			err = io.EOF // Treat as EOF.
 		}
 

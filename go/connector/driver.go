@@ -3,7 +3,6 @@ package connector
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 
@@ -13,8 +12,6 @@ import (
 	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/gogo/protobuf/proto"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // Driver encapsulates the various ways in which we drive connectors:
@@ -185,16 +182,7 @@ func Invoke[
 		}
 		return nil
 	}); err != nil {
-		if status, ok := status.FromError(err); !ok {
-			// Leave `err` alone.
-		} else if status.Code() == codes.Internal || status.Code() == codes.Unknown {
-			err = errors.New(status.Message())
-		} else if status.Code() == codes.DeadlineExceeded {
-			err = context.DeadlineExceeded
-		} else if status.Code() == codes.Canceled {
-			err = context.Canceled
-		}
-		return nil, err
+		return nil, pf.UnwrapGRPCError(err)
 	} else if err = ResponsePtr(response).Validate(); err != nil {
 		return nil, fmt.Errorf("invocation succeeded but returned invalid response: %w", err)
 	}
