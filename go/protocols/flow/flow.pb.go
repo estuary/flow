@@ -143,8 +143,7 @@ func (CollectionSpec_Derivation_ConnectorType) EnumDescriptor() ([]byte, []int) 
 	return fileDescriptor_d0677502142fec31, []int{7, 0, 0}
 }
 
-// JSON types of shuffle key components extracted by the transforms of this
-// derivation.
+// JSON types of shuffle key components extracted by the transforms of this derivation.
 type CollectionSpec_Derivation_ShuffleType int32
 
 const (
@@ -419,9 +418,9 @@ func (BuildAPI_Code) EnumDescriptor() ([]byte, []int) {
 }
 
 // Status represents the high-level response to an Open request. If OK, then
-// the connection may proceed. Any other status indicates the reason for
-// refusal. This enum is a superset of the consumer.Status enum used by the
-// Shards service, though some statuses have taken on broader meanings.
+// the connection may proceed. Any other status indicates the reason for refusal.
+// This enum is a superset of the consumer.Status enum used by the Shards service,
+// though some statuses have taken on broader meanings.
 type TaskNetworkProxyResponse_Status int32
 
 const (
@@ -436,9 +435,9 @@ const (
 	// and was not instructed to proxy the request.
 	TaskNetworkProxyResponse_NOT_SHARD_PRIMARY TaskNetworkProxyResponse_Status = 3
 	// Used to indicate an error in the proxying machinery.
-	// This corresponds to consumer.Status_ETCD_TRANSACTION_FAILED, which is
-	// considered a specific case of the broader category of "internal" errors,
-	// since the proxy API doesn't directly expose anything about etcd.
+	// This corresponds to consumer.Status_ETCD_TRANSACTION_FAILED, which is considered
+	// a specific case of the broader category of "internal" errors, since the proxy API
+	// doesn't directly expose anything about etcd.
 	TaskNetworkProxyResponse_INTERNAL_ERROR TaskNetworkProxyResponse_Status = 4
 	// Either the shard itself is stopped or failed, or else the container is.
 	TaskNetworkProxyResponse_SHARD_STOPPED TaskNetworkProxyResponse_Status = 5
@@ -905,8 +904,7 @@ type NetworkPort struct {
 	Protocol string `protobuf:"bytes,2,opt,name=protocol,proto3" json:"protocol,omitempty"`
 	// Is this port public?
 	// When true, unauthenticated requests are allowed.
-	// Otherwise only authenticated users with access to the task will be
-	// permitted.
+	// Otherwise only authenticated users with access to the task will be permitted.
 	Public               bool     `protobuf:"varint,3,opt,name=public,proto3" json:"public,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -1071,25 +1069,23 @@ type CollectionSpec_Derivation_Transform struct {
 	Collection CollectionSpec `protobuf:"bytes,2,opt,name=collection,proto3" json:"collection"`
 	// Selector of collection partitions which this materialization reads.
 	PartitionSelector protocol.LabelSelector `protobuf:"bytes,3,opt,name=partition_selector,json=partitionSelector,proto3" json:"partition_selector"`
-	// Priority of this transform, with respect to other transforms of the
-	// derivation. Higher values imply higher priority.
+	// Priority of this transform, with respect to other transforms of the derivation.
+	// Higher values imply higher priority.
 	Priority uint32 `protobuf:"varint,4,opt,name=priority,proto3" json:"priority,omitempty"`
 	// Number of seconds for which documents of this transformed are delayed
 	// while reading, relative to other documents (when back-filling) and the
 	// present wall-clock time (when tailing).
 	ReadDelaySeconds uint32 `protobuf:"varint,5,opt,name=read_delay_seconds,json=readDelaySeconds,proto3" json:"read_delay_seconds,omitempty"`
-	// Shuffle key of this transform, or empty if a shuffle key is not
-	// defined.
+	// Shuffle key of this transform, or empty if a shuffle key is not defined.
 	ShuffleKey []string `protobuf:"bytes,6,rep,name=shuffle_key,json=shuffleKey,proto3" json:"shuffle_key,omitempty"`
-	/// JSON-encoded shuffle lambda of this transform, or empty if a shuffle
-	/// lambda is not defined.
+	/// JSON-encoded shuffle lambda of this transform, or empty if a shuffle lambda is not defined.
 	ShuffleLambdaConfigJson encoding_json.RawMessage `protobuf:"bytes,7,opt,name=shuffle_lambda_config_json,json=shuffleLambdaConfig,proto3,casttype=encoding/json.RawMessage" json:"shuffle_lambda_config_json,omitempty"`
 	// JSON-encoded lambda of this transform.
 	LambdaConfigJson encoding_json.RawMessage `protobuf:"bytes,8,opt,name=lambda_config_json,json=lambdaConfig,proto3,casttype=encoding/json.RawMessage" json:"lambda_config_json,omitempty"`
 	// Is this transform known to always be read-only?
 	ReadOnly bool `protobuf:"varint,9,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
-	// Stable, unique value used to suffix journal read checkpoints of this
-	// transform. Computed as "derive/{derivation}/{transform}".
+	// Stable, unique value used to suffix journal read checkpoints of this transform.
+	// Computed as "derive/{derivation}/{transform}".
 	JournalReadSuffix    string   `protobuf:"bytes,10,opt,name=journal_read_suffix,json=journalReadSuffix,proto3" json:"journal_read_suffix,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -1355,9 +1351,8 @@ type MaterializationSpec_Binding struct {
 	// Materialize delta updates of documents rather than full reductions.
 	DeltaUpdates      bool                                           `protobuf:"varint,5,opt,name=delta_updates,json=deltaUpdates,proto3" json:"delta_updates,omitempty"`
 	DeprecatedShuffle *MaterializationSpec_Binding_DeprecatedShuffle `protobuf:"bytes,6,opt,name=deprecated_shuffle,json=deprecatedShuffle,proto3" json:"deprecated_shuffle,omitempty"`
-	// Stable, unique value used to suffix journal read checkpoints of this
-	// binding. Computed as
-	// "materialize/{materialization}/{encoded-resource-path}".
+	// Stable, unique value used to suffix journal read checkpoints of this binding.
+	// Computed as "materialize/{materialization}/{encoded-resource-path}".
 	JournalReadSuffix    string   `protobuf:"bytes,8,opt,name=journal_read_suffix,json=journalReadSuffix,proto3" json:"journal_read_suffix,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -1397,8 +1392,7 @@ func (m *MaterializationSpec_Binding) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_MaterializationSpec_Binding proto.InternalMessageInfo
 
-// Deprecated shuffle message which holds an alternate location for
-// `partition_selector`.
+// Deprecated shuffle message which holds an alternate location for `partition_selector`.
 type MaterializationSpec_Binding_DeprecatedShuffle struct {
 	GroupName            string                 `protobuf:"bytes,1,opt,name=group_name,json=groupName,proto3" json:"group_name,omitempty"`
 	PartitionSelector    protocol.LabelSelector `protobuf:"bytes,3,opt,name=partition_selector,json=partitionSelector,proto3" json:"partition_selector"`
@@ -2538,12 +2532,10 @@ func (m *TaskNetworkProxyRequest) XXX_DiscardUnknown() {
 var xxx_messageInfo_TaskNetworkProxyRequest proto.InternalMessageInfo
 
 type TaskNetworkProxyRequest_Open struct {
-	// Header contains information about the shard resolution that was done by
-	// the client
+	// Header contains information about the shard resolution that was done by the client
 	Header  *protocol.Header                              `protobuf:"bytes,1,opt,name=header,proto3" json:"header,omitempty"`
 	ShardId go_gazette_dev_core_consumer_protocol.ShardID `protobuf:"bytes,2,opt,name=shard_id,json=shardId,proto3,casttype=go.gazette.dev/core/consumer/protocol.ShardID" json:"shard_id,omitempty"`
-	// The port number inside the container that the client wishes to connect
-	// to.
+	// The port number inside the container that the client wishes to connect to.
 	TargetPort uint32 `protobuf:"varint,3,opt,name=target_port,json=targetPort,proto3" json:"target_port,omitempty"`
 	// The network address of the client that is establishing the connection.
 	ClientAddr           string   `protobuf:"bytes,4,opt,name=client_addr,json=clientAddr,proto3" json:"client_addr,omitempty"`

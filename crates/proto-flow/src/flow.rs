@@ -293,8 +293,7 @@ pub struct NetworkPort {
     pub protocol: ::prost::alloc::string::String,
     /// Is this port public?
     /// When true, unauthenticated requests are allowed.
-    /// Otherwise only authenticated users with access to the task will be
-    /// permitted.
+    /// Otherwise only authenticated users with access to the task will be permitted.
     #[prost(bool, tag = "3")]
     pub public: bool,
 }
@@ -384,8 +383,8 @@ pub mod collection_spec {
             pub partition_selector: ::core::option::Option<
                 ::proto_gazette::broker::LabelSelector,
             >,
-            /// Priority of this transform, with respect to other transforms of the
-            /// derivation. Higher values imply higher priority.
+            /// Priority of this transform, with respect to other transforms of the derivation.
+            /// Higher values imply higher priority.
             #[prost(uint32, tag = "4")]
             pub priority: u32,
             /// Number of seconds for which documents of this transformed are delayed
@@ -393,12 +392,10 @@ pub mod collection_spec {
             /// present wall-clock time (when tailing).
             #[prost(uint32, tag = "5")]
             pub read_delay_seconds: u32,
-            /// Shuffle key of this transform, or empty if a shuffle key is not
-            /// defined.
+            /// Shuffle key of this transform, or empty if a shuffle key is not defined.
             #[prost(string, repeated, tag = "6")]
             pub shuffle_key: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-            /// / JSON-encoded shuffle lambda of this transform, or empty if a shuffle
-            /// / lambda is not defined.
+            /// / JSON-encoded shuffle lambda of this transform, or empty if a shuffle lambda is not defined.
             #[prost(string, tag = "7")]
             pub shuffle_lambda_config_json: ::prost::alloc::string::String,
             /// JSON-encoded lambda of this transform.
@@ -407,8 +404,8 @@ pub mod collection_spec {
             /// Is this transform known to always be read-only?
             #[prost(bool, tag = "9")]
             pub read_only: bool,
-            /// Stable, unique value used to suffix journal read checkpoints of this
-            /// transform. Computed as "derive/{derivation}/{transform}".
+            /// Stable, unique value used to suffix journal read checkpoints of this transform.
+            /// Computed as "derive/{derivation}/{transform}".
             #[prost(string, tag = "10")]
             pub journal_read_suffix: ::prost::alloc::string::String,
         }
@@ -454,8 +451,7 @@ pub mod collection_spec {
                 }
             }
         }
-        /// JSON types of shuffle key components extracted by the transforms of this
-        /// derivation.
+        /// JSON types of shuffle key components extracted by the transforms of this derivation.
         #[derive(
             Clone,
             Copy,
@@ -670,16 +666,14 @@ pub mod materialization_spec {
         pub delta_updates: bool,
         #[prost(message, optional, tag = "6")]
         pub deprecated_shuffle: ::core::option::Option<binding::DeprecatedShuffle>,
-        /// Stable, unique value used to suffix journal read checkpoints of this
-        /// binding. Computed as
-        /// "materialize/{materialization}/{encoded-resource-path}".
+        /// Stable, unique value used to suffix journal read checkpoints of this binding.
+        /// Computed as "materialize/{materialization}/{encoded-resource-path}".
         #[prost(string, tag = "8")]
         pub journal_read_suffix: ::prost::alloc::string::String,
     }
     /// Nested message and enum types in `Binding`.
     pub mod binding {
-        /// Deprecated shuffle message which holds an alternate location for
-        /// `partition_selector`.
+        /// Deprecated shuffle message which holds an alternate location for `partition_selector`.
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct DeprecatedShuffle {
@@ -1359,14 +1353,12 @@ pub mod task_network_proxy_request {
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Open {
-        /// Header contains information about the shard resolution that was done by
-        /// the client
+        /// Header contains information about the shard resolution that was done by the client
         #[prost(message, optional, tag = "1")]
         pub header: ::core::option::Option<::proto_gazette::broker::Header>,
         #[prost(string, tag = "2")]
         pub shard_id: ::prost::alloc::string::String,
-        /// The port number inside the container that the client wishes to connect
-        /// to.
+        /// The port number inside the container that the client wishes to connect to.
         #[prost(uint32, tag = "3")]
         pub target_port: u32,
         /// The network address of the client that is establishing the connection.
@@ -1393,9 +1385,9 @@ pub mod task_network_proxy_response {
         pub header: ::core::option::Option<::proto_gazette::broker::Header>,
     }
     /// Status represents the high-level response to an Open request. If OK, then
-    /// the connection may proceed. Any other status indicates the reason for
-    /// refusal. This enum is a superset of the consumer.Status enum used by the
-    /// Shards service, though some statuses have taken on broader meanings.
+    /// the connection may proceed. Any other status indicates the reason for refusal.
+    /// This enum is a superset of the consumer.Status enum used by the Shards service,
+    /// though some statuses have taken on broader meanings.
     #[derive(
         Clone,
         Copy,
@@ -1420,9 +1412,9 @@ pub mod task_network_proxy_response {
         /// and was not instructed to proxy the request.
         NotShardPrimary = 3,
         /// Used to indicate an error in the proxying machinery.
-        /// This corresponds to consumer.Status_ETCD_TRANSACTION_FAILED, which is
-        /// considered a specific case of the broader category of "internal" errors,
-        /// since the proxy API doesn't directly expose anything about etcd.
+        /// This corresponds to consumer.Status_ETCD_TRANSACTION_FAILED, which is considered
+        /// a specific case of the broader category of "internal" errors, since the proxy API
+        /// doesn't directly expose anything about etcd.
         InternalError = 4,
         /// Either the shard itself is stopped or failed, or else the container is.
         ShardStopped = 5,
