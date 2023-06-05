@@ -68,7 +68,7 @@ mod test {
           ('bb00000000000000', 'InvalidPrefix/', '{"type":"acceptDemoTenant"}')
         ),
         p2 as (
-            insert into tenants (tenant) values ('takenTenant/')
+          delete from applied_directives -- Clear seed fixture
         ),
         p3 as (
           insert into applied_directives (directive_id, user_id, user_claims) values
@@ -106,7 +106,7 @@ mod test {
         [
           {
             "claims": {
-                "tenant": "test/"
+              "tenant": "test/"
             },
             "did": "aa:00:00:00:00:00:00:00",
             "status": {
