@@ -233,7 +233,8 @@ message NetworkPort {
   string protocol = 2;
   // Is this port public?
   // When true, unauthenticated requests are allowed.
-  // Otherwise only authenticated users with access to the task will be permitted.
+  // Otherwise only authenticated users with access to the task will be
+  // permitted.
   bool public = 3;
 }
 
@@ -265,9 +266,9 @@ message CollectionSpec {
   repeated Projection projections = 6 [ (gogoproto.nullable) = false ];
   // JSON-encoded document template for creating Gazette consumer
   // transaction acknowledgements of writes into this collection.
-  string ack_template_json = 7
-      [ (gogoproto.casttype) = "encoding/json.RawMessage",
-      json_name = "ackTemplate"
+  string ack_template_json = 7 [
+    (gogoproto.casttype) = "encoding/json.RawMessage",
+    json_name = "ackTemplate"
   ];
   // Template for partitions of this collection.
   protocol.JournalSpec partition_template = 9;
@@ -297,17 +298,20 @@ message CollectionSpec {
       // Source collection which is read by this transform.
       CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
       // Selector of collection partitions which this materialization reads.
-      protocol.LabelSelector partition_selector = 3 [ (gogoproto.nullable) = false ];
-      // Priority of this transform, with respect to other transforms of the derivation.
-      // Higher values imply higher priority.
+      protocol.LabelSelector partition_selector = 3
+          [ (gogoproto.nullable) = false ];
+      // Priority of this transform, with respect to other transforms of the
+      // derivation. Higher values imply higher priority.
       uint32 priority = 4;
       // Number of seconds for which documents of this transformed are delayed
       // while reading, relative to other documents (when back-filling) and the
       // present wall-clock time (when tailing).
       uint32 read_delay_seconds = 5;
-      // Shuffle key of this transform, or empty if a shuffle key is not defined.
+      // Shuffle key of this transform, or empty if a shuffle key is not
+      // defined.
       repeated string shuffle_key = 6;
-      /// JSON-encoded shuffle lambda of this transform, or empty if a shuffle lambda is not defined.
+      /// JSON-encoded shuffle lambda of this transform, or empty if a shuffle
+      /// lambda is not defined.
       string shuffle_lambda_config_json = 7 [
         (gogoproto.casttype) = "encoding/json.RawMessage",
         json_name = "shuffleLambdaConfig"
@@ -319,12 +323,13 @@ message CollectionSpec {
       ];
       // Is this transform known to always be read-only?
       bool read_only = 9;
-      // Stable, unique value used to suffix journal read checkpoints of this transform.
-      // Computed as "derive/{derivation}/{transform}".
+      // Stable, unique value used to suffix journal read checkpoints of this
+      // transform. Computed as "derive/{derivation}/{transform}".
       string journal_read_suffix = 10;
     }
     repeated Transform transforms = 3 [ (gogoproto.nullable) = false ];
-    // JSON types of shuffle key components extracted by the transforms of this derivation.
+    // JSON types of shuffle key components extracted by the transforms of this
+    // derivation.
     enum ShuffleType {
       INVALID_SHUFFLE_TYPE = 0;
       BOOLEAN = 1;
@@ -436,19 +441,23 @@ message MaterializationSpec {
     // Collection to be materialized.
     CollectionSpec collection = 3 [ (gogoproto.nullable) = false ];
     // Selector of collection partitions which this materialization reads.
-    protocol.LabelSelector partition_selector = 7 [ (gogoproto.nullable) = false ];
+    protocol.LabelSelector partition_selector = 7
+        [ (gogoproto.nullable) = false ];
     // Resolved fields selected for materialization.
     FieldSelection field_selection = 4 [ (gogoproto.nullable) = false ];
     // Materialize delta updates of documents rather than full reductions.
     bool delta_updates = 5;
-    // Deprecated shuffle message which holds an alternate location for `partition_selector`.
+    // Deprecated shuffle message which holds an alternate location for
+    // `partition_selector`.
     message DeprecatedShuffle {
       string group_name = 1;
-      protocol.LabelSelector partition_selector = 3 [ (gogoproto.nullable) = false ];
+      protocol.LabelSelector partition_selector = 3
+          [ (gogoproto.nullable) = false ];
     }
     DeprecatedShuffle deprecated_shuffle = 6;
-    // Stable, unique value used to suffix journal read checkpoints of this binding.
-    // Computed as "materialize/{materialization}/{encoded-resource-path}".
+    // Stable, unique value used to suffix journal read checkpoints of this
+    // binding. Computed as
+    // "materialize/{materialization}/{encoded-resource-path}".
     string journal_read_suffix = 8;
   }
   repeated Binding bindings = 4;
@@ -675,7 +684,6 @@ service Shuffler {
   rpc Shuffle(ShuffleRequest) returns (stream ShuffleResponse);
 }
 
-
 message ConnectorState {
   // Update of the connector state, to be persisted by the Flow runtime
   // and supplied in the Open of a future connector invocation.
@@ -758,9 +766,10 @@ message CombineAPI {
     // Field JSON pointers to be extracted from combined documents and returned.
     // If empty, no fields are extracted.
     repeated string field_ptrs = 3;
-    // JSON-Pointer at which a placeholder UUID should be inserted into
-    // returned documents. If empty, no placeholder is inserted.
-    string uuid_placeholder_ptr = 4;
+    // JSON-Pointer at which the UUID for each document will live.
+    string uuid_ptr = 5;
+    // Whether or not to inject a placeholder into each document at `uuid_ptr`
+    bool inject_uuid_placeholder = 6;
   };
 
   // Stats holds statistics relating to one or more combiner transactions.
@@ -858,10 +867,8 @@ message IngestRequest {
   // Build ID of the ingested collection.
   string build_id = 2;
   // JSON documents to ingest or verify.
-  repeated string docs_json_vec = 3 [
-    (gogoproto.casttype) = "encoding/json.RawMessage",
-    json_name = "docs"
-  ];
+  repeated string docs_json_vec = 3
+      [ (gogoproto.casttype) = "encoding/json.RawMessage", json_name = "docs" ];
 }
 
 // IngestResponse is the response of the Testing.Ingest RPC.
@@ -883,17 +890,17 @@ service Testing {
 
 message TaskNetworkProxyRequest {
   message Open {
-    // Header contains information about the shard resolution that was done by the client
+    // Header contains information about the shard resolution that was done by
+    // the client
     protocol.Header header = 1;
 
-    string shard_id = 2 [
-      (gogoproto.casttype) = "go.gazette.dev/core/consumer/protocol.ShardID"
-    ];
-    // The port number inside the container that the client wishes to connect to.
+    string shard_id = 2 [ (gogoproto.casttype) =
+                              "go.gazette.dev/core/consumer/protocol.ShardID" ];
+    // The port number inside the container that the client wishes to connect
+    // to.
     uint32 target_port = 3;
     // The network address of the client that is establishing the connection.
     string client_addr = 4;
-
   }
   Open open = 1;
   bytes data = 2;
@@ -901,24 +908,24 @@ message TaskNetworkProxyRequest {
 
 message TaskNetworkProxyResponse {
   // Status represents the high-level response to an Open request. If OK, then
-  // the connection may proceed. Any other status indicates the reason for refusal.
-  // This enum is a superset of the consumer.Status enum used by the Shards service,
-  // though some statuses have taken on broader meanings.
+  // the connection may proceed. Any other status indicates the reason for
+  // refusal. This enum is a superset of the consumer.Status enum used by the
+  // Shards service, though some statuses have taken on broader meanings.
   enum Status {
     OK = 0;
-  	// The named shard does not exist.
-  	SHARD_NOT_FOUND = 1;
-  	// There is no current primary consumer process for the shard. This is a
-  	// temporary condition which should quickly resolve, assuming sufficient
-  	// consumer capacity.
-  	NO_SHARD_PRIMARY = 2;
-  	// The present consumer process is not the assigned primary for the shard,
-  	// and was not instructed to proxy the request.
-  	NOT_SHARD_PRIMARY = 3;
+    // The named shard does not exist.
+    SHARD_NOT_FOUND = 1;
+    // There is no current primary consumer process for the shard. This is a
+    // temporary condition which should quickly resolve, assuming sufficient
+    // consumer capacity.
+    NO_SHARD_PRIMARY = 2;
+    // The present consumer process is not the assigned primary for the shard,
+    // and was not instructed to proxy the request.
+    NOT_SHARD_PRIMARY = 3;
     // Used to indicate an error in the proxying machinery.
-    // This corresponds to consumer.Status_ETCD_TRANSACTION_FAILED, which is considered
-    // a specific case of the broader category of "internal" errors, since the proxy API
-    // doesn't directly expose anything about etcd.
+    // This corresponds to consumer.Status_ETCD_TRANSACTION_FAILED, which is
+    // considered a specific case of the broader category of "internal" errors,
+    // since the proxy API doesn't directly expose anything about etcd.
     INTERNAL_ERROR = 4;
     // Either the shard itself is stopped or failed, or else the container is.
     SHARD_STOPPED = 5;
@@ -937,5 +944,6 @@ message TaskNetworkProxyResponse {
 }
 
 service NetworkProxy {
-  rpc Proxy(stream TaskNetworkProxyRequest) returns (stream TaskNetworkProxyResponse);
+  rpc Proxy(stream TaskNetworkProxyRequest)
+      returns (stream TaskNetworkProxyResponse);
 }

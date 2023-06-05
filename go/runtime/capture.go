@@ -268,6 +268,7 @@ func (c *Capture) startReadingMessages(
 			binding.Collection.Name,
 			binding.Collection.WriteSchemaJson,
 			binding.Collection.UuidPtr,
+			true,
 			binding.Collection.Key,
 			flow.PartitionPointers(&binding.Collection),
 		)

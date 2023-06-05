@@ -304,6 +304,36 @@ impl Pointer {
         }
         Some(v)
     }
+
+    pub fn starts_with(&self, val: &Pointer) -> bool {
+        let mut self_iter = self.iter();
+        let mut val_iter = val.iter();
+
+        while let Some(other_item) = val_iter.next() {
+            // Can't combine these yet: https://github.com/rust-lang/rfcs/pull/2497
+            if let Some(item) = self_iter.next() {
+                if item.eq(other_item) {
+                    continue;
+                } else {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    pub fn maybe_parse<S>(input: S) -> Option<Self>
+    where
+        S: AsRef<str>,
+    {
+        match input.as_ref() {
+            "" => None,
+            s => Some(Self::from_str(s)),
+        }
+    }
 }
 
 impl<S: AsRef<str>> From<S> for Pointer {
@@ -629,5 +659,20 @@ mod test {
         assert_eq!(Pointer::compare(&["/b".into()], d1, d2), Ordering::Less);
         // Key exists at |d1| but not |d2|. Both are null (implicit and explicit).
         assert_eq!(Pointer::compare(&["/a".into()], d1, d2), Ordering::Equal);
+    }
+
+    #[test]
+    fn test_pointer_starts_with() {
+        assert_eq!(Pointer::starts_with(&"/a/b/c".into(), &"/a".into()), true);
+        assert_eq!(Pointer::starts_with(&"/a/b/c".into(), &"/a/b".into()), true);
+        assert_eq!(Pointer::starts_with(&"/a/b/c".into(), &"/b".into()), false);
+        assert_eq!(
+            Pointer::starts_with(&"/a/b/c".into(), &"/a/d".into()),
+            false
+        );
+        assert_eq!(
+            Pointer::starts_with(&"/a/b/c".into(), &"/a/b/d".into()),
+            false
+        );
     }
 }

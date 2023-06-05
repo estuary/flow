@@ -1,4 +1,5 @@
 use bytes::BufMut;
+use doc::Pointer;
 use proto_flow::flow::Projection;
 use tuple::TuplePack;
 
@@ -17,40 +18,45 @@ pub const UUID_PLACEHOLDER: &str = "DocUUIDPlaceholder-329Bb50aa48EAa9ef";
 pub fn extract_packed_node<'alloc>(
     doc: &doc::LazyNode<'alloc, 'static, doc::ArchivedNode>,
     ptrs: &[doc::Pointer],
+    uuid_ptr: Option<&Pointer>,
     shape: &doc::inference::Shape,
     out: &mut bytes::BytesMut,
 ) -> bytes::Bytes {
     match doc {
-        doc::LazyNode::Heap(doc) => extract_packed(doc, ptrs, shape, out),
-        doc::LazyNode::Node(doc) => extract_packed(*doc, ptrs, shape, out),
+        doc::LazyNode::Heap(doc) => extract_packed(doc, ptrs, uuid_ptr, shape, out),
+        doc::LazyNode::Node(doc) => extract_packed(*doc, ptrs, uuid_ptr, shape, out),
     }
 }
 
 pub fn extract_packed<N: doc::AsNode>(
     doc: &N,
     ptrs: &[doc::Pointer],
+    uuid_ptr: Option<&Pointer>,
     shape: &doc::inference::Shape,
     out: &mut bytes::BytesMut,
 ) -> bytes::Bytes {
     let mut w = out.writer();
 
-    for ptr in ptrs {
-        if let Some(node) = ptr.query(doc) {
-            node.as_node()
-                .pack(&mut w, tuple::TupleDepth::new().increment())
-                .unwrap();
-        } else {
-            let (shape, _) = shape.locate(ptr);
+    use ::derive::PointerExt;
 
-            match &shape.default {
-                Some((val, _)) => val
-                    .pack(&mut w, tuple::TupleDepth::new().increment())
-                    .unwrap(),
-                None => doc::Node::Null::<serde_json::Value>
-                    .pack(&mut w, tuple::TupleDepth::new().increment())
-                    .unwrap(),
-            };
-        }
+    for ptr in ptrs {
+        ptr.query_and_resolve_virtuals(uuid_ptr.cloned(), doc, |doc| {
+            if let Some(node) = doc {
+                node.pack(&mut w, tuple::TupleDepth::new().increment())
+                    .unwrap();
+            } else {
+                let (shape, _) = shape.locate(ptr);
+
+                match &shape.default {
+                    Some((val, _)) => val
+                        .pack(&mut w, tuple::TupleDepth::new().increment())
+                        .unwrap(),
+                    None => doc::Node::Null::<serde_json::Value>
+                        .pack(&mut w, tuple::TupleDepth::new().increment())
+                        .unwrap(),
+                };
+            }
+        });
     }
     out.split().freeze()
 }

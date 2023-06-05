@@ -68,24 +68,27 @@ fn test_param(
 ) -> Param {
     use proto_flow::flow;
 
-    Param::new(&flow::Projection {
-        field: field.to_string(),
-        ptr: ptr.to_string(),
-        inference: Some(flow::Inference {
-            string: Some(flow::inference::String {
-                format: if is_format_integer {
-                    "integer"
-                } else if is_format_number {
-                    "number"
-                } else {
-                    ""
-                }
-                .to_string(),
-                content_encoding: if is_base64 { "base64" } else { "" }.to_string(),
+    Param::new(
+        &flow::Projection {
+            field: field.to_string(),
+            ptr: ptr.to_string(),
+            inference: Some(flow::Inference {
+                string: Some(flow::inference::String {
+                    format: if is_format_integer {
+                        "integer"
+                    } else if is_format_number {
+                        "number"
+                    } else {
+                        ""
+                    }
+                    .to_string(),
+                    content_encoding: if is_base64 { "base64" } else { "" }.to_string(),
+                    ..Default::default()
+                }),
                 ..Default::default()
             }),
             ..Default::default()
-        }),
-        ..Default::default()
-    })
+        },
+        &flow::CollectionSpec::default(),
+    )
 }

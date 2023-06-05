@@ -1,11 +1,15 @@
 use anyhow::Context;
-use proto_flow::flow::DocsAndBytes;
+use doc::{ptr::Token, AsNode, Node, Pointer};
+use proto_flow::flow::{self, DocsAndBytes, UuidParts};
 use serde::Serialize;
+use time::{
+    format_description::well_known::Rfc3339,
+    macros::{date, time},
+    Duration, PrimitiveDateTime,
+};
 
 pub mod combine_api;
 pub mod extract_api;
-
-pub use extract_api::extract_uuid_parts;
 
 /// A type that can accumulate statistics that can be periodically drained.
 /// This trait exists primarily to help with readability and consistency. It doesn't get used as a
@@ -124,5 +128,105 @@ pub mod test {
             }
         });
         schema.to_string()
+    }
+}
+
+/// Extract a UUID at the given location within the document, returning its UuidParts,
+/// or None if the Pointer does not resolve to a valid v1 UUID.
+pub fn extract_uuid_parts<'n, N: AsNode>(v: &'n N, ptr: &doc::Pointer) -> Option<flow::UuidParts> {
+    let Some(v_uuid) = ptr.query(v) else {
+        return None
+    };
+
+    match v_uuid.as_node() {
+        Node::String(uuid_str) => uuid::Uuid::parse_str(uuid_str).ok().and_then(|u| {
+            if u.get_version_num() != 1 {
+                return None;
+            }
+            let (c_low, c_mid, c_high, seq_node_id) = u.as_fields();
+
+            Some(flow::UuidParts {
+                clock: (c_low as u64) << 4          // Clock low bits.
+            | (c_mid as u64) << 36                  // Clock middle bits.
+            | (c_high as u64) << 52                 // Clock high bits.
+            | ((seq_node_id[0] as u64) >> 2) & 0xf, // High 4 bits of sequence number.
+
+                node: (seq_node_id[2] as u64) << 56 // 6 bytes of big-endian node ID.
+            | (seq_node_id[3] as u64) << 48
+            | (seq_node_id[4] as u64) << 40
+            | (seq_node_id[5] as u64) << 32
+            | (seq_node_id[6] as u64) << 24
+            | (seq_node_id[7] as u64) << 16
+            | ((seq_node_id[0] as u64) & 0x3) << 8 // High 2 bits of flags.
+            | (seq_node_id[1] as u64), // Low 8 bits of flags.
+            })
+        }),
+        _ => None,
+    }
+}
+
+// According to RFC4122: https://www.rfc-editor.org/rfc/rfc4122#section-4.1.4
+// The calendar starts on 00:00:00.00, 15 October 1582
+const GREG_START: PrimitiveDateTime = PrimitiveDateTime::new(date!(1582 - 10 - 15), time!(0:00));
+
+pub fn uuid_parts_to_timestamp(parts: &UuidParts) -> PrimitiveDateTime {
+    // UUID timestamps count from the gregorian calendar start, not the unix epoch.
+    // Clock values count in increments of 100ns
+
+    // shift off the lowest 4 bits, which represent the sequence counter
+    // and convert from 100ns increments to microseconds (10 ns increments)
+    let ts_greg_micros = ((parts.clock >> 4) / 10) as i64;
+
+    // Now we just need to add our microseconds value, and we've got a timestamp cooking!
+    GREG_START.saturating_add(Duration::microseconds(ts_greg_micros))
+}
+
+pub trait PointerExt {
+    // Extend the behavior of `Pointer::query` to handle virtual fields like UUID timestamp extraction
+    fn query_and_resolve_virtuals<'n, N: AsNode, CB, CBReturn>(
+        &self,
+        uuid_ptr: Option<Pointer>,
+        node: &'n N,
+        cb: CB,
+    ) -> CBReturn
+    where
+        CB: for<'a> FnMut(Option<&Node<'a, N>>) -> CBReturn;
+}
+
+impl PointerExt for Pointer {
+    fn query_and_resolve_virtuals<'n, N: AsNode, CB, CBReturn>(
+        &self,
+        uuid_ptr: Option<Pointer>,
+        node: &'n N,
+        mut cb: CB,
+    ) -> CBReturn
+    where
+        CB: for<'a> FnMut(Option<&Node<'a, N>>) -> CBReturn,
+    {
+        if let Some(uuid_ptr) = uuid_ptr {
+            if self.starts_with(&uuid_ptr)
+                && self.0.len() == (uuid_ptr.0.len() + 1)
+                && self
+                    .0
+                    .last()
+                    .eq(&Some(&Token::Property("timestamp".to_string())))
+            {
+                let uuid_parts = extract_uuid_parts(node, &uuid_ptr);
+                return match uuid_parts {
+                    Some(parts) => {
+                        // Then let's extract the timestamp from the UUID, and send that as an
+                        // RFC3339 string, which is what the schema for the projection is expecting
+                        let timestamp_str = uuid_parts_to_timestamp(&parts)
+                            .assume_utc()
+                            .format(&Rfc3339)
+                            .expect("failed to format ts");
+
+                        cb(Some(&Node::String(timestamp_str.as_str())))
+                    }
+                    None => cb(None),
+                };
+            }
+        }
+        cb(self.query(node).map(AsNode::as_node).as_ref())
     }
 }

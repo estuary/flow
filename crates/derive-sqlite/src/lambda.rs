@@ -141,13 +141,16 @@ fn bind_parameter<N: doc::AsNode>(
         is_content_encoding_base64,
         is_format_integer,
         is_format_number,
+        collection,
         ..
     }: &Param,
     document: &N,
 ) -> rusqlite::Result<()> {
+    use derive::PointerExt;
     use doc::Node;
+    let uuid_ptr_parsed = doc::Pointer::maybe_parse(collection.uuid_ptr.as_str());
 
-    match ptr.query(document).map(doc::AsNode::as_node) {
+    ptr.query_and_resolve_virtuals(uuid_ptr_parsed, document, |doc| match doc {
         None | Some(Node::Null) => return stmt.raw_bind_parameter(index + 1, None::<bool>),
         Some(Node::Bool(b)) => return stmt.raw_bind_parameter(index + 1, b),
 
@@ -179,7 +182,7 @@ fn bind_parameter<N: doc::AsNode>(
         Some(n @ Node::Object(_)) => {
             stmt.raw_bind_parameter(index + 1, &serde_json::to_string(&n).unwrap())
         }
-    }
+    })
 }
 
 fn row_to_json(

@@ -1,7 +1,6 @@
 use crate::{new_validator, DocCounter, JsonError, StatsAccumulator};
 use anyhow::Context;
 use bytes::Buf;
-use doc::AsNode;
 use prost::Message;
 use proto_flow::flow::combine_api::{self, Code};
 use tuple::{TupleDepth, TuplePack};
@@ -60,11 +59,23 @@ struct State {
     key_ptrs: Box<[doc::Pointer]>,
     // Statistics of a current combine operation.
     stats: CombineStats,
-    // JSON-Pointer into which a UUID placeholder should be set,
-    // or None if a placeholder shouldn't be set.
-    uuid_placeholder_ptr: Option<doc::Pointer>,
     // Shape of the schema used by the this combiner.
     shape: doc::inference::Shape,
+
+    // NOTE about UUID pointers:
+    // As a practical matter, materializations don’t ask the combiner to set a UUID
+    // only captures and derivations do. Since `inject_uuid_placeholder` implies that the
+    // UUID does not actually exist in the document yet, only when it's false (and `uuid_ptr` is Some)
+    // can we reasonably expect to resolve the virtual field <uuid_ptr>/timestamp,
+    // otherwise we'll just return null for that field.
+
+    // JSON-Pointer into which a UUID placeholder should be set,
+    // whether or not a placeholder should be set.
+    inject_uuid_placeholder: bool,
+    // JSON-Pointer at which the UUID of the document lives
+    // Allowed to be None if `inject_uuid_placeholder` is true,
+    // in which case no injection will happen.
+    uuid_ptr: Option<doc::Pointer>,
 }
 
 impl cgo::Service for API {
@@ -93,13 +104,15 @@ impl cgo::Service for API {
                     schema_json,
                     key_ptrs,
                     field_ptrs,
-                    uuid_placeholder_ptr,
+                    uuid_ptr,
+                    inject_uuid_placeholder,
                 } = combine_api::Config::decode(data)?;
                 tracing::debug!(
                     %schema_json,
                     ?key_ptrs,
                     ?field_ptrs,
-                    ?uuid_placeholder_ptr,
+                    ?uuid_ptr,
+                    ?inject_uuid_placeholder,
                     "configure",
                 );
 
@@ -111,10 +124,14 @@ impl cgo::Service for API {
                 let field_ptrs: Vec<doc::Pointer> =
                     field_ptrs.iter().map(doc::Pointer::from).collect();
 
-                let uuid_placeholder_ptr = match uuid_placeholder_ptr.as_ref() {
-                    "" => None,
-                    s => Some(doc::Pointer::from(s)),
-                };
+                let uuid_ptr_parsed = doc::Pointer::maybe_parse(uuid_ptr.as_str());
+
+                if !inject_uuid_placeholder && uuid_ptr_parsed.is_none() {
+                    return Err(anyhow::anyhow!(
+                        "inject_uuid_placeholder is false, but uuid path is empty"
+                    )
+                    .into());
+                }
 
                 let validator = new_validator(&schema_json)?;
                 let shape =
@@ -131,7 +148,8 @@ impl cgo::Service for API {
                     combiner,
                     field_ptrs,
                     key_ptrs,
-                    uuid_placeholder_ptr,
+                    uuid_ptr: uuid_ptr_parsed,
+                    inject_uuid_placeholder,
                     stats: CombineStats::default(),
                     shape,
                 });
@@ -147,7 +165,15 @@ impl cgo::Service for API {
                 state.stats.left.increment(data.len() as u32);
 
                 let memtable = accumulator.memtable()?;
-                let doc = parse_node_with_placeholder(memtable, data, &state.uuid_placeholder_ptr)?;
+                let doc = parse_node_with_placeholder(
+                    memtable,
+                    data,
+                    // Option<Pointer> from state.uuid_ptr that's also None if inject_uuid_placeholder is false
+                    &state
+                        .inject_uuid_placeholder
+                        .then_some(())
+                        .and(state.uuid_ptr.to_owned()),
+                )?;
                 memtable.add(doc, true)?;
 
                 self.state = Some(state);
@@ -163,7 +189,15 @@ impl cgo::Service for API {
                 state.stats.right.increment(data.len() as u32);
 
                 let memtable = accumulator.memtable()?;
-                let doc = parse_node_with_placeholder(memtable, data, &state.uuid_placeholder_ptr)?;
+                let doc = parse_node_with_placeholder(
+                    memtable,
+                    data,
+                    // Option<Pointer> from state.uuid_ptr that's also None if inject_uuid_placeholder is false
+                    &state
+                        .inject_uuid_placeholder
+                        .then_some(())
+                        .and(state.uuid_ptr.to_owned()),
+                )?;
                 memtable.add(doc, false)?;
 
                 self.state = Some(state);
@@ -184,6 +218,10 @@ impl cgo::Service for API {
                     out,
                     &mut state.stats.out,
                     &state.shape,
+                    match state.inject_uuid_placeholder {
+                        true => None,
+                        false => state.uuid_ptr.to_owned(),
+                    },
                 )?;
 
                 if !more {
@@ -233,6 +271,7 @@ pub fn drain_chunk(
     out: &mut Vec<cgo::Out>,
     stats: &mut DocCounter,
     shape: &doc::inference::Shape,
+    uuid_ptr: Option<doc::Pointer>,
 ) -> Result<bool, doc::combine::Error> {
     // Convert target from a delta to an absolute target length of the arena.
     let target_length = target_length + arena.len();
@@ -250,6 +289,8 @@ pub fn drain_chunk(
             cgo::send_bytes(Code::DrainedCombinedDocument as u32, begin, arena, out);
         }
 
+        use crate::PointerExt;
+
         // Send packed key followed by packed additional fields.
         for (code, ptrs) in [
             (Code::DrainedKey, key_ptrs),
@@ -259,10 +300,14 @@ pub fn drain_chunk(
             for p in ptrs.iter() {
                 match &doc {
                     doc::LazyNode::Heap(n) => {
-                        exists_or_default(p.query(n).map(AsNode::as_node), p, shape, arena)
+                        p.query_and_resolve_virtuals(uuid_ptr.to_owned(), n, |my_node| {
+                            exists_or_default(my_node, p, shape, arena)
+                        });
                     }
                     doc::LazyNode::Node(n) => {
-                        exists_or_default(p.query(*n).map(AsNode::as_node), p, shape, arena)
+                        p.query_and_resolve_virtuals(uuid_ptr.to_owned(), *n, |my_node| {
+                            exists_or_default(my_node, p, shape, arena)
+                        });
                     }
                 }
             }
@@ -275,7 +320,7 @@ pub fn drain_chunk(
 }
 
 fn exists_or_default<T>(
-    n: Option<doc::Node<T>>,
+    n: Option<&doc::Node<T>>,
     p: &doc::Pointer,
     shape: &doc::inference::Shape,
     arena: &mut Vec<u8>,
@@ -324,7 +369,8 @@ pub mod test {
                 schema_json: build_min_max_sum_schema(),
                 key_ptrs: vec!["/key".to_owned()],
                 field_ptrs: vec!["/min".to_owned(), "/max".to_owned()],
-                uuid_placeholder_ptr: "/foo".to_owned(),
+                uuid_ptr: "/foo".to_owned(),
+                inject_uuid_placeholder: true,
             },
             &mut arena,
             &mut out,
@@ -415,7 +461,8 @@ pub mod test {
                 schema_json: build_min_max_sum_schema(),
                 key_ptrs: vec!["/key".to_owned()],
                 field_ptrs: vec![],
-                uuid_placeholder_ptr: "/foo".to_owned(),
+                uuid_ptr: "/foo".to_owned(),
+                inject_uuid_placeholder: true,
             },
             &mut arena,
             &mut out,
@@ -473,7 +520,8 @@ pub mod test {
                     schema_json: build_min_max_sum_schema(),
                     key_ptrs: vec![],
                     field_ptrs: vec![],
-                    uuid_placeholder_ptr: String::new(),
+                    uuid_ptr: String::new(),
+                    inject_uuid_placeholder: true
                 },
                 &mut arena,
                 &mut out,
@@ -709,7 +757,8 @@ pub mod test {
                 schema_json,
                 key_ptrs,
                 field_ptrs,
-                uuid_placeholder_ptr: String::new(),
+                uuid_ptr: String::new(),
+                inject_uuid_placeholder: true,
             },
             &mut arena,
             &mut out,

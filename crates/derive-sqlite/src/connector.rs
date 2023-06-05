@@ -1,3 +1,5 @@
+use std::iter;
+
 use super::{dbutil, do_validate, parse_validate, Config, Lambda, Param, Transform};
 use anyhow::Context;
 use futures::channel::mpsc;
@@ -213,7 +215,12 @@ fn parse_open(
             } = transform;
 
             let source = source.unwrap();
-            let params: Vec<_> = source.projections.iter().map(Param::new).collect();
+            let params: Vec<_> = source
+                .projections
+                .iter()
+                .zip(iter::repeat(&source))
+                .map(|(p, c)| Param::new(p, c))
+                .collect();
 
             let block: String = serde_json::from_str(&lambda_config_json).with_context(|| {
                 format!("failed to parse SQLite lambda block: {lambda_config_json}")

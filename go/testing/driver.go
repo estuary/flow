@@ -398,6 +398,7 @@ func combineDocumentsForVerify(
 		collection.Name,
 		collection.GetReadSchemaJson(),
 		collection.UuidPtr,
+		true,
 		collection.Key,
 		nil, // Don't extract additional fields.
 	); err != nil {

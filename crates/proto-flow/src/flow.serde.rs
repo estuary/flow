@@ -2099,7 +2099,10 @@ impl serde::Serialize for combine_api::Config {
         if !self.field_ptrs.is_empty() {
             len += 1;
         }
-        if !self.uuid_placeholder_ptr.is_empty() {
+        if !self.uuid_ptr.is_empty() {
+            len += 1;
+        }
+        if self.inject_uuid_placeholder {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("flow.CombineAPI.Config", len)?;
@@ -2112,8 +2115,11 @@ impl serde::Serialize for combine_api::Config {
         if !self.field_ptrs.is_empty() {
             struct_ser.serialize_field("fieldPtrs", &self.field_ptrs)?;
         }
-        if !self.uuid_placeholder_ptr.is_empty() {
-            struct_ser.serialize_field("uuidPlaceholderPtr", &self.uuid_placeholder_ptr)?;
+        if !self.uuid_ptr.is_empty() {
+            struct_ser.serialize_field("uuidPtr", &self.uuid_ptr)?;
+        }
+        if self.inject_uuid_placeholder {
+            struct_ser.serialize_field("injectUuidPlaceholder", &self.inject_uuid_placeholder)?;
         }
         struct_ser.end()
     }
@@ -2131,8 +2137,10 @@ impl<'de> serde::Deserialize<'de> for combine_api::Config {
             "keyPtrs",
             "field_ptrs",
             "fieldPtrs",
-            "uuid_placeholder_ptr",
-            "uuidPlaceholderPtr",
+            "uuid_ptr",
+            "uuidPtr",
+            "inject_uuid_placeholder",
+            "injectUuidPlaceholder",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2140,7 +2148,8 @@ impl<'de> serde::Deserialize<'de> for combine_api::Config {
             SchemaJson,
             KeyPtrs,
             FieldPtrs,
-            UuidPlaceholderPtr,
+            UuidPtr,
+            InjectUuidPlaceholder,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2165,7 +2174,8 @@ impl<'de> serde::Deserialize<'de> for combine_api::Config {
                             "schemaJson" | "schema_json" => Ok(GeneratedField::SchemaJson),
                             "keyPtrs" | "key_ptrs" => Ok(GeneratedField::KeyPtrs),
                             "fieldPtrs" | "field_ptrs" => Ok(GeneratedField::FieldPtrs),
-                            "uuidPlaceholderPtr" | "uuid_placeholder_ptr" => Ok(GeneratedField::UuidPlaceholderPtr),
+                            "uuidPtr" | "uuid_ptr" => Ok(GeneratedField::UuidPtr),
+                            "injectUuidPlaceholder" | "inject_uuid_placeholder" => Ok(GeneratedField::InjectUuidPlaceholder),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2188,7 +2198,8 @@ impl<'de> serde::Deserialize<'de> for combine_api::Config {
                 let mut schema_json__ : Option<Box<serde_json::value::RawValue>> = None;
                 let mut key_ptrs__ = None;
                 let mut field_ptrs__ = None;
-                let mut uuid_placeholder_ptr__ = None;
+                let mut uuid_ptr__ = None;
+                let mut inject_uuid_placeholder__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::SchemaJson => {
@@ -2209,11 +2220,17 @@ impl<'de> serde::Deserialize<'de> for combine_api::Config {
                             }
                             field_ptrs__ = Some(map.next_value()?);
                         }
-                        GeneratedField::UuidPlaceholderPtr => {
-                            if uuid_placeholder_ptr__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("uuidPlaceholderPtr"));
+                        GeneratedField::UuidPtr => {
+                            if uuid_ptr__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("uuidPtr"));
                             }
-                            uuid_placeholder_ptr__ = Some(map.next_value()?);
+                            uuid_ptr__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::InjectUuidPlaceholder => {
+                            if inject_uuid_placeholder__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("injectUuidPlaceholder"));
+                            }
+                            inject_uuid_placeholder__ = Some(map.next_value()?);
                         }
                     }
                 }
@@ -2221,7 +2238,8 @@ impl<'de> serde::Deserialize<'de> for combine_api::Config {
                     schema_json: schema_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
                     key_ptrs: key_ptrs__.unwrap_or_default(),
                     field_ptrs: field_ptrs__.unwrap_or_default(),
-                    uuid_placeholder_ptr: uuid_placeholder_ptr__.unwrap_or_default(),
+                    uuid_ptr: uuid_ptr__.unwrap_or_default(),
+                    inject_uuid_placeholder: inject_uuid_placeholder__.unwrap_or_default(),
                 })
             }
         }

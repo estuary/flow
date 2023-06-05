@@ -1,5 +1,6 @@
 use super::{indexed, schema, storage_mapping, Error, Scope};
-use json::schema::types;
+use assemble::UUID_PTR;
+use json::schema::{formats, types};
 use proto_flow::flow;
 use std::collections::BTreeMap;
 
@@ -37,6 +38,7 @@ pub fn walk_collection(
                 read_schema,
                 key,
                 projections,
+
                 journals: _,
                 derive: _,
                 derivation: _,
@@ -188,6 +190,38 @@ fn walk_collection_projections(
                     partition,
                 } => (location, *partition),
             };
+
+            let meta_uuid_timestamp_ptr = UUID_PTR.to_string() + "/timestamp";
+            if ptr.to_string() == meta_uuid_timestamp_ptr {
+                return flow::Projection {
+                    ptr: ptr.to_string(),
+                    field: field.to_string(),
+                    explicit: true,
+                    is_primary_key: false,
+                    is_partition_key: false,
+                    inference: Some(flow::Inference {
+                        types: vec!["string".to_string()],
+                        string: Some(flow::inference::String {
+                            content_type: String::default(),
+                            format: formats::Format::DateTime.to_string(),
+                            content_encoding: String::default(),
+                            is_base64: false,
+                            max_length: 0,
+                        }),
+                        title: "Timestamp".to_string(),
+                        description: "Wall-Clock timestamp for this record".to_string(),
+                        default_json: String::default(),
+                        secret: false,
+                        exists: flow::inference::Exists::Must as i32,
+                    }),
+                };
+                // make up schema
+                // update extractor and combiner to handle
+                // combiner: exists_or_default
+                // extractor: extract_uuid_parts
+                //  derive/src/extract_api.rs
+                // validate that you can't use as key or shuffle key
+            }
 
             if ptr.as_str() == "" {
                 saw_root_projection = true;

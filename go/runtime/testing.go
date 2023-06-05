@@ -133,6 +133,7 @@ func (f *FlowTesting) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.In
 		collection.Name,
 		collection.WriteSchemaJson,
 		collection.UuidPtr,
+		true,
 		collection.Key,
 		flow.PartitionPointers(collection),
 	); err != nil {

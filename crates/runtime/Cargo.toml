@@ -9,8 +9,9 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-connector-init = { path = "../connector-init"  }
+connector-init = { path = "../connector-init" }
 doc = { path = "../doc" }
+derive = { path = "../derive" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }

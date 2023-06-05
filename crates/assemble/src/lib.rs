@@ -9,6 +9,9 @@ use std::time::Duration;
 mod ops;
 pub use ops::generate_ops_collections;
 
+// For the forseeable future, we don't allow customizing this.
+pub const UUID_PTR: &str = "/_meta/uuid";
+
 pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
     let default_json = shape
         .default
@@ -422,9 +425,6 @@ pub fn collection_spec(
         })
         .collect();
 
-    // For the forseeable future, we don't allow customizing this.
-    let uuid_ptr = "/_meta/uuid".to_string();
-
     let (write_schema_json, read_schema_json) = match (schema, write_schema, read_schema) {
         (Some(schema), None, None) => (schema.to_string(), String::new()),
         (None, Some(write_schema), Some(read_schema)) => {
@@ -440,7 +440,7 @@ pub fn collection_spec(
         key: key.iter().map(|p| p.to_string()).collect(),
         projections,
         partition_fields,
-        uuid_ptr,
+        uuid_ptr: UUID_PTR.to_string(),
         ack_template_json: serde_json::json!({
                 "_meta": {"uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef",
                 "ack": true,

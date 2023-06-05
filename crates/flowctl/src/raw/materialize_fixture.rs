@@ -99,8 +99,11 @@ pub async fn do_materialize_fixture(
                     projections,
                     write_schema_json,
                     read_schema_json,
+                    uuid_ptr,
                     ..
                 } = collection.as_ref().unwrap();
+
+                let uuid_ptr = doc::Pointer::maybe_parse(uuid_ptr.as_str());
 
                 let flow::FieldSelection { keys, values, .. } = field_selection.as_ref().unwrap();
 
@@ -125,7 +128,13 @@ pub async fn do_materialize_fixture(
                         loads.push(Request {
                             load: Some(request::Load {
                                 binding: binding_index as u32,
-                                key_packed: runtime::extract_packed(doc, &key_ptrs, &shape, buf),
+                                key_packed: runtime::extract_packed(
+                                    doc,
+                                    &key_ptrs,
+                                    uuid_ptr.as_ref(),
+                                    &shape,
+                                    buf,
+                                ),
                                 ..Default::default()
                             }),
                             ..Default::default()
@@ -134,8 +143,20 @@ pub async fn do_materialize_fixture(
                     stores.push(Request {
                         store: Some(request::Store {
                             binding: binding_index as u32,
-                            key_packed: runtime::extract_packed(doc, &key_ptrs, &shape, buf),
-                            values_packed: runtime::extract_packed(doc, &value_ptrs, &shape, buf),
+                            key_packed: runtime::extract_packed(
+                                doc,
+                                &key_ptrs,
+                                uuid_ptr.as_ref(),
+                                &shape,
+                                buf,
+                            ),
+                            values_packed: runtime::extract_packed(
+                                doc,
+                                &value_ptrs,
+                                uuid_ptr.as_ref(),
+                                &shape,
+                                buf,
+                            ),
                             doc_json: doc.to_string(),
                             exists: *exists && !delta_updates,
                             ..Default::default()

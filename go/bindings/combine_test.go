@@ -51,6 +51,7 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 		collection.Name,
 		collection.WriteSchemaJson,
 		collection.UuidPtr,
+		true,
 		collection.Key,
 		nil,
 	)
@@ -104,6 +105,7 @@ func TestCombineBindings(t *testing.T) {
 				collection.Name,
 				collection.WriteSchemaJson,
 				collection.UuidPtr,
+				true,
 				collection.Key,
 				[]string{"/s/1", "/i"},
 			)

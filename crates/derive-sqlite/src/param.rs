@@ -7,6 +7,8 @@ use proto_flow::flow;
 pub struct Param {
     // Projection which is being related as a SQLite parameter.
     pub projection: flow::Projection,
+    // Collection which contains the projection that is being related as a SQLite parameter.
+    pub collection: flow::CollectionSpec,
     // Canonical SQLite parameter encoding for this field.
     pub canonical_encoding: String,
     // JSON pointer location of this field within documents.
@@ -20,9 +22,10 @@ pub struct Param {
 }
 
 impl Param {
-    pub fn new(p: &flow::Projection) -> Self {
+    pub fn new(p: &flow::Projection, c: &flow::CollectionSpec) -> Self {
         Self {
             projection: p.clone(),
+            collection: c.clone(),
             canonical_encoding: canonical_param_encoding(&p.field),
             ptr: doc::Pointer::from_str(&p.ptr),
             is_format_integer: matches!(&p.inference, Some(flow::Inference{string: Some(str), ..}) if str.format == "integer"),

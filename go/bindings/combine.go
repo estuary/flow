@@ -57,6 +57,7 @@ func (c *Combine) Configure(
 	collection pf.Collection,
 	schemaJSON json.RawMessage,
 	uuidPtr string,
+	injectUuidPlaceholder bool,
 	keyPtrs []string,
 	fieldPtrs []string,
 ) error {
@@ -66,10 +67,11 @@ func (c *Combine) Configure(
 	c.svc.mustSendMessage(
 		uint32(pf.CombineAPI_CONFIGURE),
 		&pf.CombineAPI_Config{
-			SchemaJson:         schemaJSON,
-			KeyPtrs:            keyPtrs,
-			FieldPtrs:          fieldPtrs,
-			UuidPlaceholderPtr: uuidPtr,
+			SchemaJson:            schemaJSON,
+			KeyPtrs:               keyPtrs,
+			FieldPtrs:             fieldPtrs,
+			UuidPtr:               uuidPtr,
+			InjectUuidPlaceholder: injectUuidPlaceholder,
 		})
 
 	return pollExpectNoOutput(c.svc)
