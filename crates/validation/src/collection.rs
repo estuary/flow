@@ -152,6 +152,8 @@ fn walk_collection_schema(
     Some(schema)
 }
 
+const META_UUID_TIMESTAMP_PTR: String = UUID_PTR.to_string() + "/timestamp";
+
 fn walk_collection_projections(
     scope: Scope,
     write_schema: &schema::Schema,
@@ -191,8 +193,7 @@ fn walk_collection_projections(
                 } => (location, *partition),
             };
 
-            let meta_uuid_timestamp_ptr = UUID_PTR.to_string() + "/timestamp";
-            if ptr.to_string() == meta_uuid_timestamp_ptr {
+            if ptr.to_string() == META_UUID_TIMESTAMP_PTR {
                 return flow::Projection {
                     ptr: ptr.to_string(),
                     field: field.to_string(),
@@ -215,12 +216,6 @@ fn walk_collection_projections(
                         exists: flow::inference::Exists::Must as i32,
                     }),
                 };
-                // make up schema
-                // update extractor and combiner to handle
-                // combiner: exists_or_default
-                // extractor: extract_uuid_parts
-                //  derive/src/extract_api.rs
-                // validate that you can't use as key or shuffle key
             }
 
             if ptr.as_str() == "" {
