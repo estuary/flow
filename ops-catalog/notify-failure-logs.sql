@@ -23,28 +23,7 @@ WHERE (shard, ts) IN
         LIMIT -1 OFFSET 10
     );
 
-WITH events_since_previous_notification as (
-    select
-        count(*) as event_count
-    from
-        failures
-    where
-        failures.shard = $name
-        and julianday(failures.ts) > COALESCE(
-            (
-                SELECT
-                    ts
-                from
-                    failure_notifications
-                where
-                    failure_notifications.shard = $name
-                    AND julianday(failure_notifications.ts) < julianday($ts)
-                order by
-                    julianday(failure_notifications.ts) desc
-            ), 0
-        )
-),
-return_values as (
+WITH return_values as (
     select
     $message,
     substr(COALESCE($fields->>'error','Missing `error` field, failure reason unknown.'),0,2500) as reason,
@@ -60,7 +39,6 @@ return_values as (
         'message',message,
         'formatted_message',SUBSTR('[ts='||ts||' level='||level||']: '||message,0,2500)
     )) from related_log_lines WHERE shard=$name) as log_lines,
-    (SELECT event_count from events_since_previous_notification) AS events_since_last_notification,
     (SELECT json_group_object(key, value) from json_each($fields) where key != 'error') as filtered_metadata
 )
 INSERT INTO
@@ -105,7 +83,6 @@ RETURNING
     (select task_kind from return_values) as task_kind,
     (select tenant_name from return_values) as tenant_name,
     (select log_lines from return_values) as log_lines,
-    (select events_since_last_notification from return_values) as events_since_last_notification,
     (
         select
             $message|| ': ' || return_values.task_kind || ' `' || $name || '`' || char(10) || 'Date: _' || Datetime($ts) || '_' || char(10) || '```' || char(10) || return_values.reason || '```' as slack_text

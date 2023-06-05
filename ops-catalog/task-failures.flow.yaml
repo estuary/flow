@@ -87,17 +87,13 @@ collections:
         tenant_name:
           type: string
           description: The name of the tenant that owns the task
-        events_since_last_notification:
-          type: number
         log_lines:
           type: array
           items:
             type: object
-            additionalProperties: true
         slack_text:
           type: string
         slack_blocks:
           type: array
           items:
             type: object
-            additionalProperties: true
