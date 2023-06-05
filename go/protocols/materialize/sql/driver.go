@@ -262,7 +262,7 @@ func (d *Driver) Materialize(stream pm.Connector_MaterializeServer) error {
 		if err == io.EOF {
 			return nil
 		} else if err != nil {
-			return err
+			return pf.UnwrapGRPCError(err)
 		} else if err := request.Validate_(); err != nil {
 			return err
 		}

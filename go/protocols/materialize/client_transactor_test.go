@@ -16,8 +16,6 @@ import (
 	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/server"
 	"go.gazette.dev/core/task"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 //go:generate flowctl-go api build --build-id test-build --build-id testdata/temp.db --source testdata/flow.yaml
@@ -304,12 +302,7 @@ func (t *testServer) Materialize(stream Connector_MaterializeServer) error {
 		panic("not an open")
 	}
 
-	if err = RunTransactions(stream, *request.Open, t.OpenedTx, t.Transactor); err != nil {
-		// Send Internal code, as flow-connector-init does.
-		// This is unwrapped by the TxnClient.
-		return status.Error(codes.Internal, err.Error())
-	}
-	return nil
+	return RunTransactions(stream, *request.Open, t.OpenedTx, t.Transactor)
 }
 
 // testTransactor implements Transactor.

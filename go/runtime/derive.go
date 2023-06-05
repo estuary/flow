@@ -21,8 +21,6 @@ import (
 	"go.gazette.dev/core/consumer/recoverylog"
 	store_sqlite "go.gazette.dev/core/consumer/store-sqlite"
 	"go.gazette.dev/core/message"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // Derive is a top-level Application which implements the derivation workflow.
@@ -302,12 +300,9 @@ func doSend(client pd.Connector_DeriveClient, request *pd.Request) error {
 }
 
 func doRecv(client pd.Connector_DeriveClient) (*pd.Response, error) {
-	var response, err = client.Recv()
-	if err != nil {
-		if status, ok := status.FromError(err); ok && status.Code() == codes.Internal {
-			err = errors.New(status.Message())
-		}
-		return nil, err
+	if r, err := client.Recv(); err != nil {
+		return nil, pf.UnwrapGRPCError(err)
+	} else {
+		return r, nil
 	}
-	return response, nil
 }

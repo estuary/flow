@@ -1,11 +1,15 @@
 package flow
 
 import (
+	"context"
+	"errors"
 	"fmt"
 
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	pc "go.gazette.dev/core/consumer/protocol"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Re-export common types of the Gazette broker and consumer protocols,
@@ -64,4 +68,25 @@ func RunAsyncOperation(fn func() error) OpFuture {
 	}(op)
 
 	return op
+}
+
+// UnwrapGRPCError maps an error from Recv() or RecvMsg() into a more-canonical representation, by:
+// * Mapping cancellation or deadline-exceeded into canonical `context` errors.
+// * Unwrapping an Internal or Unknown status code into its contained error message.
+func UnwrapGRPCError(err error) error {
+	var status, ok = status.FromError(err)
+	if !ok {
+		return err
+	}
+
+	switch status.Code() {
+	case codes.Internal, codes.Unknown:
+		return errors.New(status.Message())
+	case codes.Canceled:
+		return context.Canceled
+	case codes.DeadlineExceeded:
+		return context.DeadlineExceeded
+	default:
+		return err
+	}
 }
