@@ -1,3 +1,6 @@
+import:
+  - task-failures.flow.yaml
+
 collections:
   ops.us-central1.v1/logs:
     schema: ops-log-schema.json
