@@ -22,12 +22,9 @@ You define and configure captures in **Flow specifications**.
 
 [See the guide to create a capture](../guides/create-dataflow.md#create-a-capture)
 
-## Pull captures
+## Connectors
 
-Pull captures pull data from an endpoint using a [connector](../#connectors).
-
-### Estuary sources
-
+Captures extract data from an endpoint using a [connector](../#connectors).
 Estuary builds and maintains many real-time connectors for various technology systems,
 such as database change data capture (CDC) connectors.
 
@@ -45,7 +42,7 @@ Estuary's [source connectors](../reference/Connectors/capture-connectors/README.
 A full list of Airbyte's connectors is available at [Airbyte docker hub](https://hub.docker.com/u/airbyte?page=1).
 If you see a connector you'd like to prioritize for access in the Flow web app, [contact us](mailto:support@estuary.dev).
 
-### Discovery
+## Discovery
 
 To help you configure new pull captures, Flow offers the guided **discovery** workflow in the Flow web application.
 
@@ -56,9 +53,9 @@ data collection in Flow.
 
 You may then modify the generated configuration as needed before publishing the capture.
 
-### Specification
+## Specification
 
-Pull captures are defined in Flow specification files per the following format:
+Captures are defined in Flow specification files per the following format:
 
 ```yaml
 # A set of captures to include in the catalog.
@@ -100,35 +97,4 @@ captures:
         resource:
           stream: a-bucket/another-prefix
           syncMode: incremental
-```
-
-## Push captures
-
-Push captures expose an endpoint to which documents may be pushed using a supported ingestion protocol.
-
-:::caution Beta
-Push captures are under development.
-Estuary intends to offer Webhook, Websocket, and Kafka-compatible APIs for capturing into collections.
-Join the [Estuary Slack](https://estuary-dev.slack.com/join/shared_invite/enQtNjQxMzgyNTEzNzk1LTU0ZjZlZmY5ODdkOTEzZDQzZWU5OTk3ZTgyNjY1ZDE1M2U1ZTViMWQxMThiMjU1N2MwOTlhMmVjYjEzMjEwMGQ#/shared-invite/email) for more information on this and other ongoing development work.
-:::
-
-### Specification
-
-Push capture configurations use the following general format:
-
-```yaml
-captures:
-
-  # The name of the capture.
-  acmeCo/example/webhook-ingest:
-    endpoint:
-      # This endpoint is an ingestion.
-      ingest: {}
-
-    bindings:
-      - # The target collection to capture into.
-        target: acmeCo/example/webhooks
-        # The resource configures the specific behavior of the ingestion endpoint.
-        resource:
-          name: webhooks
 ```
