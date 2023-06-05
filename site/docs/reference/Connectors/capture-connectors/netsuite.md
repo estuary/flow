@@ -8,12 +8,9 @@ This connector captures data from NetSuite into Flow collections.
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-netsuite:dev`](https://ghcr.io/estuary/source-netsuite:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/netsuite/),
 but keep in mind that the two versions may be significantly different.
-
-## Supported data resources
-
-- Streams are generated based on `ROLE` and `USER` access to them as well as `Account` settings, make sure you're using the correct role assigned in our case `airbyte-integration-role` or any other custom `ROLE` granted to the Access Token, having the access to the NetSuite objects for data sync.
 
 ## Prerequisites
 
