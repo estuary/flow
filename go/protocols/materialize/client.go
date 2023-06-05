@@ -305,7 +305,7 @@ func (c *TxnClient) writeErr(err error) error {
 	// Otherwise we must synchronously read the error.
 	for {
 		if _, err = c.client.Recv(); err != nil {
-			return err
+			return pf.UnwrapGRPCError(err)
 		}
 	}
 }

@@ -161,7 +161,7 @@ func TestPullClientLifecycle(t *testing.T) {
 	commitOp.Resolve(nil)
 
 	// We're notified of the server failure.
-	require.EqualError(t, <-startCommitCh, "rpc error: code = Unknown desc = crash!")
+	require.EqualError(t, <-startCommitCh, "crash!")
 	// The client closes gracefully.
 	rpc.Close()
 	// A further attempt to set a LogCommitOp errors, since serve() is no longer running.
