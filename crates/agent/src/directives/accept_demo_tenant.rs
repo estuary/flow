@@ -1,3 +1,4 @@
+// This directive enables users to opt into having read access to the demo/ tenant.
 use super::{extract, JobStatus};
 
 use agent_sql::directives::Row;
