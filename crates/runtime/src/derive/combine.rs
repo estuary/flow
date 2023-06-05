@@ -390,14 +390,14 @@ impl State {
             let key_packed = crate::extract_packed_node(
                 &doc,
                 &self.document_key_ptrs,
-                Some(&self.document_uuid_ptr),
+                self.document_uuid_ptr.as_ref(),
                 &self.document_shape,
                 &mut buf,
             );
             let partitions_packed = crate::extract_packed_node(
                 &doc,
                 &self.partitions,
-                Some(&self.document_uuid_ptr),
+                self.document_uuid_ptr.as_ref(),
                 &self.document_shape,
                 &mut buf,
             );

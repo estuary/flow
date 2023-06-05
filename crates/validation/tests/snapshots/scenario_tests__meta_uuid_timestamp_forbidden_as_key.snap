@@ -1,0 +1,11 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+assertion_line: 1179
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-string#/collections/testing~1int-string/key/0,
+        error: location /_meta/uuid/timestamp is unknown in schema test://example/int-string.schema,
+    },
+]

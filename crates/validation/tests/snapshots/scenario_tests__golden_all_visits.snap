@@ -1,5 +1,6 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
+assertion_line: 20
 expression: tables
 ---
 All {
@@ -102,6 +103,34 @@ All {
                                         ),
                                     },
                                     Projection {
+                                        ptr: "/_meta/uuid/timestamp",
+                                        field: "flow_timestamp",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "date-time",
+                                                        content_encoding: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "Timestamp",
+                                                description: "Wall-Clock timestamp for this document",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
                                         ptr: "/int",
                                         field: "int",
                                         explicit: false,
@@ -143,6 +172,34 @@ All {
                                                 ),
                                                 title: "",
                                                 description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/_meta/uuid/timestamp",
+                                        field: "timestamp",
+                                        explicit: true,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "date-time",
+                                                        content_encoding: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "Timestamp",
+                                                description: "Wall-Clock timestamp for this document",
                                                 default_json: "",
                                                 secret: false,
                                                 exists: Must,
@@ -446,6 +503,34 @@ All {
                                         ),
                                     },
                                     Projection {
+                                        ptr: "/_meta/uuid/timestamp",
+                                        field: "flow_timestamp",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "date-time",
+                                                        content_encoding: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "Timestamp",
+                                                description: "Wall-Clock timestamp for this document",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
                                         ptr: "/int",
                                         field: "int",
                                         explicit: false,
@@ -487,6 +572,34 @@ All {
                                                 ),
                                                 title: "",
                                                 description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/_meta/uuid/timestamp",
+                                        field: "timestamp",
+                                        explicit: true,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "date-time",
+                                                        content_encoding: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "Timestamp",
+                                                description: "Wall-Clock timestamp for this document",
                                                 default_json: "",
                                                 secret: false,
                                                 exists: Must,
@@ -597,6 +710,34 @@ All {
                                                 string: None,
                                                 title: "",
                                                 description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/_meta/uuid/timestamp",
+                                        field: "flow_timestamp",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "date-time",
+                                                        content_encoding: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "Timestamp",
+                                                description: "Wall-Clock timestamp for this document",
                                                 default_json: "",
                                                 secret: false,
                                                 exists: Must,
@@ -941,6 +1082,34 @@ All {
                             },
                         ),
                     },
+                    Projection {
+                        ptr: "/_meta/uuid/timestamp",
+                        field: "flow_timestamp",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "",
+                                        is_base64: false,
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Timestamp",
+                                description: "Wall-Clock timestamp for this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
                 ],
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
@@ -1034,6 +1203,34 @@ All {
                                 string: None,
                                 title: "",
                                 description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/uuid/timestamp",
+                        field: "flow_timestamp",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "",
+                                        is_base64: false,
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Timestamp",
+                                description: "Wall-Clock timestamp for this document",
                                 default_json: "",
                                 secret: false,
                                 exists: Must,
@@ -1202,6 +1399,34 @@ All {
                                                         string: None,
                                                         title: "",
                                                         description: "",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Must,
+                                                    },
+                                                ),
+                                            },
+                                            Projection {
+                                                ptr: "/_meta/uuid/timestamp",
+                                                field: "flow_timestamp",
+                                                explicit: false,
+                                                is_partition_key: false,
+                                                is_primary_key: false,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [
+                                                            "string",
+                                                        ],
+                                                        string: Some(
+                                                            String {
+                                                                content_type: "",
+                                                                format: "date-time",
+                                                                content_encoding: "",
+                                                                is_base64: false,
+                                                                max_length: 0,
+                                                            },
+                                                        ),
+                                                        title: "Timestamp",
+                                                        description: "Wall-Clock timestamp for this document",
                                                         default_json: "",
                                                         secret: false,
                                                         exists: Must,
@@ -1377,6 +1602,34 @@ All {
                                                         string: None,
                                                         title: "",
                                                         description: "",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Must,
+                                                    },
+                                                ),
+                                            },
+                                            Projection {
+                                                ptr: "/_meta/uuid/timestamp",
+                                                field: "flow_timestamp",
+                                                explicit: false,
+                                                is_partition_key: false,
+                                                is_primary_key: false,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [
+                                                            "string",
+                                                        ],
+                                                        string: Some(
+                                                            String {
+                                                                content_type: "",
+                                                                format: "date-time",
+                                                                content_encoding: "",
+                                                                is_base64: false,
+                                                                max_length: 0,
+                                                            },
+                                                        ),
+                                                        title: "Timestamp",
+                                                        description: "Wall-Clock timestamp for this document",
                                                         default_json: "",
                                                         secret: false,
                                                         exists: Must,
@@ -1734,6 +1987,34 @@ All {
                         ),
                     },
                     Projection {
+                        ptr: "/_meta/uuid/timestamp",
+                        field: "flow_timestamp",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "",
+                                        is_base64: false,
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Timestamp",
+                                description: "Wall-Clock timestamp for this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
                         ptr: "/int",
                         field: "int",
                         explicit: false,
@@ -2026,6 +2307,34 @@ All {
                                                         string: None,
                                                         title: "",
                                                         description: "",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Must,
+                                                    },
+                                                ),
+                                            },
+                                            Projection {
+                                                ptr: "/_meta/uuid/timestamp",
+                                                field: "flow_timestamp",
+                                                explicit: false,
+                                                is_partition_key: false,
+                                                is_primary_key: false,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [
+                                                            "string",
+                                                        ],
+                                                        string: Some(
+                                                            String {
+                                                                content_type: "",
+                                                                format: "date-time",
+                                                                content_encoding: "",
+                                                                is_base64: false,
+                                                                max_length: 0,
+                                                            },
+                                                        ),
+                                                        title: "Timestamp",
+                                                        description: "Wall-Clock timestamp for this document",
                                                         default_json: "",
                                                         secret: false,
                                                         exists: Must,
@@ -2358,6 +2667,34 @@ All {
                                                         string: None,
                                                         title: "",
                                                         description: "",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Must,
+                                                    },
+                                                ),
+                                            },
+                                            Projection {
+                                                ptr: "/_meta/uuid/timestamp",
+                                                field: "flow_timestamp",
+                                                explicit: false,
+                                                is_partition_key: false,
+                                                is_primary_key: false,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [
+                                                            "string",
+                                                        ],
+                                                        string: Some(
+                                                            String {
+                                                                content_type: "",
+                                                                format: "date-time",
+                                                                content_encoding: "",
+                                                                is_base64: false,
+                                                                max_length: 0,
+                                                            },
+                                                        ),
+                                                        title: "Timestamp",
+                                                        description: "Wall-Clock timestamp for this document",
                                                         default_json: "",
                                                         secret: false,
                                                         exists: Must,
@@ -2724,6 +3061,34 @@ All {
                         ),
                     },
                     Projection {
+                        ptr: "/_meta/uuid/timestamp",
+                        field: "flow_timestamp",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "",
+                                        is_base64: false,
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Timestamp",
+                                description: "Wall-Clock timestamp for this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
                         ptr: "/int",
                         field: "int",
                         explicit: false,
@@ -2902,6 +3267,34 @@ All {
                                                 ),
                                             },
                                             Projection {
+                                                ptr: "/_meta/uuid/timestamp",
+                                                field: "flow_timestamp",
+                                                explicit: false,
+                                                is_partition_key: false,
+                                                is_primary_key: false,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [
+                                                            "string",
+                                                        ],
+                                                        string: Some(
+                                                            String {
+                                                                content_type: "",
+                                                                format: "date-time",
+                                                                content_encoding: "",
+                                                                is_base64: false,
+                                                                max_length: 0,
+                                                            },
+                                                        ),
+                                                        title: "Timestamp",
+                                                        description: "Wall-Clock timestamp for this document",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Must,
+                                                    },
+                                                ),
+                                            },
+                                            Projection {
                                                 ptr: "/int",
                                                 field: "int",
                                                 explicit: false,
@@ -2943,6 +3336,34 @@ All {
                                                         ),
                                                         title: "",
                                                         description: "",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Must,
+                                                    },
+                                                ),
+                                            },
+                                            Projection {
+                                                ptr: "/_meta/uuid/timestamp",
+                                                field: "timestamp",
+                                                explicit: true,
+                                                is_partition_key: false,
+                                                is_primary_key: false,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [
+                                                            "string",
+                                                        ],
+                                                        string: Some(
+                                                            String {
+                                                                content_type: "",
+                                                                format: "date-time",
+                                                                content_encoding: "",
+                                                                is_base64: false,
+                                                                max_length: 0,
+                                                            },
+                                                        ),
+                                                        title: "Timestamp",
+                                                        description: "Wall-Clock timestamp for this document",
                                                         default_json: "",
                                                         secret: false,
                                                         exists: Must,
@@ -3217,6 +3638,34 @@ All {
                         ),
                     },
                     Projection {
+                        ptr: "/_meta/uuid/timestamp",
+                        field: "flow_timestamp",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "",
+                                        is_base64: false,
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Timestamp",
+                                description: "Wall-Clock timestamp for this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
                         ptr: "/int",
                         field: "int",
                         explicit: false,
@@ -3258,6 +3707,34 @@ All {
                                 ),
                                 title: "",
                                 description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/uuid/timestamp",
+                        field: "timestamp",
+                        explicit: true,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "",
+                                        is_base64: false,
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Timestamp",
+                                description: "Wall-Clock timestamp for this document",
                                 default_json: "",
                                 secret: false,
                                 exists: Must,
@@ -3462,6 +3939,34 @@ All {
                         ),
                     },
                     Projection {
+                        ptr: "/_meta/uuid/timestamp",
+                        field: "flow_timestamp",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "",
+                                        is_base64: false,
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Timestamp",
+                                description: "Wall-Clock timestamp for this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
                         ptr: "/int",
                         field: "int",
                         explicit: false,
@@ -3658,6 +4163,34 @@ All {
                                 string: None,
                                 title: "",
                                 description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/uuid/timestamp",
+                        field: "flow_timestamp",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "",
+                                        is_base64: false,
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Timestamp",
+                                description: "Wall-Clock timestamp for this document",
                                 default_json: "",
                                 secret: false,
                                 exists: Must,
@@ -3870,6 +4403,34 @@ All {
                                         ),
                                     },
                                     Projection {
+                                        ptr: "/_meta/uuid/timestamp",
+                                        field: "flow_timestamp",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "date-time",
+                                                        content_encoding: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "Timestamp",
+                                                description: "Wall-Clock timestamp for this document",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
                                         ptr: "/int",
                                         field: "int",
                                         explicit: false,
@@ -3911,6 +4472,34 @@ All {
                                                 ),
                                                 title: "",
                                                 description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/_meta/uuid/timestamp",
+                                        field: "timestamp",
+                                        explicit: true,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "date-time",
+                                                        content_encoding: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "Timestamp",
+                                                description: "Wall-Clock timestamp for this document",
                                                 default_json: "",
                                                 secret: false,
                                                 exists: Must,
@@ -4136,6 +4725,10 @@ All {
                                 r#type: FieldOptional,
                                 reason: "optional",
                             },
+                            "timestamp": Constraint {
+                                r#type: LocationRecommended,
+                                reason: "recommended",
+                            },
                         },
                         resource_path: [
                             "Web!hook",
@@ -4255,6 +4848,34 @@ All {
                                         ),
                                     },
                                     Projection {
+                                        ptr: "/_meta/uuid/timestamp",
+                                        field: "flow_timestamp",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "date-time",
+                                                        content_encoding: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "Timestamp",
+                                                description: "Wall-Clock timestamp for this document",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
                                         ptr: "/int",
                                         field: "int",
                                         explicit: false,
@@ -4296,6 +4917,34 @@ All {
                                                 ),
                                                 title: "",
                                                 description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/_meta/uuid/timestamp",
+                                        field: "timestamp",
+                                        explicit: true,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "date-time",
+                                                        content_encoding: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "Timestamp",
+                                                description: "Wall-Clock timestamp for this document",
                                                 default_json: "",
                                                 secret: false,
                                                 exists: Must,
@@ -4385,10 +5034,12 @@ All {
                                 ],
                                 values: [
                                     "str",
+                                    "timestamp",
                                 ],
                                 document: "flow_document",
                                 field_config_json_map: {
                                     "str": "{\"pass\":\"through\"}",
+                                    "timestamp": "{}",
                                 },
                             },
                         ),
@@ -4538,6 +5189,34 @@ All {
                                                 string: None,
                                                 title: "",
                                                 description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/_meta/uuid/timestamp",
+                                        field: "flow_timestamp",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "date-time",
+                                                        content_encoding: "",
+                                                        is_base64: false,
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "Timestamp",
+                                                description: "Wall-Clock timestamp for this document",
                                                 default_json: "",
                                                 secret: false,
                                                 exists: Must,
@@ -5173,7 +5852,8 @@ All {
                 "bit": {
                   "location": "/bit",
                   "partition": true
-                }
+                },
+                "timestamp": "/_meta/uuid/timestamp"
               }
             },
         },
@@ -5471,7 +6151,8 @@ All {
                   },
                   "fields": {
                     "include": {
-                      "str": {"pass":"through"}
+                      "str": {"pass":"through"},
+                      "timestamp": {}
                     },
                     "exclude": [
                       "bit"
@@ -5559,7 +6240,7 @@ All {
             resource: test://example/int-string,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"testing/int-string":{"key":["/int"],"projections":{"Int":"/int","bit":{"location":"/bit","partition":true}},"schema":"test://example/int-string.schema"},"testing/int-string-rw":{"key":["/int"],"projections":{"Int":"/int","Len":"/len","Str":"/str","bit":{"location":"/bit","partition":true}},"readSchema":"test://example/int-string-len.schema","writeSchema":"test://example/int-string.schema"},"testing/int-string.v2":{"journals":{"fragments":{"compressionCodec":"ZSTANDARD"}},"key":["/int"],"schema":{"$id":"test://inlined/canonical/id","$ref":"test://example/int-string.schema"}}},"import":["test://example/int-halve"]},
+            content_dom: {"collections":{"testing/int-string":{"key":["/int"],"projections":{"Int":"/int","bit":{"location":"/bit","partition":true},"timestamp":"/_meta/uuid/timestamp"},"schema":"test://example/int-string.schema"},"testing/int-string-rw":{"key":["/int"],"projections":{"Int":"/int","Len":"/len","Str":"/str","bit":{"location":"/bit","partition":true}},"readSchema":"test://example/int-string-len.schema","writeSchema":"test://example/int-string.schema"},"testing/int-string.v2":{"journals":{"fragments":{"compressionCodec":"ZSTANDARD"}},"key":["/int"],"schema":{"$id":"test://inlined/canonical/id","$ref":"test://example/int-string.schema"}}},"import":["test://example/int-halve"]},
         },
         Resource {
             resource: test://example/int-string-captures,
@@ -5595,7 +6276,7 @@ All {
             resource: test://example/webhook-deliveries,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"import":["test://example/int-string","test://example/int-halve"],"materializations":{"testing/webhook/deliveries":{"bindings":[{"fields":{"exclude":["bit"],"include":{"str":{"pass":"through"}},"recommended":true},"resource":{"fixture":"one"},"source":{"name":"testing/int-string","partitions":{"include":{"bit":[true]}}}},{"fields":{"include":{"Len":{}},"recommended":false},"resource":{"fixture":"two"},"source":"testing/int-halve"}],"endpoint":{"connector":{"config":"webhook-config.yaml","image":"webhook/connector"}}}}},
+            content_dom: {"import":["test://example/int-string","test://example/int-halve"],"materializations":{"testing/webhook/deliveries":{"bindings":[{"fields":{"exclude":["bit"],"include":{"str":{"pass":"through"},"timestamp":{}},"recommended":true},"resource":{"fixture":"one"},"source":{"name":"testing/int-string","partitions":{"include":{"bit":[true]}}}},{"fields":{"include":{"Len":{}},"recommended":false},"resource":{"fixture":"two"},"source":"testing/int-halve"}],"endpoint":{"connector":{"config":"webhook-config.yaml","image":"webhook/connector"}}}}},
         },
     ],
     storage_mappings: [

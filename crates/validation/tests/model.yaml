@@ -28,6 +28,7 @@ test://example/int-string:
       key: [/int]
       projections:
         Int: /int
+        timestamp: /_meta/uuid/timestamp
         bit:
           location: /bit
           partition: true
@@ -113,6 +114,7 @@ test://example/webhook-deliveries:
           resource: { fixture: one }
           fields:
             include:
+              timestamp: {}
               str: { pass: through }
             exclude:
               - bit
@@ -308,6 +310,7 @@ driver:
             # over `int`. However, `int` is required by the driver,
             # and chosen instead.
             Int: { type: 3, reason: "recommended" }
+            timestamp: { type: 3, reason: "recommended" }
             int: { type: 1, reason: "field required" }
             str: { type: 4, reason: "optional" }
             bit: { type: 5, reason: "field forbidden" }

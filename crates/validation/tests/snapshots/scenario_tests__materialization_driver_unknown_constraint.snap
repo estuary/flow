@@ -1,8 +1,13 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
+assertion_line: 889
 expression: errors
 ---
 [
+    Error {
+        scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/0,
+        error: materialization testing/webhook/deliveries field timestamp is not satisfiable (selector includes field, but connector forbids it with reason: ),
+    },
     Error {
         scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/bindings/0,
         error: materialization testing/webhook/deliveries field str is not satisfiable (selector includes field, but connector forbids it with reason: ),

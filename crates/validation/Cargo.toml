@@ -32,6 +32,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
 rusqlite = { workspace = true }
+const_format = { workspace = true }
 
 [dev-dependencies]
 tables = { path = "../tables", features = ["persist"] }

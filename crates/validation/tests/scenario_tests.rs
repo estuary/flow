@@ -1165,6 +1165,37 @@ driver:
     insta::assert_debug_snapshot!(errors);
 }
 
+#[test]
+fn test_meta_uuid_timestamp_forbidden_as_key() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/int-string:
+  collections:
+    testing/int-string:
+      key: [/_meta/uuid/timestamp]
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_meta_uuid_timestamp_forbidden_as_partition() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/int-string:
+  collections:
+    testing/int-string:
+      projections:
+        timestamp:
+          location: /_meta/uuid/timestamp
+          partition: true
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MockDriverCalls {

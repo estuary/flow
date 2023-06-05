@@ -1,5 +1,6 @@
 use super::{indexed, schema, storage_mapping, Error, Scope};
 use assemble::UUID_PTR;
+use const_format::concatcp;
 use json::schema::{formats, types};
 use proto_flow::flow;
 use std::collections::BTreeMap;
@@ -152,7 +153,7 @@ fn walk_collection_schema(
     Some(schema)
 }
 
-const META_UUID_TIMESTAMP_PTR: String = UUID_PTR.to_string() + "/timestamp";
+const META_UUID_TIMESTAMP_PTR: &str = concatcp!(UUID_PTR, "/timestamp");
 
 fn walk_collection_projections(
     scope: Scope,
@@ -193,28 +194,23 @@ fn walk_collection_projections(
                 } => (location, *partition),
             };
 
-            if ptr.to_string() == META_UUID_TIMESTAMP_PTR {
+            if ptr.to_string() == META_UUID_TIMESTAMP_PTR && !partition {
                 return flow::Projection {
                     ptr: ptr.to_string(),
                     field: field.to_string(),
                     explicit: true,
-                    is_primary_key: false,
-                    is_partition_key: false,
                     inference: Some(flow::Inference {
                         types: vec!["string".to_string()],
                         string: Some(flow::inference::String {
-                            content_type: String::default(),
                             format: formats::Format::DateTime.to_string(),
-                            content_encoding: String::default(),
-                            is_base64: false,
-                            max_length: 0,
+                            ..Default::default()
                         }),
                         title: "Timestamp".to_string(),
-                        description: "Wall-Clock timestamp for this record".to_string(),
-                        default_json: String::default(),
-                        secret: false,
+                        description: "Wall-Clock timestamp for this document".to_string(),
                         exists: flow::inference::Exists::Must as i32,
+                        ..Default::default()
                     }),
+                    ..Default::default()
                 };
             }
 
@@ -305,6 +301,29 @@ fn walk_collection_projections(
             inference: Some(assemble::inference(r_shape, r_exists)),
         });
     }
+
+    // Add an implicit projection for the timestamp field so that
+    // it'll get included in new materializations by default.
+    // This might be a duplicate if you explicitly
+    // specify a different projection for this pointer,
+    // but that's okay because we dedupe directly below.
+    projections.push(flow::Projection {
+        ptr: META_UUID_TIMESTAMP_PTR.to_string(),
+        field: "flow_timestamp".to_string(),
+        explicit: false,
+        inference: Some(flow::Inference {
+            types: vec!["string".to_string()],
+            string: Some(flow::inference::String {
+                format: formats::Format::DateTime.to_string(),
+                ..Default::default()
+            }),
+            title: "Timestamp".to_string(),
+            description: "Wall-Clock timestamp for this document".to_string(),
+            exists: flow::inference::Exists::Must as i32,
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
 
     // Stable-sort on ascending projection field, which preserves the
     // construction order on a per-field basis:
