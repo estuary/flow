@@ -12,7 +12,7 @@ pub mod shuffler_client {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
-            D: std::convert::TryInto<tonic::transport::Endpoint>,
+            D: TryInto<tonic::transport::Endpoint>,
             D::Error: Into<StdError>,
         {
             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
@@ -68,10 +68,26 @@ pub mod shuffler_client {
             self.inner = self.inner.accept_compressed(encoding);
             self
         }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
         pub async fn shuffle(
             &mut self,
             request: impl tonic::IntoRequest<::proto_flow::flow::ShuffleRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<
                 tonic::codec::Streaming<::proto_flow::flow::ShuffleResponse>,
             >,
@@ -88,7 +104,9 @@ pub mod shuffler_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/flow.Shuffler/Shuffle");
-            self.inner.server_streaming(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("flow.Shuffler", "Shuffle"));
+            self.inner.server_streaming(req, path, codec).await
         }
     }
 }
@@ -106,7 +124,7 @@ pub mod testing_client {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
-            D: std::convert::TryInto<tonic::transport::Endpoint>,
+            D: TryInto<tonic::transport::Endpoint>,
             D::Error: Into<StdError>,
         {
             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
@@ -162,10 +180,26 @@ pub mod testing_client {
             self.inner = self.inner.accept_compressed(encoding);
             self
         }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
         pub async fn reset_state(
             &mut self,
             request: impl tonic::IntoRequest<::proto_flow::flow::ResetStateRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_flow::flow::ResetStateResponse>,
             tonic::Status,
         > {
@@ -180,12 +214,14 @@ pub mod testing_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/flow.Testing/ResetState");
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("flow.Testing", "ResetState"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn advance_time(
             &mut self,
             request: impl tonic::IntoRequest<::proto_flow::flow::AdvanceTimeRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_flow::flow::AdvanceTimeResponse>,
             tonic::Status,
         > {
@@ -200,12 +236,17 @@ pub mod testing_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/flow.Testing/AdvanceTime");
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("flow.Testing", "AdvanceTime"));
+            self.inner.unary(req, path, codec).await
         }
         pub async fn ingest(
             &mut self,
             request: impl tonic::IntoRequest<::proto_flow::flow::IngestRequest>,
-        ) -> Result<tonic::Response<::proto_flow::flow::IngestResponse>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<::proto_flow::flow::IngestResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -217,7 +258,9 @@ pub mod testing_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/flow.Testing/Ingest");
-            self.inner.unary(request.into_request(), path, codec).await
+            let mut req = request.into_request();
+            req.extensions_mut().insert(GrpcMethod::new("flow.Testing", "Ingest"));
+            self.inner.unary(req, path, codec).await
         }
     }
 }
@@ -235,7 +278,7 @@ pub mod network_proxy_client {
         /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
-            D: std::convert::TryInto<tonic::transport::Endpoint>,
+            D: TryInto<tonic::transport::Endpoint>,
             D::Error: Into<StdError>,
         {
             let conn = tonic::transport::Endpoint::new(dst)?.connect().await?;
@@ -291,12 +334,28 @@ pub mod network_proxy_client {
             self.inner = self.inner.accept_compressed(encoding);
             self
         }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_decoding_message_size(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.inner = self.inner.max_encoding_message_size(limit);
+            self
+        }
         pub async fn proxy(
             &mut self,
             request: impl tonic::IntoStreamingRequest<
                 Message = ::proto_flow::flow::TaskNetworkProxyRequest,
             >,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<
                 tonic::codec::Streaming<::proto_flow::flow::TaskNetworkProxyResponse>,
             >,
@@ -313,7 +372,9 @@ pub mod network_proxy_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/flow.NetworkProxy/Proxy");
-            self.inner.streaming(request.into_streaming_request(), path, codec).await
+            let mut req = request.into_streaming_request();
+            req.extensions_mut().insert(GrpcMethod::new("flow.NetworkProxy", "Proxy"));
+            self.inner.streaming(req, path, codec).await
         }
     }
 }
@@ -327,20 +388,25 @@ pub mod shuffler_server {
     pub trait Shuffler: Send + Sync + 'static {
         /// Server streaming response type for the Shuffle method.
         type ShuffleStream: futures_core::Stream<
-                Item = Result<::proto_flow::flow::ShuffleResponse, tonic::Status>,
+                Item = std::result::Result<
+                    ::proto_flow::flow::ShuffleResponse,
+                    tonic::Status,
+                >,
             >
             + Send
             + 'static;
         async fn shuffle(
             &self,
             request: tonic::Request<::proto_flow::flow::ShuffleRequest>,
-        ) -> Result<tonic::Response<Self::ShuffleStream>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<Self::ShuffleStream>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct ShufflerServer<T: Shuffler> {
         inner: _Inner<T>,
         accept_compression_encodings: EnabledCompressionEncodings,
         send_compression_encodings: EnabledCompressionEncodings,
+        max_decoding_message_size: Option<usize>,
+        max_encoding_message_size: Option<usize>,
     }
     struct _Inner<T>(Arc<T>);
     impl<T: Shuffler> ShufflerServer<T> {
@@ -353,6 +419,8 @@ pub mod shuffler_server {
                 inner,
                 accept_compression_encodings: Default::default(),
                 send_compression_encodings: Default::default(),
+                max_decoding_message_size: None,
+                max_encoding_message_size: None,
             }
         }
         pub fn with_interceptor<F>(
@@ -376,6 +444,22 @@ pub mod shuffler_server {
             self.send_compression_encodings.enable(encoding);
             self
         }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.max_decoding_message_size = Some(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.max_encoding_message_size = Some(limit);
+            self
+        }
     }
     impl<T, B> tonic::codegen::Service<http::Request<B>> for ShufflerServer<T>
     where
@@ -389,7 +473,7 @@ pub mod shuffler_server {
         fn poll_ready(
             &mut self,
             _cx: &mut Context<'_>,
-        ) -> Poll<Result<(), Self::Error>> {
+        ) -> Poll<std::result::Result<(), Self::Error>> {
             Poll::Ready(Ok(()))
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
@@ -413,13 +497,15 @@ pub mod shuffler_server {
                             &mut self,
                             request: tonic::Request<::proto_flow::flow::ShuffleRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move { (*inner).shuffle(request).await };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -429,6 +515,10 @@ pub mod shuffler_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.server_streaming(method, req).await;
                         Ok(res)
@@ -457,12 +547,14 @@ pub mod shuffler_server {
                 inner,
                 accept_compression_encodings: self.accept_compression_encodings,
                 send_compression_encodings: self.send_compression_encodings,
+                max_decoding_message_size: self.max_decoding_message_size,
+                max_encoding_message_size: self.max_encoding_message_size,
             }
         }
     }
     impl<T: Shuffler> Clone for _Inner<T> {
         fn clone(&self) -> Self {
-            Self(self.0.clone())
+            Self(Arc::clone(&self.0))
         }
     }
     impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
@@ -485,27 +577,32 @@ pub mod testing_server {
         async fn reset_state(
             &self,
             request: tonic::Request<::proto_flow::flow::ResetStateRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_flow::flow::ResetStateResponse>,
             tonic::Status,
         >;
         async fn advance_time(
             &self,
             request: tonic::Request<::proto_flow::flow::AdvanceTimeRequest>,
-        ) -> Result<
+        ) -> std::result::Result<
             tonic::Response<::proto_flow::flow::AdvanceTimeResponse>,
             tonic::Status,
         >;
         async fn ingest(
             &self,
             request: tonic::Request<::proto_flow::flow::IngestRequest>,
-        ) -> Result<tonic::Response<::proto_flow::flow::IngestResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<::proto_flow::flow::IngestResponse>,
+            tonic::Status,
+        >;
     }
     #[derive(Debug)]
     pub struct TestingServer<T: Testing> {
         inner: _Inner<T>,
         accept_compression_encodings: EnabledCompressionEncodings,
         send_compression_encodings: EnabledCompressionEncodings,
+        max_decoding_message_size: Option<usize>,
+        max_encoding_message_size: Option<usize>,
     }
     struct _Inner<T>(Arc<T>);
     impl<T: Testing> TestingServer<T> {
@@ -518,6 +615,8 @@ pub mod testing_server {
                 inner,
                 accept_compression_encodings: Default::default(),
                 send_compression_encodings: Default::default(),
+                max_decoding_message_size: None,
+                max_encoding_message_size: None,
             }
         }
         pub fn with_interceptor<F>(
@@ -541,6 +640,22 @@ pub mod testing_server {
             self.send_compression_encodings.enable(encoding);
             self
         }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.max_decoding_message_size = Some(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.max_encoding_message_size = Some(limit);
+            self
+        }
     }
     impl<T, B> tonic::codegen::Service<http::Request<B>> for TestingServer<T>
     where
@@ -554,7 +669,7 @@ pub mod testing_server {
         fn poll_ready(
             &mut self,
             _cx: &mut Context<'_>,
-        ) -> Poll<Result<(), Self::Error>> {
+        ) -> Poll<std::result::Result<(), Self::Error>> {
             Poll::Ready(Ok(()))
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
@@ -578,13 +693,15 @@ pub mod testing_server {
                                 ::proto_flow::flow::ResetStateRequest,
                             >,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move { (*inner).reset_state(request).await };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -594,6 +711,10 @@ pub mod testing_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -618,7 +739,7 @@ pub mod testing_server {
                                 ::proto_flow::flow::AdvanceTimeRequest,
                             >,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move {
                                 (*inner).advance_time(request).await
                             };
@@ -627,6 +748,8 @@ pub mod testing_server {
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -636,6 +759,10 @@ pub mod testing_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -658,13 +785,15 @@ pub mod testing_server {
                             &mut self,
                             request: tonic::Request<::proto_flow::flow::IngestRequest>,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move { (*inner).ingest(request).await };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -674,6 +803,10 @@ pub mod testing_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
@@ -702,12 +835,14 @@ pub mod testing_server {
                 inner,
                 accept_compression_encodings: self.accept_compression_encodings,
                 send_compression_encodings: self.send_compression_encodings,
+                max_decoding_message_size: self.max_decoding_message_size,
+                max_encoding_message_size: self.max_encoding_message_size,
             }
         }
     }
     impl<T: Testing> Clone for _Inner<T> {
         fn clone(&self) -> Self {
-            Self(self.0.clone())
+            Self(Arc::clone(&self.0))
         }
     }
     impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
@@ -729,7 +864,7 @@ pub mod network_proxy_server {
     pub trait NetworkProxy: Send + Sync + 'static {
         /// Server streaming response type for the Proxy method.
         type ProxyStream: futures_core::Stream<
-                Item = Result<
+                Item = std::result::Result<
                     ::proto_flow::flow::TaskNetworkProxyResponse,
                     tonic::Status,
                 >,
@@ -741,13 +876,15 @@ pub mod network_proxy_server {
             request: tonic::Request<
                 tonic::Streaming<::proto_flow::flow::TaskNetworkProxyRequest>,
             >,
-        ) -> Result<tonic::Response<Self::ProxyStream>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<Self::ProxyStream>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct NetworkProxyServer<T: NetworkProxy> {
         inner: _Inner<T>,
         accept_compression_encodings: EnabledCompressionEncodings,
         send_compression_encodings: EnabledCompressionEncodings,
+        max_decoding_message_size: Option<usize>,
+        max_encoding_message_size: Option<usize>,
     }
     struct _Inner<T>(Arc<T>);
     impl<T: NetworkProxy> NetworkProxyServer<T> {
@@ -760,6 +897,8 @@ pub mod network_proxy_server {
                 inner,
                 accept_compression_encodings: Default::default(),
                 send_compression_encodings: Default::default(),
+                max_decoding_message_size: None,
+                max_encoding_message_size: None,
             }
         }
         pub fn with_interceptor<F>(
@@ -783,6 +922,22 @@ pub mod network_proxy_server {
             self.send_compression_encodings.enable(encoding);
             self
         }
+        /// Limits the maximum size of a decoded message.
+        ///
+        /// Default: `4MB`
+        #[must_use]
+        pub fn max_decoding_message_size(mut self, limit: usize) -> Self {
+            self.max_decoding_message_size = Some(limit);
+            self
+        }
+        /// Limits the maximum size of an encoded message.
+        ///
+        /// Default: `usize::MAX`
+        #[must_use]
+        pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
+            self.max_encoding_message_size = Some(limit);
+            self
+        }
     }
     impl<T, B> tonic::codegen::Service<http::Request<B>> for NetworkProxyServer<T>
     where
@@ -796,7 +951,7 @@ pub mod network_proxy_server {
         fn poll_ready(
             &mut self,
             _cx: &mut Context<'_>,
-        ) -> Poll<Result<(), Self::Error>> {
+        ) -> Poll<std::result::Result<(), Self::Error>> {
             Poll::Ready(Ok(()))
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
@@ -824,13 +979,15 @@ pub mod network_proxy_server {
                                 >,
                             >,
                         ) -> Self::Future {
-                            let inner = self.0.clone();
+                            let inner = Arc::clone(&self.0);
                             let fut = async move { (*inner).proxy(request).await };
                             Box::pin(fut)
                         }
                     }
                     let accept_compression_encodings = self.accept_compression_encodings;
                     let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
                         let inner = inner.0;
@@ -840,6 +997,10 @@ pub mod network_proxy_server {
                             .apply_compression_config(
                                 accept_compression_encodings,
                                 send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
                             );
                         let res = grpc.streaming(method, req).await;
                         Ok(res)
@@ -868,12 +1029,14 @@ pub mod network_proxy_server {
                 inner,
                 accept_compression_encodings: self.accept_compression_encodings,
                 send_compression_encodings: self.send_compression_encodings,
+                max_decoding_message_size: self.max_decoding_message_size,
+                max_encoding_message_size: self.max_encoding_message_size,
             }
         }
     }
     impl<T: NetworkProxy> Clone for _Inner<T> {
         fn clone(&self) -> Self {
-            Self(self.0.clone())
+            Self(Arc::clone(&self.0))
         }
     }
     impl<T: std::fmt::Debug> std::fmt::Debug for _Inner<T> {
