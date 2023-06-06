@@ -162,7 +162,7 @@ impl cgo::Service for API {
                         return Err(anyhow::anyhow!("combiner is draining").into())
                     }
                 };
-                state.stats.left.increment(data.len() as u32);
+                state.stats.left.increment(data.len());
 
                 let memtable = accumulator.memtable()?;
                 let doc = parse_node_with_placeholder(
@@ -186,7 +186,7 @@ impl cgo::Service for API {
                         return Err(anyhow::anyhow!("combiner is draining").into())
                     }
                 };
-                state.stats.right.increment(data.len() as u32);
+                state.stats.right.increment(data.len());
 
                 let memtable = accumulator.memtable()?;
                 let doc = parse_node_with_placeholder(
@@ -282,7 +282,7 @@ pub fn drain_chunk(
         let w: &mut Vec<u8> = &mut *arena;
         serde_json::to_writer(w, &doc).expect("encoding cannot fail");
         // Only here do we know the actual length of the document in its serialized form.
-        stats.increment((arena.len() - begin) as u32);
+        stats.increment(arena.len() - begin);
         if fully_reduced {
             cgo::send_bytes(Code::DrainedReducedDocument as u32, begin, arena, out);
         } else {

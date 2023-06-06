@@ -195,8 +195,8 @@ pub mod stats {
     pub struct DocsAndBytes {
         #[prost(uint32, tag = "1")]
         pub docs_total: u32,
-        #[prost(uint32, tag = "2")]
-        pub bytes_total: u32,
+        #[prost(uint64, tag = "2")]
+        pub bytes_total: u64,
     }
     /// Binding represents counts of JSON documents and their
     /// cumulative total size in bytes, passing through the binding

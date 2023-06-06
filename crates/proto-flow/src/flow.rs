@@ -1310,8 +1310,8 @@ pub struct AdvanceTimeResponse {}
 pub struct DocsAndBytes {
     #[prost(uint32, tag = "1")]
     pub docs: u32,
-    #[prost(uint32, tag = "2")]
-    pub bytes: u32,
+    #[prost(uint64, tag = "2")]
+    pub bytes: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

@@ -123,7 +123,7 @@ message Stats {
   // cumulative total size in bytes.
   message DocsAndBytes {
     uint32 docs_total = 1;
-    uint32 bytes_total = 2;
+    uint64 bytes_total = 2;
   }
 
   // Binding represents counts of JSON documents and their

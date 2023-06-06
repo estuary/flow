@@ -3,7 +3,6 @@ package materialize
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 
@@ -11,8 +10,6 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/gogo/protobuf/proto"
 	pc "go.gazette.dev/core/consumer/protocol"
-	codes "google.golang.org/grpc/codes"
-	status "google.golang.org/grpc/status"
 )
 
 // Protocol routines for sending Request follow:
@@ -470,13 +467,5 @@ func recv(
 	stream interface{ RecvMsg(interface{}) error },
 	message proto.Message,
 ) error {
-	if err := stream.RecvMsg(message); err == nil {
-		return nil
-	} else if status, ok := status.FromError(err); ok && status.Code() == codes.Internal {
-		return errors.New(status.Message())
-	} else if status.Code() == codes.Canceled {
-		return context.Canceled
-	} else {
-		return err
-	}
+	return pf.UnwrapGRPCError(stream.RecvMsg(message))
 }

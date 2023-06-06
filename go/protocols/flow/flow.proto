@@ -850,7 +850,7 @@ message AdvanceTimeResponse {}
 // Deprecated (johnny).
 message DocsAndBytes {
   uint32 docs = 1;
-  uint32 bytes = 2;
+  uint64 bytes = 2;
 }
 
 message IngestRequest {
