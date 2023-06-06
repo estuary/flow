@@ -11,6 +11,13 @@ expression: json!(out)
           "stream": "foo"
         },
         "target": "acmeCo/renamed"
+      },
+      {
+        "resource": {
+          "modified": "yup",
+          "stream": "disabled"
+        },
+        "target": null
       }
     ],
     "endpoint": {
@@ -34,6 +41,13 @@ expression: json!(out)
       "recommendedName": "suggested",
       "resourceConfig": {
         "stream": "foo"
+      }
+    },
+    {
+      "documentSchema": false,
+      "recommendedName": "other",
+      "resourceConfig": {
+        "stream": "disabled"
       }
     }
   ]
