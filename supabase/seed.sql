@@ -39,7 +39,8 @@ select id, id, json_build_object('sub', id), 'email', now(), now(), now() from a
 -- Public directive which allows a new user to provision a new tenant.
 insert into directives (catalog_prefix, spec, token) values
   ('ops/', '{"type":"clickToAccept"}', 'd4a37dd7-1bf5-40e3-b715-60c4edd0f6dc'),
-  ('ops/', '{"type":"betaOnboard"}', '453e00cd-e12a-4ce5-b12d-3837aa385751');
+  ('ops/', '{"type":"betaOnboard"}', '453e00cd-e12a-4ce5-b12d-3837aa385751'),
+  ('ops/', '{"type":"acceptDemoTenant"}', '14c0beec-422f-4e95-94f1-567107b26840');
 
 -- Provision the ops/ tenant owned by the support@estuary.dev user.
 with accounts_root_user as (

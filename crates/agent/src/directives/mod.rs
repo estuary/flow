@@ -9,6 +9,7 @@ use validator::Validate;
 
 pub mod beta_onboard;
 pub mod click_to_accept;
+pub mod accept_demo_tenant;
 pub mod grant;
 
 /// JobStatus is the possible outcomes of a handled directive operation.
@@ -39,6 +40,7 @@ impl JobStatus {
 pub enum Directive {
     BetaOnboard(beta_onboard::Directive),
     ClickToAccept(click_to_accept::Directive),
+    AcceptDemoTenant(accept_demo_tenant::Directive),
     Grant(grant::Directive),
 }
 
@@ -103,6 +105,7 @@ impl DirectiveHandler {
                 beta_onboard::apply(d, row, &self.accounts_user_email, txn).await?
             }
             Ok(Directive::ClickToAccept(d)) => click_to_accept::apply(d, row, txn).await?,
+            Ok(Directive::AcceptDemoTenant(d)) => accept_demo_tenant::apply(d, row, txn).await?,
             Ok(Directive::Grant(d)) => grant::apply(d, row, txn).await?,
         };
         Ok((apply_id, status))
