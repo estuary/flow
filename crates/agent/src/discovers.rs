@@ -239,7 +239,7 @@ impl DiscoverHandler {
         let resolved = agent_sql::discovers::resolve_merge_target_specs(
             &targets
                 .iter()
-                .map(models::Collection::as_str)
+                .flat_map(|t| t.iter().map(models::Collection::as_str))
                 .collect::<Vec<_>>(),
             CatalogType::Collection,
             draft_id,

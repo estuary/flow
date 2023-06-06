@@ -55,7 +55,7 @@ pub struct CaptureBinding {
     // Note(johnny): If we need to add details about how data is written to a
     // target, we should turn this into a Target enum as has already been done
     // with Source (used by Materialization & Derive).
-    pub target: Collection,
+    pub target: Option<Collection>,
 }
 
 impl CaptureDef {
@@ -80,7 +80,7 @@ impl CaptureBinding {
     pub fn example() -> Self {
         Self {
             resource: serde_json::from_value(json!({"stream": "a_stream"})).unwrap(),
-            target: Collection::new("target/collection"),
+            target: Some(Collection::new("target/collection")),
         }
     }
 }

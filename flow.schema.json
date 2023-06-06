@@ -178,8 +178,7 @@
       ],
       "type": "object",
       "required": [
-        "resource",
-        "target"
+        "resource"
       ],
       "properties": {
         "resource": {
