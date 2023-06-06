@@ -191,7 +191,16 @@ expression: "&schema"
         },
         "target": {
           "title": "Name of the collection to capture into.",
-          "$ref": "#/definitions/Collection"
+          "oneOf": [
+            {
+              "$ref": "#/definitions/Collection"
+            },
+            {
+              "title": "Disabled binding",
+              "description": "a null target indicates that the binding is disabled and will be ignored at runtime",
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": false

@@ -219,6 +219,7 @@ fn walk_capture_request<'a>(
     let bindings = bindings
         .iter()
         .enumerate()
+        .filter(|(_, b)| b.target.is_some())
         .map(|(binding_index, binding)| {
             walk_capture_binding(
                 scope.push_prop("bindings").push_item(binding_index),
@@ -258,7 +259,9 @@ fn walk_capture_binding<'a>(
         scope,
         "this capture binding",
         "collection",
-        target,
+        target
+            .as_ref()
+            .expect("only enabled bindings are validated"),
         built_collections,
         |c| (&c.collection, Scope::new(&c.scope)),
         errors,

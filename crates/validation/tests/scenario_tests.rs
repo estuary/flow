@@ -58,6 +58,93 @@ fn connector_validation_is_skipped_when_shards_are_disabled() {
 }
 
 #[test]
+fn disabled_bindings_are_ignored() {
+    let models = r##"
+test://example/catalog.yaml:
+  collections:
+    testing/collection:
+      key: [/id]
+      schema:
+        type: object
+        properties:
+          id: {type: string}
+        required: [id]
+
+  captures:
+    testing/partially-disabled-capture:
+      endpoint: { connector: { image: s3, config: {} }}
+      bindings:
+        - target: ~
+          resource: { stream: disabled-stream }
+        - target: testing/collection
+          resource: { stream: enabled-stream }
+    testing/fully-disabled-capture:
+      endpoint: { connector: { image: s3, config: {} }}
+      bindings:
+        - target: ~
+          resource: { stream: disabled-stream }
+        - target: ~
+          resource: { stream: another-disabled-stream }
+  storageMappings:
+    testing/:
+      stores: [{provider: S3, bucket: a-bucket}]
+    recovery/:
+      stores: [{provider: S3, bucket: a-bucket}]
+
+driver:
+  imageInspections:
+    s3:
+      output: '[{"Config": {}}]'
+
+  materializations: {}
+  derivations: {}
+  captures:
+    testing/partially-disabled-capture:
+      connectorType: IMAGE
+      config:
+        image: s3
+        config: {}
+      bindings:
+        -  resourcePath: [ enabled-stream ]
+
+    testing/fully-disabled-capture:
+      connectorType: IMAGE
+      config:
+        image: s3
+        config: {}
+      bindings: []
+  "##;
+
+    let tables = run_test(
+        serde_yaml::from_str(models).unwrap(),
+        &flow::build_api::Config {
+            build_id: "disabled-bindings".to_string(),
+            ..Default::default()
+        },
+    );
+
+    assert!(
+        tables.errors.is_empty(),
+        "expected no errors, got: {:?}",
+        tables.errors
+    );
+    assert_eq!(tables.built_captures.len(), 2);
+    let partly_disabled = tables
+        .built_captures
+        .iter()
+        .find(|m| m.capture == "testing/partially-disabled-capture")
+        .unwrap();
+    assert_eq!(1, partly_disabled.spec.bindings.len());
+
+    let fully_disabled = tables
+        .built_captures
+        .iter()
+        .find(|m| m.capture == "testing/fully-disabled-capture")
+        .unwrap();
+    assert_eq!(0, fully_disabled.spec.bindings.len());
+}
+
+#[test]
 fn test_database_round_trip() {
     let tables = run_test(
         GOLDEN.clone(),
