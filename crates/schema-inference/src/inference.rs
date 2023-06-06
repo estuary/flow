@@ -1,113 +1,89 @@
-use doc::inference::{ArrayShape, ObjProperty, ObjShape, StringShape, Shape};
-use json::schema::{types, formats::Format};
-use serde_json::Value as JsonValue;
-use bigdecimal::BigDecimal;
-use std::str::FromStr;
-use num_bigint::BigInt;
-
 use crate::shape;
+use doc::inference::{ArrayShape, ObjProperty, ObjShape, Shape, StringShape};
+use json::schema::{formats::Format, types};
+use serde_json::Value as JsonValue;
 
 pub fn infer_shape(value: &JsonValue) -> Shape {
-    match value {
-        JsonValue::Bool(value) => infer_bool(value),
-        JsonValue::Number(value) => infer_number(value),
-        JsonValue::String(value) => infer_string(value.as_ref()),
-        JsonValue::Null => infer_null(),
-        JsonValue::Array(inner) => infer_array(inner.as_slice()),
-        JsonValue::Object(values) => infer_object(values),
-    }
-}
-
-fn infer_bool(_value: &bool) -> Shape {
-    Shape {
-        type_: types::BOOLEAN,
+    let mut shape = Shape {
+        type_: types::Set::for_value(value),
         ..Default::default()
-    }
-}
-
-fn infer_number(value: &serde_json::Number) -> Shape {
-    let type_ = if value.is_f64() {
-        types::FRACTIONAL
-    } else {
-        types::INTEGER
     };
 
-    Shape {
-        type_,
-        ..Default::default()
+    if let JsonValue::String(value) = value {
+        shape.string = infer_string_shape(value);
+    } else if let JsonValue::Array(inner) = value {
+        shape.array = infer_array_shape(inner);
+    } else if let JsonValue::Object(values) = value {
+        shape.object = infer_object_shape(values);
     }
+
+    shape
 }
 
-fn infer_string(value: &str) -> Shape {
-    let (format, additional_type) = if BigInt::parse_bytes(value.as_bytes(), 10).is_some() {
-        (Some(Format::Integer), Some(types::INTEGER))
-    } else if BigDecimal::from_str(value).is_ok() || ["NaN", "Infinity", "-Infinity"].contains(&value) {
-        (Some(Format::Number), Some(types::INT_OR_FRAC))
-    } else {
-        (None, None)
+fn infer_string_shape(value: &str) -> StringShape {
+    let format = match value {
+        _ if Format::Integer.validate(value).is_ok() => Some(Format::Integer),
+        _ if Format::Number.validate(value).is_ok() => Some(Format::Number),
+        _ if Format::DateTime.validate(value).is_ok() => Some(Format::DateTime),
+        _ if Format::Date.validate(value).is_ok() => Some(Format::Date),
+        _ if Format::Uuid.validate(value).is_ok() => Some(Format::Uuid),
+        _ => None,
     };
 
-    let string = StringShape {
+    StringShape {
         format,
         ..Default::default()
-    };
-
-    let type_ = additional_type.map(|t| types::STRING | t).unwrap_or(types::STRING);
-
-    Shape {
-        type_,
-        string,
-        ..Default::default()
     }
 }
 
-fn infer_null() -> Shape {
-    Shape {
-        type_: types::NULL,
-        ..Default::default()
-    }
-}
-
-fn infer_array(inner: &[JsonValue]) -> Shape {
+fn infer_array_shape(inner: &[JsonValue]) -> ArrayShape {
     if let Some(shape) = inner
         .iter()
         .map(infer_shape)
         .reduce(|acc, v| shape::merge(acc, v))
     {
-        Shape {
-            type_: types::ARRAY,
-            array: ArrayShape {
-                tuple: vec![shape],
-                ..Default::default()
-            },
+        ArrayShape {
+            tuple: vec![shape],
             ..Default::default()
         }
     } else {
-        Shape {
-            type_: types::ARRAY,
-            ..Default::default()
-        }
+        Default::default()
     }
 }
 
-fn infer_object(inner: &serde_json::Map<String, JsonValue>) -> Shape {
+fn infer_object_shape(inner: &serde_json::Map<String, JsonValue>) -> ObjShape {
     let properties = inner
         .iter()
         .map(|(key, value)| ObjProperty {
             name: key.to_owned(),
-            // We don't mark any non-key property as required since it is hard to revert requirement on a
-            // property if we later realise that this value can sometimes be null
+            // TODO(johnny): Mark `required` once we have a tighter ability
+            // to quickly update inferred collection schemas upon a violation.
             is_required: false,
             shape: infer_shape(value),
         })
         .collect();
 
-    Shape {
-        type_: types::OBJECT,
-        object: ObjShape {
-            properties,
+    ObjShape {
+        properties,
+        // TODO(johnny): Once we get good at updating inferred schemas on violations,
+        // we want to enable additionalProperties: false.
+        // This does two things:
+        //  1) It allows us to define schema inference strictly in terms of
+        //     doc::inference::Shape::union(), since union will preserve properties
+        //     on one side and not the other, so long as the other side is constrained
+        //     to not exist. This is the *only* reason we define a separate "merge"
+        //     operation in this crate.
+        //  2) It ensures that, when new properties are added, we first propagate their
+        //     projections to downstream materializations *before* we process the first
+        //     such document. This is a significant UX improvement for users because
+        //     added properties will dynamically be added to materializations, with
+        //     all values immediately represented in the ongoing materialization.
+        /*
+        additional: Some(Box::new(Shape {
+            type_: types::INVALID,
             ..Default::default()
-        },
+        })),
+        */
         ..Default::default()
     }
 }
@@ -139,21 +115,40 @@ mod test {
     #[test]
     fn build_string_types() {
         let shape = infer_shape(&json!("1"));
-        assert!(shape.type_.overlaps(types::STRING));
-        assert!(shape.type_.overlaps(types::INTEGER));
+        assert_eq!(shape.type_, types::STRING);
         assert_eq!(Some(Format::Integer), shape.string.format);
 
-        let shape = infer_shape(&json!("1.0"));
-        assert!(shape.type_.overlaps(types::STRING));
-        assert!(shape.type_.overlaps(types::INT_OR_FRAC));
+        let shape = infer_shape(&json!("100.00"));
+        assert_eq!(shape.type_, types::STRING);
+        assert_eq!(Some(Format::Integer), shape.string.format);
+
+        let shape = infer_shape(&json!("1.001"));
+        assert_eq!(shape.type_, types::STRING);
         assert_eq!(Some(Format::Number), shape.string.format);
 
         for t in ["NaN", "Infinity", "-Infinity"] {
             let shape = infer_shape(&json!(t));
-            assert!(shape.type_.overlaps(types::STRING));
-            assert!(shape.type_.overlaps(types::INT_OR_FRAC));
+            assert_eq!(shape.type_, types::STRING);
             assert_eq!(Some(Format::Number), shape.string.format);
         }
+
+        let shape = infer_shape(&json!("2021-07-08T12:34:56.523Z"));
+        assert_eq!(shape.type_, types::STRING);
+        assert_eq!(Some(Format::DateTime), shape.string.format);
+
+        let shape = infer_shape(&json!("2021-07-08"));
+        assert_eq!(shape.type_, types::STRING);
+        assert_eq!(Some(Format::Date), shape.string.format);
+
+        let shape = infer_shape(&json!("34c1506a-a0da-498e-b690-ea5183026979"));
+        assert_eq!(shape.type_, types::STRING);
+        assert_eq!(Some(Format::Uuid), shape.string.format);
+
+        let shape = infer_shape(&json!(
+            "2021-07-08 plus 34c1506a-a0da-498e-b690-ea5183026979 12.34"
+        ));
+        assert_eq!(shape.type_, types::STRING);
+        assert_eq!(None, shape.string.format);
     }
 
     #[test]

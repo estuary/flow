@@ -9,6 +9,12 @@ pub enum ValidationResult {
     Invalid(Option<String>),
 }
 
+impl ValidationResult {
+    pub fn is_ok(&self) -> bool {
+        matches!(self, ValidationResult::Valid)
+    }
+}
+
 impl From<bool> for ValidationResult {
     fn from(bool: bool) -> Self {
         if bool {
@@ -158,10 +164,15 @@ impl<A: Annotation> Display for Outcome<'_, A> {
                 }
                 Ok(())
             }
-            NotIsValid => write!(f, "Document matches the \"not\" schema, and hence is invalid"),
+            NotIsValid => write!(
+                f,
+                "Document matches the \"not\" schema, and hence is invalid"
+            ),
             AnyOfNotMatched => write!(f, "Document does not match any of the \"anyOf\" schemas"),
             OneOfNotMatched => write!(f, "Document does not match any of the \"oneOf\" schemas"),
-            OneOfMultipleMatched => write!(f, "Document matches more than one of \"oneOf\" schemas"),
+            OneOfMultipleMatched => {
+                write!(f, "Document matches more than one of \"oneOf\" schemas")
+            }
             ReferenceNotFound(url) => write!(f, "Could not find reference {}", url),
             Annotation(a) => write!(f, "Annotation: {:?}", a),
         }

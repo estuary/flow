@@ -232,7 +232,7 @@ fn parse_open(
 }
 
 fn do_read<'db>(
-    transforms: &mut [Vec<Lambda<'db>>],
+    transforms: &mut [(String, Vec<Lambda<'db>>)],
     read: request::Read,
     response_tx: &mut mpsc::Sender<tonic::Result<Response>>,
     tokio_handle: &tokio::runtime::Handle,
@@ -244,7 +244,7 @@ fn do_read<'db>(
         shuffle: _,
     } = read;
 
-    let stack = transforms
+    let (transform, stack) = transforms
         .get_mut(transform as usize)
         .with_context(|| format!("invalid transform index {transform}"))?;
 
@@ -254,9 +254,7 @@ fn do_read<'db>(
     // Invoke each lambda of the stack in turn, streaming published documents into `response_tx`.
     // It's important that we don't block here -- these result sets could be very large.
     for (index, lambda) in stack.iter_mut().enumerate() {
-        let it = lambda
-            .invoke(&doc)
-            .with_context(|| format!("failed to invoke lambda statement at offset {index}"))?;
+        let it = lambda.invoke(&doc)?;
 
         let it = it.map(|published| match published {
             Ok(published) => Ok(Ok(Response {
@@ -265,7 +263,10 @@ fn do_read<'db>(
                 }),
                 ..Default::default()
             })),
-            Err(err) => Ok(Err(anyhow_to_status(err.into()))),
+            Err(err) => Ok(Err(tonic::Status::internal(format!(
+                "failed to invoke transform {transform:?} lambda statement at offset {index}: {err}\nDocument was {}",
+                serde_json::to_string_pretty(&doc).unwrap()
+            )))),
         });
 
         _ = tokio_handle.block_on(response_tx.send_all(&mut futures::stream::iter(it)));
@@ -287,7 +288,7 @@ fn do_commit(
 
 struct Handle {
     conn: &'static rusqlite::Connection,
-    transforms: Vec<Vec<Lambda<'static>>>,
+    transforms: Vec<(String, Vec<Lambda<'static>>)>,
 }
 
 impl Handle {
@@ -322,5 +323,5 @@ impl Drop for Handle {
 }
 
 fn anyhow_to_status(err: anyhow::Error) -> tonic::Status {
-    tonic::Status::internal(format!("{err:?}"))
+    tonic::Status::internal(format!("{err:#}"))
 }

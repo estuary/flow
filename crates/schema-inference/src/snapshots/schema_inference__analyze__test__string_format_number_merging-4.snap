@@ -8,7 +8,7 @@ expression: schema
   "properties": {
     "a": {
       "type": [
-        "number",
+        "integer",
         "string"
       ],
       "format": "number"

@@ -1,6 +1,6 @@
 use super::anyhow_to_status;
 use anyhow::Context;
-use futures::{channel::mpsc, SinkExt, Stream, StreamExt};
+use futures::{channel::mpsc, Future, SinkExt, Stream, StreamExt, TryStreamExt};
 use prost::Message;
 use proto_flow::derive::{request, response, Request, Response};
 use proto_flow::flow::{self, collection_spec, CollectionSpec};
@@ -11,9 +11,9 @@ use std::time::SystemTime;
 pub fn adapt_requests<R>(
     _peek_request: &Request,
     request_rx: R,
-) -> anyhow::Result<(impl Stream<Item = tonic::Result<Request>>, Backward)>
+) -> anyhow::Result<(impl Stream<Item = tonic::Result<Request>> + Unpin, Backward)>
 where
-    R: Stream<Item = tonic::Result<Request>> + Send + 'static,
+    R: Stream<Item = tonic::Result<Request>> + Send + Unpin + 'static,
 {
     let (open_tx, open_rx) = mpsc::channel(1);
     let (flush_tx, flush_rx) = mpsc::channel(1);
@@ -27,7 +27,7 @@ where
     };
 
     Ok((
-        request_rx.map(move |request| fwd.on_request(request)),
+        Box::pin(request_rx.and_then(move |request| fwd.on_request(request))),
         Backward {
             open_rx,
             flush_rx,
@@ -51,18 +51,13 @@ pub struct Backward {
 }
 
 impl Forward {
-    fn on_request(&mut self, request: tonic::Result<Request>) -> tonic::Result<Request> {
-        let request = request?;
-
-        if let Some(open) = &request.open {
-            // Tell the response loop about this Open.
-            // It will inspect it upon a future Opened response.
-            let () = self
-                .open_tx
-                .try_send(open.clone())
-                .context("saw second Open request before prior Opened had been read")
-                .map_err(anyhow_to_status)?;
-        }
+    fn on_request(&mut self, request: Request) -> impl Future<Output = tonic::Result<Request>> {
+        // Build an intent to tell the response loop about a request::Open.
+        // The response loop will inspect it upon a future Opened message.
+        let open_intent = request
+            .open
+            .clone()
+            .map(|open| (self.open_tx.clone(), open));
 
         if let Some(read) = &request.read {
             // Track start time of the transaction as time of first Read.
@@ -86,21 +81,36 @@ impl Forward {
             read_stats.bytes_total += read.doc_json.len() as u32;
         }
 
-        if let Some(_flush) = &request.flush {
-            // We've completed reading documents for this transaction.
-            // Tell the response loop about our flush.
-            let () = self
-                .flush_tx
-                .try_send((
+        // Build an intent to tell the response loop about a request::Flush.
+        // The response loop will inspect it upon a future Flushed message.
+        let flush_intent = request.flush.as_ref().map(|_flush| {
+            (
+                self.flush_tx.clone(),
+                (
                     self.max_clock,
                     std::mem::take(&mut self.read_stats),
                     self.started_at.take().unwrap_or_else(|| SystemTime::now()),
-                ))
-                .context("saw second Flush request before prior Flushed has been read")
-                .map_err(anyhow_to_status)?;
-        }
+                ),
+            )
+        });
 
-        Ok(request)
+        // Async block performing possible blocking sends to open_tx and flush_tx.
+        // Note the returned future doesn't close over a reference to `self`.
+        async move {
+            if let Some((mut tx, item)) = open_intent {
+                tx.send(item)
+                    .await
+                    .context("failed to send Open to response loop")
+                    .map_err(anyhow_to_status)?;
+            }
+            if let Some((mut tx, item)) = flush_intent {
+                tx.send(item)
+                    .await
+                    .context("failed to send Flush to response loop")
+                    .map_err(anyhow_to_status)?;
+            }
+            Ok(request)
+        }
     }
 }
 
@@ -226,7 +236,7 @@ pub struct State {
     // Key components of derived documents.
     document_key_ptrs: Vec<doc::Pointer>,
     // JSON pointer to the derived document UUID.
-    document_uuid_ptr: doc::Pointer,
+    document_uuid_ptr: Option<doc::Pointer>,
     // Shape of published documents.
     document_shape: doc::inference::Shape,
     // Partitions to extract when draining the Combiner.
@@ -275,12 +285,13 @@ impl State {
         if document_key_ptrs.is_empty() {
             return Err(anyhow::anyhow!("derived collection key cannot be empty").into());
         }
-        if document_uuid_ptr.is_empty() {
-            return Err(anyhow::anyhow!("document uuid JSON-pointer cannot be empty").into());
-        }
-
         let document_key_ptrs: Vec<_> = document_key_ptrs.iter().map(doc::Pointer::from).collect();
-        let document_uuid_ptr = doc::Pointer::from(&document_uuid_ptr);
+
+        let document_uuid_ptr = if document_uuid_ptr.is_empty() {
+            None
+        } else {
+            Some(doc::Pointer::from(&document_uuid_ptr))
+        };
 
         let write_schema_json = doc::validation::build_bundle(&write_schema_json)
             .context("collection write_schema_json is not a JSON schema")?;
@@ -345,8 +356,11 @@ impl State {
             )
         })?;
 
-        if let Some(node) = self.document_uuid_ptr.create_heap_node(&mut doc, alloc) {
-            *node = doc::HeapNode::String(doc::BumpStr::from_str(crate::UUID_PLACEHOLDER, alloc));
+        if let Some(ptr) = &self.document_uuid_ptr {
+            if let Some(node) = ptr.create_heap_node(&mut doc, alloc) {
+                *node =
+                    doc::HeapNode::String(doc::BumpStr::from_str(crate::UUID_PLACEHOLDER, alloc));
+            }
         }
         memtable.add(doc, false)?;
 

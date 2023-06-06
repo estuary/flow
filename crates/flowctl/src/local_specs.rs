@@ -173,6 +173,10 @@ pub(crate) fn indirect_and_write_resources(
     mut sources: tables::Sources,
 ) -> anyhow::Result<tables::Sources> {
     ::sources::indirect_large_files(&mut sources, 1 << 9);
+    write_resources(sources)
+}
+
+pub(crate) fn write_resources(mut sources: tables::Sources) -> anyhow::Result<tables::Sources> {
     ::sources::rebuild_catalog_resources(&mut sources);
 
     write_files(

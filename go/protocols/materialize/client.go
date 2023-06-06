@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	math "math"
+	"math"
 	"sync"
 
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
@@ -14,6 +14,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
+	"go.gazette.dev/core/consumer"
 )
 
 // TxnClient is a client of a driver's Transactions RPC.
@@ -157,6 +158,14 @@ func (c *TxnClient) AddDocument(binding int, keyPacked []byte, keyJson json.RawM
 	// while we WriteLoad to the connector (which could block).
 	// This allows for a concurrent handling of a Loaded response.
 
+	// Check `flighted` without locking. Safety:
+	// * combineRight() modifies `flighted`, but is called only from this function (below).
+	// * Store also modifies `flighted`, but is called only by the same thread
+	//   which invokes AddDocument.
+	if len(c.flighted) >= maxFlightedKeys {
+		return consumer.ErrDeferToNextTransaction
+	}
+
 	if load, err := c.combineRight(binding, keyPacked, doc); err != nil {
 		return err
 	} else if !load {
@@ -296,7 +305,7 @@ func (c *TxnClient) writeErr(err error) error {
 	// Otherwise we must synchronously read the error.
 	for {
 		if _, err = c.client.Recv(); err != nil {
-			return err
+			return pf.UnwrapGRPCError(err)
 		}
 	}
 }
@@ -342,7 +351,7 @@ func (c *TxnClient) drainBinding(
 		// We can retain a bounded number of documents from this transaction
 		// as a performance optimization, so that they may be directly available
 		// to the next transaction without issuing a Load.
-		if deltaUpdates || remaining >= cachedDocumentBound {
+		if deltaUpdates || remaining >= cachedDocumentBound || len(docRaw) > cachedDocumentMaxSize {
 			delete(flighted, string(keyPacked)) // Don't retain.
 		} else {
 			// We cannot reference `docRaw` beyond this callback, and must copy.
@@ -408,5 +417,14 @@ func (c *TxnClient) readAcknowledgedAndLoaded(acknowledgedOp *client.AsyncOperat
 	}
 }
 
-// TODO(johnny): This is an interesting knob we may want expose.
-const cachedDocumentBound = 2048
+const (
+	// Number of documents we'll cache between transactions of a standard materialization,
+	// to avoid extra Loads when only a small number of keys are being modified each transaction.
+	// TODO(johnny): This is an interesting knob we may want expose.
+	cachedDocumentBound = 2048
+	// Maximum size of a serialized document that we will cache
+	cachedDocumentMaxSize = 1 << 15 // 32K
+	// Maximum number of keys we'll manage in a single transaction.
+	// TODO(johnny): We'd like to remove this, but cannot so long as we're using an in-memory key map.
+	maxFlightedKeys = 10_000_000
+)

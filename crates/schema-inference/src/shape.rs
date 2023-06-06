@@ -1,15 +1,29 @@
-use doc::inference::{ArrayShape, ObjProperty, ObjShape, StringShape, Shape};
+use doc::inference::{ArrayShape, ObjProperty, ObjShape, Shape, StringShape};
 use itertools::{EitherOrBoth, Itertools};
-use json::schema::{types, formats::Format};
+use json::schema::types;
 
-/// We _merge_ rather than _union_ Shapes together. This allows us to retain all
-/// inference information we've gathered up to that point, where _union_ would
-/// potentially discard valid inferences as being of `any` type. Many of the
-/// more advanced json schema attributes are ignored, as we will never infer
-/// them from data.
+// TODO(johnny): We are *very* close to being able to define merge()
+// in terms of a trivial Shape::union(). The one reason we cannot,
+// is because we would have to mark object shapes with additionalProperties: false,
+// which is definitely something we should do but not until we have a tight
+// feedback / re-publication cycle around inferred-schema violations.
+//
+// See comment on infer_object_shape()
+//
+// For now, the difference between merge() and union() is that merge
+// does not prune properties present in one schema but not the other,
+// where the other schema does not specifically restrict that property
+// from existing. merge() also doesn't handle a slew of cases that
+// union() *does* handle, and we should seek to remove it.
 pub fn merge(lhs: Shape, rhs: Shape) -> Shape {
-    let string = merge_string_shapes(&lhs, &rhs);
-
+    let string = match (
+        lhs.type_.overlaps(types::STRING),
+        rhs.type_.overlaps(types::STRING),
+    ) {
+        (true, true) => StringShape::union(lhs.string, rhs.string),
+        (_, false) => lhs.string,
+        (false, true) => rhs.string,
+    };
     let array = match (
         lhs.type_.overlaps(types::ARRAY),
         rhs.type_.overlaps(types::ARRAY),
@@ -18,7 +32,6 @@ pub fn merge(lhs: Shape, rhs: Shape) -> Shape {
         (_, false) => lhs.array,
         (false, true) => rhs.array,
     };
-
     let object = match (
         lhs.type_.overlaps(types::OBJECT),
         rhs.type_.overlaps(types::OBJECT),
@@ -37,43 +50,17 @@ pub fn merge(lhs: Shape, rhs: Shape) -> Shape {
     }
 }
 
-fn merge_string_shapes(lhs: &Shape, rhs: &Shape) -> StringShape {
-    match (lhs.string.format, rhs.string.format) {
-        (Some(lhs_format), Some(rhs_format)) => {
-            match (lhs_format, rhs_format) {
-                (a, b) if a == b => lhs.string.clone(),
-                (Format::Number, Format::Integer) => lhs.string.clone(),
-                (Format::Integer, Format::Number) => rhs.string.clone(),
-                _ => StringShape::default()
-            }
-        },
-        (Some(lhs_format), None) => {
-            if !rhs.type_.overlaps(types::INT_OR_FRAC) {
-                return StringShape::default();
-            }
-            match lhs_format {
-                Format::Integer if rhs.type_.overlaps(types::FRACTIONAL) => StringShape { format: Some(Format::Number), ..Default::default() },
-                _ => lhs.string.clone(),
-            }
-        },
-        (None, Some(rhs_format)) => {
-            if !lhs.type_.overlaps(types::INT_OR_FRAC) {
-                return StringShape::default();
-            }
-            match rhs_format {
-                Format::Integer if lhs.type_.overlaps(types::FRACTIONAL) => StringShape { format: Some(Format::Number), ..Default::default() },
-                _ => rhs.string.clone(),
-            }
-        },
-        (None, None) => StringShape::default(),
-    }
-}
-
 fn merge_obj_shapes(lhs: ObjShape, rhs: ObjShape) -> ObjShape {
-    // Derive the super-set of properties of both sides. Since we are trying
-    // to generate maximally descriptive schemas, not validate, we want to
-    // retain all inferences. This means that we'll retain inferred schemas, but
-    // mark them as `!required` rather than assuming they are `any`.
+    // NOTE(johnny): This is an incorrect re-implementation of ObjShape::union(),
+    // which omits a slew of important details.
+    //
+    // The one salient difference that we currently rely on is that
+    // this implementation preserves properties in all cases.
+    // ObjShape::union(), conversely, will "preserve" a property only if the other
+    // side constrains that property to not exist (as otherwise its schema must be
+    // widened to the point of being completely unconstrained,
+    // which is why ObjShape::union() removes it).
+
     let properties = itertools::merge_join_by(
         lhs.properties.into_iter(),
         rhs.properties.into_iter(),
@@ -106,8 +93,9 @@ fn merge_obj_shapes(lhs: ObjShape, rhs: ObjShape) -> ObjShape {
 }
 
 fn merge_array_shapes(lhs: ArrayShape, rhs: ArrayShape) -> ArrayShape {
-    // Deeply _merge_ arrays. This is necessary as _union_ would not properly
-    // merge shapes nested inside this array.
+    // NOTE(johnny): This is an incorrect re-implementation of ArrayShape::union(),
+    // which exists only so that merge_obj_shapes() is called to handled
+    // nested sub-objects.
     let tuple = lhs
         .tuple
         .into_iter()
