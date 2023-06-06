@@ -79,7 +79,9 @@ pub fn merge_capture(
         } else if !update_only {
             // Create a new CaptureBinding.
             capture_bindings.push(models::CaptureBinding {
-                target: models::Collection::new(format!("{capture_prefix}/{recommended_name}")),
+                target: Some(models::Collection::new(format!(
+                    "{capture_prefix}/{recommended_name}"
+                ))),
                 resource: models::RawValue::from_value(&resource),
             });
             filtered_bindings.push(discovered_binding);
@@ -100,7 +102,7 @@ pub fn merge_capture(
 pub fn merge_collections(
     discovered_bindings: Vec<Binding>,
     mut fetched_collections: BTreeMap<models::Collection, models::CollectionDef>,
-    targets: Vec<models::Collection>,
+    targets: Vec<Option<models::Collection>>,
 ) -> BTreeMap<models::Collection, models::CollectionDef> {
     assert_eq!(targets.len(), discovered_bindings.len());
 
@@ -115,6 +117,10 @@ pub fn merge_collections(
         },
     ) in targets.into_iter().zip(discovered_bindings.into_iter())
     {
+        // Skip over any disabled bindings, as indicated by them having no target.
+        let Some(target) = target else {
+            continue;
+        };
         let document_schema: models::Schema = serde_json::from_str(&document_schema_json).unwrap();
         // Unwrap a fetched collection, or initialize a blank one.
         let mut collection =
@@ -212,7 +218,7 @@ mod tests {
         let (discovered_bindings, fetched_collections, targets): (
             Vec<Binding>,
             BTreeMap<models::Collection, models::CollectionDef>,
-            Vec<models::Collection>,
+            Vec<Option<models::Collection>>,
         ) = serde_json::from_value(json!([
             [
                 // case/1: if there is no fetched collection, one is assembled.
@@ -284,6 +290,7 @@ mod tests {
     #[test]
     fn test_capture_merge_update() {
         // Fixture is an update of an existing capture, which uses a non-suggested collection name.
+        // There is also a disabled binding, which is expected to remain disabled after the merge.
         // Additional discovered bindings are filtered.
         let (discovered_endpoint, discovered_bindings, fetched_capture) =
             serde_json::from_value(json!([
@@ -291,11 +298,13 @@ mod tests {
                 [
                     { "recommendedName": "suggested", "resourceConfig": { "stream": "foo" }, "documentSchema": { "const": "discovered" } },
                     { "recommendedName": "other", "resourceConfig": { "stream": "bar" }, "documentSchema": false },
+                    { "recommendedName": "other", "resourceConfig": { "stream": "disabled" }, "documentSchema": false },
                 ],
                 {
                   "bindings": [
                     { "resource": { "stream": "foo", "modified": 1 }, "target": "acmeCo/renamed" },
                     { "resource": { "stream": "removed" }, "target": "acmeCo/discarded" },
+                    { "resource": { "stream": "disabled", "modified": "yup" }, "target": null },
                   ],
                   "endpoint": { "connector": { "config": { "fetched": 1 }, "image": "old/image" } },
                   // Extra fields which are passed-through.

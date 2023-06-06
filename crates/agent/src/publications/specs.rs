@@ -479,7 +479,9 @@ fn extract_spec_metadata<'a>(
             image_parts = Some(split_tag(&config.image));
 
             for binding in &capture.bindings {
-                writes_to.push(binding.target.as_ref());
+                if let Some(target) = binding.target.as_ref() {
+                    writes_to.push(target.as_ref());
+                }
             }
             writes_to.reserve(1);
         }
