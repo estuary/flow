@@ -42,6 +42,17 @@ impl serde::Serialize for Id {
     }
 }
 
+impl<'de> serde::Deserialize<'de> for Id {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+        let str_val = std::borrow::Cow::<'de, str>::deserialize(deserializer)?;
+        Id::from_hex(str_val.as_ref()).map_err(|err| D::Error::custom(format!("invalid id: {err}")))
+    }
+}
+
 impl Type<postgres::Postgres> for Id {
     fn type_info() -> postgres::PgTypeInfo {
         postgres::PgTypeInfo::with_name("flowid")

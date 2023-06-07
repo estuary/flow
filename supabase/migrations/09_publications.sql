@@ -8,7 +8,8 @@ create table publications (
 
   user_id   uuid references auth.users(id) not null default auth.uid(),
   draft_id  flowid not null,
-  dry_run   bool   not null default false
+  dry_run   bool   not null default false,
+  auto_evolve boolean not null default false
 );
 alter table publications enable row level security;
 alter publication supabase_realtime add table publications;
@@ -36,6 +37,9 @@ comment on column publications.draft_id is
   'Draft which is published';
 comment on column publications.dry_run is
   'A dry-run publication will test and verify a draft, but doesn''t publish into live specifications';
+comment on column publications.auto_evolve is
+  'Whether to automatically handle schema evolution if the publication fails due to incompatible collections.
+  If true, then an evolutions job will be created automatically if needed, and the results will be published again.';
 
 
 -- Live (current) specifications of the catalog.
