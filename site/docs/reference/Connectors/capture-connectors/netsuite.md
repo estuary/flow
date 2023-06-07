@@ -12,10 +12,22 @@ This connector is based on an open-source connector from a third party, with mod
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/netsuite/),
 but keep in mind that the two versions may be significantly different.
 
+## Supported data resources
+
+Flow captures collections from any NetSuite object to which you grant access during [setup](#setup), including `Transactions`, `Reports`, `Lists`, and `Setup`.
+
+## Setup
+
+Create a custom role estuary-role following [these steps](https://docs.oracle.com/en/cloud/saas/netsuite/ns-online-help/bridgehead_N286284.html). Any objects to which you grant the estuary-role access will be captured.
+
 ## Prerequisites
 
 * Oracle NetSuite [account](https://system.netsuite.com/pages/customerlogin.jsp?country=US)
 * Allowed access to all Account permissions options
+* A new integration with token-based authentication
+* A custom role with access to objects you want to capture. See [setup](#setup).
+* A new user assigned to the custom role
+* Access token generated for the custom role
 
 ## Configuration
 
