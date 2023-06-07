@@ -21,6 +21,8 @@ pub struct Row {
     pub update_only: bool,
     pub updated_at: DateTime<Utc>,
     pub user_id: Uuid,
+    pub auto_publish: bool,
+    pub auto_evolve: bool,
 }
 
 pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::Result<Option<Row>> {
@@ -40,6 +42,8 @@ pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::R
           connector_tags.protocol as "protocol!",
           discovers.update_only,
           discovers.updated_at,
+          discovers.auto_publish,
+          discovers.auto_evolve,
           drafts.user_id
       from discovers
       join drafts on discovers.draft_id = drafts.id

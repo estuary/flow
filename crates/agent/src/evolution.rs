@@ -19,12 +19,16 @@ pub struct EvolutionHandler;
 /// Rust struct corresponding to each array element of the `collections` JSON
 /// input of an `evolutions` row.
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
-struct EvolveRequest {
-    old_name: String,
-    new_name: Option<String>,
+pub struct EvolveRequest {
+    /// The current name of the collection.
+    pub old_name: String,
+    /// Optional new name for the collection. If provided, the collection will always
+    /// be re-created, even if it uses an inferred schema.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_name: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, PartialEq)]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum JobStatus {
     EvolutionFailed {
@@ -32,10 +36,11 @@ pub enum JobStatus {
     },
     Success {
         evolved_collections: Vec<EvolvedCollection>,
+        publication_id: Option<Id>,
     },
 }
 
-#[derive(Serialize, Deserialize, PartialEq)]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct EvolvedCollection {
     /// Original name of the collection
     pub old_name: String,
@@ -199,8 +204,25 @@ async fn process_row(
     // TODO: Update the `expect_pub_id` of any specs that we've added to the draft.
     // This is important to do, but is something that I think we can safely defer
     // until a future commit.
+
+    // Create a publication of the draft, if desired.
+    let publication_id = if row.auto_publish {
+        let detail = format!(
+            "system created publication as a result of evolution: {}",
+            row.id
+        );
+        // So that we don't create an infinite loop in case there's continued errors.
+        let auto_evolve = false;
+        let id =
+            agent_sql::publications::create(txn, row.user_id, row.draft_id, auto_evolve, detail)
+                .await?;
+        Some(id)
+    } else {
+        None
+    };
     Ok(JobStatus::Success {
         evolved_collections: changed_collections,
+        publication_id,
     })
 }
 
@@ -445,7 +467,7 @@ lazy_static! {
     static ref NAME_VERSION_RE: Regex = Regex::new(r#".*[_-][vV](\d+)$"#).unwrap();
 }
 
-fn next_name(current_name: &str) -> String {
+pub fn next_name(current_name: &str) -> String {
     // Does the name already have a version suffix?
     // We try to work with whatever suffix is already present. This way, if a user
     // is starting with a collection like `acmeCo/foo-V3`, they'll end up with

@@ -7,7 +7,8 @@ create table evolutions (
 
   user_id   uuid references auth.users(id) not null default auth.uid(),
   draft_id  flowid not null,
-  collections json not null  check (json_typeof(collections) = 'array')
+  collections json not null  check (json_typeof(collections) = 'array'),
+  auto_publish boolean not null default false
 );
 
 comment on table evolutions is
@@ -22,6 +23,8 @@ comment on column evolutions.collections is
   '{"old_name": "acmeCo/foo", "new_name": "acmeCo/foo_v2"}.'
   'Note that the old_name of each collection must identify a draft_spec of the '
   'given draft_id';
+comment on column evolutions.auto_publish is
+  'whether to automatically publish the results of the evolution, if successful';
 
 alter table evolutions enable row level security;
 alter publication supabase_realtime add table evolutions;

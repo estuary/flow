@@ -18,9 +18,29 @@ pub struct BuildOutput {
     pub built_tests: tables::BuiltTests,
 }
 
+/// Reasons why a draft collection spec would need to be published under a new name.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub enum ReCreateReason {
+    /// The collection key in the draft differs from that of the live spec.
+    KeyChange,
+    /// One or more collection partition fields in the draft differs from that of the live spec.
+    PartitionChange,
+    /// A live spec with the same name has already been created and was subsequently deleted.
+    PrevDeletedSpec,
+    /// The draft collection spec does not contain the `x-infer-schema` annotation. Generally, it's better to re-create
+    /// these collections because incompatible schema changes are likely to be accompanied by changes to the data itself.
+    /// For example, an `ALTER TABLE` statement in a source database may modify rows that have already been captured. But
+    /// this isn't necessarily always the case, and users may choose to keep the original collection in certain scenarios.
+    AuthoritativeSourceSchema,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct IncompatibleCollection {
     pub collection: String,
+    /// Reasons why the collection would need to be re-created in order for a publication of the draft spec to succeed.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub requires_recreation: Vec<ReCreateReason>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub affected_materializations: Vec<AffectedConsumer>,
 }
@@ -52,6 +72,7 @@ impl BuildOutput {
     pub fn get_incompatible_collections(&self) -> Vec<IncompatibleCollection> {
         let mut collections = BTreeMap::new();
 
+        // Look at materialization validation responses for any collections that have been rejected due to unsatisfiable constraints.
         for mat in self.built_materializations.iter() {
             for (i, binding) in mat.validated.bindings.iter().enumerate() {
                 let Some(collection_name) = mat.spec.bindings[i].collection.as_ref().map(|c| c.name.as_str()) else {
@@ -73,16 +94,52 @@ impl BuildOutput {
                 }
             }
         }
-        collections
-            .into_iter()
-            .map(
-                |(collection, affected_materializations)| IncompatibleCollection {
-                    collection,
-                    affected_materializations,
-                },
-            )
-            .collect()
+
+        let mut incompatible_collections = Vec::new();
+        // Loop over the affected collections and build the final output for each one.
+        for (collection, affected_materializations) in collections {
+            // We need to determine whether this collection uses schema inference, so start by looking up the
+            // spec in the build output.
+            let Some(built) = self.built_collections.iter().find(|c| c.collection.as_str() == &collection) else {
+                tracing::warn!(%collection, "build output missing built collection that is incompatible");
+                continue;
+            };
+            let mut ic = IncompatibleCollection {
+                collection,
+                affected_materializations,
+                requires_recreation: Vec::new(),
+            };
+            if uses_schema_inference(&built.spec) {
+                ic.requires_recreation
+                    .push(ReCreateReason::AuthoritativeSourceSchema);
+            }
+            incompatible_collections.push(ic);
+        }
+        incompatible_collections
     }
+}
+
+/// This returns true if the given collection uses an inferred schema. For now,
+/// this must be determined by parsing the schema and checking for the presence
+/// of an `x-infer-schema` annotation, which is fallible. But the future plan is
+/// to hoist that annotation into a top-level collection property, which would
+/// eliminate the need for this function.
+///
+/// # Panics
+///
+/// If the collection's read_schema_json cannot be parsed or indexed. This
+/// should never be the case since the collection _could_ be built.
+fn uses_schema_inference(collection: &proto_flow::flow::CollectionSpec) -> bool {
+    let schema = doc::validation::build_bundle(&collection.read_schema_json)
+        .expect("built collection schema bundle failed to build");
+    let mut builder = doc::SchemaIndexBuilder::new();
+    builder
+        .add(&schema)
+        .expect("built collection schema failed add to index");
+    let index = builder.into_index();
+    let shape = doc::inference::Shape::infer(&schema, &index);
+
+    shape.annotations.contains_key("x-infer-schema")
 }
 
 pub async fn build_catalog(

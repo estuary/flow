@@ -7,7 +7,9 @@ create table discovers (
   connector_tag_id  flowid   not null references connector_tags(id),
   draft_id          flowid   not null references drafts(id) on delete cascade,
   endpoint_config   json_obj not null,
-  update_only       boolean  not null default false
+  update_only       boolean  not null default false,
+  auto_publish      boolean  not null default false,
+  auto_evolve       boolean  not null default false
 );
 alter table discovers enable row level security;
 alter publication supabase_realtime add table discovers;
@@ -36,3 +38,9 @@ comment on column discovers.endpoint_config is
 comment on column discovers.update_only is '
 If true, this operation will draft updates to existing bindings and their
 target collections but will not add new bindings or collections.';
+comment on column discovers.auto_publish is
+'whether to automatically publish the results of the discover, if successful';
+comment on column discovers.auto_evolve is
+'whether to automatically create an evolutions job if the automatic publication
+fails due to incompatible collection schemas. This determines the value of `auto_evolve`
+in the publications table when inserting a new row as a result of this discover.';
