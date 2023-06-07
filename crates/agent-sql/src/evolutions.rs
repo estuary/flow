@@ -15,6 +15,7 @@ pub struct Row {
     pub updated_at: DateTime<Utc>,
     pub user_id: Uuid,
     pub collections: Json<Box<RawValue>>,
+    pub auto_publish: bool,
 }
 
 pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::Result<Option<Row>> {
@@ -28,6 +29,7 @@ pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::R
             logs_token,
             updated_at,
             user_id,
+            auto_publish,
             collections as "collections: Json<Box<RawValue>>"
         from evolutions where job_status->>'type' = 'queued'
         order by id asc
