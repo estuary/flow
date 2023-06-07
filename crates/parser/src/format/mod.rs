@@ -10,6 +10,10 @@ use crate::{Compression, Format, ParseConfig};
 
 use serde_json::Value;
 use std::io::{self, Write};
+use std::path::Path;
+use zip::read::ZipFile;
+use zip::result::ZipError;
+use zip::ZipArchive;
 
 /// Error type returned by all parse operations.
 #[derive(Debug, thiserror::Error)]
@@ -97,15 +101,64 @@ pub fn parse(
 
     let parser = parser_for(resolved_format);
 
-    // Do we need to decompress the input before sending it to the parser?
-    let input = if parser.decompress() {
-        content.decompressed(resolved_compression)?
+    if !parser.decompress() {
+        // Parser handles compressed files directly.
+        parse_file(&parser, config, content, dest, 0)?;
     } else {
-        content
-    };
+        match resolved_compression {
+            Compression::ZipArchive => {
+                // Process individual files out of the zip archive separately. Output records are indexed
+                // relative to all records from all files in the archive so that filesource connectors can
+                // base their checkpoints off of the archive name itself, which they have available from a
+                // directory listing.
+                let mut archive = ZipArchive::new(content.into_file()?).map_err(zip_into_io_err)?;
 
+                let mut row_count = 0;
+
+                for idx in 0..archive.len() {
+                    let entry = archive.by_index(idx).map_err(zip_into_io_err)?;
+
+                    if should_include_archive_member(&entry) {
+                        tracing::trace!(file_num = idx + 1, "reading zip file: {:?}", entry.name());
+
+                        // Safety: We are not returning any references to the transmuted entry and it,
+                        // along with all other entries created by this loop, are dropped before archive
+                        // is dropped. The parse function that uses the transmuted entry is entirely
+                        // synchronous so we don't need to pin anything.
+                        let entry =
+                            unsafe { std::mem::transmute::<ZipFile<'_>, ZipFile<'static>>(entry) };
+
+                        let input = Input::Stream(Box::new(entry));
+                        row_count += parse_file(&parser, config, input, dest, row_count)?;
+                    }
+                }
+            }
+            _ => {
+                // All other compressed files are first decompressed and then parsed as a single
+                // file.
+                parse_file(
+                    &parser,
+                    config,
+                    content.decompressed(resolved_compression)?,
+                    dest,
+                    0,
+                )?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn parse_file(
+    parser: &Box<dyn Parser>,
+    config: &ParseConfig,
+    input: Input,
+    dest: &mut impl io::Write,
+    starting_offset: u64,
+) -> Result<u64, ParseError> {
     let output = parser.parse(input)?;
-    format_output(&config, output, dest)
+    format_output(&config, output, dest, starting_offset)
 }
 
 fn parser_for(format: Format) -> Box<dyn Parser> {
@@ -148,7 +201,8 @@ fn format_output(
     config: &ParseConfig,
     output: Output,
     dest: &mut impl io::Write,
-) -> Result<(), ParseError> {
+    starting_offset: u64,
+) -> Result<u64, ParseError> {
     let decorator = Decorator::from_config(config);
     let mut buffer = io::BufWriter::new(dest);
     let mut record_count = 0u64;
@@ -156,17 +210,21 @@ fn format_output(
     for result in output {
         let mut value = result?;
 
-        decorator.add_fields(record_count, &mut value)?;
+        decorator.add_fields(starting_offset + record_count, &mut value)?;
         serde_json::to_writer(&mut buffer, &value)?;
         buffer.write_all(&[b'\n'])?;
         record_count += 1;
     }
     buffer.flush()?;
-    tracing::info!(record_count = record_count, "successfully finished parsing");
-    Ok(())
+    tracing::info!(
+        starting_offset = starting_offset,
+        record_count = record_count,
+        "successfully finished parsing"
+    );
+    Ok(record_count)
 }
 
-/// Attempts to reoslve a Format using the the fields in the config.
+/// Attempts to resolve a Format using the the fields in the config.
 fn determine_format(config: &ParseConfig) -> Option<Format> {
     Some(
         config
@@ -288,6 +346,36 @@ fn compression_from_filename(filename: &str) -> Option<Compression> {
         "zst" => Some(Compression::Zstd),
         _ => None,
     })
+}
+
+fn zip_into_io_err(zip_err: ZipError) -> io::Error {
+    match zip_err {
+        ZipError::Io(ioe) => ioe,
+        other => io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("invalid zip archive: {}", other),
+        ),
+    }
+}
+
+fn should_include_archive_member(entry: &ZipFile) -> bool {
+    // OSX users will often end up with extra hidden files in their archives. An example is the
+    // `.DS_Store` files that apple puts everywhere, but we've also seen `__MACOSX/.*`. So we
+    // filter out any hidden files (those whose name begins with a '.').
+    entry.is_file()
+        && Path::new(entry.name())
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|name| !name.starts_with("."))
+            .unwrap_or_else(|| {
+                // If we got here, it's because the zip entry has a path that ends with '..' or
+                // something like that, which seems unusual enough to be worth logging.
+                tracing::warn!(
+                    "skipping zip entry: {:?} since the filename does not appear to be valid",
+                    entry.name()
+                );
+                false
+            })
 }
 
 #[cfg(test)]
