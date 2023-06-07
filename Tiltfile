@@ -2,6 +2,7 @@
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/postgres"
 os.putenv("DATABASE_URL", DATABASE_URL)
 os.putenv("RUST_LOG", "info")
+os.putenv("DOCKER_DEFAULT_PLATFORM", "linux/amd64")
 
 
 REPO_BASE= '%s/..' % os.getcwd()
