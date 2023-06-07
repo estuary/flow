@@ -4,6 +4,31 @@ use serde::Serialize;
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
 
+pub async fn create(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_id: Uuid,
+    draft_id: Id,
+    collections: Vec<serde_json::Value>,
+    auto_publish: bool,
+    detail: String,
+) -> sqlx::Result<Id> {
+    let rec = sqlx::query!(
+        r#"
+        insert into evolutions
+            ( user_id, draft_id, collections, auto_publish, detail) 
+        values ( $1, $2, $3, $4, $5 ) returning id as "id: Id"
+        "#,
+        user_id as Uuid,
+        draft_id as Id,
+        serde_json::Value::Array(collections),
+        auto_publish,
+        detail
+    )
+    .fetch_one(txn)
+    .await?;
+    Ok(rec.id)
+}
+
 // Row is the dequeued task of an evolution operation.
 #[derive(Debug)]
 pub struct Row {
@@ -15,6 +40,7 @@ pub struct Row {
     pub updated_at: DateTime<Utc>,
     pub user_id: Uuid,
     pub collections: Json<Box<RawValue>>,
+    pub auto_publish: bool,
 }
 
 pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::Result<Option<Row>> {
@@ -28,6 +54,7 @@ pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::R
             logs_token,
             updated_at,
             user_id,
+            auto_publish,
             collections as "collections: Json<Box<RawValue>>"
         from evolutions where job_status->>'type' = 'queued'
         order by id asc
