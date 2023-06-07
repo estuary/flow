@@ -5,6 +5,24 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::Uuid;
 
+/// Enqueues a new publication of the given `draft_id`.
+pub async fn create(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_id: Uuid,
+    draft_id: Id,
+    auto_evolve: bool,
+    detail: String,
+) -> sqlx::Result<Id> {
+    let rec = sqlx::query!(
+            r#"insert into publications (user_id, draft_id, auto_evolve, detail) values ($1, $2, $3, $4) returning id as "id: Id";"#,
+            user_id as Uuid, draft_id as Id, auto_evolve, detail
+        )
+        .fetch_one(txn)
+        .await?;
+
+    Ok(rec.id)
+}
+
 // Row is the dequeued task shape of a draft build & test operation.
 #[derive(Debug)]
 pub struct Row {
@@ -16,6 +34,7 @@ pub struct Row {
     pub pub_id: Id,
     pub updated_at: DateTime<Utc>,
     pub user_id: Uuid,
+    pub auto_evolve: bool,
 }
 
 pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::Result<Option<Row>> {
@@ -29,7 +48,8 @@ pub async fn dequeue(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::R
             logs_token,
             id as "pub_id: Id",
             updated_at,
-            user_id
+            user_id,
+            auto_evolve
         from publications where job_status->>'type' = 'queued'
         order by id asc
         limit 1

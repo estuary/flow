@@ -1,31 +1,29 @@
 ---
 source: crates/agent/src/evolution/test.rs
-expression: result
+expression: evolved_collections
 ---
-type: success
-evolved_collections:
-  - old_name: evolution/CollectionA
-    new_name: evolution/CollectionA_v2
-    updated_materializations:
-      - evolution/MaterializationA
-    updated_captures:
-      - evolution/CaptureA
-  - old_name: evolution/CollectionB
-    new_name: evolution/NewCollectionB
-    updated_materializations:
-      - evolution/MaterializationA
-      - evolution/MaterializationC
-    updated_captures:
-      - evolution/CaptureA
-  - old_name: evolution/CollectionC
-    new_name: evolution/CollectionC
-    updated_materializations:
-      - evolution/MaterializationB
-    updated_captures: []
-  - old_name: evolution/CollectionD
-    new_name: evolution/NewCollectionD
-    updated_materializations:
-      - evolution/MaterializationB
-    updated_captures:
-      - evolution/CaptureB
+- old_name: evolution/CollectionA
+  new_name: evolution/CollectionA_v2
+  updated_materializations:
+    - evolution/MaterializationA
+  updated_captures:
+    - evolution/CaptureA
+- old_name: evolution/CollectionB
+  new_name: evolution/NewCollectionB
+  updated_materializations:
+    - evolution/MaterializationA
+    - evolution/MaterializationC
+  updated_captures:
+    - evolution/CaptureA
+- old_name: evolution/CollectionC
+  new_name: evolution/CollectionC
+  updated_materializations:
+    - evolution/MaterializationB
+  updated_captures: []
+- old_name: evolution/CollectionD
+  new_name: evolution/NewCollectionD
+  updated_materializations:
+    - evolution/MaterializationB
+  updated_captures:
+    - evolution/CaptureB
 

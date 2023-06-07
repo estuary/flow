@@ -19,7 +19,10 @@ pub enum JobStatus {
     PullFailed,
     DiscoverFailed,
     MergeFailed,
-    Success,
+    Success {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        publication_id: Option<Id>,
+    },
 }
 
 /// A DiscoverHandler is a Handler which performs discovery operations.
@@ -168,8 +171,26 @@ impl DiscoverHandler {
                 draft::upsert_specs(row.draft_id, catalog, txn)
                     .await
                     .context("inserting draft specs")?;
+                let detail = format!(
+                    "system created publication in response to discover: {}",
+                    row.id
+                );
+                // If requested, create a publication of this draft.
+                let publication_id = if row.auto_publish {
+                    let id = agent_sql::publications::create(
+                        txn,
+                        row.user_id,
+                        row.draft_id,
+                        row.auto_evolve,
+                        detail,
+                    )
+                    .await?;
+                    Some(id)
+                } else {
+                    None
+                };
 
-                Ok((row.id, JobStatus::Success))
+                Ok((row.id, JobStatus::Success { publication_id }))
             }
             Err(errors) => {
                 draft::insert_errors(row.draft_id, errors, txn).await?;
