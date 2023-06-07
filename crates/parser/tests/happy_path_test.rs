@@ -70,6 +70,21 @@ fn csv_does_not_require_explicit_quote_configuration() {
     }
 }
 
+#[test]
+fn csv_multi_archive_with_headers_is_parsed() {
+    let path = "tests/examples/valid-csv-multi-archive-with-headers.csv.zip";
+    let config = ParseConfig {
+        filename: Some(path.to_string()),
+        ..Default::default()
+    };
+
+    let input = input_for_file(path);
+    let result = run_test(&config, input);
+    // Each file has headers, so assert that headers are not parsed as data rows based on the count
+    // of parsed results. There are 3 files with 10 rows each with 1 being headers, so 3 * 9 = 27.
+    result.assert_success(27);
+}
+
 fn assert_file_is_parsed(file: PathBuf) {
     assert_file_is_parsed_with_config(file, ParseConfig::default());
 }
