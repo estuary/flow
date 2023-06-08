@@ -34,18 +34,20 @@ pub fn merge_capture(
 ) -> (models::CaptureDef, Vec<Binding>) {
     let capture_prefix = capture_name.rsplit_once("/").unwrap().0;
 
-    let (fetched_bindings, interval, shards) = match fetched_capture {
+    let (fetched_bindings, interval, shards, auto_discover) = match fetched_capture {
         Some(models::CaptureDef {
+            auto_discover,
             endpoint: _,
             bindings: fetched_bindings,
             interval,
             shards,
-        }) => (fetched_bindings, interval, shards),
+        }) => (fetched_bindings, interval, shards, auto_discover),
 
         None => (
             Vec::new(),
             models::CaptureDef::default_interval(),
             models::ShardTemplate::default(),
+            None,
         ),
     };
 
@@ -90,6 +92,7 @@ pub fn merge_capture(
 
     (
         models::CaptureDef {
+            auto_discover,
             endpoint,
             bindings: capture_bindings,
             interval,
