@@ -87,6 +87,12 @@ The versions made available in Flow have been adapted for compatibility.
 * Bing Ads
   * [Configuration](./bing-ads.md)
   * Package - ghcr.io/estuary/source-bing-ads:dev
+* Braintree
+  * [Configuration](./braintree.md)
+  * Package - ghcr.io/estuary/source-braintree:dev
+* Braze
+  * [Configuration](./braze.md)
+  * Package - ghcr.io/estuary/source-braze:dev
 * Chargebee
   * [Configuration](./chargebee.md)
   * Package - ghrc.io/estuary/source-chargebee.dev
@@ -120,15 +126,24 @@ The versions made available in Flow have been adapted for compatibility.
 * Greenhouse
   * [Configuration](./greenhouse.md)
   * Package - ghrc.io/estuary/source-greenhouse.dev
+* Harvest
+  * [Configuration](./harvest.md)
+  * Package - ghcr.io/estuary/source-harvest:dev
 * Hubspot
   * [Configuration](./hubspot.md)
   * Package - ghcr.io/estuary/source-hubspot:dev
+* Instagram
+  * [Configuration](./instagram.md)
+  * Package - ghcr.io/estuary/source-instagram:dev
 * Intercom
   * [Configuration](./intercom.md)
   * Package - ghcr.io/estuary/source-intercom:dev
 * Iterable
   * [Configuration](./iterable.md)
   * Package - ghrc.io/estuary/source-iterable.dev
+* Jira
+  * [Configuration](./jira.md)
+  * Package - ghrc.io/estuary/source-jira.dev
 * Klaviyo
   * [Configuration](./klaviyo.md)
   * Package - ghrc.io/estuary/source-klaviyo.dev
@@ -144,6 +159,9 @@ The versions made available in Flow have been adapted for compatibility.
 * MixPanel
   * [Configuration](./mixpanel.md)
   * Package - ghrc.io/estuary/source-mixpanel.dev
+* NetSuite
+  * [Configuration](./netsuite.md)
+  * Package - ghcr.io/estuary/source-netsuite:dev
 * Notion
   * [Configuration](./notion.md)
   * Package - ghcr.io/estuary/source-notion:dev
