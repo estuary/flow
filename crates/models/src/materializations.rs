@@ -39,12 +39,18 @@ pub enum MaterializationEndpoint {
 #[schemars(example = "MaterializationBinding::example")]
 pub struct MaterializationBinding {
     /// # Endpoint resource to materialize into.
-    pub resource: RawValue,
+    pub resource: Option<RawValue>,
     /// # The collection to be materialized.
     pub source: Source,
     /// # Selected projections for this materialization.
     #[serde(default)]
     pub fields: MaterializationFields,
+}
+
+impl MaterializationBinding {
+    pub fn non_null_resource(&self) -> Option<&RawValue> {
+        self.resource.as_ref().filter(|r| !r.is_null())
+    }
 }
 
 /// MaterializationFields defines a selection of projections to materialize,
@@ -82,7 +88,7 @@ impl MaterializationDef {
 impl MaterializationBinding {
     fn example() -> Self {
         Self {
-            resource: serde_json::from_value(json!({"table": "a_table"})).unwrap(),
+            resource: Some(serde_json::from_value(json!({"table": "a_table"})).unwrap()),
             source: Source::example(),
             fields: MaterializationFields::default(),
         }

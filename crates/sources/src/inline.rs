@@ -164,7 +164,10 @@ fn inline_materialization(
     }
 
     for models::MaterializationBinding { resource, .. } in bindings {
-        inline_config(resource, scope, resources)
+        if let Some(res) = resource {
+            // a null resource would be ignored by inline config
+            inline_config(res, scope, resources)
+        }
     }
 }
 

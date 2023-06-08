@@ -85,6 +85,19 @@ test://example/catalog.yaml:
           resource: { stream: disabled-stream }
         - target: ~
           resource: { stream: another-disabled-stream }
+  materializations:
+    testing/partially-disabled-materialization:
+      endpoint: { connector: { image: s3, config: {} }}
+      bindings:
+        - source: testing/collection
+        - source: testing/collection
+          resource: { stream: enabled-stream }
+
+    testing/fully-disabled-materialization:
+      endpoint: { connector: { image: s3, config: {} }}
+      bindings:
+        - source: testing/collection
+      
   storageMappings:
     testing/:
       stores: [{provider: S3, bucket: a-bucket}]
@@ -96,7 +109,6 @@ driver:
     s3:
       output: '[{"Config": {}}]'
 
-  materializations: {}
   derivations: {}
   captures:
     testing/partially-disabled-capture:
@@ -113,6 +125,25 @@ driver:
         image: s3
         config: {}
       bindings: []
+
+  materializations:
+    testing/partially-disabled-materialization:
+      connectorType: IMAGE
+      config:
+        image: s3
+        config: {}
+      bindings:
+        - resourcePath: [ enabled-stream ]
+          constraints:
+            flow_document: { type: 2, reason: "location required" }
+
+    testing/fully-disabled-materialization:
+      connectorType: IMAGE
+      config:
+        image: s3
+        config: {}
+      bindings: []
+
   "##;
 
     let tables = run_test(
@@ -129,19 +160,32 @@ driver:
         tables.errors
     );
     assert_eq!(tables.built_captures.len(), 2);
-    let partly_disabled = tables
+    let partly_disabled_cap = tables
         .built_captures
         .iter()
-        .find(|m| m.capture == "testing/partially-disabled-capture")
+        .find(|c| c.capture == "testing/partially-disabled-capture")
         .unwrap();
-    assert_eq!(1, partly_disabled.spec.bindings.len());
+    assert_eq!(1, partly_disabled_cap.spec.bindings.len());
 
-    let fully_disabled = tables
+    let fully_disabled_cap = tables
         .built_captures
         .iter()
-        .find(|m| m.capture == "testing/fully-disabled-capture")
+        .find(|c| c.capture == "testing/fully-disabled-capture")
         .unwrap();
-    assert_eq!(0, fully_disabled.spec.bindings.len());
+    assert_eq!(0, fully_disabled_cap.spec.bindings.len());
+
+    let partly_disabled_mat = tables
+        .built_materializations
+        .iter()
+        .find(|m| m.materialization == "testing/partially-disabled-materialization")
+        .unwrap();
+    assert_eq!(1, partly_disabled_mat.spec.bindings.len());
+    let fully_disabled_mat = tables
+        .built_materializations
+        .iter()
+        .find(|m| m.materialization == "testing/fully-disabled-materialization")
+        .unwrap();
+    assert_eq!(0, fully_disabled_mat.spec.bindings.len());
 }
 
 #[test]
