@@ -117,8 +117,19 @@ pub async fn walk_all_materializations<C: Connectors>(
                     resource_path,
                 } = binding_response;
 
-                let models::MaterializationBinding { source, fields, .. } =
-                    &binding_models[binding_index];
+                // When we lookup the binding in the model, we need to account
+                // for the presence of disabled bindings, which would cause
+                // binding indexes to differ between the model and the specs
+                // from the validation request/response.
+                let models::MaterializationBinding {
+                    ref source,
+                    ref fields,
+                    ..
+                } = binding_models
+                    .iter()
+                    .filter(|b| b.non_null_resource().is_some())
+                    .nth(binding_index)
+                    .expect("models bindings are consistent with validation requests bindings");
 
                 let field_selection = Some(walk_materialization_response(
                     scope.push_prop("bindings").push_item(binding_index),
@@ -271,6 +282,8 @@ fn walk_materialization_request<'a>(
     let bindings = bindings
         .iter()
         .enumerate()
+        // Filter the bindings that we send to the connector to only those that are enabled.
+        .filter(|(_, b)| b.non_null_resource().is_some())
         .map(|(binding_index, binding)| {
             walk_materialization_binding(
                 scope.push_prop("bindings").push_item(binding_index),
