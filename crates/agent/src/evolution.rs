@@ -19,9 +19,13 @@ pub struct EvolutionHandler;
 /// Rust struct corresponding to each array element of the `collections` JSON
 /// input of an `evolutions` row.
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
-struct EvolveRequest {
-    old_name: String,
-    new_name: Option<String>,
+pub struct EvolveRequest {
+    /// The current name of the collection.
+    pub old_name: String,
+    /// Optional new name for the collection. If provided, the collection will always
+    /// be re-created, even if it uses an inferred schema.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
@@ -463,7 +467,7 @@ lazy_static! {
     static ref NAME_VERSION_RE: Regex = Regex::new(r#".*[_-][vV](\d+)$"#).unwrap();
 }
 
-fn next_name(current_name: &str) -> String {
+pub fn next_name(current_name: &str) -> String {
     // Does the name already have a version suffix?
     // We try to work with whatever suffix is already present. This way, if a user
     // is starting with a collection like `acmeCo/foo-V3`, they'll end up with
