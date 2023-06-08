@@ -45,6 +45,7 @@ test://example/catalog.yaml:
 
   materializations:
     a/materialization:
+      sourceCapture: a/capture
       endpoint:
         connector:
           image: materialization/image
