@@ -64,7 +64,6 @@ You configure connectors either in the Flow web app, or by directly editing the 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/stream`** | Prefix | Path to the captured directory. | string | Required |
-| **`/syncMode`** | Sync mode | Connection method. Always set to `incremental`. | string | Required |
 
 ### Sample
 
@@ -93,7 +92,6 @@ captures:
       bindings:
         - resource:
             stream: /data
-            syncMode: incremental
           target: ${COLLECTION_NAME}
 ```
 

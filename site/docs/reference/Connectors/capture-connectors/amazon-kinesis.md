@@ -50,7 +50,6 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | Property | Title | Description | Type | Required/Default |
 |-------|------|------|---------| --------|
 | **`/stream`** | Stream | Stream name. | string | Required |
-| **`/syncMode`** | Sync mode | Connection method. Always set to `incremental` | string | Required |
 
 ### Sample
 
@@ -69,7 +68,6 @@ captures:
     bindings:
       - resource:
           stream: ${STREAM_NAME}
-          syncMode: incremental
         target: ${PREFIX}/${COLLECTION_NAME}
 
 ```
