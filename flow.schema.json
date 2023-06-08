@@ -13,6 +13,10 @@
       "examples": [
         {
           "acmeCo/capture": {
+            "autoDiscover": {
+              "addNewBindings": true,
+              "evolveIncompatibleCollections": true
+            },
             "bindings": [
               {
                 "resource": {
@@ -159,6 +163,23 @@
   },
   "additionalProperties": false,
   "definitions": {
+    "AutoDiscover": {
+      "description": "Settings to determine how Flow should stay abreast of ongoing changes to collections and schemas.",
+      "type": "object",
+      "properties": {
+        "addNewBindings": {
+          "description": "Automatically add new bindings discovered from the source.",
+          "default": false,
+          "type": "boolean"
+        },
+        "evolveIncompatibleCollections": {
+          "description": "Whether to automatically evolve collections and/or materialization bindings to handle changes to collections that would otherwise be incompatible with the existing catalog.",
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
     "Capture": {
       "description": "Capture names are paths of Unicode letters, numbers, '-', '_', or '.'. Each path component is separated by a slash '/', and a name may not begin or end in a '/'.",
       "examples": [
@@ -209,6 +230,10 @@
         "endpoint"
       ],
       "properties": {
+        "autoDiscover": {
+          "title": "Continuously keep the collection spec and schema up-to-date",
+          "$ref": "#/definitions/AutoDiscover"
+        },
         "bindings": {
           "title": "Bound collections to capture from the endpoint.",
           "type": "array",

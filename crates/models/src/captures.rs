@@ -11,6 +11,9 @@ use std::time::Duration;
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct CaptureDef {
+    /// # Continuously keep the collection spec and schema up-to-date
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_discover: Option<AutoDiscover>,
     /// # Endpoint to capture from.
     pub endpoint: CaptureEndpoint,
     /// # Bound collections to capture from the endpoint.
@@ -35,6 +38,20 @@ pub struct CaptureDef {
     /// # Template for shards of this capture task.
     #[serde(default, skip_serializing_if = "ShardTemplate::is_empty")]
     pub shards: ShardTemplate,
+}
+
+/// Settings to determine how Flow should stay abreast of ongoing changes to collections and schemas.
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct AutoDiscover {
+    /// Automatically add new bindings discovered from the source.
+    #[serde(default)]
+    add_new_bindings: bool,
+    /// Whether to automatically evolve collections and/or materialization
+    /// bindings to handle changes to collections that would otherwise be
+    /// incompatible with the existing catalog.
+    #[serde(default)]
+    evolve_incompatible_collections: bool,
 }
 
 /// An endpoint from which Flow will capture.
@@ -68,6 +85,10 @@ impl CaptureDef {
 
     pub fn example() -> Self {
         Self {
+            auto_discover: Some(AutoDiscover {
+                add_new_bindings: true,
+                evolve_incompatible_collections: true,
+            }),
             endpoint: CaptureEndpoint::Connector(ConnectorConfig::example()),
             bindings: vec![CaptureBinding::example()],
             interval: Self::default_interval(),
