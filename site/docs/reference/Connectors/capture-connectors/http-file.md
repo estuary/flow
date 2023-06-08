@@ -73,7 +73,6 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/stream`** | Stream | Name of the dataset | string | Required |
-| **`/syncMode`** | Sync mode | Connection method. Set to `incremental` for real-time updates. | string | Required |
 
 ### Sample
 
@@ -99,7 +98,6 @@ captures:
     bindings:
       - resource:
           stream: my_hosted_dataset.json.zip
-          syncMode: incremental
         target: ${PREFIX}/${COLLECTION_NAME}
 
 ```

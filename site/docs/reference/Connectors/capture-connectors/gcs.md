@@ -55,7 +55,6 @@ To capture the entire bucket, omit `prefix` in the endpoint configuration and se
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/stream`** | Prefix | Path to dataset in the bucket, formatted as `bucket-name/prefix-name` | string | Required |
-| **`/syncMode`** | Sync mode | Connection method. Always set to `incremental`. | string | Required |
 
 ### Sample
 
@@ -92,7 +91,6 @@ captures:
     bindings:
       - resource:
           stream: my-bucket/${PREFIX}
-          syncMode: incremental
         target: ${PREFIX}/${COLLECTION_NAME}
 
 ```
