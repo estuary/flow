@@ -47,6 +47,16 @@ pub struct MaterializationBinding {
     pub fields: MaterializationFields,
 }
 
+impl MaterializationBinding {
+    pub fn non_null_resource(&self) -> Option<&RawValue> {
+        if self.resource.is_null() {
+            None
+        } else {
+            Some(&self.resource)
+        }
+    }
+}
+
 /// MaterializationFields defines a selection of projections to materialize,
 /// as well as optional per-projection, driver-specific configuration.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]

@@ -658,19 +658,21 @@ impl<F: Fetcher> Loader<F> {
         };
 
         for (index, binding) in spec.bindings.iter().enumerate() {
-            tasks.push(
-                async move {
-                    self.load_config(
-                        scope
-                            .push_prop("bindings")
-                            .push_item(index)
-                            .push_prop("resource"),
-                        &binding.resource,
-                    )
-                    .await
-                }
-                .boxed_local(),
-            );
+            if let Some(resource) = binding.non_null_resource() {
+                tasks.push(
+                    async move {
+                        self.load_config(
+                            scope
+                                .push_prop("bindings")
+                                .push_item(index)
+                                .push_prop("resource"),
+                            resource,
+                        )
+                        .await
+                    }
+                    .boxed_local(),
+                );
+            }
         }
 
         let _: Vec<()> = futures::future::join_all(tasks.into_iter()).await;
