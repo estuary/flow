@@ -1,4 +1,4 @@
-use super::builds::IncompatibleCollection;
+use super::builds::{IncompatibleCollection, ReCreateReason};
 use super::draft::Error;
 use agent_sql::publications::{ExpandedRow, SpecRow, Tenant};
 use agent_sql::{Capability, CatalogType, Id};
@@ -102,7 +102,13 @@ pub fn validate_transition(
     spec_rows: &[SpecRow],
 ) -> Result<(), (Vec<Error>, Vec<IncompatibleCollection>)> {
     let mut errors = Vec::new();
-    let mut incompatible_collections = Vec::new();
+
+    // If collection changes are deemed to be incompatible here, then it
+    // could potentially be for several reasons. Accumulate those reasons per
+    // collection, so we don't duplicate IncompatibleCollections. Note that any
+    // incompatibilities detected within this function will be issues that would
+    // require re-creating the collection.
+    let mut incompatible_collections: BTreeMap<String, Vec<ReCreateReason>> = BTreeMap::new();
 
     for spec_row @ SpecRow {
         catalog_name,
@@ -221,6 +227,13 @@ pub fn validate_transition(
                     ),
                     ..Default::default()
                 });
+            // If this is a collection spec, then we can suggest re-creating the spec with a _v2 suffix, so why not be helpful
+            if draft_type == &Some(CatalogType::Collection) {
+                let reasons = incompatible_collections
+                    .entry(catalog_name.to_string())
+                    .or_insert(Vec::new());
+                reasons.push(ReCreateReason::PrevDeletedSpec);
+            }
         }
     }
 
@@ -243,10 +256,10 @@ pub fn validate_transition(
                 ),
                 ..Default::default()
             });
-            incompatible_collections.push(IncompatibleCollection {
-                collection: catalog_name.to_string(),
-                affected_materializations: Vec::new(),
-            });
+            let reasons = incompatible_collections
+                .entry(catalog_name.to_string())
+                .or_insert(Vec::new());
+            reasons.push(ReCreateReason::KeyChange);
         }
 
         let partitions = |projections: &BTreeMap<models::Field, models::Projection>| {
@@ -279,17 +292,26 @@ pub fn validate_transition(
                 ),
                 ..Default::default()
             });
-            incompatible_collections.push(IncompatibleCollection {
-                collection: catalog_name.to_string(),
-                affected_materializations: Vec::new(),
-            });
+            let reasons = incompatible_collections
+                .entry(catalog_name.to_string())
+                .or_insert(Vec::new());
+            reasons.push(ReCreateReason::PartitionChange);
         }
     }
 
     if errors.is_empty() {
         Ok(())
     } else {
-        Err((errors, incompatible_collections))
+        let ics = incompatible_collections
+            .into_iter()
+            .map(|(collection, requires_recreation)| IncompatibleCollection {
+                collection,
+                requires_recreation,
+                affected_materializations: Vec::new(),
+            })
+            .collect();
+
+        Err((errors, ics))
     }
 }
 
@@ -803,13 +825,20 @@ mod test {
                     incompatible_collections: [
                         IncompatibleCollection {
                             collection: "compat-test/CollectionA",
+                            requires_recreation: [
+                                KeyChange,
+                            ],
                             affected_materializations: [],
                         },
                         IncompatibleCollection {
                             collection: "compat-test/CollectionB",
+                            requires_recreation: [
+                                PartitionChange,
+                            ],
                             affected_materializations: [],
                         },
                     ],
+                    evolution_id: None,
                 },
                 errors: [
                     "Cannot change key of an established collection from CompositeKey([JsonPointer(\"/foo\")]) to CompositeKey([JsonPointer(\"/new_key\")])",
@@ -868,6 +897,7 @@ mod test {
                 draft_id: 1110000000000000,
                 status: BuildFailed {
                     incompatible_collections: [],
+                    evolution_id: None,
                 },
                 errors: [
                     "Forbidden connector image 'forbidden_connector'",
@@ -1032,6 +1062,7 @@ mod test {
                 draft_id: 1110000000000000,
                 status: BuildFailed {
                     incompatible_collections: [],
+                    evolution_id: None,
                 },
                 errors: [
                     "Request to add 1 task(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
@@ -1098,6 +1129,7 @@ mod test {
                 draft_id: 1120000000000000,
                 status: BuildFailed {
                     incompatible_collections: [],
+                    evolution_id: None,
                 },
                 errors: [
                     "Request to add 1 task(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",

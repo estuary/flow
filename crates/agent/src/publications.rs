@@ -20,6 +20,8 @@ pub enum JobStatus {
     BuildFailed {
         #[serde(skip_serializing_if = "Vec::is_empty")]
         incompatible_collections: Vec<IncompatibleCollection>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        evolution_id: Option<Id>,
     },
     TestFailed,
     PublishFailed,
@@ -30,6 +32,7 @@ impl JobStatus {
     fn build_failed(incompatible_collections: Vec<IncompatibleCollection>) -> JobStatus {
         JobStatus::BuildFailed {
             incompatible_collections,
+            evolution_id: None,
         }
     }
 }
@@ -292,9 +295,7 @@ impl PublishHandler {
             let incompatible_collections = build_output.get_incompatible_collections();
             return stop_with_errors(
                 errors,
-                JobStatus::BuildFailed {
-                    incompatible_collections,
-                },
+                JobStatus::build_failed(incompatible_collections),
                 row,
                 txn,
             )
@@ -367,7 +368,7 @@ impl PublishHandler {
 
 async fn stop_with_errors(
     errors: Vec<Error>,
-    job_status: JobStatus,
+    mut job_status: JobStatus,
     row: Row,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<(Id, JobStatus)> {
@@ -377,5 +378,53 @@ async fn stop_with_errors(
 
     draft::insert_errors(row.draft_id, errors, txn).await?;
 
-    Ok((row.pub_id, job_status.into()))
+    // If this is a result of a build failure, then we may need to create an evolutions job in response.
+    if let JobStatus::BuildFailed {
+        incompatible_collections,
+        evolution_id,
+    } = &mut job_status
+    {
+        if !incompatible_collections.is_empty() && row.auto_evolve {
+            let collections = to_evolutions_collections(&incompatible_collections);
+            let detail = format!(
+                "system created in response to failed publication: {}",
+                row.pub_id
+            );
+            let next_job = agent_sql::evolutions::create(
+                txn,
+                row.user_id,
+                row.draft_id,
+                collections,
+                true, // auto_publish
+                detail,
+            )
+            .await
+            .context("creating evolutions job")?;
+            *evolution_id = Some(next_job);
+        }
+    }
+
+    Ok((row.pub_id, job_status))
+}
+
+fn to_evolutions_collections(
+    incompatible_collections: &[IncompatibleCollection],
+) -> Vec<serde_json::Value> {
+    incompatible_collections
+        .iter()
+        .map(|ic| {
+            // Do we need to re-create the whole collection, or can we just re-create materialization bindings?
+            let new_name = if ic.requires_recreation.is_empty() {
+                None
+            } else {
+                tracing::debug!(reasons = ?ic.requires_recreation, collection = %ic.collection, "will attempt to re-create collection");
+                Some(crate::evolution::next_name(&ic.collection))
+            };
+            serde_json::to_value(crate::evolution::EvolveRequest {
+                old_name: ic.collection.clone(),
+                new_name,
+            })
+            .unwrap()
+        })
+        .collect()
 }
