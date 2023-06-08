@@ -163,7 +163,10 @@ fn inline_materialization(
     }
 
     for models::MaterializationBinding { resource, .. } in bindings {
-        inline_config(resource, scope, resources)
+        if !resource.is_null() {
+            // a null resource would be ignored by inline config
+            inline_config(resource, scope, resources)
+        }
     }
 }
 

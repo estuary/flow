@@ -404,9 +404,14 @@ fn evolve_collection(
             let models::MaterializationEndpoint::Connector(conn) = &mat_spec.endpoint else {
                 continue;
             };
+
+            let Some(resource) = binding.non_null_resource() else {
+                // The binding is disabled, so no need to update anything else.
+                continue;
+            };
             // Parse the current resource spec into a `Value` that we can mutate
-            let mut resource_spec: Value = serde_json::from_str(binding.resource.get())
-                .with_context(|| {
+            let mut resource_spec: Value =
+                serde_json::from_str(resource.get()).with_context(|| {
                     format!(
                         "parsing materialization resource spec of '{}' binding for '{}",
                         mat_name, &new_name
