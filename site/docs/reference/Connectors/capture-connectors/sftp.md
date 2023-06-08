@@ -79,9 +79,108 @@ captures:
             username: <SECRET>
             password: <SECRET>
             directory: /data
+            parser:
+              compression: zip
+              format:
+                type: csv
+                config:
+                  delimiter: ","
+                  encoding: UTF-8
+                  errorThreshold: 5
+                  headers: [ID, username, first_name, last_name]
+                  lineEnding: "\\r"
+                  quote: "\""
       bindings:
         - resource:
             stream: /data
             syncMode: incremental
           target: ${COLLECTION_NAME}
 ```
+
+### Advanced: Parsing SFTP Files
+
+SFTP servers can support a wider variety of file types than other data source systems. For each of
+these file types, Flow must parse and translate data into collections with defined fields and JSON
+schemas.
+
+By default, the parser will automatically detect the type and shape of the data in your bucket,
+so you won't need to change the parser configuration for most captures.
+
+However, the automatic detection may be incorrect in some cases.
+To fix or prevent this, you can provide explicit information in the parser configuration,
+which is part of the [endpoint configuration](#endpoint) for this connector.
+
+The parser configuration includes:
+
+* **Compression**: Specify how the bucket contents are compressed.
+If no compression type is specified, the connector will try to determine the compression type automatically.
+Options are:
+
+   * **zip**
+   * **gzip**
+   * **zstd**
+   * **none**
+
+* **Format**: Specify the data format, which determines how it will be parsed.
+Options are:
+
+   * **Auto**: If no format is specified, the connector will try to determine it automatically.
+   * **Avro**
+   * **CSV**
+   * **JSON**
+   * **Protobuf**
+   * **W3C Extended Log**
+
+   :::info
+   At this time, Flow only supports SFTP captures with data of a single file type.
+   Support for multiple file types, which can be configured on a per-binding basis,
+   will be added in the future.
+
+   For now, use a prefix in the endpoint configuration to limit the scope of each capture to data of a single file type.
+   :::
+
+#### CSV configuration
+
+CSV files include several additional properties that are important to the parser.
+In most cases, Flow is able to automatically determine the correct values,
+but you may need to specify for unusual datasets. These properties are:
+
+* **Delimiter**. Options are:
+  * Comma (`","`)
+  * Pipe (`"|"`)
+  * Space (`"0x20"`)
+  * Semicolon (`";"`)
+  * Tab (`"0x09"`)
+  * Vertical tab (`"0x0B"`)
+  * Unit separator (`"0x1F"`)
+  * SOH (`"0x01"`)
+  * Auto
+
+* **Encoding** type, specified by its [WHATWG label](https://encoding.spec.whatwg.org/#names-and-labels).
+
+* Optionally, an **Error threshold**, as an acceptable percentage of errors. If set to a number greater than zero, malformed rows that fall within the threshold will be excluded from the capture.
+
+* **Escape characters**. Options are:
+  * Backslash (`"\\"`)
+  * Disable escapes (`""`)
+  * Auto
+
+* Optionally, a list of column **Headers**, if not already included in the first row of the CSV file.
+
+  If any headers are provided, it is assumed that the provided list of headers is complete and authoritative.
+  The first row of your CSV file will be assumed to be data (not headers), and you must provide a header value for every column in the file.
+
+* **Line ending** values
+  * CRLF (`"\\r\\n"`) (Windows)
+  * CR (`"\\r"`)
+  * LF (`"\\n"`)
+  * Record Separator (`"0x1E"`)
+  * Auto
+
+* **Quote character**
+  * Double Quote (`"\""`)
+  * Single Quote (`"`)
+  * Disable Quoting (`""`)
+  * Auto
+
+The sample specification [above](#sample) includes these fields.
