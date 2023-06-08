@@ -8,6 +8,7 @@ This connector captures data from Greenhouse into Flow collections.
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-greenhouse:dev`](https://ghcr.io/estuary/source-greenhouse:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
 This connector is based on an open-source connector from a third party, with modifications for performance in the Flow system.
+
 You can find their documentation [here](https://docs.airbyte.com/integrations/sources/greenhouse/),
 but keep in mind that the two versions may be significantly different.
 
@@ -49,7 +50,7 @@ By default, each resource is mapped to a Flow collection through a separate bind
 
 ## Prerequisites
 
-* To set up the Greenhouse source connector, you'll need the [Harvest API key](https://developers.greenhouse.io/harvest.html#authentication) with permissions to the resources Airbyte should be able to access.
+* To set up the Greenhouse source connector, you'll need the [Harvest API key](https://developers.greenhouse.io/harvest.html#authentication) with permissions to the resources Estuary Flow should be able to access.
 
 ## Configuration
 
