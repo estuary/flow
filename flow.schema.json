@@ -748,6 +748,10 @@
         "shards": {
           "title": "Template for shards of this materialization task.",
           "$ref": "#/definitions/ShardTemplate"
+        },
+        "sourceCapture": {
+          "title": "Automatically materialize new bindings from a named capture",
+          "$ref": "#/definitions/Capture"
         }
       },
       "additionalProperties": false
