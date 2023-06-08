@@ -1,4 +1,4 @@
-use super::{ConnectorConfig, Field, RawValue, RelativeUrl, ShardTemplate, Source};
+use super::{Capture, ConnectorConfig, Field, RawValue, RelativeUrl, ShardTemplate, Source};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -9,6 +9,9 @@ use std::collections::BTreeMap;
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct MaterializationDef {
+    /// # Automatically materialize new bindings from a named capture
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_capture: Option<Capture>,
     /// # Endpoint to materialize into.
     pub endpoint: MaterializationEndpoint,
     /// # Bound collections to materialize into the endpoint.
@@ -68,6 +71,7 @@ pub struct MaterializationFields {
 impl MaterializationDef {
     pub fn example() -> Self {
         Self {
+            source_capture: None,
             endpoint: MaterializationEndpoint::Connector(ConnectorConfig::example()),
             bindings: vec![MaterializationBinding::example()],
             shards: ShardTemplate::default(),
