@@ -141,6 +141,7 @@ fn inline_materialization(
         materialization: _,
         spec:
             models::MaterializationDef {
+                source_capture: _,
                 endpoint,
                 bindings,
                 shards: _,

@@ -131,6 +131,7 @@ Sources {
             scope: test://example/catalog.yaml#/materializations/a~1materialization,
             materialization: a/materialization,
             spec: {
+              "sourceCapture": "a/capture",
               "endpoint": {
                 "connector": {
                   "image": "materialization/image",
