@@ -123,6 +123,7 @@ pub async fn do_discover(
             captures: BTreeMap::from([(
                 Capture::new(capture_name),
                 CaptureDef {
+                    auto_discover: None,
                     endpoint: CaptureEndpoint::Connector(ConnectorConfig {
                         image: image.to_string(),
                         config,
@@ -181,6 +182,7 @@ pub async fn do_discover(
             captures: BTreeMap::from([(
                 Capture::new(capture_name),
                 CaptureDef {
+                    auto_discover: None,
                     endpoint: CaptureEndpoint::Connector(ConnectorConfig {
                         image: image.to_string(),
                         config: serde_json::from_value(config)?,
