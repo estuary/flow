@@ -1,0 +1,37 @@
+# .github/workflows/preview.yml
+name: "docs.estuary.dev: Deploy PR previews"
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - closed
+
+concurrency: preview-${{ github.ref }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  deploy-preview:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: yarn
+
+      - name: Install dependencies
+        working-directory: ./site
+        run: yarn install --frozen-lockfile
+      - name: Build `docs.estuary.dev`
+        working-directory: ./site
+        run: yarn build
+      - name: Deploy preview
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: ./site/build/
