@@ -3,6 +3,9 @@ name: "docs.estuary.dev: Deploy PR previews"
 
 on:
   pull_request:
+    paths:
+      - site/**
+      - .github/workflows/docs-ci-previews.yaml
     types:
       - opened
       - reopened
