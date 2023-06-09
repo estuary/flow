@@ -24,17 +24,16 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-node@v3
-        working-directory: ./site
         with:
           node-version: 18
-          cache: yarn
-
+          cache: npm
+          cache-dependency-path: ./node-app/package-lock.json
       - name: Install dependencies
         working-directory: ./site
-        run: yarn install --frozen-lockfile
+        run: npm ci
       - name: Build `docs.estuary.dev`
         working-directory: ./site
-        run: yarn build
+        run: npm run build
       - name: Deploy preview
         uses: rossjrw/pr-preview-action@v1
         with:
