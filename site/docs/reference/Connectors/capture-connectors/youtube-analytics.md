@@ -1,6 +1,3 @@
----
-sidebar_position: 1
----
 # YouTube Analytics
 
 This connector captures data from YouTube Analytics into Flow collections.
