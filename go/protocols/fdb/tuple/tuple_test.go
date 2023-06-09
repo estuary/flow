@@ -12,6 +12,8 @@ import (
 
 var update = flag.Bool("update", false, "update .golden files")
 
+var src = rand.New(rand.NewSource(1))
+
 func loadGolden(t *testing.T) (golden map[string][]byte) {
 	f, err := os.Open("testdata/tuples.golden")
 	if err != nil {
@@ -48,9 +50,9 @@ func genBytes() interface{}     { return []byte("namespace") }
 func genBytesNil() interface{}  { return []byte{0xFF, 0x00, 0xFF} }
 func genString() interface{}    { return "namespace" }
 func genStringNil() interface{} { return "nam\x00es\xFFpace" }
-func genInt() interface{}       { return rand.Int63() }
-func genFloat() interface{}     { return float32(rand.NormFloat64()) }
-func genDouble() interface{}    { return rand.NormFloat64() }
+func genInt() interface{}       { return src.Int63() }
+func genFloat() interface{}     { return float32(src.NormFloat64()) }
+func genDouble() interface{}    { return src.NormFloat64() }
 
 func mktuple(gen func() interface{}, count int) Tuple {
 	tt := make(Tuple, count)
@@ -99,7 +101,7 @@ func TestTuplePacking(t *testing.T) {
 			}
 
 			if !bytes.Equal(result, golden[tt.name]) {
-				t.Errorf("packing mismatch: expected %v, got %v", golden[tt.name], result)
+				t.Errorf("packing mismatch for %v: expected %v, got %v", tt.name, golden[tt.name], result)
 			}
 		})
 	}
@@ -121,7 +123,7 @@ func BenchmarkTuplePacking(b *testing.B) {
 }
 
 func TestTupleString(t *testing.T) {
-	testCases :=[ ]struct {
+	testCases := []struct {
 		input    Tuple
 		expected string
 	}{
