@@ -1,0 +1,38 @@
+# .github/workflows/preview.yml
+name: "docs.estuary.dev: Deploy"
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - site/**
+
+concurrency: docs-${{ github.ref }}
+
+permissions:
+  contents: write
+
+jobs:
+  deploy-docs:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: npm
+          cache-dependency-path: ./site/package-lock.json
+      - name: Install dependencies
+        working-directory: ./site
+        run: npm ci
+      - name: Build `docs.estuary.dev`
+        working-directory: ./site
+        run: npm run build
+      - name: Deploy preview
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          # Don't delete preview deploys
+          clean-exclude: pr-preview/
+          force: false
+          folder: ./site/build/
