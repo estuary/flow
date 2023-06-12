@@ -1,0 +1,39 @@
+# .github/workflows/preview.yml
+name: "docs.estuary.dev: Deploy PR previews"
+
+on:
+  pull_request:
+    paths:
+      - site/**
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - closed
+
+concurrency: preview-${{ github.ref }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  deploy-preview:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: npm
+          cache-dependency-path: ./site/package-lock.json
+      - name: Install dependencies
+        working-directory: ./site
+        run: npm ci
+      - name: Build `docs.estuary.dev`
+        working-directory: ./site
+        run: npm run build
+      - name: Deploy preview
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: ./site/build/
