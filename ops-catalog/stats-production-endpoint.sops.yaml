@@ -1,5 +1,4 @@
-# This is the dbBouncer endpoint for our database.
-address: db.eyrcnmuzzyriypdajwdk.supabase.co:6543
+address: db.eyrcnmuzzyriypdajwdk.supabase.co:5432
 database: postgres
 password_sops: ENC[AES256_GCM,data:X0aaH7/FlUVgMzqZxQXx2egsm2ShGTbAAJi9nLE28EJgnUJD,iv:aN4/LkzkSr5tAgn6IlylQ6kOlrU4zYC1DWx9lJnEIT4=,tag:T+I1C/4vwmT0X7ve4+bjvQ==,type:str]
 user: stats_loader
@@ -12,8 +11,8 @@ sops:
     azure_kv: []
     hc_vault: []
     age: []
-    lastmodified: "2022-11-14T19:34:10Z"
-    mac: ENC[AES256_GCM,data:Lkunoq+grYLzDa3lOYrtdK5uHAa75JwcCCCqTzmODgFwEWPYfCLCQ5IItqCF9b76fvwVZ7TQRrn0oaJU9QZrn9TdFWR0NH8faYfH8OLW30q6XMOjcwwyKbALO7uzDzk4Zy3jG10jJCmunXt6t7zOZj6K4dSePjwGldkwNZt2e4c=,iv:mU6EY6NXCLp86hOkFjk7usyS5h+oXfcYPd+L8pJUsTE=,tag:v8+EXlOiYSsnaO5BCds0LA==,type:str]
+    lastmodified: "2023-06-12T20:40:34Z"
+    mac: ENC[AES256_GCM,data:0WxU4rf5EtJ8wBmnwOcGHBnsaMnpYSEBEWkzeyqodd0RZ4mPgE/6gsRQx3Pqikq5fRZ1MjbqOOH/x0OHMkLxVE3yroD/9kWwQxdbJQmJKd6DKsnwJefjqWXKQtE1/Lhd/QgnZ3SxyXxhJT+B9fB6RJ1rheVNo0kiLlwfus7AogQ=,iv:kqNH0ZPKTSlkb0EYvMxw6dupzX1L4u43AviCi3tTZo0=,tag:ifyTiOGlQlDzp0BSYMDPIQ==,type:str]
     pgp: []
     encrypted_suffix: _sops
     version: 3.7.3
