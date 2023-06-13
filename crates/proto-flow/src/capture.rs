@@ -207,8 +207,8 @@ pub mod response {
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Binding {
             /// The recommended name for this discovered binding,
-            /// which is appended to a catalog prefix of the proposed capture
-            /// to form the name of its recommended collection.
+            /// which is normalized and then appended to a catalog prefix of the
+            /// proposed capture to form the name of its recommended collection.
             #[prost(string, tag = "1")]
             pub recommended_name: ::prost::alloc::string::String,
             /// JSON-encoded object which specifies the captured resource configuration.

@@ -16,6 +16,10 @@ pub fn parse_response(
     // This reduces potential churn if an established capture is refreshed.
     bindings.sort_by(|l, r| l.recommended_name.cmp(&r.recommended_name));
 
+    for binding in &mut bindings {
+        binding.recommended_name = normalize_recommended_name(&binding.recommended_name);
+    }
+
     Ok((
         models::CaptureEndpoint::Connector(models::ConnectorConfig {
             image: image_composed,
@@ -152,9 +156,18 @@ pub fn merge_collections(
     collections
 }
 
+fn normalize_recommended_name(name: &str) -> String {
+    let parts: Vec<_> = models::Collection::regex()
+        .find_iter(name)
+        .map(|m| m.as_str())
+        .collect();
+
+    parts.join("_")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{BTreeMap, Binding};
+    use super::{normalize_recommended_name, BTreeMap, Binding};
     use serde_json::json;
 
     #[test]
@@ -162,7 +175,7 @@ mod tests {
         let response = json!({
             "bindings": [
                 {
-                    "recommendedName": "greetings",
+                    "recommendedName": "some greetings!",
                     "resourceConfig": {
                         "stream": "greetings",
                         "syncMode": "incremental"
@@ -357,5 +370,22 @@ mod tests {
         // * Added the new binding.
         // * Updated the endpoint configuration.
         insta::assert_json_snapshot!(json!(out));
+    }
+
+    #[test]
+    fn test_recommended_name_normalization() {
+        for (name, expect) in [
+            ("Foo", "Foo"),
+            ("foo/bar", "foo/bar"),
+            ("/foo/bar//baz/", "foo/bar_baz"), // Invalid leading, middle, & trailing slash.
+            ("#੫൬    , bar-_!", "੫൬_bar-_"), // Invalid leading, middle, & trailing chars.
+            ("One! two/_three", "One_two/_three"),
+        ] {
+            assert_eq!(
+                normalize_recommended_name(name),
+                expect,
+                "test case: {name}"
+            );
+        }
     }
 }
