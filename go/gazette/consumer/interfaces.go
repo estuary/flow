@@ -71,6 +71,13 @@ type Shard interface {
 	// includes only journals written to since this Shard was assigned to
 	// this process.
 	Progress() (readThrough, publishAt pb.Offsets)
+	// PrimaryLoop returns an OpFuture corresponding to this Shard
+	// assignment's primary processing loop.
+	// The returned future will resolve with the primary loop's returned error
+	// upon its exit. This will often be context.Cancelled, or a wrapped instance
+	// thereof, and the caller is responsible for detecting errors due to cancellation
+	// vs other kinds of processing errors.
+	PrimaryLoop() client.OpFuture
 }
 
 // Store is a durable and transactional storage backend used to persist arbitrary

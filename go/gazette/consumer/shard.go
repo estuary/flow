@@ -120,6 +120,8 @@ func newShard(svc *Service, item keyspace.KeyValue) *shard {
 func (s *shard) Context() context.Context                 { return s.ctx }
 func (s *shard) FQN() string                              { return s.resolved.fqn }
 func (s *shard) JournalClient() client.AsyncJournalClient { return s.ajc }
+func (s *shard) RecoveredHints() *pc.GetHintsResponse     { return s.recovery.hints }
+func (s *shard) PrimaryLoop() client.OpFuture             { return s.primary }
 
 func (s *shard) Spec() *pc.ShardSpec {
 	s.resolved.RLock()
@@ -139,10 +141,6 @@ func (s *shard) Progress() (readThrough, publishAt pb.Offsets) {
 	s.progress.Lock()
 	defer s.progress.Unlock()
 	return s.progress.readThrough.Copy(), s.progress.publishAt.Copy()
-}
-
-func (s *shard) RecoveredHints() *pc.GetHintsResponse {
-	return s.recovery.hints
 }
 
 // transition is called by Resolver with the current ShardSpec and allocator
