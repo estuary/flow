@@ -45,8 +45,8 @@ func (m *Response_Discovered) Validate() error {
 }
 
 func (m *Response_Discovered_Binding) Validate() error {
-	if err := m.RecommendedName.Validate(); err != nil {
-		return pb.ExtendContext(err, "RecommendedName")
+	if m.RecommendedName == "" {
+		return pb.NewValidationError("missing RecommendedName")
 	} else if len(m.DocumentSchemaJson) == 0 {
 		return pb.NewValidationError("missing DocumentSchemaJson")
 	} else if len(m.ResourceConfigJson) == 0 {
