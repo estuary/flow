@@ -204,10 +204,9 @@ message Response {
     // Bindings may be returned in any order.
     message Binding {
       // The recommended name for this discovered binding,
-      // which is appended to a catalog prefix of the proposed capture
-      // to form the name of its recommended collection.
-      string recommended_name = 1
-        [ (gogoproto.casttype) = "github.com/estuary/flow/go/protocols/flow.Collection" ];
+      // which is normalized and then appended to a catalog prefix of the
+      // proposed capture to form the name of its recommended collection.
+      string recommended_name = 1;
       // JSON-encoded object which specifies the captured resource configuration.
       string resource_config_json = 2 [
         (gogoproto.casttype) = "encoding/json.RawMessage",

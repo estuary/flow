@@ -52,7 +52,7 @@ expression: json!(out)
       "key": [
         "/count"
       ],
-      "recommendedName": "greetings",
+      "recommendedName": "some_greetings",
       "resourceConfig": {
         "stream": "greetings",
         "syncMode": "incremental"
