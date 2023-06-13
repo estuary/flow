@@ -1,10 +1,10 @@
+use clap::Parser;
 use parser::{parse, Input, ParseConfig};
 use std::fs::File;
 use std::io;
 use std::mem::ManuallyDrop;
 use std::ops::DerefMut;
 use std::os::unix::io::FromRawFd;
-use clap::Parser;
 
 /// parser is a program that parses a variety of formats and emits records in jsonl format.
 /// Data can be passed either as a
@@ -142,7 +142,9 @@ where
             Ok(t) => t,
             Err(e) => {
                 tracing::debug!(error_details = ?e, message);
-                tracing::error!(error = %e, message);
+                // These logs are user-facing error messages, so the message should include details
+                // about the error.
+                tracing::error!("{}: {}", message, e);
                 std::process::exit(1);
             }
         }
