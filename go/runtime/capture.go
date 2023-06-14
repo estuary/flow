@@ -397,6 +397,7 @@ func (c *Capture) BeginTxn(consumer.Shard) error {
 	}
 	return nil
 }
+func (c *Capture) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {} // No-op.
 
 func (c *Capture) FinalizeTxn(_ consumer.Shard, pub *message.Publisher) error {
 	c.txnStats.OpenSecondsTotal = time.Since(c.txnStats.GoTimestamp()).Seconds()
@@ -411,11 +412,6 @@ func (c *Capture) FinalizeTxn(_ consumer.Shard, pub *message.Publisher) error {
 	}
 
 	return nil
-}
-
-// FinishedTxn logs if an error occurred.
-func (c *Capture) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {
-	logTxnFinished(c.opsPublisher, op, shard)
 }
 
 // Coordinator panics if called.

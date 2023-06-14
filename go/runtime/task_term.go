@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/estuary/flow/go/shuffle"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/allocator"
+	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -80,6 +82,14 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 			host.LogPublisher,
 			flow.NewMapper(shard.Context(), host.Service.Etcd, host.Journals, shard.FQN()),
 		)
+
+		// Start a long-lived task which will log the final exit status of this shard.
+		go func(op client.OpFuture, pub ops.Publisher) {
+			if err := op.Err(); err != nil && !errors.Is(err, context.Canceled) {
+				ops.PublishLog(pub, ops.Log_error,
+					"shard failed", "error", err, "assignment", shard.Assignment().Decoded)
+			}
+		}(shard.PrimaryLoop(), t.opsPublisher)
 	}
 	if err = t.opsPublisher.UpdateLabels(
 		t.labels,

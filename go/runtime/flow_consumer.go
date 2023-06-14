@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -110,18 +109,6 @@ func (f *FlowConsumer) BeginTxn(shard consumer.Shard, store consumer.Store) erro
 // FinishedTxn delegates to the Application.
 func (f *FlowConsumer) FinishedTxn(shard consumer.Shard, store consumer.Store, future consumer.OpFuture) {
 	store.(Application).FinishedTxn(shard, future)
-}
-
-// logTxnFinished spawns a goroutine that waits for the given op to complete and logs the error if
-// it fails. All task types should delegate to this function so that the error logging is
-// consistent.
-func logTxnFinished(publisher ops.Publisher, op consumer.OpFuture, shard consumer.Shard) {
-	go func() {
-		if err := op.Err(); err != nil && !errors.Is(err, context.Canceled) {
-			ops.PublishLog(publisher, ops.Log_error,
-				"shard failed", "error", err, "assignment", shard.Assignment().Decoded)
-		}
-	}()
 }
 
 // StartReadingMessages delegates to the Application.

@@ -183,9 +183,8 @@ func (d *Derive) Destroy() {
 	d.taskTerm.destroy()
 }
 
-func (d *Derive) BeginTxn(shard consumer.Shard) error {
-	return nil // No-op.
-}
+func (d *Derive) BeginTxn(shard consumer.Shard) error                    { return nil } // No-op.
+func (d *Derive) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {}             // No-op.
 
 // ConsumeMessage passes the message to the derive worker.
 func (d *Derive) ConsumeMessage(_ consumer.Shard, env message.Envelope, _ *message.Publisher) error {
@@ -276,11 +275,6 @@ func (d *Derive) StartCommit(_ consumer.Shard, cp pf.Checkpoint, waitFor client.
 	// Another barrier which notifies when the WriteBatch
 	// has been durably recorded to the recovery log.
 	return d.recorder.Barrier(nil)
-}
-
-// FinishedTxn logs if an error occurred.
-func (d *Derive) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {
-	logTxnFinished(d.opsPublisher, op, shard)
 }
 
 // ClearRegistersForTest delegates the request to its worker.
