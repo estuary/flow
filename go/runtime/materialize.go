@@ -244,6 +244,7 @@ func (m *Materialize) BeginTxn(shard consumer.Shard) error {
 	}
 	return nil
 }
+func (m *Materialize) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {} // No-op.
 
 // ConsumeMessage implements Application.ConsumeMessage.
 func (m *Materialize) ConsumeMessage(shard consumer.Shard, envelope message.Envelope, pub *message.Publisher) error {
@@ -281,9 +282,4 @@ func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) 
 		return fmt.Errorf("publishing stats: %w", err)
 	}
 	return nil
-}
-
-// FinishedTxn implements Application.FinishedTxn.
-func (m *Materialize) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {
-	logTxnFinished(m.opsPublisher, op, shard)
 }
