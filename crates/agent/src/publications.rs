@@ -338,8 +338,19 @@ impl PublishHandler {
                 .await
                 .context("rolling back to savepoint")?;
 
+            // Add built specs to the draft for dry runs after rolling back other changes that do
+            // not apply to dry runs.
+            specs::add_built_specs_to_draft_specs(&spec_rows, &build_output, txn)
+                .await
+                .context("adding built specs to draft")?;
+
             return Ok((row.pub_id, JobStatus::Success));
         }
+
+        // Add built specs to the live spec when publishing a build.
+        specs::add_built_specs_to_live_specs(&spec_rows, &build_output, txn)
+            .await
+            .context("adding built specs to live specs")?;
 
         let errors = builds::deploy_build(
             &self.bindir,

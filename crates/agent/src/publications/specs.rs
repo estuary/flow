@@ -1,4 +1,4 @@
-use super::builds::IncompatibleCollection;
+use super::builds::{self, IncompatibleCollection};
 use super::draft::Error;
 use agent_sql::publications::{ExpandedRow, SpecRow, Tenant};
 use agent_sql::{Capability, CatalogType, Id};
@@ -443,6 +443,121 @@ pub async fn apply_updates_for_row(
     Ok(())
 }
 
+// add_built_specs_to_live_specs adds the built spec to the live_specs row for all tasks included in
+// build_output if they are in the list of specifications which are changing in this publication per
+// the list of spec_rows.
+pub async fn add_built_specs_to_live_specs(
+    spec_rows: &[SpecRow],
+    build_output: &builds::BuildOutput,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), sqlx::Error> {
+    for collection in build_output.built_collections.iter() {
+        if let Some(row) = spec_rows
+            .iter()
+            .find(|r| r.catalog_name == collection.collection.as_str())
+        {
+            agent_sql::publications::add_built_specs(row.live_spec_id, &collection.spec, txn)
+                .await?;
+        }
+    }
+
+    for capture in build_output.built_captures.iter() {
+        if let Some(row) = spec_rows
+            .iter()
+            .find(|r| r.catalog_name == capture.capture.as_str())
+        {
+            agent_sql::publications::add_built_specs(row.live_spec_id, &capture.spec, txn).await?;
+        }
+    }
+
+    for materialization in build_output.built_materializations.iter() {
+        if let Some(row) = spec_rows
+            .iter()
+            .find(|r| r.catalog_name == materialization.materialization.as_str())
+        {
+            agent_sql::publications::add_built_specs(row.live_spec_id, &materialization.spec, txn)
+                .await?;
+        }
+    }
+
+    for test in build_output.built_tests.iter() {
+        if let Some(row) = spec_rows
+            .iter()
+            .find(|r| r.catalog_name == test.test.as_str())
+        {
+            agent_sql::publications::add_built_specs(row.live_spec_id, &test.spec, txn).await?;
+        }
+    }
+
+    Ok(())
+}
+
+// add_built_specs_to_draft_specs adds the built spec and validated response to the draft_specs row
+// for all tasks included in build_output if they are in the list of specifications which are
+// changing in this publication per the list of spec_rows.
+pub async fn add_built_specs_to_draft_specs(
+    spec_rows: &[SpecRow],
+    build_output: &builds::BuildOutput,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), sqlx::Error> {
+    for collection in build_output.built_collections.iter() {
+        if let Some(row) = spec_rows
+            .iter()
+            .find(|r| r.catalog_name == collection.collection.as_str())
+        {
+            agent_sql::drafts::add_built_spec(
+                row.draft_spec_id,
+                &collection.spec,
+                Some(&collection.validated),
+                txn,
+            )
+            .await?;
+        }
+    }
+
+    for capture in build_output.built_captures.iter() {
+        if let Some(row) = spec_rows
+            .iter()
+            .find(|r| r.catalog_name == capture.capture.as_str())
+        {
+            agent_sql::drafts::add_built_spec(
+                row.draft_spec_id,
+                &capture.spec,
+                Some(&capture.validated),
+                txn,
+            )
+            .await?;
+        }
+    }
+
+    for materialization in build_output.built_materializations.iter() {
+        if let Some(row) = spec_rows
+            .iter()
+            .find(|r| r.catalog_name == materialization.materialization.as_str())
+        {
+            agent_sql::drafts::add_built_spec(
+                row.draft_spec_id,
+                &materialization.spec,
+                Some(&materialization.validated),
+                txn,
+            )
+            .await?;
+        }
+    }
+
+    for test in build_output.built_tests.iter() {
+        if let Some(row) = spec_rows
+            .iter()
+            .find(|r| r.catalog_name == test.test.as_str())
+        {
+            agent_sql::drafts::add_built_spec(row.draft_spec_id, &test.spec, None::<()>, txn)
+                .await?;
+        }
+    }
+
+    Ok(())
+}
+
 fn extract_spec_metadata<'a>(
     catalog: &'a models::Catalog,
     spec_row: &'a SpecRow,
@@ -771,7 +886,7 @@ mod test {
                 '{ "schema": {}, "key": ["/foo"] }'::json,
                 'collection'
               )
-            
+
             ),
             p5 as (
               insert into publications (id, job_status, user_id, draft_id) values
