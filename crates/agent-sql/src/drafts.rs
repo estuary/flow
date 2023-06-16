@@ -34,6 +34,32 @@ where
     Ok(())
 }
 
+pub async fn add_built_spec<S, V>(
+    draft_spec_id: Id,
+    built_spec: S,
+    validated: Option<V>,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<()>
+where
+    S: serde::Serialize + Send + Sync,
+    V: serde::Serialize + Send + Sync,
+{
+    sqlx::query!(
+        r#"
+        update draft_specs set built_spec = $1, validated = $2
+        where id = $3
+        returning 1 as "must_exist";
+        "#,
+        TextJson(built_spec) as TextJson<S>,
+        validated.map(|v| TextJson(v)) as Option<TextJson<V>>,
+        draft_spec_id as Id
+    )
+    .fetch_one(&mut *txn)
+    .await?;
+
+    Ok(())
+}
+
 // touch_draft updates the modification time of the draft to now.
 pub async fn touch(
     draft_id: Id,

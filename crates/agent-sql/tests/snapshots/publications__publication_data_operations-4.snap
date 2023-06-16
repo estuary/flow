@@ -4,6 +4,7 @@ expression: "flows.iter().map(|r| -> serde_json::Value { r.get(0) }).collect::<V
 ---
 [
   {
+    "built_spec": null,
     "catalog_name": "aliceCo/First/Thing",
     "connector_image_name": "an/image",
     "connector_image_tag": "a-tag",
@@ -24,6 +25,7 @@ expression: "flows.iter().map(|r| -> serde_json::Value { r.get(0) }).collect::<V
     ]
   },
   {
+    "built_spec": null,
     "catalog_name": "aliceCo/New/Thing",
     "connector_image_name": "an/image",
     "connector_image_tag": "a-tag",
@@ -44,6 +46,7 @@ expression: "flows.iter().map(|r| -> serde_json::Value { r.get(0) }).collect::<V
     ]
   },
   {
+    "built_spec": null,
     "catalog_name": "aliceCo/Second/Thing",
     "connector_image_name": "an/image",
     "connector_image_tag": "a-tag",
@@ -64,6 +67,7 @@ expression: "flows.iter().map(|r| -> serde_json::Value { r.get(0) }).collect::<V
     ]
   },
   {
+    "built_spec": null,
     "catalog_name": "aliceCo/Test/Fixture",
     "connector_image_name": "an/image",
     "connector_image_tag": "a-tag",
@@ -84,6 +88,7 @@ expression: "flows.iter().map(|r| -> serde_json::Value { r.get(0) }).collect::<V
     ]
   },
   {
+    "built_spec": null,
     "catalog_name": "aliceCo/Unrelated/Thing",
     "connector_image_name": null,
     "connector_image_tag": null,
@@ -100,6 +105,7 @@ expression: "flows.iter().map(|r| -> serde_json::Value { r.get(0) }).collect::<V
     "writes_to": null
   },
   {
+    "built_spec": null,
     "catalog_name": "otherCo/Not/AliceCo",
     "connector_image_name": "an/image",
     "connector_image_tag": "a-tag",
