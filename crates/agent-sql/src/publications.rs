@@ -113,6 +113,29 @@ pub async fn insert_new_live_specs(
     Ok(rows.rows_affected())
 }
 
+pub async fn add_built_specs<S>(
+    live_spec_id: Id,
+    built_spec: S,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<()>
+where
+    S: serde::Serialize + Send + Sync,
+{
+    sqlx::query!(
+        r#"
+        update live_specs set built_spec = $1
+        where id = $2
+        returning 1 as "must_exist";
+        "#,
+        Json(built_spec) as Json<S>,
+        live_spec_id as Id,
+    )
+    .fetch_one(&mut *txn)
+    .await?;
+
+    Ok(())
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RoleGrant {
     pub subject_role: String,
