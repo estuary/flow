@@ -53,6 +53,7 @@ create table live_specs (
   spec                  json,
   spec_type             catalog_spec_type,
   writes_to             text[],
+  built_spec            json,
   -- JSON specs are encoded into the database with leading spaces which must be trimmed to compute
   -- an accurate md5.
   md5                   text generated always as (md5(trim(spec::text))) stored,
@@ -110,6 +111,8 @@ List of collections written by this catalog task specification,
 or NULL if not applicable to this specification type.
 These adjacencies are also indexed within `live_spec_flows`.
 ';
+comment on column live_specs.built_spec is
+  'Built specification for this catalog';
 
 
 -- Data-flows between live specifications.
