@@ -60,6 +60,8 @@ create table draft_specs (
   expect_pub_id   flowid default null,
   spec            json,
   spec_type       catalog_spec_type,
+  built_spec      json,
+  validated       json,
 
   constraint "spec and spec_type must be consistent" check (
     json_typeof(spec) is distinct from 'null' and (spec is null) = (spec_type is null)
@@ -105,3 +107,7 @@ and the specification will be deleted when this draft is published.
 ';
 comment on column draft_specs.spec_type is
   'Type of this draft catalog specification';
+comment on column draft_specs.built_spec is
+  'Built specification for this catalog';
+comment on column draft_specs.validated is
+  'Serialized response from the connector Validate RPC as populated by a dry run of this draft specification';
