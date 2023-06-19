@@ -162,7 +162,7 @@ func (c *TxnClient) AddDocument(binding int, keyPacked []byte, keyJson json.RawM
 	// * combineRight() modifies `flighted`, but is called only from this function (below).
 	// * Store also modifies `flighted`, but is called only by the same thread
 	//   which invokes AddDocument.
-	if len(c.flighted) >= maxFlightedKeys {
+	if len(c.flighted[binding]) >= maxFlightedKeys {
 		return consumer.ErrDeferToNextTransaction
 	}
 
