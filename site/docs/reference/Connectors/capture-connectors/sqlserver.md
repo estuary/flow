@@ -35,7 +35,7 @@ on the database and the individual tables to be captured.
 * A user role with:
   * `SELECT` permissions on the CDC schema and the schemas that contain tables to be captured.
   * Access to the change tables created as part of the SQL Server CDC process.
-  * `SELECT` and `UPDATE` permissions on the watermarks table
+  * `SELECT`, `INSERT`, and `UPDATE` permissions on the watermarks table
 
 To meet these requirements, follow the steps for your hosting type.
 
@@ -50,25 +50,22 @@ To meet these requirements, follow the steps for your hosting type.
 
 ```sql
 USE <database>;
---Enable CDC for the database.
+-- Enable CDC for the database.
 EXEC sys.sp_cdc_enable_db;
---Create user and password for use with the connector.
+-- Create user and password for use with the connector.
 CREATE LOGIN flow_capture WITH PASSWORD = 'secret';
 CREATE USER flow_capture FOR LOGIN flow_capture;
-/*Grant the user permissions on the CDC schema and schemas with data.
-This assumes all tables to be captured are in the default schema, `dbo`.
-Add similar queries for any other schemas that contain tables you want to capture.*/
+-- Grant the user permissions on the CDC schema and schemas with data.
+-- This assumes all tables to be captured are in the default schema, `dbo`.
+-- Add similar queries for any other schemas that contain tables you want to capture.
 GRANT SELECT ON SCHEMA :: dbo TO flow_capture;
 GRANT SELECT ON SCHEMA :: cdc TO flow_capture;
---Create the watermarks table and grant permissions.
+-- Create the watermarks table and grant permissions.
 CREATE TABLE dbo.flow_watermarks(slot INTEGER PRIMARY KEY, watermark TEXT);
-GRANT SELECT, UPDATE ON dbo.flow_watermarks TO flow_capture;
---Add some data to watermarks table to ensure proper connector initiation.
-INSERT INTO dbo.flow_watermarks VALUES (0, 'dummy-value');
-/*Enable CDC on tables. The below query enables CDC the watermarks table ONLY.
-You should add similar query for all other tables you intend to capture.*/
-EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_watermarks', @role_name = 'flow_capture', @capture_instance = 'dbo_flow_watermarks';
-
+GRANT SELECT, INSERT, UPDATE ON dbo.flow_watermarks TO flow_capture;
+-- Enable CDC on tables. The below query enables CDC the watermarks table ONLY.
+-- You should add similar query for all other tables you intend to capture.
+EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_watermarks', @role_name = 'flow_capture';
 ```
 
 2. Allow secure connection to Estuary Flow from your hosting environment. Either:
@@ -97,24 +94,22 @@ EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_waterm
 
 ```sql
 USE <database>;
---Enable CDC for the database.
+-- Enable CDC for the database.
 EXEC sys.sp_cdc_enable_db;
---Create user and password for use with the connector.
+-- Create user and password for use with the connector.
 CREATE LOGIN flow_capture WITH PASSWORD = 'secret';
 CREATE USER flow_capture FOR LOGIN flow_capture;
-/*Grant the user permissions on the CDC schema and schemas with data.
-This assumes all tables to be captured are in the default schema, `dbo`.
-Add similar queries for any other schemas that contain tables you want to capture.*/
+-- Grant the user permissions on the CDC schema and schemas with data.
+-- This assumes all tables to be captured are in the default schema, `dbo`.
+-- Add similar queries for any other schemas that contain tables you want to capture.
 GRANT SELECT ON SCHEMA :: dbo TO flow_capture;
 GRANT SELECT ON SCHEMA :: cdc TO flow_capture;
---Create the watermarks table and grant permissions.
+-- Create the watermarks table and grant permissions.
 CREATE TABLE dbo.flow_watermarks(slot INTEGER PRIMARY KEY, watermark TEXT);
-GRANT SELECT, UPDATE ON dbo.flow_watermarks TO flow_capture;
---Add some data to watermarks table to ensure proper connector initiation.
-INSERT INTO dbo.flow_watermarks VALUES (0, 'dummy-value');
-/*Enable CDC on tables. The below query enables CDC the watermarks table ONLY.
-You should add similar query for all other tables you intend to capture.*/
-EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_watermarks', @role_name = 'flow_capture', @capture_instance = 'dbo_flow_watermarks';
+GRANT SELECT, INSERT, UPDATE ON dbo.flow_watermarks TO flow_capture;
+-- Enable CDC on tables. The below query enables CDC the watermarks table ONLY.
+-- You should add similar query for all other tables you intend to capture.
+EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_watermarks', @role_name = 'flow_capture';
 ```
 
 3. Note the following important items for configuration:
@@ -141,24 +136,22 @@ EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_waterm
 
 ```sql
 USE <database>;
---Enable CDC for the database.
+-- Enable CDC for the database.
 EXEC msdb.dbo.rds_cdc_enable_db;
---Create user and password for use with the connector.
+-- Create user and password for use with the connector.
 CREATE LOGIN flow_capture WITH PASSWORD = 'secret';
 CREATE USER flow_capture FOR LOGIN flow_capture;
-/*Grant the user permissions on the CDC schema and schemas with data.
-This assumes all tables to be captured are in the default schema, `dbo`.
-Add similar queries for any other schemas that contain tables you want to capture.*/
+-- Grant the user permissions on the CDC schema and schemas with data.
+-- This assumes all tables to be captured are in the default schema, `dbo`.
+-- Add similar queries for any other schemas that contain tables you want to capture.
 GRANT SELECT ON SCHEMA :: dbo TO flow_capture;
 GRANT SELECT ON SCHEMA :: cdc TO flow_capture;
---Create the watermarks table and grant permissions.
+-- Create the watermarks table and grant permissions.
 CREATE TABLE dbo.flow_watermarks(slot INTEGER PRIMARY KEY, watermark TEXT);
-GRANT SELECT, UPDATE ON dbo.flow_watermarks TO flow_capture;
---Add some data to watermarks table to ensure proper connector initiation.
-INSERT INTO dbo.flow_watermarks VALUES (0, 'dummy-value');
-/*Enable CDC on tables. The below query enables CDC the watermarks table ONLY.
-You should add similar query for all other tables you intend to capture.*/
-EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_watermarks', @role_name = 'flow_capture', @capture_instance = 'dbo_flow_watermarks';
+GRANT SELECT, INSERT, UPDATE ON dbo.flow_watermarks TO flow_capture;
+-- Enable CDC on tables. The below query enables CDC the watermarks table ONLY.
+-- You should add similar query for all other tables you intend to capture.
+EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_watermarks', @role_name = 'flow_capture';
 ```
 6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
 
@@ -178,24 +171,22 @@ EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_waterm
 
 ```sql
 USE <database>;
---Enable CDC for the database.
+-- Enable CDC for the database.
 EXEC msdb.dbo.gcloudsql_cdc_enable_db '<database>';
---Create user and password for use with the connector.
+-- Create user and password for use with the connector.
 CREATE LOGIN flow_capture WITH PASSWORD = 'secret';
 CREATE USER flow_capture FOR LOGIN flow_capture;
-/*Grant the user permissions on the CDC schema and schemas with data.
-This assumes all tables to be captured are in the default schema, `dbo`.
-Add similar queries for any other schemas that contain tables you want to capture.*/
+-- Grant the user permissions on the CDC schema and schemas with data.
+-- This assumes all tables to be captured are in the default schema, `dbo`.
+-- Add similar queries for any other schemas that contain tables you want to capture.
 GRANT SELECT ON SCHEMA :: dbo TO flow_capture;
 GRANT SELECT ON SCHEMA :: cdc TO flow_capture;
---Create the watermarks table and grant permissions.
+-- Create the watermarks table and grant permissions.
 CREATE TABLE dbo.flow_watermarks(slot INTEGER PRIMARY KEY, watermark TEXT);
-GRANT SELECT, UPDATE ON dbo.flow_watermarks TO flow_capture;
---Add some data to watermarks table to ensure proper connector initiation.
-INSERT INTO dbo.flow_watermarks VALUES (0, 'dummy-value');
-/*Enable CDC on tables. The below query enables CDC the watermarks table ONLY.
-You should add similar query for all other tables you intend to capture.*/
-EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_watermarks', @role_name = 'flow_capture', @capture_instance = 'dbo_flow_watermarks';
+GRANT SELECT, INSERT, UPDATE ON dbo.flow_watermarks TO flow_capture;
+-- Enable CDC on tables. The below query enables CDC the watermarks table ONLY.
+-- You should add similar query for all other tables you intend to capture.
+EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_watermarks', @role_name = 'flow_capture';
 ```
 
 3. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `1433`.
