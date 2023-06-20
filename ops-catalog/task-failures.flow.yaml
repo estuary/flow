@@ -37,6 +37,18 @@ collections:
               INSERT INTO related_log_lines_2 SELECT * from related_log_lines;
               DROP TABLE related_log_lines;
               ALTER TABLE related_log_lines_2 RENAME TO related_log_lines;
+            - |
+              -- Remove unique constraint on shard+message
+              CREATE TABLE related_log_lines_2 (
+                shard TEXT,
+                ts TEXT,
+                level TEXT,
+                message TEXT,
+                PRIMARY KEY (shard,ts)
+              );
+              INSERT INTO related_log_lines_2 SELECT * from related_log_lines;
+              DROP TABLE related_log_lines;
+              ALTER TABLE related_log_lines_2 RENAME TO related_log_lines;
 
       transforms:
         - name: notifyAboutTaskFailures
