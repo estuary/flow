@@ -27,6 +27,8 @@ Use the below properties to configure a Postgres materialization, which will dir
 | **`/password`** | Password | Password for the specified database user.       | string  | Required         |
 | `/schema` | Database Schema | Database [schema](https://www.postgresql.org/docs/current/ddl-schemas.html) to use for materialized tables (unless overridden within the binding resource configuration) as well as associated materialization metadata tables | string | `"public"` |
 | **`/user`**     | User     | Database user to connect as.                    | string  | Required         |
+| `/advanced`                     | Advanced Options    | Options for advanced users. You should not typically need to modify these.                                                                  | object  |                            |
+| `/advanced/sslmode`     | SSL Mode    | Overrides SSL connection behavior by setting the 'sslmode' parameter. | string  |  |
 
 #### Bindings
 
@@ -36,6 +38,10 @@ Use the below properties to configure a Postgres materialization, which will dir
 | `/delta_updates` | Delta Update | Should updates to this table be done via delta updates. | boolean | `false` |
 | `/schema` | Alternative Schema | Alternative schema for this table (optional). Overrides schema set in endpoint configuration. | string |  |
 | **`/table`** | Table | Table name to materialize to. It will be created by the connector, unless the connector has previously created it. | string | Required |
+
+#### SSL Mode
+
+Certain managed PostgreSQL implementations may require you to explicitly set the [SSL Mode](https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-PROTECTION) to connect with Flow. One example is [Neon](https://neon.tech/docs/connect/connect-securely), which requires the setting `verify-full`. Check your managed PostgreSQL's documentation for details if you encounter errors related to the SSL mode configuration.
 
 ### Sample
 
