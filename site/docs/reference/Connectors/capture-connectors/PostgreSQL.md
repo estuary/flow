@@ -323,7 +323,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | `/advanced/skip_backfills`      | Skip Backfills      | A comma-separated list of fully-qualified table names which should not be backfilled.                                                       | string  |                            |
 | `/advanced/slotName`            | Slot Name           | The name of the PostgreSQL replication slot to replicate from.                                                                              | string  | `"flow_slot"`              |
 | `/advanced/watermarksTable`     | Watermarks Table    | The name of the table used for watermark writes during backfills. Must be fully-qualified in &#x27;&lt;schema&gt;.&lt;table&gt;&#x27; form. | string  | `"public.flow_watermarks"` |
-
+| `/advanced/sslmode`     | SSL Mode    | Overrides SSL connection behavior by setting the 'sslmode' parameter. | string  |  |
 
 #### Bindings
 
@@ -332,6 +332,10 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | **`/namespace`** | Namespace | The [namespace/schema](https://www.postgresql.org/docs/9.1/ddl-schemas.html) of the table. | string | Required         |
 | **`/stream`**    | Stream    | Table name.                                                                                | string | Required         |
 | **`/syncMode`**  | Sync mode | Connection method. Always set to `incremental`.                                            | string | Required         |
+
+#### SSL Mode
+
+Certain managed PostgreSQL implementations may require you to explicitly set the [SSL Mode](https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-PROTECTION) to connect with Flow. One example is [Neon](https://neon.tech/docs/connect/connect-securely), which requires the setting `verify-full`. Check your managed PostgreSQL's documentation for details if you encounter errors related to the SSL mode configuration.
 
 ### Sample
 
@@ -357,9 +361,7 @@ captures:
 ```
 Your capture definition will likely be more complex, with additional bindings for each table in the source database.
 
-[Learn more about capture definitions.](../../../concepts/captures.md#pull-captures).
-
-]
+[Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
 
 ## TOASTed values
 
