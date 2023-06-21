@@ -1,5 +1,6 @@
 use super::{
-    count_nodes, count_nodes_heap, reduce_item, reduce_prop, Cursor, Error, Index, Result,
+    compare_key, compare_key_lazy, count_nodes, count_nodes_heap, reduce_item, reduce_prop, Cursor,
+    Error, Index, Result,
 };
 use crate::{
     lazy::{LazyArray, LazyDestructured, LazyField, LazyObject},
@@ -188,8 +189,8 @@ impl<'alloc> Builder<'alloc, '_, '_> {
         ) -> Box<dyn Iterator<Item = LazyNode<'alloc, 'l, L>> + 'i> {
             Box::new(
                 itertools::merge_join_by(left, right, |l, r| match l {
-                    LazyNode::Node(l) => Pointer::compare(key, *l, *r),
-                    LazyNode::Heap(l) => Pointer::compare(key, l, *r),
+                    LazyNode::Node(l) => compare_key(key, *l, *r),
+                    LazyNode::Heap(l) => compare_key(key, l, *r),
                 })
                 .filter_map(move |eob| match eob {
                     EitherOrBoth::Left(l) if !naught => Some(l),
@@ -209,7 +210,7 @@ impl<'alloc> Builder<'alloc, '_, '_> {
         for eob in itertools::merge_join_by(
             lhs_diff_sub.enumerate(),
             rhs.into_iter().flat_map(LazyArray::into_iter).enumerate(),
-            |(_, l), (_, r)| LazyNode::compare(l, key, r),
+            |(_, l), (_, r)| compare_key_lazy(key, l, r),
         ) {
             match eob {
                 EitherOrBoth::Left((_, lhs)) if LEFT & mask != 0 => {

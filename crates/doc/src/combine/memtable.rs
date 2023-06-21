@@ -1,5 +1,5 @@
 use super::{Error, SpillWriter, FLAG_REDUCED};
-use crate::{ArchivedNode, HeapDoc, HeapNode, LazyNode, Pointer, Validator};
+use crate::{ArchivedNode, Extractor, HeapDoc, HeapNode, LazyNode, Validator};
 use bumpalo::Bump;
 use std::cell::UnsafeCell;
 use std::pin::Pin;
@@ -17,7 +17,7 @@ pub struct MemTable {
     //
     // Safety: MemTable never lends a reference to `entries`.
     entries: UnsafeCell<Entries>,
-    key: Box<[Pointer]>,
+    key: Box<[Extractor]>,
     schema: Option<url::Url>,
     zz_alloc: Pin<Box<Bump>>,
 }
@@ -69,7 +69,7 @@ impl Entries {
     fn compact(
         &mut self,
         alloc: &'static Bump,
-        key: &[Pointer],
+        key: &[Extractor],
         schema: Option<&url::Url>,
     ) -> Result<(), Error> {
         // Documents are sorted such that partial-combine documents come before
@@ -79,7 +79,7 @@ impl Entries {
         let key_cmp = |lhs: &HeapDoc, rhs: &HeapDoc| {
             let c = (lhs.flags & FLAG_REDUCED != 0).cmp(&(rhs.flags & FLAG_REDUCED != 0));
             if c.is_eq() {
-                Pointer::compare(key, &lhs.root, &rhs.root)
+                Extractor::compare_key(key, &lhs.root, &rhs.root)
             } else {
                 c
             }
@@ -150,7 +150,7 @@ impl Entries {
 }
 
 impl MemTable {
-    pub fn new(key: Box<[Pointer]>, schema: Option<url::Url>, validator: Validator) -> Self {
+    pub fn new(key: Box<[Extractor]>, schema: Option<url::Url>, validator: Validator) -> Self {
         assert!(!key.is_empty());
 
         let alloc = Box::pin(HeapNode::new_allocator());
@@ -220,7 +220,7 @@ impl MemTable {
     ) -> Result<
         (
             Vec<HeapDoc<'static>>,
-            Box<[Pointer]>,
+            Box<[Extractor]>,
             Option<url::Url>,
             Validator,
             Pin<Box<Bump>>,
@@ -272,7 +272,7 @@ impl MemTable {
         self,
         writer: &mut SpillWriter<F>,
         chunk_target_size: ops::Range<usize>,
-    ) -> Result<(Box<[Pointer]>, Option<url::Url>, Validator), Error> {
+    ) -> Result<(Box<[Extractor]>, Option<url::Url>, Validator), Error> {
         let (sorted, key, schema, validator, alloc) = self.try_into_parts()?;
 
         let docs = sorted.len();
@@ -307,7 +307,7 @@ impl MemTable {
 pub struct MemDrainer {
     it1: std::iter::Peekable<std::vec::IntoIter<HeapDoc<'static>>>,
     it2: std::iter::Peekable<std::vec::IntoIter<HeapDoc<'static>>>,
-    key: Box<[Pointer]>,
+    key: Box<[Extractor]>,
     schema: Option<url::Url>,
     validator: Validator,
     zz_alloc: Pin<Box<Bump>>, // Careful! Order matters. See MemTable.
@@ -337,7 +337,7 @@ impl MemDrainer {
                 (None, None) => return Ok(false),
                 (Some(_), None) => self.it1.next().unwrap(),
                 (None, Some(_)) => self.it2.next().unwrap(),
-                (Some(l), Some(r)) => match Pointer::compare(&self.key, &l.root, &r.root) {
+                (Some(l), Some(r)) => match Extractor::compare_key(&self.key, &l.root, &r.root) {
                     cmp::Ordering::Less => self.it1.next().unwrap(),
                     cmp::Ordering::Greater => self.it2.next().unwrap(),
                     cmp::Ordering::Equal => {
@@ -369,7 +369,7 @@ impl MemDrainer {
         }
     }
 
-    pub fn into_parts(self) -> (Box<[Pointer]>, Option<url::Url>, Validator) {
+    pub fn into_parts(self) -> (Box<[Extractor]>, Option<url::Url>, Validator) {
         let MemDrainer {
             it1,
             it2,
@@ -403,7 +403,7 @@ mod test {
             url::Url::parse("http://example/schema").unwrap(),
             &json!({
                 "properties": {
-                    "key": { "type": "string" },
+                    "key": { "type": "string", "default": "def" },
                     "v": {
                         "type": "array",
                         "reduce": { "strategy": "append" }
@@ -415,7 +415,7 @@ mod test {
         .unwrap();
 
         let memtable = MemTable::new(
-            vec![Pointer::from_str("/key")].into(),
+            vec![Extractor::with_default("/key", json!("def"))].into(),
             None,
             Validator::new(schema).unwrap(),
         );
@@ -432,6 +432,7 @@ mod test {
             (false, json!({"key": "aaa", "v": ["banana"]})),
             (false, json!({"key": "bbb", "v": ["carrot"]})),
             (true, json!({"key": "ccc", "v": ["grape"]})),
+            (false, json!({"key": "def", "v": ["explicit-default"]})),
         ]);
 
         add_and_compact(&[
@@ -446,6 +447,7 @@ mod test {
             (false, json!({"key": "ab", "v": ["first between"]})),
             (false, json!({"key": "bc", "v": ["between"]})),
             (false, json!({"key": "d", "v": ["after"]})),
+            (false, json!({"v": ["implicit-default"]})), // Missing `key`.
         ]);
 
         add_and_compact(&[
@@ -538,6 +540,16 @@ mod test {
               "v": [
                 "after",
                 "all"
+              ]
+            },
+            false
+          ],
+          [
+            {
+              "key": "def",
+              "v": [
+                "explicit-default",
+                "implicit-default"
               ]
             },
             false

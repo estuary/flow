@@ -1,11 +1,14 @@
 use super::{
     lazy::{LazyDestructured, LazyField, LazyNode},
-    AsNode, BumpStr, Field, Fields, HeapField, HeapNode, Node, Valid,
+    AsNode, BumpStr, Field, Fields, HeapField, HeapNode, Node, Pointer, Valid,
 };
 use itertools::EitherOrBoth;
+use std::cmp::Ordering;
 
 pub mod strategy;
 pub use strategy::Strategy;
+
+mod set;
 
 pub static DEFAULT_STRATEGY: &Strategy = &Strategy::LastWriteWins;
 
@@ -244,6 +247,41 @@ fn reduce_item<'alloc, L: AsNode, R: AsNode>(
     }
 }
 
+// Compare the deep ordering of `lhs` and `rhs` with respect to a composite key,
+// specified as a slice of Pointers relative to the respective document roots.
+// Pointers that do not exist in a document order before any JSON value that does exist.
+//
+// WARNING: This routine should *only* be used in the context of schema reductions.
+// When comparing document keys, use an Extractor which also considers default value annotations.
+//
+fn compare_key<'s, 'l, 'r, L: AsNode, R: AsNode>(
+    key: &'s [Pointer],
+    lhs: &'l L,
+    rhs: &'r R,
+) -> Ordering {
+    key.iter()
+        .map(|ptr| match (ptr.query(lhs), ptr.query(rhs)) {
+            (Some(lhs), Some(rhs)) => crate::compare(lhs, rhs),
+            (None, Some(_)) => Ordering::Less,
+            (Some(_), None) => Ordering::Greater,
+            (_, _) => Ordering::Equal,
+        })
+        .find(|o| *o != Ordering::Equal)
+        .unwrap_or(Ordering::Equal)
+}
+fn compare_key_lazy<'alloc, 'l, 'r, L: AsNode, R: AsNode>(
+    key: &[Pointer],
+    lhs: &LazyNode<'alloc, 'l, L>,
+    rhs: &LazyNode<'alloc, 'r, R>,
+) -> Ordering {
+    match (lhs, rhs) {
+        (LazyNode::Heap(lhs), LazyNode::Heap(rhs)) => compare_key(key, lhs, rhs),
+        (LazyNode::Heap(lhs), LazyNode::Node(rhs)) => compare_key(key, lhs, *rhs),
+        (LazyNode::Node(lhs), LazyNode::Heap(rhs)) => compare_key(key, *lhs, rhs),
+        (LazyNode::Node(lhs), LazyNode::Node(rhs)) => compare_key(key, *lhs, *rhs),
+    }
+}
+
 #[cfg(test)]
 pub mod test {
     use super::*;
@@ -345,6 +383,65 @@ pub mod test {
             }
         }
     }
-}
 
-mod set;
+    #[test]
+    fn test_compare_objects() {
+        let d1 = &json!({"a": 1, "b": 2, "c": 3});
+        let d2 = &json!({"a": 2, "b": 1, "c": 3});
+
+        let (empty, a, b, c) = (|| "".into(), || "/a".into(), || "/b".into(), || "/c".into());
+
+        // No pointers => always equal.
+        assert_eq!(compare_key(&[] as &[Pointer], d1, d2), Ordering::Equal);
+        // Deep compare of document roots.
+        assert_eq!(compare_key(&[empty()], d1, d2), Ordering::Less);
+        // Simple key ordering.
+        assert_eq!(compare_key(&[a()], d1, d2), Ordering::Less);
+        assert_eq!(compare_key(&[b()], d1, d2), Ordering::Greater);
+        assert_eq!(compare_key(&[c()], d1, d2), Ordering::Equal);
+        // Composite key ordering.
+        assert_eq!(compare_key(&[c(), a()], d1, d2), Ordering::Less);
+        assert_eq!(compare_key(&[c(), b()], d1, d2), Ordering::Greater);
+        assert_eq!(compare_key(&[c(), c()], d1, d2), Ordering::Equal);
+        assert_eq!(compare_key(&[c(), c(), c(), a()], d1, d2), Ordering::Less);
+    }
+
+    #[test]
+    fn test_compare_arrays() {
+        let d1 = &json!([1, 2, 3]);
+        let d2 = &json!([2, 1, 3]);
+
+        let (empty, zero, one, two) =
+            (|| "".into(), || "/0".into(), || "/1".into(), || "/2".into());
+
+        // No pointers => always equal.
+        assert_eq!(compare_key(&[] as &[Pointer], d1, d2), Ordering::Equal);
+        // Deep compare of document roots.
+        assert_eq!(compare_key(&[empty()], d1, d2), Ordering::Less);
+        // Simple key ordering.
+        assert_eq!(compare_key(&[zero()], d1, d2), Ordering::Less);
+        assert_eq!(compare_key(&[one()], d1, d2), Ordering::Greater);
+        assert_eq!(compare_key(&[two()], d1, d2), Ordering::Equal);
+        // Composite key ordering.
+        assert_eq!(compare_key(&[two(), zero()], d1, d2), Ordering::Less);
+        assert_eq!(compare_key(&[two(), one()], d1, d2), Ordering::Greater);
+        assert_eq!(compare_key(&[two(), two()], d1, d2), Ordering::Equal);
+    }
+
+    #[test]
+    fn test_compare_missing() {
+        let d1 = &json!({"a": null, "c": 3});
+        let d2 = &json!({"b": 2});
+
+        assert_eq!(
+            compare_key(&["/does/not/exist".into()], d1, d2),
+            Ordering::Equal
+        );
+        // Key exists at |d1| but not |d2|.
+        assert_eq!(compare_key(&["/c".into()], d1, d2), Ordering::Greater);
+        // Key exists at |d2| but not |d1|.
+        assert_eq!(compare_key(&["/b".into()], d1, d2), Ordering::Less);
+        // Key exists at |d1| but not |d2|.
+        assert_eq!(compare_key(&["/a".into()], d1, d2), Ordering::Greater);
+    }
+}

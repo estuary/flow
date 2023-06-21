@@ -1,6 +1,6 @@
 use super::{
-    count_nodes, count_nodes_generic, count_nodes_heap, reduce_item, reduce_prop, Cursor, Error,
-    Result,
+    compare_key_lazy, count_nodes, count_nodes_generic, count_nodes_heap, reduce_item, reduce_prop,
+    Cursor, Error, Result,
 };
 use crate::{
     lazy::{LazyArray, LazyDestructured, LazyObject},
@@ -205,10 +205,10 @@ impl Strategy {
         } = cur;
 
         let ord = match (key.is_empty(), reverse) {
-            (false, false) => lhs.compare(key, &rhs),
-            (false, true) => rhs.compare(key, &lhs),
-            (true, false) => lhs.compare(&[Pointer::empty()], &rhs),
-            (true, true) => rhs.compare(&[Pointer::empty()], &lhs),
+            (false, false) => compare_key_lazy(key, &lhs, &rhs),
+            (false, true) => compare_key_lazy(key, &rhs, &lhs),
+            (true, false) => compare_key_lazy(&[Pointer::empty()], &lhs, &rhs),
+            (true, true) => compare_key_lazy(&[Pointer::empty()], &rhs, &lhs),
         };
 
         use std::cmp::Ordering;
@@ -349,7 +349,7 @@ impl Strategy {
                         if key.is_empty() {
                             lhs_ind.cmp(rhs_ind)
                         } else {
-                            lhs.compare(key, rhs)
+                            compare_key_lazy(key, lhs, rhs)
                         }
                     },
                 )
@@ -580,16 +580,17 @@ mod test {
                     rhs: json!({"k": 2, "n": 1}),
                     expect: Ok(json!({"k": 2, "n": 1})),
                 },
-                // Missing key orders as 'null'.
+                // 'null' orders before an integer.
+                Partial {
+                    rhs: json!({"k": null, "n": -1}),
+                    expect: Ok(json!({"k": null, "n": -1})),
+                },
+                // Missing key orders before 'null'.
                 Partial {
                     rhs: json!({"n": 1, "whoops": true}),
                     expect: Ok(json!({"n": 1, "whoops": true})),
                 },
-                Partial {
-                    rhs: json!({"k": null, "n": 1}),
-                    expect: Ok(json!({"k": null, "n": 2, "whoops": true})),
-                },
-                // Keys are technically equal, and it attempts to deep-merge.
+                // Keys are technically equal (both are undefined), and it attempts to deep-merge.
                 Partial {
                     rhs: json!(42),
                     expect: Err(Error::MergeWrongType),
