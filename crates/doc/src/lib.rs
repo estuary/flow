@@ -71,6 +71,10 @@ pub use compare::compare;
 pub mod ptr;
 pub use ptr::Pointer;
 
+// Extractor extracts locations from documents.
+mod extractor;
+pub use extractor::Extractor;
+
 // Walker is a medium-term integration joint between AsNode implementations
 // and our JSON-schema validator. We may seek to get rid of this and have
 // JSON-schema validation evaluate directly over AsNode.
@@ -131,11 +135,18 @@ mod test {
             },
             "big string": "a bigger string",
             "small string": "smol",
+            // Key which cannot be borrowed upon deserialization.
+            "key\nwith\t\"escapes\"": "escapey\\value\\is\"escaping",
+            "": "empty property"
         });
 
-        // We can deserialize into a Doc.
+        // Deserialize from bytes to exercise deserialization escapes.
+        let fixture_bytes = fixture.to_string().into_bytes();
+        let mut fixture_de = serde_json::Deserializer::from_slice(&fixture_bytes);
+
+        // We can deserialize into a HeapNode.
         let alloc = HeapNode::new_allocator();
-        let doc = HeapNode::from_serde(&fixture, &alloc).unwrap();
+        let doc = HeapNode::from_serde(&mut fixture_de, &alloc).unwrap();
         insta::assert_debug_snapshot!(doc);
 
         // The document can be archived with a stable byte layout.
@@ -162,7 +173,7 @@ mod test {
         assert_eq!(fixture, recovered);
 
         // Confirm number of bump-allocated bytes doesn't regress.
-        assert_eq!(alloc.allocated_bytes(), 1408);
+        assert_eq!(alloc.allocated_bytes(), 3392);
     }
 
     #[test]

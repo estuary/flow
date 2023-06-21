@@ -1,7 +1,7 @@
 use crate::{
     reduce,
     validation::{FailedValidation, Validator},
-    ArchivedNode, HeapDoc, LazyNode, Pointer,
+    ArchivedNode, Extractor, HeapDoc, LazyNode,
 };
 use std::io::{self, Seek};
 
@@ -36,7 +36,7 @@ pub struct Accumulator {
 
 impl Accumulator {
     pub fn new(
-        key: Box<[Pointer]>,
+        key: Box<[Extractor]>,
         schema: Option<url::Url>,
         spill: std::fs::File,
         validator: Validator,
@@ -162,7 +162,7 @@ pub enum Combiner {
 impl Combiner {
     /// Build a Combiner initialized as an empty, new Accumulator.
     pub fn new(
-        key: Box<[Pointer]>,
+        key: Box<[Extractor]>,
         schema: Option<url::Url>,
         spill: std::fs::File,
         validator: Validator,

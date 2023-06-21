@@ -4,7 +4,7 @@ extern crate quickcheck;
 #[macro_use(quickcheck)]
 extern crate quickcheck_macros;
 
-use doc::{combine, HeapNode, Validator};
+use doc::{combine, Extractor, HeapNode, Validator};
 use json::schema::build::build_schema;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -46,7 +46,7 @@ fn run_sequence(seq: Vec<(u8, u8, bool)>) -> Result<(), FuzzError> {
     let mut spill = combine::SpillWriter::new(std::io::Cursor::new(Vec::new())).unwrap();
     let chunk_target = (1 << 20)..(1 << 21);
     let mut memtable = combine::MemTable::new(
-        vec!["/key".into()].into(),
+        vec![Extractor::new("/key")].into(),
         None,
         Validator::new(schema).unwrap(),
     );
