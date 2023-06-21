@@ -10,7 +10,7 @@ INSERT INTO related_log_lines (shard, ts, level, message)
         $ts,
         $level,
         $message
-    WHERE $level in ('error', 'warn') AND $message != 'shard failed'
+    WHERE $message != 'shard failed'
     ON CONFLICT DO NOTHING;
 
 -- Only keep around the last 10 log lines
@@ -32,13 +32,18 @@ WITH return_values as (
     $shard$name as sub_name,
     $shard$kind as task_kind,
     substr($name,0,length($name)-length($shard$name)) as tenant_name,
-    (SELECT json_group_array(json_object(
-        'shard',shard,
-        'ts',ts,
-        'level',level,
-        'message',message,
-        'formatted_message',SUBSTR('[ts='||ts||' level='||level||']: '||message,0,2500)
-    )) from related_log_lines WHERE shard=$name) as log_lines,
+    (
+        SELECT json_group_array(json_object(
+            'shard',shard,
+            'ts',ts,
+            'level',level,
+            'message',message,
+            'formatted_message',SUBSTR('[ts='||ts||' level='||level||']: '||message,0,2500)
+        ))
+        FROM related_log_lines
+        WHERE shard=$name
+        ORDER BY ts DESC
+    ) as log_lines,
     (SELECT json_group_object(key, value) from json_each($fields) where key != 'error') as filtered_metadata
 )
 INSERT INTO
