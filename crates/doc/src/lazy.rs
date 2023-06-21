@@ -1,6 +1,6 @@
 use super::{
-    AsNode, BumpStr, BumpVec, FailedValidation, Field, Fields, HeapField, HeapNode, Node, Pointer,
-    Valid, Validator,
+    AsNode, BumpStr, BumpVec, FailedValidation, Field, Fields, HeapField, HeapNode, Node, Valid,
+    Validator,
 };
 
 /// LazyNode is either a HeapNode, or is an AsNode which may be promoted to a HeapNode.
@@ -89,19 +89,6 @@ impl<'alloc, 'n, N: AsNode> LazyNode<'alloc, 'n, N> {
         match self {
             Self::Node(doc) => HeapNode::from_node(doc.as_node(), alloc),
             Self::Heap(doc) => doc,
-        }
-    }
-
-    pub fn compare<R: AsNode>(
-        &self,
-        key: &[Pointer],
-        rhs: &LazyNode<'_, '_, R>,
-    ) -> std::cmp::Ordering {
-        match (self, rhs) {
-            (LazyNode::Heap(lhs), LazyNode::Heap(rhs)) => Pointer::compare(key, lhs, rhs),
-            (LazyNode::Heap(lhs), LazyNode::Node(rhs)) => Pointer::compare(key, lhs, *rhs),
-            (LazyNode::Node(lhs), LazyNode::Heap(rhs)) => Pointer::compare(key, *lhs, rhs),
-            (LazyNode::Node(lhs), LazyNode::Node(rhs)) => Pointer::compare(key, *lhs, *rhs),
         }
     }
 

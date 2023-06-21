@@ -1,4 +1,4 @@
-use doc::Validator;
+use doc::{Extractor, Validator};
 use json::schema::build::build_schema;
 use rand::{distributions::Distribution, Rng, SeedableRng};
 use serde_json::{json, value::RawValue, Value};
@@ -101,7 +101,7 @@ pub fn combiner_perf() {
 
     // Initialize the combiner itself.
     let mut accum = doc::combine::Accumulator::new(
-        vec!["/key".into()].into(),
+        vec![Extractor::new("/key")].into(),
         None,
         tempfile::tempfile().unwrap(),
         Validator::new(schema).unwrap(),
