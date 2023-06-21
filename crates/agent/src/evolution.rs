@@ -21,7 +21,9 @@ pub struct EvolutionHandler;
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct EvolveRequest {
     /// The current name of the collection.
-    pub old_name: String,
+    #[serde(alias = "old_name")]
+    // alias can be removed after UI code is updated to use current_name
+    pub current_name: String,
     /// Optional new name for the collection. If provided, the collection will always
     /// be re-created, even if it uses an inferred schema.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -102,7 +104,12 @@ async fn process_row(
     // collect the requests into a map of old_name to new_name
     let collections: BTreeMap<String, Option<String>> = collections_requests
         .into_iter()
-        .map(|EvolveRequest { old_name, new_name }| (old_name, new_name))
+        .map(
+            |EvolveRequest {
+                 current_name,
+                 new_name,
+             }| (current_name, new_name),
+        )
         .collect();
 
     // Fetch all the specs from the draft that we're operating on
