@@ -1,8 +1,7 @@
-use super::{ptr::Token, reduce, Annotation, Pointer, Schema, SchemaIndex};
+use super::{compare, ptr::Token, reduce, Annotation, Pointer, Schema, SchemaIndex};
 use fancy_regex::Regex;
 use itertools::{self, EitherOrBoth, Itertools};
 use json::{
-    json_cmp,
     schema::{formats::Format, types, Application, CoreAnnotation, Keyword, Validation},
     LocatedProperty, Location,
 };
@@ -672,7 +671,7 @@ impl Shape {
                         variants
                             .iter()
                             .map(|hl| hl.value.clone())
-                            .sorted_by(json_cmp)
+                            .sorted_by(compare)
                             .collect::<Vec<_>>(),
                     );
                 }
@@ -1058,12 +1057,13 @@ fn intersect_enum(
             Some(filter_enums_to_types(type_, l.into_iter()).collect())
         }
         (Some(l), Some(r)) => {
-            let it = itertools::merge_join_by(l.into_iter(), r.into_iter(), json_cmp).filter_map(
-                |eob| match eob {
-                    EitherOrBoth::Both(l, _) => Some(l),
-                    _ => None,
-                },
-            );
+            let it =
+                itertools::merge_join_by(l.into_iter(), r.into_iter(), compare).filter_map(|eob| {
+                    match eob {
+                        EitherOrBoth::Both(l, _) => Some(l),
+                        _ => None,
+                    }
+                });
             let it = filter_enums_to_types(type_, it);
             Some(it.collect())
         }
@@ -1077,7 +1077,7 @@ fn union_enum(lhs: Option<Vec<Value>>, rhs: Option<Vec<Value>>) -> Option<Vec<Va
     let (lhs, rhs) = (lhs.unwrap(), rhs.unwrap());
 
     Some(
-        itertools::merge_join_by(lhs.into_iter(), rhs.into_iter(), json_cmp)
+        itertools::merge_join_by(lhs.into_iter(), rhs.into_iter(), compare)
             .map(|eob| match eob {
                 EitherOrBoth::Both(l, _) => l,
                 EitherOrBoth::Left(l) => l,

@@ -1,4 +1,4 @@
-use super::{compare, AsNode, BumpVec, Field, Fields, HeapNode, Node};
+use super::{AsNode, BumpVec, Field, Fields, HeapNode, Node};
 use std::str::FromStr;
 
 /// Token is a parsed token of a JSON pointer.
@@ -157,25 +157,6 @@ impl Pointer {
             }
         }
         Some(node)
-    }
-
-    /// Compare the deep ordering of |lhs| and |rhs| with respect to a composite key,
-    /// specified as a slice of Pointers relative to the respective document roots.
-    /// Pointers which point to a document location that does not exist assume an
-    /// implicit "null" value. In other words, they behave identically to a document
-    /// where the location *does* exist but with an explicit null value.
-    pub fn compare<L: AsNode, R: AsNode>(ptrs: &[Self], lhs: &L, rhs: &R) -> std::cmp::Ordering {
-        use std::cmp::Ordering;
-
-        ptrs.iter()
-            .map(|ptr| match (ptr.query(lhs), ptr.query(rhs)) {
-                (Some(lhs), Some(rhs)) => compare(lhs, rhs),
-                (None, Some(rhs)) if !matches!(rhs.as_node(), Node::Null) => Ordering::Less,
-                (Some(lhs), None) if !matches!(lhs.as_node(), Node::Null) => Ordering::Greater,
-                (_, _) => Ordering::Equal,
-            })
-            .find(|o| *o != Ordering::Equal)
-            .unwrap_or(Ordering::Equal)
     }
 
     /// Query a mutable existing value at the pointer location within the document,
@@ -364,7 +345,7 @@ impl std::fmt::Display for Pointer {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::ArchivedNode;
+    use crate::{compare, ArchivedNode};
     use serde_json::json;
     use std::cmp::Ordering;
 
@@ -565,69 +546,5 @@ mod test {
             .collect::<Vec<String>>();
 
         assert_eq!(cases, results);
-    }
-
-    #[test]
-    fn test_pointer_compare_objects() {
-        let d1 = &json!({"a": 1, "b": 2, "c": 3});
-        let d2 = &json!({"a": 2, "b": 1, "c": 3});
-
-        let (empty, a, b, c) = (|| "".into(), || "/a".into(), || "/b".into(), || "/c".into());
-
-        // No pointers => always equal.
-        assert_eq!(Pointer::compare(&[] as &[Pointer], d1, d2), Ordering::Equal);
-        // Deep compare of document roots.
-        assert_eq!(Pointer::compare(&[empty()], d1, d2), Ordering::Less);
-        // Simple key ordering.
-        assert_eq!(Pointer::compare(&[a()], d1, d2), Ordering::Less);
-        assert_eq!(Pointer::compare(&[b()], d1, d2), Ordering::Greater);
-        assert_eq!(Pointer::compare(&[c()], d1, d2), Ordering::Equal);
-        // Composite key ordering.
-        assert_eq!(Pointer::compare(&[c(), a()], d1, d2), Ordering::Less);
-        assert_eq!(Pointer::compare(&[c(), b()], d1, d2), Ordering::Greater);
-        assert_eq!(Pointer::compare(&[c(), c()], d1, d2), Ordering::Equal);
-        assert_eq!(
-            Pointer::compare(&[c(), c(), c(), a()], d1, d2),
-            Ordering::Less
-        );
-    }
-
-    #[test]
-    fn test_pointer_compare_arrays() {
-        let d1 = &json!([1, 2, 3]);
-        let d2 = &json!([2, 1, 3]);
-
-        let (empty, zero, one, two) =
-            (|| "".into(), || "/0".into(), || "/1".into(), || "/2".into());
-
-        // No pointers => always equal.
-        assert_eq!(Pointer::compare(&[] as &[Pointer], d1, d2), Ordering::Equal);
-        // Deep compare of document roots.
-        assert_eq!(Pointer::compare(&[empty()], d1, d2), Ordering::Less);
-        // Simple key ordering.
-        assert_eq!(Pointer::compare(&[zero()], d1, d2), Ordering::Less);
-        assert_eq!(Pointer::compare(&[one()], d1, d2), Ordering::Greater);
-        assert_eq!(Pointer::compare(&[two()], d1, d2), Ordering::Equal);
-        // Composite key ordering.
-        assert_eq!(Pointer::compare(&[two(), zero()], d1, d2), Ordering::Less);
-        assert_eq!(Pointer::compare(&[two(), one()], d1, d2), Ordering::Greater);
-        assert_eq!(Pointer::compare(&[two(), two()], d1, d2), Ordering::Equal);
-    }
-
-    #[test]
-    fn test_pointer_compare_missing() {
-        let d1 = &json!({"a": null, "c": 3});
-        let d2 = &json!({"b": 2});
-
-        assert_eq!(
-            Pointer::compare(&["/does/not/exist".into()], d1, d2),
-            Ordering::Equal
-        );
-        // Key exists at |d1| but not |d2|. |d2| value is implicitly null.
-        assert_eq!(Pointer::compare(&["/c".into()], d1, d2), Ordering::Greater);
-        // Key exists at |d2| but not |d1|. |d1| value is implicitly null.
-        assert_eq!(Pointer::compare(&["/b".into()], d1, d2), Ordering::Less);
-        // Key exists at |d1| but not |d2|. Both are null (implicit and explicit).
-        assert_eq!(Pointer::compare(&["/a".into()], d1, d2), Ordering::Equal);
     }
 }

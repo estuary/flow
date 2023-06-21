@@ -1244,6 +1244,7 @@ dependencies = [
  "allocator",
  "base64 0.13.1",
  "bumpalo",
+ "bytes",
  "criterion",
  "fancy-regex",
  "futures",

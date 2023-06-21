@@ -1,6 +1,6 @@
 use super::{Error, FLAG_REDUCED};
 use crate::{
-    validation::Validator, ArchivedDoc, ArchivedNode, HeapDoc, HeapNode, LazyNode, Pointer,
+    validation::Validator, ArchivedDoc, ArchivedNode, Extractor, HeapDoc, HeapNode, LazyNode,
 };
 use rkyv::ser::Serializer;
 use std::cmp;
@@ -159,7 +159,7 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
 /// this iterator-like object will also yield documents in ascending key order.
 pub struct Segment {
     docs: &'static [ArchivedDoc],
-    key: Box<[Pointer]>,
+    key: Box<[Extractor]>,
     next: Range<u64>,
     zz_backing: rkyv::AlignedVec,
 }
@@ -169,7 +169,7 @@ impl Segment {
     /// The given AlignedVec buffer, which may have pre-allocated capacity,
     /// is used to back the archived documents read from the spill file.
     pub fn new<R: io::Read + io::Seek>(
-        key: Box<[Pointer]>,
+        key: Box<[Extractor]>,
         r: &mut R,
         range: Range<u64>,
     ) -> Result<Self, io::Error> {
@@ -259,7 +259,7 @@ impl Segment {
 
 impl Ord for Segment {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        Pointer::compare(&self.key, &self.docs[0].root, &other.docs[0].root).then(
+        Extractor::compare_key(&self.key, &self.docs[0].root, &other.docs[0].root).then(
             // When keys are equal than take the Segment which was produced into the spill file first.
             // This maintains the left-to-right associative ordering of reductions.
             self.next.start.cmp(&other.next.start),
@@ -282,7 +282,7 @@ impl Eq for Segment {}
 /// yielding one document per key in ascending order.
 pub struct SpillDrainer<F: io::Read + io::Write + io::Seek> {
     heap: BinaryHeap<cmp::Reverse<Segment>>,
-    key: Box<[Pointer]>,
+    key: Box<[Extractor]>,
     schema: Option<url::Url>,
     spill: F,
     validator: Validator,
@@ -292,7 +292,7 @@ impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
     /// Build a new SpillDrainer which drains the given segment ranges previously
     /// written to the spill file.
     pub fn new(
-        key: Box<[Pointer]>,
+        key: Box<[Extractor]>,
         schema: Option<url::Url>,
         mut spill: F,
         ranges: &[Range<u64>],
@@ -314,7 +314,7 @@ impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
         })
     }
 
-    pub fn into_parts(self) -> (Box<[Pointer]>, Option<url::Url>, F, Validator) {
+    pub fn into_parts(self) -> (Box<[Extractor]>, Option<url::Url>, F, Validator) {
         let Self {
             heap: _,
             key,
@@ -348,7 +348,7 @@ impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
             // Note that there can be at-most one instance of a key within a single segment,
             // so we don't need to also check `segment`.
             while matches!(self.heap.peek(), Some(cmp::Reverse(peek))
-                if cur_root.compare(&self.key, &LazyNode::Node(&peek.head().root)).is_eq())
+                if Extractor::compare_key_lazy(&self.key, &cur_root, &LazyNode::Node(&peek.head().root)).is_eq())
             {
                 let other = self.heap.pop().unwrap().0;
 
@@ -437,7 +437,7 @@ mod test {
         "###);
 
         // Parse the region as a Segment.
-        let key: Box<[Pointer]> = vec![Pointer::from_str("/key")].into();
+        let key: Box<[Extractor]> = vec![Extractor::new("/key")].into();
         let mut actual = Vec::new();
         let mut segment = Segment::new(key, &mut spill, ranges[0].clone()).unwrap();
 
@@ -493,7 +493,7 @@ mod test {
             },
             "reduce": { "strategy": "merge" }
         });
-        let key: Box<[Pointer]> = vec![Pointer::from_str("/key")].into();
+        let key: Box<[Extractor]> = vec![Extractor::new("/key")].into();
         let curi = url::Url::parse("http://example/schema").unwrap();
         let validator = Validator::new(build_schema(curi, &schema).unwrap()).unwrap();
 
@@ -638,7 +638,7 @@ mod test {
         spill.write_segment(&segment, 109..110).unwrap();
         let (mut spill, ranges) = spill.into_parts();
 
-        let key: Box<[Pointer]> = vec![Pointer::from_str("")].into();
+        let key: Box<[Extractor]> = vec![Extractor::new("")].into();
         let mut segment = Segment::new(key, &mut spill, ranges[0].clone()).unwrap();
 
         // First chunk is retried until its narrowed to a single document.

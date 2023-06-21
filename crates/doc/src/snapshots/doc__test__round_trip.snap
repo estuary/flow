@@ -5,9 +5,21 @@ expression: doc
 Object(
     [
         HeapField {
+            property: "",
+            value: String(
+                "empty property",
+            ),
+        },
+        HeapField {
             property: "big string",
             value: String(
                 "a bigger string",
+            ),
+        },
+        HeapField {
+            property: "key\nwith\t\"escapes\"",
+            value: String(
+                "escapey\\value\\is\"escaping",
             ),
         },
         HeapField {
