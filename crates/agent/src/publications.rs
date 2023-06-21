@@ -432,7 +432,7 @@ fn to_evolutions_collections(
                 Some(crate::evolution::next_name(&ic.collection))
             };
             serde_json::to_value(crate::evolution::EvolveRequest {
-                old_name: ic.collection.clone(),
+                current_name: ic.collection.clone(),
                 new_name,
             })
             .unwrap()
