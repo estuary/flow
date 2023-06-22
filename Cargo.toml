@@ -162,6 +162,7 @@ shared_child = "1.0.0"
 unicode-bom = "1.1"
 unicode-normalization = "0.1"
 url = { version = "2.2", features = ["serde"] }
+urlencoding = { version = "2.1.2" }
 uuid = { version = "1.1", features = ["serde", "v4"] }
 validator = { version = "0.15", features = ["derive"] }
 quickcheck = "1.0"

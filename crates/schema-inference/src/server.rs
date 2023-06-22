@@ -35,7 +35,7 @@ use warp::reply::Response;
 use warp::{Filter, Reply};
 
 #[derive(Error, Debug)]
-enum InferenceError {
+pub enum InferenceError {
     #[error(transparent)]
     ConnectionError(#[from] ConnectError),
     #[error("No documents found, cannot infer shape")]
