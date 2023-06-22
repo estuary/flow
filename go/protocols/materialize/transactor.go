@@ -166,7 +166,7 @@ func RunTransactions(
 		defer func() {
 			logrus.WithFields(logrus.Fields{
 				"round":  round,
-				"total":  it.total,
+				"total":  it.Total,
 				"loaded": loaded,
 				"error":  __out,
 			}).Debug("load finished")
@@ -264,7 +264,7 @@ func RunTransactions(
 		if err != nil {
 			return fmt.Errorf("transactor.Store: %w", err)
 		}
-		logrus.WithFields(logrus.Fields{"round": round, "stored": storeIt.total}).Debug("Store finished")
+		logrus.WithFields(logrus.Fields{"round": round, "stored": storeIt.Total}).Debug("Store finished")
 
 		var runtimeCheckpoint *pc.Checkpoint
 		if runtimeCheckpoint, err = ReadStartCommit(&rxRequest); err != nil {
