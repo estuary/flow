@@ -6,6 +6,7 @@ use std::io::{self, Write};
 mod capture;
 mod discover;
 mod materialize_fixture;
+mod suggest_schema;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -48,6 +49,8 @@ pub enum Command {
     Discover(discover::Discover),
     /// Run a capture connector and combine its documents
     Capture(capture::Capture),
+    /// Suggest a schema that would alleviate document schema violations of a specific collection
+    SuggestSchema(suggest_schema::SuggestSchema),
 }
 
 #[derive(Debug, clap::Args)]
@@ -126,6 +129,7 @@ impl Advanced {
             }
             Command::Discover(args) => discover::do_discover(ctx, args).await,
             Command::Capture(args) => capture::do_capture(ctx, args).await,
+            Command::SuggestSchema(args) => suggest_schema::do_suggest_schema(ctx, args).await,
         }
     }
 }
