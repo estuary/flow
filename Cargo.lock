@@ -534,6 +534,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2c676a478f63e9fa2dd5368a42f28bba0d6c560b775f38583c8bbaa7fcd67c9c"
 
 [[package]]
+name = "bytelines"
+version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "784face321c535fcd9a1456632fa720aa53ea0640b57341d961c8c09de2da59f"
+dependencies = [
+ "futures",
+ "tokio",
+]
+
+[[package]]
 name = "byteorder"
 version = "1.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1468,6 +1478,7 @@ dependencies = [
  "assert_cmd",
  "async-process",
  "base64 0.13.1",
+ "bytelines",
  "bytes",
  "clap 3.2.24",
  "comfy-table",
@@ -1517,6 +1528,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "urlencoding",
  "uuid 1.3.1",
  "validation",
  "walkdir",
@@ -5098,6 +5110,12 @@ dependencies = [
  "percent-encoding",
  "serde",
 ]
+
+[[package]]
+name = "urlencoding"
+version = "2.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8db7427f936968176eaa7cdf81b7f98b980b18495ec28f1b5791ac3bfe3eea9"
 
 [[package]]
 name = "utf-8"
