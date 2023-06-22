@@ -152,11 +152,11 @@ type LoadIterator struct {
 	Binding   int         // Binding index of this document to load.
 	Key       tuple.Tuple // Key of the document to load.
 	PackedKey []byte      // PackedKey of the document to load.
+	Total     int         // Total number of iterated keys.
 
 	stream      RequestRx
 	request     *Request        // Request read into.
 	awaitDoneCh <-chan struct{} // Signaled when last commit acknowledgment has completed.
-	total       int             // Total number of iterated keys.
 	err         error           // Terminal error.
 }
 
@@ -187,7 +187,7 @@ func (it *LoadIterator) Next() bool {
 
 	// Read next `Load` request from `stream`.
 	if err := recv(it.stream, it.request); err == io.EOF {
-		if it.total != 0 {
+		if it.Total != 0 {
 			it.err = fmt.Errorf("unexpected EOF when there are loaded keys")
 		} else {
 			it.err = io.EOF // Clean shutdown.
@@ -221,7 +221,7 @@ func (it *LoadIterator) Next() bool {
 		return false
 	}
 
-	it.total++
+	it.Total++
 	return true
 }
 
@@ -247,10 +247,10 @@ type StoreIterator struct {
 	PackedKey []byte          // PackedKey of the document to store.
 	RawJSON   json.RawMessage // Document to store.
 	Values    tuple.Tuple     // Values of the document to store.
+	Total     int             // Total number of iterated stores.
 
 	stream  RequestRx
 	request *Request // Request read into.
-	total   int      // Total number of iterated stores.
 	err     error    // Terminal error.
 }
 
@@ -295,7 +295,7 @@ func (it *StoreIterator) Next() bool {
 	it.RawJSON = s.DocJson
 	it.Exists = s.Exists
 
-	it.total++
+	it.Total++
 	return true
 }
 
