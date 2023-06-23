@@ -95,6 +95,8 @@ Use the below properties to configure a Snowflake materialization, which will di
 | **`/schema`** | Schema | Snowflake schema within the database to which to materialize | string | Required |
 | **`/user`** | User | Snowflake username | string | Required |
 | `/warehouse` | Warehouse | Name of the data warehouse that contains the database | string |  |
+| `/advanced`                     | Advanced Options    | Options for advanced users. You should not typically need to modify these.                                                                  | object  |                            |
+| `/advanced/updateDelay`     | Update Delay    | Potentially reduce active warehouse time by increasing the delay between updates. | string  |  |
 
 #### Bindings
 
@@ -190,38 +192,10 @@ To mitigate this, we recommend a two-pronged approach:
    ALTER WAREHOUSE ESTUARY_WH SET auto_suspend = 60;
    ```
 
-* Configure the materialization's **minimum transaction duration** to as long as 30 minutes.
-
-   This ensures that Flow will wait at least 30 minutes between new data commits to Snowflake.
-   If no new data appears within the 30-minute window, the interval will be longer.
-   You can change this setting in the materialization's [shard configuration](../../Configuring-task-shards.md#properties)
-   as described [below](#adding-the-shard-configuration).
+* Configure the materialization's **update delay** by setting a value in the advanced configuration.
 
 For example, if you set the warehouse to auto-suspend after 60 seconds and set the materialization's
-minimum transaction duration to 30 minutes, you can incur as little as 48 minutes per day of active time in the warehouse.
-
-#### Adding the shard configuration
-
-:::info Beta
-UI controls for this workflow will be added to the Flow web app soon.
-For now, you must edit the materialization specification manually, either in the web app or using the CLI.
-:::
-
-1. Using the [Flow web application](../../../guides/create-dataflow.md#create-a-materialization) or the [flowctl CLI](../../../concepts/flowctl.md#working-with-drafts),
-create a draft materialization as you normally would.
-   1. If using the web app, input the required values and click **Discover Endpoint**.
-   2. If using the flowctl, create your materialization specification manually.
-
-2. Add the [`shards` configuration](../../Configuring-task-shards.md) to the materialization specification at the same indentation level as `endpoint` and `bindings`.
-Set the `minTxnDuration` property as high as `30m` (we recommend between `15m` and `30m` for significant cost savings).
-In the web app, you do this in the Catalog Editor.
-
-   ```yaml
-   shards:
-     minTxnDuration: 30m
-   ```
-
-3. Continue to test, save, and publish the materialization as usual.
+update delay to 30 minutes, you can incur as little as 48 minutes per day of active time in the warehouse.
 
 ## Reserved words
 
