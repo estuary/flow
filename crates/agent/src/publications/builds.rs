@@ -109,7 +109,15 @@ impl BuildOutput {
                 affected_materializations,
                 requires_recreation: Vec::new(),
             };
-            if uses_schema_inference(&built.spec) {
+            // If the collection does _not_ use schema inference, then we assume
+            // that schema returned by the capture connector is authoritative.
+            // While it _might_ still be correct to handle this by only re-
+            // creating the materialization binding, it's much more common that
+            // you'd need to re-create the entire collection. For example, an
+            // ALTER TABLE statement that's run in the source database might
+            // change rows that have already been captured, and we have no way
+            // of knowing whether that's the case.
+            if !uses_schema_inference(&built.spec) {
                 ic.requires_recreation
                     .push(ReCreateReason::AuthoritativeSourceSchema);
             }
@@ -130,7 +138,12 @@ impl BuildOutput {
 /// If the collection's read_schema_json cannot be parsed or indexed. This
 /// should never be the case since the collection _could_ be built.
 fn uses_schema_inference(collection: &proto_flow::flow::CollectionSpec) -> bool {
-    let schema = doc::validation::build_bundle(&collection.read_schema_json)
+    let effective_schema_json = if collection.read_schema_json.is_empty() {
+        collection.write_schema_json.as_str()
+    } else {
+        collection.read_schema_json.as_str()
+    };
+    let schema = doc::validation::build_bundle(effective_schema_json)
         .expect("built collection schema bundle failed to build");
     let mut builder = doc::SchemaIndexBuilder::new();
     builder
