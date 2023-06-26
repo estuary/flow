@@ -164,8 +164,9 @@ pub async fn do_suggest_schema(
     // Build a new JSONSchema from the updated inferred shape
     let new_jsonschema = SchemaBuilder::new(inferred_shape).root_schema();
 
-    std::fs::write("original.schema.json", serde_json::to_string_pretty(&original_jsonschema)?)?;
-    std::fs::write("new.schema.json", serde_json::to_string_pretty(&new_jsonschema)?)?;
+    let collection_name = collection.split("/").last().unwrap();
+    std::fs::write(format!("{collection_name}.original.schema.json"), serde_json::to_string_pretty(&original_jsonschema)?)?;
+    std::fs::write(format!("{collection_name}.new.schema.json"), serde_json::to_string_pretty(&new_jsonschema)?)?;
 
     eprintln!("Wrote original.schema.json and new.schema.json.");
 
