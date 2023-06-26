@@ -57,7 +57,7 @@ pub async fn get_collection_inferred_schema(
     Ok(())
 }
 
-#[derive(clap::Args, Debug, Clone)]
+#[derive(clap::Args, Default, Debug, Clone)]
 pub struct ReadArgs {
     #[clap(flatten)]
     pub selector: CollectionJournalSelector,
@@ -86,31 +86,10 @@ pub struct ReadBounds {
     pub since: Option<humantime::Duration>,
 }
 
-/// Reads collection data and prints it to stdout. This function has a number of limitations at present:
-/// - The provided `CollectionJournalSelector` must select a single journal.
-/// - Only uncommitted reads are supported
-/// - Any acknowledgements (documents with `/_meta/ack` value `true`) are also printed
-/// These limitations should all be addressed in the future when we add support for committed reads.
-pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> anyhow::Result<()> {
-    if !args.uncommitted {
-        anyhow::bail!("missing the `--uncommitted` flag. This flag is currently required, though a future release will add support for committed reads, which will be the default.");
-    }
-    // output can be either None or Some(OutputType::Json), but cannot be explicitly set to
-    // anything else. _Eventually_, we may want to support outputting collection data as yaml
-    // or a table, but certainly not right now.
-    if let Some(naughty_output_type) = ctx
-        .output_args()
-        .output
-        .filter(|ot| *ot != OutputType::Json)
-    {
-        let name = clap::ValueEnum::to_possible_value(&naughty_output_type)
-            .expect("possible value cannot be None")
-            .get_name();
-        anyhow::bail!(
-            "cannot use --output {name} when reading collection data (only json is supported)"
-        );
-    }
-
+pub async fn journal_reader(
+    ctx: &mut crate::CliContext,
+    args: &ReadArgs
+) -> anyhow::Result<Reader<ExponentialBackoff>> {
     let cp_client = ctx.controlplane_client().await?;
     let mut data_plane_client =
         dataplane::journal_client_for(cp_client, vec![args.selector.collection.clone()]).await?;
@@ -156,6 +135,36 @@ pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> an
     // It would seem unusual for a CLI to retry indefinitely, so limit the number of retries.
     let backoff = ExponentialBackoff::new(5);
     let reader = Reader::start_read(data_plane_client.clone(), read, backoff);
+
+    Ok(reader)
+}
+
+/// Reads collection data and prints it to stdout. This function has a number of limitations at present:
+/// - The provided `CollectionJournalSelector` must select a single journal.
+/// - Only uncommitted reads are supported
+/// - Any acknowledgements (documents with `/_meta/ack` value `true`) are also printed
+/// These limitations should all be addressed in the future when we add support for committed reads.
+pub async fn read_collection(ctx: &mut crate::CliContext, args: &ReadArgs) -> anyhow::Result<()> {
+    if !args.uncommitted {
+        anyhow::bail!("missing the `--uncommitted` flag. This flag is currently required, though a future release will add support for committed reads, which will be the default.");
+    }
+    // output can be either None or Some(OutputType::Json), but cannot be explicitly set to
+    // anything else. _Eventually_, we may want to support outputting collection data as yaml
+    // or a table, but certainly not right now.
+    if let Some(naughty_output_type) = ctx
+        .output_args()
+        .output
+        .filter(|ot| *ot != OutputType::Json)
+    {
+        let name = clap::ValueEnum::to_possible_value(&naughty_output_type)
+            .expect("possible value cannot be None")
+            .get_name();
+        anyhow::bail!(
+            "cannot use --output {name} when reading collection data (only json is supported)"
+        );
+    }
+
+    let reader = journal_reader(ctx, args).await?;
 
     tokio::io::copy(&mut reader.compat(), &mut tokio::io::stdout()).await?;
     Ok(())
