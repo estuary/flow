@@ -12,7 +12,7 @@ use crate::output::{to_table_row, CliOutput, JsonCell};
 use self::read::{get_collection_inferred_schema, ReadArgs, SchemaInferenceArgs};
 
 /// Selector of collection journals, which is used for reads, journal and fragment listings, etc.
-#[derive(clap::Args, Debug, Clone)]
+#[derive(clap::Args, Default, Debug, Clone)]
 pub struct CollectionJournalSelector {
     /// The full name of the Flow collection
     #[clap(long)]
