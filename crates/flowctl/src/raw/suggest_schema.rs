@@ -23,7 +23,7 @@ use tonic::{codegen::InterceptedService, transport::Channel};
 use std::{collections::BTreeMap, io::ErrorKind, time::{Duration, Instant}};
 use url::Url;
 
-use crate::{connector::docker_run, catalog::{fetch_live_specs, List, SpecTypeSelector, NameSelector, collect_specs}, dataplane::{self, fetch_data_plane_access_token}};
+use crate::{connector::docker_run, catalog::{fetch_live_specs, List, SpecTypeSelector, NameSelector, collect_specs}, dataplane::{self, fetch_data_plane_access_token}, collection::{CollectionJournalSelector, Partition}};
 use crate::local_specs;
 use anyhow::anyhow;
 
@@ -92,33 +92,25 @@ pub async fn do_suggest_schema(
         dataplane::journal_client_for(client, vec![collection.clone()]).await?;
 
     // Reader for the collection itself
-    let selector = broker::LabelSelector {
-        include: Some(broker::LabelSet { labels: vec![broker::Label{
-            name: labels::COLLECTION.to_string(),
-            value: collection.clone(),
-        }]}),
-        exclude: None,
-    };
+    let selector = CollectionJournalSelector {
+        collection: collection.clone(),
+        ..Default::default()
+    }.build_label_selector();
     let reader = journal_reader(&mut data_plane_client, &selector).await?;
 
     // Reader for the ops log of the task
     let ops_collection = "ops.us-central1.v1/logs".to_string();
-    let selector = broker::LabelSelector {
-        include: Some(broker::LabelSet {
-            labels: vec![
-                broker::Label {
-                    name: labels::COLLECTION.to_string(),
-                    value: ops_collection.clone(),
-                }, broker::Label {
-                    name: format!("{}kind", labels::FIELD_PREFIX),
-                    value: "capture".to_string(),
-                }, broker::Label {
-                    name: format!("{}name", labels::FIELD_PREFIX),
-                    value: urlencoding::encode(task).into_owned(),
-                }]
-        }),
-        exclude: None,
-    };
+    let selector = CollectionJournalSelector {
+        collection: ops_collection.clone(),
+        include_partitions: vec![Partition {
+            name: "name".to_string(),
+            value: task.clone(),
+        }, Partition {
+            name: "kind".to_string(),
+            value: "capture".to_string(),
+        }],
+        ..Default::default()
+    }.build_label_selector();
 
     let client = ctx.controlplane_client().await?;
     let mut data_plane_client =
@@ -170,7 +162,7 @@ pub async fn do_suggest_schema(
     }
 
     // Build a new JSONSchema from the updated inferred shape
-    let new_jsonschema = &SchemaBuilder::new(inferred_shape).root_schema()?;
+    let new_jsonschema = SchemaBuilder::new(inferred_shape).root_schema();
 
     std::fs::write("original.schema.json", serde_json::to_string_pretty(&original_jsonschema)?)?;
     std::fs::write("new.schema.json", serde_json::to_string_pretty(&new_jsonschema)?)?;
