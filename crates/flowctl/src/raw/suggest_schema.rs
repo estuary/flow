@@ -27,8 +27,15 @@ use crate::{connector::docker_run, catalog::{fetch_live_specs, List, SpecTypeSel
 use crate::local_specs;
 use anyhow::anyhow;
 
-/// Read data from a collection, and the corresponding task ops logs (specifically document schema
-/// violation logs), and run schema inference on all documents of the collection as well as the
+/// With some of our captures, we have an existing document schema for their collections, but we
+/// frequently run into issues with these document schemas: they are sometimes completely wrong
+/// about type of a field, or sometimes they are too narrow about the type (e.g. a value is marked
+/// as "integer", but it is actually "number"), other times they are missing some fields that are
+/// being captured into the collection.
+///
+/// This tool is built for the purpose of helping with updating the schema of these collections, by
+/// reading data from a collection, and the corresponding task ops logs (specifically document schema
+/// violation logs), and running schema inference on all documents of the collection as well as the
 /// documents that violated the existing schema, to come up with a new schema that will allow those
 /// documents to pass validation. The schema inference run starts with the existing task schema as
 /// its starting point, and widens that schema to allow the invalid documents to pass validation.
