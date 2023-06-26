@@ -27,14 +27,23 @@ use crate::{connector::docker_run, catalog::{fetch_live_specs, List, SpecTypeSel
 use crate::local_specs;
 use anyhow::anyhow;
 
+/// Read data from a collection, and the corresponding task ops logs (specifically document schema
+/// violation logs), and run schema inference on all documents of the collection as well as the
+/// documents that violated the existing schema, to come up with a new schema that will allow those
+/// documents to pass validation. The schema inference run starts with the existing task schema as
+/// its starting point, and widens that schema to allow the invalid documents to pass validation.
+///
+/// The reason for including all documents from the collection is that the task's existing schema
+/// may be missing some fields, and we want to also be able to extend the existing schema with
+/// these missing fields.
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct SuggestSchema {
-    /// Collection name
+    /// Collection name to read documents from
     #[clap(long)]
     collection: String,
 
-    /// Task name
+    /// Task name to read ops logs from
     #[clap(long)]
     task: String,
 }
@@ -77,7 +86,7 @@ pub async fn do_suggest_schema(
     )
     .await?;
 
-    let (key, collection_def) = collect_specs(live_specs)?.collections.pop_first().ok_or(anyhow!("could not find collection"))?;
+    let (_, collection_def) = collect_specs(live_specs)?.collections.pop_first().ok_or(anyhow!("could not find collection"))?;
 
     let mut data_plane_client =
         dataplane::journal_client_for(client, vec![collection.clone()]).await?;
@@ -114,6 +123,8 @@ pub async fn do_suggest_schema(
     let client = ctx.controlplane_client().await?;
     let mut data_plane_client =
         dataplane::journal_client_for(client, vec![ops_collection]).await?;
+
+    // Read log lines from the logs collection and filter "failed validation" documents
     let log_reader = journal_reader(&mut data_plane_client, &selector).await?;
     let mut log_stream = AsyncByteLines::new(BufReader::new(log_reader.compat())).into_stream();
     let mut log_invalid_documents = log_stream.try_filter_map(|log| async move {
@@ -122,49 +133,53 @@ pub async fn do_suggest_schema(
             return Ok(None);
         }
 
-        let error_string = &parsed.fields_json_map.get("error").ok_or(std::io::Error::new(ErrorKind::Other, "could not get 'error' field of ops log"))?;
+        let error_string = &parsed.fields_json_map.get("error").ok_or(to_io_error("could not get 'error' field of ops log"))?;
         let mut err: Vec<serde_json::Value> = serde_json::from_str(error_string)?;
-        let err_object = err.pop().ok_or(std::io::Error::new(ErrorKind::Other, "could not get second element of 'error' field in ops log"))?;
+        let err_object = err.pop().ok_or(to_io_error("could not get second element of 'error' field in ops log"))?;
         let failed_validation: FailedValidation = serde_json::from_value(err_object)?;
 
-        let buf: Bytes = serde_json::to_vec(&failed_validation.document)?.into();
-        return Ok(Some(buf));
+        return Ok(Some(failed_validation.document));
     });
 
-    let mut log_invalid_documents_reader = StreamReader::new(Box::pin(log_invalid_documents));
-
     let codec = JsonCodec::new(); // do we want to limit length here? LinesCodec::new_with_max_length(...) does this
-    let mut doc_bytes_stream = FramedRead::new(FuturesAsyncReadCompatExt::compat(reader).chain(log_invalid_documents_reader), codec);
 
+    // Chain together the collection document reader and the log_invalid_documents stream so we can
+    // run schema-inference on both
+    let mut doc_bytes_stream = Box::pin(FramedRead::new(FuturesAsyncReadCompatExt::compat(reader), codec).map_err(to_io_error).chain(log_invalid_documents));
+
+    // The original collection schema to be used as the starting point of schema-inference
     let schema_model = collection_def.schema.unwrap();
+    // The inferred shape, we start by using the existing schema of the collection
+    let mut inferred_shape = raw_schema_to_shape(&schema_model)?;
 
-    let mut accumulator = raw_schema_to_shape(&schema_model)?;
-    let original_schema_final = SchemaBuilder::new(accumulator.clone()).root_schema();
+    // Create a JSONSchema object from the original schema so we can use it to run a diff later
+    let original_jsonschema = SchemaBuilder::new(inferred_shape.clone()).root_schema();
 
     loop {
         match doc_bytes_stream.next().await {
-            Some(Ok(doc_val)) => {
-                let parsed: Value = doc_val;
-                // There should probably be a higher-level API for this in `journal-client`
-
-                if parsed.pointer("/_meta/ack").is_none() {
-                    let inferred_shape = infer_shape(&parsed);
-
-                    accumulator = shape::merge(accumulator, inferred_shape)
+            Some(Ok(parsed)) => {
+                if parsed.pointer("/_meta/ack").is_some() {
+                    continue;
                 }
+
+                inferred_shape = shape::merge(inferred_shape, infer_shape(&parsed))
             }
-            Some(Err(e)) => return Err(InferenceError::from(e).into()),
+            Some(Err(e)) => return Err(e.into()),
             None => break
         }
     }
 
-    let new_schema = serde_json::to_value(&SchemaBuilder::new(accumulator).root_schema())?;
+    // Build a new JSONSchema from the updated inferred shape
+    let new_jsonschema = &SchemaBuilder::new(inferred_shape).root_schema()?;
 
-    std::fs::write("original.schema.json", serde_json::to_string_pretty(&original_schema_final)?)?;
-    std::fs::write("new.schema.json", serde_json::to_string_pretty(&new_schema)?)?;
+    std::fs::write("original.schema.json", serde_json::to_string_pretty(&original_jsonschema)?)?;
+    std::fs::write("new.schema.json", serde_json::to_string_pretty(&new_jsonschema)?)?;
 
     eprintln!("Wrote original.schema.json and new.schema.json.");
 
+    // git diff is much better at diffing JSON structures, it is pretty smart to show the diff in a
+    // way that is human-readable and understandable, and doesn't mess up the JSON structure.
+    // the --no-index option allows us to use git diff without being in a git repository
     std::process::Command::new("git")
         .args(["diff", "--no-index", "original.schema.json", "new.schema.json"])
         .status()
@@ -183,6 +198,10 @@ fn raw_schema_to_shape(schema: &Schema) -> anyhow::Result<Shape> {
     let index = index.into_index();
 
     return Ok(Shape::infer(&root, &index))
+}
+
+fn to_io_error<T: ToString>(message: T) -> std::io::Error {
+    std::io::Error::new(ErrorKind::Other, message.to_string())
 }
 
 async fn journal_reader(
