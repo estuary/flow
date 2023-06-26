@@ -74,9 +74,7 @@ pub async fn do_suggest_schema(
             },
             type_selector: SpecTypeSelector {
                 collections: Some(true),
-                captures: Some(false),
-                materializations: Some(false),
-                tests: Some(false),
+                ..Default::default()
             },
             deleted: false, // deleted specs have nothing to pull
         },
