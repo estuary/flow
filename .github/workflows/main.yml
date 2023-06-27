@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   gnu-binaries:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-2004-large
 
     steps:
       - uses: actions/checkout@v2
@@ -84,7 +84,7 @@ jobs:
             target/x86_64-unknown-linux-gnu/release/librocksdb-exp/
 
   musl-binaries:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-2004-large
 
     steps:
       - uses: actions/checkout@v2
@@ -120,7 +120,7 @@ jobs:
             .build/package/bin/*
 
   assembly:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-2004-large
     needs: [gnu-binaries, musl-binaries]
 
     services:
