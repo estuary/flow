@@ -22,9 +22,9 @@ pub enum ParseError {
     MissingFormat,
 
     #[error(
-        "unable to automatically determine the format. explicit format configuration required"
+        "unable to automatically determine the format for file '{0}'. explicit format configuration required"
     )]
-    CannotInferFormat,
+    CannotInferFormat(String),
 
     #[error("unsupported format: '{0}'")]
     UnsupportedFormat(String),
@@ -63,7 +63,11 @@ pub fn resolve_config(
         tracing::debug!("using user-provided format: {:?}", f);
         f.clone()
     } else {
-        let inferred = determine_format(&config).ok_or_else(|| ParseError::CannotInferFormat)?;
+        let inferred = determine_format(&config).ok_or_else(|| {
+            ParseError::CannotInferFormat(
+                config.filename.as_deref().unwrap_or("<stdin>").to_string(),
+            )
+        })?;
         tracing::info!(format = %inferred, "inferred format");
         inferred
     };
