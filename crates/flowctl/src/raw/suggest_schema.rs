@@ -16,7 +16,7 @@ use tokio_util::{compat::FuturesAsyncReadCompatExt, codec::FramedRead};
 use std::io::ErrorKind;
 use url::Url;
 
-use crate::{catalog::{fetch_live_specs, List, SpecTypeSelector, NameSelector, collect_specs}, dataplane, collection::{CollectionJournalSelector, Partition, read::{journal_reader, ReadArgs}}};
+use crate::{catalog::{fetch_live_specs, List, SpecTypeSelector, NameSelector, collect_specs}, collection::{CollectionJournalSelector, Partition, read::{journal_reader, ReadArgs}}};
 
 use anyhow::anyhow;
 
@@ -134,7 +134,7 @@ pub async fn do_suggest_schema(
 
     // Chain together the collection document reader and the log_invalid_documents stream so we can
     // run schema-inference on both
-    let mut doc_bytes_stream = Box::pin(FramedRead::new(FuturesAsyncReadCompatExt::compat(reader), codec).map_err(to_io_error).chain(log_invalid_documents));
+    let mut docs_stream = Box::pin(FramedRead::new(FuturesAsyncReadCompatExt::compat(reader), codec).map_err(to_io_error).chain(log_invalid_documents));
 
     // The original collection schema to be used as the starting point of schema-inference
     let schema_model = collection_def.schema.unwrap();
@@ -145,7 +145,7 @@ pub async fn do_suggest_schema(
     let original_jsonschema = SchemaBuilder::new(inferred_shape.clone()).root_schema();
 
     loop {
-        match doc_bytes_stream.next().await {
+        match docs_stream.next().await {
             Some(Ok(parsed)) => {
                 if parsed.pointer("/_meta/ack").is_some() {
                     continue;
@@ -162,8 +162,12 @@ pub async fn do_suggest_schema(
     let new_jsonschema = SchemaBuilder::new(inferred_shape).root_schema();
 
     let collection_name = collection.split("/").last().unwrap();
-    std::fs::write(format!("{collection_name}.original.schema.json"), serde_json::to_string_pretty(&original_jsonschema)?)?;
-    std::fs::write(format!("{collection_name}.new.schema.json"), serde_json::to_string_pretty(&new_jsonschema)?)?;
+
+    let original_schema_file_name = format!("{collection_name}.original.schema.json");
+    std::fs::write(&original_schema_file_name, serde_json::to_string_pretty(&original_jsonschema)?)?;
+
+    let new_schema_file_name = format!("{collection_name}.new.schema.json");
+    std::fs::write(&new_schema_file_name, serde_json::to_string_pretty(&new_jsonschema)?)?;
 
     eprintln!("Wrote original.schema.json and new.schema.json.");
 
@@ -171,7 +175,7 @@ pub async fn do_suggest_schema(
     // way that is human-readable and understandable, and doesn't mess up the JSON structure.
     // the --no-index option allows us to use git diff without being in a git repository
     std::process::Command::new("git")
-        .args(["diff", "--no-index", "original.schema.json", "new.schema.json"])
+        .args(["diff", "--no-index", &original_schema_file_name, &new_schema_file_name])
         .status()
         .expect("git diff failed");
 
