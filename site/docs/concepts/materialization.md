@@ -223,13 +223,14 @@ materializations:
   acmeCo/example/database-views:
     endpoint: ...
     bindings:
-      - source: acmeCo/anvil/orders
+      # The source can be specified as an object, which allows setting a partition selector.
+      - source:
+          name: acmeCo/anvil/orders
+          # Process partitions where "Coyote" is the customer.
+          partitions:
+            include:
+              customer: [Coyote]
         resource: { table: coyote_orders }
-
-        # Process partitions where "Coyote" is the customer.
-        partitions:
-          include:
-            customer: [Coyote]
 ```
 
 [Learn more about partition selectors](./advanced/projections.md#partition-selectors).
