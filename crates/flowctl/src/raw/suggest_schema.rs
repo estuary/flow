@@ -1,30 +1,23 @@
-use anyhow::Context;
-use bytes::Bytes;
+
+
 use doc::{inference::Shape, SchemaIndexBuilder, FailedValidation};
 use futures::{TryStreamExt, StreamExt};
-use journal_client::{broker, read::uncommitted::{ReadUntil, ReadStart, JournalRead, ExponentialBackoff, Reader}, list::list_journals, AuthHeader};
-use json::schema::{build::build_schema, types};
-use models::{
-    Capture, CaptureBinding, CaptureDef, CaptureEndpoint, Catalog, Collection, CollectionDef,
-    CompositeKey, ConnectorConfig, JsonPointer, Schema, ShardTemplate,
-};
-use proto_flow::{
-    capture::{request, Request},
-    flow::capture_spec::ConnectorType,
-    ops::Log
-};
+
+use json::schema::build::build_schema;
+use models::Schema;
+use proto_flow::ops::Log;
 use bytelines::AsyncByteLines;
-use proto_grpc::broker::journal_client::JournalClient;
-use schema_inference::{json_decoder::JsonCodec, inference::infer_shape, shape, server::InferenceError, schema::SchemaBuilder};
-use serde_json::{json, value::RawValue, Value};
-use tokio::io::{BufReader, AsyncReadExt};
-use tokio_util::{compat::FuturesAsyncReadCompatExt, io::{ReaderStream, StreamReader}, codec::FramedRead};
-use tonic::{codegen::InterceptedService, transport::Channel};
-use std::{collections::BTreeMap, io::ErrorKind, time::{Duration, Instant}};
+
+use schema_inference::{json_decoder::JsonCodec, inference::infer_shape, shape, schema::SchemaBuilder};
+
+use tokio::io::BufReader;
+use tokio_util::{compat::FuturesAsyncReadCompatExt, codec::FramedRead};
+
+use std::io::ErrorKind;
 use url::Url;
 
-use crate::{connector::docker_run, catalog::{fetch_live_specs, List, SpecTypeSelector, NameSelector, collect_specs}, dataplane::{self, fetch_data_plane_access_token}, collection::{CollectionJournalSelector, Partition, read::{journal_reader, ReadArgs}}};
-use crate::local_specs;
+use crate::{catalog::{fetch_live_specs, List, SpecTypeSelector, NameSelector, collect_specs}, dataplane, collection::{CollectionJournalSelector, Partition, read::{journal_reader, ReadArgs}}};
+
 use anyhow::anyhow;
 
 /// With some of our captures, we have an existing document schema for their collections, but we
@@ -93,9 +86,6 @@ pub async fn do_suggest_schema(
 
     let (_, collection_def) = collect_specs(live_specs)?.collections.pop_first().ok_or(anyhow!("could not find collection"))?;
 
-    let mut data_plane_client =
-        dataplane::journal_client_for(client, vec![collection.clone()]).await?;
-
     // Reader for the collection itself
     let selector = CollectionJournalSelector {
         collection: collection.clone(),
@@ -125,8 +115,8 @@ pub async fn do_suggest_schema(
         selector,
         ..Default::default()
     }).await?;
-    let mut log_stream = AsyncByteLines::new(BufReader::new(log_reader.compat())).into_stream();
-    let mut log_invalid_documents = log_stream.try_filter_map(|log| async move {
+    let log_stream = AsyncByteLines::new(BufReader::new(log_reader.compat())).into_stream();
+    let log_invalid_documents = log_stream.try_filter_map(|log| async move {
         let parsed: Log = serde_json::from_slice(&log)?;
         if parsed.message != "document failed validation against its collection JSON Schema" {
             return Ok(None);
