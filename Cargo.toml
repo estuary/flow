@@ -202,3 +202,6 @@ debug = 0          # Set this to 1 or 2 to get more useful backtraces in debugge
 [patch.'crates-io']
 rocksdb = { git = "https://github.com/jgraettinger/rust-rocksdb" }
 librocksdb-sys = { git = "https://github.com/jgraettinger/rust-rocksdb" }
+
+# TODO(johnny): remove when PR is upstream - https://github.com/hyperium/tonic/pull/1423
+tonic = { git = "https://github.com/jgraettinger/tonic", branch = "johnny/read-chunks-backport" }

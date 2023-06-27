@@ -74,7 +74,7 @@ where
     let responses = reader_to_message_stream(
         codec,
         connector.stdout.take().expect("stdout is piped"),
-        16 * 1024, // Minimum buffer capacity.
+        32 * 1024, // Minimum buffer capacity.
     )
     .map_err(|err| map_status("failed to process connector output", err));
     // Spawn a concurrent task that services the connector and forwards to its stdin.
