@@ -326,14 +326,12 @@ func (c *Client) SetLogCommitOp(op client.OpFuture) error {
 
 func (c *Client) sendAcks() {
 	// Notify the driver of the commit.
-	for i := 0; i != c.prior.numCheckpoints; i++ {
-		// We ignore a failure to send Acknowledge for two reasons:
-		// * The server controls stream shutdown. It could have gracefully closed
-		//   the stream already, and we have no way of knowing that here.
-		// * Send errors are only ever nil or EOF.
-		//   If it's EOF then a read of the stream will return a more descriptive error.
-		_ = c.rpc.Send(&Request{Acknowledge: &Request_Acknowledge{}})
-	}
+	// We ignore a failure to send Acknowledge for two reasons:
+	// * The server controls stream shutdown. It could have gracefully closed
+	//   the stream already, and we have no way of knowing that here.
+	// * Send errors are only ever nil or EOF.
+	//   If it's EOF then a read of the stream will return a more descriptive error.
+	_ = c.rpc.Send(&Request{Acknowledge: &Request_Acknowledge{Checkpoints: uint32(c.prior.numCheckpoints)}})
 }
 
 // combinerByteThreshold is a coarse target on the documents which can be
