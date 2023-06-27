@@ -35,6 +35,10 @@ var (
 	flowControlBurstFactor = time.Second
 	// flowControlQuantum is the time quantum with which flow control is evaluated.
 	flowControlQuantum = time.Millisecond * 50
+	// How many multiples of unused MaxAppendRate credit may be banked against
+	// a future burst of data? We want some flexibility for spiky workloads
+	// where clients send short bursts of data and then go away for a while.
+	flowControlBankFactor int64 = 10
 )
 
 type appendFlowControl struct {
@@ -151,7 +155,7 @@ func (fc *appendFlowControl) onTick(millis int64) error {
 
 	// Add |d| interval bytes to |balance|, capping at |maxRate|.
 	var d = fc.maxRate * (millis - fc.lastMillis) / 1e3 // Millis => seconds.
-	fc.balance = min64(fc.balance+d, fc.maxRate)
+	fc.balance = min64(fc.balance+d, fc.maxRate*flowControlBankFactor)
 
 	// Deduct |d| interval bytes from |spent|.
 	d = fc.minRate * (millis - fc.lastMillis) / 1e3

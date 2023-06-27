@@ -55,19 +55,19 @@ func TestAppendFlowCallbackCases(t *testing.T) {
 		// because we didn't have an opportunity to read another chunk (we were
 		// waiting on the delayed ticker to discharge the last one).
 		require.NoError(t, fc.onTick(fc.lastMillis+100000))
-		expect(1e4-10, fc.balance)
+		expect(1e4*flowControlBankFactor-10, fc.balance)
 		expect(10, fc.spent)
 		expect(0, fc.charge)
 
 		// A small chunk proceeds immediately.
 		fc.onChunk(40)
-		expect(1e4-50, fc.balance)
+		expect(1e4*flowControlBankFactor-50, fc.balance)
 		expect(50, fc.spent)
 		expect(0, fc.charge)
 
 		// Another modest tick. This time, we do underflow.
 		require.Equal(t, ErrFlowControlUnderflow, fc.onTick(fc.lastMillis+51))
-		expect(1e4, fc.balance)
+		expect(1e4*flowControlBankFactor, fc.balance)
 		expect(0, fc.spent)
 		expect(0, fc.charge)
 
