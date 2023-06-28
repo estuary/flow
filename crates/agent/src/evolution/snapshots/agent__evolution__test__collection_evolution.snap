@@ -3,11 +3,10 @@ source: crates/agent/src/evolution/test.rs
 expression: evolved_collections
 ---
 - old_name: evolution/CollectionA
-  new_name: evolution/CollectionA_v2
+  new_name: evolution/CollectionA
   updated_materializations:
     - evolution/MaterializationA
-  updated_captures:
-    - evolution/CaptureA
+  updated_captures: []
 - old_name: evolution/CollectionB
   new_name: evolution/NewCollectionB
   updated_materializations:
