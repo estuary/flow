@@ -15,7 +15,7 @@ expression: new_draft
                         "resource": Object {
                             "thingy": String("foo"),
                         },
-                        "target": String("evolution/CollectionA_v2"),
+                        "target": String("evolution/CollectionA"),
                     },
                     Object {
                         "resource": Object {
@@ -64,7 +64,7 @@ expression: new_draft
         ),
     },
     Record {
-        catalog_name: "evolution/CollectionA_v2",
+        catalog_name: "evolution/CollectionA",
         spec_type: Some(
             Collection,
         ),
@@ -127,7 +127,7 @@ expression: new_draft
                         "resource": Object {
                             "targetThingy": String("aThing_v2"),
                         },
-                        "source": String("evolution/CollectionA_v2"),
+                        "source": String("evolution/CollectionA"),
                     },
                     Object {
                         "fields": Object {
