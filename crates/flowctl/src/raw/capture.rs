@@ -1,18 +1,17 @@
-use std::sync::{Arc, Mutex};
-
-use futures::channel::mpsc::{Sender};
-use futures::{StreamExt, channel, stream, SinkExt};
-use proto_flow::flow::{CollectionSpec, ConnectorState};
-use serde::Deserialize;
-use anyhow::Context;
-use serde_json::value::RawValue;
-use serde_json::json;
-
-use doc::Pointer;
-
-use crate::{local_specs, connector::docker_run_stream};
 use crate::connector::docker_run;
-use proto_flow::{capture::{request, Request}, flow::RangeSpec};
+use crate::{connector::docker_run_stream, local_specs};
+use anyhow::Context;
+use futures::channel::mpsc::Sender;
+use futures::{channel, stream, SinkExt, StreamExt};
+use proto_flow::flow::{CollectionSpec, ConnectorState};
+use proto_flow::{
+    capture::{request, Request},
+    flow::RangeSpec,
+};
+use serde::Deserialize;
+use serde_json::json;
+use serde_json::value::RawValue;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -37,11 +36,20 @@ enum Command {
     Combine(String),
 }
 
-pub async fn do_capture(ctx: &mut crate::CliContext, Capture { source, print_checkpoint }: &Capture) -> anyhow::Result<()> {
+pub async fn do_capture(
+    ctx: &mut crate::CliContext,
+    Capture {
+        source,
+        print_checkpoint,
+    }: &Capture,
+) -> anyhow::Result<()> {
     let client = ctx.controlplane_client().await?;
     let (_sources, mut validations) = local_specs::load_and_validate(client, &source).await?;
 
-    let mut capture = validations.built_captures.first_mut().expect("must have a capture");
+    let mut capture = validations
+        .built_captures
+        .first_mut()
+        .expect("must have a capture");
 
     let cfg: ConnectorConfig = serde_json::from_str(&capture.spec.config_json)?;
     capture.spec.config_json = cfg.config.to_string();
@@ -72,9 +80,14 @@ pub async fn do_capture(ctx: &mut crate::CliContext, Capture { source, print_che
         ..Default::default()
     };
 
-    let apply_output = docker_run(&cfg.image, apply).await.context("connector apply")?;
+    let apply_output = docker_run(&cfg.image, apply)
+        .await
+        .context("connector apply")?;
 
-    let apply_action = apply_output.applied.expect("applied rpc").action_description;
+    let apply_action = apply_output
+        .applied
+        .expect("applied rpc")
+        .action_description;
     eprintln!("Apply RPC Response: {apply_action}");
 
     let bindings = capture.spec.bindings.clone();
@@ -86,16 +99,11 @@ pub async fn do_capture(ctx: &mut crate::CliContext, Capture { source, print_che
         channels.push(Arc::new(Mutex::new(send)));
 
         let CollectionSpec {
-            ack_template_json: _,
-            derivation: _,
-            key: document_key_ptrs,
+            key,
             name,
-            partition_fields: _,
-            partition_template: _,
-            projections: _,
-            read_schema_json: _,
-            uuid_ptr: _,
+            projections,
             write_schema_json,
+            ..
         } = binding.collection.context("missing collection")?;
 
         let write_schema_json = doc::validation::build_bundle(&write_schema_json)
@@ -104,12 +112,12 @@ pub async fn do_capture(ctx: &mut crate::CliContext, Capture { source, print_che
             doc::Validator::new(write_schema_json).context("could not build a schema validator")?;
 
         let combiner = doc::Combiner::new(
-            document_key_ptrs.iter().map(|p| Pointer::from_str(&p)).collect(),
+            extractors::for_key(&key, &projections)?.into(),
             None,
             tempfile::tempfile().expect("opening temporary spill file"),
             validator,
-        ).expect("create combiner");
-
+        )
+        .expect("create combiner");
 
         tokio::spawn(async move {
             let mut state = State {
@@ -119,7 +127,7 @@ pub async fn do_capture(ctx: &mut crate::CliContext, Capture { source, print_che
             loop {
                 let command = match recv.next().await {
                     Some(value) => value,
-                    None => return ()
+                    None => return (),
                 };
 
                 match command {
@@ -146,10 +154,15 @@ pub async fn do_capture(ctx: &mut crate::CliContext, Capture { source, print_che
     let in_stream = stream::unfold(req_recv, |mut recv| async move {
         match recv.next().await {
             Some(req) => Some((req, recv)),
-            _ => None
+            _ => None,
         }
     });
-    let mut out_stream = docker_run_stream(&cfg.image, Box::pin(stream::once(async { open }).chain(in_stream))).await.context("connector output stream")?;
+    let mut out_stream = docker_run_stream(
+        &cfg.image,
+        Box::pin(stream::once(async { open }).chain(in_stream)),
+    )
+    .await
+    .context("connector output stream")?;
     let checkpoint = Arc::new(Mutex::new(json!({})));
     let explicit_acknowledgements = Arc::new(Mutex::new(false));
     eprintln!("Documents");
@@ -173,12 +186,19 @@ pub async fn do_capture(ctx: &mut crate::CliContext, Capture { source, print_che
             sender.send(Command::Combine(doc.clone())).await?;
         }
 
-        if let Some(ConnectorState { updated_json, merge_patch }) = item.checkpoint.and_then(|c| c.state) {
+        if let Some(ConnectorState {
+            updated_json,
+            merge_patch,
+        }) = item.checkpoint.and_then(|c| c.state)
+        {
             let mut cp = checkpoint.lock().unwrap();
             let update = serde_json::from_str(&updated_json)?;
             if merge_patch {
                 if *print_checkpoint {
-                    eprintln!("Merge Patch for Checkpoint: {}", serde_json::to_string_pretty(&update)?);
+                    eprintln!(
+                        "Merge Patch for Checkpoint: {}",
+                        serde_json::to_string_pretty(&update)?
+                    );
                 }
                 json_patch::merge(&mut cp, &update);
             } else {
@@ -197,12 +217,13 @@ pub async fn do_capture(ctx: &mut crate::CliContext, Capture { source, print_che
             if *explicit_ack {
                 // Send acknowledge to connector
                 let mut ack_channel = req_send_arc.lock().unwrap();
-                ack_channel.send(Request {
-                    acknowledge: Some(request::Acknowledge {
-                        checkpoints: 1,
-                    }),
-                    ..Default::default()
-                }).await.context("failed to send ack")?;
+                ack_channel
+                    .send(Request {
+                        acknowledge: Some(request::Acknowledge { checkpoints: 1 }),
+                        ..Default::default()
+                    })
+                    .await
+                    .context("failed to send ack")?;
             }
         }
     }
@@ -224,22 +245,15 @@ impl State {
         let alloc = memtable.alloc();
 
         let mut deser = serde_json::Deserializer::from_str(doc_json);
-        let doc = doc::HeapNode::from_serde(&mut deser, alloc).with_context(|| {
-            format!(
-                "couldn't parse published document as JSON: {}",
-                doc_json
-            )
-        })?;
+        let doc = doc::HeapNode::from_serde(&mut deser, alloc)
+            .with_context(|| format!("couldn't parse published document as JSON: {}", doc_json))?;
 
         memtable.add(doc, false)?;
 
         Ok(())
     }
 
-    pub fn drain_chunk(
-        mut self,
-        out: &mut Vec<String>,
-    ) -> Result<Self, doc::combine::Error> {
+    pub fn drain_chunk(mut self, out: &mut Vec<String>) -> Result<Self, doc::combine::Error> {
         let mut drainer = match self.combiner {
             doc::Combiner::Accumulator(accumulator) => accumulator.into_drainer()?,
             doc::Combiner::Drainer(d) => d,

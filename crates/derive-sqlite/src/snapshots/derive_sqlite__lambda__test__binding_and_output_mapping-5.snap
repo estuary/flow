@@ -9,6 +9,7 @@ expression: snap(&lambda)
       "projection": {
         "field": "sender",
         "inference": {
+          "default": "the default",
           "string": {}
         },
         "ptr": "/sender"

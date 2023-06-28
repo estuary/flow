@@ -196,12 +196,7 @@ async fn do_combine(
     };
 
     let mut accumulator = combine::Accumulator::new(
-        collection
-            .spec
-            .key
-            .iter()
-            .map(|ptr| doc::Pointer::from_str(ptr))
-            .collect(),
+        extractors::for_key(&collection.spec.key, &collection.spec.projections)?.into(),
         None,
         tempfile::tempfile().context("opening tempfile")?,
         doc::Validator::new(schema).unwrap(),

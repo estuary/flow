@@ -33,7 +33,11 @@ pub fn parse_validate(
             } = transform;
 
             let source = source.unwrap();
-            let params: Vec<_> = source.projections.iter().map(Param::new).collect();
+            let params = source
+                .projections
+                .iter()
+                .map(Param::new)
+                .collect::<Result<Vec<_>, _>>()?;
 
             let block: String = serde_json::from_str(&lambda_config_json).with_context(|| {
                 format!("failed to parse SQLite lambda block: {lambda_config_json}")

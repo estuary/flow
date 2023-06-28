@@ -1,0 +1,19 @@
+[package]
+name = "extractors"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+doc = { path = "../doc" }
+proto-flow = { path = "../proto-flow" }
+
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }

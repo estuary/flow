@@ -5,7 +5,6 @@ use proto_flow::flow::{
     extract_api::{self, Code},
 };
 use serde_json::Value;
-use tuple::{TupleDepth, TuplePack};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -21,6 +20,8 @@ pub enum Error {
     ProtoDecode(#[from] prost::DecodeError),
     #[error("source document failed validation against its collection JSON")]
     FailedValidation(#[source] doc::FailedValidation),
+    #[error(transparent)]
+    Extractor(#[from] extractors::Error),
     #[error("protocol error (invalid state or invocation)")]
     InvalidState,
     #[error(transparent)]
@@ -65,7 +66,7 @@ pub struct API {
 
 struct State {
     uuid_ptr: doc::Pointer,
-    field_ptrs: Vec<doc::Pointer>,
+    extractors: Vec<doc::Extractor>,
     validator: Option<doc::Validator>,
 }
 
@@ -95,6 +96,7 @@ impl cgo::Service for API {
                     uuid_ptr,
                     schema_json,
                     field_ptrs,
+                    projections,
                 } = extract_api::Config::decode(data)?;
 
                 let validator = if schema_json.is_empty() {
@@ -105,7 +107,7 @@ impl cgo::Service for API {
 
                 self.state = Some(State {
                     uuid_ptr: doc::Pointer::from(&uuid_ptr),
-                    field_ptrs: field_ptrs.iter().map(doc::Pointer::from).collect(),
+                    extractors: extractors::for_key(&field_ptrs, &projections)?,
                     validator,
                 });
                 Ok(())
@@ -135,10 +137,8 @@ impl cgo::Service for API {
                 // Send extracted, packed field pointers.
                 let begin = arena.len();
 
-                for p in &state.field_ptrs {
-                    let v = p.query(&doc).unwrap_or(&Value::Null);
-                    // Unwrap because pack() returns io::Result, but Vec<u8> is infallible.
-                    let _ = v.pack(arena, TupleDepth::new().increment()).unwrap();
+                for ex in &state.extractors {
+                    ex.extract(&doc, arena).unwrap(); // Vec<u8> is infallible for io::Write.
                 }
                 cgo::send_bytes(Code::ExtractedFields as u32, begin, arena, out);
 
@@ -241,6 +241,14 @@ mod test {
             flow::extract_api::Config {
                 uuid_ptr: "/0".to_string(),
                 field_ptrs: vec!["/1".to_string(), "/2".to_string()],
+                projections: ["/1", "/2"]
+                    .iter()
+                    .map(|ptr| flow::Projection {
+                        ptr: ptr.to_string(),
+                        inference: Some(flow::Inference::default()),
+                        ..Default::default()
+                    })
+                    .collect(),
                 ..Default::default()
             },
             &mut arena,

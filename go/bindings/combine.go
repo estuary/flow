@@ -58,7 +58,8 @@ func (c *Combine) Configure(
 	schemaJSON json.RawMessage,
 	uuidPtr string,
 	keyPtrs []string,
-	fieldPtrs []string,
+	fields []string,
+	projections []pf.Projection,
 ) error {
 	combineConfigureCounter.WithLabelValues(fqn, collection.String()).Inc()
 	c.metrics = newCombineMetrics(fqn, collection)
@@ -68,8 +69,9 @@ func (c *Combine) Configure(
 		&pf.CombineAPI_Config{
 			SchemaJson:         schemaJSON,
 			KeyPtrs:            keyPtrs,
-			FieldPtrs:          fieldPtrs,
+			Fields:             fields,
 			UuidPlaceholderPtr: uuidPtr,
+			Projections:        projections,
 		})
 
 	return pollExpectNoOutput(c.svc)

@@ -1099,6 +1099,7 @@ dependencies = [
  "bytes",
  "cgo",
  "doc",
+ "extractors",
  "futures",
  "insta",
  "itertools 0.10.5",
@@ -1130,6 +1131,7 @@ dependencies = [
  "base64 0.13.1",
  "bytes",
  "doc",
+ "extractors",
  "futures",
  "insta",
  "json",
@@ -1373,6 +1375,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "extractors"
+version = "0.0.0"
+dependencies = [
+ "doc",
+ "insta",
+ "proto-flow",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "fallible-iterator"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1477,6 +1490,7 @@ dependencies = [
  "derive-typescript",
  "dirs",
  "doc",
+ "extractors",
  "futures",
  "humantime",
  "itertools 0.10.5",
@@ -3703,6 +3717,7 @@ dependencies = [
  "connector-init",
  "derive-sqlite",
  "doc",
+ "extractors",
  "futures",
  "insta",
  "json-patch",
@@ -5139,6 +5154,7 @@ dependencies = [
  "assemble",
  "bytes",
  "doc",
+ "extractors",
  "futures",
  "insta",
  "itertools 0.10.5",

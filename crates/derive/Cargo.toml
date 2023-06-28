@@ -12,6 +12,7 @@ license.workspace = true
 allocator = { path = "../allocator" }
 cgo = { path = "../cgo" }
 doc = { path = "../doc" }
+extractors = { path = "../extractors" }
 json = { path = "../json" }
 models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }

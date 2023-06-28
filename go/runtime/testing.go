@@ -134,7 +134,8 @@ func (f *FlowTesting) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.In
 		collection.WriteSchemaJson,
 		collection.UuidPtr,
 		collection.Key,
-		flow.PartitionPointers(collection),
+		collection.PartitionFields,
+		collection.Projections,
 	); err != nil {
 		return nil, fmt.Errorf("configuring combiner: %w", err)
 	}

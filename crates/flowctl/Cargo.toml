@@ -12,24 +12,25 @@ license.workspace = true
 
 [dependencies]
 assemble = { path = "../assemble" }
+async-process = { path = "../async-process" }
 connector-init = { path = "../connector-init" }
 derive-typescript = { path = "../derive-typescript" }
 doc = { path = "../doc" }
-json = { path = "../json" }
+extractors = { path = "../extractors" }
 journal-client = { path = "../journal-client" }
+json = { path = "../json" }
 labels = { path = "../labels" }
+locate-bin = { path = "../locate-bin" }
 models = { path = "../models" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
-proto-grpc = { path = "../proto-grpc", features = ["capture_client"] }
 proto-gazette = { path = "../proto-gazette" }
+proto-grpc = { path = "../proto-grpc", features = ["capture_client"] }
 runtime = { path = "../runtime" }
 schema-inference = { path = "../schema-inference" }
 sources = { path = "../sources" }
 tables = { path = "../tables", features = ["persist"] }
 validation = { path = "../validation" }
-async-process = { path = "../async-process" }
-locate-bin = { path = "../locate-bin" }
 
 anyhow = { workspace = true }
 base64 = { workspace = true }
