@@ -97,8 +97,6 @@ pub async fn do_materialize_fixture(
                 let flow::CollectionSpec {
                     name: this_collection,
                     projections,
-                    write_schema_json,
-                    read_schema_json,
                     ..
                 } = collection.as_ref().unwrap();
 
@@ -108,24 +106,15 @@ pub async fn do_materialize_fixture(
                     continue;
                 }
 
-                let schema = if read_schema_json.is_empty() {
-                    doc::validation::build_bundle(write_schema_json).unwrap()
-                } else {
-                    doc::validation::build_bundle(read_schema_json).unwrap()
-                };
-                let validator = doc::validation::Validator::new(schema).unwrap();
-                let shape =
-                    doc::inference::Shape::infer(&validator.schemas()[0], validator.schema_index());
-
-                let key_ptrs = runtime::fields_to_ptrs(keys, projections)?;
-                let value_ptrs = runtime::fields_to_ptrs(values, projections)?;
+                let key_ex = extractors::for_key(&keys, projections)?;
+                let values_ex = extractors::for_fields(values, projections)?;
 
                 for (exists, doc) in &docs {
                     if !delta_updates {
                         loads.push(Request {
                             load: Some(request::Load {
                                 binding: binding_index as u32,
-                                key_packed: runtime::extract_packed(doc, &key_ptrs, &shape, buf),
+                                key_packed: doc::Extractor::extract_all(doc, &key_ex, buf),
                                 ..Default::default()
                             }),
                             ..Default::default()
@@ -134,8 +123,8 @@ pub async fn do_materialize_fixture(
                     stores.push(Request {
                         store: Some(request::Store {
                             binding: binding_index as u32,
-                            key_packed: runtime::extract_packed(doc, &key_ptrs, &shape, buf),
-                            values_packed: runtime::extract_packed(doc, &value_ptrs, &shape, buf),
+                            key_packed: doc::Extractor::extract_all(doc, &key_ex, buf),
+                            values_packed: doc::Extractor::extract_all(doc, &values_ex, buf),
                             doc_json: doc.to_string(),
                             exists: *exists && !delta_updates,
                             ..Default::default()

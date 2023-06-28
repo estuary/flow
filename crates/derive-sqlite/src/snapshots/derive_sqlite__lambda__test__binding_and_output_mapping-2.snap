@@ -9,6 +9,7 @@ expression: snap(&lambda)
       "projection": {
         "field": "amount",
         "inference": {
+          "default": "the default",
           "string": {}
         },
         "ptr": "/amount"
@@ -19,6 +20,7 @@ expression: snap(&lambda)
       "projection": {
         "field": "sender",
         "inference": {
+          "default": "the default",
           "string": {}
         },
         "ptr": "/sender"

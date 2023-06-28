@@ -69,15 +69,6 @@ func NewMapper(
 	}
 }
 
-// PartitionPointers returns JSON-pointers of partitioned fields of the collection.
-func PartitionPointers(spec *pf.CollectionSpec) []string {
-	var ptrs = make([]string, len(spec.PartitionFields))
-	for i, field := range spec.PartitionFields {
-		ptrs[i] = spec.GetProjection(field).Ptr
-	}
-	return ptrs
-}
-
 // Map |mappable|, which must be an instance of Mappable, into a physical journal partition
 // of the document's logical partition prefix. If no such journal exists, one is created.
 func (m *Mapper) Map(mappable message.Mappable) (pb.Journal, string, error) {

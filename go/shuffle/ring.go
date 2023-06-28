@@ -237,6 +237,7 @@ func (r *ring) serve(shuffle shuffle) {
 		shuffle.sourceUuidPtr,
 		shuffle.shuffleKey,
 		shuffle.validateSchema,
+		shuffle.projections,
 	); initErr != nil {
 		initErr = fmt.Errorf("building document extractor: %w", initErr)
 	}

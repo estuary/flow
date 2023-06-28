@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"runtime"
 
+	"github.com/estuary/flow/go/protocols/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
 )
@@ -46,14 +47,16 @@ func (e *Extractor) Configure(
 	uuidPtr string,
 	fieldPtrs []string,
 	schemaJSON json.RawMessage,
+	projections []flow.Projection,
 ) error {
 
 	e.svc.mustSendMessage(
 		uint32(pf.ExtractAPI_CONFIGURE),
 		&pf.ExtractAPI_Config{
-			UuidPtr:    uuidPtr,
-			SchemaJson: schemaJSON,
-			FieldPtrs:  fieldPtrs,
+			UuidPtr:     uuidPtr,
+			SchemaJson:  schemaJSON,
+			FieldPtrs:   fieldPtrs,
+			Projections: projections,
 		})
 
 	return pollExpectNoOutput(e.svc)

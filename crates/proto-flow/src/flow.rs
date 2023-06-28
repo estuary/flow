@@ -811,6 +811,10 @@ pub mod extract_api {
         /// tuples.
         #[prost(string, repeated, tag = "3")]
         pub field_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        /// A set of Projections which must include `field_ptrs`.
+        /// TODO(johnny): This is a kludge as we seek to remove this API.
+        #[prost(message, repeated, tag = "4")]
+        pub projections: ::prost::alloc::vec::Vec<super::Projection>,
     }
     /// Code labels message codes passed over the CGO bridge.
     #[derive(
@@ -877,18 +881,20 @@ pub mod combine_api {
         pub schema_json: ::prost::alloc::string::String,
         /// Composite key used to group documents to be combined, specified as one or
         /// more JSON-Pointers indicating a message location to extract.
-        /// If empty, all request documents are combined into a single response
-        /// document.
         #[prost(string, repeated, tag = "2")]
         pub key_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-        /// Field JSON pointers to be extracted from combined documents and returned.
+        /// Fields to be extracted from combined documents and returned.
         /// If empty, no fields are extracted.
         #[prost(string, repeated, tag = "3")]
-        pub field_ptrs: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        pub fields: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
         /// JSON-Pointer at which a placeholder UUID should be inserted into
         /// returned documents. If empty, no placeholder is inserted.
         #[prost(string, tag = "4")]
         pub uuid_placeholder_ptr: ::prost::alloc::string::String,
+        /// A set of Projections which must include `key_ptrs` and `fields`.
+        /// TODO(johnny): This is a kludge as we seek to remove this API.
+        #[prost(message, repeated, tag = "5")]
+        pub projections: ::prost::alloc::vec::Vec<super::Projection>,
     }
     /// Stats holds statistics relating to one or more combiner transactions.
     #[allow(clippy::derive_partial_eq_without_eq)]
