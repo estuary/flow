@@ -28,11 +28,6 @@ pub enum ReCreateReason {
     PartitionChange,
     /// A live spec with the same name has already been created and was subsequently deleted.
     PrevDeletedSpec,
-    /// The draft collection spec does not contain the `x-infer-schema` annotation. Generally, it's better to re-create
-    /// these collections because incompatible schema changes are likely to be accompanied by changes to the data itself.
-    /// For example, an `ALTER TABLE` statement in a source database may modify rows that have already been captured. But
-    /// this isn't necessarily always the case, and users may choose to keep the original collection in certain scenarios.
-    AuthoritativeSourceSchema,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
@@ -70,7 +65,8 @@ impl BuildOutput {
     }
 
     pub fn get_incompatible_collections(&self) -> Vec<IncompatibleCollection> {
-        let mut collections = BTreeMap::new();
+        // We'll collect a map of collection names to lists of materializations that have rejected the proposed collection changes.
+        let mut naughty_collections = BTreeMap::new();
 
         // Look at materialization validation responses for any collections that have been rejected due to unsatisfiable constraints.
         for mat in self.built_materializations.iter() {
@@ -84,7 +80,7 @@ impl BuildOutput {
                         RejectedField { field: field.clone(), reason: constraint.reason.clone() }
                     }).collect();
                 if !naughty_fields.is_empty() {
-                    let affected_consumers = collections
+                    let affected_consumers = naughty_collections
                         .entry(collection_name.to_owned())
                         .or_insert_with(|| Vec::new());
                     affected_consumers.push(AffectedConsumer {
@@ -95,64 +91,17 @@ impl BuildOutput {
             }
         }
 
-        let mut incompatible_collections = Vec::new();
-        // Loop over the affected collections and build the final output for each one.
-        for (collection, affected_materializations) in collections {
-            // We need to determine whether this collection uses schema inference, so start by looking up the
-            // spec in the build output.
-            let Some(built) = self.built_collections.iter().find(|c| c.collection.as_str() == &collection) else {
-                tracing::warn!(%collection, "build output missing built collection that is incompatible");
-                continue;
-            };
-            let mut ic = IncompatibleCollection {
-                collection,
-                affected_materializations,
-                requires_recreation: Vec::new(),
-            };
-            // If the collection does _not_ use schema inference, then we assume
-            // that schema returned by the capture connector is authoritative.
-            // While it _might_ still be correct to handle this by only re-
-            // creating the materialization binding, it's much more common that
-            // you'd need to re-create the entire collection. For example, an
-            // ALTER TABLE statement that's run in the source database might
-            // change rows that have already been captured, and we have no way
-            // of knowing whether that's the case.
-            if !uses_schema_inference(&built.spec) {
-                ic.requires_recreation
-                    .push(ReCreateReason::AuthoritativeSourceSchema);
-            }
-            incompatible_collections.push(ic);
-        }
-        incompatible_collections
+        naughty_collections
+            .into_iter()
+            .map(
+                |(collection, affected_materializations)| IncompatibleCollection {
+                    collection,
+                    affected_materializations,
+                    requires_recreation: Vec::new(),
+                },
+            )
+            .collect()
     }
-}
-
-/// This returns true if the given collection uses an inferred schema. For now,
-/// this must be determined by parsing the schema and checking for the presence
-/// of an `x-infer-schema` annotation, which is fallible. But the future plan is
-/// to hoist that annotation into a top-level collection property, which would
-/// eliminate the need for this function.
-///
-/// # Panics
-///
-/// If the collection's read_schema_json cannot be parsed or indexed. This
-/// should never be the case since the collection _could_ be built.
-fn uses_schema_inference(collection: &proto_flow::flow::CollectionSpec) -> bool {
-    let effective_schema_json = if collection.read_schema_json.is_empty() {
-        collection.write_schema_json.as_str()
-    } else {
-        collection.read_schema_json.as_str()
-    };
-    let schema = doc::validation::build_bundle(effective_schema_json)
-        .expect("built collection schema bundle failed to build");
-    let mut builder = doc::SchemaIndexBuilder::new();
-    builder
-        .add(&schema)
-        .expect("built collection schema failed add to index");
-    let index = builder.into_index();
-    let shape = doc::inference::Shape::infer(&schema, &index);
-
-    shape.annotations.contains_key("x-infer-schema")
 }
 
 pub async fn build_catalog(
