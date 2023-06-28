@@ -65,6 +65,12 @@ expression: output
   ],
   [
     {
+      "case": "missing",
+      "output": "the default"
+    }
+  ],
+  [
+    {
       "$str_int * 10": 120,
       "$str_num * 2.5": 18.75,
       "blob_fixture": "YSByYXcgc3RyaW5n",

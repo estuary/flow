@@ -12,6 +12,7 @@ import (
 	"github.com/bradleyjkemp/cupaloy"
 	"github.com/estuary/flow/go/protocols/catalog"
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
+	"github.com/estuary/flow/go/protocols/flow"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/gogo/protobuf/jsonpb"
@@ -22,7 +23,12 @@ import (
 func TestExtractorBasic(t *testing.T) {
 	var ex, err = NewExtractor(localPublisher)
 	require.NoError(t, err)
-	require.NoError(t, ex.Configure("/0", []string{"/1", "/2", "/3"}, nil))
+	require.NoError(t, ex.Configure("/0", []string{"/1", "/2", "/3"}, nil,
+		[]flow.Projection{
+			{Ptr: "/1", Inference: pf.Inference{}},
+			{Ptr: "/2", Inference: pf.Inference{}},
+			{Ptr: "/3", Inference: pf.Inference{}},
+		}))
 	ex.Document([]byte(`["9f2952f3-c6a3-11ea-8802-080607050309", 42, "a-string", [true, null]]`))
 	ex.Document([]byte(`["9f2952f3-c6a3-12fb-8801-080607050309", 52, "other-string", {"k": "v"}]`))
 
@@ -77,7 +83,7 @@ func TestExtractorValidation(t *testing.T) {
 	var opsLogs = make(chan ops.Log)
 	var ex, err = NewExtractor(newChanPublisher(opsLogs, ops.Log_warn))
 	require.NoError(t, err)
-	require.NoError(t, ex.Configure("/uuid", []string{"/s"}, collection.WriteSchemaJson))
+	require.NoError(t, ex.Configure("/uuid", []string{"/s"}, collection.WriteSchemaJson, collection.Projections))
 
 	ex.Document([]byte(`{"uuid": "9f2952f3-c6a3-12fb-8801-080607050309", "i": 32, "s": "valid"}`))         // Valid.
 	ex.Document([]byte(`{"uuid": "9f2952f3-c6a3-11ea-8802-080607050309", "i": "not a string but ACK"}`))   // Invalid but ACK.
@@ -94,7 +100,8 @@ func TestExtractorValidation(t *testing.T) {
 func TestExtractorIntegerBoundaryCases(t *testing.T) {
 	var ex, err = NewExtractor(localPublisher)
 	require.NoError(t, err)
-	require.NoError(t, ex.Configure("/0", []string{"/1"}, nil))
+	require.NoError(t, ex.Configure("/0", []string{"/1"}, nil,
+		[]flow.Projection{{Ptr: "/1", Inference: pf.Inference{}}}))
 
 	var minInt64 = strconv.FormatInt(math.MinInt64, 10)
 	var maxInt64 = strconv.FormatInt(math.MaxInt64, 10)
@@ -126,7 +133,8 @@ func TestExtractorIntegerBoundaryCases(t *testing.T) {
 func TestExtractorEmpty(t *testing.T) {
 	var ex, err = NewExtractor(localPublisher)
 	require.NoError(t, err)
-	require.NoError(t, ex.Configure("/0", []string{"/1"}, nil))
+	require.NoError(t, ex.Configure("/0", []string{"/1"}, nil,
+		[]flow.Projection{{Ptr: "/1", Inference: pf.Inference{}}}))
 
 	uuids, packed, err := ex.Extract()
 	require.NoError(t, err)

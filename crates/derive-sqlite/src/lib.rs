@@ -21,6 +21,8 @@ pub enum Error {
         #[source]
         err: rusqlite::Error,
     },
+    #[error(transparent)]
+    Extractor(#[from] extractors::Error),
 
     // rusqlite does a pretty good job of showing context in its errors.
     #[error(transparent)]
@@ -84,8 +86,10 @@ fn test_param(
                 content_encoding: if is_base64 { "base64" } else { "" }.to_string(),
                 ..Default::default()
             }),
+            default_json: "\"the default\"".to_string(),
             ..Default::default()
         }),
         ..Default::default()
     })
+    .unwrap()
 }

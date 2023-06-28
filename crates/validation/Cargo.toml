@@ -11,6 +11,7 @@ license.workspace = true
 [dependencies]
 assemble = { path = "../assemble" }
 doc = { path = "../doc" }
+extractors = { path = "../extractors" }
 json = { path = "../json" }
 labels = { path = "../labels" }
 models = { path = "../models" }

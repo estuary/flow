@@ -135,16 +135,6 @@ func (m *MaterializationSpec_Binding) Validate() error {
 	return nil
 }
 
-// FieldValuePtrs returns the projection pointers of the contianed FieldSelection.Values.
-func (m *MaterializationSpec_Binding) FieldValuePtrs() []string {
-	var out []string
-
-	for _, field := range m.FieldSelection.Values {
-		out = append(out, m.Collection.GetProjection(field).Ptr)
-	}
-	return out
-}
-
 func (m *MaterializationSpec) InvokeConfig() (*json.RawMessage, string) {
 	return &m.ConfigJson, m.ConnectorType.String()
 }
