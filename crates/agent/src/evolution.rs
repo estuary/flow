@@ -24,8 +24,8 @@ pub struct EvolveRequest {
     #[serde(alias = "old_name")]
     // alias can be removed after UI code is updated to use current_name
     pub current_name: String,
-    /// Optional new name for the collection. If provided, the collection will always
-    /// be re-created, even if it uses an inferred schema.
+    /// Optional new name for the collection. If provided, the collection will be re-created.
+    /// Otherwise, only materialization bindings will be updated.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub new_name: Option<String>,
 }
@@ -320,28 +320,6 @@ fn evolve_collections(
     })
 }
 
-/// This returns true if the given collection uses an inferred schema. For now,
-/// this must be determined by parsing the schema and checking for the presence
-/// of an `x-infer-schema` annotation, which is fallible. But the future plan is
-/// to hoist that annotation into a top-level collection property, which would
-/// eliminate the need for this function.
-fn uses_schema_inference(collection: &models::CollectionDef) -> anyhow::Result<bool> {
-    let effective_read_schema = collection
-        .schema
-        .as_ref()
-        .or(collection.read_schema.as_ref())
-        .ok_or_else(|| anyhow::anyhow!("invalid collection spec missing schema"))?;
-
-    let schema = doc::validation::build_bundle(effective_read_schema.get())?;
-    let mut builder = doc::SchemaIndexBuilder::new();
-    builder.add(&schema)?;
-    let index = builder.into_index();
-    let shape = doc::inference::Shape::infer(&schema, &index);
-
-    let uses_inference = shape.annotations.contains_key("x-infer-schema");
-    Ok(uses_inference)
-}
-
 fn evolve_collection(
     new_catalog: &mut models::Catalog,
     prev_catalog: &models::Catalog,
@@ -354,17 +332,10 @@ fn evolve_collection(
         anyhow::bail!("catalog does not contain a collection named '{old_collection_name}'");
     };
 
-    let uses_inference = uses_schema_inference(draft_collection_spec)?;
-    let re_create_collection = new_collection_name.is_some() || !uses_inference;
-
-    // If the collection uses schema inference, then only re-create it if explicitly requested to do so.
-    // Otherwise, if it uses schema inference, then just update the materialization binding to use a new resource name.
-    let new_name = if re_create_collection {
-        new_collection_name
-            .map(|s| s.to_owned())
-            .unwrap_or_else(|| next_name(old_collection_name))
-    } else {
-        old_collection_name.to_owned()
+    // We only re-create collections if explicitly requested.
+    let (re_create_collection, new_name) = match new_collection_name {
+        Some(n) => (true, n.to_owned()),
+        None => (false, old_collection_name.to_owned()),
     };
     let new_name = models::Collection::new(new_name);
 
@@ -479,6 +450,8 @@ lazy_static! {
     static ref NAME_VERSION_RE: Regex = Regex::new(r#".*[_-][vV](\d+)$"#).unwrap();
 }
 
+/// Takes an existing name and returns a new name with an incremeted version suffix.
+/// The name `foo` will become `foo_v2`, and `foo_v2` will become `foo_v3` and so on.
 pub fn next_name(current_name: &str) -> String {
     // Does the name already have a version suffix?
     // We try to work with whatever suffix is already present. This way, if a user

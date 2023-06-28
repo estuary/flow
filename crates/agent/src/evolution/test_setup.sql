@@ -26,6 +26,7 @@ with s1 as (
     ), 
     (
       'a300000000000000', 'evolution/CollectionC', 
+      -- The x-infer-schema annotation used to be relevant, but no longer is.
       '{"schema": {
             "x-infer-schema": true,
             "type": "object",
