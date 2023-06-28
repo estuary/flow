@@ -136,22 +136,33 @@ impl<'db> Lambda<'db> {
 fn bind_parameter<N: doc::AsNode>(
     stmt: &mut rusqlite::Statement<'_>,
     index: usize,
+    param: &Param,
+    document: &N,
+) -> rusqlite::Result<()> {
+    match param.extractor.query(document) {
+        Ok(node) => bind_parameter_node(stmt, index, param, node),
+        Err(node) => bind_parameter_node(stmt, index, param, node.as_ref()),
+    }
+}
+
+fn bind_parameter_node<N: doc::AsNode>(
+    stmt: &mut rusqlite::Statement<'_>,
+    index: usize,
     Param {
-        ptr,
         is_content_encoding_base64,
         is_format_integer,
         is_format_number,
         ..
     }: &Param,
-    document: &N,
+    node: &N,
 ) -> rusqlite::Result<()> {
     use doc::Node;
 
-    match ptr.query(document).map(doc::AsNode::as_node) {
-        None | Some(Node::Null) => return stmt.raw_bind_parameter(index + 1, None::<bool>),
-        Some(Node::Bool(b)) => return stmt.raw_bind_parameter(index + 1, b),
+    match node.as_node() {
+        Node::Null => return stmt.raw_bind_parameter(index + 1, None::<bool>),
+        Node::Bool(b) => return stmt.raw_bind_parameter(index + 1, b),
 
-        Some(Node::String(s)) => {
+        Node::String(s) => {
             if *is_format_integer {
                 if let Ok(i) = s.parse::<i64>() {
                     return stmt.raw_bind_parameter(index + 1, i);
@@ -169,14 +180,14 @@ fn bind_parameter<N: doc::AsNode>(
             }
             stmt.raw_bind_parameter(index + 1, s)
         }
-        Some(Node::Bytes(b)) => stmt.raw_bind_parameter(index + 1, b),
-        Some(Node::Number(json::Number::Float(f))) => stmt.raw_bind_parameter(index + 1, f),
-        Some(Node::Number(json::Number::Signed(s))) => stmt.raw_bind_parameter(index + 1, s),
-        Some(Node::Number(json::Number::Unsigned(u))) => stmt.raw_bind_parameter(index + 1, u),
-        Some(n @ Node::Array(_)) => {
+        Node::Bytes(b) => stmt.raw_bind_parameter(index + 1, b),
+        Node::Number(json::Number::Float(f)) => stmt.raw_bind_parameter(index + 1, f),
+        Node::Number(json::Number::Signed(s)) => stmt.raw_bind_parameter(index + 1, s),
+        Node::Number(json::Number::Unsigned(u)) => stmt.raw_bind_parameter(index + 1, u),
+        n @ Node::Array(_) => {
             stmt.raw_bind_parameter(index + 1, &serde_json::to_string(&n).unwrap())
         }
-        Some(n @ Node::Object(_)) => {
+        n @ Node::Object(_) => {
             stmt.raw_bind_parameter(index + 1, &serde_json::to_string(&n).unwrap())
         }
     }
@@ -392,6 +403,7 @@ mod test {
           {"case": "obj", "in": "{\"four\": 4}"},
           {"case": "invalid-array", "in": "[1 2 \"three\"]"},
           {"case": "invalid-obj", "in": "{four 4}"},
+          {"case": "missing"},
         ]);
 
         let mut output = fixtures

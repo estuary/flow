@@ -9,8 +9,8 @@ pub struct Param {
     pub projection: flow::Projection,
     // Canonical SQLite parameter encoding for this field.
     pub canonical_encoding: String,
-    // JSON pointer location of this field within documents.
-    pub ptr: doc::Pointer,
+    // Extractor of this projection within documents.
+    pub extractor: doc::Extractor,
     // Location uses string format: "integer" ?
     pub is_format_integer: bool,
     // Location uses string format: "number" ?
@@ -20,15 +20,15 @@ pub struct Param {
 }
 
 impl Param {
-    pub fn new(p: &flow::Projection) -> Self {
-        Self {
+    pub fn new(p: &flow::Projection) -> Result<Self, Error> {
+        Ok(Self {
             projection: p.clone(),
             canonical_encoding: canonical_param_encoding(&p.field),
-            ptr: doc::Pointer::from_str(&p.ptr),
+            extractor: extractors::for_projection(&p)?,
             is_format_integer: matches!(&p.inference, Some(flow::Inference{string: Some(str), ..}) if str.format == "integer"),
             is_format_number: matches!(&p.inference, Some(flow::Inference{string: Some(str), ..}) if str.format == "number"),
             is_content_encoding_base64: matches!(&p.inference, Some(flow::Inference{string: Some(str), ..}) if str.content_encoding == "base64"),
-        }
+        })
     }
 
     pub fn resolve<'p>(encoding: &str, params: &'p [Self]) -> Result<&'p Self, Error> {

@@ -10,12 +10,13 @@ license.workspace = true
 
 [dependencies]
 connector-init = { path = "../connector-init"  }
+derive-sqlite = { path = "../derive-sqlite" }
 doc = { path = "../doc" }
+extractors = { path = "../extractors" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 proto-grpc = { path = "../proto-grpc", features = ["derive_server"] }
-derive-sqlite = { path = "../derive-sqlite" }
 tuple = { path = "../tuple" }
 
 anyhow = { workspace = true }

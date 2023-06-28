@@ -234,13 +234,11 @@ pub struct State {
     // Combiner of published documents.
     combiner: doc::Combiner,
     // Key components of derived documents.
-    document_key_ptrs: Vec<doc::Pointer>,
+    key_extractors: Vec<doc::Extractor>,
     // JSON pointer to the derived document UUID.
     document_uuid_ptr: Option<doc::Pointer>,
-    // Shape of published documents.
-    document_shape: doc::inference::Shape,
     // Partitions to extract when draining the Combiner.
-    partitions: Vec<doc::Pointer>,
+    partition_extractors: Vec<doc::Extractor>,
     // Statistics for published documents.
     publish_stats: ops::stats::DocsAndBytes,
     // Statistics for published documents.
@@ -263,7 +261,7 @@ impl State {
         let CollectionSpec {
             ack_template_json: _,
             derivation,
-            key: document_key_ptrs,
+            key,
             name,
             partition_fields,
             partition_template: _,
@@ -282,10 +280,10 @@ impl State {
 
         let range = range.as_ref().context("missing range")?;
 
-        if document_key_ptrs.is_empty() {
+        if key.is_empty() {
             return Err(anyhow::anyhow!("derived collection key cannot be empty").into());
         }
-        let document_key_ptrs: Vec<_> = document_key_ptrs.iter().map(doc::Pointer::from).collect();
+        let key_extractors = extractors::for_key(&key, &projections)?;
 
         let document_uuid_ptr = if document_uuid_ptr.is_empty() {
             None
@@ -298,18 +296,15 @@ impl State {
         let validator =
             doc::Validator::new(write_schema_json).context("could not build a schema validator")?;
 
-        let document_shape =
-            doc::inference::Shape::infer(&validator.schemas()[0], validator.schema_index());
-
         let combiner = doc::Combiner::new(
-            document_key_ptrs.clone().into(),
+            key_extractors.clone().into(),
             None,
             tempfile::tempfile().context("opening temporary spill file")?,
             validator,
         )?;
 
         // Identify ordered, partitioned projections to extract on combiner drain.
-        let partitions = crate::fields_to_ptrs(partition_fields, projections)?;
+        let partition_extractors = extractors::for_fields(partition_fields, projections)?;
 
         let transforms = transforms
             .iter()
@@ -330,10 +325,9 @@ impl State {
 
         Ok(Self {
             combiner,
-            document_key_ptrs,
+            key_extractors,
             document_uuid_ptr,
-            document_shape,
-            partitions,
+            partition_extractors,
             publish_stats: Default::default(),
             drain_stats: Default::default(),
             transforms,
@@ -387,14 +381,9 @@ impl State {
             self.drain_stats.docs_total += 1;
             self.drain_stats.bytes_total += doc_json.len() as u64;
 
-            let key_packed = crate::extract_packed_node(
-                &doc,
-                &self.document_key_ptrs,
-                &self.document_shape,
-                &mut buf,
-            );
+            let key_packed = doc::Extractor::extract_all_lazy(&doc, &self.key_extractors, &mut buf);
             let partitions_packed =
-                crate::extract_packed_node(&doc, &self.partitions, &self.document_shape, &mut buf);
+                doc::Extractor::extract_all_lazy(&doc, &self.partition_extractors, &mut buf);
 
             let internal = DeriveResponseExt {
                 published: Some(derive_response_ext::Published {

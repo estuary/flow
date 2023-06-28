@@ -545,6 +545,9 @@ message ExtractAPI {
     // Field JSON pointers to extract from documents and return as packed
     // tuples.
     repeated string field_ptrs = 3;
+    // A set of Projections which must include `field_ptrs`.
+    // TODO(johnny): This is a kludge as we seek to remove this API.
+    repeated Projection projections = 4 [ (gogoproto.nullable) = false ];
   };
 };
 
@@ -585,15 +588,16 @@ message CombineAPI {
         [ (gogoproto.casttype) = "encoding/json.RawMessage" ];
     // Composite key used to group documents to be combined, specified as one or
     // more JSON-Pointers indicating a message location to extract.
-    // If empty, all request documents are combined into a single response
-    // document.
     repeated string key_ptrs = 2;
-    // Field JSON pointers to be extracted from combined documents and returned.
+    // Fields to be extracted from combined documents and returned.
     // If empty, no fields are extracted.
-    repeated string field_ptrs = 3;
+    repeated string fields = 3;
     // JSON-Pointer at which a placeholder UUID should be inserted into
     // returned documents. If empty, no placeholder is inserted.
     string uuid_placeholder_ptr = 4;
+    // A set of Projections which must include `key_ptrs` and `fields`.
+    // TODO(johnny): This is a kludge as we seek to remove this API.
+    repeated Projection projections = 5 [ (gogoproto.nullable) = false ];
   };
 
   // Stats holds statistics relating to one or more combiner transactions.

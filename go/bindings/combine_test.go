@@ -53,6 +53,7 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 		collection.UuidPtr,
 		collection.Key,
 		nil,
+		collection.Projections,
 	)
 	require.NoError(t, err)
 
@@ -105,7 +106,8 @@ func TestCombineBindings(t *testing.T) {
 				collection.WriteSchemaJson,
 				collection.UuidPtr,
 				collection.Key,
-				[]string{"/s/1", "/i"},
+				[]string{"part_a", "part_b"},
+				collection.Projections,
 			)
 			require.NoError(t, err)
 		}

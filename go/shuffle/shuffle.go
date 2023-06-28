@@ -20,6 +20,8 @@ type shuffle struct {
 	journalReadSuffix string
 	// Priority of this shuffle with respect to others of the derivation.
 	priority uint32
+	// Projections of the shuffled source collection.
+	projections []pf.Projection
 	// Read delay of this shuffle with respect to others of the derivation.
 	readDelaySeconds uint32
 	// Key of this shuffle. If empty, then `usesLambda` is true.
@@ -53,6 +55,7 @@ func derivationShuffles(task *pf.CollectionSpec) []shuffle {
 			filterRClocks:             transform.ReadOnly,
 			journalReadSuffix:         transform.JournalReadSuffix,
 			priority:                  transform.Priority,
+			projections:               transform.Collection.Projections,
 			readDelaySeconds:          transform.ReadDelaySeconds,
 			shuffleKey:                nil,
 			shuffleKeyPartitionFields: nil,
@@ -111,6 +114,7 @@ func materializationShuffles(task *pf.MaterializationSpec) []shuffle {
 			filterRClocks:             false,
 			journalReadSuffix:         binding.JournalReadSuffix,
 			priority:                  0,
+			projections:               binding.Collection.Projections,
 			readDelaySeconds:          0,
 			shuffleKey:                binding.Collection.Key,
 			shuffleKeyPartitionFields: nil,

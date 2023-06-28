@@ -125,11 +125,12 @@ pub fn walk_test_step(
                 }
             }
         }
-    } else {
+    } else if let Ok(key) = extractors::for_key(&collection.spec.key, &collection.spec.projections)
+    {
         // Verify that any verified documents are ordered correctly w.r.t.
         // the collection's key.
         for (doc_index, (lhs, rhs)) in documents.windows(2).map(|p| (&p[0], &p[1])).enumerate() {
-            if json::json_cmp_at(&collection.spec.key, lhs, rhs).is_gt() {
+            if doc::Extractor::compare_key(&key, lhs, rhs).is_gt() {
                 Error::TestVerifyOrder
                     .push(scope.push_prop("documents").push_item(doc_index), errors);
             }

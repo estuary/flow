@@ -379,7 +379,7 @@ func combineDocumentsForVerify(
 	var extractor, err = bindings.NewExtractor(publisher)
 	if err != nil {
 		return nil, fmt.Errorf("creating extractor: %w", err)
-	} else if err = extractor.Configure(collection.UuidPtr, nil, nil); err != nil {
+	} else if err = extractor.Configure(collection.UuidPtr, nil, nil, nil); err != nil {
 		return nil, fmt.Errorf("configuring extractor: %w", err)
 	}
 	for _, d := range documents {
@@ -400,6 +400,7 @@ func combineDocumentsForVerify(
 		collection.UuidPtr,
 		collection.Key,
 		nil, // Don't extract additional fields.
+		collection.Projections,
 	); err != nil {
 		return nil, fmt.Errorf("configuring combiner: %w", err)
 	}
