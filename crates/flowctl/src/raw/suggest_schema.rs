@@ -39,9 +39,8 @@ use anyhow::anyhow;
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct SuggestSchema {
-    /// Collection name to read documents from
-    #[clap(long)]
-    collection: String,
+    #[clap(flatten)]
+    args: ReadArgs,
 
     /// Task name to read ops logs from
     #[clap(long)]
@@ -51,7 +50,7 @@ pub struct SuggestSchema {
 pub async fn do_suggest_schema(
     ctx: &mut crate::CliContext,
     SuggestSchema {
-        collection,
+        args,
         task,
     }: &SuggestSchema,
 ) -> anyhow::Result<()> {
@@ -62,7 +61,7 @@ pub async fn do_suggest_schema(
         &List {
             flows: true,
             name_selector: NameSelector {
-                name: vec![collection.clone()],
+                name: vec![args.selector.collection.clone()],
                 prefix: Vec::new()
             },
             type_selector: SpecTypeSelector {
@@ -86,15 +85,12 @@ pub async fn do_suggest_schema(
 
     let (_, collection_def) = collect_specs(live_specs)?.collections.pop_first().ok_or(anyhow!("could not find collection"))?;
 
+    if args.bounds.follow {
+        anyhow::bail!("--follow is not supported by this command");
+    }
+
     // Reader for the collection itself
-    let selector = CollectionJournalSelector {
-        collection: collection.clone(),
-        ..Default::default()
-    };
-    let reader = journal_reader(ctx, &ReadArgs {
-        selector,
-        ..Default::default()
-    }).await?;
+    let reader = journal_reader(ctx, &args).await?;
 
     // Reader for the ops log of the task
     let ops_collection = "ops.us-central1.v1/logs".to_string();
@@ -161,7 +157,7 @@ pub async fn do_suggest_schema(
     // Build a new JSONSchema from the updated inferred shape
     let new_jsonschema = SchemaBuilder::new(inferred_shape).root_schema();
 
-    let collection_name = collection.split("/").last().unwrap();
+    let collection_name = args.selector.collection.split("/").last().unwrap();
 
     let original_schema_file_name = format!("{collection_name}.original.schema.json");
     std::fs::write(&original_schema_file_name, serde_json::to_string_pretty(&original_jsonschema)?)?;
@@ -169,7 +165,7 @@ pub async fn do_suggest_schema(
     let new_schema_file_name = format!("{collection_name}.new.schema.json");
     std::fs::write(&new_schema_file_name, serde_json::to_string_pretty(&new_jsonschema)?)?;
 
-    eprintln!("Wrote original.schema.json and new.schema.json.");
+    eprintln!("Wrote {original_schema_file_name} and {new_schema_file_name}.");
 
     // git diff is much better at diffing JSON structures, it is pretty smart to show the diff in a
     // way that is human-readable and understandable, and doesn't mess up the JSON structure.
