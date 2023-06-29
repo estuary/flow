@@ -58,6 +58,22 @@ pub fn for_projection(projection: &flow::Projection) -> Result<doc::Extractor> {
         return Err(Error::InferenceNotFound);
     };
 
+    // Special-case for date-time extracted from the clock component of a UUID.
+    // Compare to assemble::inference_uuid_v1_date_time().
+    if matches!(inf,
+        flow::Inference {
+            string:
+                Some(flow::inference::String {
+                    format,
+                    content_encoding,
+                    ..
+                }),
+            ..
+        } if format == "date-time" && content_encoding == "uuid")
+    {
+        return Ok(doc::Extractor::for_uuid_v1_date_time(&projection.ptr));
+    }
+
     let default = if inf.default_json != "" {
         serde_json::from_str(&inf.default_json).map_err(Error::ParseDefault)?
     } else {
@@ -79,6 +95,7 @@ mod test {
             {"field": "user_key", "ptr": "/the/key", "explicit": true, "inference": {"default": "user_key"}},
             {"field": "foo", "ptr": "/foo", "inference": {"default": 32}},
             {"field": "user_bar", "ptr": "/bar/baz", "explicit": true, "inference": {}},
+            {"field": "flow_published_at", "ptr": "/_meta/uuid", "inference": {"string": {"format": "date-time", "contentEncoding": "uuid"}}},
         ]))
         .unwrap();
         projections.sort_by(|l, r| l.field.cmp(&r.field));
@@ -97,6 +114,7 @@ mod test {
                     ],
                 ),
                 default: String("user_key"),
+                is_uuid_v1_date_time: false,
             },
             Extractor {
                 ptr: Pointer(
@@ -110,11 +128,12 @@ mod test {
                     ],
                 ),
                 default: Null,
+                is_uuid_v1_date_time: false,
             },
         ]
         "###);
 
-        insta::assert_debug_snapshot!(for_fields(&["user_bar", "foo"], &projections).unwrap(), @r###"
+        insta::assert_debug_snapshot!(for_fields(&["user_bar", "foo", "flow_published_at"], &projections).unwrap(), @r###"
         [
             Extractor {
                 ptr: Pointer(
@@ -128,6 +147,7 @@ mod test {
                     ],
                 ),
                 default: Null,
+                is_uuid_v1_date_time: false,
             },
             Extractor {
                 ptr: Pointer(
@@ -138,6 +158,21 @@ mod test {
                     ],
                 ),
                 default: Number(32),
+                is_uuid_v1_date_time: false,
+            },
+            Extractor {
+                ptr: Pointer(
+                    [
+                        Property(
+                            "_meta",
+                        ),
+                        Property(
+                            "uuid",
+                        ),
+                    ],
+                ),
+                default: Null,
+                is_uuid_v1_date_time: true,
             },
         ]
         "###);

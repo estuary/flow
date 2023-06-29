@@ -3408,9 +3408,6 @@ impl serde::Serialize for inference::String {
         if !self.content_encoding.is_empty() {
             len += 1;
         }
-        if self.is_base64 {
-            len += 1;
-        }
         if self.max_length != 0 {
             len += 1;
         }
@@ -3423,9 +3420,6 @@ impl serde::Serialize for inference::String {
         }
         if !self.content_encoding.is_empty() {
             struct_ser.serialize_field("contentEncoding", &self.content_encoding)?;
-        }
-        if self.is_base64 {
-            struct_ser.serialize_field("isBase64", &self.is_base64)?;
         }
         if self.max_length != 0 {
             struct_ser.serialize_field("maxLength", &self.max_length)?;
@@ -3445,8 +3439,6 @@ impl<'de> serde::Deserialize<'de> for inference::String {
             "format",
             "content_encoding",
             "contentEncoding",
-            "is_base64",
-            "isBase64",
             "max_length",
             "maxLength",
         ];
@@ -3456,7 +3448,6 @@ impl<'de> serde::Deserialize<'de> for inference::String {
             ContentType,
             Format,
             ContentEncoding,
-            IsBase64,
             MaxLength,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3482,7 +3473,6 @@ impl<'de> serde::Deserialize<'de> for inference::String {
                             "contentType" | "content_type" => Ok(GeneratedField::ContentType),
                             "format" => Ok(GeneratedField::Format),
                             "contentEncoding" | "content_encoding" => Ok(GeneratedField::ContentEncoding),
-                            "isBase64" | "is_base64" => Ok(GeneratedField::IsBase64),
                             "maxLength" | "max_length" => Ok(GeneratedField::MaxLength),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
@@ -3506,7 +3496,6 @@ impl<'de> serde::Deserialize<'de> for inference::String {
                 let mut content_type__ = None;
                 let mut format__ = None;
                 let mut content_encoding__ = None;
-                let mut is_base64__ = None;
                 let mut max_length__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
@@ -3528,12 +3517,6 @@ impl<'de> serde::Deserialize<'de> for inference::String {
                             }
                             content_encoding__ = Some(map.next_value()?);
                         }
-                        GeneratedField::IsBase64 => {
-                            if is_base64__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("isBase64"));
-                            }
-                            is_base64__ = Some(map.next_value()?);
-                        }
                         GeneratedField::MaxLength => {
                             if max_length__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("maxLength"));
@@ -3548,7 +3531,6 @@ impl<'de> serde::Deserialize<'de> for inference::String {
                     content_type: content_type__.unwrap_or_default(),
                     format: format__.unwrap_or_default(),
                     content_encoding: content_encoding__.unwrap_or_default(),
-                    is_base64: is_base64__.unwrap_or_default(),
                     max_length: max_length__.unwrap_or_default(),
                 })
             }

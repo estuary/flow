@@ -119,6 +119,7 @@ pub fn walk_collection(
         collection,
         projections,
         partition_stores,
+        UUID_PTR,
     ))
 }
 
@@ -174,8 +175,10 @@ fn walk_collection_projections(
         errors,
     );
 
-    // Map explicit projections into built flow::Projection instances.
     let mut saw_root_projection = false;
+    let mut saw_uuid_timestamp_projection = false;
+
+    // Map explicit projections into built flow::Projection instances.
     let mut projections = projections
         .iter()
         .map(|(field, projection)| {
@@ -189,9 +192,6 @@ fn walk_collection_projections(
                 } => (location, *partition),
             };
 
-            if ptr.as_str() == "" {
-                saw_root_projection = true;
-            }
             if partition {
                 indexed::walk_name(
                     scope,
@@ -200,6 +200,22 @@ fn walk_collection_projections(
                     models::PartitionField::regex(),
                     errors,
                 );
+            }
+
+            if ptr.as_str() == "" {
+                saw_root_projection = true;
+            } else if ptr.as_str() == UUID_DATE_TIME_PTR && !partition {
+                saw_uuid_timestamp_projection = true;
+
+                // UUID_DATE_TIME_PTR is not a location that actually exists.
+                // Return a synthetic projection because walk_ptr() will fail.
+                return flow::Projection {
+                    ptr: UUID_PTR.to_string(),
+                    field: field.to_string(),
+                    explicit: true,
+                    inference: Some(assemble::inference_uuid_v1_date_time()),
+                    ..Default::default()
+                };
             }
 
             if let Err(err) = effective_read_schema.walk_ptr(ptr, partition) {
@@ -237,11 +253,19 @@ fn walk_collection_projections(
         projections.push(flow::Projection {
             ptr: "".to_string(),
             field: "flow_document".to_string(),
-            explicit: false,
-            is_primary_key: false,
-            is_partition_key: false,
             inference: Some(assemble::inference(r_shape, r_exists)),
+            ..Default::default()
         });
+    }
+    // If we didn't see an explicit projection of the UUID timestamp,
+    // and an implicit projection with field "flow_published_at".
+    if !saw_uuid_timestamp_projection {
+        projections.push(flow::Projection {
+            ptr: UUID_PTR.to_string(),
+            field: "flow_published_at".to_string(),
+            inference: Some(assemble::inference_uuid_v1_date_time()),
+            ..Default::default()
+        })
     }
 
     // Now add implicit projections for the collection key.
@@ -370,3 +394,6 @@ pub fn walk_selector(
         }
     }
 }
+
+const UUID_PTR: &str = "/_meta/uuid";
+const UUID_DATE_TIME_PTR: &str = "/_meta/uuid/date-time";

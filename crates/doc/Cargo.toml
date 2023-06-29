@@ -25,8 +25,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
+time = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 allocator = { path = "../allocator" }
