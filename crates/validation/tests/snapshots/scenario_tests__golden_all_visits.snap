@@ -102,6 +102,33 @@ All {
                                         ),
                                     },
                                     Projection {
+                                        ptr: "/_meta/uuid",
+                                        field: "flow_published_at",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "date-time",
+                                                        content_encoding: "uuid",
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "Flow Publication Time",
+                                                description: "Flow publication date-time of this document",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
                                         ptr: "/int",
                                         field: "int",
                                         explicit: false,
@@ -137,7 +164,6 @@ All {
                                                         content_type: "",
                                                         format: "",
                                                         content_encoding: "",
-                                                        is_base64: false,
                                                         max_length: 0,
                                                     },
                                                 ),
@@ -446,6 +472,33 @@ All {
                                         ),
                                     },
                                     Projection {
+                                        ptr: "/_meta/uuid",
+                                        field: "flow_published_at",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "date-time",
+                                                        content_encoding: "uuid",
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "Flow Publication Time",
+                                                description: "Flow publication date-time of this document",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
                                         ptr: "/int",
                                         field: "int",
                                         explicit: false,
@@ -481,7 +534,6 @@ All {
                                                         content_type: "",
                                                         format: "",
                                                         content_encoding: "",
-                                                        is_base64: false,
                                                         max_length: 0,
                                                     },
                                                 ),
@@ -604,6 +656,33 @@ All {
                                         ),
                                     },
                                     Projection {
+                                        ptr: "/_meta/uuid",
+                                        field: "flow_published_at",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "date-time",
+                                                        content_encoding: "uuid",
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "Flow Publication Time",
+                                                description: "Flow publication date-time of this document",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
                                         ptr: "/int",
                                         field: "int",
                                         explicit: false,
@@ -639,7 +718,6 @@ All {
                                                         content_type: "",
                                                         format: "",
                                                         content_encoding: "",
-                                                        is_base64: false,
                                                         max_length: 0,
                                                     },
                                                 ),
@@ -941,6 +1019,33 @@ All {
                             },
                         ),
                     },
+                    Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
                 ],
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
@@ -1034,6 +1139,33 @@ All {
                                 string: None,
                                 title: "",
                                 description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
                                 default_json: "",
                                 secret: false,
                                 exists: Must,
@@ -1202,6 +1334,33 @@ All {
                                                         string: None,
                                                         title: "",
                                                         description: "",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Must,
+                                                    },
+                                                ),
+                                            },
+                                            Projection {
+                                                ptr: "/_meta/uuid",
+                                                field: "flow_published_at",
+                                                explicit: false,
+                                                is_partition_key: false,
+                                                is_primary_key: false,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [
+                                                            "string",
+                                                        ],
+                                                        string: Some(
+                                                            String {
+                                                                content_type: "",
+                                                                format: "date-time",
+                                                                content_encoding: "uuid",
+                                                                max_length: 0,
+                                                            },
+                                                        ),
+                                                        title: "Flow Publication Time",
+                                                        description: "Flow publication date-time of this document",
                                                         default_json: "",
                                                         secret: false,
                                                         exists: Must,
@@ -1377,6 +1536,33 @@ All {
                                                         string: None,
                                                         title: "",
                                                         description: "",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Must,
+                                                    },
+                                                ),
+                                            },
+                                            Projection {
+                                                ptr: "/_meta/uuid",
+                                                field: "flow_published_at",
+                                                explicit: false,
+                                                is_partition_key: false,
+                                                is_primary_key: false,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [
+                                                            "string",
+                                                        ],
+                                                        string: Some(
+                                                            String {
+                                                                content_type: "",
+                                                                format: "date-time",
+                                                                content_encoding: "uuid",
+                                                                max_length: 0,
+                                                            },
+                                                        ),
+                                                        title: "Flow Publication Time",
+                                                        description: "Flow publication date-time of this document",
                                                         default_json: "",
                                                         secret: false,
                                                         exists: Must,
@@ -1681,7 +1867,6 @@ All {
                                         content_type: "",
                                         format: "",
                                         content_encoding: "",
-                                        is_base64: false,
                                         max_length: 0,
                                     },
                                 ),
@@ -1727,6 +1912,33 @@ All {
                                 string: None,
                                 title: "",
                                 description: "",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
                                 default_json: "",
                                 secret: false,
                                 exists: Must,
@@ -1789,7 +2001,6 @@ All {
                                         content_type: "",
                                         format: "",
                                         content_encoding: "",
-                                        is_base64: false,
                                         max_length: 0,
                                     },
                                 ),
@@ -1817,7 +2028,6 @@ All {
                                         content_type: "",
                                         format: "",
                                         content_encoding: "",
-                                        is_base64: false,
                                         max_length: 0,
                                     },
                                 ),
@@ -1960,7 +2170,6 @@ All {
                                                                 content_type: "",
                                                                 format: "",
                                                                 content_encoding: "",
-                                                                is_base64: false,
                                                                 max_length: 0,
                                                             },
                                                         ),
@@ -2033,6 +2242,33 @@ All {
                                                 ),
                                             },
                                             Projection {
+                                                ptr: "/_meta/uuid",
+                                                field: "flow_published_at",
+                                                explicit: false,
+                                                is_partition_key: false,
+                                                is_primary_key: false,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [
+                                                            "string",
+                                                        ],
+                                                        string: Some(
+                                                            String {
+                                                                content_type: "",
+                                                                format: "date-time",
+                                                                content_encoding: "uuid",
+                                                                max_length: 0,
+                                                            },
+                                                        ),
+                                                        title: "Flow Publication Time",
+                                                        description: "Flow publication date-time of this document",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Must,
+                                                    },
+                                                ),
+                                            },
+                                            Projection {
                                                 ptr: "/int",
                                                 field: "int",
                                                 explicit: false,
@@ -2088,7 +2324,6 @@ All {
                                                                 content_type: "",
                                                                 format: "",
                                                                 content_encoding: "",
-                                                                is_base64: false,
                                                                 max_length: 0,
                                                             },
                                                         ),
@@ -2116,7 +2351,6 @@ All {
                                                                 content_type: "",
                                                                 format: "",
                                                                 content_encoding: "",
-                                                                is_base64: false,
                                                                 max_length: 0,
                                                             },
                                                         ),
@@ -2312,7 +2546,6 @@ All {
                                                                 content_type: "",
                                                                 format: "",
                                                                 content_encoding: "",
-                                                                is_base64: false,
                                                                 max_length: 0,
                                                             },
                                                         ),
@@ -2358,6 +2591,33 @@ All {
                                                         string: None,
                                                         title: "",
                                                         description: "",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Must,
+                                                    },
+                                                ),
+                                            },
+                                            Projection {
+                                                ptr: "/_meta/uuid",
+                                                field: "flow_published_at",
+                                                explicit: false,
+                                                is_partition_key: false,
+                                                is_primary_key: false,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [
+                                                            "string",
+                                                        ],
+                                                        string: Some(
+                                                            String {
+                                                                content_type: "",
+                                                                format: "date-time",
+                                                                content_encoding: "uuid",
+                                                                max_length: 0,
+                                                            },
+                                                        ),
+                                                        title: "Flow Publication Time",
+                                                        description: "Flow publication date-time of this document",
                                                         default_json: "",
                                                         secret: false,
                                                         exists: Must,
@@ -2420,7 +2680,6 @@ All {
                                                                 content_type: "",
                                                                 format: "",
                                                                 content_encoding: "",
-                                                                is_base64: false,
                                                                 max_length: 0,
                                                             },
                                                         ),
@@ -2448,7 +2707,6 @@ All {
                                                                 content_type: "",
                                                                 format: "",
                                                                 content_encoding: "",
-                                                                is_base64: false,
                                                                 max_length: 0,
                                                             },
                                                         ),
@@ -2724,6 +2982,33 @@ All {
                         ),
                     },
                     Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_custom",
+                        explicit: true,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
                         ptr: "/int",
                         field: "int",
                         explicit: false,
@@ -2759,7 +3044,6 @@ All {
                                         content_type: "",
                                         format: "",
                                         content_encoding: "",
-                                        is_base64: false,
                                         max_length: 0,
                                     },
                                 ),
@@ -2902,6 +3186,33 @@ All {
                                                 ),
                                             },
                                             Projection {
+                                                ptr: "/_meta/uuid",
+                                                field: "flow_published_at",
+                                                explicit: false,
+                                                is_partition_key: false,
+                                                is_primary_key: false,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [
+                                                            "string",
+                                                        ],
+                                                        string: Some(
+                                                            String {
+                                                                content_type: "",
+                                                                format: "date-time",
+                                                                content_encoding: "uuid",
+                                                                max_length: 0,
+                                                            },
+                                                        ),
+                                                        title: "Flow Publication Time",
+                                                        description: "Flow publication date-time of this document",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Must,
+                                                    },
+                                                ),
+                                            },
+                                            Projection {
                                                 ptr: "/int",
                                                 field: "int",
                                                 explicit: false,
@@ -2937,7 +3248,6 @@ All {
                                                                 content_type: "",
                                                                 format: "",
                                                                 content_encoding: "",
-                                                                is_base64: false,
                                                                 max_length: 0,
                                                             },
                                                         ),
@@ -3217,6 +3527,33 @@ All {
                         ),
                     },
                     Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
                         ptr: "/int",
                         field: "int",
                         explicit: false,
@@ -3252,7 +3589,6 @@ All {
                                         content_type: "",
                                         format: "",
                                         content_encoding: "",
-                                        is_base64: false,
                                         max_length: 0,
                                     },
                                 ),
@@ -3389,7 +3725,6 @@ All {
                                         content_type: "",
                                         format: "",
                                         content_encoding: "",
-                                        is_base64: false,
                                         max_length: 0,
                                     },
                                 ),
@@ -3462,6 +3797,33 @@ All {
                         ),
                     },
                     Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
                         ptr: "/int",
                         field: "int",
                         explicit: false,
@@ -3517,7 +3879,6 @@ All {
                                         content_type: "",
                                         format: "",
                                         content_encoding: "",
-                                        is_base64: false,
                                         max_length: 0,
                                     },
                                 ),
@@ -3545,7 +3906,6 @@ All {
                                         content_type: "",
                                         format: "",
                                         content_encoding: "",
-                                        is_base64: false,
                                         max_length: 0,
                                     },
                                 ),
@@ -3665,6 +4025,33 @@ All {
                         ),
                     },
                     Projection {
+                        ptr: "/_meta/uuid",
+                        field: "flow_published_at",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "string",
+                                ],
+                                string: Some(
+                                    String {
+                                        content_type: "",
+                                        format: "date-time",
+                                        content_encoding: "uuid",
+                                        max_length: 0,
+                                    },
+                                ),
+                                title: "Flow Publication Time",
+                                description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
                         ptr: "/int",
                         field: "int",
                         explicit: false,
@@ -3700,7 +4087,6 @@ All {
                                         content_type: "",
                                         format: "",
                                         content_encoding: "",
-                                        is_base64: false,
                                         max_length: 0,
                                     },
                                 ),
@@ -3870,6 +4256,33 @@ All {
                                         ),
                                     },
                                     Projection {
+                                        ptr: "/_meta/uuid",
+                                        field: "flow_published_at",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "date-time",
+                                                        content_encoding: "uuid",
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "Flow Publication Time",
+                                                description: "Flow publication date-time of this document",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
                                         ptr: "/int",
                                         field: "int",
                                         explicit: false,
@@ -3905,7 +4318,6 @@ All {
                                                         content_type: "",
                                                         format: "",
                                                         content_encoding: "",
-                                                        is_base64: false,
                                                         max_length: 0,
                                                     },
                                                 ),
@@ -4255,6 +4667,33 @@ All {
                                         ),
                                     },
                                     Projection {
+                                        ptr: "/_meta/uuid",
+                                        field: "flow_published_at",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "date-time",
+                                                        content_encoding: "uuid",
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "Flow Publication Time",
+                                                description: "Flow publication date-time of this document",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
                                         ptr: "/int",
                                         field: "int",
                                         explicit: false,
@@ -4290,7 +4729,6 @@ All {
                                                         content_type: "",
                                                         format: "",
                                                         content_encoding: "",
-                                                        is_base64: false,
                                                         max_length: 0,
                                                     },
                                                 ),
@@ -4492,7 +4930,6 @@ All {
                                                         content_type: "",
                                                         format: "",
                                                         content_encoding: "",
-                                                        is_base64: false,
                                                         max_length: 0,
                                                     },
                                                 ),
@@ -4538,6 +4975,33 @@ All {
                                                 string: None,
                                                 title: "",
                                                 description: "",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/_meta/uuid",
+                                        field: "flow_published_at",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "string",
+                                                ],
+                                                string: Some(
+                                                    String {
+                                                        content_type: "",
+                                                        format: "date-time",
+                                                        content_encoding: "uuid",
+                                                        max_length: 0,
+                                                    },
+                                                ),
+                                                title: "Flow Publication Time",
+                                                description: "Flow publication date-time of this document",
                                                 default_json: "",
                                                 secret: false,
                                                 exists: Must,
@@ -4600,7 +5064,6 @@ All {
                                                         content_type: "",
                                                         format: "",
                                                         content_encoding: "",
-                                                        is_base64: false,
                                                         max_length: 0,
                                                     },
                                                 ),
@@ -4628,7 +5091,6 @@ All {
                                                         content_type: "",
                                                         format: "",
                                                         content_encoding: "",
-                                                        is_base64: false,
                                                         max_length: 0,
                                                     },
                                                 ),
@@ -5142,6 +5604,9 @@ All {
               "key": [
                 "/int"
               ],
+              "projections": {
+                "flow_published_custom": "/_meta/uuid/date-time"
+              },
               "derive": {
                 "using": {
                   "typescript": {
@@ -5547,7 +6012,7 @@ All {
             resource: test://example/int-reverse,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"testing/int-reverse":{"derive":{"transforms":[{"name":"reverseIntString","shuffle":"any","source":{"name":"testing/int-string"}}],"using":{"typescript":{"module":"int-reverse.ts"}}},"key":["/int"],"schema":"test://example/int-string.schema"}},"import":["test://example/int-string"]},
+            content_dom: {"collections":{"testing/int-reverse":{"derive":{"transforms":[{"name":"reverseIntString","shuffle":"any","source":{"name":"testing/int-string"}}],"using":{"typescript":{"module":"int-reverse.ts"}}},"key":["/int"],"projections":{"flow_published_custom":"/_meta/uuid/date-time"},"schema":"test://example/int-string.schema"}},"import":["test://example/int-string"]},
         },
         Resource {
             resource: test://example/int-reverse.ts,

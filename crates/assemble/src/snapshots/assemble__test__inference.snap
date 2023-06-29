@@ -13,7 +13,6 @@ expression: "&[out1, out2]"
                 content_type: "a/type",
                 format: "date-time",
                 content_encoding: "BaSE64",
-                is_base64: true,
                 max_length: 123,
             },
         ),

@@ -1,5 +1,5 @@
 use doc::inference::{Exists, Shape};
-use json::schema::types;
+use json::schema::{formats, types};
 use proto_flow::flow;
 use proto_gazette::{broker, consumer};
 use serde_json::Value;
@@ -14,13 +14,6 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
         .default
         .as_ref()
         .map(|(v, _)| v.to_string())
-        .unwrap_or_default();
-
-    let is_base64 = shape
-        .string
-        .content_encoding
-        .as_ref()
-        .map(|v| v.to_ascii_lowercase() == "base64")
         .unwrap_or_default();
 
     let exists = match exists {
@@ -46,12 +39,28 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
                     .map(|f| f.to_string())
                     .unwrap_or_default(),
                 content_encoding: shape.string.content_encoding.clone().unwrap_or_default(),
-                is_base64,
                 max_length: shape.string.max_length.unwrap_or_default() as u32,
             })
         } else {
             None
         },
+    }
+}
+
+// inference_uuid_timestamp is a special-case flow::Inference
+// for the timestamp embedded within the Flow document UUID.
+pub fn inference_uuid_v1_date_time() -> flow::Inference {
+    flow::Inference {
+        types: vec!["string".to_string()],
+        string: Some(flow::inference::String {
+            format: formats::Format::DateTime.to_string(),
+            content_encoding: "uuid".to_string(),
+            ..Default::default()
+        }),
+        title: "Flow Publication Time".to_string(),
+        description: "Flow publication date-time of this document".to_string(),
+        exists: flow::inference::Exists::Must as i32,
+        ..Default::default()
     }
 }
 
@@ -389,6 +398,7 @@ pub fn collection_spec(
     collection: &tables::Collection,
     projections: Vec<flow::Projection>,
     stores: &[models::Store],
+    uuid_ptr: &str,
 ) -> flow::CollectionSpec {
     let tables::Collection {
         scope: _,
@@ -422,9 +432,6 @@ pub fn collection_spec(
         })
         .collect();
 
-    // For the forseeable future, we don't allow customizing this.
-    let uuid_ptr = "/_meta/uuid".to_string();
-
     let (write_schema_json, read_schema_json) = match (schema, write_schema, read_schema) {
         (Some(schema), None, None) => (schema.to_string(), String::new()),
         (None, Some(write_schema), Some(read_schema)) => {
@@ -440,7 +447,7 @@ pub fn collection_spec(
         key: key.iter().map(|p| p.to_string()).collect(),
         projections,
         partition_fields,
-        uuid_ptr,
+        uuid_ptr: uuid_ptr.to_string(),
         ack_template_json: serde_json::json!({
                 "_meta": {"uuid": "DocUUIDPlaceholder-329Bb50aa48EAa9ef",
                 "ack": true,
