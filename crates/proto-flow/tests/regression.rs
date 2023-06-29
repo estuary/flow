@@ -22,7 +22,6 @@ fn ex_projections() -> Vec<flow::Projection> {
                 content_encoding: "enc".to_string(),
                 content_type: "typ".to_string(),
                 format: "date".to_string(),
-                is_base64: false,
                 max_length: 12345,
             }),
             types: vec!["integer".to_string(), "string".to_string()],

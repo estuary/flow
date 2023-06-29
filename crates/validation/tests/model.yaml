@@ -173,6 +173,9 @@ test://example/int-reverse:
     testing/int-reverse:
       schema: test://example/int-string.schema
       key: [/int]
+      projections:
+        # Alternate, custom field for the canonical `flow_published_at`.
+        flow_published_custom: /_meta/uuid/date-time
       derive:
         using:
           typescript:
