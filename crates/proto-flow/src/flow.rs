@@ -99,9 +99,6 @@ pub mod inference {
         /// Annotated Content-Encoding when the projection is of "string" type.
         #[prost(string, tag = "7")]
         pub content_encoding: ::prost::alloc::string::String,
-        /// Is the Content-Encoding "base64" (case-invariant)?
-        #[prost(bool, tag = "5")]
-        pub is_base64: bool,
         /// Maximum length when the projection is of "string" type. Zero for no
         /// limit.
         #[prost(uint32, tag = "6")]

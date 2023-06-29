@@ -95,14 +95,13 @@ message Inference {
   repeated string types = 1;
   // String type-specific inferences, or nil iff types doesn't include "string".
   message String {
+    reserved 1, 2, 5;
     // Annotated Content-Type when the projection is of "string" type.
     string content_type = 3;
     // Annotated format when the projection is of "string" type.
     string format = 4;
     // Annotated Content-Encoding when the projection is of "string" type.
     string content_encoding = 7;
-    // Is the Content-Encoding "base64" (case-invariant)?
-    bool is_base64 = 5;
     // Maximum length when the projection is of "string" type. Zero for no
     // limit.
     uint32 max_length = 6;

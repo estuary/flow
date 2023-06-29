@@ -1,4 +1,4 @@
-use crate::{compare::compare, ArchivedNode, AsNode, LazyNode, Pointer};
+use crate::{compare::compare, ArchivedNode, AsNode, LazyNode, Node, Pointer};
 use bytes::BufMut;
 use std::borrow::Cow;
 use tuple::TuplePack;
@@ -9,6 +9,7 @@ use tuple::TuplePack;
 pub struct Extractor {
     ptr: Pointer,
     default: serde_json::Value,
+    is_uuid_v1_date_time: bool,
 }
 
 impl Extractor {
@@ -18,6 +19,7 @@ impl Extractor {
         Self {
             ptr: Pointer::from(ptr),
             default: serde_json::Value::Null,
+            is_uuid_v1_date_time: false,
         }
     }
 
@@ -27,6 +29,16 @@ impl Extractor {
         Self {
             ptr: Pointer::from(ptr),
             default,
+            is_uuid_v1_date_time: false,
+        }
+    }
+
+    /// Build an extractor for the JSON pointer, which is a v1 UUID.
+    pub fn for_uuid_v1_date_time(ptr: &str) -> Self {
+        Self {
+            ptr: Pointer::from(ptr),
+            default: serde_json::Value::Null,
+            is_uuid_v1_date_time: true,
         }
     }
 
@@ -43,10 +55,33 @@ impl Extractor {
         &'s self,
         doc: &'n N,
     ) -> Result<&'n N, Cow<'s, serde_json::Value>> {
-        match self.ptr.query(doc) {
-            Some(n) => Ok(n),
-            None => Err(Cow::Borrowed(&self.default)),
+        let Some(node) = self.ptr.query(doc) else {
+            return Err(Cow::Borrowed(&self.default));
+        };
+
+        if self.is_uuid_v1_date_time {
+            if let Some(date_time) = match node.as_node() {
+                Node::String(s) => Some(s),
+                _ => None,
+            }
+            .and_then(|s| uuid::Uuid::parse_str(s).ok())
+            .and_then(|u| u.get_timestamp())
+            .and_then(|t| {
+                let (seconds, nanos) = t.to_unix();
+                time::OffsetDateTime::from_unix_timestamp_nanos(
+                    seconds as i128 * 1_000_000_000 + nanos as i128,
+                )
+                .ok()
+            }) {
+                return Err(Cow::Owned(serde_json::Value::String(
+                    date_time
+                        .format(&time::format_description::well_known::Rfc3339)
+                        .expect("rfc3339 format always succeeds"),
+                )));
+            }
         }
+
+        Ok(node)
     }
 
     /// Extract a packed tuple representation from an instance of doc::AsNode.
@@ -131,6 +166,11 @@ mod test {
             "doub": 1.3,
             "unsi": 2,
             "sign": -30,
+            "uuid-ts": [
+                "85bad119-15f2-11ee-8401-43f05f562888",
+                "1878923d-162a-11ee-8401-43f05f562888",
+                "6d304974-1631-11ee-8401-whoops"
+            ]
         });
 
         let extractors = vec![
@@ -144,6 +184,11 @@ mod test {
             Extractor::new("/sign"),
             Extractor::new("/obj"),
             Extractor::new("/arr"),
+            Extractor::for_uuid_v1_date_time("/uuid-ts/0"),
+            Extractor::for_uuid_v1_date_time("/uuid-ts/1"),
+            Extractor::for_uuid_v1_date_time("/uuid-ts/2"),
+            Extractor::for_uuid_v1_date_time("/missing"),
+            Extractor::for_uuid_v1_date_time("/fals"),
         ];
 
         let mut buffer = bytes::BytesMut::new();
@@ -177,6 +222,19 @@ mod test {
             ),
             Bytes(
                 b"\x5b\x22foo\x22\x5d",
+            ),
+            String(
+                "2023-06-28T20:29:46.4945945Z",
+            ),
+            String(
+                "2023-06-29T03:07:35.0056509Z",
+            ),
+            String(
+                "6d304974-1631-11ee-8401-whoops",
+            ),
+            Nil,
+            Bool(
+                false,
             ),
         ]
         "###);
