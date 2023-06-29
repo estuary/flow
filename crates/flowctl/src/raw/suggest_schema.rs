@@ -36,6 +36,11 @@ use anyhow::anyhow;
 /// The reason for including all documents from the collection is that the task's existing schema
 /// may be missing some fields, and we want to also be able to extend the existing schema with
 /// these missing fields.
+///
+/// The outputs of this command are two files: the original schema of the collection, and the new,
+/// suggested schema of the collection. There is also a diff run on the two files automatically by
+/// the command to help recognise the differences between them. This command is meant to be used by
+/// a user to come up with a good JSON Merge Patch for the collection.
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct SuggestSchema {
@@ -138,6 +143,8 @@ pub async fn do_suggest_schema(
     let mut inferred_shape = raw_schema_to_shape(&schema_model)?;
 
     // Create a JSONSchema object from the original schema so we can use it to run a diff later
+    // The reason for this is that this allows us to have JSONSchema outputs that have a similar
+    // structure, allowing us to do a more intuitive diff
     let original_jsonschema = SchemaBuilder::new(inferred_shape.clone()).root_schema();
 
     loop {
