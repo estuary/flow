@@ -21,13 +21,53 @@ pub struct BucketAndPrefix {
 }
 
 impl BucketAndPrefix {
-    fn bucket_and_prefix(&self) -> (&str, &str) {
-        (self.bucket.as_str(), self.prefix.as_deref().unwrap_or(""))
+    fn uri_path(&self) -> String {
+        format!("{}/{}", self.bucket, self.prefix.as_deref().unwrap_or(""))
     }
 
     pub fn example() -> Self {
         Self {
             bucket: "my-bucket".to_string(),
+            prefix: None,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Validate)]
+#[schemars(example = "AzureStorageConfig::example")]
+pub struct AzureStorageConfig {
+    /// The tenant ID that owns the storage account that we're writing into
+    /// NOTE: This is not the tenant ID that owns the servie principal
+    account_tenant_id: String,
+
+    /// Storage accounts in Azure are the equivalent to a "bucket" in S3
+    storage_account_name: String,
+
+    /// In azure, blobs are stored inside of containers, which live inside accounts
+    container_name: String,
+
+    /// Optional prefix of keys written to the bucket.
+    #[validate]
+    #[serde(default)]
+    prefix: Option<Prefix>,
+}
+
+impl AzureStorageConfig {
+    fn uri_path(&self) -> String {
+        format!(
+            "{}/{}/{}/{}/",
+            self.account_tenant_id,
+            self.storage_account_name,
+            self.container_name,
+            self.prefix.as_deref().unwrap_or("")
+        )
+    }
+
+    pub fn example() -> Self {
+        Self {
+            account_tenant_id: "689f4ac1-038c-44cc-a1f9-8a65bc33386e".to_string(),
+            storage_account_name: "storageaccount".to_string(),
+            container_name: "containername".to_string(),
             prefix: None,
         }
     }
@@ -58,8 +98,8 @@ impl CustomStore {
         }
     }
 
-    fn bucket_and_prefix(&self) -> (&str, &str) {
-        (self.bucket.as_str(), self.prefix.as_deref().unwrap_or(""))
+    fn uri_path(&self) -> String {
+        format!("{}/{}", self.bucket, self.prefix.as_deref().unwrap_or(""))
     }
 }
 
@@ -84,7 +124,7 @@ pub enum Store {
     ///# Google Cloud Storage.
     Gcs(BucketAndPrefix),
     ///# Azure object storage service.
-    Azure(BucketAndPrefix),
+    Azure(AzureStorageConfig),
     ///# An S3-compatible endpoint
     Custom(CustomStore),
 }
@@ -92,7 +132,8 @@ pub enum Store {
 impl Validate for Store {
     fn validate(&self) -> Result<(), validator::ValidationErrors> {
         match self {
-            Self::S3(s) | Self::Gcs(s) | Self::Azure(s) => s.validate(),
+            Self::S3(s) | Self::Gcs(s) => s.validate(),
+            Self::Azure(s) => s.validate(),
             Self::Custom(s) => s.validate(),
         }
     }
@@ -103,14 +144,14 @@ impl Store {
         Self::S3(BucketAndPrefix::example())
     }
     pub fn to_url(&self, catalog_name: &str) -> url::Url {
-        let (scheme, (bucket, prefix)) = match self {
-            Self::S3(cfg) => ("s3", cfg.bucket_and_prefix()),
-            Self::Gcs(cfg) => ("gs", cfg.bucket_and_prefix()),
-            Self::Azure(cfg) => ("azure", cfg.bucket_and_prefix()),
+        let (scheme, path) = match self {
+            Self::S3(cfg) => ("s3", cfg.uri_path()),
+            Self::Gcs(cfg) => ("gs", cfg.uri_path()),
+            Self::Azure(cfg) => ("azure-ad", cfg.uri_path()),
             // Custom storage endpoints are expected to be s3-compatible, and thus use the s3 scheme
-            Self::Custom(cfg) => ("s3", cfg.bucket_and_prefix()),
+            Self::Custom(cfg) => ("s3", cfg.uri_path()),
         };
-        let mut url = url::Url::parse(&format!("{}://{}/{}", scheme, bucket, prefix))
+        let mut url = url::Url::parse(&format!("{}://{}", scheme, path))
             .expect("parsing as URL should never fail");
         if let Store::Custom(cfg) = self {
             let tenant = catalog_name
