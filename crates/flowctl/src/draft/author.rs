@@ -1,4 +1,4 @@
-use crate::{api_exec, catalog::SpecSummaryItem, controlplane, local_specs};
+use crate::{api_exec_paginated, catalog::SpecSummaryItem, controlplane, local_specs};
 use anyhow::Context;
 use serde::Serialize;
 
@@ -12,7 +12,7 @@ pub struct Author {
 
 pub async fn clear_draft(client: controlplane::Client, draft_id: &str) -> anyhow::Result<()> {
     tracing::info!(%draft_id, "clearing existing specs from draft");
-    api_exec::<Vec<serde_json::Value>>(
+    api_exec_paginated::<Vec<serde_json::Value>>(
         client.from("draft_specs").eq("draft_id", draft_id).delete(),
     )
     .await
@@ -106,7 +106,7 @@ pub async fn upsert_draft_specs(
     }
     body.push(']' as u8);
 
-    let rows: Vec<SpecSummaryItem> = api_exec(
+    let rows: Vec<SpecSummaryItem> = api_exec_paginated(
         client
             .from("draft_specs")
             .select("catalog_name,spec_type")

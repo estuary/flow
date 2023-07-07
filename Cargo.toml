@@ -86,7 +86,8 @@ pbjson = "0.5.1"
 pbjson-types = "0.5.1"
 percent-encoding = "2.1"
 pin-project = "1.0.12"
-postgrest = { git = "https://github.com/estuary/postgrest-rs", branch = "johnny/patches" }
+postgrest = { git = "https://github.com/jshearer/postgrest-rs", branch = "joseph/combined_changes_rebased" }
+page-turner = "0.8.2"
 prost = "0.11"
 protobuf = "3.1"
 protobuf-json-mapping = "3.1"

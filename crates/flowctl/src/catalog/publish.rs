@@ -1,4 +1,4 @@
-use crate::{api_exec, controlplane, draft, local_specs, CliContext};
+use crate::{api_exec_paginated, controlplane, draft, local_specs, CliContext};
 use anyhow::Context;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -41,7 +41,7 @@ pub async fn remove_unchanged(
             .select("catalog_name,md5")
             .in_("catalog_name", names);
 
-        let rows: Vec<SpecChecksumRow> = api_exec(builder).await?;
+        let rows: Vec<SpecChecksumRow> = api_exec_paginated(builder).await?;
         let chunk_checksums = rows
             .iter()
             .filter_map(|row| {

@@ -1,4 +1,4 @@
-use crate::{api_exec, catalog, draft, CliContext};
+use crate::{api_exec_paginated, catalog, draft, CliContext};
 use anyhow::Context;
 use serde::Serialize;
 
@@ -124,8 +124,9 @@ pub async fn do_delete(
         })
         .collect::<Vec<DraftSpec>>();
 
-    api_exec::<Vec<serde_json::Value>>(
-        ctx.controlplane_client().await?
+    api_exec_paginated::<Vec<serde_json::Value>>(
+        ctx.controlplane_client()
+            .await?
             .from("draft_specs")
             //.select("catalog_name,spec_type")
             .upsert(serde_json::to_string(&draft_specs).unwrap())

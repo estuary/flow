@@ -1,4 +1,4 @@
-use crate::{api_exec, catalog, local_specs};
+use crate::{api_exec_paginated, catalog, local_specs};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
@@ -26,7 +26,7 @@ pub async fn do_develop(
 ) -> anyhow::Result<()> {
     let draft_id = ctx.config().cur_draft()?;
     let client = ctx.controlplane_client().await?;
-    let rows: Vec<DraftSpecRow> = api_exec(
+    let rows: Vec<DraftSpecRow> = api_exec_paginated(
         client
             .from("draft_specs")
             .select("catalog_name,spec,spec_type")

@@ -15,12 +15,16 @@ mod generate;
 mod local_specs;
 mod ops;
 mod output;
+mod pagination;
 mod poll;
 mod preview;
 mod raw;
 
 use output::{Output, OutputType};
 use poll::poll_while_queued;
+
+use crate::pagination::PaginationClient;
+use crate::pagination::PaginationRequest;
 
 /// A command-line tool for working with Estuary Flow.
 #[derive(Debug, Parser)]
@@ -192,7 +196,7 @@ impl Cli {
 }
 
 // api_exec runs a PostgREST request, debug-logs its request, and turns non-success status into an anyhow::Error.
-async fn api_exec<T>(b: postgrest::Builder<'_>) -> anyhow::Result<T>
+async fn api_exec<T>(b: postgrest::Builder) -> anyhow::Result<T>
 where
     for<'de> T: serde::Deserialize<'de>,
 {
@@ -209,6 +213,26 @@ where
         let body = resp.text().await?;
         anyhow::bail!("{status}: {body}");
     }
+}
+
+/// Execute a [`postgrest::Builder`] request returning multiple rows. Unlike [`api_exec`]
+/// which is limited to however many rows Postgrest is configured to return in a single response,
+/// this will issue as many paginated requests as neccesary to fetch every row.
+async fn api_exec_paginated<T>(b: postgrest::Builder) -> anyhow::Result<Vec<T>>
+where
+    for<'de> T: serde::Deserialize<'de> + Send + Sync,
+{
+    use futures::TryStreamExt;
+    use page_turner::PageTurner;
+
+    let pages = PaginationClient::<T>::new()
+        .pages(PaginationRequest::new(b))
+        .items()
+        .try_collect()
+        .await
+        .unwrap();
+
+    Ok(pages)
 }
 
 // new_table builds a comfy_table with UTF8 styling.
