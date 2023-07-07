@@ -1,4 +1,4 @@
-use super::{Collection, ConnectorConfig, RawValue, ShardTemplate};
+use super::{is_false, Collection, ConnectorConfig, RawValue, ShardTemplate};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -68,11 +68,17 @@ pub enum CaptureEndpoint {
 pub struct CaptureBinding {
     /// # Endpoint resource to capture from.
     pub resource: RawValue,
+    /// # Whether to disable the binding
+    /// Disabled bindings are inactive, and not validated.
+    /// They can be used to represent discovered resources that are
+    /// intentionally not being captured.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub disable: bool,
     /// # Name of the collection to capture into.
     // Note(johnny): If we need to add details about how data is written to a
     // target, we should turn this into a Target enum as has already been done
     // with Source (used by Materialization & Derive).
-    pub target: Target,
+    pub target: Collection,
 }
 
 impl CaptureDef {
@@ -101,74 +107,8 @@ impl CaptureBinding {
     pub fn example() -> Self {
         Self {
             resource: serde_json::from_value(json!({"stream": "a_stream"})).unwrap(),
-            target: Some(Collection::new("target/collection")).into(),
-        }
-    }
-}
-
-/// Target represents the destination side of a capture binding. It can be
-/// either the name of a Flow collection (e.g. "acmeCo/foo/bar") or `null` to
-/// disable the binding.
-#[derive(Debug, Clone)]
-pub struct Target(Option<Collection>);
-
-impl schemars::JsonSchema for Target {
-    fn schema_name() -> String {
-        "Target".to_string()
-    }
-
-    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-        let collection_schema = gen.subschema_for::<Collection>();
-        serde_json::from_value(json!({
-            "oneOf": [
-                collection_schema,
-                {
-                    "title": "Disabled binding",
-                    "description": "a null target indicates that the binding is disabled and will be ignored at runtime",
-                    "type": "null",
-                }
-            ]
-        })).unwrap()
-    }
-
-    fn is_referenceable() -> bool {
-        false
-    }
-}
-
-impl std::ops::Deref for Target {
-    type Target = Option<Collection>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl From<Option<Collection>> for Target {
-    fn from(value: Option<Collection>) -> Self {
-        Target(value)
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for Target {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value: Option<Collection> = Deserialize::deserialize(deserializer)?;
-        Ok(value.into())
-    }
-}
-
-impl serde::Serialize for Target {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self.0.as_ref() {
-            Some(collection) => collection.serialize(serializer),
-            // 'unit' is represented as an explicit null in serde_json.
-            None => serializer.serialize_unit(),
+            disable: false,
+            target: Collection::new("target/collection"),
         }
     }
 }

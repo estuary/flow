@@ -283,7 +283,7 @@ fn walk_materialization_request<'a>(
         .iter()
         .enumerate()
         // Filter the bindings that we send to the connector to only those that are enabled.
-        .filter(|(_, b)| b.non_null_resource().is_some())
+        .filter(|(_, b)| !b.disable)
         .map(|(binding_index, binding)| {
             walk_materialization_binding(
                 scope.push_prop("bindings").push_item(binding_index),
@@ -327,6 +327,7 @@ fn walk_materialization_binding<'a>(
                 exclude: fields_exclude,
                 recommended: _,
             },
+        ..
     } = binding;
 
     let (collection, source_partitions) = match source {

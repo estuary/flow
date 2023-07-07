@@ -74,23 +74,27 @@ test://example/catalog.yaml:
     testing/partially-disabled-capture:
       endpoint: { connector: { image: s3, config: {} }}
       bindings:
-        - target: ~
+        - target: disabled/test/one
+          disable: true
           resource: { stream: disabled-stream }
         - target: testing/collection
           resource: { stream: enabled-stream }
     testing/fully-disabled-capture:
       endpoint: { connector: { image: s3, config: {} }}
       bindings:
-        - target: ~
+        - target: disabled/test/two
+          disable: true
           resource: { stream: disabled-stream }
-        - target: ~
+        - target: disabled/test/three
+          disable: true
           resource: { stream: another-disabled-stream }
   materializations:
     testing/partially-disabled-materialization:
       endpoint: { connector: { image: s3, config: {} }}
       bindings:
         - source: testing/collection
-          resource: null
+          disable: true
+          resource: { stream: disabled-stream }
         - source: testing/collection
           resource: { stream: enabled-stream }
 
@@ -98,7 +102,8 @@ test://example/catalog.yaml:
       endpoint: { connector: { image: s3, config: {} }}
       bindings:
         - source: testing/collection
-          resource: null
+          disable: true
+          resource: { stream: disabled-stream }
       
   storageMappings:
     testing/:

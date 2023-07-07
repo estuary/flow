@@ -417,8 +417,8 @@ fn evolve_collection(
                 .or_insert_with(|| cap_spec.clone());
 
             for binding in new_spec.bindings.iter_mut() {
-                if binding.target.as_ref() == Some(&old_collection) {
-                    binding.target = Some(new_name.clone()).into();
+                if &binding.target == &old_collection {
+                    binding.target = new_name.clone();
                 }
             }
         }
@@ -435,9 +435,7 @@ fn evolve_collection(
 }
 
 fn has_cap_binding(spec: &models::CaptureDef, collection: &models::Collection) -> bool {
-    spec.bindings
-        .iter()
-        .any(|b| b.target.as_ref() == Some(collection))
+    spec.bindings.iter().any(|b| &b.target == collection)
 }
 
 fn has_mat_binding(spec: &models::MaterializationDef, collection: &models::Collection) -> bool {

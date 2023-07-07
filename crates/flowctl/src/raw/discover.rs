@@ -92,7 +92,8 @@ pub async fn do_discover(
             let collection = Collection::new(collection_name);
 
             capture_bindings.push(CaptureBinding {
-                target: Some(collection.clone()).into(),
+                target: collection.clone(),
+                disable: false,
                 resource: RawValue::from_string(binding.resource_config_json.clone())?.into(),
             });
 

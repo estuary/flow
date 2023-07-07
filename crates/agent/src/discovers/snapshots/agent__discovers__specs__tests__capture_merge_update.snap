@@ -13,11 +13,12 @@ expression: json!(out)
         "target": "acmeCo/renamed"
       },
       {
+        "disable": true,
         "resource": {
           "modified": "yup",
           "stream": "disabled"
         },
-        "target": null
+        "target": "test/collection/disabled"
       }
     ],
     "endpoint": {

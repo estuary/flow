@@ -219,7 +219,10 @@ fn walk_capture_request<'a>(
     let bindings = bindings
         .iter()
         .enumerate()
-        .filter(|(_, b)| b.target.is_some())
+        // Disabled bindings get skipped. We don't send them in the Validate request, and we also
+        // don't do any validation of the target name. By implication, the target of a disabled binding
+        // can be any catalog name, even if it doesn't exist or is otherwise "wrong".
+        .filter(|(_, b)| !b.disable)
         .map(|(binding_index, binding)| {
             walk_capture_binding(
                 scope.push_prop("bindings").push_item(binding_index),
@@ -252,16 +255,16 @@ fn walk_capture_binding<'a>(
     built_collections: &'a [tables::BuiltCollection],
     errors: &mut tables::Errors,
 ) -> Option<capture::request::validate::Binding> {
-    let models::CaptureBinding { resource, target } = binding;
+    let models::CaptureBinding {
+        resource, target, ..
+    } = binding;
 
     // We must resolve the target collection to continue.
     let built_collection = reference::walk_reference(
         scope,
         "this capture binding",
         "collection",
-        target
-            .as_ref()
-            .expect("only enabled bindings are validated"),
+        target,
         built_collections,
         |c| (&c.collection, Scope::new(&c.scope)),
         errors,

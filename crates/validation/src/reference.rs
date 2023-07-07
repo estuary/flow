@@ -11,9 +11,7 @@ pub fn gather_referenced_collections<'a>(
 
     for capture in captures {
         for binding in &capture.spec.bindings {
-            if let Some(collection) = binding.target.as_ref() {
-                out.insert(collection);
-            }
+            out.insert(&binding.target);
         }
     }
     for collection in collections {

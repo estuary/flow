@@ -331,15 +331,13 @@ fn indirect_materialization(
 
     for (index, models::MaterializationBinding { resource, .. }) in bindings.iter_mut().enumerate()
     {
-        if !resource.is_null() {
-            indirect_dom(
-                scope,
-                resource,
-                format!("{base}.resource.{index}.config"),
-                resources,
-                threshold,
-            )
-        }
+        indirect_dom(
+            scope,
+            resource,
+            format!("{base}.resource.{index}.config"),
+            resources,
+            threshold,
+        )
     }
 }
 
