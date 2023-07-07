@@ -1,5 +1,5 @@
 use crate::{
-    api_exec,
+    api_exec, api_exec_paginated,
     controlplane::Client,
     output::{to_table_row, CliOutput, JsonCell},
 };
@@ -211,8 +211,9 @@ async fn do_describe(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
             ]
         }
     }
-    let rows: Vec<Row> = api_exec(
-        ctx.controlplane_client().await?
+    let rows: Vec<Row> = api_exec_paginated(
+        ctx.controlplane_client()
+            .await?
             .from("draft_specs_ext")
             .select(
                 vec![
@@ -256,8 +257,9 @@ async fn do_list(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
             )
         }
     }
-    let rows: Vec<Row> = api_exec(
-        ctx.controlplane_client().await?
+    let rows: Vec<Row> = api_exec_paginated(
+        ctx.controlplane_client()
+            .await?
             .from("drafts_ext")
             .select("created_at,detail,id,num_specs,updated_at"),
     )
@@ -280,8 +282,9 @@ async fn do_select(
     ctx: &mut crate::CliContext,
     Select { id: select_id }: &Select,
 ) -> anyhow::Result<()> {
-    let matched: Vec<serde_json::Value> = api_exec(
-        ctx.controlplane_client().await?
+    let matched: Vec<serde_json::Value> = api_exec_paginated(
+        ctx.controlplane_client()
+            .await?
             .from("drafts")
             .eq("id", select_id)
             .select("id"),
@@ -337,7 +340,7 @@ pub async fn publish(client: Client, dry_run: bool, draft_id: &str) -> Result<()
         scope: String,
         detail: String,
     }
-    let errors: Vec<DraftError> = api_exec(
+    let errors: Vec<DraftError> = api_exec_paginated(
         client
             .from("draft_errors")
             .select("scope,detail")

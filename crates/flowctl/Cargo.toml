@@ -50,6 +50,7 @@ tonic = { workspace = true }
 rusqlite = { workspace = true }
 json-patch = { workspace = true }
 rustyline = { workspace = true }
+page-turner = { workspace = true }
 
 # open is used for opening URLs in the user's browser
 open = { workspace = true }
