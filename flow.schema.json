@@ -203,21 +203,17 @@
         "target"
       ],
       "properties": {
+        "disable": {
+          "title": "Whether to disable the binding",
+          "description": "Disabled bindings are inactive, and not validated. They can be used to represent discovered resources that are intentionally not being captured.",
+          "type": "boolean"
+        },
         "resource": {
           "title": "Endpoint resource to capture from."
         },
         "target": {
           "title": "Name of the collection to capture into.",
-          "oneOf": [
-            {
-              "$ref": "#/definitions/Collection"
-            },
-            {
-              "title": "Disabled binding",
-              "description": "a null target indicates that the binding is disabled and will be ignored at runtime",
-              "type": "null"
-            }
-          ]
+          "$ref": "#/definitions/Collection"
         }
       },
       "additionalProperties": false
@@ -701,6 +697,11 @@
         "source"
       ],
       "properties": {
+        "disable": {
+          "title": "Whether to disable the binding",
+          "description": "Disabled bindings are inactive, and not validated.",
+          "type": "boolean"
+        },
         "fields": {
           "title": "Selected projections for this materialization.",
           "default": {

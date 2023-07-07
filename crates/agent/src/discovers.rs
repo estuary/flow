@@ -251,17 +251,14 @@ impl DiscoverHandler {
         let targets = capture
             .bindings
             .iter()
-            .map(|models::CaptureBinding { target, .. }| target.as_ref().cloned())
+            .map(|models::CaptureBinding { target, .. }| target.clone())
             .collect::<Vec<_>>();
 
         catalog.captures.insert(capture_name, capture); // Replace merged capture.
 
         // Now resolve all targeted collections, if they exist.
         let resolved = agent_sql::discovers::resolve_merge_target_specs(
-            &targets
-                .iter()
-                .flat_map(|t| t.iter().map(models::Collection::as_str))
-                .collect::<Vec<_>>(),
+            &targets.iter().map(|t| t.as_str()).collect::<Vec<_>>(),
             CatalogType::Collection,
             draft_id,
             user_id,
