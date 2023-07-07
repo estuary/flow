@@ -23,8 +23,7 @@ mod raw;
 use output::{Output, OutputType};
 use poll::poll_while_queued;
 
-use crate::pagination::PaginationClient;
-use crate::pagination::PaginationRequest;
+use crate::pagination::into_items;
 
 /// A command-line tool for working with Estuary Flow.
 #[derive(Debug, Parser)]
@@ -220,17 +219,11 @@ where
 /// this will issue as many paginated requests as neccesary to fetch every row.
 async fn api_exec_paginated<T>(b: postgrest::Builder) -> anyhow::Result<Vec<T>>
 where
-    for<'de> T: serde::Deserialize<'de> + Send + Sync,
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
 {
     use futures::TryStreamExt;
-    use page_turner::PageTurner;
 
-    let pages = PaginationClient::<T>::new()
-        .pages(PaginationRequest::new(b))
-        .items()
-        .try_collect()
-        .await
-        .unwrap();
+    let pages = into_items(b).try_collect().await.unwrap();
 
     Ok(pages)
 }
