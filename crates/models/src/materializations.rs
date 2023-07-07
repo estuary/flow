@@ -1,4 +1,4 @@
-use super::{ConnectorConfig, Field, RawValue, RelativeUrl, ShardTemplate, Source};
+use super::{is_false, ConnectorConfig, Field, RawValue, RelativeUrl, ShardTemplate, Source};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -39,6 +39,10 @@ pub struct MaterializationBinding {
     pub resource: RawValue,
     /// # The collection to be materialized.
     pub source: Source,
+    /// # Whether to disable the binding
+    /// Disabled bindings are inactive, and not validated.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub disable: bool,
     /// # Selected projections for this materialization.
     #[serde(default)]
     pub fields: MaterializationFields,
@@ -46,7 +50,7 @@ pub struct MaterializationBinding {
 
 impl MaterializationBinding {
     pub fn non_null_resource(&self) -> Option<&RawValue> {
-        if self.resource.is_null() {
+        if self.disable {
             None
         } else {
             Some(&self.resource)
@@ -90,6 +94,7 @@ impl MaterializationBinding {
         Self {
             resource: serde_json::from_value(json!({"table": "a_table"})).unwrap(),
             source: Source::example(),
+            disable: false,
             fields: MaterializationFields::default(),
         }
     }
