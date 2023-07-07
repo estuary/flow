@@ -1500,6 +1500,7 @@ dependencies = [
  "models",
  "open",
  "ops",
+ "page-turner",
  "pbjson-types",
  "portpicker",
  "postgrest",
@@ -2762,6 +2763,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 
 [[package]]
+name = "page-turner"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "03e2600fd97e550faf2acfccde5342f3f0261c3566bb84698b3d7b3280230d07"
+dependencies = [
+ "async-trait",
+ "futures",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3078,8 +3089,8 @@ dependencies = [
 
 [[package]]
 name = "postgrest"
-version = "1.3.0"
-source = "git+https://github.com/estuary/postgrest-rs?branch=johnny/patches#382f37ab8fec3b413be08c15790a69f88dcc0dec"
+version = "1.5.0"
+source = "git+https://github.com/jshearer/postgrest-rs?branch=joseph/combined_changes_rebased#71285a6fa09f267b30bf0b44f65a0797b4a9eb81"
 dependencies = [
  "reqwest",
 ]

@@ -4,7 +4,7 @@ mod pull_specs;
 mod test;
 
 use crate::{
-    api_exec, controlplane,
+    api_exec, api_exec_paginated, controlplane,
     output::{to_table_row, CliOutput, JsonCell},
 };
 use itertools::Itertools;
@@ -91,10 +91,7 @@ pub struct NameSelector {
 }
 
 impl NameSelector {
-    pub fn add_live_specs_filters<'a>(
-        &self,
-        mut builder: postgrest::Builder<'a>,
-    ) -> postgrest::Builder<'a> {
+    pub fn add_live_specs_filters(&self, mut builder: postgrest::Builder) -> postgrest::Builder {
         if !self.prefix.is_empty() {
             let conditions = self
                 .prefix
@@ -154,11 +151,11 @@ impl SpecTypeSelector {
     /// The `include_deleted` paraemeter specifies whether to include deleted specs. This is handled outside of the
     /// `SpecTypeSelector` arguments, because it doesn't make sense in all contexts. For example, it wouldn't make sense
     /// to have a `--deleted` selector in `flowctl catalog delete`, but it does make sense as part of `flowctl catalog list`.
-    pub fn add_live_specs_filters<'a>(
+    pub fn add_live_specs_filters(
         &self,
-        mut builder: postgrest::Builder<'a>,
+        mut builder: postgrest::Builder,
         include_deleted: bool,
-    ) -> postgrest::Builder<'a> {
+    ) -> postgrest::Builder {
         let all = &[
             (CatalogSpecType::Capture.as_ref(), "eq", self.captures),
             (CatalogSpecType::Collection.as_ref(), "eq", self.collections),
@@ -301,7 +298,7 @@ pub async fn fetch_live_specs(
         .add_live_specs_filters(builder, list.deleted);
     let builder = list.name_selector.add_live_specs_filters(builder);
 
-    let rows = api_exec(builder).await?;
+    let rows = api_exec_paginated(builder).await?;
     Ok(rows)
 }
 
@@ -498,8 +495,9 @@ async fn do_history(ctx: &mut crate::CliContext, History { name }: &History) -> 
             ]
         }
     }
-    let rows: Vec<Row> = api_exec(
-        ctx.controlplane_client().await?
+    let rows: Vec<Row> = api_exec_paginated(
+        ctx.controlplane_client()
+            .await?
             .from("publication_specs_ext")
             .like("catalog_name", format!("{name}%"))
             .select(
@@ -549,7 +547,8 @@ async fn do_draft(
         mut spec_type,
     } = if let Some(publication_id) = publication_id {
         api_exec(
-            ctx.controlplane_client().await?
+            ctx.controlplane_client()
+                .await?
                 .from("publication_specs_ext")
                 .eq("catalog_name", name)
                 .eq("pub_id", publication_id)
@@ -559,7 +558,8 @@ async fn do_draft(
         .await?
     } else {
         api_exec(
-            ctx.controlplane_client().await?
+            ctx.controlplane_client()
+                .await?
                 .from("live_specs")
                 .eq("catalog_name", name)
                 .select("catalog_name,last_pub_id,pub_id:last_pub_id,spec,spec_type")
@@ -592,8 +592,9 @@ async fn do_draft(
     };
     tracing::debug!(?draft_spec, "inserting draft");
 
-    let rows: Vec<SpecSummaryItem> = api_exec(
-        ctx.controlplane_client().await?
+    let rows: Vec<SpecSummaryItem> = api_exec_paginated(
+        ctx.controlplane_client()
+            .await?
             .from("draft_specs")
             .select("catalog_name,spec_type")
             .upsert(serde_json::to_string(&draft_spec).unwrap())
