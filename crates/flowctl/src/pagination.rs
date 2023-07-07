@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use futures::Stream;
 use page_turner::PageTurner;
 use page_turner::PageTurnerOutput;
 use page_turner::TurnedPage;
@@ -95,6 +96,15 @@ where
             phantom: PhantomData,
         }
     }
+}
+
+pub fn into_items<T>(builder: postgrest::Builder) -> impl Stream<Item = Result<T, anyhow::Error>>
+where
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
+{
+    PaginationClient::<T>::new()
+        .into_pages(PaginationRequest::new(builder))
+        .items()
 }
 
 #[async_trait]
