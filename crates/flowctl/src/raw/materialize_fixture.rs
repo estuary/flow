@@ -106,7 +106,7 @@ pub async fn do_materialize_fixture(
                     continue;
                 }
 
-                let key_ex = extractors::for_key(&keys, projections)?;
+                let key_ex = extractors::for_fields(keys, projections)?;
                 let values_ex = extractors::for_fields(values, projections)?;
 
                 for (exists, doc) in &docs {
