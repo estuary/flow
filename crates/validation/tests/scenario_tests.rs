@@ -69,6 +69,46 @@ test://example/catalog.yaml:
         properties:
           id: {type: string}
         required: [id]
+    testing/partly-disabled-derivation:
+      key: [/id]
+      schema:
+        type: object
+        properties:
+          id: {type: string}
+        required: [id]
+      derive:
+        using:
+          sqlite: {}
+        transforms:
+          - name: enabledTransform
+            shuffle: any
+            source: { name: testing/collection }
+            lambda: 'select $id, 1 as count;'
+          - name: disabledTransform
+            shuffle: any
+            source: { name: testing/collection }
+            lambda: 'select $id, 2 as count;'
+            disable: true
+    testing/fully-disabled-derivation:
+      key: [/id]
+      schema:
+        type: object
+        properties:
+          id: {type: string}
+        required: [id]
+      derive:
+        using:
+          sqlite: {}
+        transforms:
+          - name: disabledTransformA
+            source: { name: testing/collection }
+            lambda: select $id, 1 as count;
+            disable: true
+          - name: disabledTransformB
+            source: { name: testing/collection }
+            lambda: select $id, 2 as count;
+            disable: true
+  
 
   captures:
     testing/partially-disabled-capture:
@@ -116,7 +156,22 @@ driver:
     s3:
       output: '[{"Config": {}}]'
 
-  derivations: {}
+  derivations:
+    testing/partly-disabled-derivation:
+      connectorType: SQLITE
+      config: {}
+      transforms:
+        - readOnly: true
+      shuffleKeyTypes: []
+      generatedFiles: {}
+
+    testing/fully-disabled-derivation:
+      connectorType: SQLITE
+      config: {}
+      transforms: []
+      shuffleKeyTypes: []
+      generatedFiles: {}
+
   captures:
     testing/partially-disabled-capture:
       connectorType: IMAGE

@@ -1,5 +1,5 @@
 use super::{
-    CompositeKey, ConnectorConfig, DeriveUsingSqlite, DeriveUsingTypescript, RawValue,
+    is_false, CompositeKey, ConnectorConfig, DeriveUsingSqlite, DeriveUsingTypescript, RawValue,
     ShardTemplate, Source, Transform,
 };
 use schemars::{schema::Schema, JsonSchema};
@@ -82,6 +82,11 @@ pub struct TransformDef {
     /// or as a relative URL to a file containing the lambda.
     #[serde(default, skip_serializing_if = "RawValue::is_null")]
     pub lambda: RawValue,
+
+    /// # Whether to disable this transform.
+    /// Disabled transforms are completely ignored at runtime and are not validated.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub disable: bool,
 }
 
 /// A Shuffle specifies how a shuffling key is to be extracted from

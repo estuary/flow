@@ -1207,6 +1207,11 @@
         "source"
       ],
       "properties": {
+        "disable": {
+          "title": "Whether to disable this transform.",
+          "description": "Disabled transforms are completely ignored at runtime and are not validated.",
+          "type": "boolean"
+        },
         "lambda": {
           "title": "Lambda applied to the sourced documents of this transform.",
           "description": "Lambdas may be provided inline, or as a relative URL to a file containing the lambda."

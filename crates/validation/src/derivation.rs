@@ -322,6 +322,7 @@ fn walk_derive_request<'a>(
         Vec<Vec<ShuffleType>>,
     ) = transforms
         .iter()
+        .filter(|t| !t.disable)
         .enumerate()
         .map(|(transform_index, transform)| {
             walk_derive_transform(
@@ -432,6 +433,7 @@ fn walk_derive_transform(
         priority: _,
         read_delay: _,
         lambda,
+        disable: _,
     } = transform;
 
     indexed::walk_name(
