@@ -219,6 +219,9 @@ message Response {
       ];
       // Composite key of documents (if known), as JSON-Pointers.
       repeated string key = 4;
+      // Whether this binding should be disabled by default
+      // and the user should opt-in to using it by enabling it manually
+      bool opt_in = 5;
     }
     repeated Binding bindings = 1;
   }
