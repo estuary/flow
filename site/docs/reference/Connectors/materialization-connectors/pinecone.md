@@ -25,30 +25,32 @@ To use this connector, you'll need:
 
 ## Embedding Input
 
-The materialization creates vector embeddings based on a text input from your collection. A field
-with type `string` must exist in your collection and it must be `required` in the collection schema.
+The materialization creates vector embeddings based on fields in your collection.
 
-By default the materialization connector will look for a field named `"input"` in your collection
-and use that value to create the embeddings. If you are using a
-[derivation](../../../concepts/derivations.md) to transform your source data before materializing it
-into Pinecone it may be convenient to create the derived collection with this field. Alternatively a
-[projection](../../../concepts/advanced/projections.md) can be configured for the source collection
-with the name of `"input"`. There is also an optional configuration for each binding to set an
-alternate name of the collection projection to use as the embedding input (see Bindings below).
+By default, fields of a single scalar type are including in the embedding: strings, integers,
+numbers, and booleans. Additional array or object type fields can optionally be included using
+[projected fields](../../../concepts/materialization.md#projected-fields).
+
+The text generated for the embedding has this structure, with field names and their values separated
+by newlines:
+```
+stringField: stringValue
+intField: 3
+numberField: 1.2
+boolField: false
+```
 
 ## Pinecone Record Metadata
 
 Pinecone supports metadata fields associated with stored vectors that can be used when performing
-[vector queries](https://www.pinecone.io/learn/vector-search-filtering/).
+[vector queries](https://www.pinecone.io/learn/vector-search-filtering/). This materialization will
+include the materialized document as a JSON string in the metadata field `flow_document` to enable
+retrieval of the document from vectors returned by Pinecone queries.
 
-This materialization will automatically include all compatible fields in the source collection as
-metadata, including the field used as `"input"` for creating the embedding.
-
-Compatible fields have the following types, and do not have to be `required`:
-- `integer`
-- `number`
-- `string`
-- `boolean`
+Pinecone indexes all metadata fields by default, and it is recommended that [selective metadata
+index](https://docs.pinecone.io/docs/manage-indexes#selective-metadata-indexing) be used to exclude
+the `flow_document` metadata field from indexing when creating the Pinecone index to manage memory
+usage of the index.
 
 ### Properties
 
@@ -69,7 +71,6 @@ Compatible fields have the following types, and do not have to be `required`:
 | Property           | Title                 | Description                                                                                                         | Type   | Required/Default |
 | ------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------- | ------ | ---------------- |
 | **`/namespace`**   | Pinecone Namespace    | Name of the Pinecone namespace that this collection will materialize vectors into.                                  | string | Required         |
-| `/inputProjection` | Input Projection Name | Alternate name of the collection projection to use as input for creating the vector embedding. Defaults to 'input'. | string | `"input"`        |
 
 ### Sample
 
