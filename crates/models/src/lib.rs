@@ -27,7 +27,7 @@ pub use derive_sqlite::DeriveUsingSqlite;
 pub use derive_typescript::DeriveUsingTypescript;
 pub use journals::{
     BucketAndPrefix, CompressionCodec, CustomStore, FragmentTemplate, JournalTemplate, StorageDef,
-    Store,
+    Store, BUCKET_RE,
 };
 pub use materializations::{
     MaterializationBinding, MaterializationDef, MaterializationEndpoint, MaterializationFields,
@@ -36,7 +36,7 @@ pub use materializations::{
 pub use raw_value::RawValue;
 pub use references::{
     Capture, Collection, CompositeKey, Field, JsonPointer, Materialization, PartitionField, Prefix,
-    RelativeUrl, StorageEndpoint, Test, Transform,
+    RelativeUrl, StorageEndpoint, Test, Transform, CATALOG_PREFIX_RE, TOKEN_RE,
 };
 pub use schemas::Schema;
 pub use shards::ShardTemplate;
