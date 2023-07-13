@@ -112,6 +112,11 @@ async fn main() -> Result<(), anyhow::Error> {
                 &bindir,
                 &logs_tx,
             )),
+            Box::new(agent::DerivationPreview::new(
+                &args.broker_address,
+                &args.bindir,
+                &logs_tx,
+            )),
             Box::new(agent::DirectiveHandler::new(args.accounts_email)),
             Box::new(agent::EvolutionHandler),
         ],

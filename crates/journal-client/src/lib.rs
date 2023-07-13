@@ -1,6 +1,7 @@
 pub mod fragments;
 pub mod list;
 pub mod read;
+pub mod append;
 
 use proto_grpc::broker::journal_client::JournalClient;
 use tonic::{

@@ -1,6 +1,7 @@
 pub mod connector_tags;
 pub mod directives;
 pub mod discovers;
+pub mod derivation_previews;
 pub mod drafts;
 pub mod evolutions;
 pub mod publications;
