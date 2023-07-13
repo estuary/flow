@@ -21,8 +21,14 @@ pub struct BucketAndPrefix {
 }
 
 impl BucketAndPrefix {
-    fn uri_path(&self) -> String {
-        format!("{}/{}", self.bucket, self.prefix.as_deref().unwrap_or(""))
+    fn as_url(&self, scheme: &str) -> url::Url {
+        url::Url::parse(&format!(
+            "{}://{}/{}",
+            scheme,
+            self.bucket,
+            self.prefix.as_deref().unwrap_or("")
+        ))
+        .expect("parsing as URL should never fail")
     }
 
     pub fn example() -> Self {
@@ -53,14 +59,15 @@ pub struct AzureStorageConfig {
 }
 
 impl AzureStorageConfig {
-    fn uri_path(&self) -> String {
-        format!(
-            "{}/{}/{}/{}/",
+    fn as_url(&self) -> url::Url {
+        url::Url::parse(&format!(
+            "azure-ad://{}/{}/{}/{}/",
             self.account_tenant_id,
             self.storage_account_name,
             self.container_name,
             self.prefix.as_deref().unwrap_or("")
-        )
+        ))
+        .expect("parsing as URL should never fail")
     }
 
     pub fn example() -> Self {
@@ -98,8 +105,17 @@ impl CustomStore {
         }
     }
 
-    fn uri_path(&self) -> String {
-        format!("{}/{}", self.bucket, self.prefix.as_deref().unwrap_or(""))
+    fn as_url(&self, scheme: &str, profile: &str) -> url::Url {
+        url::Url::parse_with_params(
+            &format!(
+                "{}://{}/{}",
+                scheme,
+                self.bucket,
+                self.prefix.as_deref().unwrap_or("")
+            ),
+            &[("profile", profile), ("endpoint", self.endpoint.as_str())],
+        )
+        .expect("parsing as URL should never fail")
     }
 }
 
@@ -144,25 +160,19 @@ impl Store {
         Self::S3(BucketAndPrefix::example())
     }
     pub fn to_url(&self, catalog_name: &str) -> url::Url {
-        let (scheme, path) = match self {
-            Self::S3(cfg) => ("s3", cfg.uri_path()),
-            Self::Gcs(cfg) => ("gs", cfg.uri_path()),
-            Self::Azure(cfg) => ("azure-ad", cfg.uri_path()),
+        match self {
+            Self::S3(cfg) => cfg.as_url("s3"),
+            Self::Gcs(cfg) => cfg.as_url("gs"),
+            Self::Azure(cfg) => cfg.as_url(),
             // Custom storage endpoints are expected to be s3-compatible, and thus use the s3 scheme
-            Self::Custom(cfg) => ("s3", cfg.uri_path()),
-        };
-        let mut url = url::Url::parse(&format!("{}://{}", scheme, path))
-            .expect("parsing as URL should never fail");
-        if let Store::Custom(cfg) = self {
-            let tenant = catalog_name
-                .split_once('/')
-                .expect("invalid catalog_name passed to Store::to_url")
-                .0;
-            url.query_pairs_mut()
-                .append_pair("profile", tenant)
-                .append_pair("endpoint", &cfg.endpoint);
+            Self::Custom(cfg) => {
+                let tenant = catalog_name
+                    .split_once('/')
+                    .expect("invalid catalog_name passed to Store::to_url")
+                    .0;
+                cfg.as_url("s3", tenant)
+            }
         }
-        url
     }
 }
 
