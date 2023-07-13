@@ -47,7 +47,7 @@ func getBackend(scheme string) backend {
 		return sharedStores.s3
 	case "gs":
 		return sharedStores.gcs
-	case "azure":
+	case "azure", "azure-ad":
 		return sharedStores.azure
 	case "file":
 		return sharedStores.fs
@@ -159,8 +159,13 @@ func parseStoreArgs(ep *url.URL, args interface{}) error {
 }
 
 func instrumentStoreOp(provider, op string, err error) {
+	var cause = errors.Unwrap(err)
 	if err != nil {
-		storeRequestTotal.WithLabelValues(provider, op, errors.Cause(err).Error()).Inc()
+		if cause != nil {
+			storeRequestTotal.WithLabelValues(provider, op, cause.Error()).Inc()
+		} else {
+			storeRequestTotal.WithLabelValues(provider, op, err.Error()).Inc()
+		}
 	} else {
 		storeRequestTotal.WithLabelValues(provider, op, "ok").Inc()
 	}

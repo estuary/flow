@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"net/url"
+	"strings"
 )
 
 // FragmentStore defines a storage backend base path for Journal Fragments.
@@ -50,6 +51,15 @@ func (fs FragmentStore) parse() (*url.URL, error) {
 	case "s3", "gs", "azure":
 		if url.Host == "" {
 			return nil, NewValidationError("missing bucket (%s)", fs)
+		}
+	case "azure-ad":
+		var splitPath = strings.Split(url.Path[1:], "/")
+		if url.Host == "" {
+			return nil, NewValidationError("missing tenant ID (%s)", fs)
+		} else if splitPath[0] == "" {
+			return nil, NewValidationError("missing storage account (%s)", fs)
+		} else if splitPath[1] == "" {
+			return nil, NewValidationError("missing storage container (%s)", fs)
 		}
 	case "file":
 		if url.Host != "" {
