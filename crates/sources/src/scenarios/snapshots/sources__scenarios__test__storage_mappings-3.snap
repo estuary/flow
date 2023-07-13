@@ -44,8 +44,10 @@ Sources {
             stores: [
               {
                 "provider": "AZURE",
-                "bucket": "s3-bucket",
-                "prefix": null
+                "account_tenant_id": "mozzarella",
+                "storage_account_name": "pizza",
+                "container_name": "pepperoni",
+                "prefix": "pineapple"
               }
             ],
         },

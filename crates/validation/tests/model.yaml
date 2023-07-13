@@ -16,7 +16,16 @@ test://example/catalog.yaml:
     recovery/testing/:
       stores: [{ provider: GCS, bucket: recovery-bucket, prefix: some/ }]
     not-matched/:
-      stores: [{ provider: AZURE, bucket: not-matched-bucket }]
+      stores:
+        [
+          {
+            provider: AZURE,
+            storage_account_name: pizza,
+            container_name: pepperoni,
+            prefix: pineapple,
+            account_tenant_id: mozzarella,
+          },
+        ]
 
 test://example/int-string:
   import:

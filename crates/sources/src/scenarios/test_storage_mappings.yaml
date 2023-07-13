@@ -9,7 +9,16 @@ test://example/catalog.yaml:
           bucket: s3-bucket
 
     other/thing/:
-      stores: [{ provider: AZURE, bucket: s3-bucket }]
+      stores:
+        [
+          {
+            provider: AZURE,
+            storage_account_name: pizza,
+            container_name: pepperoni,
+            prefix: pineapple,
+            account_tenant_id: mozzarella,
+          },
+        ]
 
     "":
       stores: [{ provider: S3, bucket: root-bucket }]
