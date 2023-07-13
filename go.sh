@@ -5,6 +5,8 @@ PROFILE="${PROFILE:-release}"
 export CGO_LDFLAGS="-L $(pwd)/target/${CARGO_BUILD_TARGET}/${PROFILE} -L $(pwd)/target/${CARGO_BUILD_TARGET}/${PROFILE}/librocksdb-exp -lbindings -lrocksdb -lsnappy -lstdc++ -ldl -lm"
 if [ "$(uname)" == "Darwin" ]; then
   export CGO_CFLAGS="-I $(pwd)/target/${CARGO_BUILD_TARGET}/${PROFILE}/librocksdb-exp/include -I $(brew --prefix)/include -I $(brew --prefix)/opt/sqlite3/include"
+  export CC="$(brew --prefix)/opt/llvm/bin/clang"
+  export CXX="$(brew --prefix)/opt/llvm/bin/clang"
 else
   export CGO_CFLAGS="-I $(pwd)/target/${CARGO_BUILD_TARGET}/${PROFILE}/librocksdb-exp/include"
 fi;
