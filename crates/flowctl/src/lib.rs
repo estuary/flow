@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 
+use anyhow::Context;
 use clap::AppSettings;
 use clap::Parser;
 
@@ -206,8 +207,11 @@ where
     let status = resp.status();
 
     if status.is_success() {
-        let v: T = resp.json().await?;
-        Ok(v)
+        let v: serde_json::Value = resp.json().await?;
+
+        tracing::trace!(response_body = %v, status = %status, "got successful response");
+        let t: T = serde_json::from_value(v).context("deserializing response body")?;
+        Ok(t)
     } else {
         let body = resp.text().await?;
         anyhow::bail!("{status}: {body}");
@@ -223,7 +227,7 @@ where
 {
     use futures::TryStreamExt;
 
-    let pages = into_items(b).try_collect().await.unwrap();
+    let pages = into_items(b).try_collect().await?;
 
     Ok(pages)
 }
