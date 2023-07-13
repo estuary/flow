@@ -22,7 +22,7 @@ test://example/catalog.yaml:
             provider: AZURE,
             storage_account_name: pizza,
             container_name: pepperoni,
-            prefix: pineapple,
+            prefix: pineapple/,
             account_tenant_id: mozzarella,
           },
         ]

@@ -19,7 +19,7 @@ Sources {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"storageMappings":{"":{"stores":[{"bucket":"root-bucket","provider":"S3"}]},"foo/bar/baz/":{"stores":[{"bucket":"a-bucket","prefix":"and-prefix/","provider":"GCS"},{"bucket":"s3-bucket","provider":"S3"}]},"other/thing/":{"stores":[{"account_tenant_id":"mozzarella","container_name":"pepperoni","prefix":"pineapple","provider":"AZURE","storage_account_name":"pizza"}]}}},
+            content_dom: {"storageMappings":{"":{"stores":[{"bucket":"root-bucket","provider":"S3"}]},"foo/bar/baz/":{"stores":[{"bucket":"a-bucket","prefix":"and-prefix/","provider":"GCS"},{"bucket":"s3-bucket","provider":"S3"}]},"other/thing/":{"stores":[{"account_tenant_id":"mozzarella","container_name":"pepperoni","prefix":"pineapple/","provider":"AZURE","storage_account_name":"pizza"}]}}},
         },
     ],
     storage_mappings: [
@@ -59,7 +59,7 @@ Sources {
                 "account_tenant_id": "mozzarella",
                 "storage_account_name": "pizza",
                 "container_name": "pepperoni",
-                "prefix": "pineapple"
+                "prefix": "pineapple/"
               }
             ],
         },

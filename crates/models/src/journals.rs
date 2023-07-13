@@ -12,16 +12,18 @@ use validator::Validate;
 pub struct BucketAndPrefix {
     /// Bucket into which Flow will store data.
     #[validate(regex = "BUCKET_RE")]
-    bucket: String,
+    pub bucket: String,
 
     /// Optional prefix of keys written to the bucket.
     #[validate]
     #[serde(default)]
-    prefix: Option<Prefix>,
+    pub prefix: Option<Prefix>,
 }
 
 impl BucketAndPrefix {
     fn as_url(&self, scheme: &str) -> url::Url {
+        // These are validated when we validate storage mappings
+        // to at least be legal characters in a URI
         url::Url::parse(&format!(
             "{}://{}/{}",
             scheme,
@@ -44,22 +46,24 @@ impl BucketAndPrefix {
 pub struct AzureStorageConfig {
     /// The tenant ID that owns the storage account that we're writing into
     /// NOTE: This is not the tenant ID that owns the servie principal
-    account_tenant_id: String,
+    pub account_tenant_id: String,
 
     /// Storage accounts in Azure are the equivalent to a "bucket" in S3
-    storage_account_name: String,
+    pub storage_account_name: String,
 
     /// In azure, blobs are stored inside of containers, which live inside accounts
-    container_name: String,
+    pub container_name: String,
 
     /// Optional prefix of keys written to the bucket.
     #[validate]
     #[serde(default)]
-    prefix: Option<Prefix>,
+    pub prefix: Option<Prefix>,
 }
 
 impl AzureStorageConfig {
     fn as_url(&self) -> url::Url {
+        // These are validated when we validate storage mappings
+        // to at least be legal characters in a URI
         url::Url::parse(&format!(
             "azure-ad://{}/{}/{}/{}/",
             self.account_tenant_id,
@@ -106,6 +110,8 @@ impl CustomStore {
     }
 
     fn as_url(&self, scheme: &str, profile: &str) -> url::Url {
+        // These are validated when we validate storage mappings
+        // to at least be legal characters in a URI
         url::Url::parse_with_params(
             &format!(
                 "{}://{}/{}",
@@ -311,7 +317,7 @@ impl JournalTemplate {
 lazy_static! {
     // BUCKET_RE matches a cloud provider bucket. Simplified from (look-around removed):
     // https://stackoverflow.com/questions/50480924/regex-for-s3-bucket-name
-    static ref BUCKET_RE: Regex =
+    pub static ref BUCKET_RE: Regex =
         Regex::new(r#"(^(([a-z0-9]|[a-z0-9][a-z0-9\-]*[a-z0-9])\.)*([a-z0-9]|[a-z0-9][a-z0-9\-]*[a-z0-9])$)"#).unwrap();
 }
 

@@ -1,5 +1,6 @@
 ---
 source: crates/sources/src/scenarios/mod.rs
+assertion_line: 42
 expression: tables
 ---
 Sources {
@@ -47,7 +48,7 @@ Sources {
                 "account_tenant_id": "mozzarella",
                 "storage_account_name": "pizza",
                 "container_name": "pepperoni",
-                "prefix": "pineapple"
+                "prefix": "pineapple/"
               }
             ],
         },
