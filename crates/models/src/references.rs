@@ -25,13 +25,13 @@ lazy_static! {
     // TOKEN is one or more TOKEN_CHARs.
     static ref TOKEN: String = ["[", TOKEN_CHAR, "]+"].concat();
     // TOKEN_RE is a single TOKEN component.
-    static ref TOKEN_RE: Regex = Regex::new(&TOKEN).unwrap();
+    pub static ref TOKEN_RE: Regex = Regex::new(&TOKEN).unwrap();
     // CATALOG_NAME_RE is one or more TOKEN components joined by '/'.
     // It may not begin or end in a '/'.
     static ref CATALOG_NAME_RE: Regex = Regex::new(&[&TOKEN, "(/", &TOKEN, ")*"].concat()).unwrap();
     // CATALOG_PREFIX_RE is TOKEN components joined by '/'.
     // It may not begin with '/', but unlike CATALOG_NAME_RE it _must_ end in '/'.
-    static ref CATALOG_PREFIX_RE: Regex = Regex::new( &["(", &TOKEN, "/)*"].concat()).unwrap();
+    pub static ref CATALOG_PREFIX_RE: Regex = Regex::new( &["(", &TOKEN, "/)*"].concat()).unwrap();
     // JSON_POINTER_RE matches a JSON pointer.
     static ref JSON_POINTER_RE: Regex = Regex::new(&["(/", &JSON_POINTER_CHAR, "+)*"].concat()).unwrap();
     // FIELD_RE is like a JSON_POINTER_RE, but doesn't require a leading '/'.

@@ -1,5 +1,6 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
+assertion_line: 20
 expression: tables
 ---
 All {
@@ -5976,7 +5977,7 @@ All {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"import":["test://example/int-string","test://example/int-reverse","test://example/int-halve","test://example/int-string-captures","test://example/webhook-deliveries","test://example/db-views","test://example/int-string-tests","test://example/array-key","test://example/from-array-key"],"storageMappings":{"not-matched/":{"stores":[{"account_tenant_id":"mozzarella","container_name":"pepperoni","prefix":"pineapple","provider":"AZURE","storage_account_name":"pizza"}]},"recovery/testing/":{"stores":[{"bucket":"recovery-bucket","prefix":"some/","provider":"GCS"}]},"testing/":{"stores":[{"bucket":"data-bucket","provider":"S3"}]}}},
+            content_dom: {"import":["test://example/int-string","test://example/int-reverse","test://example/int-halve","test://example/int-string-captures","test://example/webhook-deliveries","test://example/db-views","test://example/int-string-tests","test://example/array-key","test://example/from-array-key"],"storageMappings":{"not-matched/":{"stores":[{"account_tenant_id":"mozzarella","container_name":"pepperoni","prefix":"pineapple/","provider":"AZURE","storage_account_name":"pizza"}]},"recovery/testing/":{"stores":[{"bucket":"recovery-bucket","prefix":"some/","provider":"GCS"}]},"testing/":{"stores":[{"bucket":"data-bucket","provider":"S3"}]}}},
         },
         Resource {
             resource: test://example/cdc-config.yaml,
@@ -6073,7 +6074,7 @@ All {
                 "account_tenant_id": "mozzarella",
                 "storage_account_name": "pizza",
                 "container_name": "pepperoni",
-                "prefix": "pineapple"
+                "prefix": "pineapple/"
               }
             ],
         },

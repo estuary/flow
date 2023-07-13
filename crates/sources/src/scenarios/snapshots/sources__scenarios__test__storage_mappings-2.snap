@@ -47,7 +47,7 @@ Sources {
                 "account_tenant_id": "mozzarella",
                 "storage_account_name": "pizza",
                 "container_name": "pepperoni",
-                "prefix": "pineapple"
+                "prefix": "pineapple/"
               }
             ],
         },
