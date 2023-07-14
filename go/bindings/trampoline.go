@@ -106,10 +106,10 @@ func (s *trampolineServer) startTask(request []byte) {
 			"err":     err,
 		}).Trace("resolving trampoline task")
 
-		select {
-		case s.resolvedCh <- response:
-		case <-s.ctx.Done():
-		}
+		// We _must_ send the response, even if the context has been cancelled.
+		// This is because the BuildCatalog function will wait indefinitely on
+		// trampoline tasks to complete.
+		s.resolvedCh <- response
 	}()
 }
 
