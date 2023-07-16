@@ -19,7 +19,7 @@ Follow the steps below to set up the OracleDB connector.
 1. Log into your Estuary Flow account.
 2. In the left navigation bar, click on "Captures". In the top-left corner, click "Connector Search".
 3. Enter the name for the OracleDB connector and select "Oracle Database" from the dropdown.
-4. Enter a Primary Key using the standard form editor and mark it as "required" before doing so.
+4. Enter a Primary Key using the standard form editor.
 5. Add Schemas: JDBC URL Params. Additional properties to pass to the JDBC URL string when connecting to the database formatted as 'key=value' pairs separated by the symbol '&'. (example: key1=value1&key2=value2&key3=value3).
 6. Choose an option to Connect By:
 * Service Name

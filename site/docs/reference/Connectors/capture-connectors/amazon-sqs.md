@@ -18,7 +18,7 @@ Follow these steps to set up the Amazon SQS connector:
 
 1. [Create AWS IAM Keys](https://aws.amazon.com/premiumsupport/knowledge-center/create-access-key/)
 2. [Create an SQS Queue](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-getting-started.html#step-create-queue)
-3. Enter a Primary Key using the standard form editor and mark it as "required" before doing so.
+3. Enter a Primary Key using the standard form editor.
 
 :::note
 
