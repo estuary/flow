@@ -142,7 +142,7 @@ func (a *azureBackend) Persist(ctx context.Context, ep *url.URL, spool Spool) er
 	} else {
 		body = io.NewSectionReader(spool.File, 0, spool.ContentLength())
 	}
-	_, err = blobURL.Upload(ctx, body, headers, azblob.Metadata{}, azblob.BlobAccessConditions{}, azblob.DefaultAccessTier, azblob.BlobTagsMap{}, azblob.ClientProvidedKeyOptions{})
+	_, err = blobURL.Upload(ctx, body, headers, azblob.Metadata{}, azblob.BlobAccessConditions{}, azblob.DefaultAccessTier, azblob.BlobTagsMap{}, azblob.ClientProvidedKeyOptions{}, azblob.ImmutabilityPolicyOptions{})
 	return err
 }
 
