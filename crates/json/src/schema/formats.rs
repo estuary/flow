@@ -96,10 +96,21 @@ impl Format {
                 val,
                 &time::format_description::well_known::Rfc3339,
             )),
-            Self::Time => ValidationResult::from(time::Time::parse(
-                val,
-                &time::macros::format_description!("[hour]:[minute]:[second].[subsecond]Z"),
-            )),
+            Self::Time => {
+                let utc = ValidationResult::from(time::Time::parse(
+                    val,
+                    &time::macros::format_description!("[hour]:[minute]:[second].[subsecond]Z"),
+                ));
+
+                if utc.is_ok() {
+                    utc
+                } else {
+                    ValidationResult::from(time::Time::parse(
+                        val,
+                        &time::macros::format_description!("[hour]:[minute]:[second].[subsecond][offset_hour]:[offset_minute]"),
+                    ))
+                }
+            },
             Self::Email => ValidationResult::from(parse_email_address(val)),
             Self::Hostname => ValidationResult::from(parse_domain_name(val)),
             // The rules/test cases for these are absolutely bonkers
@@ -190,6 +201,9 @@ mod test {
             ("datetime", "2022-09-11T10:31:25.123Z", true), // Accepted alias.
             ("date-time", "10:31:25.123Z", false),
             ("time", "10:31:25.123Z", true),
+            ("time", "10:31:25.123+00:00", true),
+            ("time", "10:31:25.123-10:00", true),
+            ("time", "10:31:25.123-00:10", true),
             ("email", "john@doe.com", true),
             ("email", "john at doe.com", false),
             ("hostname", "hostname.com", true),
