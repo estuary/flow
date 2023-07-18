@@ -110,7 +110,7 @@ pub fn walk_all_storage_mappings(
                     if let Some(prefix) = &cfg.prefix {
                         indexed::walk_name(
                             scope.push_prop("prefix"),
-                            "custom storage mapping prefix",
+                            "azure storage path prefix",
                             prefix,
                             &CATALOG_PREFIX_RE,
                             errors,
