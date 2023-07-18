@@ -6,6 +6,7 @@ use fancy_regex::Regex;
 use iri_string::spec::{IriSpec, UriSpec};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use time::macros::format_description;
 
 use crate::validator::ValidationResult;
 
@@ -89,17 +90,27 @@ impl Format {
                 }
                 ValidationResult::from(time::Date::parse(
                     val,
-                    &time::macros::format_description!("[year]-[month]-[day]"),
+                    &format_description!("[year]-[month]-[day]"),
                 ))
             }
             Self::DateTime => ValidationResult::from(time::OffsetDateTime::parse(
                 val,
                 &time::format_description::well_known::Rfc3339,
             )),
-            Self::Time => ValidationResult::from(time::Time::parse(
-                val,
-                &time::macros::format_description!("[hour]:[minute]:[second].[subsecond]Z"),
-            )),
+            Self::Time => {
+                // [first] will choose the first matching format to parse the value
+                // see https://time-rs.github.io/book/api/format-description.html for more info
+                let full_format = format_description!(version = 2, "[first 
+                  [[hour]:[minute]:[second][optional [.[subsecond]]]Z]
+                  [[hour]:[minute]:[second][optional [.[subsecond]]]z]
+                  [[hour]:[minute]:[second][optional [.[subsecond]]][offset_hour]:[offset_minute]]
+                ]");
+
+                ValidationResult::from(time::Time::parse(
+                    val,
+                    &time::format_description::FormatItem::First(full_format),
+                ))
+            },
             Self::Email => ValidationResult::from(parse_email_address(val)),
             Self::Hostname => ValidationResult::from(parse_domain_name(val)),
             // The rules/test cases for these are absolutely bonkers
@@ -190,6 +201,13 @@ mod test {
             ("datetime", "2022-09-11T10:31:25.123Z", true), // Accepted alias.
             ("date-time", "10:31:25.123Z", false),
             ("time", "10:31:25.123Z", true),
+            ("time", "10:31:25.123z", true),
+            ("time", "10:31:25z", true),
+            ("time", "10:31:25.123+00:00", true),
+            ("time", "10:31:25.123-10:00", true),
+            ("time", "10:31:25.123-00:10", true),
+            ("time", "10:31:25-00:10", true),
+            ("time", "10:31:25+00:10", true),
             ("email", "john@doe.com", true),
             ("email", "john at doe.com", false),
             ("hostname", "hostname.com", true),
