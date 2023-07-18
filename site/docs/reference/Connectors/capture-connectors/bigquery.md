@@ -24,7 +24,7 @@ To sync data from BigQuery, you need credentials for a Service Account with the 
 ***Here's how to create a Service Account:***
 
 1. Follow Google Cloud Platform's guide for Creating a Service Account.
-2. Note down the ID of the Service Account as you will need to reference it later when granting roles. Service Account IDs typically follow the format <account-name>@<project-name>.iam.gserviceaccount.com.
+2. Note down the ID of the Service Account as you will need to reference it later when granting roles. Service Account IDs typically follow the format `<account-name>@<project-name>.iam.gserviceaccount.com`.
 3. Add the Service Account as a Member in your Google Cloud Project with the "BigQuery User" role. Refer to the instructions for Granting Access in the Google documentation. The email address of the member you add should be the same as the Service Account ID you created earlier.
 
 By now, you should have a Service Account with the "BigQuery User" project-level permission.
