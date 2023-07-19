@@ -25,9 +25,7 @@ We use an [Azure Application](https://learn.microsoft.com/en-us/azure/active-dir
 import { AzureAuthorizeComponent } from "./azureAuthorize";
 import BrowserOnly from "@docusaurus/BrowserOnly";
 
-<BrowserOnly>
-    <AzureAuthorizeComponent />
-</BrowserOnly>
+<BrowserOnly>{() => <AzureAuthorizeComponent />}</BrowserOnly>
 
 #### Authorize application to your storage account
 
