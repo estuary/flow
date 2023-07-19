@@ -4,7 +4,9 @@
   "description": "Logs related to the processing of a Flow capture, derivation, or materialization",
   "type": "object",
   "properties": {
-    "shard": { "$ref": "ops-shard-schema.json" },
+    "shard": {
+      "$ref": "ops-shard-schema.json"
+    },
     "ts": {
       "description": "Timestamp corresponding to the start of the transaction",
       "type": "string",

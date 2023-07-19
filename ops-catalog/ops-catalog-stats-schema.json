@@ -7,7 +7,9 @@
     "logCount": {
       "type": "integer",
       "description": "Total number of matching log events",
-      "reduce": { "strategy": "sum" },
+      "reduce": {
+        "strategy": "sum"
+      },
       "default": 0
     }
   },
@@ -32,10 +34,18 @@
     "statsSummary": {
       "type": "object",
       "properties": {
-        "readByMe": { "$ref": "ops-stats-schema.json#/$defs/docsAndBytes" },
-        "readFromMe": { "$ref": "ops-stats-schema.json#/$defs/docsAndBytes" },
-        "writtenByMe": { "$ref": "ops-stats-schema.json#/$defs/docsAndBytes" },
-        "writtenToMe": { "$ref": "ops-stats-schema.json#/$defs/docsAndBytes" },
+        "readByMe": {
+          "$ref": "ops-stats-schema.json#/$defs/docsAndBytes"
+        },
+        "readFromMe": {
+          "$ref": "ops-stats-schema.json#/$defs/docsAndBytes"
+        },
+        "writtenByMe": {
+          "$ref": "ops-stats-schema.json#/$defs/docsAndBytes"
+        },
+        "writtenToMe": {
+          "$ref": "ops-stats-schema.json#/$defs/docsAndBytes"
+        },
         "warnings": {
           "$ref": "#/$defs/logCount",
           "description": "Total number of logged warnings"
@@ -49,20 +59,35 @@
           "description": "Total number of shard failures"
         }
       },
-      "reduce": { "strategy": "merge" }
+      "reduce": {
+        "strategy": "merge"
+      }
     },
     "taskStats": {
       "type": "object",
       "properties": {
-        "capture": { "$ref": "ops-stats-schema.json#/properties/capture" },
+        "capture": {
+          "$ref": "ops-stats-schema.json#/properties/capture"
+        },
         "materialize": {
           "$ref": "ops-stats-schema.json#/properties/materialize"
         },
-        "derive": { "$ref": "ops-stats-schema.json#/properties/derive" }
+        "derive": {
+          "$ref": "ops-stats-schema.json#/properties/derive"
+        }
       },
-      "reduce": { "strategy": "merge" }
+      "reduce": {
+        "strategy": "merge"
+      }
     }
   },
-  "reduce": { "strategy": "merge" },
-  "required": ["catalogName", "grain", "ts", "statsSummary"]
+  "reduce": {
+    "strategy": "merge"
+  },
+  "required": [
+    "catalogName",
+    "grain",
+    "ts",
+    "statsSummary"
+  ]
 }
