@@ -287,7 +287,7 @@ You typically have just one prefix: your organization name, which you provided w
 If you're a trial user, your prefix is `trial/`, and this tab isn't applicable to you;
 your data is stored temporarily in Estuary's cloud storage bucket for your trial period.
 
-[Learn more about storage mappings.](./storage-mappings.md)
+[Learn more about storage mappings.](./storage-mappings/index.md)
 
 #### Connectors
 
