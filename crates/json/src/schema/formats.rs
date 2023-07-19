@@ -198,6 +198,10 @@ mod test {
             ("date", "2022-09-11", true),
             ("date", "2022-09-11T10:31:25.123Z", false),
             ("date-time", "2022-09-11T10:31:25.123Z", true),
+            ("date-time", "2022-09-11T10:31:25Z", true),
+            ("date-time", "2022-09-11T10:31:25z", true),
+            ("date-time", "2022-09-11T10:31:25+00:00", true),
+            ("date-time", "2022-09-11T10:31:25-00:00", true),
             ("datetime", "2022-09-11T10:31:25.123Z", true), // Accepted alias.
             ("date-time", "10:31:25.123Z", false),
             ("time", "10:31:25.123Z", true),
