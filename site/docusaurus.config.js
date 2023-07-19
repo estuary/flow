@@ -5,12 +5,17 @@ const lightCodeTheme = require('prism-react-renderer/themes/github');
 const darkCodeTheme = require('prism-react-renderer/themes/dracula');
 const codeImport = require('remark-code-import');
 
+const BASE_URL = process.env.BASE_URL || "/"
+const URL = process.env.URL || "https://docs.estuary.dev"
+
+console.log(`Building for: ${URL}${BASE_URL}`)
+
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   title: 'Estuary Flow',
   tagline: 'Dinosaurs are cool',
-  url: 'https://docs.estuary.dev',
-  baseUrl: '/',
+  url: URL,
+  baseUrl: BASE_URL,
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
   favicon: 'img/favicon-2.ico',

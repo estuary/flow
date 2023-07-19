@@ -247,7 +247,7 @@ A given capture or materialization may have multiple bindings, which connect mul
 Flow [collections](#collections) use cloud storage buckets for the durable storage of data.
 Storage mappings define how Flow maps your various collections into your storage buckets and prefixes.
 
-[Learn more about storage mappings](./storage-mappings.md)
+[Learn more about storage mappings](./storage-mappings/index.md)
 
 
 ## Advanced concepts
