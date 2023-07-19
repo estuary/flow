@@ -33,8 +33,7 @@ jobs:
             - name: Build `docs.estuary.dev`
               working-directory: ./site
               env:
-                  BASE_URL: /flow/pr-preview/pr-${{ github.event.number }}
-                  URL: https://estuary.github.io
+                  BASE_URL: /pr-preview/pr-${{ github.event.number }}
               run: npm run build
             - name: Deploy preview
               uses: rossjrw/pr-preview-action@v1
