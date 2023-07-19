@@ -628,7 +628,9 @@ fn extract_spec_metadata<'a>(
 
             if let Some(derivation) = &collection.derive {
                 for tdef in &derivation.transforms {
-                    reads_from.push(tdef.source.collection().as_ref());
+                    if !tdef.disable {
+                        reads_from.push(tdef.source.collection().as_ref());
+                    }
                 }
                 reads_from.reserve(1);
             }
@@ -642,7 +644,9 @@ fn extract_spec_metadata<'a>(
                 image_parts = Some(split_tag(&config.image));
             }
             for binding in &materialization.bindings {
-                reads_from.push(binding.source.collection().as_ref());
+                if !binding.disable {
+                    reads_from.push(binding.source.collection().as_ref());
+                }
             }
             reads_from.reserve(1);
         }

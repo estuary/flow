@@ -256,7 +256,9 @@ fn walk_capture_binding<'a>(
     errors: &mut tables::Errors,
 ) -> Option<capture::request::validate::Binding> {
     let models::CaptureBinding {
-        resource, target, ..
+        resource,
+        target,
+        disable: _,
     } = binding;
 
     // We must resolve the target collection to continue.
