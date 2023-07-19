@@ -116,7 +116,7 @@ tests:
           - {
               shard: *shard,
               ts: "2022-04-03T02:02:06Z",
-              level: warn
+              level: warn,
               # Message is deliberately omitted.
             }
 
@@ -136,9 +136,7 @@ tests:
                 - ops.us-central1.v1/logs
                 - ops.us-central1.v1/stats
 
-        documents: &docs
-
-          # Capture task
+        documents: &docs # Capture task
           - catalogName: "tenant/test/cap"
             grain: "daily"
             ts: "2022-04-03T00:00:00.000Z"
