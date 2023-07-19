@@ -76,7 +76,7 @@ The token will expire after a predetermined duration. Repeat this process to re-
 
 During your trial period, Flow uses Estuary's cloud storage to temporarily store your data.
 When you upgrade from a trial to an organizational account, you're provisioned a unique [prefix](../concepts/catalogs.md#namespace) in the Flow namespace,
-and transition to using your own cloud storage bucket to store your Flow data. This is called a [storage mapping](../concepts/storage-mappings.md).
+and transition to using your own cloud storage bucket to store your Flow data. This is called a [storage mapping](../concepts/storage-mappings/index.md).
 
 Flow supports Google Cloud Storage and Amazon S3 buckets.
 Before your account manager configures your bucket as your storage mapping, you must grant access to Estuary.
