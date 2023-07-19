@@ -8,6 +8,8 @@ const codeImport = require('remark-code-import');
 const BASE_URL = process.env.BASE_URL || "/"
 const URL = process.env.URL || "https://docs.estuary.dev"
 
+console.log(`Building for: ${URL}${BASE_URL}`)
+
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   title: 'Estuary Flow',
