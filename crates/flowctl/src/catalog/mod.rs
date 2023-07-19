@@ -7,6 +7,8 @@ use crate::{
     api_exec, api_exec_paginated, controlplane,
     output::{to_table_row, CliOutput, JsonCell},
 };
+use anyhow::Context;
+use futures::stream::{FuturesUnordered, StreamExt};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -76,6 +78,8 @@ pub enum Command {
 }
 
 /// Common selection criteria based on the spec name.
+/// Note that at most one of `name` or `prefix` can be non-empty.
+/// If both are specified, then `fetch_live_specs` will panic.
 #[derive(Default, Debug, Clone, clap::Args)]
 pub struct NameSelector {
     /// Select a spec by name. May be provided multiple times.
@@ -88,29 +92,6 @@ pub struct NameSelector {
     /// prefixes.
     #[clap(long, conflicts_with = "name")]
     pub prefix: Vec<String>,
-}
-
-impl NameSelector {
-    pub fn add_live_specs_filters(&self, mut builder: postgrest::Builder) -> postgrest::Builder {
-        if !self.prefix.is_empty() {
-            let conditions = self
-                .prefix
-                .iter()
-                .map(|prefix| format!("catalog_name.like.\"{prefix}%\""))
-                .join(",");
-            builder = builder.or(conditions);
-        }
-
-        if !self.name.is_empty() {
-            let name_sel = self
-                .name
-                .iter()
-                .map(|name| format!("catalog_name.eq.\"{name}\""))
-                .join(",");
-            builder = builder.or(name_sel);
-        }
-        builder
-    }
 }
 
 /// Common selection criteria based on the type of catalog item.
@@ -287,19 +268,78 @@ impl Catalog {
     }
 }
 
+/// Fetches `LiveSpecRow`s from the `live_specs_ext` view.
+/// This may make multiple requests as necessary.
+///
+/// # Panics
+/// If the name_selector `name` and `prefix` are both non-empty.
 pub async fn fetch_live_specs(
     cp_client: controlplane::Client,
     list: &List,
     columns: Vec<&'static str>,
 ) -> anyhow::Result<Vec<LiveSpecRow>> {
+    // When fetching by name or prefix, we break the requested names into chunks
+    // and send a separate request for each. This is to avoid overflowing the
+    // URL length limit in postgREST.
+    const BATCH_SIZE: usize = 25;
+
+    if !list.name_selector.name.is_empty() && !list.name_selector.prefix.is_empty() {
+        panic!("cannot specify both 'name' and 'prefix' for filtering live specs");
+    }
+
     let builder = cp_client.from("live_specs_ext").select(columns.join(","));
     let builder = list
         .type_selector
         .add_live_specs_filters(builder, list.deleted);
-    let builder = list.name_selector.add_live_specs_filters(builder);
 
-    let rows = api_exec_paginated(builder).await?;
-    Ok(rows)
+    // Drive the actual request(s) based on the name selector, since the arguments there may
+    // necessitate multiple requests.
+    if !list.name_selector.name.is_empty() {
+        let mut stream = list
+            .name_selector
+            .name
+            .chunks(BATCH_SIZE)
+            .map(|batch| {
+                // These weird extra scopes are to convince the borrow checker
+                // that we're moving the cloned builder into the async block,
+                // not the original builder. And also to clarify that we're not
+                // moving `batch` into the async block.
+                let builder = builder.clone().in_("catalog_name", batch);
+                async move {
+                    // No need for pagination because we're paginating the inputs.
+                    api_exec::<Vec<LiveSpecRow>>(builder).await
+                }
+            })
+            .collect::<FuturesUnordered<_>>();
+        let mut rows = Vec::with_capacity(list.name_selector.name.len());
+        while let Some(result) = stream.next().await {
+            rows.extend(result.context("exectuting live_specs_ext fetch")?);
+        }
+        Ok(rows)
+    } else if !list.name_selector.prefix.is_empty() {
+        let mut stream = list
+            .name_selector
+            .prefix
+            .chunks(BATCH_SIZE)
+            .map(|batch| async {
+                let conditions = batch
+                    .iter()
+                    .map(|prefix| format!("catalog_name.like.\"{prefix}%\""))
+                    .join(",");
+                // We need to paginate the results, since prefixes can match many rows.
+                api_exec_paginated::<LiveSpecRow>(builder.clone().or(conditions)).await
+            })
+            .collect::<FuturesUnordered<_>>();
+
+        let mut rows = Vec::with_capacity(list.name_selector.name.len());
+        while let Some(result) = stream.next().await {
+            rows.extend(result.context("exectuting live_specs_ext fetch")?);
+        }
+        Ok(rows)
+    } else {
+        // For anything else, just execute a single request and paginate the results.
+        api_exec_paginated::<LiveSpecRow>(builder).await
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone)]
