@@ -124,10 +124,11 @@ pub async fn walk_all_materializations<C: Connectors>(
                 let models::MaterializationBinding {
                     ref source,
                     ref fields,
-                    ..
+                    disable: _,
+                    resource: _,
                 } = binding_models
                     .iter()
-                    .filter(|b| b.non_null_resource().is_some())
+                    .filter(|b| !b.disable)
                     .nth(binding_index)
                     .expect("models bindings are consistent with validation requests bindings");
 
@@ -327,7 +328,7 @@ fn walk_materialization_binding<'a>(
                 exclude: fields_exclude,
                 recommended: _,
             },
-        ..
+        disable: _,
     } = binding;
 
     let (collection, source_partitions) = match source {

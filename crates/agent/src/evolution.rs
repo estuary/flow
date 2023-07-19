@@ -364,6 +364,8 @@ fn evolve_collection(
             .filter(|b| b.source.collection() == &old_collection)
         {
             // If we're re-creating the collection, then update the source in place.
+            // We do this even for disabled bindings, so that the spec is up to date
+            // with the latest changes to the rest of the catalog.
             if re_create_collection {
                 binding
                     .source
@@ -376,13 +378,13 @@ fn evolve_collection(
                 continue;
             };
 
-            let Some(resource) = binding.non_null_resource() else {
-                // The binding is disabled, so no need to update anything else.
+            // Don't update resources for disabled bindings.
+            if binding.disable {
                 continue;
-            };
+            }
             // Parse the current resource spec into a `Value` that we can mutate
-            let mut resource_spec: Value =
-                serde_json::from_str(resource.get()).with_context(|| {
+            let mut resource_spec: Value = serde_json::from_str(binding.resource.get())
+                .with_context(|| {
                     format!(
                         "parsing materialization resource spec of '{}' binding for '{}",
                         mat_name, &new_name

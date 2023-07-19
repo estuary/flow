@@ -658,7 +658,7 @@ impl<F: Fetcher> Loader<F> {
         };
 
         for (index, binding) in spec.bindings.iter().enumerate() {
-            if let Some(resource) = binding.non_null_resource() {
+            if !binding.disable {
                 tasks.push(
                     async move {
                         self.load_config(
@@ -666,7 +666,7 @@ impl<F: Fetcher> Loader<F> {
                                 .push_prop("bindings")
                                 .push_item(index)
                                 .push_prop("resource"),
-                            resource,
+                            &binding.resource,
                         )
                         .await
                     }
