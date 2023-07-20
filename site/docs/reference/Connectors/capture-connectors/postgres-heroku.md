@@ -1,7 +1,7 @@
 ---
 sidebar_position: 1
 ---
-# Postgres (Heroku) Connector Documentation
+# Postgres (Heroku) Connector
 This connector captures data from Postgres into Flow collections.
 
 It is available for use in the Flow web application. For local development or open-source workflows, ghcr.io/estuary/source-postgres:dev provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
@@ -15,44 +15,20 @@ Before setting up the Postgres source connector, make sure you have the followin
 ## Setup
 Follow the steps below to set up the Postgres connector:
 
-### Create a Dedicated Read-only User (Optional)
-
-It is recommended to create a dedicated read-only user to improve permission control and auditing. If you already have an existing Postgres user with appropriate permissions, you can use it instead.
-
-1. To create a dedicated read-only user, execute the following commands:
-
-```sql
-CREATE USER <user_name> PASSWORD 'your_password_here';
-
--- Grant access to the relevant schema
-GRANT USAGE ON SCHEMA <schema_name> TO <user_name>;
-
--- Grant read-only access to the relevant tables
-GRANT SELECT ON ALL TABLES IN SCHEMA <schema_name> TO <user_name>;
-
--- Allow user to see tables created in the future
-ALTER DEFAULT PRIVILEGES IN SCHEMA <schema_name> GRANT SELECT ON TABLES TO <user_name>;
-
--- Grant replication permissions for CDC configuration (if applicable)
-ALTER USER <user_name> REPLICATION;
-```
+1. Log into the Heroku UI and extract your Username and Password.
 
 ### Set up the Postgres Connector in Estuary Flow
 
 To configure the Postgres source connector:
 
 1. Log into your Estuary Flow account.
-2. Navigate to Captures
-3. Choose Postgres from the connector search
+2. Navigate to Captures.
+3. Choose "Postgres (Heroku)" from the connector search.
 4. Enter the Host, Port, and DB Name for your Postgres database.
-5. List the Schemas you want to sync (default is 'public').
-6. Enter the Username and Password for the read-only user you created in Step 1.
-7. For advanced JDBC connection options, use the JDBC URL Parameters (Advanced) field.
-Example: key1=value1&key2=value2&key3=value3
-(Avoid using keys like currentSchema, user, password, ssl, and sslmode, as they will be overwritten by Estuary Flow).
-8. Select the desired SSL Mode from the options (disable, allow, prefer, require, verify-ca, verify-full).
-9. Choose Replication Method: Standard or Logical CDC (for Change Data Capture).
-10. Set up SSH Tunnel if needed (SSH Key Authentication or Password Authentication).
+5. List the Schemas you want to sync if applicable.
+6. Enter the Username and Password from Step 1.
+7. Select "require" from the SSL Mode options (Heroku mandates it).
+8. Choose Replication Method: Standard.
 
 ## Configuration
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file. See [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Postgres (Heroku) source connector.
@@ -71,7 +47,7 @@ You configure connectors either in the Flow web app, or by directly editing the 
 
 | Property        | Title     | Description                                                             | Type   | Required/Default |
 | --------------- | --------- | ----------------------------------------------------------------------- | ------ | ---------------- |
-| **`/stream`**   | Stream    | Resource of your Pinterest project from which collections are captured. | string | Required         |
+| **`/stream`**   | Stream    | Resource of your Postgres Tables from which collections are captured. | string | Required         |
 | **`/syncMode`** | Sync Mode | Connection method.                                                      | string | Required         |
 
 ### Sample
