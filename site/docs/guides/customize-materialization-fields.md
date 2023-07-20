@@ -8,7 +8,7 @@ This happens when the default collection schema doesn't map to a table schema ap
 You can control the shape and appearance of materialized tables using a two-step process.
 
 First, you modify the source collection **schema**.
-You can leverage nested fields by adding [projections](../concepts/advanced/projections.md)**:
+You can leverage nested fields by adding **[projections](../concepts/advanced/projections.md)**:
 JSON pointers that turn locations in a document's JSON structure into custom named fields.
 
 Then, you add the `fields` stanza to the materialization specification, telling Flow which fields to materialize.
@@ -34,14 +34,19 @@ and locate the capture that produced the collection.
 
 2. Click the **Options** button and choose **Edit Specification**.
 
-3. Under **Output Collections** choose the binding that corresponds to the collection.
+3. Under **Output Collections**, choose the binding that corresponds to the collection.
 Then, click the **Collection** tab.
 
-4. In the listed fields, look for the fields you want to materialize.
+4. In the list of fields, look for the fields you want to materialize.
 If they're present and correctly named, you can skip to
 [including them in the materialization](#include-desired-fields-in-your-materialization).
 
-5. If your desired fields aren't present or need to be modified, edit the collection schema manually:
+:::info hint:
+Compare the field name and pointer.
+For nested pointers, you'll probably want to change the field name to omit slashes.
+:::
+
+5. If your desired fields aren't present or need to be re-named, edit the collection schema manually:
 
    1. Click **Edit**.
 
@@ -49,18 +54,18 @@ If they're present and correctly named, you can skip to
 
    3. Click **Close**.
 
-6. Generate projections from the new fields.
+6. Generate projections for new or incorrectly named fields.
 
-   1. Click **Schema Inference**. The Schema Inference Window appears. Flow cleans up your schema and adds projections for new fields.
+   1. If available, click the **Schema Inference** button. The Schema Inference Window appears. Flow cleans up your schema and adds projections for new fields.
 
    2. Manually change the names of projected fields. These names will be used by the materialization and shown in the endpoint system as column names or the equivalent.
 
    3. Click **Next**.
 
-   :::info Hint
-   You can also add projections manually rather than using Schema Inference.
-   If you want to give a field a new name without making any other changes, use this method.
-   See the guide to [editing with flowctl](./flowctl/edit-specification-locally.md) and
+   :::info
+   Schema Inference isn't available for all capture types.
+   You can also add projections manually with `flowctl`.
+   Refer to the guide to [editing with flowctl](./flowctl/edit-specification-locally.md) and
    [how to format projections](../concepts/collections.md#projections).
    :::
 
@@ -74,20 +79,25 @@ If the collection you're using came from a derivation, follow these steps.
 
 1. [Pull the derived collection's specification locally](./flowctl/edit-specification-locally.md#pull-specifications-locally) using `flowctl`.
 
+```
+flowctl catalog pull-specs --name <yourOrg/full/collectionName>
+```
+
 2. Review the collection's schema to see if the fields of interest are included. If they're present, you can skip to
 [including them in the materialization](#include-desired-fields-in-your-materialization).
 
-3. If your desired fields aren't present, add the missing fields to the schema in the correct location based on the source data structure.
+3. If your desired fields aren't present or are incorrectly named, add any missing fields to the schema in the correct location based on the source data structure.
 
-4. Use schema inference to generate projections for the fields:
+4. Use schema inference to generate projections for the fields.
 
 ```
-flowctl preview --infer-schema --source flow.yaml --collection <yourOrg/full/collectionName>
+flowctl preview --infer-schema --source <full\path\to\flow.yaml> --collection <yourOrg/full/collectionName>
+
 ```
 
 5. Review the updated schema. Manually change the names of projected fields. These names will be used by the materialization and shown in the endpoint system as column names or the equivalent.
 
-6. [Re-publish the collection specification.](./flowctl/edit-specification-locally.md#edit-source-files-and-re-publish-specifications).
+6. [Re-publish the collection specification](./flowctl/edit-specification-locally.md#edit-source-files-and-re-publish-specifications).
 
 ## Include desired fields in your materialization
 
