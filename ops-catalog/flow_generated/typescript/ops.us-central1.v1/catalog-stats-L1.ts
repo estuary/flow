@@ -14,6 +14,7 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
             bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
             docsTotal: /* Total number of documents */ number;
         };
+        usageSeconds?: /* Cumulative number of metered seconds of task usage */ number;
         warnings?: /* Total number of logged warnings */ number;
         writtenByMe?: {
             bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
@@ -55,6 +56,10 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
                     source?: /* The name of the collection that this transform sources from */ string;
                 };
             };
+        };
+        interval?: {
+            uptimeSeconds: /* Number of seconds that the task shard is metered as having been running */ number;
+            usageRate?: /* Usage rate which adjusts `uptimeSeconds` to determine the task's effective usage */ number;
         };
         materialize?: /* A map of each binding source (collection name) to combiner stats for that binding */ {
             [k: string]: {
@@ -125,6 +130,10 @@ export type SourceStats = /* Flow task stats Statistics related to the processin
             };
         };
     };
+    interval?: {
+        uptimeSeconds: /* Number of seconds that the task shard is metered as having been running */ number;
+        usageRate?: /* Usage rate which adjusts `uptimeSeconds` to determine the task's effective usage */ number;
+    };
     materialize?: /* A map of each binding source (collection name) to combiner stats for that binding */ {
         [k: string]: {
             left?: {
@@ -141,7 +150,7 @@ export type SourceStats = /* Flow task stats Statistics related to the processin
             };
         };
     };
-    openSecondsTotal: /* Total time that the transaction was open before starting to commit */ number;
+    openSecondsTotal?: /* Total time that the transaction was open before starting to commit */ number;
     shard: /* Flow shard id Identifies a specific shard of a task, which may be the source of a log message or metrics */ {
         keyBegin: /* The inclusive beginning of the shard's assigned key range */ string;
         kind: /* The type of the catalog task */ "capture" | "derivation" | "materialization";
@@ -149,7 +158,7 @@ export type SourceStats = /* Flow task stats Statistics related to the processin
         rClockBegin: /* The inclusive beginning of the shard's assigned rClock range */ string;
     };
     ts: /* Timestamp corresponding to the start of the transaction */ string;
-    txnCount: /* Total number of transactions represented by this stats document */ number;
+    txnCount?: /* Total number of transactions represented by this stats document */ number;
 };
 
 
