@@ -97,12 +97,7 @@ message Log {
 
 // Stats is Flow's unified representation of task metrics and statistics.
 message Stats {
-  // TODO(johnny): We should evolve this into a consolidated message
-  // having a serde serialization corresponding to the ops/stats
-  // collection.
-  //
-  // Let's make this the one true representation for stats.
-  // So far, I've just done Derive and top-level fields.
+  // Next tag: 10.
 
   // Meta sub-document added by the Flow runtime.
   Meta meta = 1 [json_name = "_meta"];
@@ -157,4 +152,21 @@ message Stats {
 
   // Materialization metrics.
   map<string, Binding> materialize = 8;
+
+  // Interval metrics are emitted at regular intervals.
+  message Interval {
+    // Number of seconds that the task shard is metered as having been running.
+    // This is measured by sampling for uptime at fixed wall-clock intervals
+    // (for example, at precisely XX:05:00, XX:10:00, XX:15:00, and so on).
+    uint32 uptime_seconds = 1;
+    // Usage rate adjustment which accompanies and adjusts `uptime_seconds`.
+    // The effective number of "used" task seconds is:
+    //   round(uptime_seconds * usage_rate)
+    //
+    // At present, capture and materialization tasks always use a fixed value of 1.0,
+    // while derivation tasks use a fixed value of 0.0.
+    // The choice of `usage_rate` MAY have more critera in the future.
+    float usage_rate = 2;
+  }
+  Interval interval = 9;
 }

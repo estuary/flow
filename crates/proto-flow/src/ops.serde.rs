@@ -788,6 +788,9 @@ impl serde::Serialize for Stats {
         if !self.materialize.is_empty() {
             len += 1;
         }
+        if self.interval.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("ops.Stats", len)?;
         if let Some(v) = self.meta.as_ref() {
             struct_ser.serialize_field("_meta", v)?;
@@ -813,6 +816,9 @@ impl serde::Serialize for Stats {
         if !self.materialize.is_empty() {
             struct_ser.serialize_field("materialize", &self.materialize)?;
         }
+        if let Some(v) = self.interval.as_ref() {
+            struct_ser.serialize_field("interval", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -835,6 +841,7 @@ impl<'de> serde::Deserialize<'de> for Stats {
             "capture",
             "derive",
             "materialize",
+            "interval",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -847,6 +854,7 @@ impl<'de> serde::Deserialize<'de> for Stats {
             Capture,
             Derive,
             Materialize,
+            Interval,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -876,6 +884,7 @@ impl<'de> serde::Deserialize<'de> for Stats {
                             "capture" => Ok(GeneratedField::Capture),
                             "derive" => Ok(GeneratedField::Derive),
                             "materialize" => Ok(GeneratedField::Materialize),
+                            "interval" => Ok(GeneratedField::Interval),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -903,6 +912,7 @@ impl<'de> serde::Deserialize<'de> for Stats {
                 let mut capture__ = None;
                 let mut derive__ = None;
                 let mut materialize__ = None;
+                let mut interval__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Meta => {
@@ -961,6 +971,12 @@ impl<'de> serde::Deserialize<'de> for Stats {
                                 map.next_value::<std::collections::BTreeMap<_, _>>()?
                             );
                         }
+                        GeneratedField::Interval => {
+                            if interval__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("interval"));
+                            }
+                            interval__ = map.next_value()?;
+                        }
                     }
                 }
                 Ok(Stats {
@@ -972,6 +988,7 @@ impl<'de> serde::Deserialize<'de> for Stats {
                     capture: capture__.unwrap_or_default(),
                     derive: derive__,
                     materialize: materialize__.unwrap_or_default(),
+                    interval: interval__,
                 })
             }
         }
@@ -1450,6 +1467,120 @@ impl<'de> serde::Deserialize<'de> for stats::DocsAndBytes {
             }
         }
         deserializer.deserialize_struct("ops.Stats.DocsAndBytes", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for stats::Interval {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.uptime_seconds != 0 {
+            len += 1;
+        }
+        if self.usage_rate != 0. {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("ops.Stats.Interval", len)?;
+        if self.uptime_seconds != 0 {
+            struct_ser.serialize_field("uptimeSeconds", &self.uptime_seconds)?;
+        }
+        if self.usage_rate != 0. {
+            struct_ser.serialize_field("usageRate", &self.usage_rate)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for stats::Interval {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "uptime_seconds",
+            "uptimeSeconds",
+            "usage_rate",
+            "usageRate",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            UptimeSeconds,
+            UsageRate,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "uptimeSeconds" | "uptime_seconds" => Ok(GeneratedField::UptimeSeconds),
+                            "usageRate" | "usage_rate" => Ok(GeneratedField::UsageRate),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = stats::Interval;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct ops.Stats.Interval")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<stats::Interval, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut uptime_seconds__ = None;
+                let mut usage_rate__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::UptimeSeconds => {
+                            if uptime_seconds__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("uptimeSeconds"));
+                            }
+                            uptime_seconds__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::UsageRate => {
+                            if usage_rate__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("usageRate"));
+                            }
+                            usage_rate__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                    }
+                }
+                Ok(stats::Interval {
+                    uptime_seconds: uptime_seconds__.unwrap_or_default(),
+                    usage_rate: usage_rate__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("ops.Stats.Interval", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for TaskType {

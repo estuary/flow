@@ -143,12 +143,7 @@ pub mod log {
 }
 /// Stats is Flow's unified representation of task metrics and statistics.
 ///
-/// TODO(johnny): We should evolve this into a consolidated message
-/// having a serde serialization corresponding to the ops/stats
-/// collection.
-///
-/// Let's make this the one true representation for stats.
-/// So far, I've just done Derive and top-level fields.
+/// Next tag: 10.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Stats {
@@ -185,6 +180,8 @@ pub struct Stats {
         ::prost::alloc::string::String,
         stats::Binding,
     >,
+    #[prost(message, optional, tag = "9")]
+    pub interval: ::core::option::Option<stats::Interval>,
 }
 /// Nested message and enum types in `Stats`.
 pub mod stats {
@@ -240,6 +237,25 @@ pub mod stats {
             #[prost(message, optional, tag = "2")]
             pub input: ::core::option::Option<super::DocsAndBytes>,
         }
+    }
+    /// Interval metrics are emitted at regular intervals.
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Interval {
+        /// Number of seconds that the task shard is metered as having been running.
+        /// This is measured by sampling for uptime at fixed wall-clock intervals
+        /// (for example, at precisely XX:05:00, XX:10:00, XX:15:00, and so on).
+        #[prost(uint32, tag = "1")]
+        pub uptime_seconds: u32,
+        /// Usage rate adjustment which accompanies and adjusts `uptime_seconds`.
+        /// The effective number of "used" task seconds is:
+        ///    round(uptime_seconds * usage_rate)
+        ///
+        /// At present, capture and materialization tasks always use a fixed value of 1.0,
+        /// while derivation tasks use a fixed value of 0.0.
+        /// The choice of `usage_rate` MAY have more critera in the future.
+        #[prost(float, tag = "2")]
+        pub usage_rate: f32,
     }
 }
 /// The type of a catalog task.

@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"hash/fnv"
+	"math"
 	"sync"
+	"time"
 
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
@@ -13,9 +16,9 @@ import (
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/estuary/flow/go/shuffle"
+	"github.com/gogo/protobuf/types"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/allocator"
-	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
@@ -82,14 +85,9 @@ func (t *taskTerm) initTerm(shard consumer.Shard, host *FlowConsumer) error {
 			host.LogPublisher,
 			flow.NewMapper(shard.Context(), host.Service.Etcd, host.Journals, shard.FQN()),
 		)
-
-		// Start a long-lived task which will log the final exit status of this shard.
-		go func(op client.OpFuture, pub ops.Publisher) {
-			if err := op.Err(); err != nil && !errors.Is(err, context.Canceled) {
-				ops.PublishLog(pub, ops.Log_error,
-					"shard failed", "error", err, "assignment", shard.Assignment().Decoded)
-			}
-		}(shard.PrimaryLoop(), t.opsPublisher)
+		// Start a long-lived task which writes stats at regular intervals,
+		// and then logs the final exit status of this shard.
+		go taskHeartbeatLoop(shard, t.opsPublisher)
 	}
 	if err = t.opsPublisher.UpdateLabels(
 		t.labels,
@@ -115,6 +113,79 @@ func (t *taskTerm) destroy() {
 		}
 		t.build = nil
 	}
+}
+
+// taskHeartbeatLoop publishes ops.Stats at regular intervals while the shard is running,
+// and then logs its final exit status.
+func taskHeartbeatLoop(shard consumer.Shard, pub *OpsPublisher) {
+	var (
+		// Period between regularly-published stat intervals.
+		// This period must cleanly divide into one hour!
+		period = 3 * time.Minute
+		// Jitters when interval stats are written cluster-wide.
+		jitter = intervalJitter(period, shard.FQN())
+		// Op notified when the shard fails.
+		op = shard.PrimaryLoop()
+	)
+
+	for {
+		select {
+		case now := <-time.After(jitter + durationToNextInterval(time.Now(), period)):
+			_ = pub.PublishStats(*intervalStats(now, period, pub.Labels()), pub.logsPublisher.PublishCommitted)
+
+		case <-op.Done():
+			if err := op.Err(); err != nil && !errors.Is(err, context.Canceled) {
+				ops.PublishLog(pub, ops.Log_error,
+					"shard failed", "error", err, "assignment", shard.Assignment().Decoded)
+			}
+			return
+		}
+	}
+}
+
+// intervalStats returns an ops.Stats for a task's current time interval.
+func intervalStats(now time.Time, period time.Duration, labels ops.ShardLabeling) *ops.Stats {
+	var usageRate float32
+
+	// Variable rate is currently fixed to 1.0 or 0.0 depending on task type.
+	switch labels.TaskType {
+	case ops.TaskType_capture, ops.TaskType_materialization:
+		usageRate = 1.0
+	case ops.TaskType_derivation:
+		usageRate = 0.0
+	}
+
+	var ts, err = types.TimestampProto(now)
+	if err != nil {
+		panic(err)
+	}
+
+	return &ops.Stats{
+		Shard:     ops.NewShardRef(labels),
+		Timestamp: ts,
+		Interval: &ops.Stats_Interval{
+			UptimeSeconds: uint32(math.Round(period.Seconds())),
+			UsageRate:     usageRate,
+		},
+	}
+}
+
+// durationToNextInterval returns the amount of time to wait before the next heartbeat interval.
+func durationToNextInterval(now time.Time, period time.Duration) time.Duration {
+	// Map `now` into its number of `period`'s since the epoch.
+	var num = now.Unix() / int64(period.Seconds())
+	// Determine when the next period begins, relative to the epoch and `offset`.
+	var next = time.Unix(0, 0).Add(period * time.Duration(num+1))
+
+	return next.Sub(now)
+}
+
+// intervalJitter returns a globally consistent, unique jitter offset for `name`
+// so that heartbeats are uniformly distributed over time, in aggregate.
+func intervalJitter(period time.Duration, name string) time.Duration {
+	var w = fnv.New32()
+	w.Write([]byte(name))
+	return time.Duration(w.Sum32()%uint32(period.Seconds())) * time.Second
 }
 
 type taskReader struct {

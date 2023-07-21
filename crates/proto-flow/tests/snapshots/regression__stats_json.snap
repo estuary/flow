@@ -68,5 +68,9 @@ expression: json_test(msg)
         "bytesTotal": 300
       }
     }
+  },
+  "interval": {
+    "uptimeSeconds": 300,
+    "usageRate": 1.5
   }
 }
