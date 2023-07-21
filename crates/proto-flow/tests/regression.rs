@@ -730,6 +730,10 @@ fn ex_stats() -> ops::Stats {
             },
         )]
         .into(),
+        interval: Some(ops::stats::Interval {
+            uptime_seconds: 300,
+            usage_rate: 1.5,
+        }),
     }
 }
 

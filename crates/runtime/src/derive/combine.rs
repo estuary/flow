@@ -460,6 +460,7 @@ impl State {
                 out: maybe_counts(&mut self.drain_stats),
             }),
             materialize: Default::default(),
+            interval: None,
         };
 
         Response {
