@@ -57,6 +57,14 @@
         "failures": {
           "$ref": "#/$defs/logCount",
           "description": "Total number of shard failures"
+        },
+        "usageSeconds": {
+          "description": "Cumulative number of metered seconds of task usage",
+          "type": "integer",
+          "default": 0,
+          "reduce": {
+            "strategy": "sum"
+          }
         }
       },
       "reduce": {
@@ -74,6 +82,9 @@
         },
         "derive": {
           "$ref": "ops-stats-schema.json#/properties/derive"
+        },
+        "interval": {
+          "$ref": "ops-stats-schema.json#/properties/interval"
         }
       },
       "reduce": {

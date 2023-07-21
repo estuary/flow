@@ -1,16 +1,16 @@
-import { IDerivation, Document, SourceLogs, SourceStats } from 'flow/ops.us-central1.v1/catalog-stats-L1.ts';
+import { Document, IDerivation, SourceLogs, SourceStats } from "flow/ops.us-central1.v1/catalog-stats-L1.ts";
 
 // Implementation for derivation ops.us-central1.v1/catalog-stats-L1.
 export class Derivation extends IDerivation {
     logs(read: { doc: SourceLogs }): Document[] {
         const source = read.doc;
-        let stats: Document['statsSummary'] = {};
+        let stats: Document["statsSummary"] = {};
 
-        if (source.level == 'error' && source.message == 'shard failed') {
+        if (source.level == "error" && source.message == "shard failed") {
             stats = { failures: 1 };
-        } else if (source.level == 'error') {
+        } else if (source.level == "error") {
             stats = { errors: 1 };
-        } else if (source.level == 'warn') {
+        } else if (source.level == "warn") {
             stats = { warnings: 1 };
         } else {
             return [];
@@ -33,6 +33,7 @@ export class Derivation extends IDerivation {
                 capture: source.capture,
                 derive: source.derive,
                 materialize: source.materialize,
+                interval: source.interval,
             },
         }));
 
@@ -46,7 +47,7 @@ export class Derivation extends IDerivation {
 }
 
 type TimeGrain = {
-    grain: Document['grain'];
+    grain: Document["grain"];
     ts: string;
 };
 
@@ -63,22 +64,22 @@ const grainsFromTS = (ts: Date): TimeGrain[] => {
 
     return [
         {
-            grain: 'hourly' as Document['grain'],
+            grain: "hourly" as Document["grain"],
             ts: hourlyTS,
         },
         {
-            grain: 'daily' as Document['grain'],
+            grain: "daily" as Document["grain"],
             ts: dailyTS,
         },
         {
-            grain: 'monthly' as Document['grain'],
+            grain: "monthly" as Document["grain"],
             ts: monthlyTS,
         },
     ];
 };
 
 type StatsData = {
-    [k: string]: Document['statsSummary'];
+    [k: string]: Document["statsSummary"];
 };
 
 const mapStatsToDocsByGrain = (grains: TimeGrain[], stats: StatsData): Document[] =>
@@ -87,33 +88,29 @@ const mapStatsToDocsByGrain = (grains: TimeGrain[], stats: StatsData): Document[
             ...g,
             catalogName,
             statsSummary,
-        })),
+        }))
     );
 
 const taskStats = (source: SourceStats): StatsData => {
-    const stats: Document['statsSummary'] = {};
+    const stats: Document["statsSummary"] = {};
 
-    switch (source.shard.kind) {
-        // For captures and materializations, go through all of the bound collections and sum up the
-        // data written or read by this task.
-        case 'capture':
-            for (const collectionStats of Object.values(source.capture!)) {
-                stats.writtenByMe = accumulateStats(stats.writtenByMe, collectionStats.out);
-            }
-            break;
-        case 'materialization':
-            for (const collectionStats of Object.values(source.materialize!)) {
-                stats.readByMe = accumulateStats(stats.readByMe, collectionStats.right);
-            }
-            break;
-        // A derivation will both read and write: Writes to a single collection (the derivation
-        // itself), and reads from the collections named in the transforms of the derivation.
-        case 'derivation':
-            stats.writtenByMe = accumulateStats(stats.writtenByMe, source.derive!.out);
-
-            for (const transformStats of Object.values(source.derive!.transforms || {})) {
-                stats.readByMe = accumulateStats(stats.readByMe, transformStats.input);
-            }
+    // For captures, derivations, and materializations, we walk through all
+    // bound collections and sum up the total data written or read by this task.
+    if (source.capture) {
+        for (const collectionStats of Object.values(source.capture!)) {
+            stats.writtenByMe = accumulateStats(stats.writtenByMe, collectionStats.out);
+        }
+    } else if (source.materialize) {
+        for (const collectionStats of Object.values(source.materialize!)) {
+            stats.readByMe = accumulateStats(stats.readByMe, collectionStats.right);
+        }
+    } else if (source.derive) {
+        stats.writtenByMe = accumulateStats(stats.writtenByMe, source.derive!.out);
+        for (const transformStats of Object.values(source.derive!.transforms || {})) {
+            stats.readByMe = accumulateStats(stats.readByMe, transformStats.input);
+        }
+    } else if (source.interval?.usageRate) {
+        stats.usageSeconds = Math.round(source.interval.uptimeSeconds * source.interval.usageRate);
     }
 
     const output: StatsData = {};
@@ -124,56 +121,54 @@ const taskStats = (source: SourceStats): StatsData => {
 const collectionStats = (source: SourceStats): StatsData => {
     const output: StatsData = {};
 
-    switch (true) {
-        // An individual collection can be written to/read from a single time by a
-        // capture/materialization in a a single stats document, but as noted above there can be
-        // multiple collections bound by a task. So we will potentially emit multiple collection
-        // stats documents for a single task.
-        case !!source.capture:
-            for (const [collectionName, stats] of Object.entries(source.capture!)) {
-                if (!output[collectionName]) {
-                    output[collectionName] = {};
-                }
-                output[collectionName].writtenToMe = accumulateStats(output[collectionName].writtenToMe, stats.out);
+    // An individual collection can be written to/read from a single time by a
+    // capture/materialization in a a single stats document, but as noted above there can be
+    // multiple collections bound by a task. So we will potentially emit multiple collection
+    // stats documents for a single task.
+    if (source.capture) {
+        for (const [collectionName, stats] of Object.entries(source.capture!)) {
+            if (!output[collectionName]) {
+                output[collectionName] = {};
             }
-            break;
-        case !!source.materialize:
-            for (const [collectionName, stats] of Object.entries(source.materialize!)) {
-                if (!output[collectionName]) {
-                    output[collectionName] = {};
-                }
-                output[collectionName].readFromMe = accumulateStats(output[collectionName].readFromMe, stats.right);
+            output[collectionName].writtenToMe = accumulateStats(output[collectionName].writtenToMe, stats.out);
+        }
+    } else if (source.materialize) {
+        for (const [collectionName, stats] of Object.entries(source.materialize!)) {
+            if (!output[collectionName]) {
+                output[collectionName] = {};
             }
-            break;
+            output[collectionName].readFromMe = accumulateStats(output[collectionName].readFromMe, stats.right);
+        }
+    } else if (source.derive) {
         // A derivation will have one collection written to (itself), and can read from multiple
         // collections named in the transforms.
-        case !!source.derive:
-            // The collection being written to is the name of the task.
-            if (!output[source.shard.name]) {
-                output[source.shard.name] = {};
+
+        // The collection being written to is the name of the task.
+        if (!output[source.shard.name]) {
+            output[source.shard.name] = {};
+        }
+
+        output[source.shard.name].writtenToMe = accumulateStats(
+            output[source.shard.name].writtenToMe,
+            source.derive!.out,
+        );
+
+        // Each transform will include a source collection that is read from.
+        for (const transform of Object.values(source.derive!.transforms || {})) {
+            if (!transform.source) {
+                // Legacy stats docs may not list a source collection for derivations.
+                continue;
             }
 
-            output[source.shard.name].writtenToMe = accumulateStats(
-                output[source.shard.name].writtenToMe,
-                source.derive!.out,
+            if (!output[transform.source]) {
+                output[transform.source] = {};
+            }
+
+            output[transform.source].readFromMe = accumulateStats(
+                output[transform.source].readFromMe,
+                transform.input,
             );
-
-            // Each transform will include a source collection that is read from.
-            for (const transform of Object.values(source.derive!.transforms || {})) {
-                if (!transform.source) {
-                    // Legacy stats docs may not list a source collection for derivations.
-                    continue;
-                }
-
-                if (!output[transform.source]) {
-                    output[transform.source] = {};
-                }
-
-                output[transform.source].readFromMe = accumulateStats(
-                    output[transform.source].readFromMe,
-                    transform.input,
-                );
-            }
+        }
     }
 
     return output;
