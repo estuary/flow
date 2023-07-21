@@ -95,6 +95,29 @@
       "reduce": {
         "strategy": "merge"
       }
+    },
+    "interval": {
+      "type": "object",
+      "properties": {
+        "uptimeSeconds": {
+          "description": "Number of seconds that the task shard is metered as having been running",
+          "type": "integer",
+          "reduce": {
+            "strategy": "sum"
+          },
+          "minimum": 1
+        },
+        "usageRate": {
+          "description": "Usage rate which adjusts `uptimeSeconds` to determine the task's effective usage",
+          "type": "number",
+          "minimum": 0,
+          "default": 0
+        }
+      },
+      "required": ["uptimeSeconds"],
+      "reduce": {
+        "strategy": "merge"
+      }
     }
   },
   "reduce": {
@@ -102,9 +125,7 @@
   },
   "required": [
     "shard",
-    "ts",
-    "txnCount",
-    "openSecondsTotal"
+    "ts"
   ],
   "oneOf": [
     {
@@ -120,6 +141,11 @@
     {
       "required": [
         "materialize"
+      ]
+    },
+    {
+      "required": [
+        "interval"
       ]
     }
   ],

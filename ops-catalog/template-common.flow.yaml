@@ -65,6 +65,7 @@ collections:
       docs_written_to_me: /statsSummary/writtenToMe/docsTotal
       bytes_read_from_me: /statsSummary/readFromMe/bytesTotal
       docs_read_from_me: /statsSummary/readFromMe/docsTotal
+      usage_seconds: /statsSummary/usageSeconds
       warnings: /statsSummary/warnings
       errors: /statsSummary/errors
       failures: /statsSummary/failures

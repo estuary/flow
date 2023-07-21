@@ -14,6 +14,7 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
             bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
             docsTotal: /* Total number of documents */ number;
         };
+        usageSeconds?: /* Cumulative number of metered seconds of task usage */ number;
         warnings?: /* Total number of logged warnings */ number;
         writtenByMe?: {
             bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
@@ -55,6 +56,10 @@ export type Document = /* Flow catalog task stats Statistics related to the proc
                     source?: /* The name of the collection that this transform sources from */ string;
                 };
             };
+        };
+        interval?: {
+            uptimeSeconds: /* Number of seconds that the task shard is metered as having been running */ number;
+            usageRate?: /* Usage rate which adjusts `uptimeSeconds` to determine the task's effective usage */ number;
         };
         materialize?: /* A map of each binding source (collection name) to combiner stats for that binding */ {
             [k: string]: {
@@ -92,6 +97,7 @@ export type SourceFromOpsUsCentral1V1 = /* Flow catalog task stats Statistics re
             bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
             docsTotal: /* Total number of documents */ number;
         };
+        usageSeconds?: /* Cumulative number of metered seconds of task usage */ number;
         warnings?: /* Total number of logged warnings */ number;
         writtenByMe?: {
             bytesTotal: /* Total number of bytes representing the JSON encoded documents */ number;
@@ -133,6 +139,10 @@ export type SourceFromOpsUsCentral1V1 = /* Flow catalog task stats Statistics re
                     source?: /* The name of the collection that this transform sources from */ string;
                 };
             };
+        };
+        interval?: {
+            uptimeSeconds: /* Number of seconds that the task shard is metered as having been running */ number;
+            usageRate?: /* Usage rate which adjusts `uptimeSeconds` to determine the task's effective usage */ number;
         };
         materialize?: /* A map of each binding source (collection name) to combiner stats for that binding */ {
             [k: string]: {

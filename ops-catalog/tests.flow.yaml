@@ -133,6 +133,7 @@ tests:
               name:
                 - ops.us-central1.v1/catalog-stats-L1
                 - ops.us-central1.v1/catalog-stats-L2
+                - ops.us-central1.v1/failure-notifications/v1
                 - ops.us-central1.v1/logs
                 - ops.us-central1.v1/stats
 
@@ -297,6 +298,76 @@ tests:
             ts: "2022-04-01T00:00:00.000Z"
             statsSummary:
               readFromMe: { bytesTotal: 30, docsTotal: 6 }
+
+    - verify:
+        # L2 derivation passed through docs as-is.
+        collection:
+          name: ops.us-central1.v1/catalog-stats-L2
+          partitions: *tempManualPartitions
+        documents: *docs
+
+  ops.us-central1.v1/tests/interval-rollup:
+    - ingest:
+        description: Two documents representing intervals of elapsed time, one hour apart.
+        collection: ops.us-central1.v1/stats
+        documents:
+          - shard: &shard
+              kind: capture
+              name: tenant/task
+              keyBegin: "0000aaaa"
+              rClockBegin: "00000000"
+            ts: "2022-04-03T02:01:00Z"
+            interval:
+              uptimeSeconds: 300
+              usageRate: 1.5
+          - shard: *shard
+            ts: "2022-04-03T03:01:00Z"
+            interval:
+              uptimeSeconds: 600
+              usageRate: 0.5
+
+    - verify:
+        description: Expect we rolled-up a usageSeconds aggregate, as well as uptimeSeconds.
+        collection:
+          name: ops.us-central1.v1/catalog-stats-L1
+          partitions: *tempManualPartitions
+        documents: &docs
+          - catalogName: tenant/task
+            grain: daily
+            ts: "2022-04-03T00:00:00.000Z"
+            statsSummary:
+              usageSeconds: 750
+            taskStats:
+              interval:
+                uptimeSeconds: 900
+                usageRate: 0.5 # Last-write-wins.
+          - catalogName: tenant/task
+            grain: hourly
+            ts: "2022-04-03T02:00:00.000Z"
+            statsSummary:
+              usageSeconds: 450
+            taskStats:
+              interval:
+                uptimeSeconds: 300
+                usageRate: 1.5
+          - catalogName: tenant/task
+            grain: hourly
+            ts: "2022-04-03T03:00:00.000Z"
+            statsSummary:
+              usageSeconds: 300
+            taskStats:
+              interval:
+                uptimeSeconds: 600
+                usageRate: 0.5
+          - catalogName: tenant/task
+            grain: monthly
+            ts: "2022-04-01T00:00:00.000Z"
+            statsSummary:
+              usageSeconds: 750
+            taskStats:
+              interval:
+                uptimeSeconds: 900
+                usageRate: 0.5
 
     - verify:
         # L2 derivation passed through docs as-is.
