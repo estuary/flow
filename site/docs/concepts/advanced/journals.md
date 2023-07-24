@@ -105,7 +105,7 @@ collections:
         retention: 720h
 ```
 
-Your [storage mappings](../storage-mappings/index.md) determine
+Your [storage mappings](../storage-mappings.md) determine
 which of your cloud storage buckets is used
 for storage of collection fragment files.
 

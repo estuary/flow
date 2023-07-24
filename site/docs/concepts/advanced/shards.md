@@ -65,4 +65,4 @@ However, they can hold your user data.
 Recovery logs of [derivations](../derivations.md) hold your derivation register values.
 
 Recovery logs are stored in your cloud storage bucket,
-and must have a configured [storage mapping](../storage-mappings/index.md#recovery-logs).
+and must have a configured [storage mapping](../storage-mappings.md#recovery-logs).
