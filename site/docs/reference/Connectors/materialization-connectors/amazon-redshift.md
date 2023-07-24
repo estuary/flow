@@ -28,18 +28,6 @@ To use this connector, you'll need:
   [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access-key/) for help finding
   these credentials.
 
-## String Lengths
-
-Redshift does not support arbitrary lengths for `string` fields. `string` fields are by default
-created as `VARCHAR(4096)` columns, which allows for strings up to `4096` bytes in length.
-Materializing a collection containing a `string` with a length longer than `4096` bytes will result
-in an error.
-
-For collections with long strings, the collection schema can be augmented with the [`maxLength`
-keyword](https://json-schema.org/understanding-json-schema/reference/string.html#length). If a
-`maxLength` is provided, the Redshift text column will be created with this length instead of the
-default `4096`. The maximum length allowable by Redshift is `65535`.
-
 ## Configuration
 
 Use the below properties to configure an Amazon Redshift materialization, which will direct one or
@@ -142,6 +130,14 @@ materializations using the same metadata tables, they will need to take turns ac
 This locking behavior prevents "serializable isolation violation" errors in the case of multiple
 materializations sharing the same metadata tables at the expense of allowing only a single
 materialization to be actively committing a transaction.
+
+## Maximum record size
+
+The maximum size of a single input document is 4 MB. Attempting to materialize collections with
+documents larger than 4 MB will result in an error. To materialize this data you can use a
+[derivation](../../../concepts/derivations.md) to create a derived collection with smaller
+documents, or exclude fields containing excessive amounts of data by [customizing the materialized
+fields](../../../guides/customize-materialization-fields.md#include-desired-fields-in-your-materialization).
 
 ## Delta updates
 
