@@ -1,8 +1,8 @@
 ---
 sidebar_position: 1
 ---
-# Postgres (Heroku) Connector
-This connector captures data from Postgres into Flow collections.
+# Postgres (Heroku)
+This connector captures data from Postgres into Flow collections.  It is specifically for DBs that don't support write ahead logs.
 
 It is available for use in the Flow web application. For local development or open-source workflows, ghcr.io/estuary/source-postgres:dev provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
@@ -24,11 +24,10 @@ To configure the Postgres source connector:
 1. Log into your Estuary Flow account.
 2. Navigate to Captures.
 3. Choose "Postgres (Heroku)" from the connector search.
-4. Enter the Host, Port, and DB Name for your Postgres database.
+4. Enter the Host, Port, DB Name and password for your Postgres database from step 1 above.
 5. List the Schemas you want to sync if applicable.
-6. Enter the Username and Password from Step 1.
-7. Select "require" from the SSL Mode options (Heroku mandates it).
-8. Choose Replication Method: Standard.
+6. Select "require" from the SSL Mode options (Heroku mandates it).
+7. On the next page, select a cursor field for each collection.  Note that your cursor field currently has to be either a timestamp or string.
 
 ## Configuration
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file. See [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the Postgres (Heroku) source connector.
