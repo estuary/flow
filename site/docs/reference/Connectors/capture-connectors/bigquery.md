@@ -1,7 +1,7 @@
 ---
 sidebar_position: 1
 ---
-# BigQuery Connector Documentation
+# BigQuery
 
 This connector captures data from BigQuery into Flow collections.
 
@@ -42,7 +42,7 @@ Service Account Keys are used to authenticate as Google Service Accounts. To be 
 1. Log into your Estuary Flow account.
 2. In the left navigation bar, click on "Captures". In the top-left corner, click "Connector Search".
 3. Enter the name for the WooCommerce connector and select "BigQuery" from the dropdown.
-4. Enter a Primary Key using the standard form editor.
+4. Enter a Primary Key and Cursor Field using the standard form editor.  Note that both should be the same and they currently have to be either strings or timestamps.
 5. Enter the Project ID and Credentials JSON.
 
 ## Configuration
