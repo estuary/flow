@@ -33,7 +33,7 @@ and an open-source ecosystem of pluggable connectors for integrating your existi
 
 **Want to get up and running ASAP?**
 
-See the [get started documentation](../getting-started/installation.md).
+See the [get started documentation](../getting-started/installation.mdx).
 
 **Wondering if Flow is right for you?**
 
