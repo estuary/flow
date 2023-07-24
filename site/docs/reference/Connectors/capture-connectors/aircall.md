@@ -1,7 +1,7 @@
 ---
 sidebar_position: 1
 ---
-# Aircall Connector Documentation
+# Aircall
 
 This connector captures data from Aircall into Flow collections.
 
