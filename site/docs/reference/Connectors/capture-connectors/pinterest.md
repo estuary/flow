@@ -1,7 +1,7 @@
 ---
 sidebar_position: 1
 ---
-# Pinterest Connector Documentation
+# Pinterest
 This connector captures data from Pinterest into Flow collections.
 
 It is available for use in the Flow web application. For local development or open-source workflows, ghcr.io/estuary/source-pinterest:dev provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
