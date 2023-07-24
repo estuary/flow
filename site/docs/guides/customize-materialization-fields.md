@@ -3,17 +3,22 @@
 When you first materialize a collection to an endpoint like a database or data warehouse,
 the resulting table columns might not be formatted how you want.
 You might notice missing columns, extra columns, or columns with names you don't like.
-This happens when the default collection schema doesn't map to a table schema appropriate for your use case.
+This happens when the collection's JSON schema doesn't map to a table schema appropriate for your use case.
 
 You can control the shape and appearance of materialized tables using a two-step process.
 
 First, you modify the source collection **schema**.
-You can leverage nested fields by adding **[projections](../concepts/advanced/projections.md)**:
+You can change column names by adding **[projections](../concepts/advanced/projections.md)**:
 JSON pointers that turn locations in a document's JSON structure into custom named fields.
 
 Then, you add the `fields` stanza to the materialization specification, telling Flow which fields to materialize.
 
 The following sections break down the process in more detail.
+
+:::info Hint
+If you just need to add a field that isn't included by default and it's already present in the schema
+with a name you like, skip ahead to [include desired fields in your materialization](#include-desired-fields-in-your-materialization).
+:::
 
 ## Capture desired fields and generate projections
 
