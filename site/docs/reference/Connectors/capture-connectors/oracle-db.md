@@ -1,7 +1,7 @@
 ---
 sidebar_position: 1
 ---
-# OracleDB Connector Documentation
+# OracleDB
 This connector captures data from OracleDB into Flow collections.
 
 It is available for use in the Flow web application. For local development or open-source workflows, ghcr.io/estuary/source-oracle:dev provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
@@ -24,6 +24,7 @@ Follow the steps below to set up the OracleDB connector.
 6. Choose an option to Connect By:
 * Service Name
 * System ID
+7. On the next page, select your Cursor Field.  This currently has to be either a string or Timestamp value.
 
 ### Create a Dedicated User
 
