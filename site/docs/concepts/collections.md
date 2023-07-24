@@ -349,7 +349,7 @@ regular JSON files in your cloud storage bucket.
 Reads of that history are served by
 directly reading files from your bucket.
 
-Your [storage mappings](storage-mappings.md)
+Your [storage mappings](./storage-mappings.md)
 determine how Flow collections are mapped into
 your cloud storage buckets.
 

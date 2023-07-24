@@ -13,7 +13,7 @@ a materialized view that updates continuously based on a real-time data feed.
 
 * An Estuary Flow account. If you don't have one, visit the [Flow web app](https://dashboard.estuary.dev) to register for free.
 
-* The [flowctl CLI installed](../installation.md#get-started-with-the-flow-cli) (for the optional section).
+* The [flowctl CLI installed](../installation.mdx#get-started-with-the-flow-cli) (for the optional section).
 
 * A Postgres database for testing set up to [allow connections from Flow](../../reference/Connectors/materialization-connectors/PostgreSQL.md#setup).
 Amazon RDS, Amazon Aurora, Google Cloud SQL, Azure Database for PostgreSQL, and self-hosted databases are supported.

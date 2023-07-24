@@ -327,7 +327,7 @@ reduce: { strategy: merge }
 ```
 
 Learn more in the
-[reductions strategies](../../../reference/reduction-strategies/)
+[reduction strategies](../../reference/reduction-strategies/)
 reference documentation.
 
 #### Reductions and collection keys
