@@ -5,17 +5,17 @@ sidebar_position: 1
 # Registration and setup
 
 Estuary Flow is a fully managed web application that also offers a robust CLI.
-
-Flow is currently in public beta beta.
+Once you register in the web application, you can seamlessly use either or both tools to do your work.
 
 ## Get started with the Flow web application
 
-You can get started with a Flow trial by visiting the web application [here](https://go.estuary.dev/dashboard).
+To start using Flow for free, visit the [web application](https://go.estuary.dev/dashboard).
+See what the free tier includes on the [Pricing](https://estuary.dev/pricing/) page.
 
-As a trial user, you can create one end-to-end Data Flow.
-Trial user data is deleted from Flow after 30 days.
+When you register for Flow, your account will use Flow's secure cloud storage bucket to store your data.
+Data in Flow's cloud storage bucket is deleted 30 days after collection.
 
-To skip the limitations of the trial and begin with an organizational account instead, [contact the Estuary team](mailto:support@estuary.dev).
+For production use cases, you should [configure your own cloud storage bucket to use with Flow](#configuring-your-cloud-storage-bucket-for-use-with-flow).
 
 ## Get started with the Flow CLI
 
@@ -78,27 +78,40 @@ The token will expire after a predetermined duration. Repeat this process to re-
 
 ## Configuring your cloud storage bucket for use with Flow
 
-During your trial period, Flow uses Estuary's cloud storage to temporarily store your data.
-When you upgrade from a trial to an organizational account, you're provisioned a unique [prefix](../concepts/catalogs.md#namespace) in the Flow namespace,
-and transition to using your own cloud storage bucket to store your Flow data. This is called a [storage mapping](../concepts/storage-mappings.md).
+New Flow accounts are connected to Flow's secure cloud storage bucket to store collection data.
+To switch to your own bucket, choose a cloud provider and complete the setup steps:
 
-Flow supports Google Cloud Storage and Amazon S3 buckets.
-Before your account manager configures your bucket as your storage mapping, you must grant access to Estuary.
+* [Google Cloud Storage](#google-cloud-storage-buckets)
+
+* [Amazon S3](#amazon-s3-buckets)
+
+* [Azure Blob Storage](#azure-blob-storage)
+
+Once you're done, [get in touch](#give-us-a-ring).
 
 ### Google Cloud Storage buckets
 
-Follow the steps to [add a principal to a bucket level policy](https://cloud.google.com/storage/docs/access-control/using-iam-permissions#bucket-add).
+You'll need to grant Estuary Flow access to your GCS bucket.
 
-- For the principal, enter `flow-258@helpful-kingdom-273219.iam.gserviceaccount.com`
-- Select the [`roles/storage.admin`](https://cloud.google.com/storage/docs/access-control/iam-roles) role.
+1. [Create a bucket to use with Flow](https://cloud.google.com/storage/docs/creating-buckets), if you haven't already.
+
+2. Follow the steps to [add a principal to a bucket level policy](https://cloud.google.com/storage/docs/access-control/using-iam-permissions#bucket-add).
+   As you do so:
+
+   - For the principal, enter `flow-258@helpful-kingdom-273219.iam.gserviceaccount.com`
+
+   - Select the [`roles/storage.admin`](https://cloud.google.com/storage/docs/access-control/iam-roles) role.
 
 ### Amazon S3 buckets
 
-:::info
-Your S3 bucket must be in the us-east-1 [region](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingBucket.html) for use with Flow.
-:::
+Your bucket must be in the us-east-1 [region](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingBucket.html).
+You'll need to grant Estuary Flow access to your S3 bucket.
 
-Follow the steps to [add a bucket policy](https://docs.aws.amazon.com/AmazonS3/latest/userguide/add-bucket-policy.html), pasting the policy below.
+1. [Create a bucket to use with Flow](https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-bucket-overview.html), if you haven't already.
+
+   - Set **Region** to `us-east-1`.
+
+2. Follow the steps to [add a bucket policy](https://docs.aws.amazon.com/AmazonS3/latest/userguide/add-bucket-policy.html), pasting the policy below.
 Be sure to replace `YOUR-S3-BUCKET` with the actual name of your bucket.
 
 ```json
@@ -128,43 +141,53 @@ Be sure to replace `YOUR-S3-BUCKET` with the actual name of your bucket.
 
 ### Azure Blob Storage
 
-Setting up a Flow account to store data in your Azure Blob storage account requires you to grant our application access to your storage account and container, as well as providing us with some identifying information. At the moment storage mappings are not self-service, so once you have granted access and gathered the required information, reach out to your account manager who will configure your account.
+You'll need to grant Estuary Flow access to your storage account and container.
+You'll also need to provide some identifying information.
 
-#### Gathering information
+1. [Create an Azure Blob Storage container](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-quickstart-blobs-portal#create-a-container) to use with Flow, if you haven't already.
 
-In order to complete this process, you will need to gather the following data:
+2. Gather the following information. You'll need this when you contact us to complete setup.
 
-- Your **Azure AD tenant ID**. This can be found in the "Azure Active Directory" page here:
+   - Your **Azure AD tenant ID**. You can find this in the **Azure Active Directory** page.
   ![](Azure_AD_Tenant_ID.png)
-- Your **Azure Blob Storage account ID**. This can be found in the "Storage Accounts" page here:
+
+   - Your **Azure Blob Storage account ID**. You can find this in the **Storage Accounts** page.
   ![](Azure_Storage_Account_Name.png)
-- Your **Azure Blob Storage container ID**. This can be found inside your storage account here:
+
+   - Your **Azure Blob Storage container ID**. You can find this inside your storage account.
   ![](Azure_Container_ID.png)
 
-#### Granting Access
+   You'll grant Flow access to your storage resources by connecting to Estuary's
+   [Azure application](https://learn.microsoft.com/en-us/azure/active-directory/manage-apps/what-is-application-management).
 
-We use an [Azure Application](https://learn.microsoft.com/en-us/azure/active-directory/manage-apps/what-is-application-management) to allow granting access to storage resources between your tenant and ours. In order for Flow to write to your storage account, it needs the [`Storage Blob Data Owner`](https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles#storage-blob-data-owner) IAM role for the storage account in question. In order to grant this role, you must first add our application to your tenant.
-
-#### Add application to your tenant
+3. Add Estuary's Azure application to your tenant.
 
 import { AzureAuthorizeComponent } from "./azureAuthorize";
 import BrowserOnly from "@docusaurus/BrowserOnly";
 
 <BrowserOnly>{() => <AzureAuthorizeComponent />}</BrowserOnly>
 
-#### Authorize application to your storage account
+4. Grant the application access to your storage account via the
+[`Storage Blob Data Owner`](https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles#storage-blob-data-owner) IAM role.
 
-Once the application has been added, you must grant it the [`Storage Blob Data Owner`](https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles#storage-blob-data-owner) IAM role for your storage account.
+   - Inside your storage account's **Access Control (IAM)** tab, click **Add Role Assignment**.
 
-- Inside your storage account's "Access Control (IAM)" tab, click "Add Role Assignment"
-- Search for the string `Storage Blob Data Owner` and select it
-- On the next page, make sure `User, group, or service principal` is selected, then click "+ Select Members"
-- You must search for the exact name of the application, otherwise it won't show up: `Estuary Storage Mappings Prod`
-- Once you've selected the application, finish granting the role and you should be all set
+   - Search for `Storage Blob Data Owner` and select it.
+
+   - On the next page, make sure `User, group, or service principal` is selected, then click **+ Select Members**.
+
+   - You must search for the exact name of the application, otherwise it won't show up: `Estuary Storage Mappings Prod`
+
+   - Once you've selected the application, finish granting the role.
+
+   For more help, see the [Azure docs](https://learn.microsoft.com/en-us/azure/role-based-access-control/role-assignments-portal).
 
 ### Give us a ring
 
-Once you've finished the above steps, the next part is to contact us. Self-service storage mapping configuration is on our roadmap, but for the moment we're happy to configure your account by hand. Send support@estuary.dev an email containing all of the information you gathered above, as well as whether you want the storage mapping to apply to your whole Flow account, or just a subset of it. We'll get back to you letting you know when it's done, and that's it!
+Once you've finished the above steps, contact us.
+Send support@estuary.dev an email with the name of the storage bucket and any other information you gathered per the steps above.
+Let us know whether you want to use this storage bucket to for your whole Flow account, or just a specific [prefix](../concepts/catalogs.md#namespace).
+We'll be in touch when it's done!
 
 ## Self-hosting Flow
 
