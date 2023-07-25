@@ -15,7 +15,12 @@ pub struct Logs {
 impl Logs {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         let uncommitted = true; // logs reads are always 'uncommitted' because logs aren't written inside transactions.
-        let read_args = read_args(&self.task.task, "logs", &self.bounds, uncommitted);
+        let read_args = read_args(
+            &self.task.task,
+            OpsCollection::Logs,
+            &self.bounds,
+            uncommitted,
+        );
         read_collection(ctx, &read_args).await?;
         Ok(())
     }
@@ -38,18 +43,33 @@ pub struct Stats {
 
 impl Stats {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-        let read_args = read_args(&self.task.task, "stats", &self.bounds, self.uncommitted);
+        let read_args = read_args(
+            &self.task.task,
+            OpsCollection::Stats,
+            &self.bounds,
+            self.uncommitted,
+        );
         read_collection(ctx, &read_args).await?;
         Ok(())
     }
 }
 
-fn read_args(
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum OpsCollection {
+    Logs,
+    Stats,
+}
+
+pub fn read_args(
     task_name: &str,
-    logs_or_stats: &'static str,
+    collection: OpsCollection,
     bounds: &ReadBounds,
     uncommitted: bool,
 ) -> ReadArgs {
+    let logs_or_stats = match collection {
+        OpsCollection::Logs => "logs",
+        OpsCollection::Stats => "stats",
+    };
     // Once we implement federated data planes, we'll need to update this to
     // fetch the name of the data plane based on the tenant.
     let collection = format!("ops.us-central1.v1/{logs_or_stats}");
