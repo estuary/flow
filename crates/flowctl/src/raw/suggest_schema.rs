@@ -149,7 +149,11 @@ pub async fn do_suggest_schema(
         };
 
     // The original collection schema to be used as the starting point of schema-inference
-    let schema_model = collection_def.schema.unwrap();
+    let schema_model = collection_def
+        .schema
+        .as_ref()
+        .or(collection_def.read_schema.as_ref())
+        .expect("collection must define either schema or readSchema");
     // The inferred shape, we start by using the existing schema of the collection
     let mut inferred_shape = raw_schema_to_shape(&schema_model)?;
 
