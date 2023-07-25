@@ -88,7 +88,7 @@ pub struct ReadBounds {
 
 pub async fn journal_reader(
     ctx: &mut crate::CliContext,
-    args: &ReadArgs
+    args: &ReadArgs,
 ) -> anyhow::Result<Reader<ExponentialBackoff>> {
     let cp_client = ctx.controlplane_client().await?;
     let mut data_plane_client =
