@@ -1,20 +1,26 @@
-use doc::{inference::Shape, SchemaIndexBuilder, FailedValidation};
-use futures::{TryStreamExt, StreamExt, Stream};
+use doc::{inference::Shape, FailedValidation, SchemaIndexBuilder};
+use futures::{Stream, StreamExt, TryStreamExt};
 
+use bytelines::AsyncByteLines;
 use json::schema::build::build_schema;
 use models::Schema;
 use proto_flow::ops::Log;
-use bytelines::AsyncByteLines;
 
-use schema_inference::{json_decoder::JsonCodec, inference::infer_shape, shape, schema::SchemaBuilder};
+use schema_inference::{
+    inference::infer_shape, json_decoder::JsonCodec, schema::SchemaBuilder, shape,
+};
 
 use tokio::io::BufReader;
-use tokio_util::{compat::FuturesAsyncReadCompatExt, codec::FramedRead};
+use tokio_util::{codec::FramedRead, compat::FuturesAsyncReadCompatExt};
 
 use std::{io::ErrorKind, pin::Pin};
 use url::Url;
 
-use crate::{catalog::{fetch_live_specs, List, SpecTypeSelector, NameSelector, collect_specs}, collection::{CollectionJournalSelector, Partition, read::{journal_reader, ReadArgs}}};
+use crate::{
+    catalog::{collect_specs, fetch_live_specs, List, NameSelector, SpecTypeSelector},
+    collection::read::{journal_reader, ReadArgs},
+    ops,
+};
 
 use anyhow::{anyhow, Context};
 
@@ -95,31 +101,18 @@ pub async fn do_suggest_schema(
     // Reader for the collection itself
     let reader = match journal_reader(ctx, &args).await {
         Ok(r) => Some(r),
-        Err(e) if e.to_string().contains("does not exist or has never been written to") => {
+        Err(e)
+            if e.to_string()
+                .contains("does not exist or has never been written to") =>
+        {
             None
-        },
-        Err(e) => anyhow::bail!(e)
-    };
-
-    // Reader for the ops log of the task
-    let ops_collection = "ops.us-central1.v1/logs".to_string();
-    let selector = CollectionJournalSelector {
-        collection: ops_collection.clone(),
-        include_partitions: vec![Partition {
-            name: "name".to_string(),
-            value: task.clone(),
-        }, Partition {
-            name: "kind".to_string(),
-            value: "capture".to_string(),
-        }],
-        ..Default::default()
+        }
+        Err(e) => anyhow::bail!(e),
     };
 
     // Read log lines from the logs collection and filter "failed validation" documents
-    let log_reader = journal_reader(ctx, &ReadArgs {
-        selector,
-        ..Default::default()
-    }).await?;
+    let read_args = ops::read_args(task, ops::OpsCollection::Logs, &args.bounds, true);
+    let log_reader = journal_reader(ctx, &read_args).await?;
     let log_stream = AsyncByteLines::new(BufReader::new(log_reader.compat())).into_stream();
     let log_invalid_documents = log_stream.try_filter_map(|log| async move {
         let parsed: Log = serde_json::from_slice(&log)?;
@@ -127,9 +120,14 @@ pub async fn do_suggest_schema(
             return Ok(None);
         }
 
-        let error_string = &parsed.fields_json_map.get("error").ok_or(to_io_error("could not get 'error' field of ops log"))?;
+        let error_string = &parsed
+            .fields_json_map
+            .get("error")
+            .ok_or(to_io_error("could not get 'error' field of ops log"))?;
         let mut err: Vec<serde_json::Value> = serde_json::from_str(error_string)?;
-        let err_object = err.pop().ok_or(to_io_error("could not get second element of 'error' field in ops log"))?;
+        let err_object = err.pop().ok_or(to_io_error(
+            "could not get second element of 'error' field in ops log",
+        ))?;
         let failed_validation: FailedValidation = serde_json::from_value(err_object)?;
 
         return Ok(Some(failed_validation.document));
