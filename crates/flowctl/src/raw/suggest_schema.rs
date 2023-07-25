@@ -58,10 +58,7 @@ pub struct SuggestSchema {
 
 pub async fn do_suggest_schema(
     ctx: &mut crate::CliContext,
-    SuggestSchema {
-        args,
-        task,
-    }: &SuggestSchema,
+    SuggestSchema { args, task }: &SuggestSchema,
 ) -> anyhow::Result<()> {
     let client = ctx.controlplane_client().await?;
     // Retrieve identified live specifications.
@@ -71,7 +68,7 @@ pub async fn do_suggest_schema(
             flows: true,
             name_selector: NameSelector {
                 name: vec![args.selector.collection.clone()],
-                prefix: Vec::new()
+                prefix: Vec::new(),
             },
             type_selector: SpecTypeSelector {
                 collections: Some(true),
@@ -92,7 +89,10 @@ pub async fn do_suggest_schema(
     )
     .await?;
 
-    let (_, collection_def) = collect_specs(live_specs)?.collections.pop_first().ok_or(anyhow!("could not find collection"))?;
+    let (_, collection_def) = collect_specs(live_specs)?
+        .collections
+        .pop_first()
+        .ok_or(anyhow!("could not find collection"))?;
 
     if args.bounds.follow {
         anyhow::bail!("--follow is not supported by this command");
@@ -137,11 +137,16 @@ pub async fn do_suggest_schema(
 
     // Chain together the collection document reader and the log_invalid_documents stream so we can
     // run schema-inference on both
-    let mut docs_stream: Pin<Box<dyn Stream<Item = Result<serde_json::Value, std::io::Error>>>> = if let Some(reader) = reader {
-        Box::pin(FramedRead::new(FuturesAsyncReadCompatExt::compat(reader), codec).map_err(to_io_error).chain(log_invalid_documents))
-    } else {
-        Box::pin(log_invalid_documents)
-    };
+    let mut docs_stream: Pin<Box<dyn Stream<Item = Result<serde_json::Value, std::io::Error>>>> =
+        if let Some(reader) = reader {
+            Box::pin(
+                FramedRead::new(FuturesAsyncReadCompatExt::compat(reader), codec)
+                    .map_err(to_io_error)
+                    .chain(log_invalid_documents),
+            )
+        } else {
+            Box::pin(log_invalid_documents)
+        };
 
     // The original collection schema to be used as the starting point of schema-inference
     let schema_model = collection_def.schema.unwrap();
@@ -163,7 +168,7 @@ pub async fn do_suggest_schema(
                 inferred_shape = shape::merge(inferred_shape, infer_shape(&parsed))
             }
             Some(Err(e)) => return Err(e.into()),
-            None => break
+            None => break,
         }
     }
 
@@ -173,10 +178,16 @@ pub async fn do_suggest_schema(
     let collection_name = args.selector.collection.split("/").last().unwrap();
 
     let original_schema_file_name = format!("{collection_name}.original.schema.json");
-    std::fs::write(&original_schema_file_name, serde_json::to_string_pretty(&original_jsonschema)?)?;
+    std::fs::write(
+        &original_schema_file_name,
+        serde_json::to_string_pretty(&original_jsonschema)?,
+    )?;
 
     let new_schema_file_name = format!("{collection_name}.new.schema.json");
-    std::fs::write(&new_schema_file_name, serde_json::to_string_pretty(&new_jsonschema)?)?;
+    std::fs::write(
+        &new_schema_file_name,
+        serde_json::to_string_pretty(&new_jsonschema)?,
+    )?;
 
     eprintln!("Wrote {original_schema_file_name} and {new_schema_file_name}.");
 
@@ -184,7 +195,12 @@ pub async fn do_suggest_schema(
     // way that is human-readable and understandable, and doesn't mess up the JSON structure.
     // the --no-index option allows us to use git diff without being in a git repository
     std::process::Command::new("git")
-        .args(["diff", "--no-index", &original_schema_file_name, &new_schema_file_name])
+        .args([
+            "diff",
+            "--no-index",
+            &original_schema_file_name,
+            &new_schema_file_name,
+        ])
         .status()
         .expect("git diff failed");
 
@@ -200,7 +216,7 @@ fn raw_schema_to_shape(schema: &Schema) -> anyhow::Result<Shape> {
     index.verify_references().unwrap();
     let index = index.into_index();
 
-    return Ok(Shape::infer(&root, &index))
+    return Ok(Shape::infer(&root, &index));
 }
 
 fn to_io_error<T: ToString>(message: T) -> std::io::Error {

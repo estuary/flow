@@ -268,8 +268,11 @@ async fn do_list_journals(
     ctx: &mut crate::CliContext,
     args: &CollectionJournalSelector,
 ) -> Result<(), anyhow::Error> {
-    let mut client =
-        journal_client_for(ctx.controlplane_client().await?, vec![args.collection.clone()]).await?;
+    let mut client = journal_client_for(
+        ctx.controlplane_client().await?,
+        vec![args.collection.clone()],
+    )
+    .await?;
 
     let journals = list::list_journals(&mut client, &args.build_label_selector()).await?;
 
