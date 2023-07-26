@@ -12,7 +12,6 @@ import (
 	pb "go.gazette.dev/core/broker/protocol"
 	pbx "go.gazette.dev/core/broker/protocol/ext"
 	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/keyspace"
 	"go.gazette.dev/core/labels"
 	"go.gazette.dev/core/message"
 	"google.golang.org/grpc"
@@ -202,29 +201,28 @@ func ShardUnassign(ctx context.Context, srv *Service, req *pc.UnassignRequest) (
 	var ops []clientv3.Op
 
 	for _, shard := range req.Shards {
-		assignments := state.Assignments.Prefixed(allocator.ItemAssignmentsPrefix(state.KS, shard.String()))
-		primaryAssignment, primaryKv, err := findAssignmentAtSlot(assignments, 0)
-		if req.OnlyFailed && (err == errNoAssignmentFound || primaryAssignment.AssignmentValue.(*pc.ReplicaStatus).Code != pc.ReplicaStatus_FAILED) {
-			// We're only removing failed shards, and this one does not qualify.
-			continue
-		} else if err != nil {
-			// There's currently no assignment for this shard, which is unexpected. Bail out and let the user sort it out.
-			return resp, err
+		var assignments = state.Assignments.Prefixed(allocator.ItemAssignmentsPrefix(state.KS, shard.String()))
+
+		for _, kv := range assignments {
+			var assignment = kv.Decoded.(allocator.Assignment)
+			var status = assignment.AssignmentValue.(*pc.ReplicaStatus)
+
+			if status.Code == pc.ReplicaStatus_FAILED {
+				// Always remove a FAILED assignment.
+			} else if !req.OnlyFailed && assignment.Slot == 0 {
+				// We'll remove a non-failed PRIMARY assignment if asked to do so.
+			} else {
+				continue // Don't remove this assignment.
+			}
+
+			var key = allocator.AssignmentKey(state.KS, assignment)
+			cmp = append(cmp, clientv3.Compare(clientv3.ModRevision(key), "=", kv.Raw.ModRevision))
+			ops = append(ops, clientv3.OpDelete(key))
+
+			if l := len(resp.Shards); l == 0 || resp.Shards[l-1] != shard {
+				resp.Shards = append(resp.Shards, shard)
+			}
 		}
-
-		if item, found := allocator.LookupItem(state.KS, shard.String()); !found {
-			return resp, fmt.Errorf("verifying shard consistency: could not find shard item")
-		} else if !state.IsConsistent(item, primaryKv, assignments) {
-			return resp, fmt.Errorf("verifying shard consistency: shard is not in a consistent state")
-		} else if len(assignments) < item.ItemValue.DesiredReplication() {
-			return resp, fmt.Errorf("verifying shard consistency: shard is already missing replicas")
-		}
-
-		var key = allocator.AssignmentKey(state.KS, primaryAssignment)
-		cmp = append(cmp, clientv3.Compare(clientv3.ModRevision(key), "=", primaryKv.Raw.ModRevision))
-		ops = append(ops, clientv3.OpDelete(key))
-
-		resp.Shards = append(resp.Shards, shard)
 	}
 
 	if req.DryRun {
@@ -371,15 +369,3 @@ func FetchHints(ctx context.Context, sc pc.ShardClient, req *pc.GetHintsRequest)
 		return r, nil
 	}
 }
-
-func findAssignmentAtSlot(assignments keyspace.KeyValues, targetSlot int) (allocator.Assignment, keyspace.KeyValue, error) {
-	for _, assignment := range assignments {
-		if a, ok := assignment.Decoded.(allocator.Assignment); ok && a.Slot == targetSlot {
-			return a, assignment, nil
-		}
-	}
-
-	return allocator.Assignment{}, keyspace.KeyValue{}, errNoAssignmentFound
-}
-
-var errNoAssignmentFound = fmt.Errorf("no assignment found")

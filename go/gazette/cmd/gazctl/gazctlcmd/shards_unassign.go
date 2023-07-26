@@ -38,24 +38,47 @@ func (cmd *cmdShardsUnassign) Execute([]string) (err error) {
 	if listResp.Status != pc.Status_OK {
 		return fmt.Errorf("unexpected listShard status: %v", listResp.Status.String())
 	}
-
 	var client = pc.NewShardClient(ShardsCfg.Consumer.MustDial(ctx))
 
-	unassignResp, err := client.Unassign(pb.WithDispatchDefault(ctx), &pc.UnassignRequest{
-		Shards:     shardIds(listResp.Shards),
-		OnlyFailed: cmd.Failed,
-		DryRun:     cmd.DryRun,
-	})
-	if err != nil {
-		return fmt.Errorf("unassigning shard: %w", err)
-	} else if err := unassignResp.Validate(); err != nil {
-		return fmt.Errorf("invalid response: %w", err)
+	// Compute the set of shard IDs which should have assignments removed.
+	var shardIDs []pc.ShardID
+
+	for _, shard := range listResp.Shards {
+		var isFailed bool
+		for _, status := range shard.Status {
+			if status.Code == pc.ReplicaStatus_FAILED {
+				isFailed = true
+			}
+		}
+		if !cmd.Failed || isFailed {
+			shardIDs = append(shardIDs, shard.Spec.Id)
+		}
 	}
 
-	if len(unassignResp.Shards) == 0 {
-		log.Warn("No shards assignments were modified. Use `shards list -l SELECTOR` to test your selector.")
-	} else {
-		for _, shardId := range unassignResp.Shards {
+	// Walk the set of filtered shards in batches.
+	for {
+		var chunk = len(shardIDs)
+
+		if chunk == 0 {
+			break
+		} else if chunk > 100 {
+			chunk = 100
+		}
+
+		var resp, err = client.Unassign(pb.WithDispatchDefault(ctx), &pc.UnassignRequest{
+			Shards:     shardIDs[:chunk],
+			OnlyFailed: cmd.Failed,
+			DryRun:     cmd.DryRun,
+		})
+		shardIDs = shardIDs[chunk:]
+
+		if err != nil {
+			return fmt.Errorf("unassigning shard: %w", err)
+		} else if err := resp.Validate(); err != nil {
+			return fmt.Errorf("invalid response: %w", err)
+		}
+
+		for _, shardId := range resp.Shards {
 			for _, origShard := range listResp.Shards {
 				if shardId == origShard.Spec.Id {
 					log.Infof("Successfully unassigned shard: id=%v. Previous status=%v, previous route members=%v", origShard.Spec.Id.String(), origShard.Status, origShard.Route.Members)
@@ -65,14 +88,4 @@ func (cmd *cmdShardsUnassign) Execute([]string) (err error) {
 	}
 
 	return nil
-}
-
-func shardIds(shards []pc.ListResponse_Shard) []pc.ShardID {
-	var ids []pc.ShardID
-
-	for _, shard := range shards {
-		ids = append(ids, shard.Spec.Id)
-	}
-
-	return ids
 }
