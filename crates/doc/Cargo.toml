@@ -43,6 +43,7 @@ rand_distr = { workspace = true }
 serde-transcode = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
+pretty_assertions = { workspace = true }
 
 [features]
 default = ["combine"]
