@@ -49,20 +49,19 @@ pub fn docker_spawn(image: &str, args: &[&str]) -> anyhow::Result<(Child, TempDi
             [
                 &[
                     "run",
-                    "--interactive",
-                    "--init",
                     "--rm",
-                    "--log-driver=none",
-                    "--mount",
-                    &format!("type=bind,source={host_inspect_str},target={target_inspect}"),
                     "--mount",
                     &format!(
                         "type=bind,source={host_connector_init_str},target={target_connector_init}"
                     ),
-                    "--publish",
-                    &format!("0.0.0.0:{}:{}/tcp", port, CONNECTOR_INIT_PORT),
                     "--entrypoint",
                     target_connector_init,
+                    "--env",
+                    "LOG_LEVEL=trace",
+                    "--publish",
+                    &format!("0.0.0.0:{}:{}/tcp", port, CONNECTOR_INIT_PORT),
+                    "--mount",
+                    &format!("type=bind,source={host_inspect_str},target={target_inspect}"),
                     image,
                     &format!("--image-inspect-json-path={target_inspect}"),
                     &format!("--port={CONNECTOR_INIT_PORT}"),
@@ -71,7 +70,6 @@ pub fn docker_spawn(image: &str, args: &[&str]) -> anyhow::Result<(Child, TempDi
             ]
             .concat(),
         )
-        .stderr(Stdio::inherit())
         .spawn()
         .context("spawning docker run child")?;
 
@@ -83,7 +81,7 @@ async fn connector_client(port: u16) -> anyhow::Result<ConnectorClient<tonic::tr
         match ConnectorClient::connect(format!("tcp://127.0.0.1:{port}")).await {
             Ok(client) => return Ok(client),
             Err(_) => {
-                std::thread::sleep(std::time::Duration::from_millis(3000));
+                std::thread::sleep(std::time::Duration::from_millis(1000));
                 continue;
             }
         };
