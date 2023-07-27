@@ -1,6 +1,5 @@
-use crate::AsNode;
-
 use super::{compare, ptr::Token, reduce, Annotation, Pointer, Schema, SchemaIndex};
+use crate::AsNode;
 use fancy_regex::Regex;
 use itertools::{self, EitherOrBoth, Itertools};
 use json::{
@@ -444,6 +443,82 @@ impl ObjShape {
             Some(addl.clone())
         } else {
             None
+        }
+    }
+
+    fn widen<'n, N>(&mut self, fields: &'n N::Fields, loc: Location, is_first_time: bool) -> bool
+    where
+        N: AsNode,
+    {
+        use crate::{Field, Fields};
+        // If a particular location defines `additionalProperties` as a subschema
+        // don't add the field from `AsNode`, instead jump straight to squashing
+        match self.additional.as_mut() {
+            // We only want to squash if your `additionalProperties`
+            // is set to something other than `false`.
+            Some(addl) if !addl.type_.eq(&types::INVALID) => {
+                fields.iter().enumerate().fold(false, |accum, (idx, node)| {
+                    accum || addl.widen(node.value(), loc.push_item(idx))
+                })
+            }
+            _ => {
+                let mut hint = false;
+
+                let shapes: Vec<_> = itertools::merge_join_by(
+                    self.properties.iter_mut(),
+                    fields.iter(),
+                    |prop, field| prop.name.cmp(&field.property().to_string()),
+                )
+                .filter_map(|eob| match eob {
+                    // Both the shape and node have this field, recursion time
+                    EitherOrBoth::Both(lhs, rhs) => {
+                        hint |= lhs.shape.widen(rhs.value(), loc.push_prop(rhs.property()));
+                        None
+                    }
+                    // Shape has a field that the node is missing, so let's make sure it's not marked as required
+                    EitherOrBoth::Left(mut lhs) => {
+                        lhs.is_required = false;
+                        None
+                    }
+                    // The Node has a field that the shape doesn't, let's add it
+                    EitherOrBoth::Right(rhs) => {
+                        let mut prop = ObjProperty {
+                            name: rhs.property().to_owned(),
+                            // A field can only be required if every single document we've seen
+                            // has that field present. This means that ONLY fields that exist
+                            // on the very first object we encounter for a particular location should
+                            // get marked as required, as any subsequent "new" fields
+                            // by definition did not exist on previous objects (and so cannot be required)
+                            // otherwise they would already be in the Shape
+                            // (and we would be in the `EoB::Both` branch).
+                            is_required: is_first_time,
+                            // Leave shape blank here, we're going to recur and expand it right below
+                            // Note: Shape starts out totally unconstrained (types::ANY) by default,
+                            // whereas we want it maximally constrained initially
+                            shape: Shape {
+                                type_: types::INVALID,
+                                provenance: Provenance::Inline,
+                                ..Default::default()
+                            },
+                        };
+
+                        hint |= prop.shape.widen(rhs.value(), loc.push_prop(rhs.property()));
+
+                        Some(prop)
+                    }
+                })
+                .collect();
+
+                if !shapes.is_empty() {
+                    // These new shapes can not conflict with existing properties by definition
+                    // because they were produced by the right-hand-side of the `merge_join_by`.
+                    // That is, these fields explicitly do not yet exist on this shape.
+                    self.properties.extend(shapes.into_iter());
+                    self.properties.sort_by(|a, b| a.name.cmp(&b.name))
+                }
+
+                hint
+            }
         }
     }
 }
@@ -1494,125 +1569,27 @@ impl Shape {
     // Returns a hint if some locations might exceed their maximum allowable size.
     // NOTE: If a particular location defines `additionalProperties` as a subschema, don't
     // add the field from `AsNode`, instead jump straight to squashing the the field into `additionalProperties`
-    fn widen<'n, N>(&mut self, node: &'n N) -> bool
+    fn widen<'n, N>(&mut self, node: &'n N, loc: Location) -> bool
     where
         N: AsNode,
     {
-        self.widen_inner(node, Location::Root)
-    }
-
-    fn widen_inner<'n, N>(&mut self, node: &'n N, loc: Location) -> bool
-    where
-        N: AsNode,
-    {
-        use crate::{Field, Fields};
-
         match node.as_node() {
-            crate::Node::Object(obj) => {
+            crate::Node::Object(fields) => {
+                // See comment in `ObjShape::widen` about when to set `is_required`
+                // on newly encountered fields. Detects whether this is the
+                // very first time this location has seen an OBJECT shape.
+                let is_first_time = !self.type_.overlaps(types::OBJECT);
                 self.type_ = self.type_ | types::OBJECT;
 
-                match self.object.additional {
-                    Some(_) => {}
-                    None => {
-                        self.object.additional = Some(Box::new(Shape {
-                            type_: types::INVALID,
-                            ..Default::default()
-                        }))
-                    }
+                if let None = self.object.additional {
+                    self.object.additional = Some(Box::new(Shape {
+                        type_: types::INVALID,
+                        provenance: Provenance::Inline,
+                        ..Default::default()
+                    }))
                 }
 
-                // If a particular location defines `additionalProperties` as a subschema
-                // don't add the field from `AsNode`, instead jump straight to squashing
-                let hint = match self.object.additional.as_mut() {
-                    // We only want to squash if your `additionalProperties`
-                    // is set to something other than `false`.
-                    Some(addl) if !addl.type_.eq(&types::INVALID) => {
-                        obj.iter().enumerate().fold(false, |accum, (idx, node)| {
-                            accum || addl.widen_inner(node.value(), loc.push_item(idx))
-                        })
-                    }
-                    _ => {
-                        let (hint, new_obj_shape) = itertools::merge_join_by(
-                            self.object.properties.iter_mut(),
-                            obj.iter(),
-                            |prop, field| prop.name.cmp(&field.property().to_string()),
-                        )
-                        .fold(
-                            // NOTE: We need to do this whole song and dance of folding over `ObjShape` because
-                            // in `EitherOrBoth::Right`, we don't have a `lhs` to mutate, and we can't directly mutate
-                            // `self.object` because we're iterating over it, and `.fold` requires unique access.
-                            // This gives us a temporary blank ObjShape into which we can add all brand new fields
-                            // which will then get union()'d into `self.object` after we're done folding.
-                            (false, {
-                                let mut blank_shape = ObjShape::new();
-                                blank_shape.additional = Some(Box::new(Shape {
-                                    type_: types::INVALID,
-                                    provenance: Provenance::Inline,
-                                    ..Default::default()
-                                }));
-                                blank_shape
-                            }),
-                            |(accum, new_obj_shape), eob| match eob {
-                                // Both the shape and node have this field, recursion time
-                                EitherOrBoth::Both(lhs, rhs) => (
-                                    accum
-                                        || lhs.shape.widen_inner(
-                                            rhs.value(),
-                                            loc.push_prop(rhs.property()),
-                                        ),
-                                    new_obj_shape,
-                                ),
-                                // Shape has a field that the node is missing, so let's make sure it's not marked as required
-                                // Is this the right behavior here?
-                                EitherOrBoth::Left(mut lhs) => {
-                                    lhs.is_required = false;
-                                    (accum, new_obj_shape)
-                                }
-                                // The Node has a field that the shape doesn't, let's add it
-                                EitherOrBoth::Right(rhs) => {
-                                    let mut prop = ObjProperty {
-                                        name: rhs.property().to_owned(),
-                                        // Should we really do this?
-                                        is_required: true,
-                                        // Leave shape blank here, we're going to recur and expand it right below
-                                        // Note: Shape starts out totally unconstrained (types::ANY) by default,
-                                        // whereas we want it maximally constrained initially
-                                        shape: Shape {
-                                            type_: types::INVALID,
-                                            provenance: Provenance::Inline,
-                                            ..Default::default()
-                                        },
-                                    };
-
-                                    let hint = accum
-                                        || prop.shape.widen_inner(
-                                            rhs.value(),
-                                            loc.push_prop(rhs.property()),
-                                        );
-
-                                    // Create a new partial `ObjShape` containing the new field
-                                    let obj = ObjShape {
-                                        properties: vec![prop],
-                                        patterns: Vec::new(),
-                                        // Inference needs `additionalProperties to be constrained,
-                                        // otherwise there's nothing to infer: A schema with unconstrained
-                                        // additional properties already matches everything possible,
-                                        // and cannot be widened further.
-                                        additional: Some(Box::new(Shape {
-                                            type_: types::INVALID,
-                                            provenance: Provenance::Inline,
-                                            ..Default::default()
-                                        })),
-                                    };
-                                    // Use `union` to merge our newly minted partial shape into the broader shape properly
-                                    (hint, ObjShape::union(new_obj_shape, obj))
-                                }
-                            },
-                        );
-                        self.object = ObjShape::union(self.object.clone(), new_obj_shape);
-                        hint
-                    }
-                };
+                let hint = self.object.widen::<N>(fields, loc, is_first_time);
 
                 match (hint, loc) {
                     (true, _) => true,
@@ -1631,7 +1608,7 @@ impl Shape {
 
                 // Look at each element in the observed array and widen the shape to accept it
                 let hint = arr.iter().enumerate().fold(false, |accum, (idx, node)| {
-                    accum || shape.widen_inner(node, loc.push_item(idx))
+                    accum || shape.widen(node, loc.push_item(idx))
                 });
 
                 self.array.additional = Some(shape);
@@ -1719,7 +1696,7 @@ mod test {
 
         for doc in docs {
             let val: Value = de::from_str(doc).unwrap();
-            schema.widen(&val);
+            schema.widen(&val, Location::Root);
         }
 
         let expected = shape_from(expected_schema);
@@ -1734,15 +1711,86 @@ mod test {
             r#"
             type: object
             additionalProperties: false
+            required: [test_key]
             properties:
                 test_key:
                     type: object
                     additionalProperties: false
+                    required: [test_nested]
                     properties:
                         test_nested:
                             type: string
             "#,
             &[r#"{"test_key": {"test_nested": "pizza"}}"#],
+        );
+    }
+
+    #[test]
+    fn test_widening_required_properties() {
+        // Fields introduced from scratch should be required
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: object
+            additionalProperties: false
+            required: [first_key]
+            properties:
+                first_key:
+                    type: string
+            "#,
+            &[r#"{"first_key": "hello"}"#],
+        );
+        // Fields encountered after the first should not be required
+        // AND required fields should stay required, so long as they
+        // are always encountered
+        widening_snapshot_helper(
+            Some(
+                r#"
+            type: object
+            additionalProperties: false
+            required: [first_key]
+            properties:
+                first_key:
+                    type: string
+            "#,
+            ),
+            r#"
+            type: object
+            additionalProperties: false
+            required: [first_key]
+            properties:
+                first_key:
+                    type: string
+                second_key:
+                    type: string
+            "#,
+            &[r#"{"first_key": "hello", "second_key": "goodbye"}"#],
+        );
+        // Required fields get demoted once we encounter a document
+        // where they are not present
+        widening_snapshot_helper(
+            Some(
+                r#"
+            type: object
+            additionalProperties: false
+            required: [first_key]
+            properties:
+                first_key:
+                    type: string
+                second_key:
+                    type: string
+            "#,
+            ),
+            r#"
+            type: object
+            additionalProperties: false
+            properties:
+                first_key:
+                    type: string
+                second_key:
+                    type: string
+            "#,
+            &[r#"{"second_key": "goodbye"}"#],
         );
     }
 
@@ -1752,10 +1800,12 @@ mod test {
         let schema = r#"
             type: object
             additionalProperties: false
+            required: [test_key]
             properties:
                 test_key:
                     type: object
                     additionalProperties: false
+                    required: [test_nested]
                     properties:
                         test_nested:
                             type: string
@@ -1773,10 +1823,12 @@ mod test {
         let schema = r#"
                 type: object
                 additionalProperties: false
+                required: [test_key]
                 properties:
                     test_key:
                         type: object
                         additionalProperties: false
+                        required: [test_nested]
                         properties:
                             test_nested:
                                 type: string
@@ -1786,6 +1838,7 @@ mod test {
             r#"
                 type: object
                 additionalProperties: false
+                required: [test_key]
                 properties:
                     test_key:
                         type: object
@@ -1894,15 +1947,40 @@ mod test {
         widening_snapshot_helper(
             None,
             r#"
-                type: [array, object]
-                additionalProperties: false
-                items:
-                    type: [string, number]
-                properties:
-                    test_key:
-                        type: number
+                anyOf:
+                    - type: array
+                      items:
+                          type: [string, number]
+                    - type: object
+                      additionalProperties: false
+                      required: [test_key]
+                      properties:
+                        test_key:
+                            type: number
                 "#,
             &[r#"["test", 5]"#, r#"{"test_key": 5}"#],
+        );
+
+        widening_snapshot_helper(
+            None,
+            r#"
+                anyOf:
+                    - type: array
+                      items:
+                          type: [string, number]
+                    - type: object
+                      additionalProperties: false
+                      properties:
+                        test_key:
+                            type: number
+                        toast_key:
+                            type: number
+                "#,
+            &[
+                r#"["test", 5]"#,
+                r#"{"test_key": 5}"#,
+                r#"{"toast_key": 5}"#,
+            ],
         );
     }
 
