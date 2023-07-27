@@ -1,6 +1,8 @@
 use anyhow::Context;
 pub use codec::Codec;
 use tokio::signal::unix;
+use tonic::transport::server::TcpIncoming;
+use anyhow::anyhow;
 
 mod capture;
 mod codec;
@@ -33,6 +35,10 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         Some(protocol) if protocol == "json" => Codec::Json,
         _ => Codec::Proto,
     };
+
+    let addr = format!("0.0.0.0:{}", args.port).parse().unwrap();
+    let incoming = TcpIncoming::new(addr, true, None).map_err(|e| anyhow!("tcp incoming error {}", e))?;
+
     check_protocol(&entrypoint, codec).await?;
 
     let capture = proto_grpc::capture::connector_server::ConnectorServer::new(capture::Proxy {
@@ -60,8 +66,6 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
     let proxy_handler = proxy::ProxyHandler::new("localhost");
     let proxy = proto_grpc::flow::network_proxy_server::NetworkProxyServer::new(proxy_handler);
 
-    let addr = format!("0.0.0.0:{}", args.port).parse().unwrap();
-
     // Gracefully exit on either SIGINT (ctrl-c) or SIGTERM.
     let mut sigint = unix::signal(unix::SignalKind::interrupt()).unwrap();
     let mut sigterm = unix::signal(unix::SignalKind::terminate()).unwrap();
@@ -79,7 +83,7 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         .add_service(derive)
         .add_service(materialize)
         .add_service(proxy)
-        .serve_with_shutdown(addr, signal)
+        .serve_with_incoming_shutdown(incoming, signal)
         .await?;
 
     Ok(())
