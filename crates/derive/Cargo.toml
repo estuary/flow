@@ -19,6 +19,7 @@ proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 tables = { path = "../tables" }
 tuple = { path = "../tuple" }
+schema-inference = { path = "../schema-inference" }
 
 anyhow = { workspace = true }
 bytes = { workspace = true }
