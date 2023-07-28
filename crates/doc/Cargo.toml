@@ -36,6 +36,7 @@ allocator = { path = "../allocator" }
 criterion = { workspace = true }
 hexdump = { workspace = true }
 insta = { workspace = true }
+pretty_assertions = { workspace = true }
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
 rand = { workspace = true }
@@ -43,7 +44,6 @@ rand_distr = { workspace = true }
 serde-transcode = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
-pretty_assertions = { workspace = true }
 
 [features]
 default = ["combine"]
