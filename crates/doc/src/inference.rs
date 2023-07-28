@@ -3,11 +3,15 @@ use crate::AsNode;
 use fancy_regex::Regex;
 use itertools::{self, EitherOrBoth, Itertools};
 use json::{
-    schema::{formats::Format, types, Application, CoreAnnotation, Keyword, Validation},
+    schema::{
+        formats::Format,
+        types::{self, Set},
+        Application, CoreAnnotation, Keyword, Validation,
+    },
     LocatedProperty, Location,
 };
 use serde_json::Value;
-use std::{collections::BTreeMap, ops::Deref};
+use std::collections::BTreeMap;
 use url::Url;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -224,6 +228,17 @@ impl StringShape {
             format,
             max_length,
             min_length: lhs.min_length.min(rhs.min_length),
+        }
+    }
+
+    pub fn detect_format(value: &str) -> Option<Format> {
+        match value {
+            _ if Format::Integer.validate(value).is_ok() => Some(Format::Integer),
+            _ if Format::Number.validate(value).is_ok() => Some(Format::Number),
+            _ if Format::DateTime.validate(value).is_ok() => Some(Format::DateTime),
+            _ if Format::Date.validate(value).is_ok() => Some(Format::Date),
+            _ if Format::Uuid.validate(value).is_ok() => Some(Format::Uuid),
+            _ => None,
         }
     }
 }
@@ -453,72 +468,74 @@ impl ObjShape {
         use crate::{Field, Fields};
         // If a particular location defines `additionalProperties` as a subschema
         // don't add the field from `AsNode`, instead jump straight to squashing
-        match self.additional.as_mut() {
-            // We only want to squash if your `additionalProperties`
-            // is set to something other than `false`.
-            Some(addl) if !addl.type_.eq(&types::INVALID) => {
-                fields.iter().enumerate().fold(false, |accum, (idx, node)| {
-                    accum || addl.widen(node.value(), loc.push_item(idx))
-                })
+        // We only want to squash if your `additionalProperties`
+        // is set to something other than `false`.
+        if let Some(addl) = self.additional.as_mut() {
+            if !addl.type_.eq(&types::INVALID) {
+                return fields.iter().fold(false, |accum, node| {
+                    accum || addl.widen(node.value(), loc.push_prop(node.property()))
+                });
             }
-            _ => {
-                let mut hint = false;
+        }
 
-                let shapes: Vec<_> = itertools::merge_join_by(
-                    self.properties.iter_mut(),
-                    fields.iter(),
-                    |prop, field| prop.name.cmp(&field.property().to_string()),
-                )
-                .filter_map(|eob| match eob {
-                    // Both the shape and node have this field, recursion time
-                    EitherOrBoth::Both(lhs, rhs) => {
-                        hint |= lhs.shape.widen(rhs.value(), loc.push_prop(rhs.property()));
-                        None
-                    }
-                    // Shape has a field that the node is missing, so let's make sure it's not marked as required
-                    EitherOrBoth::Left(mut lhs) => {
-                        lhs.is_required = false;
-                        None
-                    }
-                    // The Node has a field that the shape doesn't, let's add it
-                    EitherOrBoth::Right(rhs) => {
-                        let mut prop = ObjProperty {
-                            name: rhs.property().to_owned(),
-                            // A field can only be required if every single document we've seen
-                            // has that field present. This means that ONLY fields that exist
-                            // on the very first object we encounter for a particular location should
-                            // get marked as required, as any subsequent "new" fields
-                            // by definition did not exist on previous objects (and so cannot be required)
-                            // otherwise they would already be in the Shape
-                            // (and we would be in the `EoB::Both` branch).
-                            is_required: is_first_time,
-                            // Leave shape blank here, we're going to recur and expand it right below
-                            // Note: Shape starts out totally unconstrained (types::ANY) by default,
-                            // whereas we want it maximally constrained initially
-                            shape: Shape {
-                                type_: types::INVALID,
-                                provenance: Provenance::Inline,
-                                ..Default::default()
-                            },
-                        };
+        let mut hint = false;
 
-                        hint |= prop.shape.widen(rhs.value(), loc.push_prop(rhs.property()));
-
-                        Some(prop)
-                    }
-                })
-                .collect();
-
-                if !shapes.is_empty() {
-                    // These new shapes can not conflict with existing properties by definition
-                    // because they were produced by the right-hand-side of the `merge_join_by`.
-                    // That is, these fields explicitly do not yet exist on this shape.
-                    self.properties.extend(shapes.into_iter());
-                    self.properties.sort_by(|a, b| a.name.cmp(&b.name))
+        let new_fields: Vec<_> =
+            itertools::merge_join_by(self.properties.iter_mut(), fields.iter(), |prop, field| {
+                prop.name.cmp(&field.property().to_string())
+            })
+            .filter_map(|eob| match eob {
+                // Both the shape and node have this field, recursion time
+                EitherOrBoth::Both(lhs, rhs) => {
+                    hint |= lhs.shape.widen(rhs.value(), loc.push_prop(rhs.property()));
+                    None
                 }
+                // Shape has a field that the node is missing, so let's make sure it's not marked as required
+                EitherOrBoth::Left(mut lhs) => {
+                    lhs.is_required = false;
+                    None
+                }
+                // The Node has a field that the shape doesn't, let's add it
+                EitherOrBoth::Right(rhs) => {
+                    let mut prop = ObjProperty {
+                        name: rhs.property().to_owned(),
+                        // A field can only be required if every single document we've seen
+                        // has that field present. This means that ONLY fields that exist
+                        // on the very first object we encounter for a particular location should
+                        // get marked as required, as any subsequent "new" fields
+                        // by definition did not exist on previous objects (and so cannot be required)
+                        // otherwise they would already be in the Shape
+                        // (and we would be in the `EoB::Both` branch).
+                        is_required: is_first_time,
+                        // Leave shape blank here, we're going to recur and expand it right below
+                        // Note: Shape starts out totally unconstrained (types::ANY) by default,
+                        // whereas we want it maximally constrained initially
+                        shape: Shape {
+                            type_: types::INVALID,
+                            provenance: Provenance::Inline,
+                            ..Default::default()
+                        },
+                    };
 
-                hint
-            }
+                    hint |= prop.shape.widen(rhs.value(), loc.push_prop(rhs.property()));
+
+                    Some(prop)
+                }
+            })
+            .collect();
+
+        if !new_fields.is_empty() {
+            // These new shapes can not conflict with existing properties by definition
+            // because they were produced by the right-hand-side of the `merge_join_by`.
+            // That is, these fields explicitly do not yet exist on this shape.
+            self.properties.extend(new_fields.into_iter());
+            self.properties.sort_by(|a, b| a.name.cmp(&b.name))
+        }
+
+        match (hint, loc) {
+            (true, _) => true,
+            (false, Location::Root) => self.properties.len() > MAX_ROOT_FIELDS,
+            (false, _) => self.properties.len() > MAX_NESTED_FIELDS,
         }
     }
 }
@@ -1589,13 +1606,7 @@ impl Shape {
                     }))
                 }
 
-                let hint = self.object.widen::<N>(fields, loc, is_first_time);
-
-                match (hint, loc) {
-                    (true, _) => true,
-                    (false, Location::Root) => self.object.properties.len() > MAX_ROOT_FIELDS,
-                    (false, _) => self.object.properties.len() > MAX_NESTED_FIELDS,
-                }
+                self.object.widen::<N>(fields, loc, is_first_time)
             }
 
             crate::Node::Array(arr) => {
@@ -1612,6 +1623,16 @@ impl Shape {
                 });
 
                 self.array.additional = Some(shape);
+
+                self.array.min = match self.array.min {
+                    Some(prev_min) => Some(prev_min.min(arr.len())),
+                    None => Some(arr.len()),
+                };
+                self.array.max = match self.array.max {
+                    Some(prev_max) => Some(prev_max.max(arr.len())),
+                    None => Some(arr.len()),
+                };
+
                 self.type_ = self.type_ | types::ARRAY;
 
                 hint
@@ -1635,18 +1656,45 @@ impl Shape {
                 self.type_ = self.type_ | types::NULL;
                 false
             }
-            crate::Node::Number(_num) => {
-                self.type_ = self.type_ | types::INT_OR_FRAC;
+            crate::Node::Number(num) => {
+                self.type_ = self.type_ | Set::for_number(&num);
                 false
             }
-            crate::Node::String(_s) => {
+            crate::Node::String(s) => {
+                let is_first_time = !self.type_.overlaps(types::STRING);
+
                 self.type_ = self.type_ | types::STRING;
+
+                // Similar to the nuance around `is_required`, string format
+                // should only be set if _every_ string we've encountered at this
+                // particular location matches that format. That means that we detect
+                // format on the first string encountered, and then check every
+                // subsequent string to ensure it conforms. If it doesn't we clear the format
+                // and skip the unneccesary work of checking/detecting formats thereafter.
+                let format = if is_first_time {
+                    StringShape::detect_format(s)
+                } else if let Some(fmt) = self.string.format {
+                    if fmt.validate(s).is_ok() {
+                        Some(fmt)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
                 let partial_stringshape = StringShape {
-                    // TODO: implement format widening
+                    format,
+                    max_length: Some(s.len()),
+                    min_length: s.len(),
                     ..Default::default()
                 };
 
-                self.string = StringShape::union(self.string.clone(), partial_stringshape);
+                if is_first_time {
+                    self.string = partial_stringshape
+                } else {
+                    self.string = StringShape::union(self.string.clone(), partial_stringshape);
+                }
 
                 false
             }
@@ -1777,7 +1825,7 @@ mod test {
             r#"
             type: object
             additionalProperties:
-                type: [number]
+                type: integer
             "#,
             dynamic_keys.as_slice(),
             true,
@@ -1804,12 +1852,65 @@ mod test {
             required: [known_key, key-0]
             properties:
                 known_key:
-                    type: number
+                    type: integer
                 key-0:
-                    type: number
+                    type: integer
             "#,
             dynamic_keys.as_slice(),
             true,
+        );
+    }
+
+    #[test]
+    fn test_widening_string_format() {
+        // Should detect format the first time
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: string
+            format: integer
+            maxLength: 1
+            minLength: 1
+            "#,
+            &[r#""5""#],
+            false,
+        );
+
+        // Once we encounter a string that doesn't match the format, throw it away
+        widening_snapshot_helper(
+            Some(
+                r#"
+            type: string
+            format: integer
+            maxLength: 1
+            minLength: 1
+            "#,
+            ),
+            r#"
+            type: string
+            maxLength: 5
+            minLength: 1
+            "#,
+            &[r#""pizza""#],
+            false,
+        );
+
+        // And don't re-infer it ever again
+        widening_snapshot_helper(
+            Some(
+                r#"
+            type: string
+            maxLength: 5
+            minLength: 1
+            "#,
+            ),
+            r#"
+            type: string
+            maxLength: 5
+            minLength: 1
+            "#,
+            &[r#""5""#],
+            false,
         );
     }
 
@@ -1833,7 +1934,7 @@ mod test {
                     required: [key-0]
                     properties:
                         key-0:
-                            type: number
+                            type: integer
             "#,
             &[&ser::to_string(&json!({ "container": nested })).unwrap()],
             true,
@@ -1853,7 +1954,7 @@ mod test {
                 container:
                     type: object
                     additionalProperties:
-                        type: [number]
+                        type: [integer]
             "#,
             &[&ser::to_string(&json!({ "container": nested })).unwrap()],
             true,
@@ -2008,7 +2109,7 @@ mod test {
                             test_nested:
                                 type: string
                             nested_second:
-                                type: number
+                                type: integer
                 "#,
             &[r#"{"test_key": {"nested_second": 68}}"#],
             false,
@@ -2046,7 +2147,7 @@ mod test {
             r#"
             type: object
             additionalProperties:
-                type: [string, number]
+                type: [string, integer]
             "#,
             &[r#"{"test_key": "a_string"}"#, r#"{"toast_key": 5}"#],
             false,
@@ -2077,7 +2178,7 @@ mod test {
                         additionalProperties: false
                         properties:
                             test_nested:
-                                type: [string, number]
+                                type: [string, integer]
                 "#,
             &[r#"{"test_key": {"test_nested": 68}}"#],
             false,
@@ -2090,6 +2191,8 @@ mod test {
             None,
             r#"
                 type: array
+                minItems: 2
+                maxItems: 2
                 items:
                     type: string
                 "#,
@@ -2101,10 +2204,33 @@ mod test {
             None,
             r#"
                 type: array
+                minItems: 2
+                maxItems: 2
                 items:
-                    type: [string, number]
+                    type: [string, integer]
                 "#,
             &[r#"["test", 5]"#],
+            false,
+        );
+
+        widening_snapshot_helper(
+            Some(
+                r#"
+            type: array
+            minItems: 0
+            maxItems: 1
+            items:
+                type: string
+            "#,
+            ),
+            r#"
+                type: array
+                minItems: 0
+                maxItems: 2
+                items:
+                    type: [string]
+                "#,
+            &[r#"["test", "toast"]"#],
             false,
         );
     }
@@ -2116,14 +2242,16 @@ mod test {
             r#"
                 anyOf:
                     - type: array
+                      minItems: 2
+                      maxItems: 2
                       items:
-                          type: [string, number]
+                          type: [string, integer]
                     - type: object
                       additionalProperties: false
                       required: [test_key]
                       properties:
                         test_key:
-                            type: number
+                            type: integer
                 "#,
             &[r#"["test", 5]"#, r#"{"test_key": 5}"#],
             false,
@@ -2134,18 +2262,21 @@ mod test {
             r#"
                 anyOf:
                     - type: array
+                      minItems: 2
+                      maxItems: 3
                       items:
-                          type: [string, number]
+                          type: [string, fractional]
                     - type: object
                       additionalProperties: false
                       properties:
                         test_key:
-                            type: number
+                            type: integer
                         toast_key:
-                            type: number
+                            type: integer
                 "#,
             &[
-                r#"["test", 5]"#,
+                r#"["test", 5.2]"#,
+                r#"["test", 5.2, 3.2]"#,
                 r#"{"test_key": 5}"#,
                 r#"{"toast_key": 5}"#,
             ],
