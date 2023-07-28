@@ -219,6 +219,10 @@ message Response {
       ];
       // Composite key of documents (if known), as JSON-Pointers.
       repeated string key = 4;
+      // When true, this binding should be added but marked as disabled.
+      // The user may explicitly enable it, but the garden-path expectation
+      // for most users is that they likely wouldn't want it.
+      bool disable = 5;
     }
     repeated Binding bindings = 1;
   }

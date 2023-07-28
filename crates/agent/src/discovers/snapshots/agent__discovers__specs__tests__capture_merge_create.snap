@@ -10,6 +10,13 @@ expression: json!(out)
           "stream": "foo"
         },
         "target": "acmeCo/my/foo"
+      },
+      {
+        "disable": true,
+        "resource": {
+          "stream": "bar"
+        },
+        "target": "acmeCo/my/bar"
       }
     ],
     "endpoint": {
@@ -32,6 +39,19 @@ expression: json!(out)
       "recommendedName": "foo",
       "resourceConfig": {
         "stream": "foo"
+      }
+    },
+    {
+      "disable": true,
+      "documentSchema": {
+        "const": "bar"
+      },
+      "key": [
+        "/bar-key"
+      ],
+      "recommendedName": "bar",
+      "resourceConfig": {
+        "stream": "bar"
       }
     }
   ]

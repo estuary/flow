@@ -41,7 +41,8 @@ expression: json_test(msg)
         "documentSchema": {"doc":"schema"},
         "key": [
           "/key/ptr"
-        ]
+        ],
+        "disable": true
       }
     ]
   },
