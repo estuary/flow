@@ -186,17 +186,21 @@ impl Set {
             Value::Array(_) => ARRAY,
             Value::Bool(_) => BOOLEAN,
             Value::Null => NULL,
-            Value::Number(n) => match Number::from(n) {
-                // The json schema spec says that the "integer" type must match
-                // "any number with a zero fractional part":
-                // https://json-schema.org/draft/2019-09/json-schema-validation.html#rfc.section.6.1.1
-                // So if there's an actual fractional part, then only "number" is valid,
-                // but for any other numeric value, then "integer" is also valid.
-                Number::Float(value) if value.fract() != 0.0 => FRACTIONAL,
-                _ => INTEGER,
-            },
+            Value::Number(n) => Self::for_number(&Number::from(n)),
             Value::Object(_) => OBJECT,
             Value::String(_) => STRING,
+        }
+    }
+
+    pub fn for_number(num: &Number) -> Set {
+        match num {
+            // The json schema spec says that the "integer" type must match
+            // "any number with a zero fractional part":
+            // https://json-schema.org/draft/2019-09/json-schema-validation.html#rfc.section.6.1.1
+            // So if there's an actual fractional part, then only "number" is valid,
+            // but for any other numeric value, then "integer" is also valid.
+            Number::Float(value) if value.fract() != 0.0 => FRACTIONAL,
+            _ => INTEGER,
         }
     }
 
