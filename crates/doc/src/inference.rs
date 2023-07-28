@@ -1706,6 +1706,12 @@ impl Shape {
     pub fn enforce_field_count_limits(&mut self, loc: Location) {
         // TODO: If we implement inference/widening of array tuple shapes
         // then we'll need to also check that those aren't excessively large.
+        if self.type_.overlaps(types::ARRAY) {
+            if let Some(array_shape) = self.array.additional.as_mut() {
+                array_shape.enforce_field_count_limits(loc.push_item(0));
+            }
+        }
+
         if !self.type_.overlaps(types::OBJECT) {
             return;
         }
@@ -1828,6 +1834,69 @@ mod test {
                 type: integer
             "#,
             dynamic_keys.as_slice(),
+            true,
+        );
+    }
+
+    #[test]
+    fn test_field_count_limits_inside_array() {
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: array
+            minItems: 1
+            maxItems: 1
+            items:
+                type: object
+                additionalProperties: false
+                required: [key]
+                properties:
+                    key:
+                        type: string
+                        minLength: 4
+                        maxLength: 4
+            "#,
+            &[r#"[{"key": "test"}]"#],
+            true,
+        );
+        let dynamic_array_objects = (0..800)
+            .map(|id| {
+                ser::to_string(&json!([{
+                    format!("key-{id}"): "test"
+                }]))
+                .unwrap()
+            })
+            .collect_vec();
+
+        widening_snapshot_helper(
+            Some(
+                r#"
+                type: array
+                minItems: 1
+                maxItems: 1
+                items:
+                    type: object
+                    additionalProperties: false
+                    required: [key]
+                    properties:
+                        key:
+                            type: string
+                            minLength: 4
+                            maxLength: 4
+                "#,
+            ),
+            r#"
+                type: array
+                minItems: 1
+                maxItems: 1
+                items:
+                    type: object
+                    additionalProperties:
+                        type: string
+                        minLength: 4
+                        maxLength: 4
+                "#,
+            &dynamic_array_objects,
             true,
         );
     }
