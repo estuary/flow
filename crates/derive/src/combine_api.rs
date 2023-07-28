@@ -1,8 +1,10 @@
 use crate::{new_validator, DocCounter, JsonError, StatsAccumulator};
 use anyhow::Context;
 use bytes::Buf;
+use json::Location;
 use prost::Message;
 use proto_flow::flow::combine_api::{self, Code};
+use schema_inference::schema::SchemaBuilder;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -54,6 +56,13 @@ impl StatsAccumulator for CombineStats {
 struct State {
     // Combiner which is doing the heavy lifting.
     combiner: doc::Combiner,
+    // Inferred shape of drained documents
+    shape: doc::inference::Shape,
+    // We need to keep track of the potentially-modified shape
+    // while we drain documents in order to figure out whether
+    // it has changed or not. We only want to emit shape updates
+    // if there is a change.
+    scratch_shape: doc::inference::Shape,
     // Fields which are extracted and returned from combined documents.
     fields_ex: Vec<doc::Extractor>,
     // Document key components over which we're grouping while combining.
@@ -124,6 +133,8 @@ impl cgo::Service for API {
 
                 self.state = Some(State {
                     combiner,
+                    shape: Default::default(),
+                    scratch_shape: Default::default(),
                     fields_ex,
                     key_ex,
                     uuid_placeholder_ptr,
@@ -177,9 +188,24 @@ impl cgo::Service for API {
                     arena,
                     out,
                     &mut state.stats.out,
+                    &mut state.scratch_shape,
                 )?;
 
                 if !more {
+                    if state.scratch_shape.ne(&mut state.shape) {
+                        let builder = SchemaBuilder::new(state.scratch_shape.clone());
+
+                        // Update the "true" shape with the newly widened shape
+                        state.shape = state.scratch_shape.clone();
+
+                        let root_schema =
+                            serde_json::to_string_pretty(&builder.root_schema()).unwrap();
+                        tracing::info!(
+                            inferred_schema = %root_schema,
+                            "inferred schema updated",
+                        );
+                    }
+
                     // Send a final message with accumulated stats.
                     cgo::send_message(Code::DrainedStats as u32, &state.stats.drain(), arena, out);
                     state.combiner = doc::Combiner::Accumulator(drainer.into_new_accumulator()?);
@@ -225,11 +251,16 @@ pub fn drain_chunk(
     arena: &mut Vec<u8>,
     out: &mut Vec<cgo::Out>,
     stats: &mut DocCounter,
+    shape: &mut doc::inference::Shape,
 ) -> Result<bool, doc::combine::Error> {
     // Convert target from a delta to an absolute target length of the arena.
     let target_length = target_length + arena.len();
 
     drainer.drain_while(|doc, fully_reduced| {
+        match &doc {
+            doc::LazyNode::Node(n) => shape.widen(*n, Location::Root),
+            doc::LazyNode::Heap(h) => shape.widen(h, Location::Root),
+        };
         // Send serialized document.
         let begin = arena.len();
         let w: &mut Vec<u8> = &mut *arena;
