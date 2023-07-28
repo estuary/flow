@@ -7,7 +7,7 @@ use json::{
     LocatedProperty, Location,
 };
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, ops::Deref};
 use url::Url;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1655,7 +1655,56 @@ impl Shape {
 
     // Prune any locations in this shape that have more than the allowed fields,
     // squashing those fields into the `additionalProperties` subschema for that location.
-    fn enforce_field_count_limits(&mut self) {}
+    fn enforce_field_count_limits(&mut self, loc: Location) {
+        // TODO: If we implement inference/widening of array tuple shapes
+        // then we'll need to also check that those aren't excessively large.
+        if !self.type_.overlaps(types::OBJECT) {
+            return;
+        }
+
+        let limit = match loc {
+            Location::Root => MAX_ROOT_FIELDS,
+            _ => MAX_NESTED_FIELDS,
+        };
+
+        if self.object.properties.len() > limit {
+            // Take all of the properties' shapes and
+            // union them into additionalProperties
+
+            let existing_additional_properties = self
+                .object
+                .additional
+                // `Shape::union` takes owned Shapes which is why we
+                // have to take ownership here.
+                .take()
+                .map(|boxed| *boxed)
+                .unwrap_or(Shape {
+                    // Start out maximally constrained
+                    type_: types::INVALID,
+                    provenance: Provenance::Inline,
+                    ..Default::default()
+                });
+
+            let merged_additional_properties = self
+                .object
+                .properties
+                // As part of squashing all known property shapes together into
+                // additionalProperties, we need to also remove those explicit properties.
+                .drain(..)
+                .fold(existing_additional_properties, |accum, prop| {
+                    Shape::union(accum, prop.shape)
+                });
+
+            self.object.additional = Some(Box::new(merged_additional_properties));
+        } else {
+            // We don't need to recur above because we already wiped out all
+            // existing properties, including nested ones.
+            for prop in self.object.properties.iter_mut() {
+                prop.shape
+                    .enforce_field_count_limits(loc.push_prop(&prop.name))
+            }
+        }
+    }
 }
 
 /// Returns true if the text is a match for the given regex. This function exists primarily so we
@@ -1677,14 +1726,15 @@ mod test {
     use json::schema::{self, index::IndexBuilder};
     #[cfg(test)]
     use pretty_assertions::assert_eq;
-    use serde_json::{de, json, Value};
+    use serde_json::{de, json, ser, Map, Value};
     use serde_yaml;
 
-    fn widening_snapshot_helper(
+    fn widening_snapshot_helper<T: AsRef<str>>(
         initial_schema: Option<&str>,
         expected_schema: &str,
-        docs: &[&str],
-    ) {
+        docs: &[T],
+        enforce_limits: bool,
+    ) -> Shape {
         let mut schema = match initial_schema {
             Some(initial) => shape_from(initial),
             None => Shape {
@@ -1695,13 +1745,119 @@ mod test {
         };
 
         for doc in docs {
-            let val: Value = de::from_str(doc).unwrap();
+            let val: Value = de::from_str(doc.as_ref()).unwrap();
             schema.widen(&val, Location::Root);
         }
 
         let expected = shape_from(expected_schema);
 
+        if enforce_limits {
+            schema.enforce_field_count_limits(Location::Root);
+        }
+
         assert_eq!(expected, schema);
+
+        schema
+    }
+
+    #[test]
+    fn test_field_count_limits() {
+        let dynamic_keys = (0..800)
+            .map(|id| {
+                ser::to_string(&json!({
+                    "known_key": id,
+                    format!("key-{id}"): id*5
+                }))
+                .unwrap()
+            })
+            .collect_vec();
+
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: object
+            additionalProperties:
+                type: [number]
+            "#,
+            dynamic_keys.as_slice(),
+            true,
+        );
+    }
+
+    #[test]
+    fn test_field_count_limits_noop() {
+        let dynamic_keys = (0..1)
+            .map(|id| {
+                ser::to_string(&json!({
+                    "known_key": id,
+                    format!("key-{id}"): id*5
+                }))
+                .unwrap()
+            })
+            .collect_vec();
+
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: object
+            additionalProperties: false
+            required: [known_key, key-0]
+            properties:
+                known_key:
+                    type: number
+                key-0:
+                    type: number
+            "#,
+            dynamic_keys.as_slice(),
+            true,
+        );
+    }
+
+    #[test]
+    fn test_field_count_limits_nested() {
+        let mut nested = Map::default();
+        for id in 0..1 {
+            nested.insert(format!("key-{id}"), json!(id * 5));
+        }
+
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: object
+            additionalProperties: false
+            required: [container]
+            properties:
+                container:
+                    type: object
+                    additionalProperties: false
+                    required: [key-0]
+                    properties:
+                        key-0:
+                            type: number
+            "#,
+            &[&ser::to_string(&json!({ "container": nested })).unwrap()],
+            true,
+        );
+
+        for id in 0..300 {
+            nested.insert(format!("key-{id}"), json!(id * 5));
+        }
+
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: object
+            additionalProperties: false
+            required: [container]
+            properties:
+                container:
+                    type: object
+                    additionalProperties:
+                        type: [number]
+            "#,
+            &[&ser::to_string(&json!({ "container": nested })).unwrap()],
+            true,
+        );
     }
 
     #[test]
@@ -1722,6 +1878,7 @@ mod test {
                             type: string
             "#,
             &[r#"{"test_key": {"test_nested": "pizza"}}"#],
+            false,
         );
     }
 
@@ -1739,6 +1896,7 @@ mod test {
                     type: string
             "#,
             &[r#"{"first_key": "hello"}"#],
+            false,
         );
         // Fields encountered after the first should not be required
         // AND required fields should stay required, so long as they
@@ -1765,6 +1923,7 @@ mod test {
                     type: string
             "#,
             &[r#"{"first_key": "hello", "second_key": "goodbye"}"#],
+            false,
         );
         // Required fields get demoted once we encounter a document
         // where they are not present
@@ -1791,6 +1950,7 @@ mod test {
                     type: string
             "#,
             &[r#"{"second_key": "goodbye"}"#],
+            false,
         );
     }
 
@@ -1814,6 +1974,7 @@ mod test {
             Some(schema),
             schema,
             &[r#"{"test_key": {"test_nested": "pizza"}}"#],
+            false,
         );
     }
 
@@ -1850,6 +2011,7 @@ mod test {
                                 type: number
                 "#,
             &[r#"{"test_key": {"nested_second": 68}}"#],
+            false,
         );
     }
 
@@ -1868,6 +2030,7 @@ mod test {
                 r#"{"test_key": "a_string"}"#,
                 r#"{"toast_key": "another_string"}"#,
             ],
+            false,
         );
     }
 
@@ -1886,6 +2049,7 @@ mod test {
                 type: [string, number]
             "#,
             &[r#"{"test_key": "a_string"}"#, r#"{"toast_key": 5}"#],
+            false,
         );
     }
 
@@ -1916,6 +2080,7 @@ mod test {
                                 type: [string, number]
                 "#,
             &[r#"{"test_key": {"test_nested": 68}}"#],
+            false,
         );
     }
 
@@ -1929,6 +2094,7 @@ mod test {
                     type: string
                 "#,
             &[r#"["test", "toast"]"#],
+            false,
         );
 
         widening_snapshot_helper(
@@ -1939,6 +2105,7 @@ mod test {
                     type: [string, number]
                 "#,
             &[r#"["test", 5]"#],
+            false,
         );
     }
 
@@ -1959,6 +2126,7 @@ mod test {
                             type: number
                 "#,
             &[r#"["test", 5]"#, r#"{"test_key": 5}"#],
+            false,
         );
 
         widening_snapshot_helper(
@@ -1981,6 +2149,7 @@ mod test {
                 r#"{"test_key": 5}"#,
                 r#"{"toast_key": 5}"#,
             ],
+            false,
         );
     }
 
