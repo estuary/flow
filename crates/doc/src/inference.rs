@@ -1745,14 +1745,14 @@ impl Shape {
                 // As part of squashing all known property shapes together into
                 // additionalProperties, we need to also remove those explicit properties.
                 .drain(..)
-                .fold(existing_additional_properties, |accum, prop| {
+                .fold(existing_additional_properties, |accum, mut prop| {
+                    // Recur here to avoid excessively large `additionalProperties` shapes
+                    Shape::enforce_field_count_limits(&mut prop.shape, loc.push_prop(&prop.name));
                     Shape::union(accum, prop.shape)
                 });
 
             self.object.additional = Some(Box::new(merged_additional_properties));
         } else {
-            // We don't need to recur above because we already wiped out all
-            // existing properties, including nested ones.
             for prop in self.object.properties.iter_mut() {
                 prop.shape
                     .enforce_field_count_limits(loc.push_prop(&prop.name))
@@ -1834,6 +1834,38 @@ mod test {
                 type: integer
             "#,
             dynamic_keys.as_slice(),
+            true,
+        );
+    }
+
+    #[test]
+    fn test_field_count_nested() {
+        // Create an object like
+        // {
+        //    "big_key": {
+        //        ...751 properties...
+        //    },
+        //    ...750 more properties...
+        // }
+        let mut root = Map::default();
+        for id in 0..800 {
+            root.insert(format!("key-{id}"), json!(id * 5));
+        }
+
+        root.insert("big_key".to_string(), json!(root.clone()));
+
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: object
+            additionalProperties:
+                anyOf:
+                    - type: integer
+                    - type: object
+                      additionalProperties:
+                        type: integer
+            "#,
+            &[ser::to_string(&root).unwrap()],
             true,
         );
     }
