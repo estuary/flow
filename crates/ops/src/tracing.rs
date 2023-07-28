@@ -1,3 +1,5 @@
+use std::string;
+
 use super::{Log, LogLevel};
 use serde_json::json;
 
@@ -172,7 +174,15 @@ impl<'a> tracing::field::Visit for FieldVisitor<'a> {
     }
 
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        self.record_raw(field, format!("{value:?}"))
+        let stringified = format!("{value:?}");
+        match serde_json::from_str::<serde::de::IgnoredAny>(&stringified) {
+            Ok(_) => {
+                self.0
+                    .fields_json_map
+                    .insert(field.name().to_string(), stringified);
+            }
+            Err(_) => self.record_raw(field, stringified),
+        };
     }
 }
 
