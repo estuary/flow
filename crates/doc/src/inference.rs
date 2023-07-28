@@ -1569,7 +1569,7 @@ impl Shape {
     // Returns a hint if some locations might exceed their maximum allowable size.
     // NOTE: If a particular location defines `additionalProperties` as a subschema, don't
     // add the field from `AsNode`, instead jump straight to squashing the the field into `additionalProperties`
-    fn widen<'n, N>(&mut self, node: &'n N, loc: Location) -> bool
+    pub fn widen<'n, N>(&mut self, node: &'n N, loc: Location) -> bool
     where
         N: AsNode,
     {
@@ -1655,7 +1655,7 @@ impl Shape {
 
     // Prune any locations in this shape that have more than the allowed fields,
     // squashing those fields into the `additionalProperties` subschema for that location.
-    fn enforce_field_count_limits(&mut self, loc: Location) {
+    pub fn enforce_field_count_limits(&mut self, loc: Location) {
         // TODO: If we implement inference/widening of array tuple shapes
         // then we'll need to also check that those aren't excessively large.
         if !self.type_.overlaps(types::OBJECT) {
