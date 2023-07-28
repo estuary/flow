@@ -86,7 +86,7 @@ pub fn merge_capture(
             // Create a new CaptureBinding.
             capture_bindings.push(models::CaptureBinding {
                 target: models::Collection::new(format!("{capture_prefix}/{recommended_name}")),
-                disable: false,
+                disable: discovered_binding.disable,
                 resource: models::RawValue::from_value(&resource),
             });
             filtered_bindings.push(discovered_binding);
@@ -207,7 +207,8 @@ mod tests {
                         },
                         "required": [ "croak" ]
                     },
-                    "key": [ "/croak" ]
+                    "key": [ "/croak" ],
+                    "disable": true
                 }
             ]
         })
@@ -283,6 +284,7 @@ mod tests {
                 { "connector": { "config": { "discovered": 1 }, "image": "new/image" } },
                 [
                     { "recommendedName": "foo", "resourceConfig": { "stream": "foo" }, "key": ["/foo-key"], "documentSchema": { "const": "foo" } },
+                    { "recommendedName": "bar", "resourceConfig": { "stream": "bar" }, "key": ["/bar-key"], "documentSchema": { "const": "bar" }, "disable": true },
                 ],
             ]))
             .unwrap();
@@ -350,9 +352,9 @@ mod tests {
             serde_json::from_value(json!([
                 { "connector": { "config": { "discovered": 1 }, "image": "new/image" } },
                 [
-                    { "recommendedName": "foo", "resourceConfig": { "stream": "foo" }, "documentSchema": { "const": 1 } },
-                    { "recommendedName": "bar", "resourceConfig": { "stream": "bar" }, "documentSchema": { "const": 2 } },
-                    { "recommendedName": "baz", "resourceConfig": { "stream": "baz" }, "documentSchema": { "const": 3 } },
+                    { "recommendedName": "foo", "resourceConfig": { "stream": "foo" }, "documentSchema": { "const": 1 }, "disable": true },
+                    { "recommendedName": "bar", "resourceConfig": { "stream": "bar" }, "documentSchema": { "const": 2 }, "disable": true },
+                    { "recommendedName": "baz", "resourceConfig": { "stream": "baz" }, "documentSchema": { "const": 3 }, "disable": true },
                 ],
                 {
                   "bindings": [
@@ -385,7 +387,7 @@ mod tests {
             ("Foo", "Foo"),
             ("foo/bar", "foo/bar"),
             ("/foo/bar//baz/", "foo/bar_baz"), // Invalid leading, middle, & trailing slash.
-            ("#੫൬    , bar-_!", "੫൬_bar-_"),   // Invalid leading, middle, & trailing chars.
+            ("#੫൬    , bar-_!", "੫൬_bar-_"), // Invalid leading, middle, & trailing chars.
             ("One! two/_three", "One_two/_three"),
         ] {
             assert_eq!(

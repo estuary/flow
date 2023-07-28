@@ -220,6 +220,11 @@ pub mod response {
             /// Composite key of documents (if known), as JSON-Pointers.
             #[prost(string, repeated, tag = "4")]
             pub key: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+            /// When true, this binding should be added but marked as disabled.
+            /// The user may explicitly enable it, but the garden-path expectation
+            /// for most users is that they likely wouldn't want it.
+            #[prost(bool, tag = "5")]
+            pub disable: bool,
         }
     }
     /// Validated responds to Request.Validate.
