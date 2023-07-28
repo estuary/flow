@@ -1666,19 +1666,12 @@ impl Shape {
                 self.type_ = self.type_ | types::STRING;
 
                 // Similar to the nuance around `is_required`, string format
-                // should only be set if _every_ string we've encountered at this
-                // particular location matches that format. That means that we detect
-                // format on the first string encountered, and then check every
-                // subsequent string to ensure it conforms. If it doesn't we clear the format
-                // and skip the unneccesary work of checking/detecting formats thereafter.
-                let format = if is_first_time {
+                // should only "become detected" the very first time. We still
+                // need to run `detect_format` on subsequent strings because
+                // `StringShape::union()` can sometimes widen a string format,
+                // e.g from `integer` -> `number`
+                let format = if is_first_time || self.string.format.is_some() {
                     StringShape::detect_format(s)
-                } else if let Some(fmt) = self.string.format {
-                    if fmt.validate(s).is_ok() {
-                        Some(fmt)
-                    } else {
-                        None
-                    }
                 } else {
                     None
                 };
@@ -1977,6 +1970,26 @@ mod test {
             false,
         );
 
+        // Should widen from integer to number
+        widening_snapshot_helper(
+            Some(
+                r#"
+            type: string
+            format: integer
+            maxLength: 1
+            minLength: 1
+            "#,
+            ),
+            r#"
+                    type: string
+                    format: number
+                    maxLength: 3
+                    minLength: 1
+                    "#,
+            &[r#""5.4""#],
+            false,
+        );
+
         // Once we encounter a string that doesn't match the format, throw it away
         widening_snapshot_helper(
             Some(
@@ -2078,6 +2091,8 @@ mod test {
                     properties:
                         test_nested:
                             type: string
+                            minLength: 5
+                            maxLength: 5
             "#,
             &[r#"{"test_key": {"test_nested": "pizza"}}"#],
             false,
@@ -2096,6 +2111,8 @@ mod test {
             properties:
                 first_key:
                     type: string
+                    minLength: 5
+                    maxLength: 5
             "#,
             &[r#"{"first_key": "hello"}"#],
             false,
@@ -2123,6 +2140,8 @@ mod test {
                     type: string
                 second_key:
                     type: string
+                    minLength: 7
+                    maxLength: 7
             "#,
             &[r#"{"first_key": "hello", "second_key": "goodbye"}"#],
             false,
@@ -2296,6 +2315,8 @@ mod test {
                 maxItems: 2
                 items:
                     type: string
+                    minLength: 4
+                    maxLength: 5
                 "#,
             &[r#"["test", "toast"]"#],
             false,
@@ -2308,7 +2329,11 @@ mod test {
                 minItems: 2
                 maxItems: 2
                 items:
-                    type: [string, integer]
+                    anyOf:
+                        - type: string
+                          minLength: 4
+                          maxLength: 4
+                        - type: integer
                 "#,
             &[r#"["test", 5]"#],
             false,
@@ -2322,6 +2347,8 @@ mod test {
             maxItems: 1
             items:
                 type: string
+                minLength: 4
+                maxLength: 5
             "#,
             ),
             r#"
@@ -2329,7 +2356,9 @@ mod test {
                 minItems: 0
                 maxItems: 2
                 items:
-                    type: [string]
+                    type: string
+                    minLength: 4
+                    maxLength: 5
                 "#,
             &[r#"["test", "toast"]"#],
             false,
@@ -2346,7 +2375,11 @@ mod test {
                       minItems: 2
                       maxItems: 2
                       items:
-                          type: [string, integer]
+                          anyOf:
+                            - type: integer
+                            - type: string
+                              minLength: 4
+                              maxLength: 4
                     - type: object
                       additionalProperties: false
                       required: [test_key]
@@ -2366,7 +2399,11 @@ mod test {
                       minItems: 2
                       maxItems: 3
                       items:
-                          type: [string, fractional]
+                          anyOf:
+                            - type: fractional
+                            - type: string
+                              minLength: 4
+                              maxLength: 4
                     - type: object
                       additionalProperties: false
                       properties:
