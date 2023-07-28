@@ -1,11 +1,10 @@
-use crate::{new_validator, DocCounter, JsonError, StatsAccumulator};
+use crate::{new_validator, DebugJson, DocCounter, JsonError, StatsAccumulator};
 use anyhow::Context;
 use bytes::Buf;
 use doc::inference::Shape;
-use json::{schema::types, Location};
+use json::Location;
 use prost::Message;
 use proto_flow::flow::combine_api::{self, Code};
-use schema_inference::schema::SchemaBuilder;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -199,17 +198,13 @@ impl cgo::Service for API {
                 )?;
 
                 if !more {
-                    if state.scratch_shape.ne(&mut state.shape) {
-                        let builder = SchemaBuilder::new(state.scratch_shape.clone());
-
+                    if state.shape.ne(&state.scratch_shape) {
                         // Update the "true" shape with the newly widened shape
                         state.shape = state.scratch_shape.clone();
 
-                        let root_schema =
-                            serde_json::to_string_pretty(&builder.root_schema()).unwrap();
                         tracing::info!(
-                            inferred_schema = %root_schema,
-                            "inferred schema updated",
+                            inferred_schema = ?DebugJson(state.scratch_shape.to_serde()),
+                            "inferred schema updated"
                         );
                     }
 

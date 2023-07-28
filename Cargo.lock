@@ -1122,7 +1122,6 @@ dependencies = [
  "rand 0.8.5",
  "rand_distr",
  "rocksdb",
- "schema-inference",
  "serde",
  "serde_json",
  "tables",
