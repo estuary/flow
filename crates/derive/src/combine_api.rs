@@ -1,7 +1,8 @@
 use crate::{new_validator, DocCounter, JsonError, StatsAccumulator};
 use anyhow::Context;
 use bytes::Buf;
-use json::Location;
+use doc::inference::Shape;
+use json::{schema::types, Location};
 use prost::Message;
 use proto_flow::flow::combine_api::{self, Code};
 use schema_inference::schema::SchemaBuilder;
@@ -133,8 +134,14 @@ impl cgo::Service for API {
 
                 self.state = Some(State {
                     combiner,
-                    shape: Default::default(),
-                    scratch_shape: Default::default(),
+                    shape: Shape {
+                        type_: types::INVALID,
+                        ..Default::default()
+                    },
+                    scratch_shape: Shape {
+                        type_: types::INVALID,
+                        ..Default::default()
+                    },
                     fields_ex,
                     key_ex,
                     uuid_placeholder_ptr,
