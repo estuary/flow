@@ -23,6 +23,25 @@ pub async fn create(
     Ok(rec.id)
 }
 
+/// Enqueues a new publication of the given `draft_id`.
+pub async fn create_with_user_email(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_email: &str,
+    draft_id: Id,
+    auto_evolve: bool,
+    detail: String,
+) -> sqlx::Result<Id> {
+    let rec = sqlx::query!(
+        r#"insert into publications (user_id, draft_id, auto_evolve, detail)
+        values ((select id from auth.users where email = $1), $2, $3, $4) returning id as "id: Id";"#,
+            user_email, draft_id as Id, auto_evolve, detail
+        )
+        .fetch_one(txn)
+        .await?;
+
+    Ok(rec.id)
+}
+
 // Row is the dequeued task shape of a draft build & test operation.
 #[derive(Debug)]
 pub struct Row {

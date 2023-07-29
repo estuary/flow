@@ -10,6 +10,7 @@ license.workspace = true
 
 [dependencies]
 chrono = { workspace = true }
+proto-flow = { path = "../proto-flow" }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -27,13 +27,21 @@ pub async fn upsert_specs(
             collection.as_str(),
             spec,
             CatalogType::Collection,
+            None,
             txn,
         )
         .await?;
     }
     for (capture, spec) in captures {
-        drafts_sql::upsert_spec(draft_id, capture.as_str(), spec, CatalogType::Capture, txn)
-            .await?;
+        drafts_sql::upsert_spec(
+            draft_id,
+            capture.as_str(),
+            spec,
+            CatalogType::Capture,
+            None,
+            txn,
+        )
+        .await?;
     }
     for (materialization, spec) in materializations {
         drafts_sql::upsert_spec(
@@ -41,12 +49,14 @@ pub async fn upsert_specs(
             materialization.as_str(),
             spec,
             CatalogType::Materialization,
+            None,
             txn,
         )
         .await?;
     }
     for (test, steps) in tests {
-        drafts_sql::upsert_spec(draft_id, test.as_str(), steps, CatalogType::Test, txn).await?;
+        drafts_sql::upsert_spec(draft_id, test.as_str(), steps, CatalogType::Test, None, txn)
+            .await?;
     }
 
     agent_sql::drafts::touch(draft_id, txn).await?;
