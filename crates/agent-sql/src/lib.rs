@@ -3,6 +3,7 @@ pub mod directives;
 pub mod discovers;
 pub mod drafts;
 pub mod evolutions;
+pub mod linked_materializations;
 pub mod publications;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display};
@@ -35,14 +36,24 @@ impl Display for CatalogType {
     }
 }
 
+/// Note that the discriminants here align with those in the database type.
 #[derive(
-    Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, schemars::JsonSchema,
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Serialize,
+    Deserialize,
+    sqlx::Type,
+    schemars::JsonSchema,
 )]
 #[sqlx(type_name = "grant_capability")]
 #[sqlx(rename_all = "lowercase")]
 #[serde(rename_all = "camelCase")]
 pub enum Capability {
-    Read,
-    Write,
-    Admin,
+    Read = 0x10,
+    Write = 0x20,
+    Admin = 0x30,
 }

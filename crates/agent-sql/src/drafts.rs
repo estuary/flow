@@ -1,10 +1,31 @@
 use super::{CatalogType, Id, TextJson};
 
+/// Creates a draft for the given user and returns the draft id. A user with
+/// the given email must exist, and the email must have been confirmed, or else
+/// the insert will fail due to a not-null constraint when inserting into the
+/// drafts table.
+pub async fn create(
+    user_email: &str,
+    detail: String,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<Id> {
+    let row = sqlx::query!(
+        r#"insert into drafts (user_id, detail)
+            values ( (select id from auth.users where email = $1 and email_confirmed_at is not null), $2)
+            returning id as "id: Id";"#,
+        user_email,
+        detail
+    ).fetch_one(txn)
+    .await?;
+    Ok(row.id)
+}
+
 pub async fn upsert_spec<S>(
     draft_id: Id,
     catalog_name: &str,
     spec: S,
     spec_type: CatalogType,
+    expect_pub_id: Option<Id>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<()>
 where
@@ -16,8 +37,9 @@ where
             draft_id,
             catalog_name,
             spec,
-            spec_type
-        ) values ($1, $2, $3, $4)
+            spec_type,
+            expect_pub_id
+        ) values ($1, $2, $3, $4, $5)
         on conflict (draft_id, catalog_name) do update set
             spec = $3,
             spec_type = $4
@@ -27,6 +49,7 @@ where
         catalog_name as &str,
         TextJson(spec) as TextJson<S>,
         spec_type as CatalogType,
+        expect_pub_id as Option<Id>,
     )
     .fetch_one(&mut *txn)
     .await?;

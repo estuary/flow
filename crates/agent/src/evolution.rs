@@ -5,8 +5,6 @@ use agent_sql::{
 };
 use anyhow::Context;
 use itertools::Itertools;
-use lazy_static::lazy_static;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -401,6 +399,13 @@ fn evolve_collection(
                     format!("updating resource spec of '{mat_name}' binding '{old_collection}'")
                 })?;
             binding.resource = models::RawValue::from_value(&resource_spec);
+            tracing::debug!(
+                %mat_name,
+                %old_collection_name,
+                %re_create_collection,
+                ?new_collection_name,
+                new_resource_spec = %resource_spec,
+                "updated materialization binding");
         }
     }
 
@@ -426,7 +431,7 @@ fn evolve_collection(
         }
     }
 
-    tracing::debug!(?updated_materializations, ?updated_captures, %new_name, old_name=%old_collection_name, "renaming collection in draft");
+    tracing::debug!(?updated_materializations, ?updated_captures, %re_create_collection, %new_name, old_name=%old_collection_name, "evolved collection in draft");
 
     Ok(EvolvedCollection {
         old_name: old_collection.into(),
@@ -446,38 +451,7 @@ fn has_mat_binding(spec: &models::MaterializationDef, collection: &models::Colle
         .any(|b| b.source.collection() == collection)
 }
 
-lazy_static! {
-    static ref NAME_VERSION_RE: Regex = Regex::new(r#".*[_-][vV](\d+)$"#).unwrap();
-}
-
-/// Takes an existing name and returns a new name with an incremeted version suffix.
-/// The name `foo` will become `foo_v2`, and `foo_v2` will become `foo_v3` and so on.
-pub fn next_name(current_name: &str) -> String {
-    // Does the name already have a version suffix?
-    // We try to work with whatever suffix is already present. This way, if a user
-    // is starting with a collection like `acmeCo/foo-V3`, they'll end up with
-    // `acmeCo/foo-V4` instead of `acmeCo/foo_v4`.
-    if let Some(capture) = NAME_VERSION_RE.captures_iter(current_name).next() {
-        if let Ok(current_version_num) = capture[1].parse::<u32>() {
-            // wrapping_add is just to ensure we don't panic if someone passes
-            // a naughty name with a u32::MAX version.
-            return format!(
-                "{}{}",
-                current_name.strip_suffix(&capture[1]).unwrap(),
-                // We don't really care what the collection name ends up as if
-                // the old name is suffixed by "V-${u32::MAX}", as long as we don't panic.
-                current_version_num.wrapping_add(1)
-            );
-        }
-    }
-    // We always use an underscore as the separator. This might look a bit
-    // unseemly if dashes are already used as separators elsewhere in the
-    // name, but any sort of heuristic for determining whether to use dashes
-    // or underscores is rife with edge cases and doesn't seem worth the
-    // complexity.
-    format!("{current_name}_v2")
-}
-
+/// A helper that's specially suited for the purpose of evolutions.
 struct ResourceSpecUpdater {
     pointers_by_image: HashMap<String, doc::Pointer>,
 }
@@ -495,25 +469,14 @@ impl ResourceSpecUpdater {
             if pointers_by_image.contains_key(&conn.image) {
                 continue;
             }
-            let image = conn.image.as_str();
-            let Some(colon_idx) = conn.image.find(':') else {
-                anyhow::bail!("connector image '{image}' is missing a version tag");
-            };
-            let image_name = &image[..colon_idx];
-            let image_tag = &image[colon_idx..];
-
-            let schema_json = agent_sql::evolutions::fetch_resource_spec_schema(
-                image_name.to_owned(),
-                image_tag.to_owned(),
-                txn,
-            )
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("no resource spec schema found for image '{image}"))?;
-            let pointer = Self::pointer_for_schema(schema_json.get())
+            let image = conn.image.clone();
+            let schema_json =
+                crate::resource_configs::fetch_resource_spec_schema(&conn.image, txn).await?;
+            let pointer = crate::resource_configs::pointer_for_schema(schema_json.get())
                 .with_context(|| format!("inspecting resource_spec_schema for image '{image}'"))?;
 
-            tracing::debug!(%image_name, %image_tag, %pointer, "parsed resource spec schema");
-            pointers_by_image.insert(image.to_owned(), pointer);
+            tracing::debug!(%image, %pointer, "parsed resource spec schema");
+            pointers_by_image.insert(image, pointer);
         }
         Ok(ResourceSpecUpdater { pointers_by_image })
     }
@@ -528,58 +491,16 @@ impl ResourceSpecUpdater {
         resource_spec: &mut Value,
     ) -> anyhow::Result<()> {
         if let Some(pointer) = self.pointers_by_image.get(image_name) {
-            let Some(existing) = pointer
-                .query(&*resource_spec)
-                .and_then(|v| v.as_str()) else {
-                // Log noisily about this, but it's not clear that it shoudl be an error. It's
-                // possible, at least in principle, that a connector allows the field to be empty
-                // and will apply it's own default value based on the collection name.
-                tracing::warn!(%materialization_name, ?new_collection_name, %pointer, "not updating resource spec because there is no existing value at that location");
-                return Ok(())
-            };
-
-            let new_val = new_collection_name
-                .map(|n| {
-                    n.rsplit('/')
-                        .next()
-                        .expect("collection name must contain a slash")
-                        .to_owned()
-                })
-                .unwrap_or_else(|| next_name(existing).to_owned());
-
-            if let Some(prev_val) = pointer.create_value(resource_spec) {
-                tracing::info!(%prev_val, %new_val, %materialization_name, "updating resource spec");
-                *prev_val = Value::String(new_val);
-            } else {
-                anyhow::bail!("creating x-collection-name JSON location failed");
-            }
+            crate::resource_configs::update_materialization_resource_spec(
+                materialization_name,
+                resource_spec,
+                pointer,
+                new_collection_name,
+            )
         } else {
-            anyhow::bail!(
+            Err(anyhow::anyhow!(
                 "no resource spec x-collection-name location exists for image '{image_name}'"
-            );
+            ))
         }
-        Ok(())
-    }
-
-    /// Runs inference on the given schema and searches for a location within the resource spec
-    /// that bears the `x-collection-name` annotation. Returns the pointer to that location, or an
-    /// error if no such location exists. Errors from parsing the schema are returned directly.
-    fn pointer_for_schema(schema_json: &str) -> anyhow::Result<doc::Pointer> {
-        // While all known connector resource spec schemas are self-contained, we don't
-        // actually do anything to guarantee that they are. This function may fail in that case.
-        let schema = doc::validation::build_bundle(schema_json)?;
-        let mut builder = doc::SchemaIndexBuilder::new();
-        builder.add(&schema)?;
-        let index = builder.into_index();
-        let shape = doc::Shape::infer(&schema, &index);
-
-        for (ptr, _, prop_shape, _) in shape.locations() {
-            if prop_shape.annotations.contains_key("x-collection-name") {
-                return Ok(doc::Pointer::from_str(&ptr));
-            }
-        }
-        Err(anyhow::anyhow!(
-            "resource spec schema does not contain any location annotated with x-collection-name"
-        ))
     }
 }

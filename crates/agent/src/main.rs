@@ -95,6 +95,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let serve_fut = agent::serve(
         vec![
             Box::new(agent::PublishHandler::new(
+                &args.accounts_email,
                 &bindir,
                 &args.broker_address,
                 &builds_root,
