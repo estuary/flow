@@ -1,0 +1,5 @@
+---
+source: crates/agent/src/publications/linked_materializations/test.rs
+expression: results
+---
+[]

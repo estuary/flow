@@ -140,7 +140,7 @@ pub fn validate_transition(
         let (reads_from, writes_to, _) = extract_spec_metadata(draft, spec_row);
 
         for source in reads_from.iter().flatten() {
-            if !spec_capabilities.iter().any(|c| {
+            if !spec_capabilities.iter().all(|c| {
                 source.starts_with(&c.object_role)
                     && matches!(
                         c.capability,
@@ -150,7 +150,7 @@ pub fn validate_transition(
                 errors.push(Error {
                     catalog_name: catalog_name.clone(),
                     detail: format!(
-                        "Specification is not read-authorized to '{source}'.\nAvailable grants are: {}",
+                        "Specification '{catalog_name}' is not read-authorized to '{source}'.\nAvailable grants are: {}",
                         serde_json::to_string_pretty(&spec_capabilities.0).unwrap(),
                     ),
                     ..Default::default()
@@ -580,6 +580,10 @@ pub async fn add_built_specs_to_draft_specs(
     Ok(())
 }
 
+/// Returns a tuple containing:
+/// - catalog names that this spec reads from
+/// - catalog names that this spec writes to
+/// - connector image parts, if applicable
 fn extract_spec_metadata<'a>(
     catalog: &'a models::Catalog,
     spec_row: &'a SpecRow,
@@ -740,7 +744,15 @@ mod test {
         // Just in case anything gets through
         logs_rx.close();
 
-        let mut handler = PublishHandler::new("", &bs_url, &bs_url, "", &bs_url, &logs_tx);
+        let mut handler = PublishHandler::new(
+            "support@estuary.dev",
+            "",
+            &bs_url,
+            &bs_url,
+            "",
+            &bs_url,
+            &logs_tx,
+        );
 
         let mut results: Vec<ScenarioResult> = vec![];
 
@@ -753,7 +765,7 @@ mod test {
                 .unwrap();
 
             match status {
-                JobStatus::Success => {
+                JobStatus::Success { .. } => {
                     let specs = sqlx::query_as!(
                         LiveSpec,
                         r#"
@@ -826,7 +838,9 @@ mod test {
         [
             ScenarioResult {
                 draft_id: 1110000000000000,
-                status: Success,
+                status: Success {
+                    linked_materialization_publications: [],
+                },
                 errors: [],
                 live_specs: [
                     LiveSpec {
@@ -867,6 +881,66 @@ mod test {
             },
         ]
         "###);
+    }
+
+    #[tokio::test]
+    #[serial_test::parallel]
+    async fn test_source_capture_validation() {
+        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+            .await
+            .unwrap();
+        let mut txn = conn.begin().await.unwrap();
+
+        sqlx::query(include_str!("test_resources/linked_materializations.sql"))
+            .execute(&mut txn)
+            .await
+            .unwrap();
+
+        sqlx::query(r#"
+            with p1 as (
+                insert into drafts (id, user_id) values ('00:01:02:03:00:00:00:00', '43a18a3e-5a59-11ed-9b6a-0242ac120002')
+            ),
+            p2 as (
+                insert into draft_specs (draft_id, spec_type, catalog_name, spec) values
+                ('00:01:02:03:00:00:00:00', 'materialization', 'acmeCo/from-captureA', '{
+                    "endpoint": {"connector":{"image":"matImage:v1","config":{}}},
+                    "sourceCapture": "acmeCo/captureA/source-happy",
+                    "bindings": [ ]
+                }'::json),
+                ('00:01:02:03:00:00:00:00', 'materialization', 'acmeCo/from-wrong-spec-type', '{
+                    "endpoint": {"connector":{"image":"matImage:v1","config":{}}},
+                    "sourceCapture": "acmeCo/matB/other-bindings",
+                    "bindings": [ ]
+                }'::json),
+                ('00:01:02:03:00:00:00:00', 'materialization', 'acmeCo/from-non-existant', '{
+                    "endpoint": {"connector":{"image":"matImage:v1","config":{}}},
+                    "sourceCapture": "acmeCo/not/a/real/thing",
+                    "bindings": [ ]
+                }'::json),
+                ('00:01:02:03:00:00:00:00', 'materialization', 'acmeCo/from-unauthorized', '{
+                    "endpoint": {"connector":{"image":"matImage:v1","config":{}}},
+                    "sourceCapture": "coyoteCo/not/authorized",
+                    "bindings": [ ]
+                }'::json),
+                ('00:01:02:03:00:00:00:00', 'materialization', 'acmeCo/from-invalid-name', '{
+                    "endpoint": {"connector":{"image":"matImage:v1","config":{}}},
+                    "sourceCapture": "no-slash",
+                    "bindings": [ ]
+                }'::json),
+                ('00:01:02:03:00:00:00:00', 'materialization', 'acmeCo/from-deleted', '{
+                    "endpoint": {"connector":{"image":"matImage:v1","config":{}}},
+                    "sourceCapture": "acmeCo/deleted/thing",
+                    "bindings": [ ]
+                }'::json)
+            ),
+            p3 as (
+                insert into publications (draft_id, user_id) values ('00:01:02:03:00:00:00:00', '43a18a3e-5a59-11ed-9b6a-0242ac120002')
+            )
+            select 1;
+            "#).execute(&mut txn).await.unwrap();
+
+        let results = execute_publications(&mut txn).await;
+        insta::assert_debug_snapshot!(results);
     }
 
     #[tokio::test]
@@ -1076,7 +1150,9 @@ mod test {
         [
             ScenarioResult {
                 draft_id: 1110000000000000,
-                status: Success,
+                status: Success {
+                    linked_materialization_publications: [],
+                },
                 errors: [],
                 live_specs: [
                     LiveSpec {
@@ -1327,7 +1403,9 @@ mod test {
         [
             ScenarioResult {
                 draft_id: 1130000000000000,
-                status: Success,
+                status: Success {
+                    linked_materialization_publications: [],
+                },
                 errors: [],
                 live_specs: [
                     LiveSpec {

@@ -8,7 +8,8 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-mod builds;
+pub mod builds;
+mod linked_materializations;
 pub mod specs;
 mod storage;
 
@@ -25,10 +26,20 @@ pub enum JobStatus {
     },
     TestFailed,
     PublishFailed,
-    Success,
+    Success {
+        /// If any materializations are to be updated in response to this publication,
+        /// their publication ids will be included here. This is purely informational.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        linked_materialization_publications: Vec<Id>,
+    },
 }
 
 impl JobStatus {
+    fn success(materialization_pubs: impl Into<Vec<Id>>) -> JobStatus {
+        JobStatus::Success {
+            linked_materialization_publications: materialization_pubs.into(),
+        }
+    }
     fn build_failed(incompatible_collections: Vec<IncompatibleCollection>) -> JobStatus {
         JobStatus::BuildFailed {
             incompatible_collections,
@@ -39,6 +50,7 @@ impl JobStatus {
 
 /// A PublishHandler is a Handler which publishes catalog specifications.
 pub struct PublishHandler {
+    agent_user_email: String,
     bindir: String,
     broker_address: url::Url,
     builds_root: url::Url,
@@ -49,6 +61,7 @@ pub struct PublishHandler {
 
 impl PublishHandler {
     pub fn new(
+        agent_user_email: impl Into<String>,
         bindir: &str,
         broker_address: &url::Url,
         builds_root: &url::Url,
@@ -57,6 +70,7 @@ impl PublishHandler {
         logs_tx: &logs::Tx,
     ) -> Self {
         Self {
+            agent_user_email: agent_user_email.into(),
             bindir: bindir.to_string(),
             broker_address: broker_address.clone(),
             builds_root: builds_root.clone(),
@@ -91,7 +105,7 @@ impl Handler for PublishHandler {
 
         // As a separate transaction, delete the draft if it has no draft_specs.
         // The user could have raced an insertion of a new spec.
-        if let (Some(delete_draft_id), JobStatus::Success) = (delete_draft_id, status) {
+        if let (Some(delete_draft_id), JobStatus::Success { .. }) = (delete_draft_id, status) {
             agent_sql::publications::delete_draft(delete_draft_id, pg_pool).await?;
         }
 
@@ -269,8 +283,15 @@ impl PublishHandler {
             return stop_with_errors(errors, JobStatus::build_failed(Vec::new()), row, txn).await;
         }
 
+        let errors =
+            linked_materializations::validate_source_captures(txn, &draft_catalog, &spec_rows)
+                .await?;
+        if !errors.is_empty() {
+            return stop_with_errors(errors, JobStatus::build_failed(Vec::new()), row, txn).await;
+        }
+
         if test_run {
-            return Ok((row.pub_id, JobStatus::Success));
+            return Ok((row.pub_id, JobStatus::success(Vec::new())));
         }
 
         let tmpdir_handle = tempfile::TempDir::new().context("creating tempdir")?;
@@ -345,7 +366,7 @@ impl PublishHandler {
                 .await
                 .context("adding built specs to draft")?;
 
-            return Ok((row.pub_id, JobStatus::Success));
+            return Ok((row.pub_id, JobStatus::success(Vec::new())));
         }
 
         // Add built specs to the live spec when publishing a build.
@@ -366,14 +387,30 @@ impl PublishHandler {
         )
         .await
         .context("deploying build")?;
+        // ensure that this tempdir doesn't get dropped before `deploy_build` is called, which depends on the files being there.
+        std::mem::drop(tmpdir_handle);
 
         if !errors.is_empty() {
             return stop_with_errors(errors, JobStatus::PublishFailed, row, txn).await;
         }
 
-        // ensure that this tempdir doesn't get dropped before `deploy_build` is called, which depends on the files being there.
-        std::mem::drop(tmpdir_handle);
-        Ok((row.pub_id, JobStatus::Success))
+        let maybe_source_captures =
+            linked_materializations::collect_source_capture_names(&spec_rows, &draft_catalog);
+
+        // The final step of publishing is to create additional publications for any
+        // materializations which happen to have a `sourceCapture` matching any of the
+        // captures we may have just published. It's important that this be done last
+        // so that this function can observe the `live_specs` that we just updated.
+        let pub_ids = linked_materializations::create_linked_materialization_publications(
+            &self.agent_user_email,
+            &build_output.built_captures,
+            maybe_source_captures,
+            txn,
+        )
+        .await
+        .context("creating linked materialization publications")?;
+
+        Ok((row.pub_id, JobStatus::success(pub_ids)))
     }
 }
 
@@ -429,7 +466,7 @@ fn to_evolutions_collections(
                 None
             } else {
                 tracing::debug!(reasons = ?ic.requires_recreation, collection = %ic.collection, "will attempt to re-create collection");
-                Some(crate::evolution::next_name(&ic.collection))
+                Some(crate::next_name(&ic.collection))
             };
             serde_json::to_value(crate::evolution::EvolveRequest {
                 current_name: ic.collection.clone(),
