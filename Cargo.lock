@@ -70,6 +70,7 @@ dependencies = [
  "chrono",
  "hex",
  "insta",
+ "proto-flow",
  "schemars",
  "serde",
  "serde_json",
