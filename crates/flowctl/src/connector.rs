@@ -50,18 +50,16 @@ pub fn docker_spawn(image: &str, args: &[&str]) -> anyhow::Result<(Child, TempDi
                 &[
                     "run",
                     "--rm",
+                    "--entrypoint",
+                    target_connector_init,
                     "--mount",
                     &format!(
                         "type=bind,source={host_connector_init_str},target={target_connector_init}"
                     ),
-                    "--entrypoint",
-                    target_connector_init,
-                    "--env",
-                    "LOG_LEVEL=trace",
-                    "--publish",
-                    &format!("0.0.0.0:{}:{}/tcp", port, CONNECTOR_INIT_PORT),
                     "--mount",
                     &format!("type=bind,source={host_inspect_str},target={target_inspect}"),
+                    "--publish",
+                    &format!("0.0.0.0:{}:{}/tcp", port, CONNECTOR_INIT_PORT),
                     image,
                     &format!("--image-inspect-json-path={target_inspect}"),
                     &format!("--port={CONNECTOR_INIT_PORT}"),
