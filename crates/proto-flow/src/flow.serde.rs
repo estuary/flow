@@ -4000,6 +4000,9 @@ impl serde::Serialize for materialization_spec::Binding {
         if self.partition_selector.is_some() {
             len += 1;
         }
+        if self.priority != 0 {
+            len += 1;
+        }
         if self.field_selection.is_some() {
             len += 1;
         }
@@ -4024,6 +4027,9 @@ impl serde::Serialize for materialization_spec::Binding {
         }
         if let Some(v) = self.partition_selector.as_ref() {
             struct_ser.serialize_field("partitionSelector", v)?;
+        }
+        if self.priority != 0 {
+            struct_ser.serialize_field("priority", &self.priority)?;
         }
         if let Some(v) = self.field_selection.as_ref() {
             struct_ser.serialize_field("fieldSelection", v)?;
@@ -4054,6 +4060,7 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
             "collection",
             "partition_selector",
             "partitionSelector",
+            "priority",
             "field_selection",
             "fieldSelection",
             "delta_updates",
@@ -4070,6 +4077,7 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
             ResourcePath,
             Collection,
             PartitionSelector,
+            Priority,
             FieldSelection,
             DeltaUpdates,
             DeprecatedShuffle,
@@ -4099,6 +4107,7 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
                             "resourcePath" | "resource_path" => Ok(GeneratedField::ResourcePath),
                             "collection" => Ok(GeneratedField::Collection),
                             "partitionSelector" | "partition_selector" => Ok(GeneratedField::PartitionSelector),
+                            "priority" => Ok(GeneratedField::Priority),
                             "fieldSelection" | "field_selection" => Ok(GeneratedField::FieldSelection),
                             "deltaUpdates" | "delta_updates" => Ok(GeneratedField::DeltaUpdates),
                             "deprecatedShuffle" | "deprecated_shuffle" => Ok(GeneratedField::DeprecatedShuffle),
@@ -4126,6 +4135,7 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
                 let mut resource_path__ = None;
                 let mut collection__ = None;
                 let mut partition_selector__ = None;
+                let mut priority__ = None;
                 let mut field_selection__ = None;
                 let mut delta_updates__ = None;
                 let mut deprecated_shuffle__ = None;
@@ -4155,6 +4165,14 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
                                 return Err(serde::de::Error::duplicate_field("partitionSelector"));
                             }
                             partition_selector__ = map.next_value()?;
+                        }
+                        GeneratedField::Priority => {
+                            if priority__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("priority"));
+                            }
+                            priority__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
                         }
                         GeneratedField::FieldSelection => {
                             if field_selection__.is_some() {
@@ -4187,6 +4205,7 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
                     resource_path: resource_path__.unwrap_or_default(),
                     collection: collection__,
                     partition_selector: partition_selector__,
+                    priority: priority__.unwrap_or_default(),
                     field_selection: field_selection__,
                     delta_updates: delta_updates__.unwrap_or_default(),
                     deprecated_shuffle: deprecated_shuffle__,

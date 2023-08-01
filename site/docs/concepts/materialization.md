@@ -75,6 +75,17 @@ materializations:
           # The materialize-postgres connector expects a `table` key
           # which names a table to materialize into.
           table: example_table
+
+        # Priority applied to documents processed by this binding.
+        # When all bindings are of equal priority, documents are processed
+        # in order of their associated publishing time.
+        # 
+        # However, when one binding has a higher priority than others,
+        # then *all* ready documents are processed through the binding
+        # before *any* documents of other bindings are processed.
+        # 
+        # Optional. Default: 0, integer >= 0
+        priority: 0
 ```
 
 ## How continuous materialization works

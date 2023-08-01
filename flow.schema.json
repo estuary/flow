@@ -709,6 +709,13 @@
           },
           "$ref": "#/definitions/MaterializationFields"
         },
+        "priority": {
+          "title": "Priority applied to documents processed by this binding.",
+          "description": "When all bindings are of equal priority, Flow processes documents according to their associated publishing time, as encoded in the document UUID.\n\nHowever, when one binding has a higher priority than others, then *all* ready documents are processed through the binding before *any* documents of other bindings are processed.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
         "resource": {
           "title": "Endpoint resource to materialize into."
         },
