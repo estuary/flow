@@ -6,7 +6,7 @@ use proto_grpc::capture::connector_client::ConnectorClient;
 use std::{
     fs,
     pin::Pin,
-    process::{Child, Command, Output, Stdio},
+    process::{Child, Command, Output},
 };
 use tempfile::{tempdir, TempDir};
 
