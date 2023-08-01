@@ -518,7 +518,7 @@ pub mod materialization_spec {
     /// materialized. Bindings are ordered and unique on the bound collection name,
     /// and are also unique on the resource path.
     ///
-    /// Next tag: 9.
+    /// Next tag: 10.
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Binding {
@@ -537,6 +537,10 @@ pub mod materialization_spec {
         pub partition_selector: ::core::option::Option<
             ::proto_gazette::broker::LabelSelector,
         >,
+        /// Priority of this binding, with respect to other bindings of the materialization.
+        /// Higher values imply higher priority.
+        #[prost(uint32, tag = "9")]
+        pub priority: u32,
         /// Resolved fields selected for materialization.
         #[prost(message, optional, tag = "4")]
         pub field_selection: ::core::option::Option<super::FieldSelection>,

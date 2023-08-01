@@ -319,7 +319,7 @@ message MaterializationSpec {
   // materialized. Bindings are ordered and unique on the bound collection name,
   // and are also unique on the resource path.
   message Binding {
-    // Next tag: 9.
+    // Next tag: 10.
 
     // JSON-encoded configuration of the bound resource.
     string resource_config_json = 1 [
@@ -333,6 +333,9 @@ message MaterializationSpec {
     CollectionSpec collection = 3 [ (gogoproto.nullable) = false ];
     // Selector of collection partitions which this materialization reads.
     protocol.LabelSelector partition_selector = 7 [ (gogoproto.nullable) = false ];
+    // Priority of this binding, with respect to other bindings of the materialization.
+    // Higher values imply higher priority.
+    uint32 priority = 9;
     // Resolved fields selected for materialization.
     FieldSelection field_selection = 4 [ (gogoproto.nullable) = false ];
     // Materialize delta updates of documents rather than full reductions.

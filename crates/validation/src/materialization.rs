@@ -125,6 +125,7 @@ pub async fn walk_all_materializations<C: Connectors>(
                     ref source,
                     ref fields,
                     disable: _,
+                    priority,
                     resource: _,
                 } = binding_models
                     .iter()
@@ -163,6 +164,7 @@ pub async fn walk_all_materializations<C: Connectors>(
                         resource_path: resource_path.clone(),
                         collection,
                         partition_selector,
+                        priority: *priority,
                         field_selection,
                         delta_updates: *delta_updates,
                         deprecated_shuffle: None,
@@ -329,6 +331,7 @@ fn walk_materialization_binding<'a>(
                 recommended: _,
             },
         disable: _,
+        priority: _,
     } = binding;
 
     let (collection, source_partitions) = match source {

@@ -43,6 +43,19 @@ pub struct MaterializationBinding {
     /// Disabled bindings are inactive, and not validated.
     #[serde(default, skip_serializing_if = "is_false")]
     pub disable: bool,
+    /// # Priority applied to documents processed by this binding.
+    /// When all bindings are of equal priority, Flow processes documents
+    /// according to their associated publishing time, as encoded in the
+    /// document UUID.
+    ///
+    /// However, when one binding has a higher priority than others,
+    /// then *all* ready documents are processed through the binding
+    /// before *any* documents of other bindings are processed.
+    #[serde(
+        default,
+        skip_serializing_if = "MaterializationBinding::priority_is_zero"
+    )]
+    pub priority: u32,
     /// # Selected projections for this materialization.
     #[serde(default)]
     pub fields: MaterializationFields,
@@ -85,8 +98,13 @@ impl MaterializationBinding {
             resource: serde_json::from_value(json!({"table": "a_table"})).unwrap(),
             source: Source::example(),
             disable: false,
+            priority: 0,
             fields: MaterializationFields::default(),
         }
+    }
+
+    fn priority_is_zero(p: &u32) -> bool {
+        *p == 0
     }
 }
 

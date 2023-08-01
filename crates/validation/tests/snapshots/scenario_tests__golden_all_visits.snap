@@ -1,6 +1,5 @@
 ---
 source: crates/validation/tests/scenario_tests.rs
-assertion_line: 20
 expression: tables
 ---
 All {
@@ -4402,6 +4401,7 @@ All {
                                 ),
                             },
                         ),
+                        priority: 0,
                         field_selection: Some(
                             FieldSelection {
                                 keys: [],
@@ -4817,6 +4817,7 @@ All {
                                 ),
                             },
                         ),
+                        priority: 0,
                         field_selection: Some(
                             FieldSelection {
                                 keys: [
@@ -5180,6 +5181,7 @@ All {
                                 ),
                             },
                         ),
+                        priority: 3,
                         field_selection: Some(
                             FieldSelection {
                                 keys: [
@@ -5948,6 +5950,7 @@ All {
                 {
                   "resource": {"fixture":"two"},
                   "source": "testing/int-halve",
+                  "priority": 3,
                   "fields": {
                     "include": {
                       "Len": {}
@@ -6061,7 +6064,7 @@ All {
             resource: test://example/webhook-deliveries,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"import":["test://example/int-string","test://example/int-halve"],"materializations":{"testing/webhook/deliveries":{"bindings":[{"fields":{"exclude":["bit"],"include":{"str":{"pass":"through"}},"recommended":true},"resource":{"fixture":"one"},"source":{"name":"testing/int-string","partitions":{"include":{"bit":[true]}}}},{"fields":{"include":{"Len":{}},"recommended":false},"resource":{"fixture":"two"},"source":"testing/int-halve"}],"endpoint":{"connector":{"config":"webhook-config.yaml","image":"webhook/connector"}}}}},
+            content_dom: {"import":["test://example/int-string","test://example/int-halve"],"materializations":{"testing/webhook/deliveries":{"bindings":[{"fields":{"exclude":["bit"],"include":{"str":{"pass":"through"}},"recommended":true},"resource":{"fixture":"one"},"source":{"name":"testing/int-string","partitions":{"include":{"bit":[true]}}}},{"fields":{"include":{"Len":{}},"recommended":false},"priority":3,"resource":{"fixture":"two"},"source":"testing/int-halve"}],"endpoint":{"connector":{"config":"webhook-config.yaml","image":"webhook/connector"}}}}},
         },
     ],
     storage_mappings: [

@@ -234,6 +234,7 @@ fn ex_materialization_spec() -> flow::MaterializationSpec {
             resource_path: vec!["some".to_string(), "path".to_string()],
             collection: Some(ex_collection_spec()),
             partition_selector: Some(ex_label_selector()),
+            priority: 3,
             field_selection: Some(flow::FieldSelection {
                 document: "flow_document".to_string(),
                 field_config_json_map: ex_field_config(),

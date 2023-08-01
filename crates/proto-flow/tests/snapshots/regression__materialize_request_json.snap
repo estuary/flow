@@ -189,6 +189,7 @@ expression: json_test(msg)
               ]
             }
           },
+          "priority": 3,
           "fieldSelection": {
             "keys": [
               "key/one"
@@ -344,6 +345,7 @@ expression: json_test(msg)
               ]
             }
           },
+          "priority": 3,
           "fieldSelection": {
             "keys": [
               "key/one"
