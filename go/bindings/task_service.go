@@ -106,6 +106,7 @@ func NewTaskService(
 		// Instrument client for gRPC metric collection.
 		grpc.WithUnaryInterceptor(grpc_prometheus.UnaryClientInterceptor),
 		grpc.WithStreamInterceptor(grpc_prometheus.StreamClientInterceptor),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMessageSize), grpc.MaxCallSendMsgSize(maxMessageSize)),
 	)
 
 	if err != nil {
@@ -148,3 +149,5 @@ func (s *TaskService) err() error {
 	}
 	return err
 }
+
+const maxMessageSize = 1 << 26 // 64 MB.
