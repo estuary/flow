@@ -137,13 +137,6 @@ impl TaskSelector {
 
 */
 
-fn tenant(task_name: &str) -> &str {
-    match task_name.split_once('/') {
-        Some((first, _)) => first,
-        None => task_name,
-    }
-}
-
 #[cfg(test)]
 mod test {
     // use super::*;

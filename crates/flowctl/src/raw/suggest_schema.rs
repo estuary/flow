@@ -1,28 +1,22 @@
-use doc::{inference::Shape, FailedValidation, SchemaIndexBuilder};
-use futures::{Stream, StreamExt, TryStreamExt};
-
-use bytelines::AsyncByteLines;
-use json::schema::build::build_schema;
-use models::Schema;
-use proto_flow::ops::Log;
-
-use schema_inference::{
-    inference::infer_shape, json_decoder::JsonCodec, schema::SchemaBuilder, shape,
-};
-
-use tokio::io::BufReader;
-use tokio_util::{codec::FramedRead, compat::FuturesAsyncReadCompatExt};
-
-use std::{io::ErrorKind, pin::Pin};
-use url::Url;
-
 use crate::{
     catalog::{collect_specs, fetch_live_specs, List, NameSelector, SpecTypeSelector},
     collection::read::{journal_reader, ReadArgs},
     ops,
 };
-
-use anyhow::{anyhow, Context};
+use anyhow::anyhow;
+use bytelines::AsyncByteLines;
+use doc::{inference::Shape, FailedValidation, SchemaIndexBuilder};
+use futures::{Stream, StreamExt, TryStreamExt};
+use json::schema::build::build_schema;
+use models::Schema;
+use proto_flow::ops::Log;
+use schema_inference::{
+    inference::infer_shape, json_decoder::JsonCodec, schema::SchemaBuilder, shape,
+};
+use std::{io::ErrorKind, pin::Pin};
+use tokio::io::BufReader;
+use tokio_util::{codec::FramedRead, compat::FuturesAsyncReadCompatExt};
+use url::Url;
 
 /// With some of our captures, we have an existing document schema for their collections, but we
 /// frequently run into issues with these document schemas: they are sometimes completely wrong
