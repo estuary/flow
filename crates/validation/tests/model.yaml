@@ -128,6 +128,7 @@ test://example/webhook-deliveries:
             recommended: true
         - source: testing/int-halve
           resource: { fixture: two }
+          priority: 3
           fields:
             include:
               Len: {}

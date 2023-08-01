@@ -113,7 +113,7 @@ func materializationShuffles(task *pf.MaterializationSpec) []shuffle {
 		var shuffle = shuffle{
 			filterRClocks:             false,
 			journalReadSuffix:         binding.JournalReadSuffix,
-			priority:                  0,
+			priority:                  binding.Priority,
 			projections:               binding.Collection.Projections,
 			readDelaySeconds:          0,
 			shuffleKey:                binding.Collection.Key,
