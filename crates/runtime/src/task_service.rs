@@ -96,9 +96,11 @@ impl TaskService {
         // This means we MUST mask SIGPIPE, because it's quite common for us or our
         // peer to attempt to send messages over a transport that the other side has torn down.
         let server = tonic::transport::Server::builder()
-            .add_optional_service(
-                derive_service.map(proto_grpc::derive::connector_server::ConnectorServer::new),
-            )
+            .add_optional_service(derive_service.map(|s| {
+                proto_grpc::derive::connector_server::ConnectorServer::new(s)
+                    .max_decoding_message_size(usize::MAX) // Up from 4MB. Accept whatever the Go runtime sends.
+                    .max_encoding_message_size(usize::MAX) // The default, made explicit.
+            }))
             .serve_with_incoming_shutdown(uds_stream, async move {
                 _ = cancel_rx.await;
             });
