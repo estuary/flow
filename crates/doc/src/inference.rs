@@ -107,6 +107,8 @@ pub enum Reduction {
 
     // Multiple concrete strategies may apply at the location.
     Multiple,
+
+    JsonSchemaMerge,
 }
 
 impl Reduction {
@@ -177,6 +179,7 @@ impl From<&reduce::Strategy> for Reduction {
             Strategy::Set(_) => Reduction::Set,
             Strategy::Sum => Reduction::Sum,
             Strategy::Merge(_) => Reduction::Merge,
+            Strategy::JsonSchemaMerge => Reduction::JsonSchemaMerge,
         }
     }
 }

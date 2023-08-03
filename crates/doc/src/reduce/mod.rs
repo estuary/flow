@@ -20,6 +20,8 @@ pub enum Error {
     SumNumericOverflow,
     #[error("'sum' strategy expects numbers")]
     SumWrongType,
+    #[error("'json-schema-merge' strategy expects objects containing valid JSON schemas. {}", .detail.as_deref().unwrap_or_default())]
+    JsonSchemaMergeWrongType { detail: Option<String> },
     #[error("'merge' strategy expects objects or arrays")]
     MergeWrongType,
     #[error(
