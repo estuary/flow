@@ -1,11 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use doc::inference::Shape;
-use json::schema::types::{self, Set};
-use schemars::gen::SchemaGenerator;
-use schemars::schema::{InstanceType, RootSchema, Schema, SchemaObject, SingleOrVec};
+use json::schema::{
+    self, keywords,
+    types::{self, Set},
+};
+use schemars::{
+    gen::SchemaGenerator,
+    schema::{InstanceType, RootSchema, Schema, SchemaObject, SingleOrVec},
+};
+use serde_json::json;
 
-use crate::shape;
+use crate::inference::Shape;
 
 #[derive(Debug, Default)]
 pub struct SchemaBuilder {
@@ -24,20 +29,18 @@ impl SchemaBuilder {
             ..Default::default()
         }
     }
-
-    pub fn merge(self, other: Self) -> Self {
-        Self {
-            shape: shape::merge(self.shape, other.shape),
-        }
-    }
 }
 
 pub fn to_schema(shape: &Shape) -> Schema {
     let mut schema_object = SchemaObject {
         instance_type: Some(shape_type_to_schema_type(shape.type_)),
-        format: shape.string.format.map(|f| f.to_string()),
         ..Default::default()
     };
+
+    schema_object.metadata().title = shape.title.clone();
+    schema_object.metadata().description = shape.description.clone();
+    schema_object.metadata().default = shape.default.clone().map(|(d, _)| d);
+    schema_object.enum_values = shape.enum_.clone();
 
     if shape.type_.overlaps(types::OBJECT) {
         let mut prop_schemas = BTreeMap::new();
@@ -51,6 +54,10 @@ pub fn to_schema(shape: &Shape) -> Schema {
         let object = &mut schema_object.object();
         object.properties = prop_schemas;
         object.required = required;
+
+        if let Some(addl) = &shape.object.additional {
+            object.additional_properties = Some(Box::new(to_schema(addl)));
+        }
     }
 
     if shape.type_.overlaps(types::ARRAY) {
@@ -58,7 +65,39 @@ pub fn to_schema(shape: &Shape) -> Schema {
         for item in shape.array.tuple.iter() {
             array_items.push(to_schema(item));
         }
-        schema_object.array().items = Some(flatten(array_items));
+        if array_items.len() > 0 {
+            schema_object.array().items = Some(flatten(array_items));
+        }
+
+        if let Some(addl_items) = &shape.array.additional {
+            schema_object.array().additional_items = Some(Box::new(to_schema(addl_items)));
+        }
+
+        schema_object.array().max_items = shape.array.max.and_then(|max| u32::try_from(max).ok());
+        schema_object.array().min_items = shape.array.min.and_then(|max| u32::try_from(max).ok());
+    }
+
+    if shape.type_.overlaps(types::STRING) {
+        schema_object.format = shape.string.format.map(|f| f.to_string());
+        schema_object.string().max_length = shape
+            .string
+            .max_length
+            .and_then(|max| u32::try_from(max).ok());
+
+        if shape.string.min_length > 0 {
+            schema_object.string().min_length = shape.string.min_length.try_into().ok();
+        }
+        if let Some(encoding) = &shape.string.content_encoding {
+            schema_object
+                .extensions
+                .insert(keywords::CONTENT_ENCODING.to_string(), json!(encoding));
+        }
+        if let Some(content_type) = &shape.string.content_type {
+            schema_object.extensions.insert(
+                keywords::CONTENT_MEDIA_TYPE.to_string(),
+                json!(content_type),
+            );
+        }
     }
 
     Schema::Object(schema_object)
