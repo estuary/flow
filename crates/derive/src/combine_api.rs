@@ -133,14 +133,14 @@ impl cgo::Service for API {
 
                 self.state = Some(State {
                     combiner,
-                    shape: Shape {
-                        type_: types::INVALID,
-                        ..Default::default()
-                    },
-                    scratch_shape: Shape {
-                        type_: types::INVALID,
-                        ..Default::default()
-                    },
+                    shape: self
+                        .state
+                        .as_ref()
+                        .map_or(Shape::invalid(), |state| state.shape.clone()),
+                    scratch_shape: self
+                        .state
+                        .as_ref()
+                        .map_or(Shape::invalid(), |state| state.scratch_shape.clone()),
                     fields_ex,
                     key_ex,
                     uuid_placeholder_ptr,
