@@ -1,9 +1,13 @@
+use json::schema::index::IndexBuilder;
+
 use super::{
     compare_key_lazy, count_nodes, count_nodes_generic, count_nodes_heap, reduce_item, reduce_prop,
     Cursor, Error, Result,
 };
 use crate::{
+    inference::Shape,
     lazy::{LazyArray, LazyDestructured, LazyObject},
+    schema::SchemaBuilder,
     AsNode, BumpVec, HeapNode, Node, Pointer,
 };
 
@@ -75,6 +79,9 @@ pub enum Strategy {
     /// In the future, we may allow for arbitrary-sized integer and
     /// floating-point representations which use a string encoding scheme.
     Sum,
+    /// Deep-merge the JSON schemas in LHS and RHS
+    /// both of which must be objects containing valid json schemas.
+    JsonSchemaMerge,
 }
 
 impl std::convert::TryFrom<&serde_json::Value> for Strategy {
@@ -120,6 +127,7 @@ impl Strategy {
             Strategy::Minimize(min) => Self::minimize(cur, min),
             Strategy::Set(set) => set.apply(cur),
             Strategy::Sum => Self::sum(cur),
+            Strategy::JsonSchemaMerge => Self::json_schema_merge(cur),
         }
     }
 
@@ -301,6 +309,64 @@ impl Strategy {
         }
     }
 
+    fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
+        cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
+    ) -> Result<HeapNode<'alloc>> {
+        let Cursor {
+            tape,
+            loc,
+            full: _,
+            lhs,
+            rhs,
+            alloc,
+        } = cur;
+
+        let (lhs, rhs) = (lhs.into_heap_node(alloc), rhs.into_heap_node(alloc));
+
+        // Precompute this up here because we're going to consume `rhs` later on
+        let rhs_tape_len = count_nodes_heap(&rhs);
+
+        // Ensure that we're working with objects on both sides
+        // Question: Should we actually relax this to support
+        // reducing valid schemas like "true" and "false"?
+        let (
+            lhs @ HeapNode::Object(_),
+            rhs @ HeapNode::Object(_)
+        ) = (lhs, rhs) else {
+            return Err(Error::with_location(Error::JsonSchemaMergeWrongType { detail: None }, loc) )
+        };
+
+        let left = shape_from_node(lhs).map_err(|e| Error::with_location(e, loc))?;
+        let right = shape_from_node(rhs).map_err(|e| Error::with_location(e, loc))?;
+
+        let merged = Shape::union(left, right);
+
+        let builder = SchemaBuilder::new(merged);
+        let root_schema = builder.root_schema();
+
+        let val = serde_json::to_value(root_schema).map_err(|e| {
+            Error::with_location(
+                Error::JsonSchemaMergeWrongType {
+                    detail: Some(e.to_string()),
+                },
+                loc,
+            )
+        })?;
+
+        let node = HeapNode::from_serde(val, alloc).map_err(|e| {
+            Error::with_location(
+                Error::JsonSchemaMergeWrongType {
+                    detail: Some(e.to_string()),
+                },
+                loc,
+            )
+        })?;
+
+        *tape = &tape[rhs_tape_len..];
+
+        Ok(node)
+    }
+
     fn merge<'alloc, L: AsNode, R: AsNode>(
         cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
         merge: &Merge,
@@ -397,6 +463,35 @@ impl Strategy {
             (lhs, rhs) => Err(Error::with_details(Error::MergeWrongType, loc, lhs, rhs)),
         }
     }
+}
+
+fn shape_from_node<'a, N: AsNode>(node: N) -> Result<Shape> {
+    // Should this be something more specific/useful?
+    let url = url::Url::parse("json-schema-reduction:///").unwrap();
+
+    let serialized =
+        serde_json::to_value(node.as_node()).map_err(|e| Error::JsonSchemaMergeWrongType {
+            detail: Some(e.to_string()),
+        })?;
+
+    let schema = json::schema::build::build_schema::<crate::Annotation>(url.clone(), &serialized)
+        .map_err(|e| Error::JsonSchemaMergeWrongType {
+        detail: Some(e.to_string()),
+    })?;
+
+    let mut index = IndexBuilder::new();
+    index.add(&schema).unwrap();
+    index.verify_references().unwrap();
+    let index = index.into_index();
+
+    Ok(Shape::infer(
+        index
+            .must_fetch(&url)
+            .map_err(|e| Error::JsonSchemaMergeWrongType {
+                detail: Some(e.to_string()),
+            })?,
+        &index,
+    ))
 }
 
 #[cfg(test)]
@@ -940,6 +1035,54 @@ mod test {
                         {"k": "b", "v": [{"k": 1}, {"k": 3}, {"k": 5, "d": true}]},
                         {"k": "c", "v": [{"k": 9}]},
                     ])),
+                },
+            ],
+        )
+    }
+
+    #[test]
+    fn test_merge_json_schemas() {
+        run_reduce_cases(
+            json!({ "reduce": { "strategy": "jsonSchemaMerge" } }),
+            vec![
+                Partial {
+                    rhs: json!({
+                        "type": "string",
+                        "maxLength": 5,
+                        "minLength": 5
+                    }),
+                    expect: Ok(json!({
+                        "type": "string",
+                        "maxLength": 5,
+                        "minLength": 5
+                    })),
+                },
+                Partial {
+                    rhs: json!("oops!"),
+                    expect: Err(Error::JsonSchemaMergeWrongType { detail: None }),
+                },
+                Partial {
+                    rhs: json!({
+                        "type": "foo"
+                    }),
+                    expect: Err(Error::JsonSchemaMergeWrongType {
+                        detail: Some(
+                            r#"at keyword 'type' of schema 'json-schema-reduction:///': expected a type or array of types: invalid type name: 'foo'"#.to_owned(),
+                        ),
+                    }),
+                },
+                Partial {
+                    rhs: json!({
+                        "type": "string",
+                        "minLength": 8,
+                        "maxLength": 10
+                    }),
+                    expect: Ok(json!({
+                        "$schema": "http://json-schema.org/draft-07/schema#",
+                        "type": "string",
+                        "minLength": 5,
+                        "maxLength": 10,
+                    })),
                 },
             ],
         )
