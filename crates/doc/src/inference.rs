@@ -1,5 +1,5 @@
 use super::{compare, ptr::Token, reduce, Annotation, Pointer, Schema, SchemaIndex};
-use crate::AsNode;
+use crate::{schema::SchemaBuilder, AsNode};
 use fancy_regex::Regex;
 use itertools::{self, EitherOrBoth, Itertools};
 use json::{
@@ -1488,6 +1488,13 @@ impl Shape {
                 out,
             );
         };
+    }
+
+    pub fn to_serde(self) -> Result<Value, serde_json::Error> {
+        let builder = SchemaBuilder::new(self);
+        let root_schema = builder.root_schema();
+
+        serde_json::to_value(root_schema)
     }
 }
 
