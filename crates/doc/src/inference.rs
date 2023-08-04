@@ -461,6 +461,7 @@ impl ObjShape {
         }
     }
 
+    /// See [`Shape::widen()`] for details on the order of widening.
     fn widen<'n, N>(&mut self, fields: &'n N::Fields, loc: Location, is_first_time: bool) -> bool
     where
         N: AsNode,
@@ -469,24 +470,13 @@ impl ObjShape {
 
         // `additionalProperties` is a full Schema. According to JSON schema,
         // a blank schema matches all documents. If we didn't initialize to
-        // `additionalProperties: false`, per the rules mentioned below
-        // every field would fall into `additionalProperties`
+        // `additionalProperties: false`, every field would fall into `additionalProperties`
         //  and we wouldn't get any useful schemas.
         let mut additional_properties = if let Some(addl) = self.additional.take() {
             *addl
         } else {
             Shape::invalid()
         };
-
-        // Two possible cases:
-        // * This schema has `additionalProperties: false`, meaning that fields are
-        //    matched exactly, and unmatched fields are forbidden when validating.
-        //    In this case, recursively widen each of the input `fields` into their
-        //    respective `properties`, adding new ones as required.
-        // * This schema has `additionalProperties` _other_ than `false`.
-        //    In this case, it's still possible for us to have `properties` defined,
-        //    so we need to find any `properties` explicitly matching `fields`,
-        //    and otherwise widen `additionalProperties` where not matched.
 
         let mut hint = false;
 
@@ -528,7 +518,7 @@ impl ObjShape {
                     Some(prop)
                 }
             })
-            // Our iterator now contains a fully widened entry for every brand new field.
+            // Our iterator now contains a fully widened entry for unmatched field.
             // First, let's widen these into any matching `patternProperties`,
             // then remove those fields from consideration.
             .filter_map(|new_field| {
@@ -1635,10 +1625,22 @@ const MAX_ROOT_FIELDS: usize = 750;
 const MAX_NESTED_FIELDS: usize = 200;
 
 impl Shape {
-    // Widen a Shape to make the provided AsNode value fit.
-    // Returns a hint if some locations might exceed their maximum allowable size.
-    // NOTE: If a particular location defines `additionalProperties` as a subschema, don't
-    // add the field from `AsNode`, instead jump straight to squashing the the field into `additionalProperties`
+    /// Widen a Shape to make the provided AsNode value fit.
+    /// Widen the shape correctly so a node with the provided fields will successfully validate.
+    /// Returns a hint if some locations might exceed their maximum allowable size.
+    /// In order to build useful schemas, we need to widen in order of explicitness:
+    /// * Fields matching explicitly named `properties` will always be handled by widening
+    ///   those properties to accept the shape of the field.
+    /// * Any remaining fields whose names match a pattern in `patternProperties` will always
+    ///   be handled by widening that patternProperty's shape to accept the field.
+    ///
+    /// Any remaining fields will be handled differently depending on `additionalProperties`:
+    /// * If this schema has `additionalProperties: false`, that means that that
+    ///    unmatched fields are forbidden when validating. In this case, we create new
+    ///    explicitly-named `properties` for each leftover field.
+    /// * If this schema has `additionalProperties` _other_ than `false`, we use that as a
+    ///    signal to indicate that we should not add any more explicit `properties`. Instead,
+    ///    we simply widen the shape of `additionalProperties` to accept all unmatched fields.
     pub fn widen<'n, N>(&mut self, node: &'n N, loc: Location) -> bool
     where
         N: AsNode,
