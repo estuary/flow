@@ -5,14 +5,12 @@ use crate::{
 };
 use anyhow::anyhow;
 use bytelines::AsyncByteLines;
-use doc::{inference::Shape, FailedValidation, SchemaIndexBuilder};
+use doc::{inference::Shape, schema::SchemaBuilder, FailedValidation, SchemaIndexBuilder};
 use futures::{Stream, StreamExt, TryStreamExt};
 use json::schema::build::build_schema;
 use models::Schema;
 use proto_flow::ops::Log;
-use schema_inference::{
-    inference::infer_shape, json_decoder::JsonCodec, schema::SchemaBuilder, shape,
-};
+use schema_inference::{inference::infer_shape, json_decoder::JsonCodec, shape};
 use std::{io::ErrorKind, pin::Pin};
 use tokio::io::BufReader;
 use tokio_util::{codec::FramedRead, compat::FuturesAsyncReadCompatExt};

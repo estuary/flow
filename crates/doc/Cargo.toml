@@ -21,6 +21,7 @@ fxhash = { workspace = true }
 itertools = { workspace = true }
 lz4 = { workspace = true, optional = true }
 rkyv = { workspace = true }
+schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }

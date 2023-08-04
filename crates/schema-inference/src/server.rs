@@ -3,9 +3,9 @@ use std::time::Duration;
 
 use crate::inference::infer_shape;
 use crate::json_decoder::{JsonCodec, JsonCodecError};
-use crate::schema::SchemaBuilder;
 use crate::shape;
 use bytesize::ByteSize;
+use doc::schema::SchemaBuilder;
 use serde_json::json;
 
 use anyhow::Context;

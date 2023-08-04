@@ -1,5 +1,6 @@
 use crate::{dataplane, local_specs};
 use anyhow::Context;
+use doc::schema::to_schema;
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt, TryStreamExt};
 use prost::Message;
@@ -384,8 +385,7 @@ where
         }
     }
 
-    Ok(inferred_shape
-        .map(|shape| serde_json::to_value(schema_inference::schema::to_schema(&shape)).unwrap()))
+    Ok(inferred_shape.map(|shape| serde_json::to_value(to_schema(&shape)).unwrap()))
 }
 
 fn status_to_anyhow(status: tonic::Status) -> anyhow::Error {

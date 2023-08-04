@@ -1,6 +1,5 @@
 ---
 source: crates/schema-inference/src/analyze.rs
-assertion_line: 123
 expression: schema
 ---
 {
@@ -29,8 +28,7 @@ expression: schema
           ]
         },
         "optional": {
-          "type": "array",
-          "items": []
+          "type": "array"
         }
       }
     },
