@@ -1,9 +1,9 @@
+use doc::schema::SchemaBuilder;
 use schemars::schema::RootSchema;
 use serde_json::Value as JsonValue;
 use std::io::BufRead;
 
 use crate::inference::infer_shape;
-use crate::schema::SchemaBuilder;
 use crate::shape;
 
 type StreamResult = serde_json::Result<JsonValue>;

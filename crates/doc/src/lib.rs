@@ -99,6 +99,8 @@ pub use validation::{
 // Doc implementations may be reduced.
 pub mod reduce;
 
+pub mod schema;
+
 // Documents may be combined.
 #[cfg(feature = "combine")]
 pub mod combine;
