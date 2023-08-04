@@ -722,7 +722,7 @@ impl Shape {
         }
     }
 
-    const fn invalid() -> Self {
+    pub const fn invalid() -> Self {
         Self {
             type_: types::INVALID,
             provenance: Provenance::Inline,
