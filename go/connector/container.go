@@ -186,7 +186,7 @@ func StartContainer(
 	// `cmdCtx` to abort any (likely blocking) RPC attempts to the container.
 	// Note that in the garden path `cmdCtx` will already have been cancelled
 	// prior to Wait returning, but we need to sanely handle a container crash.
-	var waitCh = make(chan error)
+	var waitCh = make(chan error, 1)
 	go func(cmdCancel context.CancelFunc) {
 		var err = cmd.Wait()
 		cmdCancel()
