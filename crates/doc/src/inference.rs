@@ -1,5 +1,5 @@
 use super::{compare, ptr::Token, reduce, Annotation, Pointer, Schema, SchemaIndex};
-use crate::{schema::SchemaBuilder, AsNode};
+use crate::AsNode;
 use fancy_regex::Regex;
 use itertools::{self, EitherOrBoth, Itertools};
 use json::{
