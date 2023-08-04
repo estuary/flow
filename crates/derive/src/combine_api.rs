@@ -72,6 +72,8 @@ struct State {
     // JSON-Pointer into which a UUID placeholder should be set,
     // or None if a placeholder shouldn't be set.
     uuid_placeholder_ptr: Option<doc::Pointer>,
+    collection_name: String,
+    enable_schema_inference: bool,
 }
 
 impl cgo::Service for API {
@@ -102,12 +104,16 @@ impl cgo::Service for API {
                     fields,
                     uuid_placeholder_ptr,
                     projections,
+                    collection_name,
+                    enable_schema_inference,
                 } = combine_api::Config::decode(data)?;
                 tracing::debug!(
                     %schema_json,
                     ?key_ptrs,
                     ?fields,
                     ?uuid_placeholder_ptr,
+                    ?collection_name,
+                    ?enable_schema_inference,
                     "configure",
                 );
 
@@ -145,6 +151,8 @@ impl cgo::Service for API {
                     key_ex,
                     uuid_placeholder_ptr,
                     stats: CombineStats::default(),
+                    collection_name,
+                    enable_schema_inference,
                 });
                 Ok(())
             }
@@ -194,10 +202,12 @@ impl cgo::Service for API {
                     arena,
                     out,
                     &mut state.stats.out,
-                    &mut state.scratch_shape,
+                    &mut state
+                        .enable_schema_inference
+                        .then(|| &mut state.scratch_shape),
                 )?;
 
-                if !more {
+                if state.enable_schema_inference && !more {
                     if state.shape.ne(&state.scratch_shape) {
                         // Update the "true" shape with the newly widened shape
                         state.shape = state.scratch_shape.clone();
@@ -208,7 +218,8 @@ impl cgo::Service for API {
                         .expect("shape serialization should never fail");
 
                         tracing::info!(
-                            inferred_schema = ?DebugJson(serialized),
+                            schema = ?DebugJson(serialized),
+                            collection_name = state.collection_name,
                             "inferred schema updated"
                         );
                     }
@@ -258,16 +269,18 @@ pub fn drain_chunk(
     arena: &mut Vec<u8>,
     out: &mut Vec<cgo::Out>,
     stats: &mut DocCounter,
-    shape: &mut doc::inference::Shape,
+    shape: &mut Option<&mut doc::inference::Shape>,
 ) -> Result<bool, doc::combine::Error> {
     // Convert target from a delta to an absolute target length of the arena.
     let target_length = target_length + arena.len();
 
     drainer.drain_while(|doc, fully_reduced| {
-        match &doc {
-            doc::LazyNode::Node(n) => shape.widen(*n, Location::Root),
-            doc::LazyNode::Heap(h) => shape.widen(h, Location::Root),
-        };
+        if let Some(shape) = shape.as_mut() {
+            match &doc {
+                doc::LazyNode::Node(n) => shape.widen(*n, Location::Root),
+                doc::LazyNode::Heap(h) => shape.widen(h, Location::Root),
+            };
+        }
         // Send serialized document.
         let begin = arena.len();
         let w: &mut Vec<u8> = &mut *arena;
@@ -351,6 +364,8 @@ pub mod test {
                         ..Default::default()
                     },
                 ],
+                collection_name: "test".to_string(),
+                enable_schema_inference: false,
             },
             &mut arena,
             &mut out,
@@ -443,6 +458,8 @@ pub mod test {
                     fields: vec![],
                     uuid_placeholder_ptr: String::new(),
                     projections: vec![],
+                    collection_name: "test".to_string(),
+                    enable_schema_inference: false,
                 },
                 &mut arena,
                 &mut out,
@@ -713,6 +730,8 @@ pub mod test {
                 fields: field_ptrs,
                 uuid_placeholder_ptr: String::new(),
                 projections,
+                collection_name: "test".to_string(),
+                enable_schema_inference: false,
             },
             &mut arena,
             &mut out,

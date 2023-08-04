@@ -2105,6 +2105,12 @@ impl serde::Serialize for combine_api::Config {
         if !self.projections.is_empty() {
             len += 1;
         }
+        if !self.collection_name.is_empty() {
+            len += 1;
+        }
+        if self.enable_schema_inference {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CombineAPI.Config", len)?;
         if !self.schema_json.is_empty() {
             struct_ser.serialize_field("schemaJson", crate::as_raw_json(&self.schema_json)?)?;
@@ -2120,6 +2126,12 @@ impl serde::Serialize for combine_api::Config {
         }
         if !self.projections.is_empty() {
             struct_ser.serialize_field("projections", &self.projections)?;
+        }
+        if !self.collection_name.is_empty() {
+            struct_ser.serialize_field("collectionName", &self.collection_name)?;
+        }
+        if self.enable_schema_inference {
+            struct_ser.serialize_field("enableSchemaInference", &self.enable_schema_inference)?;
         }
         struct_ser.end()
     }
@@ -2139,6 +2151,10 @@ impl<'de> serde::Deserialize<'de> for combine_api::Config {
             "uuid_placeholder_ptr",
             "uuidPlaceholderPtr",
             "projections",
+            "collection_name",
+            "collectionName",
+            "enable_schema_inference",
+            "enableSchemaInference",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -2148,6 +2164,8 @@ impl<'de> serde::Deserialize<'de> for combine_api::Config {
             Fields,
             UuidPlaceholderPtr,
             Projections,
+            CollectionName,
+            EnableSchemaInference,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2174,6 +2192,8 @@ impl<'de> serde::Deserialize<'de> for combine_api::Config {
                             "fields" => Ok(GeneratedField::Fields),
                             "uuidPlaceholderPtr" | "uuid_placeholder_ptr" => Ok(GeneratedField::UuidPlaceholderPtr),
                             "projections" => Ok(GeneratedField::Projections),
+                            "collectionName" | "collection_name" => Ok(GeneratedField::CollectionName),
+                            "enableSchemaInference" | "enable_schema_inference" => Ok(GeneratedField::EnableSchemaInference),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2198,6 +2218,8 @@ impl<'de> serde::Deserialize<'de> for combine_api::Config {
                 let mut fields__ = None;
                 let mut uuid_placeholder_ptr__ = None;
                 let mut projections__ = None;
+                let mut collection_name__ = None;
+                let mut enable_schema_inference__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::SchemaJson => {
@@ -2230,6 +2252,18 @@ impl<'de> serde::Deserialize<'de> for combine_api::Config {
                             }
                             projections__ = Some(map.next_value()?);
                         }
+                        GeneratedField::CollectionName => {
+                            if collection_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("collectionName"));
+                            }
+                            collection_name__ = Some(map.next_value()?);
+                        }
+                        GeneratedField::EnableSchemaInference => {
+                            if enable_schema_inference__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("enableSchemaInference"));
+                            }
+                            enable_schema_inference__ = Some(map.next_value()?);
+                        }
                     }
                 }
                 Ok(combine_api::Config {
@@ -2238,6 +2272,8 @@ impl<'de> serde::Deserialize<'de> for combine_api::Config {
                     fields: fields__.unwrap_or_default(),
                     uuid_placeholder_ptr: uuid_placeholder_ptr__.unwrap_or_default(),
                     projections: projections__.unwrap_or_default(),
+                    collection_name: collection_name__.unwrap_or_default(),
+                    enable_schema_inference: enable_schema_inference__.unwrap_or_default(),
                 })
             }
         }

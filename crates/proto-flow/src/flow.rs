@@ -896,6 +896,12 @@ pub mod combine_api {
         /// TODO(johnny): This is a kludge as we seek to remove this API.
         #[prost(message, repeated, tag = "5")]
         pub projections: ::prost::alloc::vec::Vec<super::Projection>,
+        /// The name of the collection that's being written to.
+        #[prost(string, tag = "6")]
+        pub collection_name: ::prost::alloc::string::String,
+        /// Whether to emit maximally-constrained schemas as documents are combined.
+        #[prost(bool, tag = "7")]
+        pub enable_schema_inference: bool,
     }
     /// Stats holds statistics relating to one or more combiner transactions.
     #[allow(clippy::derive_partial_eq_without_eq)]
