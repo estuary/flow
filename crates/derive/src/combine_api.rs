@@ -202,10 +202,15 @@ impl cgo::Service for API {
                         // Update the "true" shape with the newly widened shape
                         state.shape = state.scratch_shape.clone();
 
-                        tracing::info!(
-                            inferred_schema = ?DebugJson(state.scratch_shape.to_serde()),
-                            "inferred schema updated"
-                        );
+                        match state.scratch_shape.clone().to_serde() {
+                            Ok(value) => tracing::info!(
+                                inferred_schema = ?DebugJson(value),
+                                "inferred schema updated"
+                            ),
+                            Err(err) => {
+                                tracing::error!("failed to serialize inferred schema: {err:?}")
+                            }
+                        };
                     }
 
                     // Send a final message with accumulated stats.
