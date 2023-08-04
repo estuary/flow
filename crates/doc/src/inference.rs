@@ -1625,10 +1625,9 @@ const MAX_ROOT_FIELDS: usize = 750;
 const MAX_NESTED_FIELDS: usize = 200;
 
 impl Shape {
-    /// Widen a Shape to make the provided AsNode value fit.
-    /// Widen the shape correctly so a node with the provided fields will successfully validate.
+    /// Minimally widen the shape so the provided document will successfully validate.
     /// Returns a hint if some locations might exceed their maximum allowable size.
-    /// In order to build useful schemas, we need to widen in order of explicitness:
+    /// In order to build useful object schemas, we need to widen in order of explicitness:
     /// * Fields matching explicitly named `properties` will always be handled by widening
     ///   those properties to accept the shape of the field.
     /// * Any remaining fields whose names match a pattern in `patternProperties` will always
@@ -1641,6 +1640,9 @@ impl Shape {
     /// * If this schema has `additionalProperties` _other_ than `false`, we use that as a
     ///    signal to indicate that we should not add any more explicit `properties`. Instead,
     ///    we simply widen the shape of `additionalProperties` to accept all unmatched fields.
+    ///
+    /// Arrays are widened by expanding their `items` to fit the provided document.
+    /// Scalar values are widened along whatever dimensions exist: string formats and lengths, number ranges, etc.
     pub fn widen<'n, N>(&mut self, node: &'n N, loc: Location) -> bool
     where
         N: AsNode,
@@ -1812,9 +1814,8 @@ fn regex_matches(re: &fancy_regex::Regex, text: &str) -> bool {
 mod test {
     use super::{super::Annotation, *};
     use json::schema::{self, index::IndexBuilder};
-    #[cfg(test)]
     use pretty_assertions::assert_eq;
-    use serde_json::{de, json, ser, Map, Value};
+    use serde_json::{json, Map, Value};
     use serde_yaml;
 
     fn widening_snapshot_helper(
