@@ -340,17 +340,17 @@ impl Strategy {
         let right = shape_from_node(rhs).map_err(|e| Error::with_location(e, loc))?;
 
         // Union together the LHS and RHS, and convert back from `Shape` into `HeapNode`.
-        let merged_doc = Shape::union(left, right)
-            .to_serde()
-            .and_then(|value| HeapNode::from_serde(value, alloc))
-            .map_err(|e| {
-                Error::with_location(
-                    Error::JsonSchemaMergeWrongType {
-                        detail: Some(e.to_string()),
-                    },
-                    loc,
-                )
-            })?;
+        let merged_doc =
+            serde_json::to_value(&SchemaBuilder::new(Shape::union(left, right)).root_schema())
+                .and_then(|value| HeapNode::from_serde(value, alloc))
+                .map_err(|e| {
+                    Error::with_location(
+                        Error::JsonSchemaMergeWrongType {
+                            detail: Some(e.to_string()),
+                        },
+                        loc,
+                    )
+                })?;
 
         *tape = &tape[rhs_tape_len..];
 
