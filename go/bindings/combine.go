@@ -60,6 +60,7 @@ func (c *Combine) Configure(
 	keyPtrs []string,
 	fields []string,
 	projections []pf.Projection,
+	enableSchemaInference bool,
 ) error {
 	combineConfigureCounter.WithLabelValues(fqn, collection.String()).Inc()
 	c.metrics = newCombineMetrics(fqn, collection)
@@ -67,11 +68,13 @@ func (c *Combine) Configure(
 	c.svc.mustSendMessage(
 		uint32(pf.CombineAPI_CONFIGURE),
 		&pf.CombineAPI_Config{
-			SchemaJson:         schemaJSON,
-			KeyPtrs:            keyPtrs,
-			Fields:             fields,
-			UuidPlaceholderPtr: uuidPtr,
-			Projections:        projections,
+			SchemaJson:            schemaJSON,
+			KeyPtrs:               keyPtrs,
+			Fields:                fields,
+			UuidPlaceholderPtr:    uuidPtr,
+			Projections:           projections,
+			CollectionName:        collection.String(),
+			EnableSchemaInference: enableSchemaInference,
 		})
 
 	return pollExpectNoOutput(c.svc)

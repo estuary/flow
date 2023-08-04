@@ -54,6 +54,7 @@ func TestValidationFailuresAreLogged(t *testing.T) {
 		collection.Key,
 		nil,
 		collection.Projections,
+		false,
 	)
 	require.NoError(t, err)
 
@@ -108,6 +109,7 @@ func TestCombineBindings(t *testing.T) {
 				collection.Key,
 				[]string{"part_a", "part_b"},
 				collection.Projections,
+				false,
 			)
 			require.NoError(t, err)
 		}

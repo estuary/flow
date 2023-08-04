@@ -136,6 +136,8 @@ func (f *FlowTesting) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.In
 		collection.Key,
 		collection.PartitionFields,
 		collection.Projections,
+		// Enable schema inference in testing
+		true,
 	); err != nil {
 		return nil, fmt.Errorf("configuring combiner: %w", err)
 	}
