@@ -1,5 +1,3 @@
-use std::string;
-
 use super::{Log, LogLevel};
 use serde_json::json;
 
