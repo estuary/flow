@@ -1,7 +1,6 @@
-use std::collections::{BTreeMap, BTreeSet};
-
+use crate::inference::Shape;
 use json::schema::{
-    self, keywords,
+    keywords,
     types::{self, Set},
 };
 use schemars::{
@@ -9,8 +8,7 @@ use schemars::{
     schema::{InstanceType, RootSchema, Schema, SchemaObject, SingleOrVec},
 };
 use serde_json::json;
-
-use crate::inference::Shape;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Default)]
 pub struct SchemaBuilder {

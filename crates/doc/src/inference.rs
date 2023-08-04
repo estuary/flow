@@ -1489,13 +1489,6 @@ impl Shape {
             );
         };
     }
-
-    pub fn to_serde(self) -> Result<Value, serde_json::Error> {
-        let builder = SchemaBuilder::new(self);
-        let root_schema = builder.root_schema();
-
-        serde_json::to_value(root_schema)
-    }
 }
 
 // Sentinel Shape returned by locate(), which make take any value.
