@@ -1,7 +1,7 @@
 use crate::{new_validator, DebugJson, DocCounter, JsonError, StatsAccumulator};
 use anyhow::Context;
 use bytes::Buf;
-use doc::inference::Shape;
+use doc::{inference::Shape, schema::SchemaBuilder};
 use json::Location;
 use prost::Message;
 use proto_flow::flow::combine_api::{self, Code};
@@ -202,7 +202,9 @@ impl cgo::Service for API {
                         // Update the "true" shape with the newly widened shape
                         state.shape = state.scratch_shape.clone();
 
-                        match state.scratch_shape.clone().to_serde() {
+                        match serde_json::to_value(
+                            &SchemaBuilder::new(state.scratch_shape.clone()).root_schema(),
+                        ) {
                             Ok(value) => tracing::info!(
                                 inferred_schema = ?DebugJson(value),
                                 "inferred schema updated"
