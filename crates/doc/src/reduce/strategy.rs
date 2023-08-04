@@ -80,7 +80,7 @@ pub enum Strategy {
     /// floating-point representations which use a string encoding scheme.
     Sum,
     /// Deep-merge the JSON schemas in LHS and RHS
-    /// both of which must be objects c.ontaining valid json schemas.
+    /// both of which must be objects containing valid json schemas.
     JsonSchemaMerge,
 }
 
