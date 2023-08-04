@@ -97,4 +97,16 @@ captures:
         resource:
           stream: a-bucket/another-prefix
           syncMode: incremental
+    
+    # Interval of time between invocations of non-streaming connectors.
+    # If a connector runs to completion and then exits, the capture task will
+    # restart the connector after this interval of time has elapsed.
+    #
+    # Intervals are relative to the start of an invocation and not its completion.
+    # For example, if the interval is five minutes, and an invocation of the
+    # capture finishes after two minutes, then the next invocation will be started
+    # after three additional minutes.
+    #
+    # Optional. Default: Five minutes.
+    interval: 5m
 ```
