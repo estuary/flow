@@ -1,5 +1,5 @@
 use anyhow::Context;
-use doc::{inference::Shape, SchemaIndexBuilder};
+use doc::{SchemaIndexBuilder, Shape};
 use json::schema::{build::build_schema, types};
 use models::{
     Capture, CaptureBinding, CaptureDef, CaptureEndpoint, Catalog, Collection, CollectionDef,

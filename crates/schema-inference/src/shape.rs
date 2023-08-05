@@ -1,4 +1,4 @@
-use doc::inference::{ArrayShape, ObjProperty, ObjShape, Shape, StringShape};
+use doc::shape::{ArrayShape, ObjProperty, ObjShape, Shape, StringShape};
 use itertools::{EitherOrBoth, Itertools};
 use json::schema::types;
 
@@ -46,7 +46,7 @@ pub fn merge(lhs: Shape, rhs: Shape) -> Shape {
         array,
         object,
         string,
-        ..Default::default()
+        ..Shape::anything()
     }
 }
 

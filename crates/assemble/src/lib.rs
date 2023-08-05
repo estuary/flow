@@ -1,4 +1,4 @@
-use doc::inference::{Exists, Shape};
+use doc::shape::{location::Exists, Shape};
 use json::schema::{formats, types};
 use proto_flow::flow;
 use proto_gazette::{broker, consumer};
@@ -602,7 +602,7 @@ pub fn label_selector(t: models::LabelSelector) -> broker::LabelSelector {
 #[cfg(test)]
 mod test {
     use super::*;
-    use doc::inference::StringShape;
+    use doc::shape::StringShape;
     use serde_json::json;
 
     #[test]
@@ -620,7 +620,7 @@ mod test {
                 min_length: 10,
                 max_length: Some(123),
             },
-            ..Default::default()
+            ..Shape::anything()
         };
 
         let out1 = inference(&shape, Exists::Must);

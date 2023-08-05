@@ -1,12 +1,12 @@
 use crate::shape;
-use doc::inference::{ArrayShape, ObjProperty, ObjShape, Shape, StringShape};
+use doc::shape::{ArrayShape, ObjProperty, ObjShape, Shape, StringShape};
 use json::schema::{formats::Format, types};
 use serde_json::Value as JsonValue;
 
 pub fn infer_shape(value: &JsonValue) -> Shape {
     let mut shape = Shape {
         type_: types::Set::for_value(value),
-        ..Default::default()
+        ..Shape::nothing()
     };
 
     if let JsonValue::String(value) = value {
@@ -32,7 +32,7 @@ fn infer_string_shape(value: &str) -> StringShape {
 
     StringShape {
         format,
-        ..Default::default()
+        ..StringShape::new()
     }
 }
 
@@ -44,10 +44,10 @@ fn infer_array_shape(inner: &[JsonValue]) -> ArrayShape {
     {
         ArrayShape {
             tuple: vec![shape],
-            ..Default::default()
+            ..ArrayShape::new()
         }
     } else {
-        Default::default()
+        ArrayShape::new()
     }
 }
 
@@ -84,7 +84,7 @@ fn infer_object_shape(inner: &serde_json::Map<String, JsonValue>) -> ObjShape {
             ..Default::default()
         })),
         */
-        ..Default::default()
+        ..ObjShape::new()
     }
 }
 

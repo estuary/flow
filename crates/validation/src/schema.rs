@@ -1,5 +1,8 @@
 use super::Error;
-use doc::{inference, validation};
+use doc::{
+    shape::{self, location::Exists},
+    validation, Shape,
+};
 use json::schema::types;
 use proto_flow::flow::collection_spec::derivation::ShuffleType;
 
@@ -10,14 +13,14 @@ pub struct Schema {
     // Validator of this schema.
     pub validator: validation::Validator,
     // Inferred schema shape.
-    pub shape: inference::Shape,
+    pub shape: Shape,
 }
 
 impl Schema {
     pub fn new(bundle: &str) -> Result<Self, Error> {
         let schema = doc::validation::build_bundle(bundle)?;
         let validator = doc::Validator::new(schema)?;
-        let shape = inference::Shape::infer(&validator.schemas()[0], validator.schema_index());
+        let shape = Shape::infer(&validator.schemas()[0], validator.schema_index());
 
         Ok(Self {
             curi: validator.schemas()[0].curi.clone(),
@@ -51,12 +54,12 @@ impl Schema {
                 ptr: ptr.to_string(),
                 unmatched,
             });
-        } else if exists == inference::Exists::Implicit {
+        } else if exists == Exists::Implicit {
             return Err(Error::PtrIsImplicit {
                 ptr: ptr.to_string(),
                 schema: self.curi.clone(),
             });
-        } else if exists == inference::Exists::Cannot {
+        } else if exists == Exists::Cannot {
             return Err(Error::PtrCannotExist {
                 ptr: ptr.to_string(),
                 schema: self.curi.clone(),
@@ -78,7 +81,7 @@ impl Schema {
 
         if !matches!(
             shape.reduction,
-            inference::Reduction::Unset | inference::Reduction::LastWriteWins,
+            shape::Reduction::Unset | shape::Reduction::LastWriteWins,
         ) {
             return Err(Error::KeyHasReduction {
                 ptr: ptr.to_string(),
