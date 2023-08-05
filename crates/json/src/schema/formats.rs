@@ -1,12 +1,11 @@
-use std::{net::IpAddr, str::FromStr};
-
 use addr::{parse_domain_name, parse_email_address};
 use bigdecimal::BigDecimal;
 use fancy_regex::Regex;
 use iri_string::spec::{IriSpec, UriSpec};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use std::{net::IpAddr, str::FromStr};
 use time::macros::format_description;
+use uuid::Uuid;
 
 use crate::validator::ValidationResult;
 
@@ -100,17 +99,20 @@ impl Format {
             Self::Time => {
                 // [first] will choose the first matching format to parse the value
                 // see https://time-rs.github.io/book/api/format-description.html for more info
-                let full_format = format_description!(version = 2, "[first 
-                  [[hour]:[minute]:[second][optional [.[subsecond]]]Z]
-                  [[hour]:[minute]:[second][optional [.[subsecond]]]z]
-                  [[hour]:[minute]:[second][optional [.[subsecond]]][offset_hour]:[offset_minute]]
-                ]");
+                let full_format = format_description!(
+                    version = 2,
+                    "[first
+                    [[hour]:[minute]:[second][optional [.[subsecond]]]Z]
+                    [[hour]:[minute]:[second][optional [.[subsecond]]]z]
+                    [[hour]:[minute]:[second][optional [.[subsecond]]][offset_hour]:[offset_minute]]
+                    ]"
+                );
 
                 ValidationResult::from(time::Time::parse(
                     val,
                     &time::format_description::FormatItem::First(full_format),
                 ))
-            },
+            }
             Self::Email => ValidationResult::from(parse_email_address(val)),
             Self::Hostname => ValidationResult::from(parse_domain_name(val)),
             // The rules/test cases for these are absolutely bonkers
@@ -178,6 +180,18 @@ impl Format {
                 BigDecimal::from_str(val).is_ok()
                     || ["NaN", "Infinity", "-Infinity"].contains(&val),
             ),
+        }
+    }
+
+    // Detect the Format matched by a given, arbitrary string (if any).
+    pub fn detect(val: &str) -> Option<Self> {
+        match val {
+            _ if Format::Integer.validate(val).is_ok() => Some(Format::Integer),
+            _ if Format::Number.validate(val).is_ok() => Some(Format::Number),
+            _ if Format::DateTime.validate(val).is_ok() => Some(Format::DateTime),
+            _ if Format::Date.validate(val).is_ok() => Some(Format::Date),
+            _ if Format::Uuid.validate(val).is_ok() => Some(Format::Uuid),
+            _ => None,
         }
     }
 }

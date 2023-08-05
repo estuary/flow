@@ -1,10 +1,12 @@
-mod utils;
-
-use doc::inference::{Exists, Reduction, Shape};
-use doc::Annotation;
+use doc::{
+    shape::{location::Exists, Reduction},
+    Annotation, Shape,
+};
 use json::schema;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
+
+mod utils;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
@@ -30,7 +32,7 @@ pub struct Property {
     pub enum_vals: Vec<serde_json::Value>,
     pub string_format: Option<String>,
 }
-fn reduce_description(reduce: doc::inference::Reduction) -> &'static str {
+fn reduce_description(reduce: Reduction) -> &'static str {
     match reduce {
         Reduction::Unset => "unset",
         Reduction::Append => "append",

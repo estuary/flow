@@ -1,6 +1,6 @@
 use crate::{dataplane, local_specs};
 use anyhow::Context;
-use doc::schema::to_schema;
+use doc::shape::schema::to_schema;
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt, TryStreamExt};
 use prost::Message;

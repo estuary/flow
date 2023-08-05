@@ -1,6 +1,6 @@
 use anyhow::Context;
 use doc::{
-    inference::{Exists, Shape},
+    shape::{location::Exists, Shape},
     Schema, SchemaIndexBuilder,
 };
 use itertools::Itertools;
