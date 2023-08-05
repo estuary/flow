@@ -1,5 +1,5 @@
 ---
-source: crates/doc/src/inference.rs
+source: crates/doc/src/shape/inference.rs
 expression: obj.inspect()
 ---
 [

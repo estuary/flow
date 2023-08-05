@@ -1,5 +1,5 @@
 use super::{count_nodes_heap, Cursor, Error, Result};
-use crate::{inference::Shape, schema::SchemaBuilder, AsNode, HeapNode};
+use crate::{shape::limits, shape::schema::SchemaBuilder, AsNode, HeapNode, Shape};
 use json::schema::index::IndexBuilder;
 
 pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
@@ -32,7 +32,7 @@ pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
     let right = shape_from_node(rhs).map_err(|e| Error::with_location(e, loc))?;
 
     let mut merged_shape = Shape::union(left, right);
-    merged_shape.enforce_field_count_limits(json::Location::Root);
+    limits::enforce_field_count_limits(&mut merged_shape, json::Location::Root);
 
     // Union together the LHS and RHS, and convert back from `Shape` into `HeapNode`.
     let merged_doc = serde_json::to_value(&SchemaBuilder::new(merged_shape).root_schema())
