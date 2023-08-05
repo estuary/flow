@@ -1,17 +1,13 @@
-use std::net::{IpAddr, SocketAddr};
-use std::time::Duration;
-
 use crate::inference::infer_shape;
 use crate::json_decoder::{JsonCodec, JsonCodecError};
 use crate::shape;
-use bytesize::ByteSize;
-use doc::schema::SchemaBuilder;
-use serde_json::json;
-
 use anyhow::Context;
 use assemble::journal_selector;
-use doc::inference::Shape;
+use bytesize::ByteSize;
+use doc::shape::schema::SchemaBuilder;
+use doc::Shape;
 use futures::{Stream, TryStreamExt};
+use futures_util::StreamExt;
 use journal_client::broker::{fragments_response, FragmentsRequest, JournalSpec};
 use journal_client::fragments::FragmentIter;
 use journal_client::list::list_journals;
@@ -20,11 +16,12 @@ use journal_client::read::uncommitted::{
 };
 use journal_client::{connect_journal_client, ConnectError};
 use models;
-
-use futures_util::StreamExt;
 use schemars::schema::RootSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use serde_json::Value;
+use std::net::{IpAddr, SocketAddr};
+use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::watch::Receiver;
 use tokio::time::{sleep, Instant};
@@ -88,7 +85,7 @@ impl InferenceError {
 
 /// Used to roll up shapes inferred from collections,
 /// as well as metadata about the data that went into them
-#[derive(Default, Debug)]
+#[derive(Debug)]
 struct ShapeAndMeta {
     shape: Shape,
     /// The number of documents that were read to infer this shape

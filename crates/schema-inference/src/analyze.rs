@@ -1,4 +1,4 @@
-use doc::schema::SchemaBuilder;
+use doc::shape::schema::SchemaBuilder;
 use schemars::schema::RootSchema;
 use serde_json::Value as JsonValue;
 use std::io::BufRead;

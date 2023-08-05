@@ -571,7 +571,7 @@ impl ResourceSpecUpdater {
         let mut builder = doc::SchemaIndexBuilder::new();
         builder.add(&schema)?;
         let index = builder.into_index();
-        let shape = doc::inference::Shape::infer(&schema, &index);
+        let shape = doc::Shape::infer(&schema, &index);
 
         for (ptr, _, prop_shape, _) in shape.locations() {
             if prop_shape.annotations.contains_key("x-collection-name") {

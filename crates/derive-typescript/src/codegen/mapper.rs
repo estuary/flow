@@ -1,5 +1,5 @@
 use super::ast::{ASTProperty, ASTTuple, AST};
-use doc::inference::{ArrayShape, ObjShape, Provenance, Shape};
+use doc::shape::{ArrayShape, ObjShape, Provenance, Shape};
 use json::schema::{types, Keyword};
 use regex::Regex;
 use std::collections::BTreeMap;
@@ -56,7 +56,7 @@ impl Mapper {
         let index = self.validator.schema_index();
         let shape = match index.fetch(url) {
             Some(schema) => Shape::infer(schema, index),
-            None => Shape::default(),
+            None => Shape::anything(),
         };
         self.to_ast(&shape)
     }
@@ -180,10 +180,7 @@ impl Mapper {
             // type that accommodates *all* types used across any property.
             // See: https://basarat.gitbook.io/typescript/type-system/index-signatures
 
-            let mut merged = Shape {
-                type_: types::INVALID,
-                ..Shape::default()
-            };
+            let mut merged = Shape::nothing();
             let mut has_optional = false;
 
             for prop in &obj.properties {

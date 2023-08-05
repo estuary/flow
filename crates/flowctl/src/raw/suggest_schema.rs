@@ -5,7 +5,7 @@ use crate::{
 };
 use anyhow::anyhow;
 use bytelines::AsyncByteLines;
-use doc::{inference::Shape, schema::SchemaBuilder, FailedValidation, SchemaIndexBuilder};
+use doc::{shape::schema::SchemaBuilder, FailedValidation, SchemaIndexBuilder, Shape};
 use futures::{Stream, StreamExt, TryStreamExt};
 use json::schema::build::build_schema;
 use models::Schema;

@@ -90,7 +90,7 @@ pub enum Error {
     KeyHasReduction {
         ptr: String,
         schema: Url,
-        strategy: doc::inference::Reduction,
+        strategy: doc::shape::Reduction,
     },
     #[error("{category} projection {field} does not exist in collection {collection}")]
     NoSuchProjection {
@@ -184,7 +184,7 @@ pub enum Error {
     #[error(transparent)]
     SchemaIndex(#[from] json::schema::index::Error),
     #[error(transparent)]
-    SchemaShape(#[from] doc::inference::Error),
+    SchemaShape(#[from] doc::shape::inspections::Error),
     #[error(transparent)]
     SerdeJson(#[from] serde_json::Error),
 }

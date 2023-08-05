@@ -1,8 +1,7 @@
 use super::errors::*;
 use super::firebolt_queries::{CreateTable, DropTable, InsertFromTable};
 use super::firebolt_types::{Column, FireboltType, Table, TableSchema, TableType};
-
-use doc::inference::Shape;
+use doc::shape::Shape;
 use doc::{Annotation, Pointer};
 use json::schema::{self, types};
 use proto_flow::flow::materialization_spec::Binding;
@@ -163,12 +162,8 @@ pub fn build_firebolt_queries_bundle(
     })
 }
 
-pub fn build_drop_query(
-    table: &Table,
-) -> Result<String, Error> {
-    Ok(DropTable {
-        table,
-    }.to_string())
+pub fn build_drop_query(table: &Table) -> Result<String, Error> {
+    Ok(DropTable { table }.to_string())
 }
 
 fn projection_type_to_firebolt_type(shape: &Shape) -> Option<FireboltType> {

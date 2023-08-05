@@ -638,7 +638,7 @@ pub mod test {
         docs: &[(bool, serde_json::Value)],
     ) -> Vec<Vec<String>> {
         let validator = crate::new_validator(&schema_json).unwrap();
-        let shape = doc::inference::Shape::infer(&validator.schemas()[0], validator.schema_index());
+        let shape = doc::Shape::infer(&validator.schemas()[0], validator.schema_index());
 
         let projections: Vec<_> = shape
             .locations()
