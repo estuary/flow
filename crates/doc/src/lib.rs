@@ -99,8 +99,6 @@ pub use validation::{
 // Doc implementations may be reduced.
 pub mod reduce;
 
-pub mod schema;
-
 // Documents may be combined.
 #[cfg(feature = "combine")]
 pub mod combine;
@@ -110,7 +108,11 @@ pub use combine::Combiner;
 // Nodes may be packed as FoundationDB tuples.
 pub mod tuple_pack;
 
-pub mod inference;
+// Shape is a description of the valid shapes that a document may take.
+// It's similar to (and built from) a JSON Schema, but includes only
+// those inferences which can be statically proven for all documents.
+pub mod shape;
+pub use shape::Shape;
 
 // Fancy diff support for documents.
 pub mod diff;
