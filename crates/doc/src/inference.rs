@@ -98,6 +98,7 @@ pub enum Reduction {
 
     Append,
     FirstWriteWins,
+    JsonSchemaMerge,
     LastWriteWins,
     Maximize,
     Merge,
@@ -107,8 +108,6 @@ pub enum Reduction {
 
     // Multiple concrete strategies may apply at the location.
     Multiple,
-
-    JsonSchemaMerge,
 }
 
 impl Reduction {
