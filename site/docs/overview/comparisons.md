@@ -5,11 +5,7 @@ description: High level explanations of Flow in terms of the systems you already
 
 # Comparisons
 
-Flow is a flexible platform for real-time data processing. It integrates data ingestion, storage, transformation, and materialization. However, you may find that description isn't enough to give you a true understanding of what Flow does in practical terms.
-
-This article is designed to provide clarity by explaining Flow through the lens of various data systems you may know. For each system, it discusses Flow's similarities and differences, and how the two can be used together, when applicable.
-
-Because Flow combines many functionalities, it is related to multiple types of technologies. Click the familiar system(s) from the list below to jump to an explanation of how it compares with Flow.
+Because Flow combines many functionalities, it's related to many types of data systems. Choose a familiar system from the list below to jump to an explanation of how it compares with Flow (or how you can use the two together).
 
 * [Apache Beam and Google Cloud Dataflow](comparisons.md#apache-beam-and-google-cloud-dataflow)
 * [Kafka](comparisons.md#kafka)
@@ -45,6 +41,11 @@ Generally, Flow users don't need to know or care much about Gazette and its arch
 Flow [collections](../concepts/collections.md) are somewhat similar to Kafka **streams**, but with some important differences. Collections always store JSON and must have an associated JSON schema. Collections also support automatic logical and physical partitioning. Each collection is backed by one or more journals, depending on the partitioning.
 
 Flow [tasks](../concepts/README.md#tasks) are most similar to Kafka **stream processors**, but are more opinionated. Tasks fall into one of three categories: captures, derivations, and materializations. Tasks may also have more than one process, which Flow calls [**shards**](../concepts/advanced/shards.md), to allow for parallel processing. Tasks and shards are fully managed by Flow. This includes transactional state management and zero-downtime splitting of shards, which enables turnkey scaling.
+
+See how Flow compares to popular stream processing platforms that use Kafka:
+
+* [Flow vs Confluent feature and pricing breakdown](https://estuary.dev/vs-confluent/)
+* [Flow vs Debezium feature and pricing breakdown](https://estuary.dev/vs-debezium/)
 
 ## Spark
 
@@ -82,7 +83,7 @@ Tools like Fivetran and Airbyte are purpose-built to move data from one place to
 [**materializations**](../../concepts/materialization) (writes to destinations).
 Collectively, these are called _tasks_.
 
-Tasks in Flow are only indirectly linked. Captures read data from a source and output to **collections**. Flow collections store all the data in cloud storage, with configurable retention for historical data. You can then materialize each collection to any number of destination systems. Each one will be kept up to date in real time, and new materializations can automatically backfill all your historical data. Collections in Flow always have an associated JSON schema, and they use that to ensure the validity of all collection data. Tasks are also transactional and generally guarantee end-to-end exactly-once processing*.
+Tasks in Flow are only indirectly linked. Captures read data from a source and output to **collections**. Flow collections store all the data in cloud storage, with configurable retention for historical data. You can then materialize each collection to any number of destination systems. Each one will be kept up to date in real time, and new materializations can automatically backfill all your historical data. Collections in Flow always have an associated JSON schema, and they use that to ensure the validity of all collection data. Tasks are also transactional and generally guarantee end-to-end exactly-once processing (so long as the endpoint system can accommodate them).
 
 Like Airbyte, Flow uses [connectors](../concepts/connectors.md) for interacting with external systems in captures and materializations. For captures,
 Flow integrates the Airbyte specification,
@@ -95,7 +96,8 @@ Both Fivetran and Airbyte both currently have graphical interfaces that make the
 non-technical users to configure. Flow, too, is focused on empowering non-technical users through its web application.
 At the same time, it Flow offers declarative YAML for configuration, which works excellently in a GitOps workflow.
 
-_* Some materialization endpoints can only make at-least-once guarantees._
+[Flow vs Fivetran feature and pricing breakdown.](https://estuary.dev/vs-fivetran/)
+
 
 ## dbt
 
