@@ -8,6 +8,7 @@ use std::cmp::Ordering;
 pub mod strategy;
 pub use strategy::Strategy;
 
+mod schema;
 mod set;
 
 pub static DEFAULT_STRATEGY: &Strategy = &Strategy::LastWriteWins;
