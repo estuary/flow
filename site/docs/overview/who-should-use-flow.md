@@ -5,7 +5,7 @@ description: Common pain points you might have, and how Flow addresses them.
 
 # Who should use Flow?
 
-Flow is a DataOps platform designed for all members of your data team. Its powerful command-line interface gives backend engineers data integration superpowers.
+Flow is a data movement and transformation platform designed for all members of your data team. Its powerful command-line interface gives backend engineers data integration superpowers.
 At the same time, Flow allows data analysts and other user cohorts to meaningfully contribute to and manage the same data pipelines, or **data flows**, using the web application.
 
 If you answer "yes" to any of the following questions, Flow can help:
@@ -22,9 +22,9 @@ If you answer "yes" to any of the following questions, Flow can help:
  [distributed data mesh](https://martinfowler.com/articles/data-monolith-to-mesh.html)
   and are seeking a tool to help with orchestration?
 
-## Benefits
+## How Flow can help
 
-These characteristics set Flow apart from other data integration workflows and address the pain points listed above.
+These unique Flow features can help you solve the problems listed above.
 
 ### Fully integrated pipelines
 
@@ -46,7 +46,7 @@ highly specialized set of technical skills.
 
 ### Efficient architecture
 
-Flow mixes a variety of architectural techniques to deliver great throughput, avoid latency, and minimize operating costs. These include:
+Flow mixes a variety of architectural techniques to deliver high throughput, avoid latency, and minimize operating costs. These include:
 
 * Leveraging [reductions](../concepts/schemas.md#reductions) to reduce the amount of data that must be ingested, stored, and processed, often dramatically
 * Executing transformations predominantly in-memory

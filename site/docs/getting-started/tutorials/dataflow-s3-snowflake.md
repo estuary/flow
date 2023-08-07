@@ -61,11 +61,11 @@ You'll start by creating your capture.
 
 1. Go to the Flow web app at [dashboard.estuary.dev](http://dashboard.estuary.dev) and sign in.
 
-2. Click the **Captures** tab and choose **New Capture**
+2. Click the **Sources** tab and choose **New Capture**
 
    All of the available capture connectors — representing the possible data sources — appear as tiles.
 
-3. Choose the **Amazon S3** tile.
+3. Find the **Amazon S3** tile and click **Capture**.
 
    A form appears with the properties required for an S3 capture. Every connector requires different properties to configure.
 
@@ -98,12 +98,9 @@ You'll start by creating your capture.
 
 7. Click **Next**.
 
-   Flow uses the configuration you provided to initiate a connection with S3. It generates a specification with details of the capture,
-   and another that contains details and a schema for the **collection** that will store the captured data in Flow.
+   Flow uses the configuration you provided to initiate a connection with S3. It generates a list of **collections** that will store the data inside Flow. In this case, there's just one collection from the bucket.
 
-   Once this process completes, you can move on to the next step. If there's an error, go back and check your configuration.
-
-
+     Once this process completes, you can move on to the next step. If there's an error, go back and check your configuration.
 8. Click **Save and Publish**.
 
    Flow deploys, or **publishes**, your capture, including your change to the schema. You'll see a notification when the this is complete.
@@ -120,7 +117,7 @@ Before you can materialize from Flow to Snowflake, you need to complete some set
 
   If you're a new trial user, you should have received instructions by email. For additional help in this section, see the [Snowflake documentation](https://docs.snowflake.com/en/user-guide-getting-started.html).
 
-2. Create a new Snowflake worksheet if you don't have one open.
+2. Create a new SQL worksheet if you don't have one open.
 
    This provides an interface where you can run queries.
 
@@ -167,13 +164,9 @@ use role sysadmin;
 COMMIT;
 ```
 
-4. Run all the queries.
+4. Click the drop-down arrow next to the **Run** button and click **Run All**.
 
-   * If you're using the the Snowflake Classic Web Interface, check **All queries** and click **Run**.
-
-   * If you're using the Snowsight interface, highlight the whole script and click the blue run button.
-
-  Snowflake is ready to use with Flow.
+  Snowflake runs all the queries and is ready to use with Flow.
 
 5. Return to the Flow web application.
 
@@ -182,13 +175,13 @@ COMMIT;
 You were directed to the **Materializations** page.
 All of the available materialization connectors — representing the possible data destinations — are shown as tiles.
 
-1. Locate and select the **Snowflake** tile.
+1. Find the **Snowflake** tile and click **Materialization**.
 
    A new form appears with the properties required to materialize to Snowflake.
 
 2. Click inside the **Name** box.
 
-3. Click your prex from the dropdown and append a unique name after it. For example, `myOrg/yourname/citibiketutorial`.
+3. Click your prefix from the dropdown and append a unique name after it. For example, `myOrg/yourname/citibiketutorial`.
 
 4. Next, fill out the required properties for Snowflake (most of these come from the script you just ran).
 
@@ -210,19 +203,30 @@ All of the available materialization connectors — representing the possible da
 
    * **Role**: `ESTUARY_ROLE`
 
-4. Scroll down to view the **Collection Selector** and change the default name in the **Table** field to `CitiBikeData` or another name of your choosing.
+4. Scroll down to view the **Source Collections** section and change the default name in the **Table** field to `CitiBikeData` or another name of your choosing.
 
-6. Click **Next**.
+   Every Flow collection is defined by one or more **schemas**.
+   Because S3 is a cloud storage bucket, the schema used to ingest the data is quite permissive.
+
+   You'll add a more detailed schema for Flow to use to materialize the data to Snowflake. This will ensure that each field from the source CSV is mapped to a column in the Snowflake table.
+
+5. With the collection still selected, click its **Collection** tab. Then, click **Schema Inference**.
+
+   Flow examines the data and automatically generates a new `readSchema`. Scroll through and note the differences between this and the original schema, renamed `writeSchema`.
+
+6. Click **Apply Inferred Schema**.
+
+7. Click **Next**.
 
    Flow uses the configuration you provided to initiate a connection with Snowflake and generate a specification with details of the materialization.
 
    Once this process completes, you can move on to the next step. If there's an error, go back and check your configuration.
 
-9. Click **Save and Publish**.
+8. Click **Save and Publish**.
 
    Flow publishes the materialization.
 
-10. Return to the Snowflake console and expand ESTUARY_DB and ESTUARY_SCHEMA.
+9. Return to the Snowflake console and expand ESTUARY_DB and ESTUARY_SCHEMA.
 You'll find the materialized table there.
 
 ## Conclusion

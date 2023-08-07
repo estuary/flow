@@ -6,13 +6,33 @@ slug: /
 
 # Flow documentation
 
-Estuary Flow is a DataOps platform designed to democratize access to real-time data.
+Estuary Flow is a data movement and transformation platform for the whole data team.
 
-With Flow, you build, test, and evolve real-time pipelines (called **data flows** in the Flow ecosystem) that continuously capture, transform, and materialize data across all of your systems.
+With Flow, you build, test, and evolve streaming pipelines (called **data flows** in the Flow ecosystem) that continuously move data across all of your systems with optional in-flight transformations.
 
 You work with Flow through its intuitive web application or using the command line interface.
-The system is designed so that whole teams of data stakeholders can collaborate on the same data flows. Business users and analysts can configure data flows to connect disparate systems in minutes,
+Business users and analysts can configure data flows to connect disparate systems in minutes,
 and engineers can then refine those data flows, troubleshoot, and configure complex transformations in their preferred environment.
+
+### Quick start
+
+**Want to get up and running ASAP?**
+
+[Use the web app to sign up.](https://dashboard.estuary.dev) (You start for [free](https://estuary.dev/pricing).)
+
+See the [get started documentation](../getting-started/installation.mdx).
+
+**Wondering if Flow is right for you?**
+
+If you're unsure if Flow is the right solution for your data integration needs, you can read about the technical benefits and clear comparisons with similar systems that may be familiar to you.
+
+* **[Who should use Flow?](overview/who-should-use-flow.md)**
+* **[Comparisons with other systems](overview/comparisons.md)**
+
+**Looking to understand the concepts behind Flow at a deeper level?**
+
+We recommend starting with a tutorial or [guide](../guides/create-dataflow.md) to get acquainted with basic Flow concepts in action.
+After that, read the **[Concepts](concepts/README.md)** to go deeper.
 
 ## Real-time data and Flow
 
@@ -28,24 +48,6 @@ A few examples of what you can do with Flow:
 
 Under the hood, Flow comprises cloud-native streaming infrastructure, a powerful runtime for data processing,
 and an open-source ecosystem of pluggable connectors for integrating your existing data systems.
-
-### Quick start
-
-**Want to get up and running ASAP?**
-
-See the [get started documentation](../getting-started/installation.mdx).
-
-**Wondering if Flow is right for you?**
-
-If you're unsure if Flow is the right solution for your data integration needs, you can read about the technical benefits and clear comparisons with similar systems that may be familiar to you.
-
-* **[Who should use Flow?](overview/who-should-use-flow.md)**
-* **[Comparisons with other systems](overview/comparisons.md)**
-
-**Looking to understand the concepts behind Flow at a deeper level?**
-
-We recommend starting with a tutorial or [guide](../guides/create-dataflow.md) to get acquainted with basic Flow concepts in action.
-After that, read the **[Concepts](concepts/README.md)** to go deeper.
 
 ****
 
