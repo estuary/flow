@@ -1,6 +1,6 @@
 use super::{
     compare_key_lazy, count_nodes, count_nodes_generic, count_nodes_heap, reduce_item, reduce_prop,
-    Cursor, Error, Result,
+    schema::json_schema_merge, Cursor, Error, Result,
 };
 use crate::{
     lazy::{LazyArray, LazyDestructured, LazyObject},
@@ -75,6 +75,9 @@ pub enum Strategy {
     /// In the future, we may allow for arbitrary-sized integer and
     /// floating-point representations which use a string encoding scheme.
     Sum,
+    /// Deep-merge the JSON schemas in LHS and RHS
+    /// both of which must be objects containing valid json schemas.
+    JsonSchemaMerge,
 }
 
 impl std::convert::TryFrom<&serde_json::Value> for Strategy {
@@ -120,6 +123,7 @@ impl Strategy {
             Strategy::Minimize(min) => Self::minimize(cur, min),
             Strategy::Set(set) => set.apply(cur),
             Strategy::Sum => Self::sum(cur),
+            Strategy::JsonSchemaMerge => json_schema_merge(cur),
         }
     }
 

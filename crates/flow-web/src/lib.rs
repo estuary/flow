@@ -42,6 +42,7 @@ fn reduce_description(reduce: doc::inference::Reduction) -> &'static str {
         Reduction::Set => "set",
         Reduction::Sum => "sum",
         Reduction::Multiple => "multiple strategies may apply",
+        Reduction::JsonSchemaMerge => "merge json schemas",
     }
 }
 
