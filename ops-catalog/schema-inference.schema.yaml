@@ -1,0 +1,22 @@
+type: object
+reduce:
+  strategy: merge
+required:
+  - collection_name
+  - schema
+  - ts
+properties:
+  collection_name:
+    type: string
+    description: The name of the collection that this schema was inferred for
+  schema:
+    type: object
+    description: The inferred schema
+    reduce:
+      strategy: jsonSchemaMerge
+  ts:
+    description: The timestamp at which the task failure was reported
+    format: date-time
+    type: string
+    reduce:
+      strategy: firstWriteWins

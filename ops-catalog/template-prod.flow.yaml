@@ -2,6 +2,22 @@ import:
   - template-common.flow.yaml
 
 materializations:
+  estuary/global/inferred-schemas:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/materialize-postgres:dev
+        config: stats-production-endpoint.sops.yaml
+
+    bindings:
+      - source: estuary/global/schema-inference-L2
+        resource:
+          table: catalog_schemas
+        fields:
+          recommended: false
+          include:
+            ts: {}
+            collection_name: {}
+            schema: {}
   ops.us-central1.v1/stats-view:
     endpoint:
       connector:
