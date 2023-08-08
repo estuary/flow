@@ -98,6 +98,7 @@ pub enum Reduction {
 
     Append,
     FirstWriteWins,
+    JsonSchemaMerge,
     LastWriteWins,
     Maximize,
     Merge,
@@ -177,6 +178,7 @@ impl From<&reduce::Strategy> for Reduction {
             Strategy::Set(_) => Reduction::Set,
             Strategy::Sum => Reduction::Sum,
             Strategy::Merge(_) => Reduction::Merge,
+            Strategy::JsonSchemaMerge => Reduction::JsonSchemaMerge,
         }
     }
 }
