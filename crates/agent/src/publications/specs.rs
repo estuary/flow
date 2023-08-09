@@ -803,8 +803,10 @@ mod test {
                     .await
                     .unwrap();
 
-                    let formatted_errors: Vec<String> =
+                    let mut formatted_errors: Vec<String> =
                         errors.into_iter().map(|e| e.detail).collect();
+                    // sort errors so that snapshot results are always consistent
+                    formatted_errors.sort();
 
                     results.push(ScenarioResult {
                         draft_id: row_draft_id,
@@ -1327,8 +1329,8 @@ mod test {
                     evolution_id: None,
                 },
                 errors: [
-                    "Request to add 1 task(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
                     "Request to add 1 collections(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
+                    "Request to add 1 task(s) would exceed tenant 'usageB/' quota of 2. 2 are currently in use.",
                 ],
                 live_specs: [],
             },
