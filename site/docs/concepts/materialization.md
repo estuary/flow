@@ -86,6 +86,12 @@ materializations:
         # 
         # Optional. Default: 0, integer >= 0
         priority: 0
+
+    # A sourceCapture allows bindings to be managed automatically based on the
+    # bindings of the given capture. As new bindings are added to the capture,
+    # they will automatically be added to the materialization. This property
+    # is optional.
+    sourceCapture: acmeCo/example/a-capture
 ```
 
 ## How continuous materialization works
@@ -296,3 +302,15 @@ mechanism; still others may not perform reductions at all.
 A given endpoint may support standard updates, delta updates, or both.
 This depends on the [materialization connector](../reference/Connectors/materialization-connectors/README.md). Expect that a connector will use
 standard updates only unless otherwise noted in its documentation.
+
+## Using `sourceCapture` to synchronize capture and materialization bindings
+
+In some cases, you just want a destination system to always reflects the source
+system as closely as possible, even as the source system changes over time. The
+`sourceCapture` property of a materialization allows you to do exactly that.
+If you set a `sourceCapture` on your materialization, then the bindings of the
+materialization will be automatically kept in sync with the bindings of the
+capture. As bindings are added to the capture, they will be automatically added
+to the materialization. This works regardless of whether the bindings were added
+to the capture manually or automatically. Bindings that are removed from the
+capture are _not_ removed from the materialization.
