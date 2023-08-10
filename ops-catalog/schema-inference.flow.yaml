@@ -1,11 +1,9 @@
 collections:
-  estuary/global/schema-inference-L2:
+  # A direct-copy of L1, but enables us to add more L1s
+  # as we create more data planes.
+  ops.us-central1.v1/inferred-schemas/L2:
     schema: schema-inference.schema.yaml
     key: [/collection_name]
-    projections:
-      collection_name: /collection_name
-      schema: /schema
-
     derive:
       using:
         sqlite: {}
@@ -13,10 +11,11 @@ collections:
       # all data planes' L1 collections together
       transforms:
         - name: from-ops.us-central1.v1
-          source: ops.us-central1.v1/private/schema-inference-L1
+          source: ops.us-central1.v1/inferred-schemas/L1
           shuffle: any
           lambda: select $collection_name, $schema;
-  ops.us-central1.v1/private/schema-inference-L1:
+
+  ops.us-central1.v1/inferred-schemas/L1:
     derive:
       using:
         sqlite: {}
@@ -29,8 +28,5 @@ collections:
               $fields->'collection_name' as collection_name,
               $fields->'schema' as schema
             where $message = 'inferred schema updated';
-    projections:
-      collection_name: /collection_name
-      schema: /schema
     key: [/collection_name]
     schema: schema-inference.schema.yaml
