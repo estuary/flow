@@ -4,7 +4,7 @@ use crate::shape;
 use anyhow::Context;
 use assemble::journal_selector;
 use bytesize::ByteSize;
-use doc::shape::schema::SchemaBuilder;
+use doc::shape::schema::to_schema;
 use doc::Shape;
 use futures::{Stream, TryStreamExt};
 use futures_util::StreamExt;
@@ -151,7 +151,6 @@ async fn infer_schema(
 
     let root_schema = match reduce_shape_stream(buffered).await? {
         Some(ShapeAndMeta { shape, docs, bytes }) => {
-            let root_schema = SchemaBuilder::new(shape).root_schema();
             let end_time = Instant::now().duration_since(start_instant);
             tracing::info!(
                 collection=collection_name,
@@ -162,7 +161,7 @@ async fn infer_schema(
                 "Finished schema inference"
             );
             Ok(InferenceResponse {
-                schema: root_schema,
+                schema: to_schema(shape),
                 documents_read: docs,
                 exceeded_deadline: *abort_rx.borrow(),
             })

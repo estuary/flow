@@ -1,4 +1,4 @@
-use doc::shape::schema::SchemaBuilder;
+use doc::shape::schema::to_schema;
 use schemars::schema::RootSchema;
 use serde_json::Value as JsonValue;
 use std::io::BufRead;
@@ -32,7 +32,7 @@ where
     }
 
     if let Some(shape) = acc {
-        Ok(SchemaBuilder::new(shape).root_schema())
+        Ok(to_schema(shape))
     } else {
         Err(anyhow::anyhow!("no documents found"))
     }

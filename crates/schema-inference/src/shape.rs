@@ -1,5 +1,5 @@
 use doc::shape::{ArrayShape, ObjProperty, ObjShape, Shape, StringShape};
-use itertools::{EitherOrBoth, Itertools};
+use itertools::EitherOrBoth;
 use json::schema::types;
 
 // TODO(johnny): We are *very* close to being able to define merge()
@@ -87,30 +87,25 @@ fn merge_obj_shapes(lhs: ObjShape, rhs: ObjShape) -> ObjShape {
 
     ObjShape {
         properties,
-        patterns: vec![],
-        additional: None,
+        pattern_properties: vec![],
+        additional_properties: None,
     }
 }
 
 fn merge_array_shapes(lhs: ArrayShape, rhs: ArrayShape) -> ArrayShape {
     // NOTE(johnny): This is an incorrect re-implementation of ArrayShape::union(),
-    // which exists only so that merge_obj_shapes() is called to handled
-    // nested sub-objects.
-    let tuple = lhs
-        .tuple
-        .into_iter()
-        .zip_longest(rhs.tuple.into_iter())
-        .map(|eob| match eob {
-            EitherOrBoth::Both(l, r) => merge(l, r),
-            EitherOrBoth::Left(l) => l,
-            EitherOrBoth::Right(r) => r,
-        })
-        .collect::<Vec<Shape>>();
+
+    let additional_items = match (lhs.additional_items, rhs.additional_items) {
+        (Some(lhs), Some(rhs)) => Some(Box::new(merge(*lhs, *rhs))),
+        (None, Some(rhs)) => Some(rhs),
+        (Some(lhs), None) => Some(lhs),
+        (None, None) => None,
+    };
 
     ArrayShape {
-        min: None,
-        max: None,
-        tuple,
-        additional: None,
+        min_items: 0,
+        max_items: None,
+        tuple: Vec::new(),
+        additional_items,
     }
 }
