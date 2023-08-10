@@ -1,112 +1,204 @@
 // This module maps a Shape into a representative JSON Schema.
-// TODO(johnny): Refactor me! Map directly into a Value, rather than through Schemars.
 use super::*;
-use json::schema::keywords;
-use schemars::{
-    gen::SchemaGenerator,
-    schema::{InstanceType, RootSchema, Schema, SchemaObject, SingleOrVec},
-};
-use std::collections::BTreeSet;
+use json::schema::{keywords, types};
+use schemars::schema::{InstanceType, RootSchema, Schema, SchemaObject, SingleOrVec};
 
-#[derive(Debug)]
-pub struct SchemaBuilder {
-    shape: Shape,
-}
-
-impl SchemaBuilder {
-    pub fn new(shape: Shape) -> Self {
-        Self { shape }
-    }
-
-    pub fn root_schema(&self) -> RootSchema {
-        RootSchema {
-            schema: to_schema(&self.shape).into_object(),
-            meta_schema: SchemaGenerator::default().settings().meta_schema.clone(),
-            ..Default::default()
-        }
-    }
-}
-
-pub fn to_schema(shape: &Shape) -> Schema {
-    let mut schema_object = SchemaObject {
-        instance_type: Some(shape_type_to_schema_type(shape.type_)),
+// TODO(johnny): This *probably* should be an impl Shape { into_schema(self) -> RootSchema }
+// Consider refactoring as such if we're happy with this interface.
+pub fn to_schema(shape: Shape) -> RootSchema {
+    RootSchema {
+        schema: to_sub_schema(shape).into_object(),
+        meta_schema: schemars::gen::SchemaSettings::draft2019_09().meta_schema,
         ..Default::default()
-    };
+    }
+}
 
-    schema_object.metadata().title = shape.title.clone();
-    schema_object.metadata().description = shape.description.clone();
-    schema_object.metadata().default = shape.default.clone().map(|(d, _)| d);
-    schema_object.enum_values = shape.enum_.clone();
+fn to_sub_schema(shape: Shape) -> Schema {
+    let Shape {
+        type_,
+        enum_,
+        title,
+        description,
+        reduction,
+        provenance: _, // Not mapped to a schema.
+        default,
+        secret,
+        annotations,
+        array,
+        numeric,
+        object,
+        string,
+    } = shape;
 
-    if shape.type_.overlaps(types::OBJECT) {
-        let mut prop_schemas = BTreeMap::new();
-        let mut required = BTreeSet::new();
-        for obj_prop in shape.object.properties.iter() {
-            prop_schemas.insert(obj_prop.name.clone(), to_schema(&obj_prop.shape));
-            if obj_prop.is_required {
-                required.insert(obj_prop.name.clone());
+    let mut out = SchemaObject::default();
+
+    if type_ == types::INVALID {
+        return Schema::Bool(false);
+    } else if type_ == types::ANY {
+        // Don't set instance_type.
+    } else {
+        out.instance_type = Some(shape_type_to_schema_type(type_));
+    }
+
+    out.enum_values = enum_;
+
+    // Metadata keywords.
+    {
+        let out = out.metadata();
+
+        out.title = title.map(Into::into);
+        out.description = description.map(Into::into);
+        out.default = default.map(|d| d.0);
+    }
+
+    // Object keywords.
+    if type_.overlaps(types::OBJECT) {
+        let ObjShape {
+            properties,
+            pattern_properties: patterns,
+            additional_properties,
+        } = object;
+
+        let out = out.object();
+
+        for ObjProperty {
+            name,
+            is_required,
+            shape,
+        } in properties
+        {
+            if is_required {
+                out.required.insert(name.clone().into());
             }
+            out.properties.insert(name.into(), to_sub_schema(shape));
         }
-        let object = &mut schema_object.object();
-        object.properties = prop_schemas;
-        object.required = required;
 
-        if let Some(addl) = &shape.object.additional {
-            object.additional_properties = Some(Box::new(to_schema(addl)));
+        for ObjPattern { re, shape } in patterns {
+            out.pattern_properties
+                .insert(re.as_str().to_owned(), to_sub_schema(shape));
+        }
+
+        out.additional_properties = additional_properties.map(|s| Box::new(to_sub_schema(*s)));
+    }
+
+    // Array keywords.
+    if type_.overlaps(types::ARRAY) {
+        let ArrayShape {
+            min_items,
+            max_items,
+            tuple,
+            additional_items,
+        } = array;
+
+        let out = out.array();
+
+        out.min_items = if min_items != 0 {
+            Some(min_items)
+        } else {
+            None
+        };
+        out.max_items = max_items;
+
+        if !tuple.is_empty() {
+            out.items = Some(SingleOrVec::Vec(
+                tuple.into_iter().map(to_sub_schema).collect(),
+            ));
+            out.additional_items = additional_items.map(|s| Box::new(to_sub_schema(*s)));
+        } else if let Some(addl) = additional_items {
+            out.items = Some(SingleOrVec::Single(Box::new(to_sub_schema(*addl))));
         }
     }
 
-    if shape.type_.overlaps(types::ARRAY) {
-        let mut array_items = Vec::new();
-        for item in shape.array.tuple.iter() {
-            array_items.push(to_schema(item));
-        }
-        if array_items.len() > 0 {
-            schema_object.array().items = Some(flatten(array_items));
-        }
+    // String keywords.
+    if type_.overlaps(types::STRING) {
+        let StringShape {
+            content_encoding,
+            content_type,
+            format,
+            max_length,
+            min_length,
+        } = string;
 
-        if let Some(addl_items) = &shape.array.additional {
-            schema_object.array().additional_items = Some(Box::new(to_schema(addl_items)));
-        }
-
-        schema_object.array().max_items = shape.array.max.and_then(|max| u32::try_from(max).ok());
-        schema_object.array().min_items = shape.array.min.and_then(|max| u32::try_from(max).ok());
-    }
-
-    if shape.type_.overlaps(types::STRING) {
-        schema_object.format = shape.string.format.map(|f| f.to_string());
-        schema_object.string().max_length = shape
-            .string
-            .max_length
-            .and_then(|max| u32::try_from(max).ok());
-
-        if shape.string.min_length > 0 {
-            schema_object.string().min_length = shape.string.min_length.try_into().ok();
-        }
-        if let Some(encoding) = &shape.string.content_encoding {
-            schema_object.extensions.insert(
+        if let Some(encoding) = content_encoding {
+            out.extensions.insert(
                 keywords::CONTENT_ENCODING.to_string(),
                 serde_json::json!(encoding),
             );
         }
-        if let Some(content_type) = &shape.string.content_type {
-            schema_object.extensions.insert(
+        if let Some(content_type) = content_type {
+            out.extensions.insert(
                 keywords::CONTENT_MEDIA_TYPE.to_string(),
                 serde_json::json!(content_type),
             );
         }
+        out.format = format.map(|f| f.to_string());
+
+        let out = out.string();
+
+        out.min_length = if min_length != 0 {
+            Some(min_length)
+        } else {
+            None
+        };
+        out.max_length = max_length;
     }
 
-    Schema::Object(schema_object)
+    // Numeric keywords.
+    if type_.overlaps(types::INT_OR_FRAC) {
+        let NumericShape { minimum, maximum } = numeric;
+
+        // The schemars::SchemaObject::number() sub-type has minimum / maximum
+        // fields, but they're f64. Use it's extension mechanism to pass-through
+        // without loss.
+
+        if let Some(num) = minimum {
+            out.extensions
+                .insert(keywords::MINIMUM.to_string(), num_to_value(num));
+        }
+        if let Some(num) = maximum {
+            out.extensions
+                .insert(keywords::MAXIMUM.to_string(), num_to_value(num));
+        }
+    }
+
+    // Extensions.
+    {
+        if let Some(true) = secret {
+            out.extensions
+                .insert("secret".to_string(), serde_json::json!(true));
+        }
+
+        match reduction {
+            Reduction::Unset => {}
+            Reduction::Strategy(strategy) => {
+                out.extensions
+                    .insert("reduce".to_string(), serde_json::json!(strategy));
+            }
+            Reduction::Multiple => {
+                out.extensions.insert(
+                    "reduce".to_string(),
+                    serde_json::json!("multiple-strategies"),
+                );
+            }
+        }
+
+        out.extensions.extend(annotations.into_iter());
+    }
+
+    Schema::Object(out)
 }
 
-pub fn shape_type_to_schema_type(type_set: types::Set) -> SingleOrVec<InstanceType> {
-    let instance_types = type_set
+fn shape_type_to_schema_type(type_set: types::Set) -> SingleOrVec<InstanceType> {
+    let mut v = type_set
         .iter()
         .map(parse_instance_type)
         .collect::<Vec<InstanceType>>();
 
-    flatten(instance_types)
+    if v.len() == 1 {
+        SingleOrVec::Single(Box::new(v.pop().unwrap()))
+    } else {
+        SingleOrVec::Vec(v)
+    }
 }
 
 fn parse_instance_type(input: &str) -> InstanceType {
@@ -123,11 +215,12 @@ fn parse_instance_type(input: &str) -> InstanceType {
     }
 }
 
-fn flatten<T>(mut vec: Vec<T>) -> SingleOrVec<T> {
-    if vec.len() == 1 {
-        SingleOrVec::Single(Box::new(vec.pop().unwrap()))
-    } else {
-        SingleOrVec::Vec(vec)
+fn num_to_value(num: json::Number) -> serde_json::Value {
+    use json::Number;
+    match num {
+        Number::Float(f) => serde_json::json!(f),
+        Number::Unsigned(u) => serde_json::json!(u),
+        Number::Signed(s) => serde_json::json!(s),
     }
 }
 
@@ -151,5 +244,81 @@ mod tests {
         assert_equiv(InstanceType::Number, types::INT_OR_FRAC);
         assert_equiv(InstanceType::Object, types::OBJECT);
         assert_equiv(InstanceType::String, types::STRING);
+    }
+
+    #[test]
+    fn test_round_trip() {
+        let fixture = serde_json::json!({
+            "$schema": "https://json-schema.org/draft/2019-09/schema",
+            "type": "object",
+            "properties": {
+                "bool": {
+                    "type": "boolean",
+                    "secret": true
+                },
+                "an enum": {
+                    "enum": [32, 64],
+                    "type": "integer",
+                    "minimum": -10
+                },
+                "str": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 20,
+                    "format": "uuid",
+                    "contentEncoding": "base64",
+                    "contentMediaType": "application/some.mime",
+                    "reduce": {
+                        "strategy": "append"
+                    }
+                },
+                "emptyObj": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "x-some-extension": [42, "hi"],
+                },
+                "number": {
+                    "type": "number",
+                    "minimum": 20,
+                    "maximum": 30.0,
+                    "default": 25.4,
+                },
+                "tuple": {
+                    "type": "array",
+                    "items": [{"type": "integer", "type": "string"}],
+                    "additionalItems": {"type": "number"},
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "reduce": {
+                        "strategy": "minimize",
+                        "key": ["/1", "/0"]
+                    }
+                },
+                "arr": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "emptyArray": {
+                    "type": "array",
+                    "items": false,
+                },
+                "any": {},
+            },
+            "patternProperties": {
+                "hello.*": {"type": "boolean"},
+            },
+            "required": [
+                "emptyObj",
+                "str",
+            ],
+        });
+
+        let curi = url::Url::parse("flow://fixture").unwrap();
+        let schema = crate::validation::build_schema(curi, &fixture).unwrap();
+        let validator = crate::Validator::new(schema).unwrap();
+        let shape = crate::Shape::infer(&validator.schemas()[0], validator.schema_index());
+        let output = serde_json::to_value(to_schema(shape)).unwrap();
+
+        assert_eq!(fixture, output);
     }
 }

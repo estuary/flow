@@ -43,7 +43,7 @@ fn infer_array_shape(inner: &[JsonValue]) -> ArrayShape {
         .reduce(|acc, v| shape::merge(acc, v))
     {
         ArrayShape {
-            tuple: vec![shape],
+            additional_items: Some(Box::new(shape)),
             ..ArrayShape::new()
         }
     } else {
@@ -55,7 +55,7 @@ fn infer_object_shape(inner: &serde_json::Map<String, JsonValue>) -> ObjShape {
     let properties = inner
         .iter()
         .map(|(key, value)| ObjProperty {
-            name: key.to_owned(),
+            name: key.as_str().into(),
             // TODO(johnny): Mark `required` once we have a tighter ability
             // to quickly update inferred collection schemas upon a violation.
             is_required: false,
@@ -152,38 +152,6 @@ mod test {
     }
 
     #[test]
-    fn build_array_types() {
-        let shape = infer_shape(&json!([1, 2, 3]));
-        assert_eq!(types::ARRAY, shape.type_);
-        assert_eq!(types::INTEGER, shape.array.tuple[0].type_);
-
-        let shape = infer_shape(&json!([[1], [2.5], ["3"]]));
-        assert_eq!(types::ARRAY, shape.type_);
-        assert_eq!(types::ARRAY, shape.array.tuple[0].type_);
-        assert_eq!(
-            types::INT_OR_FRAC | types::STRING,
-            shape.array.tuple[0].array.tuple[0].type_
-        );
-
-        let shape = infer_shape(&json!([[["3 layers deep"]]]));
-        assert_eq!(
-            types::STRING,
-            shape
-                // one
-                .array
-                .tuple[0]
-                // two
-                .array
-                .tuple[0]
-                // three
-                .array
-                .tuple[0]
-                // type of items
-                .type_
-        );
-    }
-
-    #[test]
     fn build_object_types() {
         let shape = infer_shape(&json!({"a": true, "b": null, "c": 3}));
         assert_eq!(types::OBJECT, shape.type_);
@@ -208,7 +176,7 @@ mod test {
         object
             .properties
             .iter()
-            .find(|p| p.name == prop_name)
+            .find(|p| *p.name == *prop_name)
             .expect("key to exist")
     }
 }
