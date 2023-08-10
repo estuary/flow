@@ -379,7 +379,7 @@ pub mod test {
                     },
                 ],
                 collection_name: "test".to_string(),
-                infer_schema_json: "".to_string(),
+                infer_schema_json: "false".to_string(),
             },
             &mut arena,
             &mut out,
