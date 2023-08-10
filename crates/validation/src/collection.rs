@@ -252,7 +252,7 @@ fn walk_collection_projections(
 
         projections.push(flow::Projection {
             ptr: "".to_string(),
-            field: "flow_document".to_string(),
+            field: FLOW_DOCUMENT.to_string(),
             inference: Some(assemble::inference(r_shape, r_exists)),
             ..Default::default()
         });
@@ -291,9 +291,16 @@ fn walk_collection_projections(
         if pattern || ptr.is_empty() {
             continue;
         }
+        // Canonical-ize by stripping the leading "/".
+        let field = ptr[1..].to_string();
+        // Special case to avoid creating a conflicting projection when the collection
+        // schema contains a field with the same name as the default root projection.
+        if field == FLOW_DOCUMENT {
+            continue;
+        }
         projections.push(flow::Projection {
             ptr: ptr.to_string(),
-            field: ptr[1..].to_string(), // Canonical-ize by stripping the leading "/".
+            field,
             explicit: false,
             is_primary_key: false,
             is_partition_key: false,
@@ -395,5 +402,7 @@ pub fn walk_selector(
     }
 }
 
+/// The default field name for the root document projection.
+const FLOW_DOCUMENT: &str = "flow_document";
 const UUID_PTR: &str = "/_meta/uuid";
 const UUID_DATE_TIME_PTR: &str = "/_meta/uuid/date-time";
