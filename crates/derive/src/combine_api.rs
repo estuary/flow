@@ -483,6 +483,31 @@ pub mod test {
     }
 
     #[test]
+    fn test_combine_with_real_schema() {
+        let mut svc = API::create();
+        let mut arena = Vec::new();
+        let mut out = Vec::new();
+
+        assert!(matches!(
+            svc.invoke_message(
+                Code::Configure as u32,
+                combine_api::Config {
+                    schema_json: build_min_max_sum_schema(),
+                    key_ptrs: vec![],
+                    fields: vec![],
+                    uuid_placeholder_ptr: String::new(),
+                    projections: vec![],
+                    collection_name: "test".to_string(),
+                    infer_schema_json: r#"{"type": "object"}"#.to_string(),
+                },
+                &mut arena,
+                &mut out,
+            ),
+            Err(Error::EmptyKey)
+        ));
+    }
+
+    #[test]
     fn test_combine_with_defaults_simple() {
         let schema_json = serde_json::json!({
             "properties": {
