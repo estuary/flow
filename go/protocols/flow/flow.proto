@@ -600,6 +600,11 @@ message CombineAPI {
     // A set of Projections which must include `key_ptrs` and `fields`.
     // TODO(johnny): This is a kludge as we seek to remove this API.
     repeated Projection projections = 5 [ (gogoproto.nullable) = false ];
+    // The name of the collection that's being written to.
+    string collection_name = 6;
+    // JSON-encoded string representing the JSON schema to start inference
+    // from. If empty, do not emit inferred schemas.
+    string infer_schema_json = 7;
   };
 
   // Stats holds statistics relating to one or more combiner transactions.

@@ -138,6 +138,8 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 			binding.Collection.Key,
 			binding.FieldSelection.Values,
 			binding.Collection.Projections,
+			// Disable schema inference for materializations
+			false,
 		)
 	}
 
