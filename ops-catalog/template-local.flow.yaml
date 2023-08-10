@@ -17,6 +17,7 @@ materializations:
           include:
             collection_name: {}
             schema: {}
+            flow_document: {}
       - source: ops.us-central1.v1/catalog-stats-L2
         resource:
           table: catalog_stats
