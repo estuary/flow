@@ -7,28 +7,16 @@ use json::schema::{Application, CoreAnnotation, Keyword, Validation};
 
 impl From<&reduce::Strategy> for Reduction {
     fn from(s: &reduce::Strategy) -> Self {
-        use reduce::Strategy;
-
-        match s {
-            Strategy::Append => Reduction::Append,
-            Strategy::FirstWriteWins => Reduction::FirstWriteWins,
-            Strategy::JsonSchemaMerge => Reduction::JsonSchemaMerge,
-            Strategy::LastWriteWins => Reduction::LastWriteWins,
-            Strategy::Maximize(_) => Reduction::Maximize,
-            Strategy::Merge(_) => Reduction::Merge,
-            Strategy::Minimize(_) => Reduction::Minimize,
-            Strategy::Set(_) => Reduction::Set,
-            Strategy::Sum => Reduction::Sum,
-        }
+        Self::Strategy(s.clone())
     }
 }
 
 impl ObjShape {
     fn apply_patterns_to_properties(self) -> Self {
         let ObjShape {
-            patterns,
+            pattern_properties: patterns,
             mut properties,
-            additional,
+            additional_properties,
         } = self;
 
         properties = properties
@@ -45,9 +33,9 @@ impl ObjShape {
             .collect::<Vec<_>>();
 
         ObjShape {
-            patterns,
+            pattern_properties: patterns,
             properties,
-            additional,
+            additional_properties,
         }
     }
 }
@@ -128,11 +116,21 @@ impl Shape {
                             .collect::<Vec<_>>(),
                     );
                 }
+
+                // String constraints.
                 Keyword::Validation(Validation::MaxLength(max)) => {
-                    shape.string.max_length = Some(*max);
+                    shape.string.max_length = Some(*max as u32);
                 }
                 Keyword::Validation(Validation::MinLength(min)) => {
-                    shape.string.min_length = *min;
+                    shape.string.min_length = *min as u32;
+                }
+
+                // Numeric constraints.
+                Keyword::Validation(Validation::Minimum(min)) => {
+                    shape.numeric.minimum = Some(*min);
+                }
+                Keyword::Validation(Validation::Maximum(max)) => {
+                    shape.numeric.maximum = Some(*max);
                 }
 
                 Keyword::Annotation(annot) => match annot {
@@ -140,10 +138,10 @@ impl Shape {
                         shape.reduction = s.into();
                     }
                     Annotation::Core(CoreAnnotation::Title(t)) => {
-                        shape.title = Some(t.clone());
+                        shape.title = Some(t.as_str().into());
                     }
                     Annotation::Core(CoreAnnotation::Description(d)) => {
-                        shape.description = Some(d.clone());
+                        shape.description = Some(d.as_str().into());
                     }
                     Annotation::Core(CoreAnnotation::Default(value)) => {
                         let default_value = value.clone();
@@ -157,24 +155,26 @@ impl Shape {
                         .ok()
                         .err();
 
-                        shape.default = Some((default_value, validation_err));
+                        shape.default = Some(Box::new((default_value, validation_err)));
                     }
 
-                    // String constraints.
+                    // More string constraints (annotations).
                     Annotation::Core(CoreAnnotation::ContentEncoding(enc)) => {
-                        shape.string.content_encoding = Some(enc.clone());
+                        shape.string.content_encoding = Some(enc.as_str().into());
                     }
                     Annotation::Core(CoreAnnotation::ContentMediaType(mt)) => {
-                        shape.string.content_type = Some(mt.clone());
+                        shape.string.content_type = Some(mt.as_str().into());
                     }
                     Annotation::Core(CoreAnnotation::Format(format)) => {
                         shape.string.format = Some(*format);
                     }
                     Annotation::Core(_) => {} // Other CoreAnnotations are no-ops.
 
+                    // Collect "X-" extended annotations.
                     Annotation::X(key, value) => {
                         shape.annotations.insert(key.clone(), value.clone());
                     }
+
                     // These annotations mostly just influence the UI. Most are ignored for now,
                     // but explicitly mentioned so that a compiler error will force us to check
                     // here as new annotations are added.
@@ -186,10 +186,12 @@ impl Shape {
                 },
 
                 // Array constraints.
-                Keyword::Validation(Validation::MinItems(m)) => shape.array.min = Some(*m),
-                Keyword::Validation(Validation::MaxItems(m)) => shape.array.max = Some(*m),
+                Keyword::Validation(Validation::MinItems(m)) => shape.array.min_items = *m as u32,
+                Keyword::Validation(Validation::MaxItems(m)) => {
+                    shape.array.max_items = Some(*m as u32)
+                }
                 Keyword::Application(Application::Items { index: None }, schema) => {
-                    shape.array.additional =
+                    shape.array.additional_items =
                         Some(Box::new(Shape::infer_inner(schema, index, visited)));
                 }
                 Keyword::Application(Application::Items { index: Some(i) }, schema) => {
@@ -199,7 +201,7 @@ impl Shape {
                     shape.array.tuple[*i] = Shape::infer_inner(schema, index, visited);
                 }
                 Keyword::Application(Application::AdditionalItems, schema) => {
-                    shape.array.additional =
+                    shape.array.additional_items =
                         Some(Box::new(Shape::infer_inner(schema, index, visited)));
                 }
                 Keyword::Application(Application::UnevaluatedItems, schema) => {
@@ -210,12 +212,12 @@ impl Shape {
                 Keyword::Application(Application::Properties { name, .. }, schema) => {
                     let obj = ObjShape {
                         properties: vec![ObjProperty {
-                            name: name.clone(),
+                            name: name.as_str().into(),
                             is_required: false,
                             shape: Shape::infer_inner(schema, index, visited),
                         }],
-                        patterns: Vec::new(),
-                        additional: None,
+                        pattern_properties: Vec::new(),
+                        additional_properties: None,
                     };
                     shape.object = ObjShape::intersect(shape.object, obj);
                 }
@@ -225,13 +227,13 @@ impl Shape {
                             .iter()
                             .sorted()
                             .map(|p| ObjProperty {
-                                name: p.clone(),
+                                name: p.as_str().into(),
                                 is_required: true,
                                 shape: Shape::anything(),
                             })
                             .collect::<Vec<_>>(),
-                        patterns: Vec::new(),
-                        additional: None,
+                        pattern_properties: Vec::new(),
+                        additional_properties: None,
                     };
                     shape.object = ObjShape::intersect(shape.object, obj);
                 }
@@ -239,16 +241,16 @@ impl Shape {
                 Keyword::Application(Application::PatternProperties { re }, schema) => {
                     let obj = ObjShape {
                         properties: Vec::new(),
-                        patterns: vec![ObjPattern {
+                        pattern_properties: vec![ObjPattern {
                             re: re.clone(),
                             shape: Shape::infer_inner(schema, index, visited),
                         }],
-                        additional: None,
+                        additional_properties: None,
                     };
                     shape.object = ObjShape::intersect(shape.object, obj);
                 }
                 Keyword::Application(Application::AdditionalProperties, schema) => {
-                    shape.object.additional =
+                    shape.object.additional_properties =
                         Some(Box::new(Shape::infer_inner(schema, index, visited)));
                 }
                 Keyword::Application(Application::UnevaluatedProperties, schema) => {
@@ -299,7 +301,7 @@ impl Shape {
                     // a reference to another schema. In other words, promote the bottom-most
                     // $ref within a hierarchy of $ref's.
                     if !matches!(referent.provenance, Provenance::Reference(_)) {
-                        referent.provenance = Provenance::Reference(uri.clone());
+                        referent.provenance = Provenance::Reference(Box::new(uri.clone()));
                     }
 
                     shape = Shape::intersect(shape, referent);
@@ -351,12 +353,13 @@ impl Shape {
         // otherwise unset, then default to unevaluatedProperties / unevaluatedItems.
 
         if let (None, Some(unevaluated_properties)) =
-            (&shape.object.additional, unevaluated_properties)
+            (&shape.object.additional_properties, unevaluated_properties)
         {
-            shape.object.additional = Some(Box::new(unevaluated_properties));
+            shape.object.additional_properties = Some(Box::new(unevaluated_properties));
         }
-        if let (None, Some(unevaluated_items)) = (&shape.array.additional, unevaluated_items) {
-            shape.array.additional = Some(Box::new(unevaluated_items));
+        if let (None, Some(unevaluated_items)) = (&shape.array.additional_items, unevaluated_items)
+        {
+            shape.array.additional_items = Some(Box::new(unevaluated_items));
         }
 
         shape
@@ -454,15 +457,18 @@ mod test {
             ],
             Shape {
                 type_: types::STRING | types::ARRAY,
-                title: Some("a-title".to_owned()),
-                description: Some("a-description".to_owned()),
-                reduction: Reduction::FirstWriteWins,
+                title: Some("a-title".into()),
+                description: Some("a-description".into()),
+                reduction: Reduction::Strategy(reduce::Strategy::FirstWriteWins),
                 provenance: Provenance::Inline,
-                default: Some((Value::String("john.doe@gmail.com".to_owned()), None)),
+                default: Some(Box::new((
+                    Value::String("john.doe@gmail.com".to_owned()),
+                    None,
+                ))),
                 secret: Some(true),
                 string: StringShape {
-                    content_encoding: Some("base64".to_owned()),
-                    content_type: Some("some/thing".to_owned()),
+                    content_encoding: Some("base64".into()),
+                    content_type: Some("some/thing".into()),
                     format: Some(Format::Email),
                     max_length: None,
                     min_length: 0,
@@ -493,7 +499,7 @@ mod test {
                 "#,
             ],
             Shape {
-                reduction: Reduction::FirstWriteWins,
+                reduction: Reduction::Strategy(reduce::Strategy::FirstWriteWins),
                 provenance: Provenance::Inline,
                 ..Shape::anything()
             },
@@ -681,21 +687,21 @@ mod test {
                 object: ObjShape {
                     properties: vec![
                         ObjProperty {
-                            name: "bar".to_owned(),
+                            name: "bar".into(),
                             is_required: true,
                             shape: enum_fixture(json!(["c"])),
                         },
                         ObjProperty {
-                            name: "foo".to_owned(),
+                            name: "foo".into(),
                             is_required: false,
                             shape: enum_fixture(json!(["b"])),
                         },
                     ],
-                    patterns: vec![ObjPattern {
+                    pattern_properties: vec![ObjPattern {
                         re: fancy_regex::Regex::new("fo.+").unwrap(),
                         shape: enum_fixture(json!(["b"])),
                     }],
-                    additional: None,
+                    additional_properties: None,
                 },
                 ..Shape::anything()
             },
@@ -734,12 +740,12 @@ mod test {
                 provenance: Provenance::Inline,
                 object: ObjShape {
                     properties: vec![ObjProperty {
-                        name: "foo".to_owned(),
+                        name: "foo".into(),
                         is_required: false,
                         shape: enum_fixture(json!(["a", "b"])),
                     }],
-                    patterns: Vec::new(),
-                    additional: Some(Box::new(enum_fixture(json!(["a", "b"])))),
+                    pattern_properties: Vec::new(),
+                    additional_properties: Some(Box::new(enum_fixture(json!(["a", "b"])))),
                 },
                 ..Shape::anything()
             },
@@ -815,7 +821,7 @@ mod test {
             Shape {
                 provenance: Provenance::Inline,
                 array: ArrayShape {
-                    additional: Some(Box::new(enum_fixture(json!(["a"])))),
+                    additional_items: Some(Box::new(enum_fixture(json!(["a"])))),
                     ..ArrayShape::new()
                 },
                 ..Shape::anything()
@@ -845,7 +851,7 @@ mod test {
             Shape {
                 provenance: Provenance::Inline,
                 object: ObjShape {
-                    additional: Some(Box::new(enum_fixture(json!(["a"])))),
+                    additional_properties: Some(Box::new(enum_fixture(json!(["a"])))),
                     ..ObjShape::new()
                 },
                 ..Shape::anything()
@@ -901,14 +907,45 @@ mod test {
                 anyOf:
                 - {minItems: 7, maxItems: 10}
                 - {minItems: 5, maxItems: 7}
+                - {type: string}
                 "#,
             ],
             Shape {
                 provenance: Provenance::Inline,
                 array: ArrayShape {
-                    min: Some(5),
-                    max: Some(10),
+                    min_items: 5,
+                    max_items: Some(10),
                     ..ArrayShape::new()
+                },
+                ..Shape::anything()
+            },
+        )
+    }
+
+    #[test]
+    fn test_numeric_bounds() {
+        infer_test(
+            &[
+                "{minimum: 5, maximum: 10}",
+                // Intersections take more restrictive bounds.
+                r#"
+                allOf:
+                - {minimum: 1, maximum: 10}
+                - {minimum: 5, maximum: 100}
+                "#,
+                // Unions take least restrictive bounds.
+                r#"
+                anyOf:
+                - {minimum: 7, maximum: 10}
+                - {minimum: 5, maximum: 7}
+                - {type: string}
+                "#,
+            ],
+            Shape {
+                provenance: Provenance::Inline,
+                numeric: NumericShape {
+                    minimum: Some(json::Number::Unsigned(5)),
+                    maximum: Some(json::Number::Unsigned(10)),
                 },
                 ..Shape::anything()
             },
@@ -950,7 +987,7 @@ mod test {
                         enum_fixture(json!([2, "b"])),
                         enum_fixture(json!([3, "c"])),
                     ],
-                    additional: Some(Box::new(enum_fixture(json!([3, "c"])))),
+                    additional_items: Some(Box::new(enum_fixture(json!([3, "c"])))),
                     ..ArrayShape::new()
                 },
                 ..Shape::anything()
@@ -1010,15 +1047,15 @@ mod test {
                 provenance: Provenance::Inline,
                 object: ObjShape {
                     properties: vec![ObjProperty {
-                        name: "foo".to_owned(),
+                        name: "foo".into(),
                         is_required: false,
                         shape: enum_fixture(json!(["a", "b"])),
                     }],
-                    patterns: vec![ObjPattern {
+                    pattern_properties: vec![ObjPattern {
                         re: fancy_regex::Regex::new("bar").unwrap(),
                         shape: enum_fixture(json!(["c", "d"])),
                     }],
-                    additional: Some(Box::new(enum_fixture(json!([1, 2])))),
+                    additional_properties: Some(Box::new(enum_fixture(json!([1, 2])))),
                 },
                 ..Shape::anything()
             },
@@ -1041,15 +1078,15 @@ mod test {
                 provenance: Provenance::Inline,
                 object: ObjShape {
                     properties: vec![ObjProperty {
-                        name: "foo".to_owned(),
+                        name: "foo".into(),
                         is_required: false,
                         shape: enum_fixture(json!(["a", "b"])),
                     }],
-                    patterns: vec![ObjPattern {
+                    pattern_properties: vec![ObjPattern {
                         re: fancy_regex::Regex::new("bar").unwrap(),
                         shape: enum_fixture(json!(["c", "d"])),
                     }],
-                    additional: Some(Box::new(Shape::nothing())),
+                    additional_properties: Some(Box::new(Shape::nothing())),
                 },
                 ..Shape::anything()
             },
@@ -1084,7 +1121,7 @@ mod test {
                 provenance: Provenance::Inline,
                 object: ObjShape {
                     properties: vec![ObjProperty {
-                        name: "foo".to_owned(),
+                        name: "foo".into(),
                         is_required: true,
                         shape: Shape {
                             type_: types::STRING,
@@ -1121,8 +1158,11 @@ mod test {
             "testDescription",
             obj.description.as_deref().unwrap_or_default()
         );
-        assert_eq!(Reduction::Merge, obj.reduction);
-        assert!(obj.object.additional.is_some());
+        assert!(matches!(
+            obj.reduction,
+            Reduction::Strategy(reduce::Strategy::Merge(_))
+        ));
+        assert!(obj.object.additional_properties.is_some());
     }
 
     #[test]
@@ -1240,20 +1280,20 @@ mod test {
                 object: ObjShape {
                     properties: vec![
                         ObjProperty {
-                            name: "a-thing".to_owned(),
+                            name: "a-thing".into(),
                             is_required: false,
                             shape: Shape {
                                 type_: types::STRING,
-                                title: Some("Just a thing.".to_owned()),
+                                title: Some("Just a thing.".into()),
                                 provenance: Provenance::Reference(
-                                    Url::parse("http://example/schema#/$defs/thing").unwrap(),
+                                    Box::new(Url::parse("http://example/schema#/$defs/thing").unwrap()),
                                 ),
-                                default: Some((json!("a-default"), None)),
+                                default: Some(Box::new((json!("a-default"), None))),
                                 ..Shape::anything()
                             },
                         },
                         ObjProperty {
-                            name: "a-thing-plus".to_owned(),
+                            name: "a-thing-plus".into(),
                             is_required: false,
                             shape: Shape {
                                 type_: types::STRING,
@@ -1266,7 +1306,7 @@ mod test {
                             },
                         },
                         ObjProperty {
-                            name: "multi".to_owned(),
+                            name: "multi".into(),
                             is_required: false,
                             shape: Shape {
                                 type_: types::ARRAY,
@@ -1277,14 +1317,14 @@ mod test {
                                             type_: types::INTEGER,
                                             provenance: Provenance::Reference(
                                                 // Expect the leaf-most reference is preserved in a multi-level hierarchy.
-                                                Url::parse("http://example/schema#/properties/multi/items/2").unwrap(),
+                                                Box::new(Url::parse("http://example/schema#/properties/multi/items/2").unwrap()),
                                             ),
                                             ..Shape::anything()
                                         },
                                         Shape {
                                             type_: types::INTEGER,
                                             provenance: Provenance::Reference(
-                                                Url::parse("http://example/schema#/properties/multi/items/2").unwrap(),
+                                                Box::new(Url::parse("http://example/schema#/properties/multi/items/2").unwrap()),
                                             ),
                                             ..Shape::anything()
                                         },
@@ -1373,18 +1413,18 @@ mod test {
         assert_eq!(
             nested_foo.0,
             &Shape {
-                provenance: Provenance::Reference(
+                provenance: Provenance::Reference(Box::new(
                     Url::parse("http://example/schema#/$defs/foo").unwrap()
-                ),
+                )),
                 ..Shape::anything()
             }
         );
         assert_eq!(
             nested_bar.0,
             &Shape {
-                provenance: Provenance::Reference(
+                provenance: Provenance::Reference(Box::new(
                     Url::parse("http://example/schema#/$defs/bar").unwrap()
-                ),
+                )),
                 ..Shape::anything()
             }
         );

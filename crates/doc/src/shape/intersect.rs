@@ -51,13 +51,13 @@ impl ObjShape {
         let (
             Self {
                 properties: lhs_properties,
-                patterns: lhs_patterns,
-                additional: lhs_addl,
+                pattern_properties: lhs_patterns,
+                additional_properties: lhs_addl,
             },
             Self {
                 properties: rhs_properties,
-                patterns: rhs_patterns,
-                additional: rhs_addl,
+                pattern_properties: rhs_patterns,
+                additional_properties: rhs_addl,
             },
         ) = (lhs, rhs);
 
@@ -110,12 +110,10 @@ impl ObjShape {
         })
         .collect::<Vec<_>>();
 
-        let additional = intersect_additional(lhs_addl, rhs_addl);
-
         Self {
             properties,
-            patterns,
-            additional,
+            pattern_properties: patterns,
+            additional_properties: intersect_additional(lhs_addl, rhs_addl),
         }
     }
 }
@@ -124,16 +122,16 @@ impl ArrayShape {
     fn intersect(lhs: Self, rhs: Self) -> Self {
         let (
             Self {
-                min: lhs_min,
-                max: lhs_max,
+                min_items: lhs_min,
+                max_items: lhs_max,
                 tuple: lhs_tuple,
-                additional: lhs_addl,
+                additional_items: lhs_addl,
             },
             Self {
-                min: rhs_min,
-                max: rhs_max,
+                min_items: rhs_min,
+                max_items: rhs_max,
                 tuple: rhs_tuple,
-                additional: rhs_addl,
+                additional_items: rhs_addl,
             },
         ) = (lhs, rhs);
 
@@ -165,13 +163,39 @@ impl ArrayShape {
             })
             .collect::<Vec<_>>();
 
-        let additional = intersect_additional(lhs_addl, rhs_addl);
+        Self {
+            min_items: min,
+            max_items: max,
+            tuple,
+            additional_items: intersect_additional(lhs_addl, rhs_addl),
+        }
+    }
+}
+
+impl NumericShape {
+    fn intersect(lhs: Self, rhs: Self) -> Self {
+        let (
+            Self {
+                minimum: lhs_min,
+                maximum: lhs_max,
+            },
+            Self {
+                minimum: rhs_min,
+                maximum: rhs_max,
+            },
+        ) = (lhs, rhs);
+
+        // Take the most-restrictive bounds.
+        let min = lhs_min.max(rhs_min);
+        let max = if lhs_max.and(rhs_max).is_some() {
+            lhs_max.min(rhs_max)
+        } else {
+            lhs_max.or(rhs_max)
+        };
 
         Self {
-            min,
-            max,
-            tuple,
-            additional,
+            minimum: min,
+            maximum: max,
         }
     }
 }
@@ -220,6 +244,13 @@ impl Shape {
             (true, true) => ObjShape::intersect(lhs.object, rhs.object),
             (_, _) => ObjShape::new(),
         };
+        let numeric = match (
+            lhs.type_.overlaps(types::INT_OR_FRAC),
+            rhs.type_.overlaps(types::INT_OR_FRAC),
+        ) {
+            (true, true) => NumericShape::intersect(lhs.numeric, rhs.numeric),
+            (_, _) => NumericShape::new(),
+        };
 
         Self {
             type_,
@@ -234,6 +265,7 @@ impl Shape {
             string,
             array,
             object,
+            numeric,
         }
     }
 }

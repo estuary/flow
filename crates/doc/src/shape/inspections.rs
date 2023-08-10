@@ -1,5 +1,6 @@
 /// This module implements various inspections which can be performed over Shapes.
 use super::*;
+use crate::reduce::Strategy;
 use json::{LocatedProperty, Location};
 
 #[derive(thiserror::Error, Debug, Eq, PartialEq)]
@@ -36,13 +37,13 @@ impl Shape {
         let items = self.array.tuple.iter().enumerate().map(|(index, s)| {
             (
                 loc.push_item(index),
-                self.type_ == types::ARRAY && index < self.array.min.unwrap_or(0),
+                self.type_ == types::ARRAY && index < self.array.min_items as usize,
                 s,
             )
         });
         let addl_items = self
             .array
-            .additional
+            .additional_items
             .iter()
             .map(|s| (loc.push_end_of_array(), false, s.as_ref()));
 
@@ -56,12 +57,12 @@ impl Shape {
         });
         let patterns = self
             .object
-            .patterns
+            .pattern_properties
             .iter()
             .map(|op| (loc.push_prop(op.re.as_str()), false, &op.shape));
         let addl_props = self
             .object
-            .additional
+            .additional_properties
             .iter()
             .map(|shape| (loc.push_prop("*"), false, shape.as_ref()));
 
@@ -70,14 +71,16 @@ impl Shape {
         }
 
         // Invalid values for default values.
-        if let Some((_, Some(err))) = &self.default {
-            out.push(Error::InvalidDefaultValue(
-                loc.pointer_str().to_string(),
-                err.to_owned(),
-            ));
+        if let Some(default) = &self.default {
+            if let Some(err) = &default.1 {
+                out.push(Error::InvalidDefaultValue(
+                    loc.pointer_str().to_string(),
+                    err.to_owned(),
+                ));
+            }
         };
 
-        if matches!(self.reduction, Reduction::Sum)
+        if matches!(self.reduction, Reduction::Strategy(Strategy::Sum))
             && self.type_ - types::INT_OR_FRAC != types::INVALID
         {
             out.push(Error::SumNotNumber(
@@ -85,7 +88,7 @@ impl Shape {
                 self.type_,
             ));
         }
-        if matches!(self.reduction, Reduction::Merge)
+        if matches!(self.reduction, Reduction::Strategy(Strategy::Merge(_)))
             && self.type_ - (types::OBJECT | types::ARRAY) != types::INVALID
         {
             out.push(Error::MergeNotObjectOrArray(
@@ -93,7 +96,7 @@ impl Shape {
                 self.type_,
             ));
         }
-        if matches!(self.reduction, Reduction::Set) {
+        if matches!(self.reduction, Reduction::Strategy(Strategy::Set(_))) {
             if self.type_ != types::OBJECT {
                 out.push(Error::SetNotObject(
                     loc.pointer_str().to_string(),

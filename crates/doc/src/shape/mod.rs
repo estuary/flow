@@ -13,6 +13,9 @@ pub mod schema;
 mod union;
 mod widen;
 
+// NOTE(johnny): This struct is large enough that its size may impact cache
+// efficiency in certain hot paths. Be careful about adding new fields,
+// and consider using niches like Option<Box<T>>.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Shape {
     /// Types that this location may take.
@@ -20,16 +23,16 @@ pub struct Shape {
     /// Explicit enumeration of allowed values.
     pub enum_: Option<Vec<Value>>,
     /// Annotated `title` of the location.
-    pub title: Option<String>,
+    pub title: Option<Box<str>>,
     /// Annotated `description` of the location.
-    pub description: Option<String>,
+    pub description: Option<Box<str>>,
     /// Location's `reduce` strategy.
     pub reduction: Reduction,
     /// Does this location's schema flow from a `$ref`?
     pub provenance: Provenance,
     /// Default value of this document location, if any. A validation error is recorded if the
     /// default value specified does not validate against the location's schema.
-    pub default: Option<(Value, Option<super::FailedValidation>)>,
+    pub default: Option<Box<(Value, Option<super::FailedValidation>)>>,
     /// Is this location sensitive? For example, a password or credential.
     pub secret: Option<bool>,
     /// Annotations are any keywords starting with `X-` or `x-`.
@@ -39,38 +42,39 @@ pub struct Shape {
     pub annotations: BTreeMap<String, Value>,
 
     // Further type-specific inferences:
-    pub string: StringShape,
     pub array: ArrayShape,
+    pub numeric: NumericShape,
     pub object: ObjShape,
+    pub string: StringShape,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StringShape {
-    pub content_encoding: Option<String>,
-    pub content_type: Option<String>,
+    pub content_encoding: Option<Box<str>>,
+    pub content_type: Option<Box<str>>,
     pub format: Option<Format>,
-    pub max_length: Option<usize>,
-    pub min_length: usize,
+    pub max_length: Option<u32>,
+    pub min_length: u32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArrayShape {
-    pub min: Option<usize>,
-    pub max: Option<usize>,
+    pub additional_items: Option<Box<Shape>>,
+    pub max_items: Option<u32>,
+    pub min_items: u32,
     pub tuple: Vec<Shape>,
-    pub additional: Option<Box<Shape>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ObjShape {
+    pub additional_properties: Option<Box<Shape>>,
+    pub pattern_properties: Vec<ObjPattern>,
     pub properties: Vec<ObjProperty>,
-    pub patterns: Vec<ObjPattern>,
-    pub additional: Option<Box<Shape>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ObjProperty {
-    pub name: String,
+    pub name: Box<str>,
     pub is_required: bool,
     pub shape: Shape,
 }
@@ -90,20 +94,17 @@ impl PartialEq for ObjPattern {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NumericShape {
+    pub minimum: Option<json::Number>,
+    pub maximum: Option<json::Number>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Reduction {
     // Equivalent to Option::None.
     Unset,
-
-    Append,
-    FirstWriteWins,
-    JsonSchemaMerge,
-    LastWriteWins,
-    Maximize,
-    Merge,
-    Minimize,
-    Set,
-    Sum,
-
+    // Reduce using a strategy.
+    Strategy(crate::reduce::Strategy),
     // Multiple concrete strategies may apply at the location.
     Multiple,
 }
@@ -113,7 +114,7 @@ pub enum Provenance {
     // Equivalent to Option::None.
     Unset,
     // Url of another Schema, which this Schema is wholly drawn from.
-    Reference(Url),
+    Reference(Box<Url>),
     // This location has local applications which constrain its Shape.
     Inline,
 }
@@ -133,9 +134,9 @@ impl StringShape {
 impl ObjShape {
     pub const fn new() -> Self {
         Self {
+            additional_properties: None,
+            pattern_properties: Vec::new(),
             properties: Vec::new(),
-            patterns: Vec::new(),
-            additional: None,
         }
     }
 }
@@ -143,10 +144,19 @@ impl ObjShape {
 impl ArrayShape {
     pub const fn new() -> Self {
         Self {
-            min: None,
-            max: None,
+            additional_items: None,
+            max_items: None,
+            min_items: 0,
             tuple: Vec::new(),
-            additional: None,
+        }
+    }
+}
+
+impl NumericShape {
+    pub const fn new() -> Self {
+        Self {
+            minimum: None,
+            maximum: None,
         }
     }
 }
@@ -165,9 +175,10 @@ impl Shape {
             default: None,
             secret: None,
             annotations: BTreeMap::new(),
-            string: StringShape::new(),
             array: ArrayShape::new(),
+            numeric: NumericShape::new(),
             object: ObjShape::new(),
+            string: StringShape::new(),
         }
     }
 
@@ -184,9 +195,10 @@ impl Shape {
             default: None,
             secret: None,
             annotations: BTreeMap::new(),
-            string: StringShape::new(),
             array: ArrayShape::new(),
+            numeric: NumericShape::new(),
             object: ObjShape::new(),
+            string: StringShape::new(),
         }
     }
 }
@@ -252,4 +264,18 @@ fn shape_from(schema_yaml: &str) -> Shape {
     let index = index.into_index();
 
     Shape::infer(index.must_fetch(&url).unwrap(), &index)
+}
+
+#[cfg(test)]
+mod test {
+    use super::{ArrayShape, ObjShape, Shape, StringShape};
+
+    #[test]
+    #[cfg(target_arch = "x86_64")]
+    fn shape_size_regression() {
+        assert_eq!(std::mem::size_of::<ObjShape>(), 56);
+        assert_eq!(std::mem::size_of::<StringShape>(), 48);
+        assert_eq!(std::mem::size_of::<ArrayShape>(), 48);
+        assert_eq!(std::mem::size_of::<Shape>(), 328);
+    }
 }
