@@ -1,4 +1,5 @@
 import:
+  - schema-inference.flow.yaml
   - task-failures.flow.yaml
 
 collections:
