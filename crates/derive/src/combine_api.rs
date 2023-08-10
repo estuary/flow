@@ -1,8 +1,6 @@
 use crate::{new_validator, DebugJson, DocCounter, JsonError, StatsAccumulator};
 use anyhow::Context;
 use bytes::Buf;
-use doc::{inference::Shape, schema::SchemaBuilder};
-use json::Location;
 use prost::Message;
 use proto_flow::flow::combine_api::{self, Code};
 
@@ -56,13 +54,12 @@ impl StatsAccumulator for CombineStats {
 struct State {
     // Combiner which is doing the heavy lifting.
     combiner: doc::Combiner,
-    // Inferred shape of drained documents
-    shape: doc::inference::Shape,
-    // We need to keep track of the potentially-modified shape
-    // while we drain documents in order to figure out whether
-    // it has changed or not. We only want to emit shape updates
-    // if there is a change.
-    scratch_shape: doc::inference::Shape,
+    // Inferred shape of drained documents. Some if schema inference
+    // is confitured to be enabled, otherwise None
+    shape: Option<doc::Shape>,
+    // Keeps track of whether the running inferred shape was widened
+    // since last being logged.
+    shape_changed: bool,
     // Fields which are extracted and returned from combined documents.
     fields_ex: Vec<doc::Extractor>,
     // Document key components over which we're grouping while combining.
@@ -73,7 +70,6 @@ struct State {
     // or None if a placeholder shouldn't be set.
     uuid_placeholder_ptr: Option<doc::Pointer>,
     collection_name: String,
-    enable_schema_inference: bool,
 }
 
 impl cgo::Service for API {
@@ -139,20 +135,22 @@ impl cgo::Service for API {
 
                 self.state = Some(State {
                     combiner,
-                    shape: self
-                        .state
-                        .as_ref()
-                        .map_or(Shape::invalid(), |state| state.shape.clone()),
-                    scratch_shape: self
-                        .state
-                        .as_ref()
-                        .map_or(Shape::invalid(), |state| state.scratch_shape.clone()),
+                    // Always Some if enable_schema_inference, else always None
+                    shape: enable_schema_inference.then(|| {
+                        // We want schema inference
+                        self.state
+                            .as_ref()
+                            // Re-use the existing shape if it exists
+                            .and_then(|state| state.shape.clone())
+                            // Otherwise start fresh
+                            .unwrap_or(doc::Shape::nothing())
+                    }),
+                    shape_changed: false,
                     fields_ex,
                     key_ex,
                     uuid_placeholder_ptr,
                     stats: CombineStats::default(),
                     collection_name,
-                    enable_schema_inference,
                 });
                 Ok(())
             }
@@ -202,20 +200,16 @@ impl cgo::Service for API {
                     arena,
                     out,
                     &mut state.stats.out,
-                    &mut state
-                        .enable_schema_inference
-                        .then(|| &mut state.scratch_shape),
+                    &mut state.shape,
+                    &mut state.shape_changed,
                 )?;
 
-                if state.enable_schema_inference && !more {
-                    if state.shape.ne(&state.scratch_shape) {
-                        // Update the "true" shape with the newly widened shape
-                        state.shape = state.scratch_shape.clone();
+                if let Some(ref shape) = state.shape {
+                    if !more && state.shape_changed {
+                        state.shape_changed = false;
 
-                        let serialized = serde_json::to_value(
-                            &SchemaBuilder::new(state.scratch_shape.clone()).root_schema(),
-                        )
-                        .expect("shape serialization should never fail");
+                        let serialized = serde_json::to_value(&doc::to_schema(shape.clone()))
+                            .expect("shape serialization should never fail");
 
                         tracing::info!(
                             schema = ?DebugJson(serialized),
@@ -269,16 +263,17 @@ pub fn drain_chunk(
     arena: &mut Vec<u8>,
     out: &mut Vec<cgo::Out>,
     stats: &mut DocCounter,
-    shape: &mut Option<&mut doc::inference::Shape>,
+    shape: &mut Option<doc::Shape>,
+    did_change: &mut bool,
 ) -> Result<bool, doc::combine::Error> {
     // Convert target from a delta to an absolute target length of the arena.
     let target_length = target_length + arena.len();
 
     drainer.drain_while(|doc, fully_reduced| {
-        if let Some(shape) = shape.as_mut() {
+        if let Some(ref mut shape) = shape {
             match &doc {
-                doc::LazyNode::Node(n) => shape.widen(*n, Location::Root),
-                doc::LazyNode::Heap(h) => shape.widen(h, Location::Root),
+                doc::LazyNode::Node(n) => *did_change |= shape.widen(*n),
+                doc::LazyNode::Heap(h) => *did_change |= shape.widen(h),
             };
         }
         // Send serialized document.
