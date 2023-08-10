@@ -9,7 +9,7 @@ pub fn enforce_field_count_limits(slf: &mut Shape, loc: Location) {
     // TODO: If we implement inference/widening of array tuple shapes
     // then we'll need to also check that those aren't excessively large.
     if slf.type_.overlaps(types::ARRAY) {
-        if let Some(array_shape) = slf.array.additional.as_mut() {
+        if let Some(array_shape) = slf.array.additional_items.as_mut() {
             enforce_field_count_limits(array_shape, loc.push_item(0));
         }
     }
@@ -29,7 +29,7 @@ pub fn enforce_field_count_limits(slf: &mut Shape, loc: Location) {
 
         let existing_additional_properties = slf
             .object
-            .additional
+            .additional_properties
             // `Shape::union` takes owned Shapes which is why we
             // have to take ownership here.
             .take()
@@ -48,7 +48,7 @@ pub fn enforce_field_count_limits(slf: &mut Shape, loc: Location) {
                 Shape::union(accum, prop.shape)
             });
 
-        slf.object.additional = Some(Box::new(merged_additional_properties));
+        slf.object.additional_properties = Some(Box::new(merged_additional_properties));
     } else {
         for prop in slf.object.properties.iter_mut() {
             enforce_field_count_limits(&mut prop.shape, loc.push_prop(&prop.name))
@@ -78,7 +78,7 @@ mod test {
         };
 
         for doc in docs {
-            schema.widen(doc, Location::Root);
+            schema.widen(doc);
         }
 
         let expected = shape_from(expected_schema);
@@ -109,6 +109,8 @@ mod test {
             type: object
             additionalProperties:
                 type: integer
+                minimum: 0
+                maximum: 10000
             "#,
             dynamic_keys.as_slice(),
             true,
@@ -138,9 +140,13 @@ mod test {
             additionalProperties:
                 anyOf:
                     - type: integer
+                      minimum: 0
+                      maximum: 10000
                     - type: object
                       additionalProperties:
                         type: integer
+                        minimum: 0
+                        maximum: 10000
             "#,
             &[json!(root)],
             true,
@@ -168,6 +174,8 @@ mod test {
                     properties:
                         key-0:
                             type: integer
+                            minimum: 0
+                            maximum: 0
             "#,
             &[json!({ "container": nested })],
             true,
@@ -187,19 +195,22 @@ mod test {
                 container:
                     type: object
                     additionalProperties:
-                        type: [integer]
+                        type: integer
+                        minimum: 0
+                        maximum: 10000
             "#,
             &[json!({ "container": nested })],
             true,
         );
     }
+
     #[test]
     fn test_field_count_limits_inside_array() {
         widening_snapshot_helper(
             None,
             r#"
             type: array
-            minItems: 1
+            minItems: 0
             maxItems: 1
             items:
                 type: object
@@ -208,7 +219,7 @@ mod test {
                 properties:
                     key:
                         type: string
-                        minLength: 4
+                        minLength: 2
                         maxLength: 4
             "#,
             &[json!([{"key": "test"}])],
@@ -247,7 +258,7 @@ mod test {
                     type: object
                     additionalProperties:
                         type: string
-                        minLength: 4
+                        minLength: 2
                         maxLength: 4
                 "#,
             &dynamic_array_objects,
@@ -275,8 +286,12 @@ mod test {
             properties:
                 known_key:
                     type: integer
+                    minimum: 0
+                    maximum: 0
                 key-0:
                     type: integer
+                    minimum: 0
+                    maximum: 0
             "#,
             dynamic_keys.as_slice(),
             true,
