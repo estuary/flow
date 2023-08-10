@@ -82,10 +82,7 @@ impl<'a, 'e, A: AsNode, E: AsNode> Diff<'a, 'e, A, E> {
             }
             // If both values are floats, then compare them using an epsilon value so we don't
             // fail the diff due to floaty funny bitness.
-            (
-                Some(Node::Number(json::Number::Float(actual_f64))),
-                Some(Node::Number(json::Number::Float(expected_f64))),
-            ) => {
+            (Some(Node::Float(actual_f64)), Some(Node::Float(expected_f64))) => {
                 if !f64_eq(actual_f64, expected_f64) {
                     out.push(Diff {
                         location: format!("{}", location.pointer_str()),

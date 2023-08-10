@@ -1,13 +1,13 @@
 use super::{
-    compare_key_lazy, count_nodes, count_nodes_generic, count_nodes_heap, reduce_item, reduce_prop,
-    schema::json_schema_merge, Cursor, Error, Result,
+    compare_key_lazy, count_nodes, count_nodes_fields, count_nodes_items, count_nodes_lazy,
+    reduce_item, reduce_prop, schema::json_schema_merge, Cursor, Error, Result,
 };
 use crate::{
     lazy::{LazyArray, LazyDestructured, LazyObject},
     AsNode, BumpVec, HeapNode, Node, Pointer,
 };
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(tag = "strategy", deny_unknown_fields, rename_all = "camelCase")]
 pub enum Strategy {
     /// Append each item of RHS to the end of LHS. RHS must be an array.
@@ -88,21 +88,21 @@ impl std::convert::TryFrom<&serde_json::Value> for Strategy {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Maximize {
     #[serde(default)]
     key: Vec<Pointer>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Merge {
     #[serde(default)]
     key: Vec<Pointer>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Minimize {
     #[serde(default)]
@@ -117,13 +117,13 @@ impl Strategy {
         match self {
             Strategy::Append => Self::append(cur),
             Strategy::FirstWriteWins => Self::first_write_wins(cur),
+            Strategy::JsonSchemaMerge => json_schema_merge(cur),
             Strategy::LastWriteWins => Self::last_write_wins(cur),
             Strategy::Maximize(max) => Self::maximize(cur, max),
             Strategy::Merge(merge) => Self::merge(cur, merge),
             Strategy::Minimize(min) => Self::minimize(cur, min),
             Strategy::Set(set) => set.apply(cur),
             Strategy::Sum => Self::sum(cur),
-            Strategy::JsonSchemaMerge => json_schema_merge(cur),
         }
     }
 
@@ -150,7 +150,7 @@ impl Strategy {
                 }
                 for rhs in rhs.into_iter() {
                     let rhs = rhs.into_heap_node(alloc);
-                    *tape = &tape[count_nodes_heap(&rhs)..];
+                    *tape = &tape[count_nodes(&rhs)..];
                     arr.push(rhs, alloc)
                 }
 
@@ -163,7 +163,7 @@ impl Strategy {
                 | LazyDestructured::ScalarHeap(HeapNode::Null),
                 LazyDestructured::Array(LazyArray::Heap(arr)),
             ) => {
-                *tape = &tape[count_nodes_heap(&HeapNode::Array(arr))..];
+                *tape = &tape[count_nodes_items(&arr)..];
                 Ok(HeapNode::Null)
             }
             (
@@ -171,7 +171,7 @@ impl Strategy {
                 | LazyDestructured::ScalarHeap(HeapNode::Null),
                 LazyDestructured::Array(LazyArray::Node(arr)),
             ) => {
-                *tape = &tape[count_nodes_generic(&Node::Array(arr))..];
+                *tape = &tape[count_nodes_items(arr)..];
                 Ok(HeapNode::Null)
             }
 
@@ -182,7 +182,7 @@ impl Strategy {
     fn first_write_wins<'alloc, L: AsNode, R: AsNode>(
         cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
     ) -> Result<HeapNode<'alloc>> {
-        *cur.tape = &cur.tape[count_nodes(&cur.rhs)..];
+        *cur.tape = &cur.tape[count_nodes_lazy(&cur.rhs)..];
         Ok(cur.lhs.into_heap_node(cur.alloc))
     }
 
@@ -190,7 +190,7 @@ impl Strategy {
         cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
     ) -> Result<HeapNode<'alloc>> {
         let rhs = cur.rhs.into_heap_node(cur.alloc);
-        *cur.tape = &cur.tape[count_nodes_heap(&rhs)..];
+        *cur.tape = &cur.tape[count_nodes(&rhs)..];
         Ok(rhs)
     }
 
@@ -219,17 +219,17 @@ impl Strategy {
 
         match ord {
             Ordering::Less => {
-                *tape = &tape[count_nodes(&rhs)..];
+                *tape = &tape[count_nodes_lazy(&rhs)..];
                 Ok(lhs.into_heap_node(alloc))
             }
             Ordering::Greater => {
                 let rhs = rhs.into_heap_node(alloc);
-                *tape = &tape[count_nodes_heap(&rhs)..];
+                *tape = &tape[count_nodes(&rhs)..];
                 Ok(rhs)
             }
             Ordering::Equal if key.is_empty() => {
                 let rhs = rhs.into_heap_node(alloc);
-                *tape = &tape[count_nodes_heap(&rhs)..];
+                *tape = &tape[count_nodes(&rhs)..];
                 Ok(rhs)
             }
             Ordering::Equal => {
@@ -276,14 +276,18 @@ impl Strategy {
         let (lhs, rhs) = (lhs.destructure(), rhs.destructure());
 
         let ln = match &lhs {
-            LazyDestructured::ScalarNode(Node::Number(n)) => *n,
+            LazyDestructured::ScalarNode(Node::PosInt(n)) => json::Number::Unsigned(*n),
+            LazyDestructured::ScalarNode(Node::NegInt(n)) => json::Number::Signed(*n),
+            LazyDestructured::ScalarNode(Node::Float(n)) => json::Number::Float(*n),
             LazyDestructured::ScalarHeap(HeapNode::PosInt(n)) => json::Number::Unsigned(*n),
             LazyDestructured::ScalarHeap(HeapNode::NegInt(n)) => json::Number::Signed(*n),
             LazyDestructured::ScalarHeap(HeapNode::Float(n)) => json::Number::Float(*n),
             _ => return Err(Error::with_details(Error::SumWrongType, loc, lhs, rhs)),
         };
         let rn = match &rhs {
-            LazyDestructured::ScalarNode(Node::Number(n)) => *n,
+            LazyDestructured::ScalarNode(Node::PosInt(n)) => json::Number::Unsigned(*n),
+            LazyDestructured::ScalarNode(Node::NegInt(n)) => json::Number::Signed(*n),
+            LazyDestructured::ScalarNode(Node::Float(n)) => json::Number::Float(*n),
             LazyDestructured::ScalarHeap(HeapNode::PosInt(n)) => json::Number::Unsigned(*n),
             LazyDestructured::ScalarHeap(HeapNode::NegInt(n)) => json::Number::Signed(*n),
             LazyDestructured::ScalarHeap(HeapNode::Float(n)) => json::Number::Float(*n),
@@ -295,6 +299,7 @@ impl Strategy {
         match json::Number::checked_add(ln, rn) {
             Some(json::Number::Float(n)) => Ok(HeapNode::Float(n)),
             Some(json::Number::Unsigned(n)) => Ok(HeapNode::PosInt(n)),
+            Some(json::Number::Signed(n)) if n >= 0 => Ok(HeapNode::PosInt(n as u64)),
             Some(json::Number::Signed(n)) => Ok(HeapNode::NegInt(n)),
             None => Err(Error::with_details(
                 Error::SumNumericOverflow,
@@ -370,7 +375,7 @@ impl Strategy {
                 | LazyDestructured::ScalarHeap(HeapNode::Null),
                 LazyDestructured::Array(LazyArray::Heap(arr)),
             ) => {
-                *tape = &tape[count_nodes_heap(&HeapNode::Array(arr))..];
+                *tape = &tape[count_nodes_items(&arr)..];
                 Ok(HeapNode::Null)
             }
             (
@@ -378,7 +383,7 @@ impl Strategy {
                 | LazyDestructured::ScalarHeap(HeapNode::Null),
                 LazyDestructured::Array(LazyArray::Node(arr)),
             ) => {
-                *tape = &tape[count_nodes_generic(&Node::Array(arr))..];
+                *tape = &tape[count_nodes_items(arr)..];
                 Ok(HeapNode::Null)
             }
             (
@@ -386,7 +391,7 @@ impl Strategy {
                 | LazyDestructured::ScalarHeap(HeapNode::Null),
                 LazyDestructured::Object(LazyObject::Heap(fields)),
             ) => {
-                *tape = &tape[count_nodes_heap(&HeapNode::Object(fields))..];
+                *tape = &tape[count_nodes_fields::<HeapNode>(&fields)..];
                 Ok(HeapNode::Null)
             }
             (
@@ -394,7 +399,7 @@ impl Strategy {
                 | LazyDestructured::ScalarHeap(HeapNode::Null),
                 LazyDestructured::Object(LazyObject::Node(fields)),
             ) => {
-                *tape = &tape[count_nodes_generic(&Node::Object::<R>(fields))..];
+                *tape = &tape[count_nodes_fields::<R>(fields)..];
                 Ok(HeapNode::Null)
             }
 

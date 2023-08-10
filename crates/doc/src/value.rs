@@ -3,12 +3,22 @@ use super::{AsNode, Field, Fields, Node};
 impl AsNode for serde_json::Value {
     type Fields = serde_json::Map<String, serde_json::Value>;
 
+    // Not inline(always) because Value is infrequently used.
+    #[inline]
     fn as_node<'a>(&'a self) -> Node<'a, Self> {
         match self {
             Self::Array(a) => Node::Array(a),
             Self::Bool(b) => Node::Bool(*b),
             Self::Null => Node::Null,
-            Self::Number(n) => Node::Number(n.into()),
+            Self::Number(n) => {
+                if let Some(n) = n.as_u64() {
+                    Node::PosInt(n)
+                } else if let Some(n) = n.as_i64() {
+                    Node::NegInt(n)
+                } else {
+                    Node::Float(n.as_f64().unwrap())
+                }
+            }
             Self::Object(o) => Node::Object(o),
             Self::String(s) => Node::String(s),
         }
@@ -33,10 +43,11 @@ impl Fields<serde_json::Value> for serde_json::Map<String, serde_json::Value> {
 }
 
 impl<'a> Field<'a, serde_json::Value> for (&'a String, &'a serde_json::Value) {
+    #[inline]
     fn property(&self) -> &'a str {
         self.0
     }
-
+    #[inline]
     fn value(&self) -> &'a serde_json::Value {
         self.1
     }
