@@ -341,7 +341,7 @@ async fn output<R>(
 where
     R: futures::Stream<Item = tonic::Result<derive::Response>> + Unpin,
 {
-    let mut inferred_shape = None;
+    let mut inferred_shape = doc::Shape::nothing();
 
     while let Some(response) = responses_rx.next().await {
         let response = response.map_err(status_to_anyhow)?;
@@ -363,14 +363,7 @@ where
                 let doc: serde_json::Value =
                     serde_json::from_str(&doc_json).context("failed to parse derived document")?;
 
-                if let Some(prev_shape) = inferred_shape.take() {
-                    inferred_shape = Some(schema_inference::shape::merge(
-                        prev_shape,
-                        schema_inference::inference::infer_shape(&doc),
-                    ))
-                } else {
-                    inferred_shape = Some(schema_inference::inference::infer_shape(&doc));
-                }
+                inferred_shape.widen(&doc);
             }
 
             print!("{doc_json}\n");
@@ -385,7 +378,11 @@ where
         }
     }
 
-    Ok(inferred_shape.map(|shape| serde_json::to_value(to_schema(&shape)).unwrap()))
+    Ok(if infer_schema {
+        Some(serde_json::to_value(to_schema(inferred_shape)).unwrap())
+    } else {
+        None
+    })
 }
 
 fn status_to_anyhow(status: tonic::Status) -> anyhow::Error {

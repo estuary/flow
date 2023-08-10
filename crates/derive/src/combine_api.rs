@@ -654,7 +654,7 @@ pub mod test {
                         default_json: shape
                             .default
                             .as_ref()
-                            .map(|(val, _)| val.to_string())
+                            .map(|val| val.0.to_string())
                             .unwrap_or_default(),
                         ..Default::default()
                     }),

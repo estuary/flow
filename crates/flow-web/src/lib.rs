@@ -1,4 +1,5 @@
 use doc::{
+    reduce::Strategy,
     shape::{location::Exists, Reduction},
     Annotation, Shape,
 };
@@ -34,17 +35,17 @@ pub struct Property {
 }
 fn reduce_description(reduce: Reduction) -> &'static str {
     match reduce {
-        Reduction::Unset => "unset",
-        Reduction::Append => "append",
-        Reduction::FirstWriteWins => "first-write-wins",
-        Reduction::LastWriteWins => "last-write-wins",
-        Reduction::Maximize => "maximize",
-        Reduction::Merge => "merge",
-        Reduction::Minimize => "minimize",
-        Reduction::Set => "set",
-        Reduction::Sum => "sum",
         Reduction::Multiple => "multiple strategies may apply",
-        Reduction::JsonSchemaMerge => "merge json schemas",
+        Reduction::Strategy(Strategy::Append) => "append",
+        Reduction::Strategy(Strategy::FirstWriteWins) => "first-write-wins",
+        Reduction::Strategy(Strategy::JsonSchemaMerge) => "merge json schemas",
+        Reduction::Strategy(Strategy::LastWriteWins) => "last-write-wins",
+        Reduction::Strategy(Strategy::Maximize(_)) => "maximize",
+        Reduction::Strategy(Strategy::Merge(_)) => "merge",
+        Reduction::Strategy(Strategy::Minimize(_)) => "minimize",
+        Reduction::Strategy(Strategy::Set(_)) => "set",
+        Reduction::Strategy(Strategy::Sum) => "sum",
+        Reduction::Unset => "unset",
     }
 }
 
@@ -93,13 +94,7 @@ pub fn infer(schema: JsValue) -> Result<JsValue, JsValue> {
             };
             let types = prop_shape.type_.iter().map(|ty| ty.to_string()).collect();
 
-            let enum_vals = prop_shape
-                .enum_
-                .as_ref()
-                .unwrap_or(&Vec::new())
-                .iter()
-                .map(|val| val.clone())
-                .collect();
+            let enum_vals = prop_shape.enum_.clone().unwrap_or_default();
             let string_format = prop_shape.string.format.as_ref().map(|f| f.to_string());
             let ex = match exists {
                 Exists::May => "may",
@@ -111,8 +106,8 @@ pub fn infer(schema: JsValue) -> Result<JsValue, JsValue> {
                 name,
                 exists: ex.to_string(),
                 is_pattern_property: is_pattern,
-                title: prop_shape.title.clone(),
-                description: prop_shape.description.clone(),
+                title: prop_shape.title.clone().map(Into::into),
+                description: prop_shape.description.clone().map(Into::into),
                 reduction: reduce_description(prop_shape.reduction.clone()).to_string(),
                 pointer: ptr,
                 types,
