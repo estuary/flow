@@ -162,11 +162,16 @@ pub fn combiner_perf() {
 
     let peak_stats = allocator::current_mem_stats();
     let mut drained: usize = 0;
+    let mut shape = doc::Shape::nothing();
 
     let mut drainer = accum.into_drainer().unwrap();
     while drainer
-        .drain_while(|_entry, _reduce| {
+        .drain_while(|entry, _reduce| {
             drained += 1;
+            match entry {
+                doc::LazyNode::Heap(entry) => shape.widen(&entry),
+                doc::LazyNode::Node(entry) => shape.widen(entry),
+            };
             Ok::<_, doc::combine::Error>(true)
         })
         .unwrap()
