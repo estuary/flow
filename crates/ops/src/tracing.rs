@@ -357,7 +357,7 @@ mod test {
             "level": "debug",
             "fields": {
               "module": "ops::tracing::test",
-              "return": "\"ok\""
+              "return": "ok"
             },
             "spans": [
               {
