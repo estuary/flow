@@ -47,7 +47,7 @@ pub fn run(args: Args) -> anyhow::Result<()> {
         let title = shape.title.as_deref().unwrap_or("");
         let desc = shape.description.as_deref().unwrap_or("");
         let type_ = shape.type_.to_vec().join(", ");
-        let def = shape.default.as_ref().map(|(def, _)| def);
+        let def = shape.default.as_ref().map(|def| &def.0);
 
         println!(
             "| {} | {} | {} | {} | {} |",

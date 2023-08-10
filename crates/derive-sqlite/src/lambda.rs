@@ -181,9 +181,9 @@ fn bind_parameter_node<N: doc::AsNode>(
             stmt.raw_bind_parameter(index + 1, s)
         }
         Node::Bytes(b) => stmt.raw_bind_parameter(index + 1, b),
-        Node::Number(json::Number::Float(f)) => stmt.raw_bind_parameter(index + 1, f),
-        Node::Number(json::Number::Signed(s)) => stmt.raw_bind_parameter(index + 1, s),
-        Node::Number(json::Number::Unsigned(u)) => stmt.raw_bind_parameter(index + 1, u),
+        Node::Float(f) => stmt.raw_bind_parameter(index + 1, f),
+        Node::NegInt(s) => stmt.raw_bind_parameter(index + 1, s),
+        Node::PosInt(u) => stmt.raw_bind_parameter(index + 1, u),
         n @ Node::Array(_) => {
             stmt.raw_bind_parameter(index + 1, &serde_json::to_string(&n).unwrap())
         }

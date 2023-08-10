@@ -23,6 +23,7 @@ pub const ANY: Set =
 impl std::ops::BitOr for Set {
     type Output = Self;
 
+    #[inline]
     fn bitor(self, other: Self) -> Self::Output {
         Set(self.0 | other.0)
     }
@@ -31,6 +32,7 @@ impl std::ops::BitOr for Set {
 impl std::ops::BitAnd for Set {
     type Output = Self;
 
+    #[inline]
     fn bitand(self, other: Self) -> Self::Output {
         Set(self.0 & other.0)
     }
@@ -39,6 +41,7 @@ impl std::ops::BitAnd for Set {
 impl std::ops::Sub for Set {
     type Output = Self;
 
+    #[inline]
     fn sub(self, other: Self) -> Self::Output {
         Set(self.0 & !other.0)
     }
@@ -208,6 +211,7 @@ impl Set {
     pub fn overlaps(&self, other: Self) -> bool {
         *self & other != INVALID
     }
+
     /// Returns true if this Set represents exactly one type beside null.
     ///
     /// ```
