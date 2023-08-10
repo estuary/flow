@@ -64,13 +64,13 @@ impl ObjShape {
         let (
             Self {
                 properties: lhs_properties,
-                patterns: lhs_patterns,
-                additional: lhs_addl,
+                pattern_properties: lhs_patterns,
+                additional_properties: lhs_addl,
             },
             Self {
                 properties: rhs_properties,
-                patterns: rhs_patterns,
-                additional: rhs_addl,
+                pattern_properties: rhs_patterns,
+                additional_properties: rhs_addl,
             },
         ) = (lhs, rhs);
 
@@ -134,12 +134,10 @@ impl ObjShape {
         })
         .collect::<Vec<_>>();
 
-        let additional = union_additional(lhs_addl, rhs_addl);
-
         Self {
             properties,
-            patterns,
-            additional,
+            pattern_properties: patterns,
+            additional_properties: union_additional(lhs_addl, rhs_addl),
         }
     }
 }
@@ -148,22 +146,22 @@ impl ArrayShape {
     fn union(lhs: Self, rhs: Self) -> Self {
         let (
             Self {
-                min: lhs_min,
-                max: lhs_max,
+                min_items: lhs_min,
+                max_items: lhs_max,
                 tuple: lhs_tuple,
-                additional: lhs_addl,
+                additional_items: lhs_addl,
             },
             Self {
-                min: rhs_min,
-                max: rhs_max,
+                min_items: rhs_min,
+                max_items: rhs_max,
                 tuple: rhs_tuple,
-                additional: rhs_addl,
+                additional_items: rhs_addl,
             },
         ) = (lhs, rhs);
 
         // Take the least-restrictive bounds of both.
-        let min = lhs_min.and(rhs_min).and(lhs_min.min(rhs_min));
-        let max = lhs_max.and(rhs_max).and(lhs_max.max(rhs_max));
+        let min_items = lhs_min.min(rhs_min);
+        let max_items = lhs_max.and(rhs_max).and(lhs_max.max(rhs_max));
 
         // Derive a tuple which unions the tuples of each side. If the shorter side also
         // supplies additional items, use that to fill out the tuple to the longer
@@ -185,13 +183,35 @@ impl ArrayShape {
             })
             .collect::<Vec<_>>();
 
-        let additional = union_additional(lhs_addl, rhs_addl);
+        Self {
+            min_items,
+            max_items,
+            tuple,
+            additional_items: union_additional(lhs_addl, rhs_addl),
+        }
+    }
+}
+
+impl NumericShape {
+    fn union(lhs: Self, rhs: Self) -> Self {
+        let (
+            Self {
+                minimum: lhs_min,
+                maximum: lhs_max,
+            },
+            Self {
+                minimum: rhs_min,
+                maximum: rhs_max,
+            },
+        ) = (lhs, rhs);
+
+        // Take the least-restrictive bounds of both.
+        let min = lhs_min.and(rhs_min).and(lhs_min.min(rhs_min));
+        let max = lhs_max.and(rhs_max).and(lhs_max.max(rhs_max));
 
         Self {
-            min,
-            max,
-            tuple,
-            additional,
+            minimum: min,
+            maximum: max,
         }
     }
 }
@@ -243,6 +263,14 @@ impl Shape {
             (_, false) => lhs.object,
             (false, true) => rhs.object,
         };
+        let numeric = match (
+            lhs.type_.overlaps(types::INT_OR_FRAC),
+            rhs.type_.overlaps(types::INT_OR_FRAC),
+        ) {
+            (true, true) => NumericShape::union(lhs.numeric, rhs.numeric),
+            (_, false) => lhs.numeric,
+            (false, true) => rhs.numeric,
+        };
 
         Self {
             type_,
@@ -257,6 +285,7 @@ impl Shape {
             string,
             array,
             object,
+            numeric,
         }
     }
 }
