@@ -1,0 +1,35 @@
+collections:
+  ops.us-central1.v1/inferred-schemas/L1:
+    derive:
+      using:
+        sqlite: {}
+      transforms:
+        - name: logs
+          source:
+            name: ops.us-central1.v1/logs
+          shuffle:
+            key: [/shard/name] # Use partition-based shuffle.
+          lambda: |
+            select
+              $fields->>'collection_name' as collection_name,
+              $fields->'schema' as schema
+            where $message = 'inferred schema updated';
+    key: [/collection_name]
+    schema: schema-inference.schema.yaml
+
+  # A direct-copy of L1, but enables us to add more L1s
+  # as we create more data planes.
+  ops.us-central1.v1/inferred-schemas/L2:
+    schema: schema-inference.schema.yaml
+    key: [/collection_name]
+    derive:
+      using:
+        sqlite: {}
+      # The idea with this L2 collection is to merge
+      # all data planes' L1 collections together
+      transforms:
+        - name: from-ops.us-central1.v1
+          source: ops.us-central1.v1/inferred-schemas/L1
+          shuffle:
+            key: [/collection_name]
+          lambda: select json($flow_document);

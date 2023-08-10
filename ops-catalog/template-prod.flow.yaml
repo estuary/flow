@@ -9,6 +9,15 @@ materializations:
         config: stats-production-endpoint.sops.yaml
 
     bindings:
+      - source: ops.us-central1.v1/inferred-schemas/L2
+        resource:
+          table: inferred_schemas
+        fields:
+          recommended: false
+          include:
+            collection_name: {}
+            schema: {}
+            flow_document: {}
       - source: ops.us-central1.v1/catalog-stats-L2
         resource:
           table: catalog_stats
