@@ -14,20 +14,19 @@ Shape {
     annotations: {
         "x-test-top-level": Bool(true),
     },
-    string: StringShape {
-        content_encoding: None,
-        content_type: None,
-        format: None,
-        max_length: None,
-        min_length: 0,
-    },
     array: ArrayShape {
-        min: None,
-        max: None,
+        additional_items: None,
+        max_items: None,
+        min_items: 0,
         tuple: [],
-        additional: None,
+    },
+    numeric: NumericShape {
+        minimum: None,
+        maximum: None,
     },
     object: ObjShape {
+        additional_properties: None,
+        pattern_properties: [],
         properties: [
             ObjProperty {
                 name: "bar",
@@ -45,23 +44,27 @@ Shape {
                         "X-bar-top-level": Bool(true),
                         "x-bar-two": String("twoVal"),
                     },
+                    array: ArrayShape {
+                        additional_items: None,
+                        max_items: None,
+                        min_items: 0,
+                        tuple: [],
+                    },
+                    numeric: NumericShape {
+                        minimum: None,
+                        maximum: None,
+                    },
+                    object: ObjShape {
+                        additional_properties: None,
+                        pattern_properties: [],
+                        properties: [],
+                    },
                     string: StringShape {
                         content_encoding: None,
                         content_type: None,
                         format: None,
                         max_length: None,
                         min_length: 0,
-                    },
-                    array: ArrayShape {
-                        min: None,
-                        max: None,
-                        tuple: [],
-                        additional: None,
-                    },
-                    object: ObjShape {
-                        properties: [],
-                        patterns: [],
-                        additional: None,
                     },
                 },
             },
@@ -82,23 +85,27 @@ Shape {
                     annotations: {
                         "x-conflicting-ann": String("yes please"),
                     },
+                    array: ArrayShape {
+                        additional_items: None,
+                        max_items: None,
+                        min_items: 0,
+                        tuple: [],
+                    },
+                    numeric: NumericShape {
+                        minimum: None,
+                        maximum: None,
+                    },
+                    object: ObjShape {
+                        additional_properties: None,
+                        pattern_properties: [],
+                        properties: [],
+                    },
                     string: StringShape {
                         content_encoding: None,
                         content_type: None,
                         format: None,
                         max_length: None,
                         min_length: 0,
-                    },
-                    array: ArrayShape {
-                        min: None,
-                        max: None,
-                        tuple: [],
-                        additional: None,
-                    },
-                    object: ObjShape {
-                        properties: [],
-                        patterns: [],
-                        additional: None,
                     },
                 },
             },
@@ -119,6 +126,21 @@ Shape {
                         "x-foo-one": String("oneVal"),
                         "x-foo-two": String("twoVal"),
                     },
+                    array: ArrayShape {
+                        additional_items: None,
+                        max_items: None,
+                        min_items: 0,
+                        tuple: [],
+                    },
+                    numeric: NumericShape {
+                        minimum: None,
+                        maximum: None,
+                    },
+                    object: ObjShape {
+                        additional_properties: None,
+                        pattern_properties: [],
+                        properties: [],
+                    },
                     string: StringShape {
                         content_encoding: None,
                         content_type: None,
@@ -126,21 +148,15 @@ Shape {
                         max_length: None,
                         min_length: 0,
                     },
-                    array: ArrayShape {
-                        min: None,
-                        max: None,
-                        tuple: [],
-                        additional: None,
-                    },
-                    object: ObjShape {
-                        properties: [],
-                        patterns: [],
-                        additional: None,
-                    },
                 },
             },
         ],
-        patterns: [],
-        additional: None,
+    },
+    string: StringShape {
+        content_encoding: None,
+        content_type: None,
+        format: None,
+        max_length: None,
+        min_length: 0,
     },
 }

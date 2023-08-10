@@ -79,16 +79,17 @@ impl Shape {
     fn locate_token(&self, token: &Token) -> (&Shape, Exists) {
         match token {
             Token::Index(index) if self.type_.overlaps(types::ARRAY) => {
-                let exists = if self.type_ == types::ARRAY && *index < self.array.min.unwrap_or(0) {
+                let exists = if self.type_ == types::ARRAY && *index < self.array.min_items as usize
+                {
                     // A sub-item must exist iff this location can _only_
                     // be an array, and it's within the minItems bound.
                     Exists::Must
-                } else if *index >= self.array.max.unwrap_or(std::usize::MAX) {
+                } else if *index >= self.array.max_items.unwrap_or(u32::MAX) as usize {
                     // It cannot exist if outside the maxItems bound.
                     Exists::Cannot
-                } else if self.array.max.is_some()
+                } else if self.array.max_items.is_some()
                     || *index < self.array.tuple.len()
-                    || self.array.additional.is_some()
+                    || self.array.additional_items.is_some()
                 {
                     // It may exist if there is a defined array maximum that we're within,
                     // or we're within the defined array tuple items, or there is an explicit
@@ -102,7 +103,7 @@ impl Shape {
 
                 if let Some(tuple) = self.array.tuple.get(*index) {
                     (tuple, exists)
-                } else if let Some(addl) = &self.array.additional {
+                } else if let Some(addl) = &self.array.additional_items {
                     (addl.as_ref(), exists)
                 } else {
                     (&SENTINEL_SHAPE, exists)
@@ -110,7 +111,7 @@ impl Shape {
             }
             Token::NextIndex if self.type_.overlaps(types::ARRAY) => (
                 self.array
-                    .additional
+                    .additional_items
                     .as_ref()
                     .map(AsRef::as_ref)
                     .unwrap_or(&SENTINEL_SHAPE),
@@ -137,7 +138,7 @@ impl Shape {
     }
 
     fn obj_property_location(&self, prop: &str) -> (&Shape, Exists) {
-        if let Some(property) = self.object.properties.iter().find(|p| p.name == prop) {
+        if let Some(property) = self.object.properties.iter().find(|p| *p.name == *prop) {
             let exists = if self.type_ == types::OBJECT && property.is_required {
                 // A property must exist iff this location can _only_ be an object,
                 // and it's marked as a required property.
@@ -149,12 +150,12 @@ impl Shape {
             (&property.shape, exists)
         } else if let Some(pattern) = self
             .object
-            .patterns
+            .pattern_properties
             .iter()
             .find(|p| regex_matches(&p.re, prop))
         {
             (&pattern.shape, Exists::May)
-        } else if let Some(addl) = &self.object.additional {
+        } else if let Some(addl) = &self.object.additional_properties {
             (addl.as_ref(), Exists::May)
         } else {
             (&SENTINEL_SHAPE, Exists::Implicit)
@@ -199,7 +200,7 @@ impl Shape {
             child.locations_inner(location.push_prop(name), exists, pattern, out);
         }
 
-        for ObjPattern { re, shape: child } in &self.object.patterns {
+        for ObjPattern { re, shape: child } in &self.object.pattern_properties {
             child.locations_inner(
                 location.push_prop(re.as_str()),
                 exists.extend(Exists::May),
@@ -208,7 +209,7 @@ impl Shape {
             );
         }
 
-        if let Some(child) = &self.object.additional {
+        if let Some(child) = &self.object.additional_properties {
             child.locations_inner(
                 location.push_prop("*"),
                 exists.extend(Exists::May),
@@ -219,13 +220,13 @@ impl Shape {
 
         let ArrayShape {
             tuple,
-            additional: array_additional,
-            min: array_min,
+            additional_items,
+            min_items,
             ..
         } = &self.array;
 
         for (index, child) in tuple.into_iter().enumerate() {
-            let exists = if self.type_ == types::ARRAY && index < array_min.unwrap_or(0) {
+            let exists = if self.type_ == types::ARRAY && index < *min_items as usize {
                 exists.extend(Exists::Must)
             } else {
                 exists.extend(Exists::May)
@@ -234,7 +235,7 @@ impl Shape {
             child.locations_inner(location.push_item(index), exists, pattern, out);
         }
 
-        if let Some(child) = array_additional {
+        if let Some(child) = additional_items {
             child.locations_inner(
                 location.push_end_of_array(),
                 exists.extend(Exists::May),
