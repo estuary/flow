@@ -86,7 +86,7 @@ pub enum Error {
     },
     #[error("location {ptr} is unknown in schema {schema}")]
     PtrIsImplicit { ptr: String, schema: Url },
-    #[error("location {ptr} has a reduction strategy {strategy:?}, which is disallowed because the location is used as a key")]
+    #[error("location {ptr} has a reduction strategy, which is disallowed because the location is used as a key")]
     KeyHasReduction {
         ptr: String,
         schema: Url,
