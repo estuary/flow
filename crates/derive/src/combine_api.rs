@@ -1,7 +1,7 @@
 use crate::{new_validator, DebugJson, DocCounter, JsonError, StatsAccumulator};
 use anyhow::Context;
 use bytes::Buf;
-use doc::shape::shape_from_value;
+use doc::shape::{limits::enforce_field_count_limits, shape_from_value};
 use prost::Message;
 use proto_flow::flow::combine_api::{self, Code};
 
@@ -280,10 +280,14 @@ pub fn drain_chunk(
 
     drainer.drain_while(|doc, fully_reduced| {
         if let Some(ref mut shape) = shape {
-            match &doc {
-                doc::LazyNode::Node(n) => *did_change |= shape.widen(*n),
-                doc::LazyNode::Heap(h) => *did_change |= shape.widen(h),
+            let changed = match &doc {
+                doc::LazyNode::Node(n) => shape.widen(*n),
+                doc::LazyNode::Heap(h) => shape.widen(h),
             };
+            if changed {
+                enforce_field_count_limits(shape, json::Location::Root);
+                *did_change = true;
+            }
         }
         // Send serialized document.
         let begin = arena.len();
