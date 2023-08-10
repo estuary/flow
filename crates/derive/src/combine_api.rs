@@ -1,7 +1,7 @@
 use crate::{new_validator, DebugJson, DocCounter, JsonError, StatsAccumulator};
 use anyhow::Context;
 use bytes::Buf;
-use doc::shape::{limits::enforce_field_count_limits, shape_from_value};
+use doc::shape::limits::enforce_field_count_limits;
 use prost::Message;
 use proto_flow::flow::combine_api::{self, Code};
 
@@ -134,7 +134,7 @@ impl cgo::Service for API {
                     validator,
                 )?;
 
-                // If `infer_schema_json` is valid JSON then enable schema inference
+                // If `infer_schema_json` is non-empty then enable schema inference
                 // by setting Shape to Some, and use the schema defined by `infer_schema_json`
                 // as the default schema to start from. Otherwise, disable schema inference.
                 // TODO (jshearer): We're special-casing "false" here because at the moment,
@@ -146,8 +146,12 @@ impl cgo::Service for API {
                         .as_ref()
                         .and_then(|state| state.shape.clone())
                         .or(Some(doc::Shape::nothing()))
-                } else if let Ok(schema) = serde_json::to_value(infer_schema_json) {
-                    Some(shape_from_value(schema))
+                } else if infer_schema_json.len() > 0 {
+                    let validator = new_validator(infer_schema_json.as_str())?;
+                    Some(doc::Shape::infer(
+                        &validator.schemas()[0],
+                        validator.schema_index(),
+                    ))
                 } else {
                     None
                 };

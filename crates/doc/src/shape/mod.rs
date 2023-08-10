@@ -1,4 +1,3 @@
-use crate::AsNode;
 use fancy_regex::Regex;
 use json::schema::{formats::Format, types};
 use serde_json::Value;
@@ -251,24 +250,20 @@ fn impute_property_shape(
     }
 }
 
-pub fn shape_from_value<N: AsNode>(val: N) -> Shape {
+#[cfg(test)]
+// Map a JSON schema, in YAML form, into a Shape.
+fn shape_from(schema_yaml: &str) -> Shape {
     let url = url::Url::parse("http://example/schema").unwrap();
-    let val = serde_json::to_value(val.as_node()).unwrap();
+    let schema: Value = serde_yaml::from_str(schema_yaml).unwrap();
+    let schema =
+        json::schema::build::build_schema::<crate::Annotation>(url.clone(), &schema).unwrap();
 
-    let schema = json::schema::build::build_schema::<crate::Annotation>(url.clone(), &val).unwrap();
     let mut index = json::schema::index::IndexBuilder::new();
     index.add(&schema).unwrap();
     index.verify_references().unwrap();
     let index = index.into_index();
 
     Shape::infer(index.must_fetch(&url).unwrap(), &index)
-}
-
-#[cfg(test)]
-// Map a JSON schema, in YAML form, into a Shape.
-fn shape_from(schema_yaml: &str) -> Shape {
-    let schema: Value = serde_yaml::from_str(schema_yaml).unwrap();
-    shape_from_value(schema)
 }
 
 #[cfg(test)]
