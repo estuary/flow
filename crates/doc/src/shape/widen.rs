@@ -2,119 +2,234 @@
 // of a Shape as needed, to allow a given document to properly validate.
 // It's used as a base operation for schema inference.
 use super::*;
-use crate::AsNode;
-use itertools::EitherOrBoth;
-use json::Location;
+use crate::{AsNode, Node};
+use std::cmp::Ordering;
+
+impl StringShape {
+    fn widen(&mut self, val: &str, is_first: bool) -> bool {
+        if is_first {
+            let (min, max) = length_bounds(val.len());
+            self.format = Format::detect(val);
+            self.max_length = Some(max);
+            self.min_length = min;
+            // TODO(johnny): detect base64?
+            return true;
+        }
+
+        let mut changed = false;
+
+        match &self.format {
+            None => {}
+            Some(lhs) if lhs.validate(val).is_ok() => {}
+
+            Some(Format::Integer) if Format::Number.validate(val).is_ok() => {
+                self.format = Some(Format::Number); // Widen integer => number.
+                changed = true;
+            }
+            _ => {
+                self.format = None;
+                changed = true;
+            }
+        }
+
+        if self.min_length as usize > val.len() {
+            self.min_length = length_bounds(val.len()).0;
+            changed = true;
+        }
+
+        if let Some(max) = &mut self.max_length {
+            if (*max as usize) < val.len() {
+                *max = length_bounds(val.len()).1;
+                changed = true;
+            }
+        }
+
+        changed
+    }
+}
 
 impl ObjShape {
     /// See [`Shape::widen()`] for details on the order of widening.
-    fn widen<'n, N>(&mut self, fields: &'n N::Fields, loc: Location, is_first_time: bool) -> bool
+    fn widen<'n, N>(&mut self, fields: &'n N::Fields, is_first: bool) -> bool
     where
-        N: AsNode,
+        N: AsNode + 'n,
     {
         use crate::{Field, Fields};
 
-        // `additionalProperties` is a full Schema. According to JSON schema,
-        // a blank schema matches all documents. If we didn't initialize to
-        // `additionalProperties: false`, every field would fall into `additionalProperties`
-        //  and we wouldn't get any useful schemas.
-        let mut additional_properties = if let Some(addl) = self.additional.take() {
-            *addl
-        } else {
-            Shape::nothing()
-        };
+        // on_unknown_property closes over `new_fields` to enqueue
+        // properties which will be added to this ObjShape.
+        let mut new_fields = Vec::new();
 
-        let mut hint = false;
-
-        let new_fields: Vec<_> =
-            itertools::merge_join_by(self.properties.iter_mut(), fields.iter(), |prop, field| {
-                prop.name.cmp(&field.property().to_string())
-            })
-            .filter_map(|eob| match eob {
-                // Both the shape and node have this field, recursion time
-                EitherOrBoth::Both(lhs, rhs) => {
-                    hint |= lhs.shape.widen(rhs.value(), loc.push_prop(rhs.property()));
-                    None
-                }
-                // Shape has a field that the node is missing, so let's make sure it's not marked as required
-                EitherOrBoth::Left(mut lhs) => {
-                    lhs.is_required = false;
-                    None
-                }
-                // The Node has a field that the shape doesn't, let's add it
-                EitherOrBoth::Right(rhs) => {
-                    let mut prop = ObjProperty {
-                        name: rhs.property().to_owned(),
-                        // A field can only be required if every single document we've seen
-                        // has that field present. This means that ONLY fields that exist
-                        // on the very first object we encounter for a particular location should
-                        // get marked as required, as any subsequent "new" fields
-                        // by definition did not exist on previous objects (and so cannot be required)
-                        // otherwise they would already be in the Shape
-                        // (and we would be in the `EoB::Both` branch).
-                        is_required: is_first_time,
-                        // Leave shape blank here, we're going to recur and expand it right below
-                        // Note: Shape starts out totally unconstrained (types::ANY) by default,
-                        // whereas we want it maximally constrained initially
-                        shape: Shape::nothing(),
-                    };
-
-                    hint |= prop.shape.widen(rhs.value(), loc.push_prop(rhs.property()));
-
-                    Some(prop)
-                }
-            })
-            // Our iterator now contains a fully widened entry for unmatched field.
-            // First, let's widen these into any matching `patternProperties`,
-            // then remove those fields from consideration.
-            .filter_map(|new_field| {
-                if let Some(matching_pattern) = self
-                    .patterns
+        let mut on_unknown_property =
+            |rhs: &<<N as AsNode>::Fields as Fields<N>>::Field<'n>| -> bool {
+                // Is there a pattern-property that covers `rhs`? If so, widen it.
+                // TODO(johnny): Technically this should iterate over _all_ matching
+                // patterns, and then return whether _any_ of them were updated.
+                if let Some(pattern) = self
+                    .pattern_properties
                     .iter_mut()
-                    .find(|pattern| regex_matches(&pattern.re, &new_field.name))
+                    .find(|pattern| regex_matches(&pattern.re, rhs.property()))
                 {
-                    matching_pattern.shape =
-                        Shape::union(matching_pattern.shape.clone(), new_field.shape);
-                    None
-                } else {
-                    Some(new_field)
+                    return pattern.shape.widen(rhs.value());
                 }
-            })
-            .collect();
 
-        // We're now left with `new_fields` containing all new fields that neither have
-        // an explicit match in `properties`, nor match any defined pattern.
-        // If `additionalProperties: false`, we need to add those fields explicitly to `properties`.
-        // Otherwise, we need to merge their shapes into `additionalProperties`.
+                match &mut self.additional_properties {
+                    // If `additionalProperties` is unset, its default is the "true" schema
+                    // which accepts any JSON document. No need to widen further.
+                    None => return false,
+                    // If `additionalProperties` is an explicit schema _other_ than "false", widen it.
+                    Some(additional) if additional.type_ != types::INVALID => {
+                        return additional.widen(rhs.value());
+                    }
+                    // `additionalProperties` is "false". Fall through to add a new property.
+                    _ => (),
+                }
+
+                let mut shape = Shape::nothing();
+                _ = shape.widen(rhs.value());
+
+                new_fields.push(ObjProperty {
+                    name: rhs.property().into(),
+                    // A field can only be required if every single document we've seen
+                    // has that field present. This means that ONLY fields that exist
+                    // on the very first object we encounter for a particular location should
+                    // get marked as required.
+                    is_required: is_first,
+                    shape,
+                });
+
+                true
+            };
+
+        let mut changed = is_first;
+        let mut lhs_it = self.properties.iter_mut();
+        let mut rhs_it = fields.iter();
+        let mut maybe_lhs = lhs_it.next();
+        let mut maybe_rhs = rhs_it.next();
+
+        // Perform an ordered merge over `lhs_it` and `rhs_it`.
+        // This loop structure is much faster than Itertools::merge_join_by.
+        loop {
+            match (&mut maybe_lhs, &maybe_rhs) {
+                (Some(lhs), Some(rhs)) => match lhs.name.as_ref().cmp(rhs.property()) {
+                    Ordering::Equal => {
+                        // Both the Shape and `fields` have this property.
+                        changed |= lhs.shape.widen(rhs.value());
+                        maybe_lhs = lhs_it.next();
+                        maybe_rhs = rhs_it.next();
+                    }
+                    Ordering::Less => {
+                        // Shape has a property that the node is missing.
+                        if lhs.is_required {
+                            lhs.is_required = false;
+                            changed = true;
+                        }
+                        maybe_lhs = lhs_it.next();
+                    }
+                    Ordering::Greater => {
+                        changed |= on_unknown_property(rhs);
+                        maybe_rhs = rhs_it.next();
+                    }
+                },
+                (Some(lhs), None) => {
+                    // Shape has a property that the node is missing.
+                    if lhs.is_required {
+                        lhs.is_required = false;
+                        changed = true;
+                    }
+                    maybe_lhs = lhs_it.next();
+                }
+                (None, Some(rhs)) => {
+                    changed |= on_unknown_property(rhs);
+                    maybe_rhs = rhs_it.next();
+                }
+                (None, None) => break,
+            }
+        }
+
+        // Add any `new_fields` to properties, maintaining the sort-by-property invariant.
+        // By construction, properties of `new_fields` don't already exist in `self.properties`.
         if !new_fields.is_empty() {
-            // additionalProperties: false
-            if additional_properties.type_.eq(&types::INVALID) {
-                // These new shapes can not conflict with existing properties by definition
-                // because they were produced by the right-hand-side of the `merge_join_by`.
-                // That is, these fields explicitly do not yet exist on this shape.
-                self.properties.extend(new_fields.into_iter());
-                self.properties.sort_by(|a, b| a.name.cmp(&b.name))
-            } else {
-                for field in new_fields {
-                    additional_properties =
-                        Shape::union(additional_properties.clone(), field.shape);
+            self.properties.extend(new_fields.into_iter());
+            self.properties.sort_by(|a, b| a.name.cmp(&b.name))
+        }
+
+        changed
+    }
+}
+
+impl ArrayShape {
+    fn widen<'n, N>(&mut self, items: &'n [N], is_first: bool) -> bool
+    where
+        N: AsNode,
+    {
+        let mut changed = false;
+
+        // First widen any tuple item shapes.
+        for (ind, shape) in self.tuple.iter_mut().enumerate() {
+            changed |= shape.widen(&items[ind]);
+        }
+        // Then widen an additional item shape.
+        if let Some(additional) = &mut self.additional_items {
+            for rhs in items.iter().skip(self.tuple.len()) {
+                changed |= additional.widen(rhs);
+            }
+        }
+
+        if is_first {
+            let (min, max) = length_bounds(items.len());
+            self.max_items = Some(max);
+            self.min_items = min;
+            changed = true;
+        } else {
+            if self.min_items as usize > items.len() {
+                self.min_items = length_bounds(items.len()).0;
+                changed = true;
+            }
+            if let Some(max) = &mut self.max_items {
+                if (*max as usize) < items.len() {
+                    *max = length_bounds(items.len()).1;
+                    changed = true;
                 }
             }
         }
 
-        self.additional = Some(Box::new(additional_properties));
+        changed
+    }
+}
 
-        match (hint, loc) {
-            (true, _) => true,
-            (false, Location::Root) => self.properties.len() > limits::MAX_ROOT_FIELDS,
-            (false, _) => self.properties.len() > limits::MAX_NESTED_FIELDS,
+impl NumericShape {
+    fn widen(&mut self, num: json::Number, is_first: bool) -> bool {
+        let mut changed = false;
+
+        if is_first {
+            let (min, max) = number_bounds(num);
+            self.minimum = Some(min);
+            self.maximum = Some(max);
+            changed = true;
+        } else {
+            if let Some(min) = &mut self.minimum {
+                if *min > num {
+                    *min = number_bounds(num).0;
+                    changed = true;
+                }
+            }
+            if let Some(max) = &mut self.maximum {
+                if *max < num {
+                    *max = number_bounds(num).1;
+                    changed = true;
+                }
+            }
         }
+
+        changed
     }
 }
 
 impl Shape {
-    /// Minimally widen the shape so the provided document will successfully validate.
-    /// Returns a hint if some locations might exceed their maximum allowable size.
+    /// Minimally widen the Shape so the provided document will successfully validate.
+    /// Returns an indication of whether this or a sub-Shape was modified to fit this document.
+    ///
     /// In order to build useful object schemas, we need to widen in order of explicitness:
     /// * Fields matching explicitly named `properties` will always be handled by widening
     ///   those properties to accept the shape of the field.
@@ -130,104 +245,174 @@ impl Shape {
     ///    we simply widen the shape of `additionalProperties` to accept all unmatched fields.
     ///
     /// Arrays are widened by expanding their `items` to fit the provided document.
-    /// Scalar values are widened along whatever dimensions exist: string formats and lengths, number ranges, etc.
-    pub fn widen<'n, N>(&mut self, node: &'n N, loc: Location) -> bool
+    /// If an ArrayShape already defines a tuple, its indexed elements are widened,
+    /// with any additional items widen its `additionalItems` schema.
+    ///
+    /// Scalar values are widened along whatever dimensions exist: string formats and lengths,
+    /// number ranges, etc.
+    ///
+    /// The approximate lengths of arrays and strings are attached to widened Shapes at
+    /// power-of-two boundaries. Numeric ranges are also attached, at order-of-magnitude
+    /// (10x) boundaries.
+    pub fn widen<'n, N>(&mut self, node: &'n N) -> bool
     where
         N: AsNode,
     {
-        match node.as_node() {
-            crate::Node::Object(fields) => {
-                // See comment in `ObjShape::widen` about when to set `is_required`
-                // on newly encountered fields. Detects whether this is the
-                // very first time this location has seen an OBJECT shape.
-                let is_first_time = !self.type_.overlaps(types::OBJECT);
-                self.type_ = self.type_ | types::OBJECT;
+        use json::Number;
 
-                self.object.widen::<N>(fields, loc, is_first_time)
-            }
-
-            crate::Node::Array(arr) => {
-                let mut shape = self
-                    .array
-                    .additional
-                    .take()
-                    .unwrap_or(Box::new(Shape::nothing()));
-
-                // Look at each element in the observed array and widen the shape to accept it
-                let hint = arr.iter().enumerate().fold(false, |accum, (idx, node)| {
-                    accum || shape.widen(node, loc.push_item(idx))
-                });
-
-                self.array.additional = Some(shape);
-
-                self.array.min = match self.array.min {
-                    Some(prev_min) => Some(prev_min.min(arr.len())),
-                    None => Some(arr.len()),
-                };
-                self.array.max = match self.array.max {
-                    Some(prev_max) => Some(prev_max.max(arr.len())),
-                    None => Some(arr.len()),
-                };
-
-                self.type_ = self.type_ | types::ARRAY;
-
-                hint
-            }
-            crate::Node::Bool(_) => {
-                self.type_ = self.type_ | types::BOOLEAN;
-                false
-            }
-            crate::Node::Bytes(_) => {
-                self.type_ = self.type_ | types::STRING;
-
-                let partial_stringshape = StringShape {
-                    content_encoding: Some("base64".to_string()),
-                    ..StringShape::new()
-                };
-
-                self.string = StringShape::union(self.string.clone(), partial_stringshape);
-                false
-            }
-            crate::Node::Null => {
-                self.type_ = self.type_ | types::NULL;
-                false
-            }
-            crate::Node::Number(num) => {
-                self.type_ = self.type_ | types::Set::for_number(&num);
-                false
-            }
-            crate::Node::String(s) => {
-                let is_first_time = !self.type_.overlaps(types::STRING);
-
-                self.type_ = self.type_ | types::STRING;
-
-                // Similar to the nuance around `is_required`, string format
-                // should only "become detected" the very first time. We still
-                // need to run `detect_format` on subsequent strings because
-                // `StringShape::union()` can sometimes widen a string format,
-                // e.g from `integer` -> `number`
-                let format = if is_first_time || self.string.format.is_some() {
-                    Format::detect(s)
-                } else {
-                    None
-                };
-
-                let partial_stringshape = StringShape {
-                    format,
-                    max_length: Some(s.len()),
-                    min_length: s.len(),
-                    ..StringShape::new()
-                };
-
-                if is_first_time {
-                    self.string = partial_stringshape
-                } else {
-                    self.string = StringShape::union(self.string.clone(), partial_stringshape);
-                }
-
-                false
-            }
+        if let Some(_) = &self.enum_ {
+            return self.widen_enum(node);
         }
+
+        let mut apply_type = |type_| -> bool {
+            let is_first = self.type_ & type_ == types::INVALID;
+            if is_first {
+                self.type_ = self.type_ | type_;
+            }
+            is_first
+        };
+
+        match node.as_node() {
+            Node::Array(items) => {
+                let is_first = apply_type(types::ARRAY);
+                if is_first {
+                    self.array.additional_items = Some(Box::new(Shape::nothing()));
+                }
+                self.array.widen(items, is_first)
+            }
+            Node::Bool(_) => apply_type(types::BOOLEAN),
+            Node::Bytes(_) => panic!("not implemented"),
+            Node::Null => apply_type(types::NULL),
+            Node::Float(f) => self.numeric.widen(
+                Number::Float(f),
+                apply_type(if f.fract() != 0.0 {
+                    types::INT_OR_FRAC // Equivalent to "type: number".
+                } else {
+                    types::INTEGER
+                }),
+            ),
+            Node::PosInt(f) => self
+                .numeric
+                .widen(Number::Unsigned(f), apply_type(types::INTEGER)),
+            Node::NegInt(f) => self
+                .numeric
+                .widen(Number::Signed(f), apply_type(types::INTEGER)),
+            Node::Object(fields) => {
+                let is_first = apply_type(types::OBJECT);
+                if is_first {
+                    self.object.additional_properties = Some(Box::new(Shape::nothing()));
+                }
+                self.object.widen::<N>(fields, is_first)
+            }
+            Node::String(s) => self.string.widen(s, apply_type(types::STRING)),
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn widen_enum<'n, N>(&mut self, node: &'n N) -> bool
+    where
+        N: AsNode,
+    {
+        let Some(enums) = self.enum_.as_mut() else { unreachable!("enum must be Some") };
+
+        return match (
+            enums.binary_search_by(|lhs| crate::compare(lhs, node)),
+            node.as_node(),
+        ) {
+            // Exact match.
+            (Ok(_index), _) => false,
+
+            // Insert new string enum value.
+            // TODO(johnny): Support other scalars?
+            (Err(index), Node::String(str)) => {
+                enums.insert(index, serde_json::json!(str));
+                true
+            }
+            // Remove `enums` and fold into Shape.
+            (Err(_), _) => {
+                let enums = self.enum_.take().unwrap();
+
+                for enum_ in enums {
+                    self.widen(&enum_);
+                }
+                self.widen(node);
+
+                true
+            }
+        };
+    }
+}
+
+// Compute a lower and upper power-of-two bound for a given length.
+#[cold]
+fn length_bounds(l: usize) -> (u32, u32) {
+    let l = u32::try_from(l).unwrap_or(u32::MAX);
+
+    if l == 0 {
+        (0, 0)
+    } else if l.is_power_of_two() {
+        (l >> 1, l)
+    } else if let Some(b) = l.checked_next_power_of_two() {
+        (b >> 1, b)
+    } else {
+        (1 << 31, u32::MAX)
+    }
+}
+
+// Compute a lower and upper order-of-magnitude bound for the given number.
+#[cold]
+fn number_bounds(num: json::Number) -> (json::Number, json::Number) {
+    use json::Number;
+
+    match num {
+        // Positive integers.
+        Number::Unsigned(n) if n > 0 => {
+            let e = n.ilog10();
+            (
+                Number::Unsigned(10u64.pow(e)),
+                Number::Unsigned(10u64.checked_pow(e + 1).unwrap_or(u64::MAX)),
+            )
+        }
+        Number::Signed(n) if n >= 0 => unreachable!("invalid Number::Signed (should be negative)"),
+        // Floats >= 1.0.
+        Number::Float(f) if f >= 1.0 => {
+            let e = f.log10() as i32;
+            let u = 10f64.powi(e + 1);
+            (
+                Number::Float(10f64.powi(e)),
+                Number::Float(if u.is_finite() { u } else { f64::MAX }),
+            )
+        }
+        // Floats between (0.0, 1.0).
+        Number::Float(f) if f > 0.0 => (Number::Float(0.0), Number::Float(1.0)),
+        // Floats between (-1.0, 0.0).
+        Number::Float(f) if f > -1.0 && f < 0.0 => (Number::Float(-1.0), Number::Float(0.0)),
+        // Floats <= -1.0.
+        Number::Float(f) if f <= -1.0 => {
+            let e = (-f).log10() as i32;
+            let l = -(10f64.powi(e + 1));
+            (
+                Number::Float(if l.is_finite() { l } else { f64::MIN }),
+                Number::Float(-(10f64.powi(e))),
+            )
+        }
+        // Negative integers.
+        Number::Signed(n) => {
+            let e = n.saturating_neg().ilog10();
+            (
+                Number::Signed(
+                    10i64
+                        .checked_pow(e + 1)
+                        .map(i64::saturating_neg)
+                        .unwrap_or(i64::MIN),
+                ),
+                Number::Signed(-(10i64.pow(e))),
+            )
+        }
+        // Zero.
+        Number::Unsigned(_) => (Number::Unsigned(0), Number::Unsigned(0)),
+        Number::Float(_) => (Number::Float(0.0), Number::Float(0.0)),
     }
 }
 
@@ -240,17 +425,16 @@ mod test {
     fn widening_snapshot_helper(
         initial_schema: Option<&str>,
         expected_schema: &str,
-        docs: &[serde_json::Value],
+        docs: &[(bool, serde_json::Value)],
     ) -> Shape {
         let mut schema = match initial_schema {
             Some(initial) => shape_from(initial),
             None => Shape::nothing(),
         };
 
-        for doc in docs {
-            schema.widen(doc, Location::Root);
+        for (expect_changed, doc) in docs {
+            assert_eq!(*expect_changed, schema.widen(doc));
         }
-
         let expected = shape_from(expected_schema);
 
         assert_eq!(expected, schema);
@@ -280,10 +464,10 @@ mod test {
                     type: string
                 unknown:
                     type: string
-                    minLength: 4
+                    minLength: 2
                     maxLength: 4
             "#,
-            &[json!({"unknown": "test"})],
+            &[(true, json!({"unknown": "test"}))],
         );
 
         // we need to find and widen any `properties` explicitly matching input fields,
@@ -306,12 +490,20 @@ mod test {
             additionalProperties:
                 type: [string, integer]
                 minLength: 1
-                maxLength: 5
+                maxLength: 8
+                minimum: 1
+                maximum: 10
             properties:
                 known:
                     type: [string, integer]
+                    minimum: 1
+                    maximum: 10
             "#,
-            &[json!({"known": 5, "unknown": "pizza"}), json!({"foo": 5})],
+            &[
+                (true, json!({"known": 5, "unknown": "pizza"})),
+                (false, json!({"foo": "pie"})),
+                (true, json!({"bar": 9})),
+            ],
         );
     }
 
@@ -347,7 +539,7 @@ mod test {
             additionalProperties:
                 type: string
                 minLength: 0
-                maxLength: 5
+                maxLength: 8
             patternProperties:
                 '^S_':
                     type: string
@@ -356,12 +548,17 @@ mod test {
                 '^I_':
                     type: integer
                     minimum: 0
-                    maximum: 2
+                    maximum: 10
             properties:
                 known:
                     type: [string, integer]
+                    minimum: 1
+                    maximum: 10
             "#,
-            &[json!({"known": 5, "S_str_pattern": "test", "I_int_pattern": 2, "unknown": "pizza"})],
+            &[(
+                true,
+                json!({"known": 5, "S_str_pattern": "test", "I_int_pattern": 7, "unknown": "pizza"}),
+            )],
         );
     }
 
@@ -374,9 +571,9 @@ mod test {
             type: string
             format: integer
             maxLength: 1
-            minLength: 1
+            minLength: 0
             "#,
-            &[json!("5")],
+            &[(true, json!("5"))],
         );
 
         // Should widen from integer to number
@@ -390,12 +587,12 @@ mod test {
             "#,
             ),
             r#"
-                    type: string
-                    format: number
-                    maxLength: 3
-                    minLength: 1
-                    "#,
-            &[json!("5.4")],
+            type: string
+            format: number
+            maxLength: 4
+            minLength: 1
+            "#,
+            &[(true, json!("5.4"))],
         );
 
         // Once we encounter a string that doesn't match the format, throw it away
@@ -410,10 +607,10 @@ mod test {
             ),
             r#"
             type: string
-            maxLength: 5
+            maxLength: 8
             minLength: 1
             "#,
-            &[json!("pizza")],
+            &[(true, json!("pizza"))],
         );
 
         // And don't re-infer it ever again
@@ -430,7 +627,7 @@ mod test {
             maxLength: 5
             minLength: 1
             "#,
-            &[json!("5")],
+            &[(false, json!("5"))],
         );
     }
 
@@ -450,10 +647,10 @@ mod test {
                     properties:
                         test_nested:
                             type: string
-                            minLength: 5
-                            maxLength: 5
+                            minLength: 4
+                            maxLength: 8
             "#,
-            &[json!({"test_key": {"test_nested": "pizza"}})],
+            &[(true, json!({"test_key": {"test_nested": "pizza"}}))],
         );
     }
 
@@ -469,10 +666,10 @@ mod test {
             properties:
                 first_key:
                     type: string
-                    minLength: 5
-                    maxLength: 5
+                    minLength: 4
+                    maxLength: 8
             "#,
-            &[json!({"first_key": "hello"})],
+            &[(true, json!({"first_key": "hello"}))],
         );
         // Fields encountered after the first should not be required
         // AND required fields should stay required, so long as they
@@ -497,10 +694,10 @@ mod test {
                     type: string
                 second_key:
                     type: string
-                    minLength: 7
-                    maxLength: 7
+                    minLength: 4
+                    maxLength: 8
             "#,
-            &[json!({"first_key": "hello", "second_key": "goodbye"})],
+            &[(true, json!({"first_key": "hello", "second_key": "goodbye"}))],
         );
         // Required fields get demoted once we encounter a document
         // where they are not present
@@ -526,7 +723,7 @@ mod test {
                 second_key:
                     type: string
             "#,
-            &[json!({"second_key": "goodbye"})],
+            &[(true, json!({"second_key": "goodbye"}))],
         );
     }
 
@@ -549,7 +746,7 @@ mod test {
         widening_snapshot_helper(
             Some(schema),
             schema,
-            &[json!({"test_key": {"test_nested": "pizza"}})],
+            &[(false, json!({"test_key": {"test_nested": "pizza"}}))],
         );
     }
 
@@ -584,8 +781,10 @@ mod test {
                                 type: string
                             nested_second:
                                 type: integer
+                                minimum: 10
+                                maximum: 100
                 "#,
-            &[json!({"test_key": {"nested_second": 68}})],
+            &[(true, json!({"test_key": {"nested_second": 68}}))],
         );
     }
 
@@ -601,8 +800,8 @@ mod test {
             Some(schema),
             schema,
             &[
-                json!({"test_key": "a_string"}),
-                json!({"toast_key": "another_string"}),
+                (false, json!({"test_key": "a_string"})),
+                (false, json!({"toast_key": "another_string"})),
             ],
         );
     }
@@ -620,38 +819,45 @@ mod test {
             type: object
             additionalProperties:
                 type: [string, integer]
+                minimum: 1
+                maximum: 10
             "#,
-            &[json!({"test_key": "a_string"}), json!({"toast_key": 5})],
+            &[
+                (false, json!({"test_key": "a_string"})),
+                (true, json!({"toast_key": 5})),
+            ],
         );
     }
 
     #[test]
     fn test_widening_type_expansion() {
         let schema = r#"
-                type: object
-                additionalProperties: false
-                properties:
-                    test_key:
-                        type: object
-                        additionalProperties: false
-                        properties:
-                            test_nested:
-                                type: string
-                "#;
+            type: object
+            additionalProperties: false
+            properties:
+                test_key:
+                    type: object
+                    additionalProperties: false
+                    properties:
+                        test_nested:
+                            type: string
+            "#;
         widening_snapshot_helper(
             Some(schema),
             r#"
-                type: object
-                additionalProperties: false
-                properties:
-                    test_key:
-                        type: object
-                        additionalProperties: false
-                        properties:
-                            test_nested:
-                                type: [string, integer]
-                "#,
-            &[json!({"test_key": {"test_nested": 68}})],
+            type: object
+            additionalProperties: false
+            properties:
+                test_key:
+                    type: object
+                    additionalProperties: false
+                    properties:
+                        test_nested:
+                            type: [string, integer]
+                            minimum: 10
+                            maximum: 100
+            "#,
+            &[(true, json!({"test_key": {"test_nested": 68}}))],
         );
     }
 
@@ -661,30 +867,32 @@ mod test {
             None,
             r#"
                 type: array
-                minItems: 2
+                minItems: 1
                 maxItems: 2
                 items:
                     type: string
-                    minLength: 4
-                    maxLength: 5
+                    minLength: 2
+                    maxLength: 8
                 "#,
-            &[json!(["test", "toast"])],
+            &[(true, json!(["test", "toast"]))],
         );
 
         widening_snapshot_helper(
             None,
             r#"
                 type: array
-                minItems: 2
+                minItems: 1
                 maxItems: 2
                 items:
                     anyOf:
                         - type: string
-                          minLength: 4
+                          minLength: 2
                           maxLength: 4
                         - type: integer
+                          minimum: 1
+                          maximum: 10
                 "#,
-            &[json!(["test", 5])],
+            &[(true, json!(["test", 5]))],
         );
 
         widening_snapshot_helper(
@@ -702,13 +910,13 @@ mod test {
             r#"
                 type: array
                 minItems: 0
-                maxItems: 2
+                maxItems: 4
                 items:
                     type: string
-                    minLength: 4
-                    maxLength: 5
+                    minLength: 2
+                    maxLength: 16
                 "#,
-            &[json!(["test", "toast"])],
+            &[(true, json!(["test", "toast", "tin", "todotodo!"]))],
         );
     }
 
@@ -719,13 +927,15 @@ mod test {
             r#"
                 anyOf:
                     - type: array
-                      minItems: 2
+                      minItems: 1
                       maxItems: 2
                       items:
                           anyOf:
                             - type: integer
+                              minimum: 1
+                              maximum: 10
                             - type: string
-                              minLength: 4
+                              minLength: 2
                               maxLength: 4
                     - type: object
                       additionalProperties: false
@@ -733,8 +943,10 @@ mod test {
                       properties:
                         test_key:
                             type: integer
+                            minimum: 1
+                            maximum: 10
                 "#,
-            &[json!(["test", 5]), json!({"test_key": 5})],
+            &[(true, json!(["test", 5])), (true, json!({"test_key": 5}))],
         );
 
         widening_snapshot_helper(
@@ -742,28 +954,180 @@ mod test {
             r#"
                 anyOf:
                     - type: array
-                      minItems: 2
-                      maxItems: 3
+                      minItems: 1
+                      maxItems: 4
                       items:
                           anyOf:
-                            - type: fractional
+                            - type: number
+                              minimum: 1.0
+                              maximum: 10.0
                             - type: string
-                              minLength: 4
+                              minLength: 2
                               maxLength: 4
                     - type: object
                       additionalProperties: false
                       properties:
                         test_key:
                             type: integer
+                            minimum: 1
+                            maximum: 10
                         toast_key:
                             type: integer
+                            minimum: 1
+                            maximum: 10
                 "#,
             &[
-                json!(["test", 5.2]),
-                json!(["test", 5.2, 3.2]),
-                json!({"test_key": 5}),
-                json!({"toast_key": 5}),
+                (true, json!(["test", 5.2])),
+                (true, json!(["test", 5.2, 3.2])),
+                (true, json!({"test_key": 5})),
+                (true, json!({"toast_key": 5})),
             ],
         );
+    }
+
+    #[test]
+    fn test_widening_enums() {
+        let schema = r#"
+            enum: [one, three, 32, {a: 1}]
+        "#;
+        // We preserve an enum if it's only widened with strings and exact matches.
+        widening_snapshot_helper(
+            Some(schema),
+            r#"
+            enum: [one, two, three, four, 32, {a: 1}]
+            "#,
+            &[
+                (false, json!("one")),
+                (true, json!("two")),
+                (false, json!("three")),
+                (true, json!("four")),
+                (false, json!("two")),
+                (false, json!(32)),
+                (false, json!({"a": 1})),
+            ],
+        );
+
+        // We collapse the enum if it's widened with a non-string.
+        widening_snapshot_helper(
+            Some(schema),
+            r#"
+            type: [string, integer, object]
+            "#,
+            &[
+                (true, json!("hello")),
+                (false, json!("one")),
+                (true, json!({"a": 5})),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_widening_tuples() {
+        let schema = r#"
+            type: array
+            items:
+                - false
+                - false
+            minItems: 1
+            maxItems: 2
+            additionalItems: false
+        "#;
+        widening_snapshot_helper(
+            Some(schema),
+            r#"
+            type: array
+            items:
+                - type: string
+                  minLength: 2
+                  maxLength: 16
+                - type: integer
+                  minimum: 1
+                  maximum: 1000
+            minItems: 1
+            maxItems: 4
+            additionalItems:
+                type: boolean
+            "#,
+            &[
+                (true, json!(["one", 1])),
+                (true, json!(["one hundred", 100])),
+                (false, json!(["thirty two", 32])),
+                (true, json!(["extra", 7, true])), // Updates additionalItems.
+            ],
+        );
+    }
+
+    #[test]
+    fn test_length_bounds() {
+        assert_eq!(length_bounds(0), (0, 0));
+        assert_eq!(length_bounds(1), (0, 1));
+        assert_eq!(length_bounds(2), (1, 2));
+        assert_eq!(length_bounds(3), (2, 4));
+        assert_eq!(length_bounds(4), (2, 4));
+        assert_eq!(length_bounds(5), (4, 8));
+        assert_eq!(length_bounds(7), (4, 8));
+        assert_eq!(length_bounds(8), (4, 8));
+        assert_eq!(length_bounds(9), (8, 16));
+        assert_eq!(length_bounds((1 << 30) - 1), (1 << 29, 1 << 30));
+        assert_eq!(length_bounds((1 << 30) + 0), (1 << 29, 1 << 30));
+        assert_eq!(length_bounds((1 << 30) + 1), (1 << 30, 1 << 31));
+        assert_eq!(length_bounds((1 << 31) + 0), (1 << 30, 1 << 31));
+        assert_eq!(length_bounds((1 << 31) + 1), (1 << 31, u32::MAX));
+        assert_eq!(length_bounds((1 << 33) + 1), (1 << 31, u32::MAX)); // Saturates as u32::MAX.
+    }
+
+    #[test]
+    fn test_number_bounds() {
+        use json::Number;
+
+        let cases: Vec<(serde_json::Number, serde_json::Number, serde_json::Number)> =
+            serde_json::from_value(json!([
+                // Zero cases.
+                [0, 0, 0],
+                [0.0, 0.0, 0.0],
+                // Positive cases.
+                [0.001, 0.0, 1.0],
+                [0.999, 0.0, 1.0],
+                [1, 1, 10],
+                [1.001, 1.0, 10.0],
+                [5, 1, 10],
+                [5.5, 1.0, 10.0],
+                [9, 1, 10],
+                [9.9, 1.0, 10.0],
+                [10, 10, 100],
+                [10.1, 10.0, 100.0],
+                [101, 100, 1_000],
+                [101.1, 100.0, 1_000.0],
+                [8_675_309, 1_000_000, 10_000_000],
+                [8_675_309.5, 1_000_000.0, 10_000_000.0],
+                [u64::MAX - 100, 10000000000000000000u64, u64::MAX],
+                [u64::MAX as f64 + 1.0, 1e19, 1e20],
+                [5e31, 1e31, 1e32],
+                // Negative cases.
+                [-5e31, -1e32, -1e31],
+                [i64::MIN as f64 - 1.0, -1e19, -1e18],
+                [i64::MIN + 1, i64::MIN, -1000000000000000000i64],
+                [-8_675_309.5, -10_000_000.0, -1_000_000.0],
+                [-8_675_309, -10_000_000, -1_000_000],
+                [-101.1, -1_000.0, -100.0],
+                [-101, -1_000, -100],
+                [-10, -100, -10],
+                [-10.1, -100.0, -10.0],
+                [-9.9, -10.0, -1.0],
+                [-9, -10, -1],
+                [-5.5, -10.0, -1.0],
+                [-1.001, -10.0, -1.0],
+                [-1.00, -10, -1],
+                [-0.999, -1.0, 0.0],
+                [-0.001, -1.0, 0.0],
+            ]))
+            .unwrap();
+
+        for (given, expect_min, expect_max) in cases.iter() {
+            let given: Number = given.into();
+            let expect: (Number, Number) = (expect_min.into(), expect_max.into());
+
+            assert_eq!(number_bounds(given), expect, "number bounds of: {}", given);
+        }
     }
 }
