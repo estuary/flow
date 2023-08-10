@@ -1,5 +1,6 @@
 import:
   - task-failures.flow.yaml
+  - schema-inference.flow.yaml
 
 collections:
   ops.us-central1.v1/logs:
