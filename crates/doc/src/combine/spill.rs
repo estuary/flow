@@ -679,7 +679,7 @@ mod test {
         fixture
             .into_iter()
             .map(|(value, flags)| HeapDoc {
-                root: HeapNode::from_node(value.as_node(), &alloc),
+                root: HeapNode::from_node(value, &alloc),
                 flags: *flags,
             })
             .collect()

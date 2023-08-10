@@ -37,29 +37,25 @@ pub enum LazyField<'alloc, 'n, N: AsNode + 'n> {
 
 impl<'alloc> HeapNode<'alloc> {
     // from_node builds a HeapNode from another AsNode implementation.
-    pub fn from_node<'n, N: AsNode>(node: Node<'n, N>, alloc: &'alloc bumpalo::Bump) -> Self {
-        match node {
+    pub fn from_node<N: AsNode>(node: &N, alloc: &'alloc bumpalo::Bump) -> Self {
+        match node.as_node() {
             Node::Array(arr) => {
                 let mut vec = BumpVec::with_capacity_in(arr.len(), alloc);
-                vec.extend(
-                    arr.iter()
-                        .map(|item| Self::from_node(item.as_node(), alloc)),
-                    alloc,
-                );
+                vec.extend(arr.iter().map(|item| Self::from_node(item, alloc)), alloc);
                 HeapNode::Array(vec)
             }
             Node::Bool(b) => HeapNode::Bool(b),
             Node::Bytes(b) => HeapNode::Bytes(BumpVec::from_slice(b, alloc)),
             Node::Null => HeapNode::Null,
-            Node::Number(json::Number::Float(n)) => HeapNode::Float(n),
-            Node::Number(json::Number::Unsigned(n)) => HeapNode::PosInt(n),
-            Node::Number(json::Number::Signed(n)) => HeapNode::NegInt(n),
+            Node::Float(n) => HeapNode::Float(n),
+            Node::PosInt(n) => HeapNode::PosInt(n),
+            Node::NegInt(n) => HeapNode::NegInt(n),
             Node::Object(fields) => {
                 let mut vec = BumpVec::with_capacity_in(fields.len(), alloc);
                 vec.extend(
                     fields.iter().map(|field| HeapField {
                         property: BumpStr::from_str(field.property(), alloc),
-                        value: Self::from_node(field.value().as_node(), alloc),
+                        value: Self::from_node(field.value(), alloc),
                     }),
                     alloc,
                 );
@@ -87,7 +83,7 @@ impl<'alloc, 'n, N: AsNode> LazyNode<'alloc, 'n, N> {
 
     pub fn into_heap_node(self, alloc: &'alloc bumpalo::Bump) -> HeapNode<'alloc> {
         match self {
-            Self::Node(doc) => HeapNode::from_node(doc.as_node(), alloc),
+            Self::Node(doc) => HeapNode::from_node(doc, alloc),
             Self::Heap(doc) => doc,
         }
     }
@@ -183,7 +179,7 @@ impl<'alloc, 'n, N: AsNode> LazyField<'alloc, 'n, N> {
         match self {
             Self::Node(field) => HeapField {
                 property: BumpStr::from_str(field.property(), alloc),
-                value: HeapNode::from_node(field.value().as_node(), alloc),
+                value: HeapNode::from_node(field.value(), alloc),
             },
             Self::Heap(field) => field,
         }

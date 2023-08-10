@@ -145,7 +145,7 @@ fn test_validate_then_reduce() {
                 true,
             )
             .unwrap(),
-            None => HeapNode::from_node(rhs.as_node(), &alloc),
+            None => HeapNode::from_node(&rhs, &alloc),
         };
 
         assert_eq!(

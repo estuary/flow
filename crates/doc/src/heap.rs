@@ -58,16 +58,20 @@ impl<'alloc> HeapNode<'alloc> {
 impl<'alloc> AsNode for HeapNode<'alloc> {
     type Fields = [HeapField<'alloc>];
 
+    // We *always* want this inline, because the caller will next match
+    // over our returned Node, and (when inline'd) the optimizer can
+    // collapse the chained `match` blocks into one.
+    #[inline(always)]
     fn as_node<'a>(&'a self) -> Node<'a, Self> {
         match self {
             HeapNode::Array(a) => Node::Array(a),
             HeapNode::Bool(b) => Node::Bool(*b),
             HeapNode::Bytes(b) => Node::Bytes(b),
-            HeapNode::Float(n) => Node::Number(json::Number::Float(*n)),
-            HeapNode::NegInt(n) => Node::Number(json::Number::Signed(*n)),
+            HeapNode::Float(n) => Node::Float(*n),
+            HeapNode::NegInt(n) => Node::NegInt(*n),
             HeapNode::Null => Node::Null,
             HeapNode::Object(o) => Node::Object(o.as_slice()),
-            HeapNode::PosInt(n) => Node::Number(json::Number::Unsigned(*n)),
+            HeapNode::PosInt(n) => Node::PosInt(*n),
             HeapNode::String(s) => Node::String(s),
         }
     }
@@ -84,19 +88,22 @@ impl<'alloc> Fields<HeapNode<'alloc>> for [HeapField<'alloc>] {
         }
     }
 
+    #[inline]
     fn len(&self) -> usize {
         self.len()
     }
-
+    #[inline]
     fn iter<'a>(&'a self) -> Self::Iter<'a> {
         self.iter()
     }
 }
 
 impl<'a, 'alloc> Field<'a, HeapNode<'alloc>> for &'a HeapField<'alloc> {
+    #[inline(always)]
     fn property(&self) -> &'a str {
         &self.property
     }
+    #[inline(always)]
     fn value(&self) -> &'a HeapNode<'alloc> {
         &self.value
     }

@@ -1,5 +1,5 @@
-use super::{count_nodes_heap, Cursor, Error, Result};
-use crate::{shape::limits, shape::schema::SchemaBuilder, AsNode, HeapNode, Shape};
+use super::{count_nodes, Cursor, Error, Result};
+use crate::{shape::limits, shape::schema::to_schema, AsNode, HeapNode, Shape};
 use json::schema::index::IndexBuilder;
 
 pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
@@ -16,7 +16,7 @@ pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
 
     let (lhs, rhs) = (lhs.into_heap_node(alloc), rhs.into_heap_node(alloc));
 
-    *tape = &tape[count_nodes_heap(&rhs)..];
+    *tape = &tape[count_nodes(&rhs)..];
 
     // Ensure that we're working with objects on both sides
     // Question: Should we actually relax this to support
@@ -35,7 +35,7 @@ pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
     limits::enforce_field_count_limits(&mut merged_shape, json::Location::Root);
 
     // Union together the LHS and RHS, and convert back from `Shape` into `HeapNode`.
-    let merged_doc = serde_json::to_value(&SchemaBuilder::new(merged_shape).root_schema())
+    let merged_doc = serde_json::to_value(to_schema(merged_shape))
         .and_then(|value| HeapNode::from_serde(value, alloc))
         .map_err(|e| {
             Error::with_location(
@@ -121,7 +121,7 @@ mod test {
                         "maxLength": 10
                     }),
                     expect: Ok(json!({
-                        "$schema": "http://json-schema.org/draft-07/schema#",
+                        "$schema": "https://json-schema.org/draft/2019-09/schema",
                         "type": "string",
                         "minLength": 5,
                         "maxLength": 10,

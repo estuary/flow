@@ -22,9 +22,9 @@ impl<'n, N: AsNode> serde::Serialize for Node<'n, N> {
                 }
             }
             Node::Null => serializer.serialize_unit(),
-            Node::Number(json::Number::Float(n)) => serializer.serialize_f64(*n),
-            Node::Number(json::Number::Signed(n)) => serializer.serialize_i64(*n),
-            Node::Number(json::Number::Unsigned(n)) => serializer.serialize_u64(*n),
+            Node::Float(n) => serializer.serialize_f64(*n),
+            Node::NegInt(n) => serializer.serialize_i64(*n),
+            Node::PosInt(n) => serializer.serialize_u64(*n),
             Node::Object(fields) => serializer.collect_map(
                 fields
                     .iter()

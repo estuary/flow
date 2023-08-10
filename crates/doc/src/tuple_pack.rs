@@ -14,9 +14,9 @@ impl<'n, N: AsNode> tuple::TuplePack for Node<'n, N> {
             Node::Bool(b) => b.pack(w, tuple_depth),
             Node::Bytes(b) => b.pack(w, tuple_depth),
             Node::Null => Option::<()>::None.pack(w, tuple_depth),
-            Node::Number(json::Number::Float(n)) => n.pack(w, tuple_depth),
-            Node::Number(json::Number::Signed(n)) => n.pack(w, tuple_depth),
-            Node::Number(json::Number::Unsigned(n)) => n.pack(w, tuple_depth),
+            Node::Float(n) => n.pack(w, tuple_depth),
+            Node::NegInt(n) => n.pack(w, tuple_depth),
+            Node::PosInt(n) => n.pack(w, tuple_depth),
             Node::String(s) => s.pack(w, tuple_depth),
         }
     }

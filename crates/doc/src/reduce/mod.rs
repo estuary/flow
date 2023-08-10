@@ -135,40 +135,36 @@ impl<'alloc, L: AsNode, R: AsNode> Cursor<'alloc, '_, '_, '_, '_, L, R> {
     }
 }
 
-fn count_nodes<N: AsNode>(v: &LazyNode<'_, '_, N>) -> usize {
+fn count_nodes_lazy<N: AsNode>(v: &LazyNode<'_, '_, N>) -> usize {
     match v {
-        LazyNode::Node(doc) => count_nodes_generic(&doc.as_node()),
-        LazyNode::Heap(doc) => count_nodes_heap(doc),
+        LazyNode::Node(doc) => count_nodes(*doc),
+        LazyNode::Heap(doc) => count_nodes(doc),
     }
 }
 
-fn count_nodes_generic<N: AsNode>(node: &Node<'_, N>) -> usize {
-    match node {
-        Node::Bool(_) | Node::Null | Node::String(_) | Node::Number(_) | Node::Bytes(_) => 1,
-        Node::Array(v) => v
-            .iter()
-            .fold(1, |c, vv| c + count_nodes_generic(&vv.as_node())),
-        Node::Object(v) => v.iter().fold(1, |c, field| {
-            c + count_nodes_generic(&field.value().as_node())
-        }),
+fn count_nodes<N: AsNode>(node: &N) -> usize {
+    match node.as_node() {
+        Node::Bool(_)
+        | Node::Bytes(_)
+        | Node::Float(_)
+        | Node::NegInt(_)
+        | Node::Null
+        | Node::PosInt(_)
+        | Node::String(_) => 1,
+
+        Node::Array(v) => count_nodes_items(v),
+        Node::Object(v) => count_nodes_fields::<N>(v),
     }
 }
 
-// A HeapNode can also be counted as an AsNode, but this is faster (it avoids Node<> conversion).
-fn count_nodes_heap(node: &HeapNode<'_>) -> usize {
-    match node {
-        HeapNode::Bool(_)
-        | HeapNode::Bytes(_)
-        | HeapNode::Float(_)
-        | HeapNode::NegInt(_)
-        | HeapNode::Null
-        | HeapNode::PosInt(_)
-        | HeapNode::String(_) => 1,
-        HeapNode::Array(v) => v.iter().fold(1, |c, vv| c + count_nodes_heap(vv)),
-        HeapNode::Object(v) => v
-            .iter()
-            .fold(1, |c, field| c + count_nodes_heap(&field.value)),
-    }
+fn count_nodes_items<N: AsNode>(items: &[N]) -> usize {
+    items.iter().fold(1, |c, vv| c + count_nodes(vv))
+}
+
+fn count_nodes_fields<N: AsNode>(fields: &N::Fields) -> usize {
+    fields
+        .iter()
+        .fold(1, |c, field| c + count_nodes(field.value()))
 }
 
 fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
@@ -182,7 +178,7 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
         EitherOrBoth::Left(lhs) => Ok(lhs.into_heap_field(alloc)),
         EitherOrBoth::Right(rhs) => {
             let rhs = rhs.into_heap_field(alloc);
-            *tape = &tape[count_nodes_heap(&rhs.value)..];
+            *tape = &tape[count_nodes(&rhs.value)..];
             Ok(rhs)
         }
         EitherOrBoth::Both(lhs, rhs) => {
@@ -235,7 +231,7 @@ fn reduce_item<'alloc, L: AsNode, R: AsNode>(
         EitherOrBoth::Left((_, lhs)) => Ok(lhs.into_heap_node(alloc)),
         EitherOrBoth::Right((_, rhs)) => {
             let rhs = rhs.into_heap_node(alloc);
-            *tape = &tape[count_nodes_heap(&rhs)..];
+            *tape = &tape[count_nodes(&rhs)..];
             Ok(rhs)
         }
         EitherOrBoth::Both((_, lhs), (index, rhs)) => Cursor {
@@ -299,11 +295,8 @@ pub mod test {
         let alloc = HeapNode::new_allocator();
 
         let test_case = |fixture: Value, expect: usize| {
-            assert_eq!(count_nodes_generic(&fixture.as_node()), expect);
-            assert_eq!(
-                count_nodes_heap(&HeapNode::from_node(fixture.as_node(), &alloc)),
-                expect
-            );
+            assert_eq!(count_nodes(&fixture), expect);
+            assert_eq!(count_nodes(&HeapNode::from_node(&fixture, &alloc)), expect);
         };
 
         test_case(json!(true), 1);
@@ -349,9 +342,7 @@ pub mod test {
             };
             let rhs_valid = validator.validate(None, &rhs).unwrap().ok().unwrap();
 
-            let lhs_cloned = lhs
-                .as_ref()
-                .map(|doc| HeapNode::from_node(doc.as_node(), &alloc));
+            let lhs_cloned = lhs.as_ref().map(|doc| HeapNode::from_node(doc, &alloc));
 
             let reduced = match lhs_cloned {
                 Some(lhs) => reduce(
@@ -361,7 +352,7 @@ pub mod test {
                     &alloc,
                     prune,
                 ),
-                None => Ok(HeapNode::from_node(rhs.as_node(), &alloc)),
+                None => Ok(HeapNode::from_node(&rhs, &alloc)),
             };
 
             match expect {

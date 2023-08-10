@@ -394,7 +394,7 @@ mod test {
     use super::*;
     use serde_json::{json, Value};
 
-    use crate::{AsNode, Validator};
+    use crate::Validator;
     use json::schema::build::build_schema;
 
     #[test]
@@ -421,7 +421,7 @@ mod test {
         );
         let add_and_compact = |docs: &[(bool, Value)]| {
             for (full, doc) in docs {
-                let fixture = HeapNode::from_node(doc.as_node(), memtable.alloc());
+                let fixture = HeapNode::from_node(doc, memtable.alloc());
                 memtable.add(fixture, *full).unwrap();
             }
             memtable.compact().unwrap();

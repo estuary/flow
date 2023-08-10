@@ -5,9 +5,11 @@ pub enum Node<'a, N: AsNode> {
     Array(&'a [N]),
     Bool(bool),
     Bytes(&'a [u8]),
+    Float(f64),
+    NegInt(i64),
     Null,
-    Number(json::Number),
     Object(&'a N::Fields),
+    PosInt(u64),
     String(&'a str),
 }
 
@@ -121,7 +123,7 @@ pub use diff::diff;
 #[cfg(test)]
 mod test {
 
-    use super::{ArchivedNode, AsNode, BumpStr, BumpVec, HeapNode};
+    use super::{ArchivedNode, AsNode, BumpStr, BumpVec, HeapNode, Node};
     use serde_json::json;
 
     #[test]
@@ -223,5 +225,9 @@ mod test {
 
         // Instead, BumpVec is 8 bytes.
         assert_eq!(std::mem::size_of::<BumpVec<bool>>(), 8);
+
+        // Node is 24 bytes.
+        assert_eq!(std::mem::size_of::<Node<'static, HeapNode<'static>>>(), 24);
+        assert_eq!(std::mem::align_of::<Node<'static, HeapNode<'static>>>(), 8);
     }
 }
