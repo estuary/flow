@@ -1,5 +1,4 @@
 use super::{heap, AsNode, BumpStr, BumpVec, Field, Fields, HeapNode, Node};
-
 use rkyv::ser::Serializer;
 
 // `rkyv` generates types that mirror the 'alloc lifetime parameter,
@@ -83,16 +82,20 @@ where
 impl AsNode for ArchivedNode {
     type Fields = [ArchivedField];
 
+    // We *always* want this inline, because the caller will next match
+    // over our returned Node, and (when inline'd) the optimizer can
+    // collapse the chained `match` blocks into one.
+    #[inline(always)]
     fn as_node<'a>(&'a self) -> Node<'a, Self> {
         match self {
             ArchivedNode::Array(a) => Node::Array(a.as_slice()),
             ArchivedNode::Bool(b) => Node::Bool(*b),
             ArchivedNode::Bytes(b) => Node::Bytes(b),
-            ArchivedNode::Float(n) => Node::Number(json::Number::Float(n.value())),
-            ArchivedNode::NegInt(n) => Node::Number(json::Number::Signed(n.value())),
+            ArchivedNode::Float(n) => Node::Float(n.value()),
+            ArchivedNode::NegInt(n) => Node::NegInt(n.value()),
             ArchivedNode::Null => Node::Null,
             ArchivedNode::Object(o) => Node::Object(o.as_slice()),
-            ArchivedNode::PosInt(n) => Node::Number(json::Number::Unsigned(n.value())),
+            ArchivedNode::PosInt(n) => Node::PosInt(n.value()),
             ArchivedNode::String(s) => Node::String(s),
         }
     }
@@ -109,19 +112,22 @@ impl Fields<ArchivedNode> for [ArchivedField] {
         }
     }
 
+    #[inline]
     fn len(&self) -> usize {
         <[ArchivedField]>::len(self)
     }
-
+    #[inline]
     fn iter<'a>(&'a self) -> Self::Iter<'a> {
         <[ArchivedField]>::iter(self)
     }
 }
 
 impl<'a> Field<'a, ArchivedNode> for &'a ArchivedField {
+    #[inline(always)]
     fn property(&self) -> &'a str {
         &self.property
     }
+    #[inline(always)]
     fn value(&self) -> &'a ArchivedNode {
         &self.value
     }

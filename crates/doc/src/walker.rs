@@ -56,20 +56,25 @@ pub fn walk_document<'l, N: AsNode, W: json::Walker>(
             walker.pop_null(&span, location);
             span
         }
-        Node::Number(v) => {
-            let hash = match v {
-                json::Number::Float(f) => {
-                    // Separately hash integral and fractional hash parts to maintain equality
-                    // between integer f64 values and u64/i64 types.
-                    let vt = f.trunc();
-                    hash64(&(vt as i64)) ^ hash64(&(f - vt).to_bits())
-                }
-                json::Number::Unsigned(u) => hash64(&u),
-                json::Number::Signed(s) => hash64(&s),
+        Node::Float(f) => {
+            let hash = {
+                // Separately hash integral and fractional hash parts to maintain equality
+                // between integer f64 values and u64/i64 types.
+                let vt = f.trunc();
+                hash64(&(vt as i64)) ^ hash64(&(f - vt).to_bits())
             };
-
             let span = Span::new(span_begin, hash);
-            walker.pop_numeric(&span, location, v);
+            walker.pop_numeric(&span, location, json::Number::Float(f));
+            span
+        }
+        Node::NegInt(s) => {
+            let span = Span::new(span_begin, hash64(&s));
+            walker.pop_numeric(&span, location, json::Number::Signed(s));
+            span
+        }
+        Node::PosInt(u) => {
+            let span = Span::new(span_begin, hash64(&u));
+            walker.pop_numeric(&span, location, json::Number::Unsigned(u));
             span
         }
         Node::String(v) => {

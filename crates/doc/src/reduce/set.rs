@@ -1,5 +1,5 @@
 use super::{
-    compare_key, compare_key_lazy, count_nodes, count_nodes_heap, reduce_item, reduce_prop, Cursor,
+    compare_key, compare_key_lazy, count_nodes, count_nodes_lazy, reduce_item, reduce_prop, Cursor,
     Error, Index, Result,
 };
 use crate::{
@@ -9,7 +9,7 @@ use crate::{
 use itertools::EitherOrBoth;
 use std::iter::Iterator;
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Set {
     #[serde(default)]
@@ -218,7 +218,7 @@ impl<'alloc> Builder<'alloc, '_, '_> {
                 }
                 EitherOrBoth::Right((_, rhs)) if RIGHT & mask != 0 => {
                     let rhs = rhs.into_heap_node(alloc);
-                    **tape = &tape[count_nodes_heap(&rhs)..];
+                    **tape = &tape[count_nodes(&rhs)..];
                     arr.push(rhs, alloc);
                 }
                 EitherOrBoth::Both(_, _) if BOTH & mask != 0 => {
@@ -228,7 +228,7 @@ impl<'alloc> Builder<'alloc, '_, '_> {
                     // Discard.
                 }
                 EitherOrBoth::Right((_, rhs)) | EitherOrBoth::Both(_, (_, rhs)) => {
-                    **tape = &tape[count_nodes(&rhs)..]; // Discard, but count nodes.
+                    **tape = &tape[count_nodes_lazy(&rhs)..]; // Discard, but count nodes.
                 }
             };
         }
@@ -305,7 +305,7 @@ impl<'alloc> Builder<'alloc, '_, '_> {
                 }
                 EitherOrBoth::Right(rhs) if RIGHT & mask != 0 => {
                     let rhs: HeapField = rhs.into_heap_field(alloc);
-                    **tape = &tape[count_nodes_heap(&rhs.value)..];
+                    **tape = &tape[count_nodes(&rhs.value)..];
                     fields.push(rhs, alloc);
                 }
                 EitherOrBoth::Both(_, _) if BOTH & mask != 0 => {
@@ -316,7 +316,7 @@ impl<'alloc> Builder<'alloc, '_, '_> {
                 }
                 EitherOrBoth::Right(rhs) | EitherOrBoth::Both(_, rhs) => {
                     let (_property, value) = rhs.into_parts();
-                    **tape = &tape[count_nodes(&value)..]; // Discard, but count nodes.
+                    **tape = &tape[count_nodes_lazy(&value)..]; // Discard, but count nodes.
                 }
             };
         }
