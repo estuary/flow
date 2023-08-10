@@ -65,16 +65,25 @@ func (c *Combine) Configure(
 	combineConfigureCounter.WithLabelValues(fqn, collection.String()).Inc()
 	c.metrics = newCombineMetrics(fqn, collection)
 
+	// TODO (jshearer): Plumb through existing inferred schemas
+	// to provide a fleshed-out starting point for schema inference.
+	// Before that though, if schema inference is desired then start
+	// out with the maximally restrictive schema, otherwise empty to disable.
+	var schemaInferenceJson = ""
+	if enableSchemaInference {
+		schemaInferenceJson = "false"
+	}
+
 	c.svc.mustSendMessage(
 		uint32(pf.CombineAPI_CONFIGURE),
 		&pf.CombineAPI_Config{
-			SchemaJson:            schemaJSON,
-			KeyPtrs:               keyPtrs,
-			Fields:                fields,
-			UuidPlaceholderPtr:    uuidPtr,
-			Projections:           projections,
-			CollectionName:        collection.String(),
-			EnableSchemaInference: enableSchemaInference,
+			SchemaJson:         schemaJSON,
+			KeyPtrs:            keyPtrs,
+			Fields:             fields,
+			UuidPlaceholderPtr: uuidPtr,
+			Projections:        projections,
+			CollectionName:     collection.String(),
+			InferSchemaJson:    schemaInferenceJson,
 		})
 
 	return pollExpectNoOutput(c.svc)

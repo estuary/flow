@@ -602,8 +602,9 @@ message CombineAPI {
     repeated Projection projections = 5 [ (gogoproto.nullable) = false ];
     // The name of the collection that's being written to.
     string collection_name = 6;
-    // Whether to emit maximally-constrained schemas as documents are combined.
-    bool enable_schema_inference = 7;
+    // JSON-encoded string representing the JSON schema to start inference
+    // from. If empty, do not emit inferred schemas.
+    string infer_schema_json = 7;
   };
 
   // Stats holds statistics relating to one or more combiner transactions.

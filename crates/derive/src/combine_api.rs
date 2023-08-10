@@ -1,6 +1,7 @@
 use crate::{new_validator, DebugJson, DocCounter, JsonError, StatsAccumulator};
 use anyhow::Context;
 use bytes::Buf;
+use doc::shape::shape_from_value;
 use prost::Message;
 use proto_flow::flow::combine_api::{self, Code};
 
@@ -101,7 +102,7 @@ impl cgo::Service for API {
                     uuid_placeholder_ptr,
                     projections,
                     collection_name,
-                    enable_schema_inference,
+                    infer_schema_json,
                 } = combine_api::Config::decode(data)?;
                 tracing::debug!(
                     %schema_json,
@@ -109,7 +110,7 @@ impl cgo::Service for API {
                     ?fields,
                     ?uuid_placeholder_ptr,
                     ?collection_name,
-                    ?enable_schema_inference,
+                    schema_inference = infer_schema_json.len()>0,
                     "configure",
                 );
 
@@ -133,18 +134,26 @@ impl cgo::Service for API {
                     validator,
                 )?;
 
+                // If `infer_schema_json` is valid JSON then enable schema inference
+                // by setting Shape to Some, and use the schema defined by `infer_schema_json`
+                // as the default schema to start from. Otherwise, disable schema inference.
+                // TODO (jshearer): We're special-casing "false" here because at the moment,
+                // the Go side of things doesn't actually know how to load a useful inferred schema
+                // and instead always passes the maximally-restrictive "false" value. Once we teach
+                // it how to fetch useful inferred schemas, we should remove this special case.
+                let shape = if infer_schema_json.eq("false") {
+                    self.state
+                        .as_ref()
+                        .and_then(|state| state.shape.clone())
+                        .or(Some(doc::Shape::nothing()))
+                } else if let Ok(schema) = serde_json::to_value(infer_schema_json) {
+                    Some(shape_from_value(schema))
+                } else {
+                    None
+                };
                 self.state = Some(State {
                     combiner,
-                    // Always Some if enable_schema_inference, else always None
-                    shape: enable_schema_inference.then(|| {
-                        // We want schema inference
-                        self.state
-                            .as_ref()
-                            // Re-use the existing shape if it exists
-                            .and_then(|state| state.shape.clone())
-                            // Otherwise start fresh
-                            .unwrap_or(doc::Shape::nothing())
-                    }),
+                    shape,
                     shape_changed: false,
                     fields_ex,
                     key_ex,
@@ -360,7 +369,7 @@ pub mod test {
                     },
                 ],
                 collection_name: "test".to_string(),
-                enable_schema_inference: false,
+                infer_schema_json: "".to_string(),
             },
             &mut arena,
             &mut out,
@@ -454,7 +463,7 @@ pub mod test {
                     uuid_placeholder_ptr: String::new(),
                     projections: vec![],
                     collection_name: "test".to_string(),
-                    enable_schema_inference: false,
+                    infer_schema_json: "".to_string(),
                 },
                 &mut arena,
                 &mut out,
@@ -726,7 +735,7 @@ pub mod test {
                 uuid_placeholder_ptr: String::new(),
                 projections,
                 collection_name: "test".to_string(),
-                enable_schema_inference: false,
+                infer_schema_json: "".to_string(),
             },
             &mut arena,
             &mut out,
