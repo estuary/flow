@@ -4,7 +4,6 @@ reduce:
 required:
   - collection_name
   - schema
-  - ts
 properties:
   collection_name:
     type: string
@@ -14,9 +13,3 @@ properties:
     description: The inferred schema
     reduce:
       strategy: jsonSchemaMerge
-  ts:
-    description: The timestamp at which the task failure was reported
-    format: date-time
-    type: string
-    reduce:
-      strategy: firstWriteWins

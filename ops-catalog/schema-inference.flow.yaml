@@ -5,7 +5,6 @@ collections:
     projections:
       collection_name: /collection_name
       schema: /schema
-      ts: /ts
 
     derive:
       using:
@@ -16,7 +15,7 @@ collections:
         - name: from-ops.us-central1.v1
           source: ops.us-central1.v1/private/schema-inference-L1
           shuffle: any
-          lambda: select $ts, $collection_name, $schema;
+          lambda: select $collection_name, $schema;
   ops.us-central1.v1/private/schema-inference-L1:
     derive:
       using:
@@ -27,13 +26,11 @@ collections:
           shuffle: any
           lambda: |
             select
-              $ts,
               $fields->'collection_name' as collection_name,
               $fields->'schema' as schema
             where $message = 'inferred schema updated';
     projections:
       collection_name: /collection_name
       schema: /schema
-      ts: /ts
     key: [/collection_name]
     schema: schema-inference.schema.yaml
