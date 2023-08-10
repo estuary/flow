@@ -271,6 +271,8 @@ func (c *Capture) startReadingMessages(
 			binding.Collection.Key,
 			binding.Collection.PartitionFields,
 			binding.Collection.Projections,
+			// Enable schema inference for captures
+			true,
 		)
 	}
 

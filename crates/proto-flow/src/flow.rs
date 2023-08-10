@@ -896,6 +896,13 @@ pub mod combine_api {
         /// TODO(johnny): This is a kludge as we seek to remove this API.
         #[prost(message, repeated, tag = "5")]
         pub projections: ::prost::alloc::vec::Vec<super::Projection>,
+        /// The name of the collection that's being written to.
+        #[prost(string, tag = "6")]
+        pub collection_name: ::prost::alloc::string::String,
+        /// JSON-encoded string representing the JSON schema to start inference
+        /// from. If empty, do not emit inferred schemas.
+        #[prost(string, tag = "7")]
+        pub infer_schema_json: ::prost::alloc::string::String,
     }
     /// Stats holds statistics relating to one or more combiner transactions.
     #[allow(clippy::derive_partial_eq_without_eq)]

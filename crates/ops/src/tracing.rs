@@ -172,7 +172,15 @@ impl<'a> tracing::field::Visit for FieldVisitor<'a> {
     }
 
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        self.record_raw(field, format!("{value:?}"))
+        let stringified = format!("{value:?}");
+        match serde_json::from_str::<serde::de::IgnoredAny>(&stringified) {
+            Ok(_) => {
+                self.0
+                    .fields_json_map
+                    .insert(field.name().to_string(), stringified);
+            }
+            Err(_) => self.record_raw(field, stringified),
+        };
     }
 }
 
@@ -349,7 +357,7 @@ mod test {
             "level": "debug",
             "fields": {
               "module": "ops::tracing::test",
-              "return": "\"ok\""
+              "return": "ok"
             },
             "spans": [
               {
