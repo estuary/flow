@@ -1,5 +1,6 @@
 use super::Error;
 use doc::{
+    reduce,
     shape::{self, location::Exists},
     validation, Shape,
 };
@@ -81,7 +82,7 @@ impl Schema {
 
         if !matches!(
             shape.reduction,
-            shape::Reduction::Unset | shape::Reduction::LastWriteWins,
+            shape::Reduction::Unset | shape::Reduction::Strategy(reduce::Strategy::LastWriteWins),
         ) {
             return Err(Error::KeyHasReduction {
                 ptr: ptr.to_string(),

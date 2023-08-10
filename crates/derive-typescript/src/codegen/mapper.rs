@@ -73,7 +73,7 @@ impl Mapper {
                 // Wrap with a `title` keyword comment, but not `description`.
                 if let Some(title) = &shape.title {
                     ast = AST::Comment {
-                        body: title.clone(),
+                        body: title.to_string(),
                         of: Box::new(ast),
                     };
                 }
@@ -93,7 +93,7 @@ impl Mapper {
             }
             (Some(s), None) | (None, Some(s)) => {
                 ast = AST::Comment {
-                    body: s.clone(),
+                    body: s.to_string(),
                     of: Box::new(ast),
                 };
             }
@@ -107,10 +107,10 @@ impl Mapper {
         // Is this a trivial ANY type?
         if shape.type_ == types::ANY
             && shape.enum_.is_none()
-            && shape.array.additional.is_none()
+            && shape.array.additional_items.is_none()
             && shape.array.tuple.is_empty()
             && shape.object.properties.is_empty()
-            && shape.object.additional.is_none()
+            && shape.object.additional_properties.is_none()
         {
             return AST::Unknown;
         }
@@ -160,10 +160,10 @@ impl Mapper {
 
         for prop in &obj.properties {
             let field = if TS_VARIABLE_RE.is_match(&prop.name) {
-                prop.name.clone()
+                prop.name.to_string()
             } else {
                 // Use JSON encoding to escape and quote the property.
-                serde_json::Value::String(prop.name.clone()).to_string()
+                serde_json::Value::String(prop.name.to_string()).to_string()
             };
 
             props.push(ASTProperty {
@@ -173,8 +173,8 @@ impl Mapper {
             });
         }
 
-        if !obj.patterns.is_empty()
-            || matches!(&obj.additional, Some(addl) if addl.type_ != types::INVALID)
+        if !obj.pattern_properties.is_empty()
+            || matches!(&obj.additional_properties, Some(addl) if addl.type_ != types::INVALID)
         {
             // TypeScript indexers can model additional properties, but they must be a union
             // type that accommodates *all* types used across any property.
@@ -187,10 +187,10 @@ impl Mapper {
                 merged = Shape::union(merged, prop.shape.clone());
                 has_optional = has_optional || !prop.is_required;
             }
-            for prop in &obj.patterns {
+            for prop in &obj.pattern_properties {
                 merged = Shape::union(merged, prop.shape.clone());
             }
-            match &obj.additional {
+            match &obj.additional_properties {
                 Some(addl) if addl.type_ != types::INVALID => {
                     merged = Shape::union(merged, addl.as_ref().clone());
                 }
@@ -221,7 +221,7 @@ impl Mapper {
 
     fn array_to_ast(&self, arr: &ArrayShape) -> AST {
         if arr.tuple.is_empty() {
-            let spread = match &arr.additional {
+            let spread = match &arr.additional_items {
                 None => AST::Unknown,
                 Some(shape) => self.to_ast(&shape),
             };
@@ -232,7 +232,7 @@ impl Mapper {
 
         let items = arr.tuple.iter().map(|l| self.to_ast(l)).collect::<Vec<_>>();
 
-        let spread = match &arr.additional {
+        let spread = match &arr.additional_items {
             // The test filters cases of, eg, additionalItems: false.
             Some(addl) if addl.type_ != types::INVALID => Some(Box::new(self.to_ast(&addl))),
             _ => None,
@@ -241,7 +241,7 @@ impl Mapper {
         AST::Tuple(ASTTuple {
             items,
             spread,
-            min_items: arr.min.unwrap_or(0),
+            min_items: arr.min_items as usize,
         })
     }
 }

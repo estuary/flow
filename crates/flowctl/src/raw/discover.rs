@@ -220,8 +220,8 @@ fn schema_to_sample_json(schema_shape: &Shape) -> Result<serde_json::Value, anyh
             .expect("structure must be valid");
 
         // If there is a default value for this location, use that
-        if let Some((default_value, _)) = &shape.default {
-            *v = default_value.clone()
+        if let Some(default_value) = &shape.default {
+            *v = default_value.0.clone()
         }
         // Otherwise set a value depending on the type
 

@@ -169,8 +169,9 @@ pub fn build_drop_query(table: &Table) -> Result<String, Error> {
 fn projection_type_to_firebolt_type(shape: &Shape) -> Option<FireboltType> {
     if shape.type_.overlaps(types::STRING) {
         Some(FireboltType::Text)
-    } else if shape.type_.overlaps(types::ARRAY) && matches!(shape.array.additional, Some(_)) {
-        let inner_type = projection_type_to_firebolt_type(shape.array.additional.as_ref()?)?;
+    } else if shape.type_.overlaps(types::ARRAY) && matches!(shape.array.additional_items, Some(_))
+    {
+        let inner_type = projection_type_to_firebolt_type(shape.array.additional_items.as_ref()?)?;
         Some(FireboltType::Array(Box::new(inner_type)))
     } else if shape.type_.overlaps(types::BOOLEAN) {
         Some(FireboltType::Boolean)

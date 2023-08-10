@@ -5,12 +5,12 @@ use crate::{
 };
 use anyhow::anyhow;
 use bytelines::AsyncByteLines;
-use doc::{shape::schema::SchemaBuilder, FailedValidation, SchemaIndexBuilder, Shape};
+use doc::{shape::schema::to_schema, FailedValidation, SchemaIndexBuilder, Shape};
 use futures::{Stream, StreamExt, TryStreamExt};
 use json::schema::build::build_schema;
 use models::Schema;
 use proto_flow::ops::Log;
-use schema_inference::{inference::infer_shape, json_decoder::JsonCodec, shape};
+use schema_inference::json_decoder::JsonCodec;
 use std::{io::ErrorKind, pin::Pin};
 use tokio::io::BufReader;
 use tokio_util::{codec::FramedRead, compat::FuturesAsyncReadCompatExt};
@@ -152,7 +152,7 @@ pub async fn do_suggest_schema(
     // Create a JSONSchema object from the original schema so we can use it to run a diff later
     // The reason for this is that this allows us to have JSONSchema outputs that have a similar
     // structure, allowing us to do a more intuitive diff
-    let original_jsonschema = SchemaBuilder::new(inferred_shape.clone()).root_schema();
+    let original_jsonschema = to_schema(inferred_shape.clone());
 
     loop {
         match docs_stream.next().await {
@@ -160,8 +160,7 @@ pub async fn do_suggest_schema(
                 if parsed.pointer("/_meta/ack").is_some() {
                     continue;
                 }
-
-                inferred_shape = shape::merge(inferred_shape, infer_shape(&parsed))
+                inferred_shape.widen(&parsed);
             }
             Some(Err(e)) => return Err(e.into()),
             None => break,
@@ -169,7 +168,7 @@ pub async fn do_suggest_schema(
     }
 
     // Build a new JSONSchema from the updated inferred shape
-    let new_jsonschema = SchemaBuilder::new(inferred_shape).root_schema();
+    let new_jsonschema = to_schema(inferred_shape);
 
     let collection_name = args.selector.collection.split("/").last().unwrap();
 

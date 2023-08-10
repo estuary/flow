@@ -13,7 +13,7 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
     let default_json = shape
         .default
         .as_ref()
-        .map(|(v, _)| v.to_string())
+        .map(|v| v.0.to_string())
         .unwrap_or_default();
 
     let exists = match exists {
@@ -26,19 +26,33 @@ pub fn inference(shape: &Shape, exists: Exists) -> flow::Inference {
     flow::Inference {
         types: shape.type_.to_vec(),
         exists: exists as i32,
-        title: shape.title.clone().unwrap_or_default(),
-        description: shape.description.clone().unwrap_or_default(),
+        title: shape.title.clone().map(Into::into).unwrap_or_default(),
+        description: shape
+            .description
+            .clone()
+            .map(Into::into)
+            .unwrap_or_default(),
         default_json,
         secret: shape.secret.unwrap_or_default(),
         string: if shape.type_.overlaps(types::STRING) {
             Some(flow::inference::String {
-                content_type: shape.string.content_type.clone().unwrap_or_default(),
+                content_type: shape
+                    .string
+                    .content_type
+                    .clone()
+                    .map(Into::into)
+                    .unwrap_or_default(),
                 format: shape
                     .string
                     .format
                     .map(|f| f.to_string())
                     .unwrap_or_default(),
-                content_encoding: shape.string.content_encoding.clone().unwrap_or_default(),
+                content_encoding: shape
+                    .string
+                    .content_encoding
+                    .clone()
+                    .map(Into::into)
+                    .unwrap_or_default(),
                 max_length: shape.string.max_length.unwrap_or_default() as u32,
             })
         } else {
@@ -609,14 +623,14 @@ mod test {
     fn test_inference() {
         let mut shape = Shape {
             type_: types::STRING | types::BOOLEAN,
-            default: Some((json!({"hello": "world"}), None)),
-            description: Some("the description".to_string()),
-            title: Some("the title".to_owned()),
+            default: Some(Box::new((json!({"hello": "world"}), None))),
+            description: Some("the description".into()),
+            title: Some("the title".into()),
             secret: Some(true),
             string: StringShape {
-                content_encoding: Some("BaSE64".to_owned()),
+                content_encoding: Some("BaSE64".into()),
                 format: Some(json::schema::formats::Format::DateTime),
-                content_type: Some("a/type".to_string()),
+                content_type: Some("a/type".into()),
                 min_length: 10,
                 max_length: Some(123),
             },
