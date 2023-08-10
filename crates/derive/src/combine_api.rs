@@ -1,7 +1,7 @@
 use crate::{new_validator, DebugJson, DocCounter, JsonError, StatsAccumulator};
 use anyhow::Context;
 use bytes::Buf;
-use doc::shape::limits::enforce_field_count_limits;
+use doc::shape::{limits::enforce_field_count_limits, schema::to_schema};
 use prost::Message;
 use proto_flow::flow::combine_api::{self, Code};
 
@@ -55,16 +55,16 @@ impl StatsAccumulator for CombineStats {
 struct State {
     // Combiner which is doing the heavy lifting.
     combiner: doc::Combiner,
+    // Fields which are extracted and returned from combined documents.
+    fields_ex: Vec<doc::Extractor>,
+    // Document key components over which we're grouping while combining.
+    key_ex: Box<[doc::Extractor]>,
     // Inferred shape of drained documents. Some if schema inference
     // is confitured to be enabled, otherwise None
     shape: Option<doc::Shape>,
     // Keeps track of whether the running inferred shape was widened
     // since last being logged.
     shape_changed: bool,
-    // Fields which are extracted and returned from combined documents.
-    fields_ex: Vec<doc::Extractor>,
-    // Document key components over which we're grouping while combining.
-    key_ex: Box<[doc::Extractor]>,
     // Statistics of a current combine operation.
     stats: CombineStats,
     // JSON-Pointer into which a UUID placeholder should be set,
@@ -217,18 +217,20 @@ impl cgo::Service for API {
                     &mut state.shape_changed,
                 )?;
 
-                if let Some(ref shape) = state.shape {
-                    if !more && state.shape_changed {
-                        state.shape_changed = false;
+                if !more {
+                    if let Some(ref shape) = state.shape {
+                        if state.shape_changed {
+                            state.shape_changed = false;
 
-                        let serialized = serde_json::to_value(&doc::to_schema(shape.clone()))
-                            .expect("shape serialization should never fail");
+                            let serialized = serde_json::to_value(&to_schema(shape.clone()))
+                                .expect("shape serialization should never fail");
 
-                        tracing::info!(
-                            schema = ?DebugJson(serialized),
-                            collection_name = state.collection_name,
-                            "inferred schema updated"
-                        );
+                            tracing::info!(
+                                schema = ?DebugJson(serialized),
+                                collection_name = state.collection_name,
+                                "inferred schema updated"
+                            );
+                        }
                     }
 
                     // Send a final message with accumulated stats.

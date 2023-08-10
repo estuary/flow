@@ -114,7 +114,6 @@ pub mod tuple_pack;
 // It's similar to (and built from) a JSON Schema, but includes only
 // those inferences which can be statically proven for all documents.
 pub mod shape;
-pub use shape::schema::to_schema;
 pub use shape::Shape;
 
 // Fancy diff support for documents.
