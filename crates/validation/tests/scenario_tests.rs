@@ -58,6 +58,64 @@ fn connector_validation_is_skipped_when_shards_are_disabled() {
 }
 
 #[test]
+fn test_collection_schema_contains_flow_document() {
+    let fixture = serde_yaml::from_str(
+        r##"
+test://example/catalog.yaml:
+  collections:
+    testing/collection-with-flow-document:
+      key: [/id]
+      schema:
+        type: object
+        properties:
+          id: {type: string}
+          flow_document: {type: object}
+        required: [id]
+
+  storageMappings:
+    testing/:
+      stores: [{provider: S3, bucket: a-bucket}]
+    recovery/:
+      stores: [{provider: S3, bucket: a-bucket}]
+driver:
+  imageInspections: {}
+  captures: {}
+  derivations: {}
+  materializations: {}
+"##,
+    )
+    .unwrap();
+    let tables = run_test(
+        fixture,
+        &flow::build_api::Config {
+            build_id: "collection-contains-flow-document-build-id".to_string(),
+            ..Default::default()
+        },
+    );
+
+    assert!(
+        tables.errors.is_empty(),
+        "expected no errors, got: {:?}",
+        tables.errors
+    );
+
+    let collection = &tables.built_collections[0];
+    assert!(!collection
+        .spec
+        .projections
+        .iter()
+        .any(|p| p.ptr == "/flow_document"));
+
+    let root_projection = collection
+        .spec
+        .projections
+        .iter()
+        .find(|p| p.field == "flow_document")
+        .expect("missing flow_document projection");
+    assert!(root_projection.ptr.is_empty());
+}
+
+#[test]
 fn disabled_bindings_are_ignored() {
     let models = r##"
 test://example/catalog.yaml:
@@ -337,34 +395,6 @@ test://example/int-string:
 
         # Attempt to re-map a canonical projection.
         str: /int
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
-fn test_invalid_remap_of_default_flow_document() {
-    let errors = run_test_errors(
-        &GOLDEN,
-        r#"
-# Collection int-string uses the default `flow_document` projection of the root.
-test://example/int-string.schema:
-  type: object
-  properties:
-    flow_document: { type: boolean }
-
-# Collection int-reverse uses a different `Root` projection of the root.
-# We don't expect it to produce an error from an implicit literal
-# `flow_document` property.
-test://example/int-reverse:
-  collections:
-    testing/int-reverse:
-      schema:
-        $ref: test://example/int-string.schema
-        properties:
-          flow_document: { type: boolean }
-      projections:
-        Root: ""
 "#,
     );
     insta::assert_debug_snapshot!(errors);
