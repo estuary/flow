@@ -1,7 +1,7 @@
-# Google Firestore to Snowflake
+# Google Cloud Firestore to Snowflake
 
 This guide walks you through the process of creating an
-end-to-end real-time Data Flow from Google Firestore to Snowflake using Estuary Flow.
+end-to-end real-time Data Flow from Google Cloud Firestore to Snowflake using Estuary Flow.
 
 ## Prerequisites
 
@@ -31,7 +31,7 @@ If you don't have one, visit the web app to register for free.
 ## Introduction
 
 In Estuary Flow, you create **Data Flows** to transfer data from **source** systems to **destination** systems in real time.
-In this use case, your source is an Google Firestore NoSQL database and your destination is a Snowflake data warehouse.
+In this use case, your source is an Google Cloud Firestore NoSQL database and your destination is a Snowflake data warehouse.
 
 After following this guide, you'll have a Data Flow that comprises:
 
@@ -49,9 +49,9 @@ You'll first create a capture to connect to your Firestore database, which will 
 1. Go to the Flow web application at [dashboard.estuary.dev](https://dashboard.estuary.dev/) and sign in using the
 credentials provided by your Estuary account manager.
 
-2. Click the **Captures** tab and choose **New Capture**.
+2. Click the **Sources** tab and choose **New Capture**.
 
-3. Click the **Google Firestore** tile.
+3. Find the **Google Firestore** tile and click **Capture**.
 
   A form appears with the properties required for a Firestore capture.
 
@@ -59,7 +59,7 @@ credentials provided by your Estuary account manager.
 
     Your capture name must begin with a [prefix](../../concepts/catalogs.md#namespace) to which you [have access](../../reference/authentication.md).
 
-    Click inside the **Name** field to generate a drop-down menu of available prefixes, and select your prefix.
+    In the **Name** field, use the drop-down to select your prefix.
     Append a unique capture name after the `/` to create the full name, for example, `acmeCo/myFirestoreCapture`.
 
 5. Fill out the required properties for Firestore.
@@ -72,19 +72,15 @@ credentials provided by your Estuary account manager.
 
   Flow uses the provided configuration to initiate a connection with Firestore.
 
-  It maps each available Firestore collection to a possible Flow collection. It also generates a capture specification and minimal schemas for each collection.
+  It maps each available Firestore collection to a possible Flow collection. It also generates minimal schemas for each collection.
 
-  You can use the **Collection Selector** to remove or modify collections. You'll have the chance to tighten up each collection's JSON schema later, when you materialize to Snowflake.
-
-  :::tip
-  If you make any changes in the collection editor, click **Next** again.
-  :::
+  You can use the **Source Collections** browser to remove or modify collections. You'll have the chance to tighten up each collection's JSON schema later, when you materialize to Snowflake.
 
   :::tip
-  If you'd rather work on the specification files in their native YAML format, you can use the [flowctl](../../concepts/flowctl.md) CLI. flowctl provides a developer-focused path to build full Data Flows in your preferred development environment.
+  If you make any changes to collections, click **Next** again.
   :::
 
-7. Once you're satisfied with the collections to be captured, click **Save and publish**.
+7. Once you're satisfied with the collections to be captured, click **Save and Publish**.
 
   You'll see a notification when the capture publishes successfully.
 
@@ -96,7 +92,7 @@ credentials provided by your Estuary account manager.
 
 Next, you'll add a Snowflake materialization to connect the captured data to its destination: your data warehouse.
 
-1. On the **Create Materialization** page, search for and select the **Snowflake** tile.
+1. Locate the **Snowflake** tile and click **Materialization**.
 
   A form appears with the properties required for a Snowflake materialization.
 
@@ -119,13 +115,13 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 
   You'll be notified if there's an error. In that case, fix the configuration form or Snowflake setup as needed and click **Next** to try again.
 
-  Once the connection is successful, the Endpoint Config collapses and the Collection Selector becomes prominent.
-  It shows each collection you captured previously.
+  Once the connection is successful, the Endpoint Config collapses and the **Source Collections** browser becomes prominent.
+  It shows the collections you captured previously.
   Each of them will be mapped to a Snowflake table.
 
-5. In the **Collection Selector**, fill in the **Table** field for each collection.
+5. In the **Source Collections** browser, optionally change the name in the **Table** field for each collection.
 
-   The collections you just created have already been selected, but you must provide names for the tables to which they'll be materialized in Snowflake.
+   These will be the names of the output tables in Snowflake.
 
 6. For each table, choose whether to [enable delta updates](../../reference/Connectors/materialization-connectors/Snowflake.md#delta-updates).
 
@@ -135,7 +131,7 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
   To materialize data effectively from Firestore to Snowflake, you should apply a schema can translate to a table structure.
   Flow's **Schema Inference** tool can help.
 
-   1. In the Collection Selector, choose a collection and click its **Specification** tab.
+   1. In the Source Collections browser, choose a collection and click its **Collection** tab.
 
    2. Click **Schema Inference**
 
@@ -143,7 +139,9 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 
    3. Review the new schema and click **Apply Inferred Schema**.
 
-8. Click **Save and Publish**. You'll see a notification when the full Data Flow publishes successfully.
+8. Click **Next** to apply the changes you made to collections.
+
+9. Click **Save and Publish**. You'll see a notification when the full Data Flow publishes successfully.
 
 ## What's next?
 
