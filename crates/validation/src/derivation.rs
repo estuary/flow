@@ -159,11 +159,19 @@ pub async fn walk_all_derivations<C: Connectors>(
                     let read_delay_seconds =
                         read_delay.map(|d| d.as_secs() as u32).unwrap_or_default();
 
-                    let (source_name, source_partitions) = match source {
-                        models::Source::Collection(name) => (name, None),
-                        models::Source::Source(models::FullSource { name, partitions }) => {
-                            (name, partitions.as_ref())
-                        }
+                    let (source_name, source_partitions, not_before, not_after) = match source {
+                        models::Source::Collection(name) => (name, None, None, None),
+                        models::Source::Source(models::FullSource {
+                            name,
+                            partitions,
+                            not_before,
+                            not_after,
+                        }) => (
+                            name,
+                            partitions.as_ref(),
+                            not_before.as_ref(),
+                            not_after.as_ref(),
+                        ),
                     };
                     let partition_selector =
                         Some(assemble::journal_selector(source_name, source_partitions));
@@ -183,6 +191,8 @@ pub async fn walk_all_derivations<C: Connectors>(
                             lambda_config_json,
                             read_only: *read_only,
                             journal_read_suffix,
+                            not_before: not_before.map(assemble::pb_datetime),
+                            not_after: not_after.map(assemble::pb_datetime),
                         },
                     )
                 },
@@ -446,7 +456,17 @@ fn walk_derive_transform(
 
     let (source_name, source_partitions) = match source {
         models::Source::Collection(name) => (name, None),
-        models::Source::Source(models::FullSource { name, partitions }) => {
+        models::Source::Source(models::FullSource {
+            name,
+            partitions,
+            not_before,
+            not_after,
+        }) => {
+            if let (Some(not_before), Some(not_after)) = (not_before, not_after) {
+                if not_before > not_after {
+                    Error::NotBeforeAfterOrder.push(scope.push_prop("source"), errors);
+                }
+            }
             (name, partitions.as_ref())
         }
     };

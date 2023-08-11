@@ -622,6 +622,22 @@ expression: "&schema"
           "title": "Name of the collection to be read.",
           "$ref": "#/definitions/Collection"
         },
+        "notAfter": {
+          "title": "Process documents published only before this timestamp.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "notBefore": {
+          "title": "Process documents published only after this timestamp.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
         "partitions": {
           "title": "Selector over partition of the source collection to read.",
           "examples": [

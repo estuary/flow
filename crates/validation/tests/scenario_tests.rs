@@ -166,7 +166,7 @@ test://example/catalog.yaml:
             source: { name: testing/collection }
             lambda: select $id, 2 as count;
             disable: true
-  
+
 
   captures:
     testing/partially-disabled-capture:
@@ -202,7 +202,7 @@ test://example/catalog.yaml:
         - source: testing/collection
           disable: true
           resource: { stream: disabled-stream }
-      
+
   storageMappings:
     testing/:
       stores: [{provider: S3, bucket: a-bucket}]
@@ -1383,6 +1383,65 @@ driver:
       output: '{"also": "bad"}'
     webhook/connector:
       output: '{"me": "too"}'
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_derivation_not_before_after_ordering() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/int-halve:
+  collections:
+    testing/int-halve:
+      derive:
+        transforms:
+          - name: halveIntString
+            shuffle: { key: [/len, /str] }
+            source:
+              name: testing/int-string-rw
+              notBefore: 2020-03-06T03:02:01Z
+              notAfter:  2019-03-06T03:02:01Z
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_materialization_not_before_after_ordering() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/webhook-deliveries:
+  materializations:
+    testing/webhook/deliveries:
+      bindings:
+        - source:
+            name: testing/int-string
+            notBefore: 2017-03-03T03:02:01Z
+            notAfter:  2016-03-03T03:02:01Z
+          resource: { fixture: one }
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_test_not_before_after() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+test://example/int-string-tests:
+  tests:
+    testing/test:
+      - verify:
+          collection:
+            name: testing/int-string
+            notBefore: 2017-03-03T03:02:01Z
+            notAfter: 2019-03-06T09:30:02Z
+          documents: []
 "#,
     );
     insta::assert_debug_snapshot!(errors);

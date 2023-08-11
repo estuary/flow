@@ -142,11 +142,19 @@ pub async fn walk_all_materializations<C: Connectors>(
                     errors,
                 ));
 
-                let (source_name, source_partitions) = match source {
-                    models::Source::Collection(name) => (name, None),
-                    models::Source::Source(models::FullSource { name, partitions }) => {
-                        (name, partitions.as_ref())
-                    }
+                let (source_name, source_partitions, not_before, not_after) = match source {
+                    models::Source::Collection(name) => (name, None, None, None),
+                    models::Source::Source(models::FullSource {
+                        name,
+                        partitions,
+                        not_before,
+                        not_after,
+                    }) => (
+                        name,
+                        partitions.as_ref(),
+                        not_before.as_ref(),
+                        not_after.as_ref(),
+                    ),
                 };
                 let partition_selector =
                     Some(assemble::journal_selector(source_name, source_partitions));
@@ -169,6 +177,8 @@ pub async fn walk_all_materializations<C: Connectors>(
                         delta_updates: *delta_updates,
                         deprecated_shuffle: None,
                         journal_read_suffix,
+                        not_before: not_before.map(assemble::pb_datetime),
+                        not_after: not_after.map(assemble::pb_datetime),
                     },
                 )
             })
@@ -336,7 +346,17 @@ fn walk_materialization_binding<'a>(
 
     let (collection, source_partitions) = match source {
         models::Source::Collection(collection) => (collection, None),
-        models::Source::Source(models::FullSource { name, partitions }) => {
+        models::Source::Source(models::FullSource {
+            name,
+            partitions,
+            not_before,
+            not_after,
+        }) => {
+            if let (Some(not_before), Some(not_after)) = (not_before, not_after) {
+                if not_before > not_after {
+                    Error::NotBeforeAfterOrder.push(scope.push_prop("source"), errors);
+                }
+            }
             (name, partitions.as_ref())
         }
     };

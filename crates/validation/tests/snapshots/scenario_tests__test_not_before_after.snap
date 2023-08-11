@@ -1,0 +1,14 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-string-tests#/tests/testing~1test/0/notBefore,
+        error: tests do not support `notBefore` and `notAfter`,
+    },
+    Error {
+        scope: test://example/int-string-tests#/tests/testing~1test/0/notAfter,
+        error: tests do not support `notBefore` and `notAfter`,
+    },
+]

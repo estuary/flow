@@ -162,7 +162,9 @@ expression: json_test(msg)
         "shuffleLambdaConfig": "SELECT $shuffle, $key;",
         "lambdaConfig": {"lambda":"config"},
         "readOnly": true,
-        "journalReadSuffix": "derive/a/collection/transform_name"
+        "journalReadSuffix": "derive/a/collection/transform_name",
+        "notBefore": "2023-08-11T03:00:27+00:00",
+        "notAfter": "2023-03-28T10:40:00+00:00"
       }
     ],
     "shuffleKeyTypes": [
