@@ -32,6 +32,8 @@ test://example/catalog.yaml:
               partitions:
                 include: { "a_field": ["foo", 42] }
                 exclude: { "other_field": [false] }
+              notBefore: 2017-03-03T03:02:01Z
+              notAfter: 2019-03-06T09:30:02Z
             readDelay: "1 hour"
             priority: 32
             shuffle:

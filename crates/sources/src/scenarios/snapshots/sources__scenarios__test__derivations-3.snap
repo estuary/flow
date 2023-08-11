@@ -36,7 +36,9 @@ Sources {
                             false
                           ]
                         }
-                      }
+                      },
+                      "notBefore": "2017-03-03T03:02:01Z",
+                      "notAfter": "2019-03-06T09:30:02Z"
                     },
                     "shuffle": {
                       "key": [
@@ -165,7 +167,7 @@ Sources {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"d1/collection":{"schema":"collection.schema.yaml","key":["/d1-key"],"derive":{"using":{"typescript":{"module":"collection.ts"}},"transforms":[{"name":"some-name","source":{"name":"src/collection","partitions":{"include":{"a_field":["foo",42]},"exclude":{"other_field":[false]}}},"shuffle":{"key":["/shuffle","/key"]},"priority":32,"readDelay":"1h"}]}},"d2/collection":{"schema":"collection.schema.yaml","key":["/d2-key"],"journals":{"fragments":{"compressionCodec":"ZSTANDARD","flushInterval":"15m"}},"derive":{"using":{"connector":{"image":"some/image:tag","config":{"remote":"https://example/api"}}},"transforms":[{"name":"do-the-thing","source":"src/collection","shuffle":"any","lambda":42}],"shards":{"disable":true,"minTxnDuration":"15s","maxTxnDuration":"6m","hotStandbys":2,"ringBufferSize":12345,"readChannelSize":6789}}},"d3/collection":{"writeSchema":"collection.write.schema.yaml","readSchema":"collection.read.schema.yaml","key":["/some/key"],"derive":{"using":{"sqlite":{"migrations":["create table foo(bar int);\n","collection.migration.1.sql"]}},"transforms":[{"name":"frob","source":"src/collection","shuffle":{"lambda":"collection.lambda.frob.shuffle.sql"},"lambda":"collection.lambda.frob.sql"}],"shuffleKeyTypes":["string","integer"]}}}},
+            content_dom: {"collections":{"d1/collection":{"schema":"collection.schema.yaml","key":["/d1-key"],"derive":{"using":{"typescript":{"module":"collection.ts"}},"transforms":[{"name":"some-name","source":{"name":"src/collection","partitions":{"include":{"a_field":["foo",42]},"exclude":{"other_field":[false]}},"notBefore":"2017-03-03T03:02:01Z","notAfter":"2019-03-06T09:30:02Z"},"shuffle":{"key":["/shuffle","/key"]},"priority":32,"readDelay":"1h"}]}},"d2/collection":{"schema":"collection.schema.yaml","key":["/d2-key"],"journals":{"fragments":{"compressionCodec":"ZSTANDARD","flushInterval":"15m"}},"derive":{"using":{"connector":{"image":"some/image:tag","config":{"remote":"https://example/api"}}},"transforms":[{"name":"do-the-thing","source":"src/collection","shuffle":"any","lambda":42}],"shards":{"disable":true,"minTxnDuration":"15s","maxTxnDuration":"6m","hotStandbys":2,"ringBufferSize":12345,"readChannelSize":6789}}},"d3/collection":{"writeSchema":"collection.write.schema.yaml","readSchema":"collection.read.schema.yaml","key":["/some/key"],"derive":{"using":{"sqlite":{"migrations":["create table foo(bar int);\n","collection.migration.1.sql"]}},"transforms":[{"name":"frob","source":"src/collection","shuffle":{"lambda":"collection.lambda.frob.shuffle.sql"},"lambda":"collection.lambda.frob.sql"}],"shuffleKeyTypes":["string","integer"]}}}},
         },
         Resource {
             resource: test://example/collection.lambda.frob.shuffle.sql,

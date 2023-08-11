@@ -119,6 +119,7 @@ test://example/webhook-deliveries:
             partitions:
               include:
                 bit: [true]
+            notBefore: 2017-03-03T03:02:01Z
           resource: { fixture: one }
           fields:
             include:
@@ -231,6 +232,7 @@ test://example/int-halve:
                   bit: [true]
                 exclude:
                   bit: [false]
+              notAfter: 2019-03-06T09:30:02Z
             shuffle:
               # Note that /len is defined in int-string-rw's readSchema,
               # but not its writeSchema.

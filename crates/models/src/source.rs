@@ -24,7 +24,22 @@ pub struct FullSource {
     #[schemars(example = "PartitionSelector::example")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub partitions: Option<PartitionSelector>,
-    // TODO(johnny): Add `not_before`, `not_after` ?
+    /// # Process documents published only after this timestamp.
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(schema_with = "super::option_datetime_schema")]
+    pub not_before: Option<time::OffsetDateTime>,
+    /// # Process documents published only before this timestamp.
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(schema_with = "super::option_datetime_schema")]
+    pub not_after: Option<time::OffsetDateTime>,
 }
 
 impl FullSource {
@@ -32,6 +47,8 @@ impl FullSource {
         Self {
             name: Collection::new("source/collection"),
             partitions: None,
+            not_before: None,
+            not_after: None,
         }
     }
 }
@@ -61,6 +78,8 @@ impl Into<FullSource> for Source {
             Self::Collection(name) => FullSource {
                 name,
                 partitions: None,
+                not_before: None,
+                not_after: None,
             },
             Self::Source(source) => source,
         }

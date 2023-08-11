@@ -613,6 +613,13 @@ pub fn label_selector(t: models::LabelSelector) -> broker::LabelSelector {
     }
 }
 
+pub fn pb_datetime(t: &time::OffsetDateTime) -> pbjson_types::Timestamp {
+    pbjson_types::Timestamp {
+        seconds: t.unix_timestamp() as i64,
+        nanos: 0, // Deliberately truncated.
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
