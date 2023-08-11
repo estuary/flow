@@ -82,7 +82,7 @@ func (a *azureBackend) SignGet(ep *url.URL, fragment pb.Fragment, d time.Duratio
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s/%s/%s?%s", cfg.containerURL(), cfg.prefix, blobName, sasQueryParams.Encode()), nil
+	return fmt.Sprintf("%s/%s?%s", cfg.containerURL(), blobName, sasQueryParams.Encode()), nil
 }
 
 func (a *azureBackend) Exists(ctx context.Context, ep *url.URL, fragment pb.Fragment) (bool, error) {
