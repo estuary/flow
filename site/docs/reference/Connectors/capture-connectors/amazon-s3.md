@@ -86,17 +86,6 @@ See the [AWS blog](https://aws.amazon.com/blogs/security/wheres-my-secret-access
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the S3 source connector.
 
-:::tip
-You might organize your S3 bucket using [prefixes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-prefixes.html) to emulate a directory structure.
-This connector can use prefixes in two ways: first, to perform the [**discovery**](../../../concepts/connectors.md#flowctl-discover) phase of setup, and later, when the capture is running.
-
-* You can specify a prefix in the endpoint configuration to limit the overall scope of data discovery.
-* If using the flowctl CLI to write your specification locally, you can specify prefixes on a per-binding basis. This allows you to map each prefix to a distinct Flow collection,
-and informs how the capture will behave in production.
-
-To capture the entire bucket, omit `prefix` in the endpoint configuration and set `stream` to the name of the bucket. (This is the only available method in the web app.)
-:::
-
 ### Properties
 
 #### Endpoint
@@ -114,7 +103,7 @@ To capture the entire bucket, omit `prefix` in the endpoint configuration and se
 | `/parser/compression` | Compression | Determines how to decompress the contents. The default, &#x27;Auto&#x27;, will try to determine the compression automatically. | null, string | `null` |
 | `/parser/format` | Format | Determines how to parse the contents. The default, &#x27;Auto&#x27;, will try to determine the format automatically based on the file extension or MIME type, if available. | object | `{"type":"auto"}` |
 | `/parser/format/type` | Type |  | string |  |
-| `/prefix` | Prefix | Prefix within the bucket to capture from. | string |  |
+| `/prefix` | Prefix | Prefix within the bucket to capture from. Use this to limit the data in your capture. | string |  |
 | **`/region`** | AWS Region | The name of the AWS region where the S3 bucket is located. &quot;us-east-1&quot; is a popular default you can try, if you&#x27;re unsure what to put here. | string | Required, `"us-east-1"` |
 
 #### Bindings
