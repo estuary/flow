@@ -21,18 +21,6 @@ To use this connector, either your GCS bucket must be public, or you must have a
 You configure connectors either in the Flow web app, or by directly editing the catalog specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the GCS source connector.
 
-:::tip
-You might use [prefixes](https://cloud.google.com/storage/docs/samples/storage-list-files-with-prefix) to organize your GCS bucket
-in a way that emulates a directory structure.
-This connector can use prefixes in two ways: first, to perform the [**discovery**](../../../concepts/connectors.md#using-connectors) phase of setup, and later, when the capture is running.
-
-* You can specify a prefix in the endpoint configuration to limit the overall scope of data discovery.
-* You're required to specify prefixes on a per-binding basis. This allows you to map each prefix to a distinct Flow collection,
-and informs how the capture will behave in production.
-
-To capture the entire bucket, omit `prefix` in the endpoint configuration and set `stream` to the name of the bucket.
-:::
-
 ### Properties
 
 #### Endpoint
@@ -48,7 +36,7 @@ To capture the entire bucket, omit `prefix` in the endpoint configuration and se
 | `/parser/compression` | Compression | Determines how to decompress the contents. The default, &#x27;Auto&#x27;, will try to determine the compression automatically. | null, string | `null` |
 | `/parser/format` | Format | Determines how to parse the contents. The default, &#x27;Auto&#x27;, will try to determine the format automatically based on the file extension or MIME type, if available. | object | `{"type":"auto"}` |
 | `/parser/format/type` | Type |  | string |  |
-| `/prefix` | Prefix | Prefix within the bucket to capture from | string |  |
+| `/prefix` | Prefix | Prefix within the bucket to capture from. Use this to limit the data in your capture.| string |  |
 
 #### Bindings
 

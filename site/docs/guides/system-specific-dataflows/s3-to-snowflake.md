@@ -81,12 +81,6 @@ credentials provided by your Estuary account manager.
 
   You'll have the chance to tighten up each collection's JSON schema later, when you materialize to Snowflake.
 
-  :::tip
-  If you'd rather work on the specification files in their native YAML format, you can use the [flowctl](../../concepts/flowctl.md) CLI. flowctl provides a developer-focused path to build full Data Flows in your preferred development environment.
-
-  flowctl also offers access to advanced features — with S3, for instance, you can [map multiple prefixes to different collections within a single capture](../../reference/Connectors/capture-connectors/amazon-s3.md#configuration).
-  :::
-
 7. Click **Save and publish**.
 
   You'll see a notification when the capture publishes successfully.
