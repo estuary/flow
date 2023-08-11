@@ -170,6 +170,10 @@ pub enum Error {
     LocationUnsatisfiable { name: String, location: String },
     #[error("documents to verify are not in collection key order")]
     TestVerifyOrder,
+    #[error("tests do not support `notBefore` and `notAfter`")]
+    TestStepNotBeforeAfter,
+    #[error("a `notBefore` constraint must happen before `notAfter`")]
+    NotBeforeAfterOrder,
     #[error("test ingest document is invalid against the collection schema: {}", serde_json::to_string_pretty(.0).unwrap())]
     IngestDocInvalid(doc::FailedValidation),
     #[error("{entity} {name} bindings duplicate the endpoint resource {resource} at {rhs_scope}")]

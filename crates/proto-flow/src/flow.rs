@@ -248,6 +248,8 @@ pub mod collection_spec {
     /// Nested message and enum types in `Derivation`.
     pub mod derivation {
         /// Transforms of the derivation.
+        ///
+        /// Next tag: 13.
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Transform {
@@ -287,6 +289,12 @@ pub mod collection_spec {
             /// Computed as "derive/{derivation}/{transform}".
             #[prost(string, tag = "10")]
             pub journal_read_suffix: ::prost::alloc::string::String,
+            /// When set, documents before this timestamp are not processed.
+            #[prost(message, optional, tag = "11")]
+            pub not_before: ::core::option::Option<::pbjson_types::Timestamp>,
+            /// When set, documents after this timestamp are not processed.
+            #[prost(message, optional, tag = "12")]
+            pub not_after: ::core::option::Option<::pbjson_types::Timestamp>,
         }
         #[derive(
             Clone,
@@ -518,7 +526,7 @@ pub mod materialization_spec {
     /// materialized. Bindings are ordered and unique on the bound collection name,
     /// and are also unique on the resource path.
     ///
-    /// Next tag: 10.
+    /// Next tag: 12.
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Binding {
@@ -553,6 +561,12 @@ pub mod materialization_spec {
         /// Computed as "materialize/{materialization}/{encoded-resource-path}".
         #[prost(string, tag = "8")]
         pub journal_read_suffix: ::prost::alloc::string::String,
+        /// When set, documents before this timestamp are not processed.
+        #[prost(message, optional, tag = "10")]
+        pub not_before: ::core::option::Option<::pbjson_types::Timestamp>,
+        /// When set, documents after this timestamp are not processed.
+        #[prost(message, optional, tag = "11")]
+        pub not_after: ::core::option::Option<::pbjson_types::Timestamp>,
     }
     /// Nested message and enum types in `Binding`.
     pub mod binding {

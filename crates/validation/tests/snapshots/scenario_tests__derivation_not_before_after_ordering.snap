@@ -1,0 +1,10 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/int-halve#/collections/testing~1int-halve/derive/transforms/0/source,
+        error: a `notBefore` constraint must happen before `notAfter`,
+    },
+]

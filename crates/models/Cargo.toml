@@ -19,6 +19,7 @@ schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 superslice = { workspace = true }
+time = { workspace = true }
 unicode-normalization = { workspace = true }
 url = { workspace = true }
 validator = { workspace = true }
