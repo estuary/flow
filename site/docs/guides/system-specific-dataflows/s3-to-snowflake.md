@@ -48,9 +48,9 @@ You'll first create a capture to connect to your S3 bucket, which will yield one
 1. Go to the Flow web application at [dashboard.estuary.dev](https://dashboard.estuary.dev/) and sign in using the
 credentials provided by your Estuary account manager.
 
-2. Click the **Captures** tab and choose **New Capture**.
+2. Click the **Sources** tab and choose **New Capture**.
 
-3. Click the **Amazon S3** tile.
+3. Find the **Amazon S3** tile and click **Capture**.
 
   A form appears with the properties required for an S3 capture.
 
@@ -58,7 +58,7 @@ credentials provided by your Estuary account manager.
 
     Your capture name must begin with a [prefix](../../concepts/catalogs.md#namespace) to which you [have access](../../reference/authentication.md).
 
-    Click inside the **Name** field to generate a drop-down menu of available prefixes, and select your prefix.
+    In the **Name** field, use the drop-down to select your prefix.
     Append a unique capture name after the `/` to create the full name, for example, `acmeCo/myS3Capture`.
 
 5. Fill out the required properties for S3.
@@ -77,9 +77,8 @@ credentials provided by your Estuary account manager.
 
   Flow uses the provided configuration to initiate a connection to S3.
 
-  It generates a capture specification and details of the collection that it will create, once published.
+  It generates a permissive schema and details of the Flow collection that will store the data from S3.
 
-  You can change the collection name in the **Collection Selector**.
   You'll have the chance to tighten up each collection's JSON schema later, when you materialize to Snowflake.
 
   :::tip
@@ -100,7 +99,7 @@ credentials provided by your Estuary account manager.
 
 Next, you'll add a Snowflake materialization to connect the captured data to its destination: your data warehouse.
 
-1. On the **Create Materialization** page, search for and select the **Snowflake** tile.
+1. Locate the **Snowflake** tile and click **Materialization**.
 
   A form appears with the properties required for a Snowflake materialization.
 
@@ -123,12 +122,12 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 
   You'll be notified if there's an error. In that case, fix the configuration form or Snowflake setup as needed and click **Next** to try again.
 
-  Once the connection is successful, the Endpoint Config collapses and the Collection Selector becomes prominent.
+  Once the connection is successful, the Endpoint Config collapses and the **Source Collections** browser  becomes prominent.
   It shows the collection you captured previously, which will be mapped to a Snowflake table.
 
-5. In the **Collection Selector**, fill in the **Table** field.
+5. In the **Collection Selector**, optionally change the name in the **Table** field.
 
-   The collection you just created is already selected, but you must provide a name for the table to which it'll be materialized in Snowflake.
+   This will be the name of the output table in Snowflake.
 
 6. Choose whether to [enable delta updates](../../reference/Connectors/materialization-connectors/Snowflake.md#delta-updates).
 
@@ -138,7 +137,7 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
   To materialize this data effectively to Snowflake, you should apply a schema that can translate to a table structure.
   Flow's **Schema Inference** tool can help.
 
-   1. In the Collection Selector, click the collection's **Specification** tab.
+   1. In the **Source Collections** browser, click the collection's **Collection** tab.
 
    2. Click **Schema Inference**
 
@@ -146,7 +145,9 @@ Next, you'll add a Snowflake materialization to connect the captured data to its
 
    3. Review the new schema and click **Apply Inferred Schema**.
 
-8. Click **Save and Publish**. You'll see a notification when the full Data Flow publishes successfully.
+8. Click **Next** to apply the changes you made to the collection.
+
+9. Click **Save and Publish**. You'll see a notification when the full Data Flow publishes successfully.
 
 ## What's next?
 
