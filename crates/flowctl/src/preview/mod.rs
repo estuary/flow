@@ -101,15 +101,20 @@ impl Preview {
             )| {
                 let mut data_plane_client = data_plane_client.clone();
                 async move {
-                    Result::<_, anyhow::Error>::Ok((
-                        index,
-                        journal_client::list::list_journals(
-                            &mut data_plane_client,
-                            partition_selector.as_ref().unwrap(),
-                        )
-                        .await
-                        .with_context(|| format!("failed to list journal for transform {name}"))?,
-                    ))
+                    let listing = journal_client::list::list_journals(
+                        &mut data_plane_client,
+                        partition_selector.as_ref().unwrap(),
+                    )
+                    .await
+                    .with_context(|| format!("failed to list journal for transform {name}"))?;
+
+                    if listing.is_empty() {
+                        anyhow::bail!(
+                            "no journals were returned by the selector: {}",
+                            serde_json::to_string_pretty(partition_selector).unwrap()
+                        );
+                    }
+                    Result::<_, anyhow::Error>::Ok((index, listing))
                 }
             },
         ))

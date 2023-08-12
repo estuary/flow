@@ -1,5 +1,7 @@
 collections:
   ops.us-central1.v1/inferred-schemas/L1:
+    schema: schema-inference.schema.yaml
+    key: [/collection_name]
     derive:
       using:
         sqlite: {}
@@ -7,6 +9,20 @@ collections:
         - name: logs
           source:
             name: ops.us-central1.v1/logs
+            partitions:
+              include:
+                kind:
+                  - capture
+              exclude:
+                name:
+                  # Don't read our own inferences.
+                  - ops.us-central1.v1/inferred-schemas/L1
+                  - ops.us-central1.v1/inferred-schemas/L2
+
+                  # NOTE(johnny): In production, I've temporarily held back
+                  # a number of other task logs for $reasons. Do not publish
+                  # directly from ./ops-catalog/ into production quite yet.
+
           shuffle:
             key: [/shard/name] # Use partition-based shuffle.
           lambda: |
@@ -14,8 +30,6 @@ collections:
               $fields->>'collection_name' as collection_name,
               $fields->'schema' as schema
             where $message = 'inferred schema updated';
-    key: [/collection_name]
-    schema: schema-inference.schema.yaml
 
   # A direct-copy of L1, but enables us to add more L1s
   # as we create more data planes.
