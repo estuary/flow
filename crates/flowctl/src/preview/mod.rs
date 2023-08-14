@@ -19,7 +19,7 @@ pub struct Preview {
     /// Collection is required if there are multiple derivations in --source specifications.
     #[clap(long)]
     collection: Option<String>,
-    /// When exiting (for example, upon Ctrl-C), should we update the derivation schema
+    /// When exiting (for example, upon Ctrl-D), should we update the derivation schema
     /// based on observed output documents?
     #[clap(long)]
     infer_schema: bool,
