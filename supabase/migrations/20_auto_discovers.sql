@@ -4,7 +4,7 @@ create view internal.next_auto_discovers as
 select
   live_specs.id as capture_id,
   live_specs.catalog_name as capture_name,
-  live_specs.spec->'endpoint' as endpoint_json,
+  live_specs.spec->'endpoint'->'connector'->'config' as endpoint_json,
   -- These properties default to false, which matches the behavior in the models crate.
   coalesce((live_specs.spec->'autoDiscover'->>'addNewBindings')::boolean, false) as add_new_bindings,
   coalesce((live_specs.spec->'autoDiscover'->>'evolveIncompatibleCollections')::boolean, false) as evolve_incompatible_collections,
@@ -18,16 +18,17 @@ left join discovers on live_specs.catalog_name = discovers.capture_name
 -- We can only perform discovers if we have the connectors and tags rows present.
 -- I'd consider it an improvement if we could somehow refactor this to log a warning in cases where there's no connector_tag
 inner join connectors
-  on split_part(live_specs.spec->'endpoint'->'connector'->>'image', ':', 1) = connectors.image_name
+  on live_specs.connector_image_name = connectors.image_name
 inner join connector_tags
   on connectors.id = connector_tags.connector_id
-  and ':' || split_part(live_specs.spec->'endpoint'->'connector'->>'image', ':', 2) = connector_tags.image_tag
+  and live_specs.connector_image_tag = connector_tags.image_tag
 where
   live_specs.spec_type = 'capture'
   -- We don't want to discover if shards are disabled
-  and not coalesce((live_specs.spec->'shards'->>'disabled')::boolean, false)
-  -- Any non-null value for autoDiscover will enable it.
-  and live_specs.spec->'autoDiscover' is not null
+  and not coalesce((live_specs.spec->'shards'->>'disable')::boolean, false)
+  -- Any non-null value for autoDiscover will enable it, but we need to deal with the difference between
+  -- a JSON null and a postgres NULL.
+  and coalesce(json_typeof(live_specs.spec->'autoDiscover'), 'null') != 'null'
 group by live_specs.id, connector_tags.id
 -- See comment on overdue_interval above
 having now() - coalesce(max(discovers.updated_at), live_specs.created_at) > connector_tags.auto_discover_interval
