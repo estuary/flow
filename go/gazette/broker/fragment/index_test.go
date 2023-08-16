@@ -95,6 +95,7 @@ func (s *IndexSuite) TestQueryAtHead(c *gc.C) {
 		WriteHead: 250,
 		Fragment:  &pb.Fragment{Begin: 200, End: 250},
 	})
+	c.Check(err, gc.IsNil)
 }
 
 func (s *IndexSuite) TestQueryAtMissingMiddle(c *gc.C) {
@@ -159,6 +160,43 @@ func (s *IndexSuite) TestQueryAtMissingMiddle(c *gc.C) {
 	c.Check(resp.Status, gc.Equals, pb.Status_OK)
 }
 
+func (s *IndexSuite) TestQueryWithBeginModTimeConstraint(c *gc.C) {
+	const beginTime int64 = 1500000000
+
+	var set = buildSet(c, 100, 200, 200, 300, 300, 400, 400, 500, 500, 600)
+	set[0].ModTime = beginTime - 10  // 100-200 not matched.
+	set[1].ModTime = beginTime       // 200-300 matched
+	set[2].ModTime = beginTime - 1   // 300-400 not matched.
+	set[3].ModTime = beginTime + 100 // 400-500 matched.
+
+	var ind = NewIndex(context.Background())
+	ind.ReplaceRemote(set[:4])
+	ind.SpoolCommit(set[4]) // 500-600 has no ModTime.
+
+	for _, tc := range []struct {
+		offset, ind int64
+	}{
+		{50, 1},
+		{150, 1},
+		{200, 1},
+		{350, 3},
+		{400, 3},
+		{500, 4},
+	} {
+		var resp, _, _ = ind.Query(context.Background(),
+			&pb.ReadRequest{Offset: tc.offset, BeginModTime: beginTime})
+		c.Check(resp, gc.DeepEquals, &pb.ReadResponse{
+			Offset:    set[tc.ind].Begin,
+			WriteHead: 600,
+			Fragment: &pb.Fragment{
+				Begin:   set[tc.ind].Begin,
+				End:     set[tc.ind].End,
+				ModTime: set[tc.ind].ModTime,
+			},
+		})
+	}
+}
+
 func (s *IndexSuite) TestBlockedContextCancelled(c *gc.C) {
 	var indCtx, indCancel = context.WithCancel(context.Background())
 	var reqCtx, reqCancel = context.WithCancel(context.Background())
@@ -174,7 +212,7 @@ func (s *IndexSuite) TestBlockedContextCancelled(c *gc.C) {
 	c.Check(err, gc.Equals, context.Canceled)
 
 	// Cancel the Index's context. Same deal.
-	reqCtx, reqCancel = context.WithCancel(context.Background())
+	reqCtx = context.Background()
 	go indCancel()
 
 	resp, _, err = ind.Query(reqCtx, &pb.ReadRequest{Offset: -1, Block: true})

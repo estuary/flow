@@ -380,6 +380,11 @@ message ReadRequest {
   bool metadata_only = 6;
   // Offset to read through. If zero, then the read end offset is unconstrained.
   int64 end_offset = 7 [ (gogoproto.casttype) = "Offset" ];
+  // BeginModTime is an optional inclusive lower bound on the modification
+  // timestamps of fragments read from the backing store, represented as
+  // seconds since the epoch. The request Offset will be advanced as-needed
+  // to skip persisted Fragments having a modication time before the bound.
+  int64 begin_mod_time = 8;
 }
 
 // ReadResponse is the streamed response message of the broker Read RPC.

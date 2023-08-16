@@ -71,7 +71,18 @@ func (fi *Index) Query(ctx context.Context, req *pb.ReadRequest) (*pb.ReadRespon
 			found = true
 		}
 
-		if found {
+		if !found {
+			// Pass.
+		} else if f := fi.set[ind].Fragment; f.ModTime != 0 && f.ModTime < req.BeginModTime {
+			// This fragment was modified before the requested lower bound.
+			// Skip the read offset over its content.
+			addTrace(ctx, "Index.Query(%s) => skip offsets [%d, %d) because ModTime %d < BeginModTime %d",
+				req, f.Begin, f.End, f.ModTime, req.BeginModTime)
+
+			resp.Offset = fi.set[ind].End
+			continue
+		} else {
+			// We found a covering fragment.
 			resp.Status = pb.Status_OK
 			resp.WriteHead = fi.set.EndOffset()
 			resp.Fragment = new(pb.Fragment)

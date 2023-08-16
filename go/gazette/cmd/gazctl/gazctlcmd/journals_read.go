@@ -23,6 +23,7 @@ type cmdJournalRead struct {
 	OffsetsPath    string `long:"offsets" description:"Path from which initial journal offsets are read at startup"`
 	OffsetsOutPath string `long:"offsets-out" description:"Path to which final journal offsets are written at exit"`
 	FileRoot       string `long:"file-root" description:"Filesystem path which roots file:// fragment store"`
+	FromUnix       int64  `long:"from" description:"Skip over fragments persisted before this time, in unix seconds since epoch"`
 
 	pumpCh       chan pumpResult                   // Chan into which completed read pumps are sent.
 	beginOffsets map[pb.Journal]int64              // Contents of initial --offsets.
@@ -218,10 +219,11 @@ func (cmd *cmdJournalRead) listRefreshed(ctx context.Context, rjc pb.RoutedJourn
 		var subCtx, fn = context.WithCancel(ctx)
 
 		go pumpReader(client.NewRetryReader(subCtx, rjc, pb.ReadRequest{
-			Journal:    j.Spec.Name,
-			Offset:     offset,
-			Block:      cmd.Block,
-			DoNotProxy: !rjc.IsNoopRouter(),
+			Journal:      j.Spec.Name,
+			Offset:       offset,
+			Block:        cmd.Block,
+			DoNotProxy:   !rjc.IsNoopRouter(),
+			BeginModTime: cmd.FromUnix,
 		}), cmd.pumpCh)
 		nextFns[j.Spec.Name] = fn
 	}
