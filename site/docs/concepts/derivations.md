@@ -389,6 +389,16 @@ collections:
             # Partition selector of the source collection.
             # Optional. Default is to read all partitions.
             partitions: {}
+            # Lower bound date-time for documents which should be
+            # processed by this transform. Source collection documents published
+            # before this date-time are not processed.
+            # Optional. Default is to read all documents.
+            notBefore: 2023-01-23T01:00:00Z
+            # Upper bound date-time for documents which should be
+            # processed by this transform. Source collection documents published
+            # after this date-time are not processed.
+            # Optional. Default is to read all documents.
+            notAfter: 2023-01-23T02:00:00Z
 
           # Lambda of this transform, with a meaning which depends
           # on the derivation connector:
