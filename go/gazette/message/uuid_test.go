@@ -28,6 +28,7 @@ func TestUUIDClock(t *testing.T) {
 
 	// Clock representation is precise to 100ns.
 	require.Equal(t, clock, NewClock(time.Unix(12, 399)))
+	require.Equal(t, clock.AsTime(), time.Unix(12, 300))
 	require.True(t, clock < NewClock(time.Unix(12, 400)))
 	require.True(t, clock > NewClock(time.Unix(12, 299)))
 
@@ -45,6 +46,7 @@ func TestUUIDClock(t *testing.T) {
 	}
 	clock.Tick() // 16th tick.
 	require.Equal(t, clock, NewClock(time.Unix(12, 400)))
+	require.Equal(t, clock.AsTime(), time.Unix(12, 400))
 
 	// Update must never decrease the clock value.
 	clock.Update(time.Unix(11, 100))
@@ -58,6 +60,7 @@ func TestUUIDClock(t *testing.T) {
 	// Sequence bits are reset if the clock timestamp is updated.
 	clock.Update(time.Unix(12, 500))
 	require.Equal(t, clock, NewClock(time.Unix(12, 500)))
+	require.Equal(t, clock.AsTime(), time.Unix(12, 500))
 }
 
 func TestUUIDBuilding(t *testing.T) {

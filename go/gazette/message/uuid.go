@@ -22,12 +22,12 @@ import (
 // Instead, Gazette uses clock sequence bits of UUIDs it generates in the
 // following way:
 //
-//  * The first 2 bits are reserved to represent the variant, as per RFC 4122.
-//  * The next 4 bits extend the 60 bit timestamp with a counter, which allows
-//    for a per-producer UUID generation rate of 160M UUIDs / second before
-//    running ahead of wall-clock time. The timestamp and counter are monotonic,
-//    and together provide a total ordering of UUIDs from each ProducerID.
-//  * The remaining 10 bits are flags, eg for representing transaction semantics.
+//   - The first 2 bits are reserved to represent the variant, as per RFC 4122.
+//   - The next 4 bits extend the 60 bit timestamp with a counter, which allows
+//     for a per-producer UUID generation rate of 160M UUIDs / second before
+//     running ahead of wall-clock time. The timestamp and counter are monotonic,
+//     and together provide a total ordering of UUIDs from each ProducerID.
+//   - The remaining 10 bits are flags, eg for representing transaction semantics.
 type UUID = uuid.UUID
 
 // ProducerID is the unique node identifier portion of a v1 UUID.
@@ -87,6 +87,16 @@ func (c *Clock) Update(t time.Time) {
 // It is safe for concurrent use.
 func (c *Clock) Tick() Clock {
 	return Clock(atomic.AddUint64((*uint64)(c), 1))
+}
+
+// AsTime maps the Clock into an equivalent time.Time.
+func (c Clock) AsTime() time.Time {
+	var (
+		ticks   = int64((c >> 4) - g1582ns100) // Each tick is 100ns relative to unix epoch.
+		seconds = ticks / 10_000_000
+		nanos   = (ticks % 10_000_000) * 100
+	)
+	return time.Unix(seconds, nanos)
 }
 
 // GetClock returns the clock timestamp and sequence as a Clock.
