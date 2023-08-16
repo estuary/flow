@@ -9,10 +9,13 @@ select
   coalesce((live_specs.spec->'autoDiscover'->>'addNewBindings')::boolean, false) as add_new_bindings,
   coalesce((live_specs.spec->'autoDiscover'->>'evolveIncompatibleCollections')::boolean, false) as evolve_incompatible_collections,
   connector_tags.id as connector_tags_id,
-  -- If there's not been any discovers, then we use the capture creation time as the starting point, so that we don't auto-discover
-  -- immediately after a capture is created. This is also required in order to effectively disable auto-discover by setting the
-  -- auto_discover_interval to a really large value. Note that this expression must be consistent with the 'having' clause.
-  now() - coalesce(max(discovers.updated_at), live_specs.created_at) + connector_tags.auto_discover_interval as overdue_interval
+  -- We use the greater of the timestamp of the most recent discover and the
+  -- capture spec updated_at timestamp as the starting point. This is required
+  -- because a successful publication will cause the discover to be deleted. And
+  -- we also don't want autoDiscover to run right after a user runs a discover
+  -- via the UI, or if the last discover was unsuccessful (and thus wasn't
+  -- deleted).
+  now() - greatest(max(discovers.updated_at), live_specs.updated_at) + connector_tags.auto_discover_interval as overdue_interval
 from live_specs
 left join discovers on live_specs.catalog_name = discovers.capture_name
 -- We can only perform discovers if we have the connectors and tags rows present.
@@ -31,8 +34,8 @@ where
   and coalesce(json_typeof(live_specs.spec->'autoDiscover'), 'null') != 'null'
 group by live_specs.id, connector_tags.id
 -- See comment on overdue_interval above
-having now() - coalesce(max(discovers.updated_at), live_specs.created_at) > connector_tags.auto_discover_interval
--- This ordering isn't strictly necessary, but it
+having now() - greatest(max(discovers.updated_at), live_specs.updated_at) > connector_tags.auto_discover_interval
+-- This ordering isn't strictly necessary, but it helps to keep the output consistent for testing
 order by overdue_interval desc;
 
 comment on view internal.next_auto_discovers is
