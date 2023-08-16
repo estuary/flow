@@ -2,10 +2,14 @@ package shuffle
 
 import (
 	"encoding/json"
+	"math"
 	"reflect"
+	"time"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pr "github.com/estuary/flow/go/protocols/runtime"
+	"github.com/gogo/protobuf/types"
+	"go.gazette.dev/core/message"
 )
 
 // shuffle is an internal description of a source shuffle.
@@ -23,7 +27,8 @@ type shuffle struct {
 	// Projections of the shuffled source collection.
 	projections []pf.Projection
 	// Read delay of this shuffle with respect to others of the derivation.
-	readDelaySeconds uint32
+	// This is a *relative* (delta) Clock value.
+	readDelay message.Clock
 	// Key of this shuffle. If empty, then `usesLambda` is true.
 	shuffleKey []string
 	// Partitioned projection fields which fully cover the shuffle key.
@@ -40,6 +45,8 @@ type shuffle struct {
 	usesSourceKey bool
 	// If non-nil, validate the schema on read.
 	validateSchema json.RawMessage
+	// Non-ACK documents before or after these Clocks are filtered.
+	notBefore, notAfter message.Clock
 }
 
 func derivationShuffles(task *pf.CollectionSpec) []shuffle {
@@ -50,13 +57,15 @@ func derivationShuffles(task *pf.CollectionSpec) []shuffle {
 
 	for i := range task.Derivation.Transforms {
 		var transform = task.Derivation.Transforms[i]
+		var readDelay = message.NewClock(time.Unix(int64(transform.ReadDelaySeconds), 0)) - message.NewClock(time.Unix(0, 0))
+		var notBefore, notAfter = notBeforeAfter(transform.NotBefore, transform.NotAfter)
 
 		var shuffle = shuffle{
 			filterRClocks:             transform.ReadOnly,
 			journalReadSuffix:         transform.JournalReadSuffix,
 			priority:                  transform.Priority,
 			projections:               transform.Collection.Projections,
-			readDelaySeconds:          transform.ReadDelaySeconds,
+			readDelay:                 readDelay,
 			shuffleKey:                nil,
 			shuffleKeyPartitionFields: nil,
 			sourceCollection:          transform.Collection.Name,
@@ -65,6 +74,8 @@ func derivationShuffles(task *pf.CollectionSpec) []shuffle {
 			usesLambda:                false,
 			usesSourceKey:             false,
 			validateSchema:            transform.Collection.ReadSchemaJson,
+			notBefore:                 notBefore,
+			notAfter:                  notAfter,
 		}
 
 		// We always validate derivation sources on read,
@@ -109,13 +120,14 @@ func materializationShuffles(task *pf.MaterializationSpec) []shuffle {
 
 	for i := range task.Bindings {
 		var binding = task.Bindings[i]
+		var notBefore, notAfter = notBeforeAfter(binding.NotBefore, binding.NotAfter)
 
 		var shuffle = shuffle{
 			filterRClocks:             false,
 			journalReadSuffix:         binding.JournalReadSuffix,
 			priority:                  binding.Priority,
 			projections:               binding.Collection.Projections,
-			readDelaySeconds:          0,
+			readDelay:                 0,
 			shuffleKey:                binding.Collection.Key,
 			shuffleKeyPartitionFields: nil,
 			sourceCollection:          binding.Collection.Name,
@@ -124,6 +136,8 @@ func materializationShuffles(task *pf.MaterializationSpec) []shuffle {
 			usesLambda:                false,
 			usesSourceKey:             true,
 			validateSchema:            nil,
+			notBefore:                 notBefore,
+			notAfter:                  notAfter,
 		}
 
 		// Migration support for materializations built prior to April 2023.
@@ -151,4 +165,18 @@ func requestShuffle(req *pr.ShuffleRequest) shuffle {
 		panic("must have derivation or materialization")
 	}
 	return shuffles[req.ShuffleIndex]
+}
+
+func notBeforeAfter(notBefore, notAfter *types.Timestamp) (message.Clock, message.Clock) {
+	var (
+		b message.Clock = 0
+		a message.Clock = math.MaxUint64
+	)
+	if m := notBefore; m != nil {
+		b = message.NewClock(time.Unix(m.Seconds, 0))
+	}
+	if m := notAfter; m != nil {
+		a = message.NewClock(time.Unix(m.Seconds, 0))
+	}
+	return b, a
 }

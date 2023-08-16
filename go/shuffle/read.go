@@ -232,8 +232,6 @@ func (rb *ReadBuilder) buildReads(
 			}
 
 			// A *read of this journal doesn't exist. Start one.
-			var readDelaySeconds = int64(rb.shuffles[shuffleIndex].readDelaySeconds)
-			var readDelay = message.NewClock(time.Unix(readDelaySeconds, 0)) - message.NewClock(time.Unix(0, 0))
 
 			added[spec.Name] = &read{
 				publisher: rb.publisher,
@@ -253,7 +251,7 @@ func (rb *ReadBuilder) buildReads(
 				resp:      pr.IndexedShuffleResponse{ShuffleIndex: shuffleIndex},
 				spec:      spec,
 				priority:  rb.shuffles[shuffleIndex].priority,
-				readDelay: readDelay,
+				readDelay: rb.shuffles[shuffleIndex].readDelay,
 			}
 		})
 

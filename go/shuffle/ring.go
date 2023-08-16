@@ -60,7 +60,7 @@ func (c *Coordinator) Subscribe(
 	var sub = subscriber{
 		ctx:            ctx,
 		ShuffleRequest: request,
-		filterRClocks:  shuffle.filterRClocks,
+		shuffle:        shuffle,
 		callback:       callback,
 		staged:         nil,
 		sentTailing:    false,
