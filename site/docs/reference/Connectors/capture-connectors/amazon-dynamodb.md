@@ -77,4 +77,4 @@ captures:
 
 Your capture definition may be more complex, with additional bindings for each DynamoDB table.
 
-[Learn more about capture definitions.](../../../concepts/captures.md#pull-captures)
+[Learn more about capture definitions.](../../../concepts/captures.md#specification)

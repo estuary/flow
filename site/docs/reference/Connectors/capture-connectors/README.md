@@ -20,6 +20,9 @@ All Estuary connectors capture data in real time, as it appears in the source sy
 * Alpaca
   * [Configuration](./alpaca.md)
   * Package - ghcr.io/estuary/source-alpaca:dev
+* Amazon Dynamodb
+  * [Configuration](./amazon-dynamodb.md)
+  * Package - ghcr.io/estuary/source-dynamodb:dev
 * Amazon Kinesis
   * [Configuration](./amazon-kinesis.md)
   * Package — ghcr.io/estuary/source-kinesis:dev
