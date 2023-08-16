@@ -20,10 +20,8 @@ type subscriber struct {
 	ctx context.Context
 	// Request of this subscriber.
 	pr.ShuffleRequest
-	// Should we filter on r-clocks?
-	// TODO(johnny): This could be applied client-side, by widening the r-clock range
-	// of shuffles initiated by non-read-only derivation transforms.
-	filterRClocks bool
+	// Unpacked details of how the shuffle is to be performed.
+	shuffle shuffle
 	// Callback which is invoked with each new ShuffleResponse, or with a final non-nil error.
 	// If a callback returns an error, that error is passed back in the final callback.
 	callback func(*pr.ShuffleResponse, error) error
@@ -138,11 +136,12 @@ func (s subscribers) stageResponses(from *pr.ShuffleResponse) {
 		var rClock = rotateClock(uuid.Clock)
 
 		for i := start; i != stop; i++ {
-			// Stage to the reader if:
-			// * We're not filtering on r-clock values, or
-			// * We are, but the document's r-clock is within the reader's range.
-			if !s[i].filterRClocks ||
-				rClock >= s[i].Range.RClockBegin && rClock < s[i].Range.RClockEnd {
+			// We're not filtering on r-clock values, or we are, but the document's r-clock is within the reader's range.
+			var rClockOkay = !s[i].shuffle.filterRClocks || (rClock >= s[i].Range.RClockBegin && rClock < s[i].Range.RClockEnd)
+			// The UUID Clock is within the allowed [notBefore, notAfter) range.
+			var timeOkay = uuid.Clock >= s[i].shuffle.notBefore && uuid.Clock < s[i].shuffle.notAfter
+
+			if rClockOkay && timeOkay {
 				s[i].stageDoc(from, doc)
 			}
 		}
@@ -212,6 +211,9 @@ func (s *subscribers) add(add subscriber) *pb.ReadRequest {
 			Journal:   add.Journal,
 			Offset:    add.Offset,
 			EndOffset: offset,
+		}
+		if add.shuffle.notBefore != 0 {
+			rr.BeginModTime = add.shuffle.notBefore.AsTime().Unix()
 		}
 	}
 

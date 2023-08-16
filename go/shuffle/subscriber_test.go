@@ -217,7 +217,7 @@ func TestSubscriberResponseStaging(t *testing.T) {
 					RClockEnd:   1<<31 - 1,
 				},
 			},
-			filterRClocks: true,
+			shuffle: shuffle{filterRClocks: true, notAfter: math.MaxUint64},
 		},
 		{ // Sees first half of key space, and second half of clocks.
 			ShuffleRequest: pr.ShuffleRequest{
@@ -228,7 +228,7 @@ func TestSubscriberResponseStaging(t *testing.T) {
 					RClockEnd:   1<<32 - 1,
 				},
 			},
-			filterRClocks: true,
+			shuffle: shuffle{filterRClocks: true, notAfter: math.MaxUint64},
 		},
 		{ // Sees keyspace 0x8 through 0xa, and clocks are ignored since !FilterRClocks.
 			ShuffleRequest: pr.ShuffleRequest{
@@ -239,7 +239,7 @@ func TestSubscriberResponseStaging(t *testing.T) {
 					RClockEnd:   1,
 				},
 			},
-			filterRClocks: false,
+			shuffle: shuffle{filterRClocks: false, notBefore: 10000 << 4, notAfter: 10005 << 4},
 		},
 	}
 
@@ -264,18 +264,20 @@ func TestSubscriberResponseStaging(t *testing.T) {
 		require.Equal(t, tc.hash, flow.PackedKeyHash_HH64([]byte(tc.token)))
 	}
 
-	var tokens = bytes.Split([]byte("bar qib ACK foo fub"), []byte{' '})
+	var tokens = bytes.Split([]byte("foo bar qib ACK foo fub foo"), []byte{' '})
 	var fixture = pr.ShuffleResponse{
 		TerminalError: "an error",
 		ReadThrough:   1000,
 		WriteHead:     2000,
-		Offsets:       []pb.Offset{200, 201, 300, 301, 400, 401, 500, 501, 600, 601},
+		Offsets:       []pb.Offset{100, 101, 200, 201, 300, 301, 400, 401, 500, 501, 600, 601, 700, 701},
 		UuidParts: []pf.UUIDParts{
+			{Clock: 9999 << 4, Node: uint64(message.Flag_CONTINUE_TXN)}, // Before subscriber 3's notBefore.
 			{Clock: 10000 << 4, Node: uint64(message.Flag_CONTINUE_TXN)},
 			{Clock: 10001 << 4, Node: uint64(message.Flag_CONTINUE_TXN)},
 			{Clock: 10002 << 4, Node: uint64(message.Flag_ACK_TXN)},
 			{Clock: 10003 << 4, Node: uint64(message.Flag_CONTINUE_TXN)},
 			{Clock: 10004 << 4, Node: uint64(message.Flag_CONTINUE_TXN)},
+			{Clock: 10005 << 4, Node: uint64(message.Flag_CONTINUE_TXN)}, // After subscriber 3's notAfter.
 		},
 	}
 	fixture.Docs = fixture.Arena.AddAll(tokens...)
@@ -283,11 +285,12 @@ func TestSubscriberResponseStaging(t *testing.T) {
 
 	s.stageResponses(&fixture)
 
-	// Subscriber 0 sees bar & ACK.
+	// Subscriber 0 sees second bar & ACK.
 	require.Equal(t, s[0].staged.Offsets, []pb.Offset{200, 201, 400, 401})
 	// Subscriber 1 sees qib & ACK.
 	require.Equal(t, s[1].staged.Offsets, []pb.Offset{300, 301, 400, 401})
-	// Subscriber 2 sees ACK & foo.
+	// Subscriber 2 sees ACK & second foo.
+	// The first and third foo are outside of the notBefore/notAfter range.
 	require.Equal(t, s[2].staged.Offsets, []pb.Offset{400, 401, 500, 501})
 	// No subscribers see fub.
 
