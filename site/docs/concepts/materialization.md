@@ -61,10 +61,22 @@ materializations:
     # each defined as a separate binding.
     # Required, type: object
     bindings:
-      - # The source collection to materialize.
-        # This may be defined in a separate, imported specification file.
-        # Required, type: string
-        source: acmeCo/example/collection
+      - # Source collection read by this binding.
+        # Required, type: object or string
+        source:
+          # Name of the collection to be read.
+          # Required.
+          name: acmeCo/example/collection
+          # Lower bound date-time for documents which should be
+          # processed by this binding. Source collection documents published
+          # before this date-time are not processed.
+          # Optional. Default is to read all documents.
+          notBefore: 2023-01-23T01:00:00Z
+          # Upper bound date-time for documents which should be
+          # processed by this binding. Source collection documents published
+          # after this date-time are not processed.
+          # Optional. Default is to read all documents.
+          notAfter: 2023-01-23T02:00:00Z
 
         # The resource is additional configuration required by the endpoint
         # connector to identify and materialize a specific endpoint resource.

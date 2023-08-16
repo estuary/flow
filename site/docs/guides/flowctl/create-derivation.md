@@ -154,7 +154,7 @@ If you are writing a derivation using TypeScript from your local terminal rather
 1. Generate the TypeScript module from the newly updated specification file.
 
    ```console
-   flowctl typescript generate --source ./path-to/your-file/flow.yaml
+   flowctl generate --source ./path-to/your-file/flow.yaml
    ```
 
    The TypeScript file you named has been created and stubbed out.

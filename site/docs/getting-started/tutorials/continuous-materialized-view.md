@@ -86,7 +86,7 @@ You must have write or admin access to create a collection in the prefix.
 6. Generate a TypeScript file for the derivation's transformation function.
 
    ```console
-   flowctl typescript generate --source flow.yaml
+   flowctl generate --source flow.yaml
    ```
 
 7. Open `user-fact-table.ts`. It contains a stubbed-out transformation.
