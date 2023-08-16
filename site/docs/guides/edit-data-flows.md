@@ -18,29 +18,29 @@ For more information on the implications of editing, see the [reference document
 
 ## Edit a capture
 
-1. Go to the [Captures page](https://dashboard.estuary.dev/captures) of the web app.
+1. Go to the [Sources page](https://dashboard.estuary.dev/captures) of the web app.
 
 2. Locate the capture you'd like to edit. Click the **Options** button in its table row, then click **Edit specification**.
 
    The Edit Capture page opens.
 
-3. Edit the connection to the destination system, if desired. You can either update fields in the Endpoint Config section or manually update the JSON in the Specification Editor.
+3. Edit the connection to the destination system, if desired. You can either update fields in the Endpoint Config section or manually update the JSON in the Advanced Specification Editor.
 
 :::caution
 You may have to re-authenticate with the source system. Be sure to have current credentials on hand before editing the endpoint configuration.
 :::
 
-4. Use the **Collection Selector** to add or remove collections from the capture, if desired.
+4. Use the **Output Collections** browser to add or remove collections from the capture, if desired.
 
    To refresh your connection with the source and see an updated list of possible collections, click the **Refresh** button,
    but be aware that it will overwrite all existing collection selections.
 
 5. Use the **Schema Inference** tool, if desired.
 
-   Depending on the data source, you may have captured data with a fairly permissive schema.
+   This option is available for source systems with permissive schemas, such as NoSQL databases and cloud storage.
    Flow can help you tighten up the schema to be used for downstream tasks in your Data Flow.
 
-   1. In the Collection Selector, choose a collection and click its **Specification** tab.
+   1. In the Output Collections browser, choose a collection and click its **Collection** tab.
 
    2. Click **Schema Inference**
 
@@ -60,26 +60,26 @@ Data that was captured before editing will reflect the original configuration.
 
 To edit a materialization:
 
-1. Go to the [Materializations page](https://dashboard.estuary.dev/materializations) of the web app.
+1. Go to the [Destinations page](https://dashboard.estuary.dev/materializations) of the web app.
 
 2. Locate the materialization you'd like to edit. Click the **Options** button in its table row, then click **Edit specification**.
 
    The Edit Materialization page opens.
 
-3. Edit the connection to the destination system, if desired. You can either update fields in the Endpoint Config section or manually update the JSON in the Specification Editor.
+3. Edit the connection to the destination system, if desired. You can either update fields in the Endpoint Config section or manually update the JSON in the Advanced Specification Editor.
 
 :::caution
 You may have to re-authenticate with the destination system. Be sure to have current credentials on hand before editing the endpoint configuration.
 :::
 
-4. Use the **Collection Selector** to add or remove collections from the materialization, if desired.
+4. Use the **Source Collections** browser to add or remove collections from the materialization, if desired.
 
 6. Optionally apply a stricter schema to each collection to use for the materialization.
 
-   Depending on the data source, you may have captured data with a fairly permissive schema.
-   Flow can help you tighten up the schema so it'll materialize to your destination in the correct shape.
+   This option is available for collections captured from source systems with permissive schemas, such as NoSQL databases and cloud storage.
+   Flow can help you tighten up the schema to be used for downstream tasks in your Data Flow.
 
-   1. In the Collection Selector, choose a collection and click its **Specification** tab.
+   1. In the Source Collections browser, choose a collection and click its **Collection** tab.
 
    2. Click **Schema Inference**
 
