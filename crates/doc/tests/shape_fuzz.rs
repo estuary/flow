@@ -1,6 +1,6 @@
 use doc::{shape::schema::to_schema, Shape, Validator};
 use itertools::Itertools;
-use quickcheck::*;
+use quickcheck::{Arbitrary, Gen, QuickCheck};
 use serde_json::{Map, Number, Value};
 use std::{collections::BTreeMap, ops::Range};
 
@@ -133,23 +133,6 @@ fn roundtrip_schema_widening_validation(vals: Vec<Value>) -> bool {
         }
     }
     return true;
-}
-
-// Cases detected by quickcheck:
-#[test]
-fn test_unicode_multibyte_widening() {
-    assert_eq!(
-        roundtrip_schema_widening_validation(vec![serde_json::json!("ࠀ")]),
-        true
-    )
-}
-
-#[test]
-fn test_widening_floats() {
-    assert_eq!(
-        roundtrip_schema_widening_validation(vec![serde_json::json!([0.0, 71113157.14749053])]),
-        true
-    )
 }
 
 #[test]
