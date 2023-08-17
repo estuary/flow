@@ -623,7 +623,8 @@ expression: "&schema"
           "$ref": "#/definitions/Collection"
         },
         "notAfter": {
-          "title": "Process documents published only before this timestamp.",
+          "title": "Upper bound date-time for documents which should be processed.",
+          "description": "Source collection documents published after this date-time are filtered. `notAfter` is *only* a filter. Updating its value will not cause Flow to re-process documents that have already been read. Optional. Default is to process all documents.",
           "type": [
             "string",
             "null"
@@ -631,7 +632,8 @@ expression: "&schema"
           "format": "date-time"
         },
         "notBefore": {
-          "title": "Process documents published only after this timestamp.",
+          "title": "Lower bound date-time for documents which should be processed.",
+          "description": "Source collection documents published before this date-time are filtered. `notBefore` is *only* a filter. Updating its value will not cause Flow to re-process documents that have already been read. Optional. Default is to process all documents.",
           "type": [
             "string",
             "null"

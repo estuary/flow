@@ -618,6 +618,24 @@
           "title": "Name of the collection to be read.",
           "$ref": "#/definitions/Collection"
         },
+        "notAfter": {
+          "title": "Upper bound date-time for documents which should be processed.",
+          "description": "Source collection documents published after this date-time are filtered. `notAfter` is *only* a filter. Updating its value will not cause Flow to re-process documents that have already been read. Optional. Default is to process all documents.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "notBefore": {
+          "title": "Lower bound date-time for documents which should be processed.",
+          "description": "Source collection documents published before this date-time are filtered. `notBefore` is *only* a filter. Updating its value will not cause Flow to re-process documents that have already been read. Optional. Default is to process all documents.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
         "partitions": {
           "title": "Selector over partition of the source collection to read.",
           "examples": [
