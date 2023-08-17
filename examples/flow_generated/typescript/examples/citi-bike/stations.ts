@@ -64,11 +64,14 @@ export abstract class IDerivation {
         return [];
     }
 
+    // reset is called only when running catalog tests, and must reset any internal state.
+    async reset() { }
+
     // startCommit is notified of a runtime commit in progress, and returns an optional
     // connector state update to be committed.
     startCommit(_startCommit: { runtimeCheckpoint: unknown }): { state?: { updated: unknown, mergePatch: boolean } } {
         return {};
     }
 
-    abstract ridesAndMoves(source: { doc: SourceRidesAndMoves }): Document[];
+    abstract ridesAndMoves(read: { doc: SourceRidesAndMoves }): Document[];
 }
