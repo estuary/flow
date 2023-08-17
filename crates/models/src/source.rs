@@ -24,7 +24,11 @@ pub struct FullSource {
     #[schemars(example = "PartitionSelector::example")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub partitions: Option<PartitionSelector>,
-    /// # Process documents published only after this timestamp.
+    /// # Lower bound date-time for documents which should be processed.
+    /// Source collection documents published before this date-time are filtered.
+    /// `notBefore` is *only* a filter. Updating its value will not cause Flow
+    /// to re-process documents that have already been read.
+    /// Optional. Default is to process all documents.
     #[serde(
         with = "time::serde::rfc3339::option",
         default,
@@ -32,7 +36,11 @@ pub struct FullSource {
     )]
     #[schemars(schema_with = "super::option_datetime_schema")]
     pub not_before: Option<time::OffsetDateTime>,
-    /// # Process documents published only before this timestamp.
+    /// # Upper bound date-time for documents which should be processed.
+    /// Source collection documents published after this date-time are filtered.
+    /// `notAfter` is *only* a filter. Updating its value will not cause Flow
+    /// to re-process documents that have already been read.
+    /// Optional. Default is to process all documents.
     #[serde(
         with = "time::serde::rfc3339::option",
         default,
