@@ -8,7 +8,7 @@ use std::cmp::Ordering;
 impl StringShape {
     fn widen(&mut self, val: &str, is_first: bool) -> bool {
         if is_first {
-            let (min, max) = length_bounds(val.len());
+            let (min, max) = length_bounds(val.chars().count());
             self.format = Format::detect(val);
             self.max_length = Some(max);
             self.min_length = min;
@@ -32,14 +32,14 @@ impl StringShape {
             }
         }
 
-        if self.min_length as usize > val.len() {
-            self.min_length = length_bounds(val.len()).0;
+        if self.min_length as usize > val.chars().count() {
+            self.min_length = length_bounds(val.chars().count()).0;
             changed = true;
         }
 
         if let Some(max) = &mut self.max_length {
-            if (*max as usize) < val.len() {
-                *max = length_bounds(val.len()).1;
+            if (*max as usize) < val.chars().count() {
+                *max = length_bounds(val.chars().count()).1;
                 changed = true;
             }
         }
@@ -264,12 +264,16 @@ impl Shape {
             return self.widen_enum(node);
         }
 
+        // is_first doesn’t mean “the first time i’ve seen this location”,
+        // it’s “the first time i’ve seen this location with this type”
         let mut apply_type = |type_| -> bool {
-            let is_first = self.type_ & type_ == types::INVALID;
-            if is_first {
+            if self.type_ & type_ != type_ {
+                // Handle INT_OR_FRACT correctly. We could have partial overlap with type_.
+                let is_first = self.type_ & type_ == types::INVALID;
                 self.type_ = self.type_ | type_;
+                return is_first;
             }
-            is_first
+            false
         };
 
         match node.as_node() {
