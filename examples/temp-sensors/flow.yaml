@@ -13,18 +13,17 @@ collections:
   temperature/averages:
     schema: schemas.yaml#/$defs/average
     key: [/sensor/id]
-    derivation:
-      transform:
-        fromSensors:
+    derive:
+      using:
+        typescript: { module: flow.ts }
+      transforms:
+        - name: fromSensors
           source: { name: temperature/sensors }
-          publish: { lambda: typescript }
-        fromReadings:
+          shuffle: { key: [/id] }
+        - name: fromReadings
           shuffle:
             key: [/sensorId]
           source: { name: temperature/readings }
-          publish: { lambda: typescript }
-      typescript:
-        module: flow.ts
 
 materializations:
   temperature/views:
