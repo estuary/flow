@@ -300,7 +300,7 @@ All {
                         ),
                         disable_wait_for_ack: false,
                         ring_buffer_size: 65536,
-                        read_channel_size: 131072,
+                        read_channel_size: 4096,
                     },
                 ),
                 recovery_log_template: Some(
@@ -854,7 +854,7 @@ All {
                         ),
                         disable_wait_for_ack: false,
                         ring_buffer_size: 65536,
-                        read_channel_size: 131072,
+                        read_channel_size: 4096,
                     },
                 ),
                 recovery_log_template: Some(
@@ -1708,7 +1708,7 @@ All {
                                 ),
                                 disable_wait_for_ack: false,
                                 ring_buffer_size: 65536,
-                                read_channel_size: 131072,
+                                read_channel_size: 4096,
                             },
                         ),
                         recovery_log_template: Some(
@@ -2873,7 +2873,7 @@ All {
                                 ),
                                 disable_wait_for_ack: true,
                                 ring_buffer_size: 65536,
-                                read_channel_size: 131072,
+                                read_channel_size: 4096,
                             },
                         ),
                         recovery_log_template: Some(
@@ -3405,7 +3405,7 @@ All {
                                 ),
                                 disable_wait_for_ack: false,
                                 ring_buffer_size: 65536,
-                                read_channel_size: 131072,
+                                read_channel_size: 4096,
                             },
                         ),
                         recovery_log_template: Some(
@@ -4481,7 +4481,7 @@ All {
                         ),
                         disable_wait_for_ack: false,
                         ring_buffer_size: 65536,
-                        read_channel_size: 131072,
+                        read_channel_size: 4096,
                     },
                 ),
                 recovery_log_template: Some(
@@ -5297,7 +5297,7 @@ All {
                         ),
                         disable_wait_for_ack: false,
                         ring_buffer_size: 65536,
-                        read_channel_size: 131072,
+                        read_channel_size: 4096,
                     },
                 ),
                 recovery_log_template: Some(

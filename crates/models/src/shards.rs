@@ -62,7 +62,7 @@ pub struct ShardTemplate {
     /// # Size of the reader channel used for decoded documents.
     /// Larger values are recommended for tasks having more than one
     /// shard split and long, bursty transaction durations.
-    /// If not set, a reasonable default (currently 65,536) is used.
+    /// If not set, a reasonable default (currently 4,096) is used.
     /// EXPERIMENTAL: this field is LIKELY to be removed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub read_channel_size: Option<u32>,

@@ -1201,7 +1201,7 @@ mod test {
     }
 
     #[tokio::test]
-    #[serial_test::parallel]
+    #[serial_test::serial]
     async fn test_quota_single_task() {
         let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
             .await
@@ -1271,7 +1271,7 @@ mod test {
     }
 
     #[tokio::test]
-    #[serial_test::parallel]
+    #[serial_test::serial]
     async fn test_quota_derivations() {
         let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
             .await

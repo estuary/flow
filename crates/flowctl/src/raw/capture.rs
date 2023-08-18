@@ -46,7 +46,7 @@ pub async fn do_capture(
     let client = ctx.controlplane_client().await?;
     let (_sources, mut validations) = local_specs::load_and_validate(client, &source).await?;
 
-    let mut capture = validations
+    let capture = validations
         .built_captures
         .first_mut()
         .expect("must have a capture");
