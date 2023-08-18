@@ -15,10 +15,10 @@ However, advanced editing tasks are only possible using flowctl. These include:
 * Manually editing collection schemas, for example, to add [projections](../../concepts/advanced/projections.md)
 or change the [reduction strategy](../../reference/reduction-strategies/README.md).
 * Editing, testing, and publishing multiple entities at once.
-* Creating and editing derivations and tests.
+* Creating and editing derivations.
 
 :::tip
-Creating a derivation has a dedicated guide [here](./create-derivation.md).
+A simplified development experience for derivations is available. You can use the web app to create a cloud-based development environment pre-populated with the components you need. Learn how [here](./create-derivation.md).
 :::
 
 This guide covers the basic procedure of pulling one or more live Flow entities to your local development environment,
@@ -64,8 +64,8 @@ Using these names, you'll identify and pull the relevant specifications for edit
 
 2. Determine which entities you need to pull from the catalog. You can:
 
-   * Check the web app's **Captures**, **Collections**, and **Materializations** pages.
-  All published entities to which you have access are listed and may be searched.
+   * Check the web app's **Sources**, **Collections**, and **Destinations** pages.
+  All published entities to which you have access are listed and can be searched.
 
    * Run `flowctl catalog list`. This command returns a complete list of entities to which you have access.
   You can refine by specifying a `--prefix` and filter by entity type:  `--captures`, `--collections`, `--materializations`, or `--tests`.
@@ -87,7 +87,7 @@ Using these names, you'll identify and pull the relevant specifications for edit
   and specifications sharing a catalog prefix are written to the same YAML file.
 
   Regardless of what you pull, there is always a top-level file called `flow.yaml` that *imports* all other nested YAML files.
-  These, in turn, contains the entities' specifications.
+  These, in turn, contain the entities' specifications.
 
 ## Edit source files and re-publish specifications
 
