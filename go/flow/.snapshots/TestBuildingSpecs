@@ -101,7 +101,7 @@ labels: <
   >
 >
 ring_buffer_size: 65536
-read_channel_size: 131072
+read_channel_size: 4096
 
 
 SHARD (split-source):
@@ -156,7 +156,7 @@ labels: <
   >
 >
 ring_buffer_size: 65536
-read_channel_size: 131072
+read_channel_size: 4096
 
 
 RECOVERY:
