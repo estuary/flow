@@ -5,7 +5,7 @@ import:
   - citi-bike/flow.yaml
   - ../site/docs/concepts/bank/flow.yaml
   - temp-sensors/flow.yaml
-  #  - derive-patterns/flow.yaml
+  - derive-patterns/flow.yaml
   #  - hello-world/flow.yaml
   #  - marketing/flow.yaml
   #  - net-trace/flow.yaml
