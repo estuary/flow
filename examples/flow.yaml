@@ -6,11 +6,11 @@ import:
   - ../site/docs/concepts/bank/flow.yaml
   - temp-sensors/flow.yaml
   - derive-patterns/flow.yaml
-  #  - hello-world/flow.yaml
-  #  - marketing/flow.yaml
-  #  - net-trace/flow.yaml
-  #  - re-key/flow.yaml
-  #  - reduction-types/flow.yaml
+  - reduction-types/flow.yaml
+  ##  - hello-world/flow.yaml
+  ##  - marketing/flow.yaml
+  ##  - net-trace/flow.yaml
+  ##  - re-key/flow.yaml
   #  - segment/flow.yaml
   #  - shopping/flow.yaml
   #  - soak-tests/set-ops/flow.yaml

@@ -4,7 +4,7 @@ collections:
       type: object
       reduce: { strategy: merge }
       properties:
-        key: { type: [string, integer] }
+        key: { type: string }
         value:
           # Append only works with type "array".
           # Others will error at build time.
