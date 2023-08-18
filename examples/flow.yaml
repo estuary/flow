@@ -1,22 +1,14 @@
 # Imports only all the collections, so we don't have to repeat the import list for each environment.
 import:
-  - acmeBank.flow.yaml
   - stock-stats/flow.yaml
   - citi-bike/flow.yaml
   - ../site/docs/concepts/bank/flow.yaml
   - temp-sensors/flow.yaml
   - derive-patterns/flow.yaml
   - reduction-types/flow.yaml
-  ##  - hello-world/flow.yaml
-  ##  - marketing/flow.yaml
-  ##  - net-trace/flow.yaml
-  ##  - re-key/flow.yaml
-  #  - segment/flow.yaml
-  #  - shopping/flow.yaml
-  #  - soak-tests/set-ops/flow.yaml
-  #  - source-schema/flow.yaml
-  #  - wiki/flow.yaml
-  #  - ops/logs.flow.yaml
 
+# You don't need to specify `storageMappings` when you're using
+# `flowctl`, as will be the case for end-users. This is only here to allow
+# testing these examples using the `flowctl-go` CLI.
 storageMappings:
   "": { stores: [{ provider: S3, bucket: a-bucket }] }
