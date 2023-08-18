@@ -2,6 +2,22 @@
 
 This folder holds a variety of examples and proof-of-concepts using Flow.
 
+## Using these examples
+
+These examples are written as Flow YAML specifications, and demonstrate how to
+manage Flow data pipelines using files checked into a git repository. You would
+typically use `flowctl catalog test` and `flowctl catalog publish` in order to
+test and publish YAML specifications. But you would need to change the names
+to use a prefix that you have `admin` access to in order to actually run these
+yourself.
+
+Note that these examples are tested using the `flowctl-go` CLI, not the typical
+`flowctl` that users typically interact with. But all the specs here are the
+same as what you'd use with regular `flowctl`. The main difference is that
+`flowctl` will run tests on the server side and perform authorization checks
+(which will fail because users don't have access to these prefixes in the
+Estuary control-plane).
+
 ## Running All Tests
 
 Flow makes it easy to write tests that verify the end-to-end behaviors of
@@ -9,7 +25,7 @@ catalog collections. We recommend that _every_ Flow catalog include tests,
 and these examples are no exception:
 
 ```console
-$ flowctl-go test --source examples/all.flow.yaml
+$ flowctl-go test --source examples/flow.yaml
 ```
 
 You can also directly test catalog sources which are hosted remotely:
@@ -20,16 +36,12 @@ $ flowctl-go test --source https://raw.githubusercontent.com/estuary/flow/master
 
 ## Examples
 
--   [citi-bike/](citi-bike/) is a comprehensive example using Citi Bike system data.
--   [net-trace/](net-trace/) works with packet data to materialize service status in a network.
--   [re-key/](re-key/) models the problem of marrying events captured _before_ a user sign-up,
-    when the user is keyed on a temporary ID, with events _after_ sign-up where a stable user ID is now known.
--   [segment/](segment/) is a comprehensive example drawn from the marketing segmentation domain.
--   [shopping/](shopping/) models a shopping cart and purchase interactions.
--   [stock-stats/](stock-stats/) models per-day market security statistics that update with ticks.
--   [wiki/](wiki/) rolls up Wikipedia page edits. It's based on an old Druid example, that we'll be updating to MediaWiki's live API.
+- [bank/](../site/docs/concepts/bank/) is the example from the [Derivations Concepts documentation](https://docs.estuary.dev/concepts/derivations/)
+- [citi-bike/](citi-bike/) is a comprehensive example using Citi Bike system data.
+- [stock-stats/](stock-stats/) models per-day market security statistics that update with ticks.
+- [temp-sensors/](temp-sensors/) shows how to do some basic aggregations, like min, max, and average.
 
 ## Reference
 
--   [derive-patterns/](derive-patterns/) demonstrates common patterns and approaches in building derivations.
--   [reduction-types/](reduction-types/) discusses reduction annotations available in Flow.
+- [derive-patterns/](derive-patterns/) demonstrates common patterns and approaches in building derivations.
+- [reduction-types/](reduction-types/) discusses reduction annotations available in Flow.
