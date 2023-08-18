@@ -2,7 +2,7 @@ import:
   - inputs.flow.yaml
 
 collections:
-  patterns/sums-db:
+  patterns/sums-reductions:
     schema: &schema
       type: object
       properties:
@@ -14,38 +14,49 @@ collections:
       reduce: { strategy: merge }
     key: [/Key]
 
-    derivation:
-      transform:
-        fromInts:
+
+    derive:
+      using:
+        typescript: { module: summer.flow.ts }
+      transforms:
+        - name: fromInts
           source: { name: patterns/ints }
           shuffle: { key: [/Key] }
-          publish: { lambda: typescript }
-      typescript:
-        module: summer.flow.ts
 
-  patterns/sums-register:
+  patterns/sums-stateful:
     schema:
-      # Re-use the schema defined above.
-      <<: *schema
-      reduce: { strategy: lastWriteWins }
+      # Unlike the sums-reductions schema, we don't use any reduce annotations
+      type: object
+      properties:
+        Key: { type: string }
+        Sum:
+          type: integer
+      required: [Key]
     key: [/Key]
 
-    derivation:
-      register:
-        schema:
-          type: integer
-          reduce: { strategy: sum }
-        initial: 0
 
-      transform:
-        fromInts:
+    derive:
+      using:
+        sqlite:
+          migrations:
+            - |
+              create table sum_state (
+                key text not null primary key,
+                sum integer not null
+              );
+      transforms:
+        - name: fromInts
           source: { name: patterns/ints }
           shuffle: { key: [/Key] }
-          update: { lambda: typescript }
-          publish: { lambda: typescript }
-      typescript:
-        module: summer-reg.flow.ts
-
+          lambda: |
+            INSERT INTO sum_state (key, sum) VALUES ($Key, $Int)
+            ON CONFLICT DO UPDATE SET sum = sum + $Int;
+            SELECT JSON_OBJECT(
+              'Key', key,
+              'Sum', sum
+            )
+            FROM sum_state
+            WHERE key = $Key;
 tests:
   patterns/test/sums:
     - ingest:
@@ -60,10 +71,10 @@ tests:
         # "verify" steps fully reduce documents of the collection.
         # Under the hood, these are multiple delta updates.
         description: Expect we can do sums during materialization
-        collection: patterns/sums-db
+        collection: patterns/sums-reductions
         documents: [{ Key: key, Sum: 12 }]
     - verify:
         # These are multiple snapshots, of which "verify" takes the last.
         description: Expect we can do sums within registers
-        collection: patterns/sums-register
+        collection: patterns/sums-stateful
         documents: [{ Key: key, Sum: 12 }]
