@@ -140,7 +140,7 @@ pub fn validate_transition(
         let (reads_from, writes_to, _) = extract_spec_metadata(draft, spec_row);
 
         for source in reads_from.iter().flatten() {
-            if !spec_capabilities.iter().all(|c| {
+            if !spec_capabilities.iter().any(|c| {
                 source.starts_with(&c.object_role)
                     && matches!(
                         c.capability,
