@@ -19,9 +19,7 @@ pub fn walk_all_collections(
     built_collections
 }
 
-// TODO(johnny): this is temporarily public, as we switch over to built
-// specs being explicitly represented by the control plane.
-pub fn walk_collection(
+fn walk_collection(
     build_id: &str,
     collection: &tables::Collection,
     storage_mappings: &[tables::StorageMapping],

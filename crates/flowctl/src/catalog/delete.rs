@@ -71,7 +71,7 @@ pub async fn do_delete(
     };
 
     let client = ctx.controlplane_client().await?;
-    let specs = catalog::fetch_live_specs(
+    let specs = catalog::fetch_live_specs::<catalog::LiveSpecRow>(
         client.clone(),
         &list_args,
         vec![

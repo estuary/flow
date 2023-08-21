@@ -1,5 +1,5 @@
 use crate::{
-    catalog::{collect_specs, fetch_live_specs, List, NameSelector, SpecTypeSelector},
+    catalog::{collect_specs, fetch_live_specs, List, LiveSpecRow, NameSelector, SpecTypeSelector},
     collection::read::{journal_reader, ReadArgs},
     ops,
 };
@@ -54,7 +54,7 @@ pub async fn do_suggest_schema(
 ) -> anyhow::Result<()> {
     let client = ctx.controlplane_client().await?;
     // Retrieve identified live specifications.
-    let live_specs = fetch_live_specs(
+    let live_specs = fetch_live_specs::<LiveSpecRow>(
         client.clone(),
         &List {
             flows: true,
