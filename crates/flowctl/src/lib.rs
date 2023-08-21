@@ -220,7 +220,7 @@ where
 
 /// Execute a [`postgrest::Builder`] request returning multiple rows. Unlike [`api_exec`]
 /// which is limited to however many rows Postgrest is configured to return in a single response,
-/// this will issue as many paginated requests as neccesary to fetch every row.
+/// this will issue as many paginated requests as necessary to fetch every row.
 async fn api_exec_paginated<T>(b: postgrest::Builder) -> anyhow::Result<Vec<T>>
 where
     T: serde::de::DeserializeOwned + Send + Sync + 'static,
