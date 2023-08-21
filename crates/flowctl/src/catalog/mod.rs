@@ -10,8 +10,8 @@ use crate::{
 use anyhow::Context;
 use futures::stream::{FuturesUnordered, StreamExt};
 use itertools::Itertools;
+use models::RawValue;
 use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -273,11 +273,14 @@ impl Catalog {
 ///
 /// # Panics
 /// If the name_selector `name` and `prefix` are both non-empty.
-pub async fn fetch_live_specs(
+pub async fn fetch_live_specs<T>(
     cp_client: controlplane::Client,
     list: &List,
     columns: Vec<&'static str>,
-) -> anyhow::Result<Vec<LiveSpecRow>> {
+) -> anyhow::Result<Vec<T>>
+where
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
+{
     // When fetching by name or prefix, we break the requested names into chunks
     // and send a separate request for each. This is to avoid overflowing the
     // URL length limit in postgREST.
@@ -307,7 +310,7 @@ pub async fn fetch_live_specs(
                 let builder = builder.clone().in_("catalog_name", batch);
                 async move {
                     // No need for pagination because we're paginating the inputs.
-                    api_exec::<Vec<LiveSpecRow>>(builder).await
+                    api_exec::<Vec<T>>(builder).await
                 }
             })
             .collect::<FuturesUnordered<_>>();
@@ -327,18 +330,18 @@ pub async fn fetch_live_specs(
                     .map(|prefix| format!("catalog_name.like.\"{prefix}%\""))
                     .join(",");
                 // We need to paginate the results, since prefixes can match many rows.
-                api_exec_paginated::<LiveSpecRow>(builder.clone().or(conditions)).await
+                api_exec_paginated::<T>(builder.clone().or(conditions)).await
             })
             .collect::<FuturesUnordered<_>>();
 
         let mut rows = Vec::with_capacity(list.name_selector.name.len());
         while let Some(result) = stream.next().await {
-            rows.extend(result.context("exectuting live_specs_ext fetch")?);
+            rows.extend(result.context("executing live_specs_ext fetch")?);
         }
         Ok(rows)
     } else {
         // For anything else, just execute a single request and paginate the results.
-        api_exec_paginated::<LiveSpecRow>(builder).await
+        api_exec_paginated::<T>(builder).await
     }
 }
 
@@ -361,7 +364,7 @@ pub struct LiveSpecRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub writes_to: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub spec: Option<Box<serde_json::value::RawValue>>,
+    pub spec: Option<RawValue>,
 }
 
 impl crate::output::CliOutput for LiveSpecRow {
@@ -425,7 +428,7 @@ impl SpecRow for LiveSpecRow {
     }
 
     fn spec(&self) -> Option<&RawValue> {
-        self.spec.as_ref().map(|s| s.as_ref())
+        self.spec.as_ref()
     }
 }
 
@@ -486,7 +489,7 @@ async fn do_list(ctx: &mut crate::CliContext, list_args: &List) -> anyhow::Resul
         columns.push("writes_to");
     }
     let client = ctx.controlplane_client().await?;
-    let rows = fetch_live_specs(client, list_args, columns).await?;
+    let rows = fetch_live_specs::<LiveSpecRow>(client, list_args, columns).await?;
 
     ctx.write_all(rows, list_args.flows)
 }
@@ -575,7 +578,7 @@ async fn do_draft(
         catalog_name: String,
         last_pub_id: String,
         pub_id: String,
-        spec: Box<RawValue>,
+        spec: RawValue,
         spec_type: Option<String>,
     }
 
@@ -620,7 +623,7 @@ async fn do_draft(
         draft_id: String,
         catalog_name: String,
         spec_type: Option<String>,
-        spec: Box<RawValue>,
+        spec: RawValue,
         expect_pub_id: String,
     }
     let draft_spec = DraftSpec {

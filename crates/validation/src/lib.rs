@@ -39,45 +39,14 @@ pub trait Connectors: Send + Sync {
 
 pub trait ControlPlane: Send + Sync {
     // Resolve a set of collection names into pre-built CollectionSpecs from
-    // the control plane. Resolution is fuzzy: if there is a spec that's *close*
-    // to a provided name, it will be returned so that a suitable spelling
+    // the control plane. Resolution may be fuzzy: if there is a spec that's
+    // *close* to a provided name, it will be returned so that a suitable spelling
     // hint can be surfaced to the user. This implies we must account for possible
     // overlap with locally-built collections even if none were asked for.
     fn resolve_collections<'a, 'b: 'a>(
         &'a self,
         collections: Vec<models::Collection>,
-        // These parameters are currently required, but can be removed once we're
-        // actually resolving fuzzy pre-built CollectionSpecs from the control plane.
-        temp_build_id: &'b str,
-        temp_storage_mappings: &'b [tables::StorageMapping],
     ) -> BoxFuture<'a, anyhow::Result<Vec<proto_flow::flow::CollectionSpec>>>;
-
-    // TODO(johnny): this is a temporary helper which supports the transition
-    // to the control-plane holding built specifications.
-    fn temp_build_collection_helper(
-        &self,
-        name: String,
-        spec: models::CollectionDef,
-        build_id: &str,
-        storage_mappings: &[tables::StorageMapping],
-    ) -> anyhow::Result<proto_flow::flow::CollectionSpec> {
-        let mut errors = tables::Errors::new();
-
-        if let Some(built_collection) = collection::walk_collection(
-            build_id,
-            &tables::Collection {
-                scope: url::Url::parse("flow://control-plane").unwrap(),
-                collection: models::Collection::new(name),
-                spec,
-            },
-            storage_mappings,
-            &mut errors,
-        ) {
-            Ok(built_collection)
-        } else {
-            anyhow::bail!("unexpected failure building remote collection: {errors:?}")
-        }
-    }
 }
 
 pub async fn validate(
@@ -123,16 +92,12 @@ pub async fn validate(
 
     // Next resolve all referenced collections which are not in local `collections`.
     let remote_collections = match control_plane
-        .resolve_collections(
-            reference::gather_referenced_collections(
-                captures,
-                collections,
-                materializations,
-                tests,
-            ),
-            build_id,
-            storage_mappings,
-        )
+        .resolve_collections(reference::gather_referenced_collections(
+            captures,
+            collections,
+            materializations,
+            tests,
+        ))
         .await
     {
         Err(err) => {
@@ -151,14 +116,26 @@ pub async fn validate(
         }
         Ok(c) => c
             .into_iter()
-            .map(|spec| tables::BuiltCollection {
-                collection: models::Collection::new(&spec.name),
-                scope: url::Url::parse("flow://control-plane").unwrap(),
-                spec,
-                validated: None,
+            .map(|mut spec| {
+                tracing::debug!(collection=%spec.name, "resolved referenced remote collection");
+
+                // Clear a derivation (if there is one), as we do not need it
+                // when embedding a referenced collection.
+                spec.derivation = None;
+
+                tables::BuiltCollection {
+                    collection: models::Collection::new(&spec.name),
+                    scope: url::Url::parse("flow://control-plane").unwrap(),
+                    spec,
+                    validated: None,
+                }
             })
             .collect::<tables::BuiltCollections>(),
     };
+    if remote_collections.is_empty() {
+        tracing::debug!("there were no remote collections to resolve");
+    }
+
     // Merge local and remote BuiltCollections. On conflict, keep the local one.
     let mut built_collections = built_collections
         .into_iter()

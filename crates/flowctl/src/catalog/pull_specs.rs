@@ -1,4 +1,6 @@
-use crate::catalog::{collect_specs, fetch_live_specs, List, NameSelector, SpecTypeSelector};
+use crate::catalog::{
+    collect_specs, fetch_live_specs, List, LiveSpecRow, NameSelector, SpecTypeSelector,
+};
 use crate::local_specs;
 use crate::CliContext;
 
@@ -23,7 +25,7 @@ pub struct PullSpecs {
 pub async fn do_pull_specs(ctx: &mut CliContext, args: &PullSpecs) -> anyhow::Result<()> {
     let client = ctx.controlplane_client().await?;
     // Retrieve identified live specifications.
-    let live_specs = fetch_live_specs(
+    let live_specs = fetch_live_specs::<LiveSpecRow>(
         client.clone(),
         &List {
             flows: true,
