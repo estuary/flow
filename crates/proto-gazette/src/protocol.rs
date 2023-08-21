@@ -315,6 +315,12 @@ pub struct ReadRequest {
     /// Offset to read through. If zero, then the read end offset is unconstrained.
     #[prost(int64, tag = "7")]
     pub end_offset: i64,
+    /// BeginModTime is an optional inclusive lower bound on the modification
+    /// timestamps of fragments read from the backing store, represented as
+    /// seconds since the epoch. The request Offset will be advanced as-needed
+    /// to skip persisted Fragments having a modication time before the bound.
+    #[prost(int64, tag = "8")]
+    pub begin_mod_time: i64,
 }
 /// ReadResponse is the streamed response message of the broker Read RPC.
 /// Responses messages are of two types:

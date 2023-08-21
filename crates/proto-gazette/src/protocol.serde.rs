@@ -3267,6 +3267,9 @@ impl serde::Serialize for ReadRequest {
         if self.end_offset != 0 {
             len += 1;
         }
+        if self.begin_mod_time != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("protocol.ReadRequest", len)?;
         if let Some(v) = self.header.as_ref() {
             struct_ser.serialize_field("header", v)?;
@@ -3289,6 +3292,9 @@ impl serde::Serialize for ReadRequest {
         if self.end_offset != 0 {
             struct_ser.serialize_field("endOffset", ToString::to_string(&self.end_offset).as_str())?;
         }
+        if self.begin_mod_time != 0 {
+            struct_ser.serialize_field("beginModTime", ToString::to_string(&self.begin_mod_time).as_str())?;
+        }
         struct_ser.end()
     }
 }
@@ -3309,6 +3315,8 @@ impl<'de> serde::Deserialize<'de> for ReadRequest {
             "metadataOnly",
             "end_offset",
             "endOffset",
+            "begin_mod_time",
+            "beginModTime",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3320,6 +3328,7 @@ impl<'de> serde::Deserialize<'de> for ReadRequest {
             DoNotProxy,
             MetadataOnly,
             EndOffset,
+            BeginModTime,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -3348,6 +3357,7 @@ impl<'de> serde::Deserialize<'de> for ReadRequest {
                             "doNotProxy" | "do_not_proxy" => Ok(GeneratedField::DoNotProxy),
                             "metadataOnly" | "metadata_only" => Ok(GeneratedField::MetadataOnly),
                             "endOffset" | "end_offset" => Ok(GeneratedField::EndOffset),
+                            "beginModTime" | "begin_mod_time" => Ok(GeneratedField::BeginModTime),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -3374,6 +3384,7 @@ impl<'de> serde::Deserialize<'de> for ReadRequest {
                 let mut do_not_proxy__ = None;
                 let mut metadata_only__ = None;
                 let mut end_offset__ = None;
+                let mut begin_mod_time__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Header => {
@@ -3422,6 +3433,14 @@ impl<'de> serde::Deserialize<'de> for ReadRequest {
                                 Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::BeginModTime => {
+                            if begin_mod_time__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("beginModTime"));
+                            }
+                            begin_mod_time__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(ReadRequest {
@@ -3432,6 +3451,7 @@ impl<'de> serde::Deserialize<'de> for ReadRequest {
                     do_not_proxy: do_not_proxy__.unwrap_or_default(),
                     metadata_only: metadata_only__.unwrap_or_default(),
                     end_offset: end_offset__.unwrap_or_default(),
+                    begin_mod_time: begin_mod_time__.unwrap_or_default(),
                 })
             }
         }
