@@ -35,6 +35,9 @@ In the future, other open-source materialization connectors from third parties c
 * MongoDB
   * [Configuration](./mongodb.md)
   * Package - ghcr.io/estuary/materialize-mongodb:dev
+* MySQL
+  * [Configuration](./mysql.md)
+  * Package - ghcr.io/estuary/materialize-mysql:dev
 * Pinecone
   * [Configuration](./pinecone.md)
   * Package — ghcr.io/estuary/materialize-pinecone:dev
