@@ -106,8 +106,6 @@ impl ControlPlane for NoOpControlPlane {
     fn resolve_collections<'a, 'b: 'a>(
         &'a self,
         _collections: Vec<models::Collection>,
-        _temp_build_id: &'b str,
-        _temp_storage_mappings: &'b [tables::StorageMapping],
     ) -> BoxFuture<'a, anyhow::Result<Vec<flow::CollectionSpec>>> {
         async move { Ok(vec![]) }.boxed()
     }
