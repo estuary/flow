@@ -27,15 +27,34 @@ Use the below properties to configure a MySQL materialization, which will direct
 
 #### Endpoint
 
-| Property            | Title            | Description                                                                                                                                                                                                                    | Type   | Required/Default |
-|---------------------|------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|------------------|
-| **`/database`**     | Database         | Name of the logical database to materialize to.                                                                                                                                                                                | string | Required         |
-| **`/address`**      | Address          | Host and port of the database. If only the host is specified, port will default to `3306`.                                                                                                                                     | string | Required         |
-| **`/password`**     | Password         | Password for the specified database user.                                                                                                                                                                                      | string | Required         |
-| **`/user`**         | User             | Database user to connect as.                                                                                                                                                                                                   | string | Required         |
-| `/advanced`         | Advanced Options | Options for advanced users. You should not typically need to modify these.                                                                                                                                                     | object |                  |
-| `/advanced/sslmode` | SSL Mode         | Overrides SSL connection behavior by setting the 'sslmode' parameter.                                                                                                                                                          | string |                  |
+| Property                    | Title                  | Description                                                                                | Type   | Required/Default |
+|-----------------------------|------------------------|--------------------------------------------------------------------------------------------|--------|------------------|
+| **`/database`**             | Database               | Name of the logical database to materialize to.                                            | string | Required         |
+| **`/address`**              | Address                | Host and port of the database. If only the host is specified, port will default to `3306`. | string | Required         |
+| **`/password`**             | Password               | Password for the specified database user.                                                  | string | Required         |
+| **`/user`**                 | User                   | Database user to connect as.                                                               | string | Required         |
+| `/advanced`                 | Advanced Options       | Options for advanced users. You should not typically need to modify these.                 | object |                  |
+| `/advanced/sslmode`         | SSL Mode               | Overrides SSL connection behavior by setting the 'sslmode' parameter.                      | string |                  |
+| `/advanced/ssl_server_ca`   | SSL Server CA          | Optional server certificate authority to use when connecting with custom SSL mode          | string |                  |
+| `/advanced/ssl_client_cert` | SSL Client Certificate | Optional client certificate to use when connecting with custom SSL mode.                   | string |                  |
+| `/advanced/ssl_client_key`  | SSL Client Key         | Optional client key to use when connecting with custom SSL mode.                           | string |                  |
 
+#### SSL Mode
+
+Possible values:
+- `disabled`: A plain unencrypted connection is established with the server
+- `preferred`: Only use SSL connection if the server asks for it
+- `required`: Connect using an SSL connection, but do not verify the server's
+  certificate.
+- `verify_ca`: Connect using an SSL connection, and verify the server's
+  certificate against the given SSL Server CA, but does not verify the server's
+  hostname. This option is most commonly used when connecting to an
+  IP address which does not have a hostname to be verified. When using this mode, SSL Server
+  CA must be provided. 
+- `verify_identity`: Connect using an SSL connection, verify the server's
+  certificate and the server's hostname. This is the most secure option. When using this mode, SSL Server
+  CA must be provided.
+ 
 #### Bindings
 
 | Property | Title | Description | Type | Required/Default |
