@@ -44,32 +44,49 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 	startup(ShardsCfg.BaseConfig)
 
 	var ctx = context.Background()
-	var m = shardsPruneMetrics{}
+	var metrics = shardsPruneMetrics{}
 	var logSegmentSets = make(map[pb.Journal]recoverylog.SegmentSet)
+	var skipRecoveryLogs = make(map[pb.Journal]bool)
 
 	for _, shard := range listShards(cmd.Selector).Shards {
-		m.shardsTotal++
+		metrics.shardsTotal++
 		var lastHints = fetchOldestHints(ctx, shard.Spec.Id)
+		var recoveryLog = shard.Spec.RecoveryLog()
 
 		// We require that we see hints for _all_ shards before we may make _any_ deletions.
 		// This is because shards could technically include segments from any log,
 		// and without comprehensive hints which are proof-positive that _no_ shard
 		// references a given journal fragment, we cannot be sure it's safe to remove.
-		if lastHints == nil {
-			log.Fatalf("shard %s has not written backup hints required for pruning; cannot continue", shard.Spec.Id)
-		} else if len(lastHints.LiveNodes) == 0 {
-			log.Fatalf("shard %s hints have no live files; cannot continue", shard.Spec.Id)
+		// For this reason, we must track the journals to be skipped, so we can be sure
+		// we don't prune journals that are used by a shard that hasn't persisted hints.
+		if lastHints != nil && len(lastHints.LiveNodes) > 0 {
+			foldHintsIntoSegments(*lastHints, logSegmentSets)
+		} else {
+			skipRecoveryLogs[recoveryLog] = true
+			metrics.skippedJournals++
+			var reason = "has not written backup hints required for pruning"
+			if lastHints != nil {
+				reason = "hints have no live files"
+			}
+			log.WithFields(log.Fields{
+				"shard":   shard.Spec.Id,
+				"reason":  reason,
+				"journal": recoveryLog,
+			}).Warn("will skip pruning recovery log journal")
 		}
-
-		foldHintsIntoSegments(*lastHints, logSegmentSets)
 	}
 
 	for journal, segments := range logSegmentSets {
+		if skipRecoveryLogs[journal] {
+			log.WithField("journal", journal).Warn("skipping journal because another shard is missing hints that cover it")
+			continue
+		}
+		log.WithField("journal", journal).Debug("checking fragments of journal")
 		for _, f := range fetchFragments(ctx, journal) {
 			var spec = f.Spec
 
-			m.fragmentsTotal++
-			m.bytesTotal += spec.ContentLength()
+			metrics.fragmentsTotal++
+			metrics.bytesTotal += spec.ContentLength()
 
 			if len(segments.Intersect(journal, spec.Begin, spec.End)) == 0 {
 				log.WithFields(log.Fields{
@@ -79,17 +96,17 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 					"mod":  spec.ModTime,
 				}).Info("pruning fragment")
 
-				m.fragmentsPruned++
-				m.bytesPruned += spec.ContentLength()
+				metrics.fragmentsPruned++
+				metrics.bytesPruned += spec.ContentLength()
 
 				if !cmd.DryRun {
 					mbp.Must(fragment.Remove(ctx, spec), "error removing fragment", "path", spec.ContentPath())
 				}
 			}
 		}
-		logShardsPruneMetrics(m, journal.String(), "finished pruning log")
+		logShardsPruneMetrics(metrics, journal.String(), "finished pruning log")
 	}
-	logShardsPruneMetrics(m, "", "finished pruning logs for all shards")
+	logShardsPruneMetrics(metrics, "", "finished pruning logs for all shards")
 	return nil
 }
 
@@ -171,6 +188,7 @@ type shardsPruneMetrics struct {
 	fragmentsPruned int64
 	bytesTotal      int64
 	bytesPruned     int64
+	skippedJournals int64
 }
 
 func logShardsPruneMetrics(m shardsPruneMetrics, journal, message string) {
@@ -182,6 +200,7 @@ func logShardsPruneMetrics(m shardsPruneMetrics, journal, message string) {
 		"bytesTotal":      m.bytesTotal,
 		"bytesPruned":     m.bytesPruned,
 		"bytesKept":       m.bytesTotal - m.bytesPruned,
+		"skippedJournals": m.skippedJournals,
 	}
 	if journal != "" {
 		fields["journal"] = journal
