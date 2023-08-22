@@ -77,10 +77,10 @@ func fetchHints(ctx context.Context, spec *pc.ShardSpec, etcd *clientv3.Client) 
 	return
 }
 
-// pickFirstHints retrieves the first hints from |hints|.
+// PickFirstHints retrieves the first hints from |hints|.
 // If there are no primary hints available the most recent backup hints will be returned.
 // If there are no hints available an empty set of hints is returned.
-func pickFirstHints(hints *pc.GetHintsResponse, log pb.Journal) recoverylog.FSMHints {
+func PickFirstHints(hints *pc.GetHintsResponse, log pb.Journal) recoverylog.FSMHints {
 	if hints.PrimaryHints.Hints != nil {
 		return *hints.PrimaryHints.Hints
 	}
@@ -208,7 +208,7 @@ func beginRecovery(s *shard) error {
 	if err != nil {
 		return fmt.Errorf("GetHints: %w", err)
 	}
-	var pickedHints = pickFirstHints(s.recovery.hints, s.recovery.log)
+	var pickedHints = PickFirstHints(s.recovery.hints, s.recovery.log)
 
 	// Verify the |pickedHints| recovery log exists, and is of the correct Content-Type.
 	if logSpec, err := client.GetJournal(s.ctx, s.ajc, pickedHints.Log); err != nil {

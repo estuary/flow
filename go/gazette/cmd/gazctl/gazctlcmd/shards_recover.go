@@ -8,10 +8,12 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
+	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
-	pb "go.gazette.dev/core/consumer/protocol"
+	pc "go.gazette.dev/core/consumer/protocol"
 	"go.gazette.dev/core/consumer/recoverylog"
 	mbp "go.gazette.dev/core/mainboilerplate"
+	"google.golang.org/grpc"
 )
 
 type cmdShardsRecover struct {
@@ -46,21 +48,29 @@ func (cmd *cmdShardsRecover) Execute([]string) error {
 		cancel()
 	}()
 
-	var resp, err = consumer.FetchHints(ctx, ShardsCfg.Consumer.MustShardClient(ctx), &pb.GetHintsRequest{
-		Shard: pb.ShardID(cmd.ID),
+	var shardClient = ShardsCfg.Consumer.MustShardClient(ctx)
+	var shardResp, err = shardClient.List(pb.WithDispatchDefault(ctx), &pc.ListRequest{
+		Selector: pb.LabelSelector{
+			Include: pb.MustLabelSet("id", cmd.ID),
+		},
+	}, grpc.WaitForReady(true))
+	mbp.Must(err, "failed to fetch shard spec")
+	if len(shardResp.Shards) != 1 {
+		log.Fatal("no shard exists with the given id")
+	}
+
+	hintResp, err := consumer.FetchHints(ctx, shardClient, &pc.GetHintsRequest{
+		Shard: pc.ShardID(cmd.ID),
 	})
 	mbp.Must(err, "failed to fetch hints for shard")
 
-	if resp.PrimaryHints.Hints == nil {
-		log.Warn("no primary hints found for shard")
-		os.Exit(1)
-	}
-
+	var recoveryLog = shardResp.Shards[0].Spec.RecoveryLog()
+	var hints = consumer.PickFirstHints(hintResp, recoveryLog)
 	var rjc = ShardsCfg.Broker.MustRoutedJournalClient(ctx)
 	var ajc = client.NewAppendService(ctx, rjc)
 	var player = recoverylog.NewPlayer()
 	player.FinishAtWriteHead()
-	err = player.Play(ctx, *resp.PrimaryHints.Hints, cmd.Dir, ajc)
+	err = player.Play(ctx, hints, cmd.Dir, ajc)
 	mbp.Must(err, "failed to play recoverylog")
 
 	return nil

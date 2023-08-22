@@ -271,7 +271,7 @@ func TestAPIHintsCases(t *testing.T) {
 		BackupHints:  []pc.GetHintsResponse_ResponseHints{{}, {}},
 	}, resp)
 	// Picking hints passes through the supplied shard recovery log.
-	require.Equal(t, recoverylog.FSMHints{Log: "a/log"}, pickFirstHints(resp, "a/log"))
+	require.Equal(t, recoverylog.FSMHints{Log: "a/log"}, PickFirstHints(resp, "a/log"))
 
 	// Now allocate the shard, and then install hint fixtures.
 	tf.allocateShard(spec, localID)
@@ -310,7 +310,7 @@ func TestAPIHintsCases(t *testing.T) {
 		PrimaryHints: expected[0],
 		BackupHints:  expected[1:],
 	}, resp)
-	require.Equal(t, *expected[0].Hints, pickFirstHints(resp, "a/log"))
+	require.Equal(t, *expected[0].Hints, PickFirstHints(resp, "a/log"))
 
 	// Case: No primary hints
 	_, _ = tf.etcd.Delete(shard.ctx, spec.HintPrimaryKey())
@@ -322,7 +322,7 @@ func TestAPIHintsCases(t *testing.T) {
 		PrimaryHints: pc.GetHintsResponse_ResponseHints{},
 		BackupHints:  expected[1:],
 	}, resp)
-	require.Equal(t, *expected[1].Hints, pickFirstHints(resp, "a/log"))
+	require.Equal(t, *expected[1].Hints, PickFirstHints(resp, "a/log"))
 
 	// Case: Hint key has not yet been written to
 	require.NoError(t, storeRecordedHints(shard, mkHints(111)))
