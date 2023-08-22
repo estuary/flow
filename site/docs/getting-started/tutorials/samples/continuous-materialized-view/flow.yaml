@@ -1,0 +1,34 @@
+---
+collections:
+  yourprefix/wikipedia/user-fact-table:
+    schema:
+      properties:
+        edits_this_day:
+          reduce:
+            strategy: sum
+          type: integer
+        date:
+          format: date
+          type: string
+        user:
+          type: string
+      reduce:
+        strategy: merge
+      required:
+        - user
+        - date
+        - edits_this_day
+      type: object
+    key:
+      - /user
+      - /date
+    derive:
+      using:
+        sqlite:
+          migrations:
+            - user-fact-table.migration.0.sql
+      transforms:
+        - name: dailychangesbyuser
+          source: demo/wikipedia/recentchange
+          shuffle: { key: [ /user ] }
+          lambda: user-fact-table.lambda.recentchange.sql
