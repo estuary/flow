@@ -18,6 +18,10 @@ a materialized view that updates continuously based on a real-time data feed.
 
 * A GitLab, GitHub, or BitBucket account. You'll use this to log into [GitPod](https://www.gitpod.io/), the cloud development environment integrated with Flow.
 
+   * Alternatively, you can complete this tutorial using a local development environment.
+   In that case, you'll need to [install flowctl locally](../../getting-started/installation.mdx#get-started-with-the-flow-cli).
+   Note that the steps you'll need to take will be different. Refer to this [guide](../../guides/flowctl/create-derivation.md#create-a-derivation-locally) for help.
+
 * A Postgres database set up to [allow connections from Flow](../../reference/Connectors/materialization-connectors/PostgreSQL.md#setup).
 Amazon RDS, Amazon Aurora, Google Cloud SQL, Azure Database for PostgreSQL, and self-hosted databases are supported.
 
@@ -48,8 +52,12 @@ You'll then materialize both the raw and transformed datasets to your Postgres i
 
 3. On the **Collection Details** page, click the **Spec** tab.
 
-   The collection is keyed on its metadata, so every new change event is seen as unique. Its schema has many fields.
-   This would yield a large, unwieldy table in Postgres.
+   The collection schema has many fields. Because Wikipedia sees a lot of edits,
+   this would yield a large, unwieldy table in Postgres.
+
+   :::info Tip
+   To save on performance, you can also perform this tutorial using the smaller `demo/wikipedia/recentchange-sampled` collection. Apart from the collection name, all other steps are the same.
+   :::
 
    *Learn more about [Flow collections](../../concepts/collections.md) and [schemas](../../concepts/schemas.md).*
 

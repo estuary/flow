@@ -19,9 +19,14 @@ If you don't have an account yet, [go to the web app](https://dashboard.estuary.
 * An existing Flow **collection**. Typically, you create this through a **capture** in the Flow web application.
 If you need help, see the [guide to create a Data Flow](../create-dataflow.md).
 
-* A GitLab, GitHub, or BitBucket account. You'll use this to log into [GitPod](https://www.gitpod.io/), the cloud development environment integrated with Flow.
+* A development environment to work with flowctl. Choose between:
 
-## Get started
+   * [GitPod](https://www.gitpod.io/), the cloud development environment integrated with Flow.
+   GitPod comes ready for derivation writing, with stubbed out files and flowctl installed. You'll need a GitLab, GitHub, or BitBucket account to log in.
+
+   * Your local development environment. [Install flowctl locally](../../getting-started/installation.mdx#get-started-with-the-flow-cli)
+
+## Get started with GitPod
 
 You'll write your derivation using GitPod, a cloud development environment integrated in the Flow web app.
 
@@ -57,8 +62,8 @@ You'll write your derivation using GitPod, a cloud development environment integ
 
    In the same folder, you'll also find supplementary TypeScript or SQL files you'll need for your transformation.
 
-[Continue with SQL](#add-a-sql-derivation)
-[Continue with TypeScript](#add-a-typescript-derivation)
+[Continue with SQL](#add-a-sql-derivation-in-gitpod)
+[Continue with TypeScript](#add-a-typescript-derivation-in-gitpod)
 
 :::info Authentication
 
@@ -69,7 +74,7 @@ When you first connect to GitPod, you will have already authenticated Flow, but 
 2. Run `flowctl auth token --token <paste-token-here>` in the GitPod terminal.
 :::
 
-## Add a SQL derivation
+## Add a SQL derivation in GitPod
 
 If you chose **SQL** as your transformation language, follow these steps.
 
@@ -148,7 +153,7 @@ The derivation you created is now live and ready for further use.
 You can access it from the web application and [materialize it to a destination](../create-dataflow.md#create-a-materialization),
 just as you would any other Flow collection.
 
-## Add a TypeScript derivation
+## Add a TypeScript derivation in GitPod
 
 If you chose **TypeScript** as your transformation language, follow these steps.
 
@@ -197,6 +202,70 @@ For help writing a TypeScript derivation, start with [this example](../../concep
 
 The main [derivations page](../../concepts/derivations.md) includes many other examples and in-depth explanations of how derivations work.
 :::
+
+6. Preview the derivation locally.
+
+```console
+flowctl preview --source flow.yaml
+```
+
+7. If the preview output appears how you'd expect, **publish** the derivation.
+
+```console
+flowctl catalog publish --source flow.yaml
+```
+
+The derivation you created is now live and ready for further use.
+You can access it from the web application and [materialize it to a destination](../create-dataflow.md#create-a-materialization),
+just as you would any other Flow collection.
+
+## Create a derivation locally
+
+Creating a derivation locally is largely the same as using GitPod, but has some extra steps. Those extra steps are explained here, but you'll find more useful context in the sections above.
+
+1. Authorize flowctl.
+
+   1. Go to the [CLI-API tab of the web app](https://dashboard.estuary.dev/admin/api) and copy your access token.
+
+   2. Run `flowctl auth token --token <paste-token-here>` in your local environment.
+
+2. Locate the source collection for your derivation.
+
+   * Check the web app's **Collections**.
+   All published entities to which you have access are listed and can be searched.
+
+   * Run `flowctl catalog list --collections`. This command returns a complete list of collections to which you have access.
+   You can refine by specifying a `--prefix`.
+
+3. Pull the source collection locally using the full collection name.
+
+   ```console
+   flowctl catalog pull-specs --name acmeCo/resources/anvils
+   ```
+
+   The source files are written to your current working directory.
+
+4. Each slash-delimited prefix of your collection name has become a folder. Open the nested folders to find the `flow.yaml` file with the collection specification.
+
+   Following the example above, you'd open the folders called `acmeCo`, then `resources` to find the correct `flow.yaml` file.
+
+   The file contains the source collection specification and schema.
+
+5. Add the derivation as a second collection in the `flow.yaml` file.
+
+   1. Write the [schema](../../concepts/schemas.md) you'd like your derivation to conform to and specify the [collection key](../../concepts/collections.md#keys). Reference the source collection's schema, and keep in mind the transformation required to get from the source schema to the new schema.
+
+   2. Add the `derive` stanza. See examples for [SQL](#add-a-sql-derivation-in-gitpod) and [TypeScript](#add-a-sql-derivation-in-gitpod) above. Give your transform a a unique name.
+
+3. Stub out the SQL or TypeScript files for your transform.
+
+   ```console
+   flowctl generate --source flow.yaml
+   ```
+
+4. Locate the generated file, likely in the same subdirectory as the `flow.yaml` file you've been working in.
+
+5. Write your transformation.
 
 6. Preview the derivation locally.
 
