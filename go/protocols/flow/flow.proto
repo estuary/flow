@@ -6,6 +6,7 @@ option go_package = "github.com/estuary/flow/go/protocols/flow";
 import "broker/protocol/protocol.proto";
 import "consumer/protocol/protocol.proto";
 import "gogoproto/gogo.proto";
+import "google/protobuf/timestamp.proto";
 
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
@@ -188,6 +189,8 @@ message CollectionSpec {
     ];
     // Transforms of the derivation.
     message Transform {
+      // Next tag: 13.
+
       // Stable name of this transform.
       string name = 1 [ (gogoproto.casttype) = "Transform" ];
       // Source collection which is read by this transform.
@@ -218,6 +221,10 @@ message CollectionSpec {
       // Stable, unique value used to suffix journal read checkpoints of this transform.
       // Computed as "derive/{derivation}/{transform}".
       string journal_read_suffix = 10;
+      // When set, documents before this timestamp are not processed.
+      google.protobuf.Timestamp not_before = 11;
+      // When set, documents after this timestamp are not processed.
+      google.protobuf.Timestamp not_after = 12;
     }
     repeated Transform transforms = 3 [ (gogoproto.nullable) = false ];
     // JSON types of shuffle key components extracted by the transforms of this derivation.
@@ -319,7 +326,7 @@ message MaterializationSpec {
   // materialized. Bindings are ordered and unique on the bound collection name,
   // and are also unique on the resource path.
   message Binding {
-    // Next tag: 10.
+    // Next tag: 12.
 
     // JSON-encoded configuration of the bound resource.
     string resource_config_json = 1 [
@@ -349,6 +356,10 @@ message MaterializationSpec {
     // Stable, unique value used to suffix journal read checkpoints of this binding.
     // Computed as "materialize/{materialization}/{encoded-resource-path}".
     string journal_read_suffix = 8;
+    // When set, documents before this timestamp are not processed.
+    google.protobuf.Timestamp not_before = 10;
+    // When set, documents after this timestamp are not processed.
+    google.protobuf.Timestamp not_after = 11;
   }
   repeated Binding bindings = 4;
   // Template for shards of this materialization.

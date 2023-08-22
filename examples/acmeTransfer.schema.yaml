@@ -1,7 +1,0 @@
-type: object
-required: [id, sender, recipient, amount]
-properties:
-  id: { type: integer }
-  sender: { type: string }
-  recipient: { type: string }
-  amount: { type: number }

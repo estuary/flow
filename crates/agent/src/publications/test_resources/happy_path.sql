@@ -39,7 +39,9 @@ p5 as (
 ),
 p6 as (
   insert into role_grants (subject_role, object_role, capability) values
-  ('usageB/', 'usageB/', 'admin')
+  ('usageB/', 'usageB/', 'admin'),
+  -- This extra grant is here to exercise code paths that might otherwise be skipped
+  ('usageB/', 'somethingElse/', 'admin')
 ),
 p7 as (
   insert into user_grants (user_id, object_role, capability) values

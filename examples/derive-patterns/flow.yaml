@@ -4,4 +4,3 @@ import:
   - join-one-sided.flow.yaml
   - join-outer.flow.yaml
   - summer.flow.yaml
-  - zero-crossing.flow.yaml

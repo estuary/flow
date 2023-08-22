@@ -9,26 +9,45 @@ collections:
       required: [Key]
     key: [/Key]
 
-    derivation:
-      register:
-        schema: schema.yaml#Join
-        initial: {}
-
-      transform:
-        fromInts:
-          source: { name: patterns/ints }
+    derive:
+      using:
+        sqlite:
+          migrations:
+            - |
+              CREATE TABLE join_state (
+                key TEXT NOT NULL PRIMARY KEY,
+                -- Stores the left hand side of the join
+                lhs INTEGER,
+                -- Stores the right hand side of the join, using a JSON array
+                -- since this is a one-to-many join
+                rhs JSON
+              );
+              CREATE VIEW joined_output AS SELECT key, JSON_OBJECT(
+                'Key', key,
+                'LHS', lhs,
+                'RHS', JSON(rhs)
+              ) as json
+              FROM join_state
+              WHERE lhs IS NOT NULL AND rhs IS NOT NULL;
+      transforms:
+        - name: fromInts
+          source: patterns/ints
           shuffle: { key: [/Key] }
-          update: { lambda: typescript }
-          publish: { lambda: typescript }
+          lambda: |
+            INSERT INTO join_state (key, lhs) VALUES ($Key, $Int)
+            ON CONFLICT (key) DO UPDATE SET lhs = lhs + $Int;
+            -- now emit the joined result
+            SELECT json FROM joined_output WHERE key = $Key;
 
-        fromStrings:
-          source: { name: patterns/strings }
+        - name: fromStrings
+          source: patterns/strings
           shuffle: { key: [/Key] }
-          update: { lambda: typescript }
-          publish: { lambda: typescript }
-      typescript:
-        module: join-inner.flow.ts
-
+          lambda: |
+            INSERT INTO join_state (key, rhs) VALUES ($Key, JSON_ARRAY($String))
+            ON CONFLICT (key) DO UPDATE SET rhs = JSON_INSERT(COALESCE(rhs, '[]'), '$[#]', $String);
+            -- now emit the joined result
+            SELECT json FROM joined_output WHERE key = $Key;
+   
 tests:
   patterns/test/inner-join:
     - ingest:

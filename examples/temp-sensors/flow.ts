@@ -1,8 +1,9 @@
-import { IDerivation, Document, Register, FromReadingsSource, FromSensorsSource } from 'flow/temperature/averages';
+import { IDerivation, Document, SourceFromReadings, SourceFromSensors } from 'flow/temperature/averages.ts';
 
 // Implementation for derivation examples/temp-sensors/flow.yaml#/collections/temperature~1averages/derivation.
-export class Derivation implements IDerivation {
-    fromReadingsPublish(source: FromReadingsSource, _register: Register, _previous: Register): Document[] {
+export class Derivation extends IDerivation {
+    fromReadings(read: {doc: SourceFromReadings}): Document[] {
+        const source = read.doc;
         // This will execute on every reading so by setting numReadings to 1 for a single document, we'll sum the number of documents correctly by using
         // reduction annotations. Reduction annotations will handle ensuring temps and other fields are correctly minimized, maximized, or summed.
         return [
@@ -16,7 +17,7 @@ export class Derivation implements IDerivation {
             },
         ];
     }
-    fromSensorsPublish(source: FromSensorsSource, _register: Register, _previous: Register): Document[] {
-        return [{ sensor: source }];
+    fromSensors(read: { doc: SourceFromSensors}): Document[] {
+        return [{ sensor: read.doc}];
     }
 }

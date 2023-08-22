@@ -618,6 +618,24 @@
           "title": "Name of the collection to be read.",
           "$ref": "#/definitions/Collection"
         },
+        "notAfter": {
+          "title": "Upper bound date-time for documents which should be processed.",
+          "description": "Source collection documents published after this date-time are filtered. `notAfter` is *only* a filter. Updating its value will not cause Flow to re-process documents that have already been read. Optional. Default is to process all documents.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "notBefore": {
+          "title": "Lower bound date-time for documents which should be processed.",
+          "description": "Source collection documents published before this date-time are filtered. `notBefore` is *only* a filter. Updating its value will not cause Flow to re-process documents that have already been read. Optional. Default is to process all documents.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
         "partitions": {
           "title": "Selector over partition of the source collection to read.",
           "examples": [
@@ -952,7 +970,7 @@
         },
         "readChannelSize": {
           "title": "Size of the reader channel used for decoded documents.",
-          "description": "Larger values are recommended for tasks having more than one shard split and long, bursty transaction durations. If not set, a reasonable default (currently 65,536) is used. EXPERIMENTAL: this field is LIKELY to be removed.",
+          "description": "Larger values are recommended for tasks having more than one shard split and long, bursty transaction durations. If not set, a reasonable default (currently 4,096) is used. EXPERIMENTAL: this field is LIKELY to be removed.",
           "type": "integer",
           "format": "uint32",
           "minimum": 0.0

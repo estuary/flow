@@ -200,6 +200,14 @@ fn ex_derivation_spec() -> flow::CollectionSpec {
             shuffle_key: vec!["/shuffle".to_string(), "/key".to_string()],
             shuffle_lambda_config_json: json!("SELECT $shuffle, $key;").to_string(),
             journal_read_suffix: "derive/a/collection/transform_name".to_string(),
+            not_before: Some(pbjson_types::Timestamp {
+                seconds: 1691722827,
+                nanos: 0,
+            }),
+            not_after: Some(pbjson_types::Timestamp {
+                seconds: 1680000000,
+                nanos: 0,
+            }),
         }],
         shuffle_key_types: vec![
             flow::collection_spec::derivation::ShuffleType::String as i32,
@@ -244,6 +252,14 @@ fn ex_materialization_spec() -> flow::MaterializationSpec {
             delta_updates: false,
             deprecated_shuffle: None,
             journal_read_suffix: "materialize/acmeCo/materialization/some%20path".to_string(),
+            not_before: Some(pbjson_types::Timestamp {
+                seconds: 1691722827,
+                nanos: 0,
+            }),
+            not_after: Some(pbjson_types::Timestamp {
+                seconds: 1680000000,
+                nanos: 0,
+            }),
         }],
         network_ports: ex_network_ports(),
     }

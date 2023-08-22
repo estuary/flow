@@ -80,15 +80,26 @@ pub fn walk_test_step(
                 models::Source::Source(models::FullSource {
                     name: collection,
                     partitions,
+                    not_before,
+                    not_after,
                 }),
             documents,
-        }) => (
-            StepType::Verify,
-            collection,
-            description,
-            documents,
-            partitions.as_ref(),
-        ),
+        }) => {
+            if not_before.is_some() {
+                Error::TestStepNotBeforeAfter.push(scope.push_prop("notBefore"), errors);
+            }
+            if not_after.is_some() {
+                Error::TestStepNotBeforeAfter.push(scope.push_prop("notAfter"), errors);
+            }
+
+            (
+                StepType::Verify,
+                collection,
+                description,
+                documents,
+                partitions.as_ref(),
+            )
+        }
     };
     let scope = match step_type {
         StepType::Ingest => scope.push_prop("ingest"),

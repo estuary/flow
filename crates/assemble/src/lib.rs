@@ -317,8 +317,8 @@ pub fn shard_template(
 
     // If not set, the default ring buffer size is 64k.
     let ring_buffer_size = ring_buffer_size.unwrap_or(1 << 16);
-    // If not set, the default read channel size is 128k.
-    let read_channel_size = read_channel_size.unwrap_or(1 << 17);
+    // If not set, the default read channel size is 4,096.
+    let read_channel_size = read_channel_size.unwrap_or(1 << 12);
 
     let mut labels = vec![
         broker::Label {
@@ -610,6 +610,13 @@ pub fn label_selector(t: models::LabelSelector) -> broker::LabelSelector {
     broker::LabelSelector {
         include: include.map(label_set),
         exclude: exclude.map(label_set),
+    }
+}
+
+pub fn pb_datetime(t: &time::OffsetDateTime) -> pbjson_types::Timestamp {
+    pbjson_types::Timestamp {
+        seconds: t.unix_timestamp() as i64,
+        nanos: 0, // Deliberately truncated.
     }
 }
 

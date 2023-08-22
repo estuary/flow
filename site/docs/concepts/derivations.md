@@ -346,15 +346,12 @@ collections:
     # Presence of a `derive` stanza makes this collection a derivation.
     # Type: object
     derive:
-
       # Connector which this derivation uses.
       # One of `typescript` or `sqlite`.
       using:
-
         # Derivation is using the SQLite connector.
         # Optional, type: object
         sqlite:
-
           # SQL migrations to apply as inline SQL or file references.
           # If a referenced file does not exist
           # a stub can be generated using `flowctl generate`.
@@ -366,7 +363,6 @@ collections:
         # Derivation is using the TypeScript connector.
         # Optional, type: object
         typescript:
-
           # TypeScript module implementing this derivation,
           # as inline TypeScript or a relative file reference.
           # If a referenced file does not exist
@@ -375,11 +371,9 @@ collections:
 
       # The array of transformations that build this derived collection.
       transform:
-
         # Unique name of the transformation, containing only Unicode
         # Letters, Numbers, `-`, or `_` (no spaces or other punctuation).
         - name: myTransformName
-
           # Source collection read by this transformation.
           # Required, type: object or string.
           source:
@@ -389,6 +383,18 @@ collections:
             # Partition selector of the source collection.
             # Optional. Default is to read all partitions.
             partitions: {}
+            # Lower bound date-time for documents which should be processed. 
+            # Source collection documents published before this date-time are filtered.
+            # `notBefore` is *only* a filter. Updating its value will not cause Flow
+            # to re-process documents that have already been read.
+            # Optional. Default is to process all documents.
+            notBefore: 2023-01-23T01:00:00Z
+            # Upper bound date-time for documents which should be processed.
+            # Source collection documents published after this date-time are filtered.
+            # Like `notBefore`, `notAfter` is *only* a filter. Updating its value will
+            # not cause Flow to re-process documents that have already been read.
+            # Optional. Default is to process all documents.
+            notAfter: 2023-01-23T02:00:00Z
 
           # Lambda of this transform, with a meaning which depends
           # on the derivation connector:
@@ -397,12 +403,10 @@ collections:
           #   are provided by the derivation's TypeScript module.
           # Lambdas can be either inline or a relative file reference.
           lambda: SELECT $foo, $bar;
-
           # Delay applied to sourced documents before being processed
           # by this transformation.
           # Default: No delay, pattern: ^\\d+(s|m|h)$
           readDelay: "48h"
-
           # Key by which source documents are shuffled to task shards.
           # Optional, type: object.
           # If not set, the source collection key is used.
@@ -410,12 +414,10 @@ collections:
             # Composite key of JSON pointers which are extracted from
             # source documents.
             key: [/shuffle/key/one, /shuffle/key/two]
-
           # Priority applied to documents of this transformation
           # relative to other transformations of the derivation.
           # Default: 0, integer >= 0
           priority: 0
-
 ```
 
 ## Supported Languages

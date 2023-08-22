@@ -36,7 +36,9 @@ Sources {
                             false
                           ]
                         }
-                      }
+                      },
+                      "notBefore": "2017-03-03T03:02:01Z",
+                      "notAfter": "2019-03-06T09:30:02Z"
                     },
                     "shuffle": {
                       "key": [

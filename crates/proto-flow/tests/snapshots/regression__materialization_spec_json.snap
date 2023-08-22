@@ -107,7 +107,9 @@ expression: json_test(msg)
           "other/field": 42.5
         }
       },
-      "journalReadSuffix": "materialize/acmeCo/materialization/some%20path"
+      "journalReadSuffix": "materialize/acmeCo/materialization/some%20path",
+      "notBefore": "2023-08-11T03:00:27+00:00",
+      "notAfter": "2023-03-28T10:40:00+00:00"
     }
   ],
   "shardTemplate": {

@@ -1697,6 +1697,12 @@ impl serde::Serialize for collection_spec::derivation::Transform {
         if !self.journal_read_suffix.is_empty() {
             len += 1;
         }
+        if self.not_before.is_some() {
+            len += 1;
+        }
+        if self.not_after.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CollectionSpec.Derivation.Transform", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -1728,6 +1734,12 @@ impl serde::Serialize for collection_spec::derivation::Transform {
         if !self.journal_read_suffix.is_empty() {
             struct_ser.serialize_field("journalReadSuffix", &self.journal_read_suffix)?;
         }
+        if let Some(v) = self.not_before.as_ref() {
+            struct_ser.serialize_field("notBefore", v)?;
+        }
+        if let Some(v) = self.not_after.as_ref() {
+            struct_ser.serialize_field("notAfter", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -1755,6 +1767,10 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
             "readOnly",
             "journal_read_suffix",
             "journalReadSuffix",
+            "not_before",
+            "notBefore",
+            "not_after",
+            "notAfter",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1769,6 +1785,8 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
             LambdaConfigJson,
             ReadOnly,
             JournalReadSuffix,
+            NotBefore,
+            NotAfter,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1800,6 +1818,8 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
                             "lambdaConfig" | "lambda_config_json" => Ok(GeneratedField::LambdaConfigJson),
                             "readOnly" | "read_only" => Ok(GeneratedField::ReadOnly),
                             "journalReadSuffix" | "journal_read_suffix" => Ok(GeneratedField::JournalReadSuffix),
+                            "notBefore" | "not_before" => Ok(GeneratedField::NotBefore),
+                            "notAfter" | "not_after" => Ok(GeneratedField::NotAfter),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1829,6 +1849,8 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
                 let mut lambda_config_json__ : Option<Box<serde_json::value::RawValue>> = None;
                 let mut read_only__ = None;
                 let mut journal_read_suffix__ = None;
+                let mut not_before__ = None;
+                let mut not_after__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -1895,6 +1917,18 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
                             }
                             journal_read_suffix__ = Some(map.next_value()?);
                         }
+                        GeneratedField::NotBefore => {
+                            if not_before__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("notBefore"));
+                            }
+                            not_before__ = map.next_value()?;
+                        }
+                        GeneratedField::NotAfter => {
+                            if not_after__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("notAfter"));
+                            }
+                            not_after__ = map.next_value()?;
+                        }
                     }
                 }
                 Ok(collection_spec::derivation::Transform {
@@ -1908,6 +1942,8 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
                     lambda_config_json: lambda_config_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
                     read_only: read_only__.unwrap_or_default(),
                     journal_read_suffix: journal_read_suffix__.unwrap_or_default(),
+                    not_before: not_before__,
+                    not_after: not_after__,
                 })
             }
         }
@@ -4051,6 +4087,12 @@ impl serde::Serialize for materialization_spec::Binding {
         if !self.journal_read_suffix.is_empty() {
             len += 1;
         }
+        if self.not_before.is_some() {
+            len += 1;
+        }
+        if self.not_after.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.MaterializationSpec.Binding", len)?;
         if !self.resource_config_json.is_empty() {
             struct_ser.serialize_field("resourceConfig", crate::as_raw_json(&self.resource_config_json)?)?;
@@ -4079,6 +4121,12 @@ impl serde::Serialize for materialization_spec::Binding {
         if !self.journal_read_suffix.is_empty() {
             struct_ser.serialize_field("journalReadSuffix", &self.journal_read_suffix)?;
         }
+        if let Some(v) = self.not_before.as_ref() {
+            struct_ser.serialize_field("notBefore", v)?;
+        }
+        if let Some(v) = self.not_after.as_ref() {
+            struct_ser.serialize_field("notAfter", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -4105,6 +4153,10 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
             "deprecatedShuffle",
             "journal_read_suffix",
             "journalReadSuffix",
+            "not_before",
+            "notBefore",
+            "not_after",
+            "notAfter",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -4118,6 +4170,8 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
             DeltaUpdates,
             DeprecatedShuffle,
             JournalReadSuffix,
+            NotBefore,
+            NotAfter,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -4148,6 +4202,8 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
                             "deltaUpdates" | "delta_updates" => Ok(GeneratedField::DeltaUpdates),
                             "deprecatedShuffle" | "deprecated_shuffle" => Ok(GeneratedField::DeprecatedShuffle),
                             "journalReadSuffix" | "journal_read_suffix" => Ok(GeneratedField::JournalReadSuffix),
+                            "notBefore" | "not_before" => Ok(GeneratedField::NotBefore),
+                            "notAfter" | "not_after" => Ok(GeneratedField::NotAfter),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -4176,6 +4232,8 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
                 let mut delta_updates__ = None;
                 let mut deprecated_shuffle__ = None;
                 let mut journal_read_suffix__ = None;
+                let mut not_before__ = None;
+                let mut not_after__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::ResourceConfigJson => {
@@ -4234,6 +4292,18 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
                             }
                             journal_read_suffix__ = Some(map.next_value()?);
                         }
+                        GeneratedField::NotBefore => {
+                            if not_before__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("notBefore"));
+                            }
+                            not_before__ = map.next_value()?;
+                        }
+                        GeneratedField::NotAfter => {
+                            if not_after__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("notAfter"));
+                            }
+                            not_after__ = map.next_value()?;
+                        }
                     }
                 }
                 Ok(materialization_spec::Binding {
@@ -4246,6 +4316,8 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
                     delta_updates: delta_updates__.unwrap_or_default(),
                     deprecated_shuffle: deprecated_shuffle__,
                     journal_read_suffix: journal_read_suffix__.unwrap_or_default(),
+                    not_before: not_before__,
+                    not_after: not_after__,
                 })
             }
         }

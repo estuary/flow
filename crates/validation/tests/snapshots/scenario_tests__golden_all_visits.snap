@@ -300,7 +300,7 @@ All {
                         ),
                         disable_wait_for_ack: false,
                         ring_buffer_size: 65536,
-                        read_channel_size: 131072,
+                        read_channel_size: 4096,
                     },
                 ),
                 recovery_log_template: Some(
@@ -854,7 +854,7 @@ All {
                         ),
                         disable_wait_for_ack: false,
                         ring_buffer_size: 65536,
-                        read_channel_size: 131072,
+                        read_channel_size: 4096,
                     },
                 ),
                 recovery_log_template: Some(
@@ -1448,6 +1448,8 @@ All {
                                 lambda_config_json: "\"select aKeyOne as \\\"an-int\\\", json_object('timestamp', strftime('%Y-%m-%dT%H:%M:%SZ')) as two from source;\\n\"",
                                 read_only: true,
                                 journal_read_suffix: "derive/testing/from-array-key/withBar",
+                                not_before: None,
+                                not_after: None,
                             },
                             Transform {
                                 name: "withFoo",
@@ -1650,6 +1652,8 @@ All {
                                 lambda_config_json: "\"select s.aKeyOne, s.arr, s.\\\"arr/0/aKey\\\", r.\\\"an-int\\\", r.\\\"nested/timestamp\\\" from source as s, register as r;\\n\"",
                                 read_only: false,
                                 journal_read_suffix: "derive/testing/from-array-key/withFoo",
+                                not_before: None,
+                                not_after: None,
                             },
                         ],
                         shuffle_key_types: [
@@ -1704,7 +1708,7 @@ All {
                                 ),
                                 disable_wait_for_ack: false,
                                 ring_buffer_size: 65536,
-                                read_channel_size: 131072,
+                                read_channel_size: 4096,
                             },
                         ),
                         recovery_log_template: Some(
@@ -2453,6 +2457,13 @@ All {
                                 lambda_config_json: "null",
                                 read_only: false,
                                 journal_read_suffix: "derive/testing/int-halve/halveIntString",
+                                not_before: None,
+                                not_after: Some(
+                                    Timestamp {
+                                        seconds: 1551864602,
+                                        nanos: 0,
+                                    },
+                                ),
                             },
                             Transform {
                                 name: "halveSelf",
@@ -2805,6 +2816,8 @@ All {
                                 lambda_config_json: "null",
                                 read_only: true,
                                 journal_read_suffix: "derive/testing/int-halve/halveSelf",
+                                not_before: None,
+                                not_after: None,
                             },
                         ],
                         shuffle_key_types: [
@@ -2860,7 +2873,7 @@ All {
                                 ),
                                 disable_wait_for_ack: true,
                                 ring_buffer_size: 65536,
-                                read_channel_size: 131072,
+                                read_channel_size: 4096,
                             },
                         ),
                         recovery_log_template: Some(
@@ -3338,6 +3351,8 @@ All {
                                 lambda_config_json: "null",
                                 read_only: true,
                                 journal_read_suffix: "derive/testing/int-reverse/reverseIntString",
+                                not_before: None,
+                                not_after: None,
                             },
                         ],
                         shuffle_key_types: [],
@@ -3390,7 +3405,7 @@ All {
                                 ),
                                 disable_wait_for_ack: false,
                                 ring_buffer_size: 65536,
-                                read_channel_size: 131072,
+                                read_channel_size: 4096,
                             },
                         ),
                         recovery_log_template: Some(
@@ -4413,6 +4428,8 @@ All {
                         delta_updates: false,
                         deprecated_shuffle: None,
                         journal_read_suffix: "materialize/testing/db-views/view",
+                        not_before: None,
+                        not_after: None,
                     },
                 ],
                 shard_template: Some(
@@ -4464,7 +4481,7 @@ All {
                         ),
                         disable_wait_for_ack: false,
                         ring_buffer_size: 65536,
-                        read_channel_size: 131072,
+                        read_channel_size: 4096,
                     },
                 ),
                 recovery_log_template: Some(
@@ -4835,6 +4852,13 @@ All {
                         delta_updates: true,
                         deprecated_shuffle: None,
                         journal_read_suffix: "materialize/testing/webhook/deliveries/Web%21hook%2Ffoo%20bar",
+                        not_before: Some(
+                            Timestamp {
+                                seconds: 1488510121,
+                                nanos: 0,
+                            },
+                        ),
+                        not_after: None,
                     },
                     Binding {
                         resource_config_json: "{\"fixture\":\"two\"}",
@@ -5200,6 +5224,8 @@ All {
                         delta_updates: true,
                         deprecated_shuffle: None,
                         journal_read_suffix: "materialize/testing/webhook/deliveries/targe+%2Ftwo",
+                        not_before: None,
+                        not_after: None,
                     },
                 ],
                 shard_template: Some(
@@ -5271,7 +5297,7 @@ All {
                         ),
                         disable_wait_for_ack: false,
                         ring_buffer_size: 65536,
-                        read_channel_size: 131072,
+                        read_channel_size: 4096,
                     },
                 ),
                 recovery_log_template: Some(
@@ -5571,7 +5597,8 @@ All {
                             false
                           ]
                         }
-                      }
+                      },
+                      "notAfter": "2019-03-06T09:30:02Z"
                     },
                     "shuffle": {
                       "key": [
@@ -5935,7 +5962,8 @@ All {
                         ]
                       },
                       "exclude": {}
-                    }
+                    },
+                    "notBefore": "2017-03-03T03:02:01Z"
                   },
                   "fields": {
                     "include": {
@@ -6004,7 +6032,7 @@ All {
             resource: test://example/int-halve,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"testing/int-halve":{"derive":{"shards":{"disable":true},"transforms":[{"name":"halveIntString","shuffle":{"key":["/len","/str"]},"source":{"name":"testing/int-string-rw","partitions":{"exclude":{"bit":[false]},"include":{"bit":[true]}}}},{"name":"halveSelf","shuffle":{"key":["/len","/partitionString"]},"source":{"name":"testing/int-halve"}}],"using":{"typescript":{"module":"int-halve.ts"}}},"journals":{"fragments":{"flushInterval":"15m","length":11223344}},"key":["/int"],"projections":{"Extra":"/extra","Len":{"location":"/len","partition":true},"Root":"","TheString":{"location":"/partitionString","partition":true}},"schema":"test://example/int-string-len.schema"}}},
+            content_dom: {"collections":{"testing/int-halve":{"derive":{"shards":{"disable":true},"transforms":[{"name":"halveIntString","shuffle":{"key":["/len","/str"]},"source":{"name":"testing/int-string-rw","notAfter":"2019-03-06T09:30:02Z","partitions":{"exclude":{"bit":[false]},"include":{"bit":[true]}}}},{"name":"halveSelf","shuffle":{"key":["/len","/partitionString"]},"source":{"name":"testing/int-halve"}}],"using":{"typescript":{"module":"int-halve.ts"}}},"journals":{"fragments":{"flushInterval":"15m","length":11223344}},"key":["/int"],"projections":{"Extra":"/extra","Len":{"location":"/len","partition":true},"Root":"","TheString":{"location":"/partitionString","partition":true}},"schema":"test://example/int-string-len.schema"}}},
         },
         Resource {
             resource: test://example/int-halve.ts,
@@ -6064,7 +6092,7 @@ All {
             resource: test://example/webhook-deliveries,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"import":["test://example/int-string","test://example/int-halve"],"materializations":{"testing/webhook/deliveries":{"bindings":[{"fields":{"exclude":["bit"],"include":{"str":{"pass":"through"}},"recommended":true},"resource":{"fixture":"one"},"source":{"name":"testing/int-string","partitions":{"include":{"bit":[true]}}}},{"fields":{"include":{"Len":{}},"recommended":false},"priority":3,"resource":{"fixture":"two"},"source":"testing/int-halve"}],"endpoint":{"connector":{"config":"webhook-config.yaml","image":"webhook/connector"}}}}},
+            content_dom: {"import":["test://example/int-string","test://example/int-halve"],"materializations":{"testing/webhook/deliveries":{"bindings":[{"fields":{"exclude":["bit"],"include":{"str":{"pass":"through"}},"recommended":true},"resource":{"fixture":"one"},"source":{"name":"testing/int-string","notBefore":"2017-03-03T03:02:01Z","partitions":{"include":{"bit":[true]}}}},{"fields":{"include":{"Len":{}},"recommended":false},"priority":3,"resource":{"fixture":"two"},"source":"testing/int-halve"}],"endpoint":{"connector":{"config":"webhook-config.yaml","image":"webhook/connector"}}}}},
         },
     ],
     storage_mappings: [

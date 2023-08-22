@@ -9,6 +9,42 @@ collections:
       required: [Key]
     key: [/Key]
 
+    derive:
+      using:
+        sqlite:
+          migrations:
+            - |
+              create table join_state (
+                key text not null primary key,
+                -- Stores the left hand side of the join
+                lhs integer,
+                -- Stores the right hand side of the join, using a JSON array
+                -- since this is a one-to-many join
+                rhs json
+              );
+      transforms:
+        - name: fromInts
+          source: patterns/ints
+          shuffle: { key: [/Key] }
+          lambda: |
+            insert into join_state (key, lhs) values ($Key, $Int)
+            on conflict (key) do update set lhs = $Int;
+            -- now emit the joined result
+            SELECT JSON_OBJECT(
+              'Key', $Key,
+              'LHS', lhs,
+              'RHS', JSON(COALESCE(rhs, '[]'))
+            )
+            FROM join_state
+            WHERE key = $Key;
+
+        - name: fromStrings
+          source: patterns/strings
+          shuffle: { key: [/Key] }
+          lambda: |
+            INSERT INTO join_state (key, rhs) VALUES ($Key, JSON_ARRAY($String))
+            ON CONFLICT (key) DO UPDATE SET rhs = JSON_INSERT(COALESCE(rhs, '[]'), '$[#]', $String);
+
     derivation:
       register:
         schema: schema.yaml#Join

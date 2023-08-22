@@ -8,19 +8,17 @@ collections:
       required: [Key]
     key: [/Key]
 
-    derivation:
-      transform:
-        fromInts:
+    derive:
+      using:
+        typescript: { module: join-outer.flow.ts }
+      transforms:
+        - name: fromInts
           source: { name: patterns/ints }
           shuffle: { key: [/Key] }
-          publish: { lambda: typescript }
 
-        fromStrings:
+        - name: fromStrings
           source: { name: patterns/strings }
           shuffle: { key: [/Key] }
-          publish: { lambda: typescript }
-      typescript:
-        module: join-outer.flow.ts
 
 tests:
   patterns/test/outer-join:

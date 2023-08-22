@@ -1,11 +1,11 @@
-import { IDerivation, Document, Register, FromIntsSource, FromStringsSource } from 'flow/patterns/outer-join';
+import { IDerivation, Document, SourceFromInts, SourceFromStrings } from 'flow/patterns/outer-join.ts';
 
 // Implementation for derivation examples/derive-patterns/join-outer.flow.yaml#/collections/patterns~1outer-join/derivation.
-export class Derivation implements IDerivation {
-    fromIntsPublish(source: FromIntsSource, _register: Register, _previous: Register): Document[] {
-        return [{ Key: source.Key, LHS: source.Int }];
+export class Derivation extends IDerivation {
+    fromInts(read: {doc: SourceFromInts}): Document[] {
+        return [{ Key: read.doc.Key, LHS: read.doc.Int }];
     }
-    fromStringsPublish(source: FromStringsSource, _register: Register, _previous: Register): Document[] {
-        return [{ Key: source.Key, RHS: [source.String] }];
+    fromStrings(read: {doc: SourceFromStrings}): Document[] {
+        return [{ Key: read.doc.Key, RHS: [read.doc.String] }];
     }
 }

@@ -50,7 +50,7 @@ async fn test_collection_evolution() {
 
     let new_draft = sqlx::query!(
         r#"
-        select catalog_name, spec_type as "spec_type: CatalogType", spec 
+        select catalog_name, spec_type as "spec_type: CatalogType", spec
         from draft_specs
         where draft_id = '2230000000000000'
         order by catalog_name asc
