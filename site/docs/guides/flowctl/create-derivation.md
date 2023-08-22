@@ -63,6 +63,7 @@ You'll write your derivation using GitPod, a cloud development environment integ
    In the same folder, you'll also find supplementary TypeScript or SQL files you'll need for your transformation.
 
 [Continue with SQL](#add-a-sql-derivation-in-gitpod)
+
 [Continue with TypeScript](#add-a-typescript-derivation-in-gitpod)
 
 :::info Authentication
@@ -92,26 +93,26 @@ Using the example above, it'd be called `anvil-status.migration.0.sql`.
 
    ```yaml
    collections:
-      acmeCo/resources/anvil-status:
-         schema:
-            properties:
-               your_key:
-                  type: string
-            required:
-               - your_key
-            type: object
-         key:
-            - /your_key
-         derive:
-            using:
-               sqlite:
-                  migrations:
-                     - anvil-status.migration.0.sql
-            transforms:
-               - name: anvils
-                  source: acmeCo/resources/anvils
-                  shuffle: any
-                  lambda: anvil-status.lambda.anvils.sql
+     acmeCo/resources/anvil-status:
+       schema:
+         properties:
+           your_key:
+             type: string
+           required:
+             - your_key
+         type: object
+       key:
+         - /your_key
+       derive:
+         using:
+           sqlite:
+             migrations:
+               - anvil-status.migration.0.sql
+         transforms:
+           - name: anvils
+             source: acmeCo/resources/anvils
+             shuffle: any
+             lambda: anvil-status.lambda.anvils.sql
    ```
 
    Note the stubbed out schema and key.
@@ -139,15 +140,15 @@ The main [derivations page](../../concepts/derivations.md) includes many other e
 
 6. Preview the derivation locally.
 
-```console
-flowctl preview --source flow.yaml
-```
+   ```console
+   flowctl preview --source flow.yaml
+   ```
 
 7. If the preview output appears as expected, **publish** the derivation.
 
-```console
-flowctl catalog publish --source flow.yaml
-```
+   ```console
+   flowctl catalog publish --source flow.yaml
+   ```
 
 The derivation you created is now live and ready for further use.
 You can access it from the web application and [materialize it to a destination](../create-dataflow.md#create-a-materialization),
@@ -165,24 +166,24 @@ Using the example above, it'd be called `anvil-status.ts`.
 
    ```yaml
    collections:
-      acmeCo/resources/anvil-status:
-         schema:
-            properties:
-               your_key:
-                  type: string
-            required:
-               - your_key
-            type: object
-         key:
-            - /your_key
-         derive:
-            using:
-               typescript:
-                  module: anvil-status.ts
-            transforms:
-               - name: anvils
-                 source: acmeCo/resources/anvils
-                 shuffle: any
+     acmeCo/resources/anvil-status:
+       schema:
+         properties:
+           your_key:
+             type: string
+           required:
+             - your_key
+         type: object
+       key:
+         - /your_key
+       derive:
+         using:
+           typescript:
+             module: anvil-status.ts
+         transforms:
+           - name: anvils
+           source: acmeCo/resources/anvils
+           shuffle: any
    ```
 
    Note the stubbed out schema and key.
@@ -205,15 +206,15 @@ The main [derivations page](../../concepts/derivations.md) includes many other e
 
 6. Preview the derivation locally.
 
-```console
-flowctl preview --source flow.yaml
-```
+   ```console
+   flowctl preview --source flow.yaml
+   ```
 
 7. If the preview output appears how you'd expect, **publish** the derivation.
 
-```console
-flowctl catalog publish --source flow.yaml
-```
+   ```console
+   flowctl catalog publish --source flow.yaml
+   ```
 
 The derivation you created is now live and ready for further use.
 You can access it from the web application and [materialize it to a destination](../create-dataflow.md#create-a-materialization),

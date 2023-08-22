@@ -89,26 +89,26 @@ You'll write your derivation using a cloud development environment integrated in
 
    ```yaml
    collections:
-      yourprefix/wikipedia/user-fact-table:
-         schema:
-            properties:
-               your_key:
-                 type: string
-            required:
+     yourprefix/wikipedia/user-fact-table:
+       schema:
+         properties:
+           your_key:
+             type: string
+             required:
                - your_key
-            type: object
-         key:
-            - /your_key
-         derive:
-            using:
-               sqlite:
-                  migrations:
-                     - user-fact-table.migration.0.sql
-            transforms:
-               - name: recentchange
-                  source: demo/wikipedia/recentchange
-                  shuffle: any
-                  lambda: user-fact-table.lambda.recentchange.sql
+             type: object
+       key:
+         - /your_key
+       derive:
+         using:
+           sqlite:
+             migrations:
+               - user-fact-table.migration.0.sql
+         transforms:
+           - name: recentchange
+           source: demo/wikipedia/recentchange
+           shuffle: any
+           lambda: user-fact-table.lambda.recentchange.sql
    ```
 
    Your first order of business is to replace the placeholder schema and collection key.
@@ -152,10 +152,10 @@ You'll write your derivation using a cloud development environment integrated in
 
 7. In the `transforms` stanza, give the transformation a new name to differentiate it from the name of the source collection. For example:
 
-```yaml
-transforms:
-   - name: dailychangesbyuser
-```
+   ```yaml
+   transforms:
+     - name: dailychangesbyuser
+   ```
 
 8. Update the shuffle key. Since we're working with a large dataset, this ensures that each user is processed by the same task **shard**.
 This way, you'll prevent Flow from creating multiple counts for a given user and date combination.
