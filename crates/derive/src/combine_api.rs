@@ -1,7 +1,7 @@
 use crate::{new_validator, DebugJson, DocCounter, JsonError, StatsAccumulator};
 use anyhow::Context;
 use bytes::Buf;
-use doc::shape::{limits::enforce_field_count_limits, schema::to_schema};
+use doc::shape::{limits::{enforce_shape_complexity_limit, DEFAULT_SCHEMA_COMPLEXITY_LIMIT}, schema::to_schema};
 use prost::Message;
 use proto_flow::flow::combine_api::{self, Code};
 
@@ -291,7 +291,7 @@ pub fn drain_chunk(
                 doc::LazyNode::Heap(h) => shape.widen(h),
             };
             if changed {
-                enforce_field_count_limits(shape, json::Location::Root);
+                enforce_shape_complexity_limit(shape, DEFAULT_SCHEMA_COMPLEXITY_LIMIT);
                 *did_change = true;
             }
         }
@@ -742,8 +742,8 @@ pub mod test {
 
                 // Test projection fields == their pointer.
                 flow::Projection {
-                    field: ptr.clone(),
-                    ptr: ptr,
+                    field: ptr.to_string(),
+                    ptr: ptr.to_string(),
                     inference: Some(flow::Inference {
                         default_json: shape
                             .default

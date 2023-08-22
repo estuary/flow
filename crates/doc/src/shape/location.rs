@@ -70,7 +70,7 @@ impl Shape {
     /// Produce flattened locations of nested items and properties of this Shape,
     /// as tuples of the encoded location JSON Pointer, an indication of whether
     /// the pointer is a pattern, its Shape, and an Exists constraint.
-    pub fn locations(&self) -> Vec<(String, bool, &Shape, Exists)> {
+    pub fn locations(&self) -> Vec<(Pointer, bool, &Shape, Exists)> {
         let mut out = Vec::new();
         self.locations_inner(Location::Root, Exists::Must, false, &mut out);
         out
@@ -167,14 +167,14 @@ impl Shape {
         location: Location<'_>,
         exists: Exists,
         pattern: bool,
-        out: &mut Vec<(String, bool, &'s Shape, Exists)>,
+        out: &mut Vec<(Pointer, bool, &'s Shape, Exists)>,
     ) {
         let exists = if self.type_ == types::INVALID {
             Exists::Cannot
         } else {
             exists
         };
-        out.push((location.pointer_str().to_string(), pattern, self, exists));
+        out.push((Pointer::from_location(&location), pattern, self, exists));
 
         // Traverse sub-locations of this location when it takes an object
         // or array type. As a rule, children must exist only if their parent
@@ -338,8 +338,10 @@ mod test {
             (&arr2, "/-", ("<missing>", Exists::Cannot)),
         ];
 
-        for (shape, ptr, expect) in cases {
-            let actual = shape.locate(&Pointer::from(ptr));
+        for (&ref shape, ptr, expect) in cases {
+            let mut_shape = &mut shape.clone();
+
+            let actual = mut_shape.locate(&Pointer::from(ptr));
             let actual = (
                 actual
                     .0
@@ -349,54 +351,79 @@ mod test {
                     .unwrap_or("<missing>"),
                 actual.1,
             );
-            assert_eq!(expect, &actual, "case {:?}", ptr);
+            assert_eq!(*expect, actual, "case {:?}", ptr);
         }
 
         let obj_locations = obj.locations();
         let obj_locations = obj_locations
             .iter()
-            .map(|(ptr, pattern, shape, exists)| (ptr.as_ref(), *pattern, shape.type_, *exists))
+            .map(|(ptr, pattern, shape, exists)| (ptr.to_string(), *pattern, shape.type_, *exists))
             .collect::<Vec<_>>();
 
         assert_eq!(
             obj_locations,
             vec![
-                ("", false, types::OBJECT, Exists::Must),
-                ("/1", false, types::OBJECT, Exists::Must),
-                ("/1/-", false, types::OBJECT, Exists::Must),
-                ("/1/-/2", false, types::STRING, Exists::Must),
+                ("".to_string(), false, types::OBJECT, Exists::Must),
+                ("/1".to_string(), false, types::OBJECT, Exists::Must),
+                ("/1/-".to_string(), false, types::OBJECT, Exists::Must),
+                ("/1/-/2".to_string(), false, types::STRING, Exists::Must),
                 (
-                    "/multi-type",
+                    "/multi-type".to_string(),
                     false,
                     types::ARRAY | types::OBJECT,
                     Exists::May
                 ),
-                ("/multi-type/child", false, types::STRING, Exists::May),
-                ("/parent", false, types::OBJECT, Exists::Must),
-                ("/parent/40two", false, types::STRING, Exists::May),
-                ("/parent/impossible", false, types::INVALID, Exists::Cannot),
-                ("/parent/opt-child", false, types::STRING, Exists::May),
-                ("/parent/req-child", false, types::STRING, Exists::Must),
-                ("/prop", false, types::STRING, Exists::May),
-                ("/pattern+", true, types::STRING, Exists::May),
-                ("/*", true, types::STRING, Exists::May),
+                (
+                    "/multi-type/child".to_string(),
+                    false,
+                    types::STRING,
+                    Exists::May
+                ),
+                ("/parent".to_string(), false, types::OBJECT, Exists::Must),
+                (
+                    "/parent/40two".to_string(),
+                    false,
+                    types::STRING,
+                    Exists::May
+                ),
+                (
+                    "/parent/impossible".to_string(),
+                    false,
+                    types::INVALID,
+                    Exists::Cannot
+                ),
+                (
+                    "/parent/opt-child".to_string(),
+                    false,
+                    types::STRING,
+                    Exists::May
+                ),
+                (
+                    "/parent/req-child".to_string(),
+                    false,
+                    types::STRING,
+                    Exists::Must
+                ),
+                ("/prop".to_string(), false, types::STRING, Exists::May),
+                ("/pattern+".to_string(), true, types::STRING, Exists::May),
+                ("/*".to_string(), true, types::STRING, Exists::May),
             ]
         );
 
         let arr_locations = arr1.locations();
         let arr_locations = arr_locations
             .iter()
-            .map(|(ptr, pattern, shape, exists)| (ptr.as_ref(), *pattern, shape.type_, *exists))
+            .map(|(ptr, pattern, shape, exists)| (ptr.to_string(), *pattern, shape.type_, *exists))
             .collect::<Vec<_>>();
 
         assert_eq!(
             arr_locations,
             vec![
-                ("", false, types::ARRAY, Exists::Must),
-                ("/0", false, types::STRING, Exists::Must),
-                ("/1", false, types::STRING, Exists::Must),
-                ("/2", false, types::STRING, Exists::May),
-                ("/-", true, types::STRING, Exists::May),
+                ("".to_string(), false, types::ARRAY, Exists::Must),
+                ("/0".to_string(), false, types::STRING, Exists::Must),
+                ("/1".to_string(), false, types::STRING, Exists::Must),
+                ("/2".to_string(), false, types::STRING, Exists::May),
+                ("/-".to_string(), true, types::STRING, Exists::May),
             ]
         );
     }
