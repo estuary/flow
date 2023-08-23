@@ -38,7 +38,7 @@ WITH return_values as (
             'ts',ts,
             'level',level,
             'message',message,
-            'formatted_message',SUBSTR('[ts='||ts||' level='||level||']: '||message,0,2500)
+            'formatted_message','[ts='||ts||' level='||level||']: '||message
         ))
         FROM related_log_lines
         WHERE shard=$name
@@ -155,8 +155,7 @@ RETURNING
                         'type','section',
                         'text',JSON_OBJECT(
                             'type', 'mrkdwn',
-                            'text', '```'||(SELECT group_concat(value->>'formatted_message', CHAR(10)) from json_each(return_values.log_lines))||'```'
-                            -- 'text', '```'||(SELECT group_concat(value->'message', CHAR(10)) from json_each(return_values.log_lines))||'```'
+                            'text', '```'||(SELECT SUBSTR(group_concat(value->>'formatted_message', CHAR(10)), 0,2900) from json_each(return_values.log_lines))||'```'
                         )
                     )
                 END,
