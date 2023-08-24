@@ -1,63 +1,170 @@
 // This module defines limits which are used to simplify complex,
 // typically inferred schema Shapes.
 use super::*;
-use json::Location;
+use crate::ptr::Token;
+use itertools::Itertools;
+use std::cmp::Ordering;
 
-// Prune any locations in this shape that have more than the allowed fields,
-// squashing those fields into the `additionalProperties` subschema for that location.
-pub fn enforce_field_count_limits(slf: &mut Shape, loc: Location) {
-    // TODO: If we implement inference/widening of array tuple shapes
-    // then we'll need to also check that those aren't excessively large.
-    if slf.type_.overlaps(types::ARRAY) {
-        if let Some(array_shape) = slf.array.additional_items.as_mut() {
-            enforce_field_count_limits(array_shape, loc.push_item(0));
+// Potential future improvement: currently this squashes any non-INVALID `additional*`
+// shape to accept anything, the equivalent to the `true` schema. But really, we just
+// want to remove recursive shapes if we overlap with `OBJECT` or `ARRAY`, and could
+// happily leave other non-recursive/atomic types alone, retaining e.g integer or string bounds.
+fn squash_addl(props: Option<Box<Shape>>) -> Option<Box<Shape>> {
+    match props {
+        Some(inner) if inner.type_.eq(&types::INVALID) => Some(Box::new(Shape::nothing())),
+        Some(_) | None => None,
+    }
+}
+
+// Squashing a shape inside an array tuple is special because the location
+// of shapes inside the tuple is _itself_ the key into that container.
+// This means that if we do anything to shift the keys of still-existing shapes,
+// they won't be valid any longer. With that in mind, there's also no good reason
+// to squash one object field over any other, so let's just treat
+// Token::Index and Token::Property as signals to squash _an_ index or property,
+// leaving it up to the implementation to determine which one.
+fn squash_location_inner(shape: &mut Shape, name: &Token) {
+    match name {
+        // Squashing of `additional*` fields is not possible here because we don't
+        // have access to the parent shape
+        Token::NextIndex => unreachable!(),
+        Token::Property(prop) if prop == "*" => unreachable!(),
+
+        Token::Index(_) => {
+            // Pop the last element from the array tuple shape to avoid
+            // shifting the indexes of any other tuple shapes
+            let mut shape_to_squash = shape
+                .array
+                .tuple
+                .pop()
+                .expect("No array tuple property to squash");
+
+            shape_to_squash.array.additional_items =
+                squash_addl(shape_to_squash.array.additional_items);
+            shape_to_squash.object.additional_properties =
+                squash_addl(shape_to_squash.object.additional_properties);
+
+            if let Some(addl_items) = shape.array.additional_items.take() {
+                shape.array.additional_items =
+                    Some(Box::new(Shape::union(*addl_items, shape_to_squash)));
+            } else {
+                shape.array.additional_items = Some(Box::new(shape_to_squash));
+            }
         }
-    }
+        Token::Property(_) => {
+            // Remove location from parent properties
+            let ObjProperty {
+                shape: mut shape_to_squash,
+                name: prop_name,
+                ..
+            } = shape
+                .object
+                .properties
+                .pop()
+                .expect("No object property to squash");
 
-    if !slf.type_.overlaps(types::OBJECT) {
-        return;
-    }
+            shape_to_squash.array.additional_items =
+                squash_addl(shape_to_squash.array.additional_items);
+            shape_to_squash.object.additional_properties =
+                squash_addl(shape_to_squash.object.additional_properties);
 
-    let limit = match loc {
-        Location::Root => MAX_ROOT_FIELDS,
-        _ => MAX_NESTED_FIELDS,
-    };
-
-    if slf.object.properties.len() > limit {
-        // Take all of the properties' shapes and
-        // union them into additionalProperties
-
-        let existing_additional_properties = slf
-            .object
-            .additional_properties
-            // `Shape::union` takes owned Shapes which is why we
-            // have to take ownership here.
-            .take()
-            .map(|boxed| *boxed)
-            .unwrap_or(Shape::nothing());
-
-        let merged_additional_properties = slf
-            .object
-            .properties
-            // As part of squashing all known property shapes together into
-            // additionalProperties, we need to also remove those explicit properties.
-            .drain(..)
-            .fold(existing_additional_properties, |accum, mut prop| {
-                // Recur here to avoid excessively large `additionalProperties` shapes
-                enforce_field_count_limits(&mut prop.shape, loc.push_prop(&prop.name));
-                Shape::union(accum, prop.shape)
-            });
-
-        slf.object.additional_properties = Some(Box::new(merged_additional_properties));
-    } else {
-        for prop in slf.object.properties.iter_mut() {
-            enforce_field_count_limits(&mut prop.shape, loc.push_prop(&prop.name))
+            // First check to see if it matches a pattern
+            // and if so squash into that pattern's shape
+            if let Some(pattern) = shape
+                .object
+                .pattern_properties
+                .iter_mut()
+                .find(|pattern| regex_matches(&pattern.re, &prop_name))
+            {
+                pattern.shape = Shape::union(
+                    // Ideally we'd use a function like `replace_with` to allow replacing
+                    // pattern.shape with a value mapped from its previous value, but
+                    // that function doesn't exist yet. See https://github.com/rust-lang/rfcs/pull/1736
+                    // Instead, we must replace it with something temporarily while
+                    // Shape::union runs. Once it finishes, this `Shape::nothing()` is discarded.
+                    std::mem::replace(&mut pattern.shape, Shape::nothing()),
+                    shape_to_squash,
+                )
+            } else if let Some(addl_properties) = shape.object.additional_properties.take() {
+                shape.object.additional_properties =
+                    Some(Box::new(Shape::union(*addl_properties, shape_to_squash)));
+            } else {
+                shape.object.additional_properties = Some(Box::new(shape_to_squash))
+            }
         }
     }
 }
 
-pub const MAX_ROOT_FIELDS: usize = 750;
-pub const MAX_NESTED_FIELDS: usize = 200;
+fn squash_location(shape: &mut Shape, location: &[Token]) {
+    match location {
+        [] => unreachable!(),
+        [Token::NextIndex] => unreachable!(),
+        [Token::Property(prop_name)] if prop_name == "*" => unreachable!(),
+
+        [first] => squash_location_inner(shape, first),
+        [first, more @ ..] => {
+            let inner = match first {
+                Token::NextIndex => shape.array.additional_items.as_deref_mut(),
+                Token::Property(prop_name) if prop_name == "*" => {
+                    shape.object.additional_properties.as_deref_mut()
+                }
+                Token::Index(idx) => shape.array.tuple.get_mut(*idx),
+                Token::Property(prop_name) => shape
+                    .object
+                    .properties
+                    .binary_search_by(|prop| prop.name.as_ref().cmp(&prop_name))
+                    .ok()
+                    .and_then(|idx| shape.object.properties.get_mut(idx))
+                    .map(|inner| &mut inner.shape),
+            }
+            .expect(&format!(
+                "Attempted to find property {first} that does not exist (more: {more:?})"
+            ));
+            squash_location(inner, more)
+        }
+    }
+}
+
+/// Reduce the size/complexity of a shape while making sure that all
+/// objects that used to pass validation still do.
+pub fn enforce_shape_complexity_limit(shape: &mut Shape, limit: usize) {
+    let mut pointers = shape
+        .locations()
+        .into_iter()
+        .filter_map(|(ptr, _, _, _)| match ptr.0.as_slice() {
+            // We need to include `/*/foo` in order to squash inside `additional*` subschemas,
+            // but we don't want to include those locations that are leaf nodes, since
+            // leaf node recursion is squashed every time we squash a concrete property.
+            [.., Token::NextIndex] => None,
+            [.., Token::Property(prop_name)] if prop_name == "*" => None,
+            [] => None,
+            _ => Some(ptr),
+        })
+        .collect_vec();
+
+    if pointers.len() < limit {
+        return;
+    }
+
+    pointers.sort_by(|a_ptr, b_ptr| {
+        // order by depth, then by pointer location
+        match a_ptr.0.len().cmp(&b_ptr.0.len()) {
+            // Same depth, stably sort by pointer location
+            Ordering::Equal => a_ptr.cmp(&b_ptr),
+            depth => depth,
+        }
+    });
+
+    while pointers.len() > limit {
+        let location_ptr = pointers
+            .pop()
+            .expect("locations vec was just checked to be non-empty");
+
+        squash_location(shape, location_ptr.0.as_slice());
+    }
+}
+
+pub const DEFAULT_SCHEMA_COMPLEXITY_LIMIT: usize = 1_000;
 
 #[cfg(test)]
 mod test {
@@ -70,7 +177,7 @@ mod test {
         initial_schema: Option<&str>,
         expected_schema: &str,
         docs: &[serde_json::Value],
-        enforce_limits: bool,
+        enforce_limits: Option<usize>,
     ) -> Shape {
         let mut schema = match initial_schema {
             Some(initial) => shape_from(initial),
@@ -83,8 +190,8 @@ mod test {
 
         let expected = shape_from(expected_schema);
 
-        if enforce_limits {
-            enforce_field_count_limits(&mut schema, Location::Root);
+        if let Some(limit) = enforce_limits {
+            enforce_shape_complexity_limit(&mut schema, limit);
         }
 
         assert_eq!(expected, schema);
@@ -113,7 +220,7 @@ mod test {
                 maximum: 10000
             "#,
             dynamic_keys.as_slice(),
-            true,
+            Some(0),
         );
     }
 
@@ -122,8 +229,10 @@ mod test {
         // Create an object like
         // {
         //    "big_key": {
-        //        ...751 properties...
+        //      "key-0": 5,
+        //        ...750 more properties...
         //    },
+        //    "key-0": 5,
         //    ...750 more properties...
         // }
         let mut root = BTreeMap::new();
@@ -143,13 +252,9 @@ mod test {
                       minimum: 0
                       maximum: 10000
                     - type: object
-                      additionalProperties:
-                        type: integer
-                        minimum: 0
-                        maximum: 10000
             "#,
             &[json!(root)],
-            true,
+            Some(0),
         );
     }
 
@@ -178,7 +283,7 @@ mod test {
                             maximum: 0
             "#,
             &[json!({ "container": nested })],
-            true,
+            Some(4),
         );
 
         for id in 0..300 {
@@ -200,7 +305,7 @@ mod test {
                         maximum: 10000
             "#,
             &[json!({ "container": nested })],
-            true,
+            Some(1),
         );
     }
 
@@ -223,9 +328,9 @@ mod test {
                         maxLength: 4
             "#,
             &[json!([{"key": "test"}])],
-            true,
+            Some(3),
         );
-        let dynamic_array_objects = (0..800)
+        let dynamic_array_objects = (0..8)
             .map(|id| {
                 json!([{
                     format!("key-{id}"): "test"
@@ -262,7 +367,7 @@ mod test {
                         maxLength: 4
                 "#,
             &dynamic_array_objects,
-            true,
+            Some(0),
         );
     }
 
@@ -294,7 +399,58 @@ mod test {
                     maximum: 0
             "#,
             dynamic_keys.as_slice(),
-            true,
+            Some(20),
+        );
+    }
+
+    #[test]
+    fn test_deep_nesting() {
+        let mut doc = json!({});
+        for idx in 0..10 {
+            doc = json!({format!("foo{idx}"): doc, format!("bar{idx}"): doc});
+        }
+
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: object
+            additionalProperties:
+                type: object
+            "#,
+            &[doc],
+            Some(0),
+        );
+    }
+
+    #[test]
+    fn test_quickcheck_regression() {
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: array
+            maxItems: 1
+            items:
+                type: object
+                additionalProperties: false
+            "#,
+            &[json!([{}])],
+            Some(0),
+        );
+    }
+
+    #[test]
+    fn test_quickcheck_regression_2() {
+        widening_snapshot_helper(
+            None,
+            r#"
+            type: object
+            additionalProperties:
+                type: array
+                maxItems: 0
+                additionalItems: false
+            "#,
+            &[json!({"foo":[]})],
+            Some(0),
         );
     }
 }

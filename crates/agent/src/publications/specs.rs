@@ -886,7 +886,7 @@ mod test {
     }
 
     #[tokio::test]
-    #[serial_test::parallel]
+    #[serial_test::serial]
     async fn test_source_capture_validation() {
         let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
             .await

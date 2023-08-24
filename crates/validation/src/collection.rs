@@ -288,11 +288,11 @@ fn walk_collection_projections(
     // Now add all statically inferred locations from the read-time JSON schema
     // which are not patterns or the document root.
     for (ptr, pattern, r_shape, r_exists) in effective_read_schema.shape.locations() {
-        if pattern || ptr.is_empty() {
+        if pattern || ptr.0.is_empty() {
             continue;
         }
         // Canonical-ize by stripping the leading "/".
-        let field = ptr[1..].to_string();
+        let field = ptr.to_string()[1..].to_string();
         // Special case to avoid creating a conflicting projection when the collection
         // schema contains a field with the same name as the default root projection.
         if field == FLOW_DOCUMENT {

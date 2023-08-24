@@ -35,13 +35,18 @@ pub fn run(args: Args) -> anyhow::Result<()> {
     println!("|---|---|---|---|---|");
 
     for (ptr, pattern, shape, exists) in shape.locations() {
-        if args.exclude.contains(&ptr) {
+        let ptr_str = ptr.to_string();
+        if args.exclude.contains(&ptr_str) {
             continue;
         }
         let formatted_ptr = surround_if(
             exists.cannot(),
             "~~",
-            surround_if(exists.must(), "**", surround_if(pattern, "_", Code(&ptr))),
+            surround_if(
+                exists.must(),
+                "**",
+                surround_if(pattern, "_", Code(ptr_str.as_str())),
+            ),
         );
 
         let title = shape.title.as_deref().unwrap_or("");
