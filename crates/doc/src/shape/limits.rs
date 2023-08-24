@@ -5,11 +5,14 @@ use crate::ptr::Token;
 use itertools::Itertools;
 use std::cmp::Ordering;
 
+// Potential future improvement: currently this squashes any non-INVALID `additional*`
+// shape to accept anything, the equivalent to the `true` schema. But really, we just
+// want to remove recursive shapes if we overlap with `OBJECT` or `ARRAY`, and could
+// happily leave other non-recursive/atomic types alone, retaining e.g integer or string bounds.
 fn squash_addl(props: Option<Box<Shape>>) -> Option<Box<Shape>> {
     match props {
         Some(inner) if inner.type_.eq(&types::INVALID) => Some(Box::new(Shape::nothing())),
-        Some(_) => Some(Box::new(Shape::anything())),
-        None => None,
+        Some(_) | None => None,
     }
 }
 
@@ -28,7 +31,8 @@ fn squash_location_inner(shape: &mut Shape, name: &Token) {
         Token::Property(prop) if prop == "*" => unreachable!(),
 
         Token::Index(_) => {
-            // Remove the last location from the array tuple shape
+            // Pop the last element from the array tuple shape to avoid
+            // shifting the indexes of any other tuple shapes
             let mut shape_to_squash = shape
                 .array
                 .tuple
@@ -248,7 +252,6 @@ mod test {
                       minimum: 0
                       maximum: 10000
                     - type: object
-                      additionalProperties: true
             "#,
             &[json!(root)],
             Some(0),
@@ -413,7 +416,6 @@ mod test {
             type: object
             additionalProperties:
                 type: object
-                additionalProperties: true
             "#,
             &[doc],
             Some(0),
