@@ -25,6 +25,14 @@ fn resolve_shape_mut(shape: &mut Shape, field: Token) -> Option<&mut Shape> {
     }
 }
 
+fn squash_addl_properties(props: Option<Box<Shape>>) -> Option<Box<Shape>> {
+    match props {
+        Some(inner) if inner.type_.eq(&types::INVALID) => Some(Box::new(Shape::nothing())),
+        Some(_) => Some(Box::new(Shape::anything())),
+        None => None,
+    }
+}
+
 // Squashing a shape inside an array tuple is special because the location
 // of shapes inside the tuple is _itself_ the key into that container.
 // This means that if we do anything to shift the keys of still-existing shapes,
@@ -41,11 +49,16 @@ fn squash_location_inner(shape: &mut Shape, name: &Token) {
 
         Token::Index(_) => {
             // Remove the last location from the array tuple shape
-            let shape_to_squash = shape
+            let mut shape_to_squash = shape
                 .array
                 .tuple
                 .pop()
                 .expect("No array tuple property to squash");
+
+            shape_to_squash.array.additional_items =
+                squash_addl_properties(shape_to_squash.array.additional_items);
+            shape_to_squash.object.additional_properties =
+                squash_addl_properties(shape_to_squash.object.additional_properties);
 
             if let Some(addl_items) = shape.array.additional_items.take() {
                 shape.array.additional_items =
@@ -57,7 +70,7 @@ fn squash_location_inner(shape: &mut Shape, name: &Token) {
         Token::Property(_) => {
             // Remove location from parent properties
             let ObjProperty {
-                shape: shape_to_squash,
+                shape: mut shape_to_squash,
                 name: prop_name,
                 ..
             } = shape
@@ -65,6 +78,11 @@ fn squash_location_inner(shape: &mut Shape, name: &Token) {
                 .properties
                 .pop()
                 .expect("No object property to squash");
+
+            shape_to_squash.array.additional_items =
+                squash_addl_properties(shape_to_squash.array.additional_items);
+            shape_to_squash.object.additional_properties =
+                squash_addl_properties(shape_to_squash.object.additional_properties);
 
             // First check to see if it matches a pattern
             // and if so squash into that pattern's shape
@@ -93,36 +111,10 @@ fn squash_location_inner(shape: &mut Shape, name: &Token) {
     }
 }
 
-fn squash_subschema(shape: &mut Shape, location: &Token) {
-    match location {
-        Token::NextIndex => shape.array.additional_items = None,
-        Token::Property(prop_name) if prop_name == "*" => shape.object.additional_properties = None,
-        _ => unreachable!(),
-    }
-}
-
 fn squash_location(shape: &mut Shape, location: &[Token]) {
     match location {
         [] => unreachable!(),
-        [first] => match first {
-            // These represent the root `/*` and `/~` locations. Because they
-            // have no parent, we instead remove the whole shape's subschema.
-            token if is_additionalx_field(token) => squash_subschema(shape, token),
-            _ => squash_location_inner(shape, first),
-        },
-        [first, last] => {
-            if let Some(parent) = resolve_shape_mut(shape, first.to_owned()) {
-                match last {
-                    // These represent the locations for array `additionalItems`, and object `additionalProperties`.
-                    // Once we've already squashed every other explicit field inside a particular container,
-                    // we then must widen that container's `additionalItems`/`additionalProperties` into the
-                    // "true" shape, otherwise schema inference on excessively nested documents could result in
-                    // extremely deep Shapes, even after fully squashing them.
-                    token if is_additionalx_field(token) => squash_subschema(parent, token),
-                    _ => squash_location_inner(parent, last),
-                }
-            }
-        }
+        [first] => squash_location_inner(shape, first),
         [first, more @ ..] => {
             let inner = resolve_shape_mut(shape, first.to_owned()).expect(&format!(
                 "Attempted to find property {first} that does not exist (more: {more:?})"
@@ -146,25 +138,14 @@ pub fn enforce_shape_complexity_limit(shape: &mut Shape, limit: usize) {
     let mut pointers = shape
         .locations()
         .into_iter()
-        .filter_map(|(mut ptr, _, _, _)| {
-            // We transform these `additional*` locations from this:
-            // /foo/bar/baz/*
-            // into this:
-            // /*/*/*/*
-            // Because by the time we get to squashing these locations, the
-            // specific field names have already been squashed
-            // and so won't exist, but we still want to squash
-            // `additionalProperties`/`additionalItems` themselves.
-            let ptr_len = ptr.0.len();
-            if ptr_len > 0 {
-                if is_additionalx_field(ptr.0.last().unwrap()) {
-                    ptr.0.iter_mut().for_each(|ancestor| match ancestor {
-                        Token::Index(_) => *ancestor = Token::NextIndex,
-                        Token::Property(_) => *ancestor = Token::Property("*".to_string()),
-                        _ => {}
-                    })
+        .filter_map(|(ptr, _, _, _)| {
+            let last = ptr.0.last();
+            // Checking that the pointer has at least one item in it
+            if let Some(last) = last {
+                if !is_additionalx_field(last) {
+                    return Some(ptr);
                 }
-                Some(ptr)
+                return None;
             } else {
                 None
             }
@@ -176,25 +157,11 @@ pub fn enforce_shape_complexity_limit(shape: &mut Shape, limit: usize) {
     }
 
     pointers.sort_by(|a_ptr, b_ptr| {
-        // make sure that all `additional*` fields are last
-        // AND that they are sorted by depth within their group
-        // then order by depth, then lexicographically
-        match (a_ptr.0.as_slice(), b_ptr.0.as_slice()) {
-            // Order additional* fields by depth within their group
-            ([.., a_token], [.., b_token])
-                if is_additionalx_field(a_token) && is_additionalx_field(b_token) =>
-            {
-                a_ptr.0.len().cmp(&b_ptr.0.len())
-            }
-            // Order additional* fields after all other fields
-            ([.., a_token], _) if is_additionalx_field(a_token) => Ordering::Less,
-            (_, [.., b_token]) if is_additionalx_field(b_token) => Ordering::Greater,
-            // Neither are additional*, now order by depth
-            _ => match a_ptr.0.len().cmp(&b_ptr.0.len()) {
-                // Same depth, stably sort lexicographically
-                Ordering::Equal => a_ptr.to_string().cmp(&b_ptr.to_string()),
-                depth => depth,
-            },
+        // order by depth, then lexicographically
+        match a_ptr.0.len().cmp(&b_ptr.0.len()) {
+            // Same depth, stably sort lexicographically
+            Ordering::Equal => a_ptr.to_string().cmp(&b_ptr.to_string()),
+            depth => depth,
         }
     });
 
@@ -263,7 +230,7 @@ mod test {
                 maximum: 10000
             "#,
             dynamic_keys.as_slice(),
-            Some(1),
+            Some(0),
         );
     }
 
@@ -272,8 +239,10 @@ mod test {
         // Create an object like
         // {
         //    "big_key": {
-        //        ...751 properties...
+        //      "key-0": 5,
+        //        ...750 more properties...
         //    },
+        //    "key-0": 5,
         //    ...750 more properties...
         // }
         let mut root = BTreeMap::new();
@@ -293,13 +262,10 @@ mod test {
                       minimum: 0
                       maximum: 10000
                     - type: object
-                      additionalProperties:
-                        type: integer
-                        minimum: 0
-                        maximum: 10000
+                      additionalProperties: true
             "#,
             &[json!(root)],
-            Some(2),
+            Some(0),
         );
     }
 
@@ -350,7 +316,7 @@ mod test {
                         maximum: 10000
             "#,
             &[json!({ "container": nested })],
-            Some(3),
+            Some(1),
         );
     }
 
@@ -412,7 +378,7 @@ mod test {
                         maxLength: 4
                 "#,
             &dynamic_array_objects,
-            Some(2),
+            Some(0),
         );
     }
 
@@ -461,9 +427,10 @@ mod test {
             type: object
             additionalProperties:
                 type: object
+                additionalProperties: true
             "#,
             &[doc],
-            Some(1),
+            Some(0),
         );
     }
 
@@ -476,9 +443,10 @@ mod test {
             maxItems: 1
             items:
                 type: object
+                additionalProperties: false
             "#,
             &[json!([{}])],
-            Some(1),
+            Some(0),
         );
     }
 
@@ -491,9 +459,10 @@ mod test {
             additionalProperties:
                 type: array
                 maxItems: 0
+                additionalItems: false
             "#,
             &[json!({"foo":[]})],
-            Some(1),
+            Some(0),
         );
     }
 }
