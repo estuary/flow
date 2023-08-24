@@ -39,7 +39,7 @@ impl<'t> std::fmt::Display for Token {
 }
 
 /// Pointer is a parsed JSON pointer.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Pointer(pub Vec<Token>);
 
 impl Pointer {

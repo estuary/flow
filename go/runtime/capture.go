@@ -147,8 +147,9 @@ func (c *Capture) StartReadingMessages(
 	cp pf.Checkpoint,
 	_ *flow.Timepoint,
 	ch chan<- consumer.EnvelopeOrError,
+	enableSchemaInference bool,
 ) {
-	if err := c.startReadingMessages(shard, cp, ch); err != nil {
+	if err := c.startReadingMessages(shard, cp, ch, enableSchemaInference); err != nil {
 		ch <- consumer.EnvelopeOrError{Error: err}
 	}
 }
@@ -157,6 +158,7 @@ func (c *Capture) startReadingMessages(
 	shard consumer.Shard,
 	cp pf.Checkpoint,
 	ch chan<- consumer.EnvelopeOrError,
+	enableSchemaInference bool,
 ) error {
 	// A consumer.Envelope requires a JournalSpec, of which only the Name is actually
 	// used (for sequencing messages and producing checkpoints).
@@ -271,9 +273,7 @@ func (c *Capture) startReadingMessages(
 			binding.Collection.Key,
 			binding.Collection.PartitionFields,
 			binding.Collection.Projections,
-			// Enable schema inference for captures
-			// true,
-			false, // TODO(johnny): temporarily disable schema inference.
+			enableSchemaInference,
 		)
 	}
 

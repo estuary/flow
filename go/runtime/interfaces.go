@@ -20,7 +20,7 @@ type Application interface {
 	FinalizeTxn(consumer.Shard, *message.Publisher) error
 	FinishedTxn(consumer.Shard, consumer.OpFuture)
 
-	StartReadingMessages(consumer.Shard, pc.Checkpoint, *flow.Timepoint, chan<- consumer.EnvelopeOrError)
+	StartReadingMessages(consumer.Shard, pc.Checkpoint, *flow.Timepoint, chan<- consumer.EnvelopeOrError, bool)
 	ReplayRange(_ consumer.Shard, _ pb.Journal, begin, end pb.Offset) message.Iterator
 	ReadThrough(pb.Offsets) (pb.Offsets, error)
 }

@@ -80,7 +80,7 @@ pub fn pointer_for_schema(schema_json: &str) -> anyhow::Result<doc::Pointer> {
 
     for (ptr, _, prop_shape, _) in shape.locations() {
         if prop_shape.annotations.contains_key("x-collection-name") {
-            return Ok(doc::Pointer::from_str(&ptr));
+            return Ok(ptr);
         }
     }
     Err(anyhow::anyhow!(

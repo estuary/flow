@@ -87,10 +87,10 @@ pub fn infer(schema: JsValue) -> Result<JsValue, JsValue> {
         .locations()
         .into_iter()
         .map(|(ptr, is_pattern, prop_shape, exists)| {
-            let name = if ptr.is_empty() || is_pattern {
+            let name = if ptr.0.is_empty() || is_pattern {
                 None
             } else {
-                Some((&ptr[1..]).to_string())
+                Some((&ptr.to_string()[1..]).to_string())
             };
             let types = prop_shape.type_.iter().map(|ty| ty.to_string()).collect();
 
@@ -109,7 +109,7 @@ pub fn infer(schema: JsValue) -> Result<JsValue, JsValue> {
                 title: prop_shape.title.clone().map(Into::into),
                 description: prop_shape.description.clone().map(Into::into),
                 reduction: reduce_description(prop_shape.reduction.clone()).to_string(),
-                pointer: ptr,
+                pointer: ptr.to_string(),
                 types,
                 enum_vals,
                 string_format,

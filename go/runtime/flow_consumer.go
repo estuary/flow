@@ -27,10 +27,11 @@ import (
 type FlowConsumerConfig struct {
 	runconsumer.BaseConfig
 	Flow struct {
-		BuildsRoot string `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
-		BrokerRoot string `long:"broker-root" required:"true" env:"BROKER_ROOT" default:"/gazette/cluster" description:"Broker Etcd base prefix"`
-		Network    string `long:"network" description:"The Docker network that connector containers are given access to, defaults to the bridge network"`
-		TestAPIs   bool   `long:"test-apis" description:"Enable APIs exclusively used while running catalog tests"`
+		BuildsRoot            string `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
+		BrokerRoot            string `long:"broker-root" required:"true" env:"BROKER_ROOT" default:"/gazette/cluster" description:"Broker Etcd base prefix"`
+		Network               string `long:"network" description:"The Docker network that connector containers are given access to, defaults to the bridge network"`
+		TestAPIs              bool   `long:"test-apis" description:"Enable APIs exclusively used while running catalog tests"`
+		EnableSchemaInference bool   `long:"enable-schema-inference" description:"Enable schema inference for capture tasks" `
 	} `group:"flow" namespace:"flow" env-namespace:"FLOW"`
 }
 
@@ -118,7 +119,7 @@ func (f *FlowConsumer) StartReadingMessages(shard consumer.Shard, store consumer
 	var tp = f.Timepoint.Now
 	f.Timepoint.Mu.Unlock()
 
-	store.(Application).StartReadingMessages(shard, checkpoint, tp, envOrErr)
+	store.(Application).StartReadingMessages(shard, checkpoint, tp, envOrErr, f.Config.Flow.EnableSchemaInference)
 }
 
 // ReplayRange delegates to the Application.

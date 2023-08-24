@@ -213,8 +213,7 @@ fn schema_to_sample_json(schema_shape: &Shape) -> Result<serde_json::Value, anyh
     let mut config = json!({});
     let locs = schema_shape.locations();
 
-    for (ptr, _is_pattern, shape, _exists) in locs.iter() {
-        let p = doc::Pointer::from_str(ptr);
+    for (p, _is_pattern, shape, _exists) in locs.iter() {
         let v = p
             .create_value(&mut config)
             .expect("structure must be valid");
