@@ -51,7 +51,9 @@ exactly equivalent to the original JournalSpecs.
 func (cmd *cmdJournalsList) Execute([]string) error {
 	startup(JournalsCfg.BaseConfig)
 
-	var resp = listJournals(cmd.Selector)
+	var ctx = context.Background()
+	var rjc = JournalsCfg.Broker.MustRoutedJournalClient(ctx)
+	var resp = listJournals(rjc, cmd.Selector)
 
 	switch cmd.Format {
 	case "table":
@@ -135,7 +137,7 @@ func (cmd *cmdJournalsList) outputYAML(resp *pb.ListResponse) {
 	writeHoistedJournalSpecTree(os.Stdout, resp)
 }
 
-func listJournals(s string) *pb.ListResponse {
+func listJournals(journalClient pb.JournalClient, s string) *pb.ListResponse {
 	var err error
 	var req pb.ListRequest
 	var ctx = context.Background()
@@ -143,7 +145,7 @@ func listJournals(s string) *pb.ListResponse {
 	req.Selector, err = pb.ParseLabelSelector(s)
 	mbp.Must(err, "failed to parse label selector", "selector", s)
 
-	resp, err := client.ListAllJournals(ctx, JournalsCfg.Broker.MustJournalClient(ctx), req)
+	resp, err := client.ListAllJournals(ctx, journalClient, req)
 	mbp.Must(err, "failed to list journals")
 
 	return resp

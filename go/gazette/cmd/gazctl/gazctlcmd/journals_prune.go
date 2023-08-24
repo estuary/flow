@@ -28,8 +28,10 @@ See "journals list --help" for details and examples.
 
 func (cmd *cmdJournalsPrune) Execute([]string) error {
 	startup(JournalsCfg.BaseConfig)
+	var ctx = context.Background()
+	var rjc = JournalsCfg.Broker.MustRoutedJournalClient(ctx)
 
-	var resp = listJournals(cmd.Selector)
+	var resp = listJournals(rjc, cmd.Selector)
 	if len(resp.Journals) == 0 {
 		log.WithField("selector", cmd.Selector).Panic("no journals match selector")
 	}

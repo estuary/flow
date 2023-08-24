@@ -48,8 +48,10 @@ as fetching consumption lag for a large number of shards may take a while.
 func (cmd *cmdShardsList) Execute([]string) error {
 	startup(ShardsCfg.BaseConfig)
 
-	var resp = listShards(cmd.Selector)
+	var ctx = context.Background()
+	var rsc = ShardsCfg.Consumer.MustRoutedShardClient(ctx)
 
+	var resp = listShards(rsc, cmd.Selector)
 	switch cmd.Format {
 	case "table":
 		cmd.outputTable(resp)
@@ -139,7 +141,7 @@ func (cmd *cmdShardsList) outputTable(resp *pc.ListResponse) {
 	table.Render()
 }
 
-func listShards(s string) *pc.ListResponse {
+func listShards(client pc.ShardClient, s string) *pc.ListResponse {
 	var err error
 	var req = new(pc.ListRequest)
 	var ctx = context.Background()
@@ -147,7 +149,7 @@ func listShards(s string) *pc.ListResponse {
 	req.Selector, err = pb.ParseLabelSelector(s)
 	mbp.Must(err, "failed to parse label selector", "selector", s)
 
-	resp, err := consumer.ListShards(ctx, pc.NewShardClient(ShardsCfg.Consumer.MustDial(ctx)), req)
+	resp, err := consumer.ListShards(ctx, client, req)
 	mbp.Must(err, "failed to list shards")
 
 	return resp

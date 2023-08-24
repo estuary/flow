@@ -33,12 +33,12 @@ func (cmd *cmdShardsUnassign) Execute([]string) (err error) {
 
 	var ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	var rsc = ShardsCfg.Consumer.MustRoutedShardClient(ctx)
 
-	var listResp = listShards(cmd.Selector)
+	var listResp = listShards(rsc, cmd.Selector)
 	if listResp.Status != pc.Status_OK {
 		return fmt.Errorf("unexpected listShard status: %v", listResp.Status.String())
 	}
-	var client = pc.NewShardClient(ShardsCfg.Consumer.MustDial(ctx))
 
 	// Compute the set of shard IDs which should have assignments removed.
 	var shardIDs []pc.ShardID
@@ -65,7 +65,7 @@ func (cmd *cmdShardsUnassign) Execute([]string) (err error) {
 			chunk = 100
 		}
 
-		var resp, err = client.Unassign(pb.WithDispatchDefault(ctx), &pc.UnassignRequest{
+		var resp, err = rsc.Unassign(pb.WithDispatchDefault(ctx), &pc.UnassignRequest{
 			Shards:     shardIDs[:chunk],
 			OnlyFailed: cmd.Failed,
 			DryRun:     cmd.DryRun,

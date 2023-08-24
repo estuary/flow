@@ -44,13 +44,16 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 	startup(ShardsCfg.BaseConfig)
 
 	var ctx = context.Background()
+	var rsc = ShardsCfg.Consumer.MustRoutedShardClient(ctx)
+	var rjc = ShardsCfg.Broker.MustRoutedJournalClient(ctx)
+
 	var metrics = shardsPruneMetrics{}
 	var logSegmentSets = make(map[pb.Journal]recoverylog.SegmentSet)
 	var skipRecoveryLogs = make(map[pb.Journal]bool)
 
-	for _, shard := range listShards(cmd.Selector).Shards {
+	for _, shard := range listShards(rsc, cmd.Selector).Shards {
 		metrics.shardsTotal++
-		var lastHints = fetchOldestHints(ctx, shard.Spec.Id)
+		var lastHints = fetchOldestHints(ctx, rsc, shard.Spec.Id)
 		var recoveryLog = shard.Spec.RecoveryLog()
 
 		// We require that we see hints for _all_ shards before we may make _any_ deletions.
@@ -82,7 +85,7 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 			continue
 		}
 		log.WithField("journal", journal).Debug("checking fragments of journal")
-		for _, f := range fetchFragments(ctx, journal) {
+		for _, f := range fetchFragments(ctx, rjc, journal) {
 			var spec = f.Spec
 
 			metrics.fragmentsTotal++
@@ -110,12 +113,12 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 	return nil
 }
 
-func fetchOldestHints(ctx context.Context, id pc.ShardID) *recoverylog.FSMHints {
+func fetchOldestHints(ctx context.Context, shardClient pc.ShardClient, id pc.ShardID) *recoverylog.FSMHints {
 	var req = &pc.GetHintsRequest{
 		Shard: id,
 	}
 
-	var resp, err = consumer.FetchHints(ctx, ShardsCfg.Consumer.MustShardClient(ctx), req)
+	var resp, err = consumer.FetchHints(ctx, shardClient, req)
 	mbp.Must(err, "failed to fetch hints")
 	if resp.Status != pc.Status_OK {
 		err = fmt.Errorf(resp.Status.String())
@@ -131,14 +134,13 @@ func fetchOldestHints(ctx context.Context, id pc.ShardID) *recoverylog.FSMHints 
 	return nil
 }
 
-func fetchFragments(ctx context.Context, journal pb.Journal) []pb.FragmentsResponse__Fragment {
+func fetchFragments(ctx context.Context, journalClient pb.RoutedJournalClient, journal pb.Journal) []pb.FragmentsResponse__Fragment {
 	var err error
 	var req = pb.FragmentsRequest{
 		Journal: journal,
 	}
-	var brokerClient = JournalsCfg.Broker.MustRoutedJournalClient(ctx)
 
-	resp, err := client.ListAllFragments(ctx, brokerClient, req)
+	resp, err := client.ListAllFragments(ctx, journalClient, req)
 	mbp.Must(err, "failed to fetch fragments")
 
 	return resp.Fragments

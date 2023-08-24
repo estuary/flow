@@ -14,6 +14,8 @@ import (
 	"regexp"
 
 	log "github.com/sirupsen/logrus"
+	pb "go.gazette.dev/core/broker/protocol"
+	pc "go.gazette.dev/core/consumer/protocol"
 )
 
 var whitespace = regexp.MustCompile(`^\s*$`)
@@ -21,13 +23,15 @@ var whitespace = regexp.MustCompile(`^\s*$`)
 // RetryLoopArgs is arguments of EditRetryLoop.
 type RetryLoopArgs struct {
 	// FilePrefix
-	FilePrefix string
+	FilePrefix    string
+	ShardClient   pc.ShardClient
+	JournalClient pb.JournalClient
 	// SelectFn returns content to be displayed within the editor.
 	// It is invoked on each retry of the editing loop.
-	SelectFn func() io.Reader
+	SelectFn func(pc.ShardClient, pb.JournalClient) io.Reader
 	// ApplyFn attempts to apply the edited contents. If it returns
 	// an error, the editor will be re-opened with the error message.
-	ApplyFn func(b []byte) error
+	ApplyFn func(b []byte, sc pc.ShardClient, jc pb.JournalClient) error
 	// AbortIfUnchanged indicates the editing loop should abort if the
 	// editor exits without making any file changes. In this case,
 	// ApplyFn is not called with edited content.
@@ -81,7 +85,7 @@ func EditRetryLoop(args RetryLoopArgs) error {
 			preEdit = userEdits
 		} else {
 			writePostHeader(buf, headerLines)
-			if _, err := io.Copy(buf, args.SelectFn()); err != nil {
+			if _, err := io.Copy(buf, args.SelectFn(args.ShardClient, args.JournalClient)); err != nil {
 				return err
 			}
 			preEdit = pruneHeader(buf.Bytes())
@@ -127,7 +131,7 @@ func EditRetryLoop(args RetryLoopArgs) error {
 		}
 
 		// Attempt to apply edits.
-		if err = args.ApplyFn(userEdits); err != nil {
+		if err = args.ApplyFn(userEdits, args.ShardClient, args.JournalClient); err != nil {
 			isRetry = true
 			retryMsg = err.Error()
 			continue
