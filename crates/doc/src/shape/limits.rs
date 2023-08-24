@@ -5,27 +5,7 @@ use crate::ptr::Token;
 use itertools::Itertools;
 use std::cmp::Ordering;
 
-// This logic somewhat overlaps with [`Shape::locate_token`], but
-// here we don't care about recursion, we don't care about how the location
-// may or may not exist, and most importantly we need an &mut Shape.
-fn resolve_shape_mut(shape: &mut Shape, field: Token) -> Option<&mut Shape> {
-    match field {
-        Token::Index(idx) => shape.array.tuple.get_mut(idx),
-        Token::Property(prop_name) if prop_name == "*" => {
-            shape.object.additional_properties.as_deref_mut()
-        }
-        Token::Property(prop_name) => shape
-            .object
-            .properties
-            .binary_search_by(|prop| prop.name.as_ref().cmp(&prop_name))
-            .ok()
-            .and_then(|idx| shape.object.properties.get_mut(idx))
-            .map(|inner| &mut inner.shape),
-        Token::NextIndex => shape.array.additional_items.as_deref_mut(),
-    }
-}
-
-fn squash_addl_properties(props: Option<Box<Shape>>) -> Option<Box<Shape>> {
+fn squash_addl(props: Option<Box<Shape>>) -> Option<Box<Shape>> {
     match props {
         Some(inner) if inner.type_.eq(&types::INVALID) => Some(Box::new(Shape::nothing())),
         Some(_) => Some(Box::new(Shape::anything())),
@@ -56,9 +36,9 @@ fn squash_location_inner(shape: &mut Shape, name: &Token) {
                 .expect("No array tuple property to squash");
 
             shape_to_squash.array.additional_items =
-                squash_addl_properties(shape_to_squash.array.additional_items);
+                squash_addl(shape_to_squash.array.additional_items);
             shape_to_squash.object.additional_properties =
-                squash_addl_properties(shape_to_squash.object.additional_properties);
+                squash_addl(shape_to_squash.object.additional_properties);
 
             if let Some(addl_items) = shape.array.additional_items.take() {
                 shape.array.additional_items =
@@ -80,9 +60,9 @@ fn squash_location_inner(shape: &mut Shape, name: &Token) {
                 .expect("No object property to squash");
 
             shape_to_squash.array.additional_items =
-                squash_addl_properties(shape_to_squash.array.additional_items);
+                squash_addl(shape_to_squash.array.additional_items);
             shape_to_squash.object.additional_properties =
-                squash_addl_properties(shape_to_squash.object.additional_properties);
+                squash_addl(shape_to_squash.object.additional_properties);
 
             // First check to see if it matches a pattern
             // and if so squash into that pattern's shape
@@ -114,21 +94,34 @@ fn squash_location_inner(shape: &mut Shape, name: &Token) {
 fn squash_location(shape: &mut Shape, location: &[Token]) {
     match location {
         [] => unreachable!(),
+        // We need to include these in the list of locations to walk,
+        // but we don't actually want to do anything when we encounter
+        // them as a leaf node, as leaf node recursion is squashed
+        // every time we squash a concrete property.
+        [Token::NextIndex] => {}
+        [Token::Property(prop_name)] if prop_name == "*" => {}
+
         [first] => squash_location_inner(shape, first),
         [first, more @ ..] => {
-            let inner = resolve_shape_mut(shape, first.to_owned()).expect(&format!(
+            let inner = match first {
+                Token::NextIndex => shape.array.additional_items.as_deref_mut(),
+                Token::Property(prop_name) if prop_name == "*" => {
+                    shape.object.additional_properties.as_deref_mut()
+                }
+                Token::Index(idx) => shape.array.tuple.get_mut(*idx),
+                Token::Property(prop_name) => shape
+                    .object
+                    .properties
+                    .binary_search_by(|prop| prop.name.as_ref().cmp(&prop_name))
+                    .ok()
+                    .and_then(|idx| shape.object.properties.get_mut(idx))
+                    .map(|inner| &mut inner.shape),
+            }
+            .expect(&format!(
                 "Attempted to find property {first} that does not exist (more: {more:?})"
             ));
             squash_location(inner, more)
         }
-    }
-}
-
-fn is_additionalx_field(token: &Token) -> bool {
-    match token {
-        Token::NextIndex => true,
-        Token::Property(prop_name) if prop_name == "*" => true,
-        _ => false,
     }
 }
 
@@ -138,17 +131,10 @@ pub fn enforce_shape_complexity_limit(shape: &mut Shape, limit: usize) {
     let mut pointers = shape
         .locations()
         .into_iter()
-        .filter_map(|(ptr, _, _, _)| {
-            let last = ptr.0.last();
-            // Checking that the pointer has at least one item in it
-            if let Some(last) = last {
-                if !is_additionalx_field(last) {
-                    return Some(ptr);
-                }
-                return None;
-            } else {
-                None
-            }
+        // We only want pointers for non-empty locations
+        .filter_map(|(ptr, _, _, _)| match ptr.0.last() {
+            None => None,
+            Some(_) => Some(ptr),
         })
         .collect_vec();
 
@@ -157,10 +143,10 @@ pub fn enforce_shape_complexity_limit(shape: &mut Shape, limit: usize) {
     }
 
     pointers.sort_by(|a_ptr, b_ptr| {
-        // order by depth, then lexicographically
+        // order by depth, then by pointer location
         match a_ptr.0.len().cmp(&b_ptr.0.len()) {
-            // Same depth, stably sort lexicographically
-            Ordering::Equal => a_ptr.to_string().cmp(&b_ptr.to_string()),
+            // Same depth, stably sort by pointer location
+            Ordering::Equal => a_ptr.cmp(&b_ptr),
             depth => depth,
         }
     });
@@ -316,7 +302,7 @@ mod test {
                         maximum: 10000
             "#,
             &[json!({ "container": nested })],
-            Some(1),
+            Some(2),
         );
     }
 
