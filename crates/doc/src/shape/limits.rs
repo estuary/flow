@@ -94,12 +94,8 @@ fn squash_location_inner(shape: &mut Shape, name: &Token) {
 fn squash_location(shape: &mut Shape, location: &[Token]) {
     match location {
         [] => unreachable!(),
-        // We need to include these in the list of locations to walk,
-        // but we don't actually want to do anything when we encounter
-        // them as a leaf node, as leaf node recursion is squashed
-        // every time we squash a concrete property.
-        [Token::NextIndex] => {}
-        [Token::Property(prop_name)] if prop_name == "*" => {}
+        [Token::NextIndex] => unreachable!(),
+        [Token::Property(prop_name)] if prop_name == "*" => unreachable!(),
 
         [first] => squash_location_inner(shape, first),
         [first, more @ ..] => {
@@ -131,10 +127,14 @@ pub fn enforce_shape_complexity_limit(shape: &mut Shape, limit: usize) {
     let mut pointers = shape
         .locations()
         .into_iter()
-        // We only want pointers for non-empty locations
-        .filter_map(|(ptr, _, _, _)| match ptr.0.last() {
-            None => None,
-            Some(_) => Some(ptr),
+        .filter_map(|(ptr, _, _, _)| match ptr.0.as_slice() {
+            // We need to include `/*/foo` in order to squash inside `additional*` subschemas,
+            // but we don't want to include those locations that are leaf nodes, since
+            // leaf node recursion is squashed every time we squash a concrete property.
+            [.., Token::NextIndex] => None,
+            [.., Token::Property(prop_name)] if prop_name == "*" => None,
+            [] => None,
+            _ => Some(ptr),
         })
         .collect_vec();
 
@@ -302,7 +302,7 @@ mod test {
                         maximum: 10000
             "#,
             &[json!({ "container": nested })],
-            Some(2),
+            Some(1),
         );
     }
 
