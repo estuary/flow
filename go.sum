@@ -487,6 +487,8 @@ go.gazette.dev/core v0.89.1-0.20230816153211-5330246a74d3 h1:yELGkKex6Lp6HSAgTP0
 go.gazette.dev/core v0.89.1-0.20230816153211-5330246a74d3/go.mod h1:/fdxqReMWKS26yROKEKDY8JlXjwz8TqeEZggpNwb5I0=
 go.gazette.dev/core v0.89.1-0.20230823132517-3fe4c4aa13ea h1:z4YO71GJT4yq4Fh0TickHLKOdC8GbofCE3LMTtad67U=
 go.gazette.dev/core v0.89.1-0.20230823132517-3fe4c4aa13ea/go.mod h1:/fdxqReMWKS26yROKEKDY8JlXjwz8TqeEZggpNwb5I0=
+go.gazette.dev/core v0.89.1-0.20230825115358-54d7626664f8 h1:32dxs55i3IE3ZymEIjxgXXCCDVPGbNIlRm2iLKoLsKc=
+go.gazette.dev/core v0.89.1-0.20230825115358-54d7626664f8/go.mod h1:/fdxqReMWKS26yROKEKDY8JlXjwz8TqeEZggpNwb5I0=
 go.opencensus.io v0.21.0/go.mod h1:mSImk1erAIZhrmZN+AvHh14ztQfjbGwt4TtuofqLduU=
 go.opencensus.io v0.22.0/go.mod h1:+kGneAE2xo2IficOXnaByMWTGM9T73dGwxeWcUqIpI8=
 go.opencensus.io v0.22.2/go.mod h1:yxeiOL68Rb0Xd1ddK5vPZ/oVn4vY4Ynel7k9FzqtOIw=
