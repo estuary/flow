@@ -10,10 +10,8 @@ require (
 	github.com/go-openapi/jsonpointer v0.19.3
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/protobuf v1.5.2
-	github.com/gorilla/websocket v1.4.2
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/invopop/jsonschema v0.5.0
-	github.com/jackc/pgx/v4 v4.10.1
 	github.com/jessevdk/go-flags v1.5.0
 	github.com/jgraettinger/gorocksdb v0.0.0-20210726190246-aede64bf0e7b
 	github.com/mattn/go-sqlite3 v2.0.3+incompatible
@@ -27,7 +25,6 @@ require (
 	go.gazette.dev/core v0.89.1-0.20230825115358-54d7626664f8
 	golang.org/x/net v0.10.0
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
-	golang.org/x/time v0.0.0-20210220033141-f8bda1e9f3ba
 	google.golang.org/api v0.60.0
 	google.golang.org/grpc v1.40.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -68,13 +65,6 @@ require (
 	github.com/gorilla/schema v1.2.0 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/iancoleman/orderedmap v0.2.0 // indirect
-	github.com/jackc/chunkreader/v2 v2.0.1 // indirect
-	github.com/jackc/pgconn v1.8.0 // indirect
-	github.com/jackc/pgio v1.0.0 // indirect
-	github.com/jackc/pgpassfile v1.0.0 // indirect
-	github.com/jackc/pgproto3/v2 v2.0.6 // indirect
-	github.com/jackc/pgservicefile v0.0.0-20200714003250-2b9c44734f2b // indirect
-	github.com/jackc/pgtype v1.6.2 // indirect
 	github.com/jgraettinger/cockroach-encoding v1.1.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/klauspost/compress v1.13.5 // indirect
