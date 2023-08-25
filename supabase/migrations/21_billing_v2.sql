@@ -148,6 +148,9 @@ create function billing_report_202308(billed_prefix catalog_prefix, billed_month
 returns jsonb as $$
 #variable_conflict use_variable
 declare
+  -- Auth checks
+  has_admin_grant boolean;
+  has_bypassrls boolean;
   -- Retrieved from tenants table.
   data_tiers  integer[];
   usage_tiers integer[];
@@ -174,7 +177,13 @@ begin
 
   -- Verify that the user has an admin grant for the requested `billed_prefix`.
   perform 1 from auth_roles('admin') as r where billed_prefix ^@ r.role_prefix;
-  if not found then
+  has_admin_grant = found;
+
+  -- Check whether user has bypassrls flag
+  perform 1 from pg_roles where rolname = session_user and rolbypassrls = true;
+  has_bypassrls = found;
+
+  if not has_bypassrls and not found then
     -- errcode 28000 causes PostgREST to return an HTTP 403
     -- see: https://www.postgresql.org/docs/current/errcodes-appendix.html
     -- and: https://postgrest.org/en/stable/errors.html#status-codes
