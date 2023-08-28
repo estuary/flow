@@ -223,7 +223,7 @@ $$ language plpgsql volatile security definer;
 -- select cron.schedule (
 --     'month-end billing', -- name of the cron job
 --     '0 0 0 2 * ? *', -- run on the second day of every month
---     $$ select internal.freeze_billing_month(now()) $$
+--     $$ select internal.freeze_billing_month(date_trunc('month', current_date - interval '1 month')) $$
 -- );
 
 commit;
