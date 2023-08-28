@@ -5,12 +5,12 @@ begin;
 -- Historical record of tenant billing statements. This structure
 -- comes from the return value of `billing_report_202308`.
 create table billing_historicals (
-    tenant              catalog_tenant  not null,
+    billed_prefix       catalog_tenant  not null,
     billed_month        timestamptz     not null,
     report              jsonb           not null,
 
     check (date_trunc('month', billed_month) = billed_month),
-    unique (tenant, billed_month)
+    unique (billed_prefix, billed_month)
 );
 alter table billing_historicals enable row level security;
 grant all on billing_historicals to postgres;
@@ -18,7 +18,7 @@ grant all on billing_historicals to postgres;
 create policy "Users must be authorized to their catalog tenant"
   on billing_historicals as permissive for select
   using (exists(
-    select 1 from auth_roles('admin') r where tenant ^@ r.role_prefix
+    select 1 from auth_roles('admin') r where billed_prefix ^@ r.role_prefix
   ));
 grant select on billing_historicals to authenticated;
 
@@ -34,7 +34,7 @@ begin
         tenant_count = tenant_count + 1;
         insert into billing_historicals
         select
-            tenant_row.tenant_name as tenant_name,
+            tenant_row.tenant_name as billed_prefix,
             date_trunc('month', billed_month) as billed_month,
             report
         from billing_report_202308(tenant_row.tenant_name, date_trunc('month', billed_month)) as report;
@@ -45,7 +45,7 @@ $$ language plpgsql volatile;
 
 comment on table billing_historicals is
     'Historical billing statements frozen from `billing_report_202308()`.';
-comment on column billing_historicals.tenant is
+comment on column billing_historicals.billed_prefix is
     'The tenant for this statement';
 comment on column billing_historicals.billed_month is
     'The month for this statement';
