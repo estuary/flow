@@ -84,7 +84,7 @@ you can find it by filtering for `acmeCo*source-postgres`.
 * **Disabled (Hollow circle)**: The capture is disabled.
 * **Unknown (Black when app is in light mode; white when app is in dark mode)**: The web app is unable to determine shard status. Usually, this is due to a temporary connection error.
 
-**6:** Capture name. The full name is shown, including all [prefixes](./catalogs.md#namespace).
+**6:** Capture name. The full name is shown, including all [prefixes](./catalogs.md#namespace). It is also a link to the details page of the capture.
 
 **7:** Capture type. The icon shows the type of source system data is captured from.
 
@@ -93,24 +93,33 @@ that the capture has written to its associated collections within a configurable
 Click the time interval in the header to select from **Today**, **Yesterday**, **This Week**, **Last Week**, **This Month**, or **Last Month**.
 Note that the time intervals are in UTC.
 
-**9:** Associated collections. The **Writes to** column shows all the collections to which the capture writes data. For captures with a large number of collections, hover over this column and scroll to view the full list.
+**9:** Associated collections. The **Writes to** column shows all the collections to which the capture writes data. For captures with a large number of collections, there is a chip stating how many collections are hidden. Clicking on this will all you to hover over this column and scroll to view the full list. These are also links to the collection's detail page.
 
 **10:** Publish time. Hover over this value to see the exact UTC time the capture was first published.
 
-**11:** Options. Choose to **View Details** or **Edit Specification**.
+**11:** Options. Click to open the menu to **Edit Specification**.
 
-### Detail view
+### Detail page
 
-When you click **View Details** for a capture, the **Status** and **Specification** viewers are revealed.
+When you click on the **name** or **associated collection** for a capture, you will be taken to the detail page to view data stats, sharding information, and general details.
 
-The **Status** section shows the full identifier of the shard(s) that back your capture. If there's an error, you'll see an alert identifying the failing shard(s). Use the drop-down to open an expanded view of the failed shard's logs.
+The page contains the **Overview** and **Spec** tabs.
 
-In the **Specification** section, you can view the specification of the capture itself, as well as each collection to which it writes.
-Select a specification from the **Files** list to view the JSON.
+#### Overview Tab
+
+The **Usage** section shows a chart of the data and documents being processed by the capture per hour. To see the specific detailed count of an hour hover over one of the bars. The most recent hour will update every 15 seconds, with the most recent data and docs.
+Click the time interval in the header to select from **6 hours**, **12 hours**, **24 hours**.
+
+The **Details** section shows different pieces of information about the capture. When it was last updated, when it was created, the connector being used, and the associated collections.
 
 :::tip
-To change the size of each side of the **Specification** section, click and drag the center divider.
+The associated collections are like the table, they are links to the details of the collections.
 :::
+
+The **Shard Information** section shows the full identifier of the shard(s) that back your capture. If there's an error, you'll see an alert identifying the failing shard(s). Use the drop-down to open an expanded view of the failed shard's logs.
+
+#### Spec Tab
+In the **Spec** tab, you can view the specification of the capture itself.
 
 ### Editing captures and collections
 
