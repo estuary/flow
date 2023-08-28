@@ -22,6 +22,8 @@ pub enum JobStatus {
     Success {
         #[serde(skip_serializing_if = "Option::is_none")]
         publication_id: Option<Id>,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        specs_unchanged: bool,
     },
 }
 
@@ -166,38 +168,63 @@ impl DiscoverHandler {
         )
         .await?;
 
-        match result {
-            Ok(catalog) => {
-                draft::upsert_specs(row.draft_id, catalog, txn)
-                    .await
-                    .context("inserting draft specs")?;
-                let detail = format!(
-                    "system created publication in response to discover: {}",
-                    row.id
-                );
-                // If requested, create a publication of this draft.
-                let publication_id = if row.auto_publish {
-                    let id = agent_sql::publications::create(
-                        txn,
-                        row.user_id,
-                        row.draft_id,
-                        row.auto_evolve,
-                        detail,
-                    )
-                    .await?;
-                    Some(id)
-                } else {
-                    None
-                };
-
-                Ok((row.id, JobStatus::Success { publication_id }))
-            }
+        let mut catalog = match result {
+            Ok(cat) => cat,
             Err(errors) => {
                 draft::insert_errors(row.draft_id, errors, txn).await?;
-
-                Ok((row.id, JobStatus::MergeFailed))
+                return Ok((row.id, JobStatus::MergeFailed));
             }
+        };
+
+        // Prune out any unchanged specs, but only if we're automatically publishing.
+        // If a user is interactively discovering, then the UI will need all the specs,
+        // even if they haven't changed.
+        if row.auto_publish {
+            let all_names = catalog.all_spec_names().collect();
+            let existing_spec_hashes =
+                agent_sql::discovers::fetch_spec_md5_hashes(txn, all_names).await?;
+            sources::remove_unchanged_specs(&existing_spec_hashes, &mut catalog);
         }
+
+        if catalog.is_empty() {
+            return Ok((
+                row.id,
+                JobStatus::Success {
+                    publication_id: None,
+                    specs_unchanged: true,
+                },
+            ));
+        }
+
+        draft::upsert_specs(row.draft_id, catalog, txn)
+            .await
+            .context("inserting draft specs")?;
+
+        let publication_id = if row.auto_publish {
+            let detail = format!(
+                "system created publication in response to discover: {}",
+                row.id
+            );
+            let id = agent_sql::publications::create(
+                txn,
+                row.user_id,
+                row.draft_id,
+                row.auto_evolve,
+                detail,
+            )
+            .await?;
+            Some(id)
+        } else {
+            None
+        };
+
+        Ok((
+            row.id,
+            JobStatus::Success {
+                publication_id,
+                specs_unchanged: false,
+            },
+        ))
     }
 
     async fn build_merged_catalog(
