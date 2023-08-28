@@ -19,6 +19,7 @@ json = { path = "../json" }
 models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
 runtime = { path = "../runtime" }
+sources = { path = "../sources" }
 tables = { path = "../tables", features = ["persist"] }
 validation = { path = "../validation" }
 
