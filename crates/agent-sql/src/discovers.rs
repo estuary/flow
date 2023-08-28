@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::{CatalogType, Id, TextJson as Json};
 use chrono::prelude::*;
 use serde::Serialize;
@@ -159,6 +161,32 @@ where
     .await?;
 
     Ok(())
+}
+
+/// Returns a map of catalog_name to md5 hash of the live spec. The map will only
+/// include entities that exist and have a non-null md5 hash.
+pub async fn fetch_spec_md5_hashes(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    spec_names: Vec<&str>,
+) -> sqlx::Result<HashMap<String, String>> {
+    let rows = sqlx::query!(
+        r#"
+            select
+                ls.catalog_name,
+                ls.md5
+            from unnest($1::text[]) ins(name)
+            join live_specs ls on ins.name = ls.catalog_name;
+        "#,
+        spec_names as Vec<&str>
+    )
+    .fetch_all(txn)
+    .await?;
+
+    let out = rows
+        .into_iter()
+        .filter_map(|r| r.md5.map(|md5| (r.catalog_name, md5)))
+        .collect();
+    Ok(out)
 }
 
 #[cfg(test)]

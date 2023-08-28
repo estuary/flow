@@ -1,7 +1,7 @@
-use crate::{api_exec_paginated, controlplane, draft, local_specs, CliContext};
+use crate::{api_exec, controlplane, draft, local_specs, CliContext};
 use anyhow::Context;
 use itertools::Itertools;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 
 #[derive(Debug, clap::Args)]
@@ -24,7 +24,7 @@ const MD5_PAGE_SIZE: usize = 100;
 
 pub async fn remove_unchanged(
     client: &controlplane::Client,
-    input_catalog: models::Catalog,
+    mut input_catalog: models::Catalog,
 ) -> anyhow::Result<models::Catalog> {
     let mut spec_checksums: HashMap<String, String> = HashMap::new();
 
@@ -41,59 +41,23 @@ pub async fn remove_unchanged(
             .select("catalog_name,md5")
             .in_("catalog_name", names);
 
-        let rows: Vec<SpecChecksumRow> = api_exec_paginated(builder).await?;
-        let chunk_checksums = rows
-            .iter()
-            .filter_map(|row| {
-                if let Some(md5) = row.md5.as_ref() {
-                    Some((row.catalog_name.clone(), md5.clone()))
-                } else {
-                    None
-                }
-            })
-            .collect::<HashMap<String, String>>();
-
+        let rows: Vec<SpecChecksumRow> = api_exec(builder).await?;
+        let chunk_checksums = rows.iter().filter_map(|row| {
+            if let Some(md5) = row.md5.as_ref() {
+                Some((row.catalog_name.clone(), md5.clone()))
+            } else {
+                None
+            }
+        });
         spec_checksums.extend(chunk_checksums);
     }
 
-    let models::Catalog {
-        mut collections,
-        mut captures,
-        mut materializations,
-        mut tests,
-        ..
-    } = input_catalog;
+    sources::remove_unchanged_specs(&spec_checksums, &mut input_catalog);
 
-    collections.retain(|name, spec| filter_unchanged_catalog_items(&spec_checksums, name, spec));
-    captures.retain(|name, spec| filter_unchanged_catalog_items(&spec_checksums, name, spec));
-    materializations
-        .retain(|name, spec| filter_unchanged_catalog_items(&spec_checksums, name, spec));
-    tests.retain(|name, spec| filter_unchanged_catalog_items(&spec_checksums, name, spec));
-
-    Ok(models::Catalog {
-        collections,
-        captures,
-        materializations,
-        tests,
-        ..Default::default()
-    })
-}
-
-fn filter_unchanged_catalog_items(
-    existing_specs: &HashMap<String, String>,
-    new_catalog_name: &impl AsRef<str>,
-    new_catalog_spec: &impl Serialize,
-) -> bool {
-    if let Some(existing_spec_md5) = existing_specs.get(&new_catalog_name.as_ref().to_string()) {
-        let buf = serde_json::to_vec(new_catalog_spec).expect("new spec must be serializable");
-
-        let new_spec_md5 = format!("{:x}", md5::compute(buf));
-
-        return *existing_spec_md5 != new_spec_md5;
-    }
-
-    // Catalog name does not yet exist in live specs.
-    true
+    // TODO(phil): This used to sneakily removed any storage mappings from the catalog. Need to re-add
+    // that behavior explicitly as as separate step outside of this function.
+    input_catalog.storage_mappings.clear();
+    Ok(input_catalog)
 }
 
 pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<()> {

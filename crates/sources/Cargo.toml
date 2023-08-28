@@ -18,6 +18,7 @@ tables = { path = "../tables" }
 anyhow = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
+md5 = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde-transcode = { workspace = true }
