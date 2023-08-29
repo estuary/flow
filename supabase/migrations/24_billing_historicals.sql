@@ -30,13 +30,18 @@ declare
     tenant_count integer = 0;
 begin
     for tenant_row in select tenant as tenant_name from tenants loop
-        tenant_count = tenant_count + 1;
         insert into billing_historicals
         select
             report->>'billed_prefix' as tenant,
-            date_trunc('month', billed_month) as billed_month,
+            (report->>'billed_month')::timestamptz as billed_month,
             report
-        from billing_report_202308(tenant_row.tenant_name, date_trunc('month', billed_month)) as report;
+        from billing_report_202308(tenant_row.tenant_name, billed_month) as report
+        on conflict do nothing;
+
+        -- INSERT statements set FOUND true if at least one row is affected, false if no row is affected.
+        if found then
+          tenant_count = tenant_count + 1;
+        end if;
     end loop;
     return tenant_count;
 end
