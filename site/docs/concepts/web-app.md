@@ -17,18 +17,21 @@ With the Flow web app, you can perform most common workflows, including:
 
 * Creating end-to-end Data Flows: **capturing** data from source systems and **materializing** it to destinations.
 * Creating, viewing, and editing individual captures and materializations.
+* Monitor the amount of data being processed by the system.
 * Viewing data **collections**.
 * Viewing users and permissions.
+* Granting permissions to other users.
 * Authenticating with the flowctl CLI.
+* Manage billing details.
 
-Some advanced workflows, like granting or revoking permissions and transforming data with **derivations**, aren't available in the web app.
+Some advanced workflows, like transforming data with **derivations**, aren't fully available in the web app.
 
 Even if you prefer the command line or plan to perform a task that's only available through flowctl, we recommend you begin your work in the web app;
 it provides a quicker and easier path to create captures and materializations. You can then switch to flowctl to continue working.
 
 ## Signing in
 
-You use either a Google or GitHub account to sign into Flow.
+You use a Google, Microsoft, or GitHub account to sign into Flow.
 
 ![](<./webapp-images/login-screen.png>)
 
@@ -38,7 +41,7 @@ If you've never used Flow before, you'll be prompted to register before being is
 ## Navigating the web app
 
 When you log into the web app, you land on the **Welcome** page.
-There are four additional pages visible as tabs in the side navigation: **Captures**, **Collections**, **Materializations**, and **Admin**.
+There are four additional pages visible as tabs in the side navigation: **Sources (captures)**, **Collections**, **Destinations (materializations)**, and **Admin**.
 
 The order of the tabs mirrors the order of a basic Data Flow:
 
