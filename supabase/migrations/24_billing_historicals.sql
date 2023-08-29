@@ -119,8 +119,8 @@ begin
   -- Determine the total amount of data processing and task usage
   -- under `billed_prefix` in the given `billed_month`.
   select into processed_data_gb, task_usage_hours
-    sum(bytes_written_by_me + bytes_read_by_me) / (1024.0 * 1024 * 1024),
-    sum(usage_seconds) / (60.0 * 60)
+    coalesce(sum(bytes_written_by_me + bytes_read_by_me) / (1024.0 * 1024 * 1024),0),
+    coalesce(sum(usage_seconds) / (60.0 * 60), 0)
     from catalog_stats
     where catalog_name ^@ billed_prefix
     and grain = 'monthly'
