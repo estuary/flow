@@ -160,6 +160,8 @@ begin
   ) values
     ('aliceCo/aa/hello', 'monthly', '2022-08-01T00:00:00Z', '{}', 5.125 * 1024 * 1024 * 1024, 0, 3600 * 720),
     ('aliceCo/aa/big',   'monthly', '2022-08-01T00:00:00Z', '{}', 7::bigint * 1024 * 1024 * 1024, 9::bigint * 1024 * 1024 * 1024, 0),
+    ('aliceCo/aa/big',   'daily', '2022-08-01T00:00:00Z', '{}', 6::bigint * 1024 * 1024 * 1024, 7::bigint * 1024 * 1024 * 1024, 0),
+    ('aliceCo/aa/big',   'daily', '2022-08-30T00:00:00Z', '{}', 1::bigint * 1024 * 1024 * 1024, 2::bigint * 1024 * 1024 * 1024, 0),
     ('aliceCo/bb/world', 'monthly', '2022-08-01T00:00:00Z', '{}', 0, 22::bigint * 1024 * 1024 * 1024, 3600 * 18.375)
   ;
 
@@ -302,6 +304,89 @@ begin
     'You are not authorized for the billed prefix aliceCo/',
     'Attempting to fetch a report for aliceCo/ as Bob fails'
   );
+
+  set role postgres;
+  -- Switch tiers so usage spills over
+  -- and set trial so half of August is covered
+  update tenants set
+    free_trial_start='2022-08-15',
+    data_tiers = '{50, 5, 20}'
+    where tenant = 'aliceCo/';
+
+  perform set_authenticated_context('11111111-1111-1111-1111-111111111111');
+
+  -- aliceCo/aa has a free trial set, and has free trial usage, so let's check that
+  return query select is(billing_report_202308('aliceCo/aa/', '2022-08-29T13:00:00Z'), '{
+    "billed_month": "2022-08-01T00:00:00+00:00",
+    "billed_prefix": "aliceCo/aa/",
+    "line_items": [
+        {
+            "count": 5,
+            "description": "Data processing (first 5GB at $0.50/GB)",
+            "rate": 50,
+            "subtotal": 250
+        },
+        {
+            "count": 16.125,
+            "description": "Data processing (at $0.20/GB)",
+            "rate": 20,
+            "subtotal": 323
+        },
+        {
+            "count": 720,
+            "description": "Task usage (at $0.15/hour)",
+            "rate": 15,
+            "subtotal": 10800
+        },
+        {
+            "count": 1,
+            "description": "Free trial credit",
+            "rate": -150,
+            "subtotal": -150
+        }
+    ],
+    "processed_data_gb": 21.125,
+    "recurring_fee": 0,
+    "subtotal": 11223,
+    "task_usage_hours": 720
+  }'::jsonb);
+
+  -- aliceCo/bb has a free trial set, but has no usage in the trial period
+  -- this should result in a free trial credit line item of $0
+  return query select is(billing_report_202308('aliceCo/bb/', '2022-08-29T13:00:00Z'), '{
+    "billed_month": "2022-08-01T00:00:00+00:00",
+    "billed_prefix": "aliceCo/bb/",
+    "line_items": [
+        {
+            "count": 5,
+            "description": "Data processing (first 5GB at $0.50/GB)",
+            "rate": 50,
+            "subtotal": 250
+        },
+        {
+            "count": 17,
+            "description": "Data processing (at $0.20/GB)",
+            "rate": 20,
+            "subtotal": 340
+        },
+        {
+            "count": 18.375,
+            "description": "Task usage (at $0.15/hour)",
+            "rate": 15,
+            "subtotal": 276
+        },
+        {
+            "count": 1,
+            "description": "Free trial credit",
+            "rate": 0,
+            "subtotal": 0
+        }
+    ],
+    "processed_data_gb": 22,
+    "recurring_fee": 0,
+    "subtotal": 866,
+    "task_usage_hours": 18.375
+  }'::jsonb);
 
 end
 $$ language plpgsql;
