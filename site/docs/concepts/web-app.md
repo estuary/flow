@@ -239,9 +239,10 @@ For detailed steps to create a materialization, see the [guide](../guides/create
 
 When you click on the **name** of a capture on the [captures page](#captures-page) you will be taken to the capture details page to view data stats, sharding information, and general details.
 
-![](<./webapp-images/capture-details-page.png>)
 
 ### Overview Tab
+
+![](<./webapp-images/capture-details-page--overview.png>)
 
 The **Usage** section shows a chart of the data and documents being processed by the capture per hour. To see the specific detailed count of an hour hover over one of the bars. The most recent hour will update every 15 seconds, with the most recent data and docs.
 Click the time interval in the header to select from **6 hours**, **12 hours**, **24 hours**.
@@ -255,15 +256,18 @@ The associated collections are like the table, they are links to the details of 
 The **Shard Information** section shows the full identifier of the shard(s) that back your capture. If there's an error, you'll see an alert identifying the failing shard(s). Use the drop-down to open an expanded view of the failed shard's logs.
 
 ### Spec Tab
+![](<./webapp-images/capture-details-page--spec.png>)
+
 In the **Spec** tab, you can view the specification of the capture itself.
 
 ## Collection Details page
 
 When you click on the **name** of a collection on the [collections page](#collections-page) you will be taken to the collection details page to view data stats, sharding information, preview of data, and general details.
 
-![](<./webapp-images/collection-details-page.png>)
 
 ### Overview Tab
+
+![](<./webapp-images/collection-details-page--overview.png>)
 
 The **Usage** section shows a chart of the data and documents processed by a collection (derivation) per hour. To see the specific detailed count of an hour, hover over one of the bars. The most recent hour will update every 15 seconds, with the most recent data and docs.
 Click the time interval in the header to select from **6 hours**, **12 hours**, **24 hours**.
@@ -276,16 +280,19 @@ The **Data Preview** section shows a sample of collection [documents](./collecti
 Documents are organized by their collection key value. Click a key from the list to view its document.
 
 ### Spec Tab
-The **Spec** tab shows the collection specification as JSON in a read-only editor.
+![](<./webapp-images/collection-details-page--spec.png>)
+
+The **Spec** tab shows the collection specification as a read-only **Key** property and **Schema** table.
 (If you need to modify a collection, edit the [capture](#editing-captures) that it came from.)
 
 ## Materialization Details Page
 
 When you click on the **name** of a materialization on the [materializations page](#materializations-page) you will be taken to the detail page to view data stats, sharding information, and general details.
 
-![](<./webapp-images/materialization-details-page.png>)
 
 ### Overview Tab
+
+![](<./webapp-images/materialization-details-page--overview.png>)
 
 The **Usage** section shows a chart of the data and documents being outputted by the materialization per hour. To see the specific detailed count of an hour hover over one of the bars. The most recent hour will update every 15 seconds, with the most recent data and docs.
 Click the time interval in the header to select from **6 hours**, **12 hours**, **24 hours**.
@@ -299,6 +306,8 @@ The associated collections are like the table, they are links to the details of 
 The **Shard Information** section shows the full identifier of the shard(s) that back your materialization. If there's an error, you'll see an alert identifying the failing shard(s). Use the drop-down to open an expanded view of the failed shard's logs.
 
 ### Spec Tab
+![](<./webapp-images/materialization-details-page--spec.png>)
+
 In the **Spec** tab, you can view the specification of the materialization itself.
 
 ## Admin page
