@@ -54,6 +54,9 @@ Possible values:
 - `verify_identity`: Connect using an SSL connection, verify the server's
   certificate and the server's hostname. This is the most secure option. When using this mode, SSL Server
   CA must be provided.
+
+Optionally, SSL Client Certificate and Key can be provided if necessary to
+authorize the client.
  
 #### Bindings
 
@@ -128,6 +131,12 @@ You can find the host and port in the following locations in each platform's con
 
 This connector supports both standard (merge) and [delta updates](../../../concepts/materialization.md#delta-updates).
 The default is to use standard updates.
+
+## Date & times
+
+Date and time fields that are part of collections, which specify a `format:
+date-time` for the field, are automatically converted to UTC and
+persisted as UTC `DATETIME` in MySQL.
 
 ## Reserved words
 
