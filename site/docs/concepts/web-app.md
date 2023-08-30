@@ -222,14 +222,7 @@ There are three ways to begin creating a materialization:
 When you initiate the workflow in any of these ways, all available materialization connectors are displayed.
 Select a connector to reveal the full form with configuration options specific to your desired destination.
 
-Fill out the **Endpoint Config** form and use the **Collection Selector** to map Flow collections to
-resources in the destination system.
-
-:::tip
-You can filter to quickly find the collections you want to include in your materialization.
-Hover your cursor within the Collection Selector table header, next to the **Remove All** button, to reveal an expandable menu icon (three dots).
-Click the menu icon, and then choose **Filter**.
-:::
+Fill out the **Endpoint Config** form and in the **Source Collections** section use the **Collection Selector** to map Flow collections to resources in the destination system.
 
 Note that if you entered the workflow from the Captures page or after publishing a capture, collections will be pre-populated for you.
 
@@ -244,9 +237,9 @@ When you click on the **name** of a capture on the [captures page](#captures-pag
 
 ![](<./webapp-images/capture-details-page--overview.png>)
 
-**1:** Name of the capture.
+**1:** The full name of the capture.
 
-**2:** The **Usage** section shows a chart of the data and documents being processed by the capture per hour. The number of hours being displayed in the chart can be changed by clicking the time interval in the header to select from **6 hours**, **12 hours**, **24 hours**.
+**2:** Capture [statistics](./advanced/logs-stats.md#statistics). The **Usage** section displays the total amount of data, in bytes and in [documents](./collections.md#documents) written by the capture, per hour. The number of hours being displayed in the chart can be changed by clicking the time interval in the header to select from **6 hours**, **12 hours**, **24 hours**.
 
 **3:** The **Details** section shows different pieces of information about the capture. When it was last updated, when it was created, the connector being used, and the collections to which the capture writes data. 
 
@@ -271,9 +264,9 @@ When you click on the **name** of a collection on the [collections page](#collec
 
 ![](<./webapp-images/collection-details-page--overview.png>)
 
-**1:** Name of the capture.
+**1:** The full name of the collection.
 
-**2:** The **Usage** section shows a chart of the data and documents processed by a collection, that is a derivation, per hour. The number of hours being displayed in the chart can be changed by clicking the time interval in the header to select from **6 hours**, **12 hours**, **24 hours**.
+**2:** Collection [statistics](./advanced/logs-stats.md#statistics). The **Usage** section shows the total amount of data, in bytes and in [documents](./collections.md#documents) passing through a collection, per hour. The number of hours being displayed in the chart can be changed by clicking the time interval in the header to select from **6 hours**, **12 hours**, **24 hours**.
 
 **3:** The **Details** section shows different pieces of information about the collection. When it was last updated, when it was created, and the associated collections (if any).
 
@@ -291,8 +284,13 @@ Documents are organized by their collection key value. Click a key from the list
 ### Spec Tab
 ![](<./webapp-images/collection-details-page--spec.png>)
 
-The **Spec** tab shows the collection specification as a read-only **Key** property and **Schema** table.
-(If you need to modify a collection, edit the [capture](#editing-captures) that it came from.)
+**1:** The collection's [key](./collections.md#keys) of the collection.
+
+**2:** The collection's [schema](./schema.md) displayed in a read only table. The table columns can be sorted to more easily find what you need.
+
+:::tip
+If you need to modify a collection, edit the [capture](#editing-captures) that it came from.
+:::
 
 ## Materialization Details Page
 
@@ -303,9 +301,9 @@ When you click on the **name** of a materialization on the [materializations pag
 
 ![](<./webapp-images/materialization-details-page--overview.png>)
 
-**1:** Name of the capture.
+**1:** The full name of the materialization.
 
-**2:** The **Usage** section shows a chart of the data and documents processed by a materialization, per hour. The number of hours being displayed in the chart can be changed by clicking the time interval in the header to select from **6 hours**, **12 hours**, **24 hours**.
+**2:** Materialization [statistics](./advanced/logs-stats.md#statistics). The **Usage** section shows the total amount of data, in bytes and in [documents](./collections.md#documents) read by a materialization, per hour. The number of hours being displayed in the chart can be changed by clicking the time interval in the header to select from **6 hours**, **12 hours**, **24 hours**.
 
 **3:** The **Details** section shows different pieces of information about the materialization. When it was last updated, when it was created, and the associated collections.
 
