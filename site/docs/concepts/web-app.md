@@ -244,16 +244,19 @@ When you click on the **name** of a capture on the [captures page](#captures-pag
 
 ![](<./webapp-images/capture-details-page--overview.png>)
 
-The **Usage** section shows a chart of the data and documents being processed by the capture per hour. To see the specific detailed count of an hour hover over one of the bars. The most recent hour will update every 15 seconds, with the most recent data and docs.
-Click the time interval in the header to select from **6 hours**, **12 hours**, **24 hours**.
+**1:** Name of the capture.
 
-The **Details** section shows different pieces of information about the capture. When it was last updated, when it was created, the connector being used, and the associated collections.
+**2:** The **Usage** section shows a chart of the data and documents being processed by the capture per hour. The number of hours being displayed in the chart can be changed by clicking the time interval in the header to select from **6 hours**, **12 hours**, **24 hours**.
 
-:::tip
-The associated collections are like the table, they are links to the details of the collections.
-:::
+**3:** The **Details** section shows different pieces of information about the capture. When it was last updated, when it was created, the connector being used, and the collections to which the capture writes data. 
 
-The **Shard Information** section shows the full identifier of the shard(s) that back your capture. If there's an error, you'll see an alert identifying the failing shard(s). Use the drop-down to open an expanded view of the failed shard's logs.
+**4:** Detailed tooltip. You can hover over a section in the graph to see the specific data of that hour.
+
+**5:** The most recent hour. This will automatically update every 15 seconds with the most recent data and docs.
+
+**6:** Associated collections. Shows all the collections to which the capture writes data and when clicked will take you to the collection's [detail page](#collection-details-page)
+
+**7:** The **Shard Information** section shows the full identifier of the shard(s) that back your capture. If there's an error, you'll see an alert identifying the failing shard(s). Use the drop-down to open an expanded view of the failed shard's logs.
 
 ### Spec Tab
 ![](<./webapp-images/capture-details-page--spec.png>)
@@ -264,19 +267,25 @@ In the **Spec** tab, you can view the specification of the capture itself.
 
 When you click on the **name** of a collection on the [collections page](#collections-page) you will be taken to the collection details page to view data stats, sharding information, preview of data, and general details.
 
-
 ### Overview Tab
 
 ![](<./webapp-images/collection-details-page--overview.png>)
 
-The **Usage** section shows a chart of the data and documents processed by a collection (derivation) per hour. To see the specific detailed count of an hour, hover over one of the bars. The most recent hour will update every 15 seconds, with the most recent data and docs.
-Click the time interval in the header to select from **6 hours**, **12 hours**, **24 hours**.
+**1:** Name of the capture.
 
-The **Details** section shows different pieces of information about the collection. When it was last updated, when it was created, and the associated collections (if any).
+**2:** The **Usage** section shows a chart of the data and documents processed by a collection, that is a derivation, per hour. The number of hours being displayed in the chart can be changed by clicking the time interval in the header to select from **6 hours**, **12 hours**, **24 hours**.
 
-The **Shard Information** section (for derivations) shows the full identifier of the shard(s) that back your derivation. If there's an error, you'll see an alert identifying the failing shard(s). Use the drop-down to open an expanded view of the failed shard's logs.
+**3:** The **Details** section shows different pieces of information about the collection. When it was last updated, when it was created, and the associated collections (if any).
 
-The **Data Preview** section shows a sample of collection [documents](./collections.md#documents): the individual JSON files that comprise the collection.
+**4:** Detailed tooltip. You can hover over a section in the graph to see the specific data of that hour.
+
+**5:** The most recent hour. This will automatically update every 15 seconds with the most recent data and docs.
+
+**6:** Associated collections. Shows all the collections to which the capture writes data and when clicked will take you to the collection's [detail page](#collection-details-page)
+
+**7:** The **Shard Information** section (for derivations) shows the full identifier of the shard(s) that back your derivation. If there's an error, you'll see an alert identifying the failing shard(s). Use the drop-down to open an expanded view of the failed shard's logs.
+
+**8:** The **Data Preview** section shows a sample of collection [documents](./collections.md#documents): the individual JSON files that comprise the collection.
 Documents are organized by their collection key value. Click a key from the list to view its document.
 
 ### Spec Tab
@@ -294,16 +303,19 @@ When you click on the **name** of a materialization on the [materializations pag
 
 ![](<./webapp-images/materialization-details-page--overview.png>)
 
-The **Usage** section shows a chart of the data and documents being outputted by the materialization per hour. To see the specific detailed count of an hour hover over one of the bars. The most recent hour will update every 15 seconds, with the most recent data and docs.
-Click the time interval in the header to select from **6 hours**, **12 hours**, **24 hours**.
+**1:** Name of the capture.
 
-The **Details** section shows different pieces of information about the materialization. When it was last updated, when it was created, the connector being used, and the associated collections.
+**2:** The **Usage** section shows a chart of the data and documents processed by a materialization, per hour. The number of hours being displayed in the chart can be changed by clicking the time interval in the header to select from **6 hours**, **12 hours**, **24 hours**.
 
-:::tip
-The associated collections are like the table, they are links to the details of the collections.
-:::
+**3:** The **Details** section shows different pieces of information about the materialization. When it was last updated, when it was created, and the associated collections.
 
-The **Shard Information** section shows the full identifier of the shard(s) that back your materialization. If there's an error, you'll see an alert identifying the failing shard(s). Use the drop-down to open an expanded view of the failed shard's logs.
+**4:** Detailed tooltip. You can hover over a section in the graph to see the specific data of that hour.
+
+**5:** The most recent hour. This will automatically update every 15 seconds with the most recent data and docs.
+
+**6:** Associated collections. Shows all the collections to which the capture writes data and when clicked will take you to the collection's [detail page](#collection-details-page)
+
+**7:** The **Shard Information** section shows the full identifier of the shard(s) that back your materialization. If there's an error, you'll see an alert identifying the failing shard(s). Use the drop-down to open an expanded view of the failed shard's logs.
 
 ### Spec Tab
 ![](<./webapp-images/materialization-details-page--spec.png>)
