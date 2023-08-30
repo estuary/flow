@@ -98,7 +98,7 @@ Note that the time intervals are in UTC.
 
 **9:** Associated collections. The **Writes to** column shows all the collections to which the capture writes data. For captures with a large number of collections, there is a chip stating how many collections are hidden. Clicking on this will all you to hover over this column and scroll to view the full list. These are also links to the details page of the collection.
 
-**10:** Publish time. Hover over this value to see the exact UTC time the capture was first published.
+**10:** Publish time. Hover over this value to see the exact UTC time the capture was last published.
 
 **11:** Options. Click to open the menu to **Edit Specification**.
 
@@ -134,7 +134,13 @@ This can help you verify that collection data was captured as expected and that 
 
 ![](<./webapp-images/collections-page.png>)
 
-**1:** Status indicator. If the collection does not contain a [derivation](./README.md#derivations), the indicator should always show green, and hover text will say "Collection."
+**1:** Select all or deselect all.
+
+**2:** Enable, Disable, and Delete buttons. These actions will be applied to the selected table rows. Choose **Disable** to temporarily pause the flow of data, **Enable** to resume, and **Delete** to permanently remove the collection(s).
+
+**3:** Filter collections by name. Type a catalog prefix, unique collection name to return collections that match your query.
+
+**4:** Status indicator. If the collection does not contain a [derivation](./README.md#derivations), the indicator should always show green, and hover text will say "Collection."
 In the event that the server cannot be reached, the indicator will show "Unknown" status (black in light mode and white in dark mode).
 
   If the collection contains a derivation, the status of the derivation's primary task [shard](./advanced/shards.md) will be indicated:
@@ -145,18 +151,14 @@ In the event that the server cannot be reached, the indicator will show "Unknown
   * **Disabled (Hollow circle)**: The derivation is disabled.
   * **Unknown (Black when app is in light mode; white when app is in dark mode)**: The web app is unable to determine shard status. Usually, this is due to a temporary connection error.
 
-**2:** Collection [statistics](./advanced/logs-stats.md#statistics). The **Data Written** column shows the total amount of data, in bytes and in [documents](./collections.md#documents),
+**5:** Collection name. The full name is shown, including all [prefixes](./catalogs.md#namespace). It is also a link to the [details page](#collection-details-page) of the collection.
+
+**6:** Collection [statistics](./advanced/logs-stats.md#statistics). The **Data Written** column shows the total amount of data, in bytes and in [documents](./collections.md#documents),
 that has been written to each collection from its associated capture or derivation within a configurable time interval.
 Click the time interval in the header to select from **Today**, **Yesterday**, **This Week**, **Last Week**, **This Month**, or **Last Month**.
 Note that the time intervals are in UTC.
 
-**3:** To reveal the **Specification** and **Data Preview** sections, expand **Details** next to a collection name.
-
-**4:** The **Specification** section shows the collection specification as JSON in a read-only editor.
-(If you need to modify a collection, edit the [capture](#editing-captures) that it came from.)
-
-**5:** The **Data Preview** section shows a sample of collection [documents](./collections.md#documents): the individual JSON files that comprise the collection.
-Documents are organized by their collection key value. Click a key from the list to view its document.
+**7:** Publish time. Hover over this value to see the exact UTC time the collection was last published.
 
 ## Materializations page
 
@@ -197,7 +199,7 @@ Note that the time intervals are in UTC.
 
 **8:** Associated collections. The **Reads from** column shows all the collections from which the materialization reads data. For materializations with a large number of collections, there is a chip stating how many collections are hidden. Clicking on this will all you to hover over this column and scroll to view the full list. These are also links to the details page of the collection.
 
-**9:** Publish time. Hover over this value to see the exact UTC time the materialization was first published.
+**9:** Publish time. Hover over this value to see the exact UTC time the materialization was last published.
 
 **10:** Options. Click to open the menu to **Edit Specification**.
 
