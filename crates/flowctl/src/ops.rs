@@ -1,6 +1,8 @@
+use serde_json::Value;
+
 use crate::collection::{
     read::{read_collection, ReadArgs, ReadBounds},
-    CollectionJournalSelector, Partition,
+    CollectionJournalSelector,
 };
 
 #[derive(clap::Args, Debug)]
@@ -73,13 +75,19 @@ pub fn read_args(
     // Once we implement federated data planes, we'll need to update this to
     // fetch the name of the data plane based on the tenant.
     let collection = format!("ops.us-central1.v1/{logs_or_stats}");
+
+    let mut include = std::collections::BTreeMap::new();
+    include.insert(
+        "name".to_string(),
+        vec![Value::String(task_name.to_string())],
+    );
     let selector = CollectionJournalSelector {
         collection,
-        include_partitions: vec![Partition {
-            name: "name".to_string(),
-            value: task_name.to_string(),
-        }],
-        exclude_partitions: Vec::new(),
+        partitions: Some(models::PartitionSelector {
+            include,
+            exclude: Default::default(),
+        }),
+        ..Default::default()
     };
     ReadArgs {
         selector,
