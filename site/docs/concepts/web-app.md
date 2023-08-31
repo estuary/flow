@@ -286,7 +286,7 @@ Documents are organized by their collection key value. Click a key from the list
 
 **1:** The collection's [key](./collections.md#keys) of the collection.
 
-**2:** The collection's [schema](./schema.md) displayed in a read only table. The table columns can be sorted to more easily find what you need.
+**2:** The collection's [schema](./schemas.md) displayed in a read only table. The table columns can be sorted to more easily find what you need.
 
 :::tip
 If you need to modify a collection, edit the [capture](#editing-captures) that it came from.
