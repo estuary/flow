@@ -22,10 +22,6 @@ pub async fn get_collection_inferred_schema(
     ctx: &mut crate::CliContext,
     args: &SchemaInferenceArgs,
 ) -> anyhow::Result<()> {
-    if args.selector.exclude_partitions.len() > 0 || args.selector.include_partitions.len() > 0 {
-        anyhow::bail!("flowctl is not yet able to read from partitioned collections (coming soon)");
-    }
-
     let cp_client = ctx.controlplane_client().await?;
     let token = fetch_data_plane_access_token(cp_client, vec![args.selector.collection.clone()])
         .await
