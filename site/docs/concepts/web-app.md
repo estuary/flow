@@ -130,7 +130,7 @@ The table has nearly all of the same features as the **Captures** table, with se
 that are called out in the image below.
 
 You can use the table to view each collection's specification and see a sample of its data.
-This can help you verify that collection data was captured as expected and that you'll be able to materialize it how you want, and troubleshoot it necessary.
+This can help you verify that collection data was captured as expected and that you'll be able to materialize it how you want, and troubleshoot if necessary.
 
 ![](<./webapp-images/collections-page.png>)
 
