@@ -17,18 +17,21 @@ With the Flow web app, you can perform most common workflows, including:
 
 * Creating end-to-end Data Flows: **capturing** data from source systems and **materializing** it to destinations.
 * Creating, viewing, and editing individual captures and materializations.
+* Monitor the amount of data being processed by the system.
 * Viewing data **collections**.
 * Viewing users and permissions.
+* Granting permissions to other users.
 * Authenticating with the flowctl CLI.
+* Manage billing details.
 
-Some advanced workflows, like granting or revoking permissions and transforming data with **derivations**, aren't available in the web app.
+Some advanced workflows, like transforming data with **derivations**, aren't fully available in the web app.
 
 Even if you prefer the command line or plan to perform a task that's only available through flowctl, we recommend you begin your work in the web app;
 it provides a quicker and easier path to create captures and materializations. You can then switch to flowctl to continue working.
 
 ## Signing in
 
-You use either a Google or GitHub account to sign into Flow.
+You use a Google, Microsoft, or GitHub account to sign into Flow.
 
 ![](<./webapp-images/login-screen.png>)
 
@@ -38,7 +41,7 @@ If you've never used Flow before, you'll be prompted to register before being is
 ## Navigating the web app
 
 When you log into the web app, you land on the **Welcome** page.
-There are four additional pages visible as tabs in the side navigation: **Captures**, **Collections**, **Materializations**, and **Admin**.
+There are four additional pages visible as tabs in the side navigation: **Sources (captures)**, **Collections**, **Destinations (materializations)**, and **Admin**.
 
 The order of the tabs mirrors the order of a basic Data Flow:
 
@@ -84,7 +87,7 @@ you can find it by filtering for `acmeCo*source-postgres`.
 * **Disabled (Hollow circle)**: The capture is disabled.
 * **Unknown (Black when app is in light mode; white when app is in dark mode)**: The web app is unable to determine shard status. Usually, this is due to a temporary connection error.
 
-**6:** Capture name. The full name is shown, including all [prefixes](./catalogs.md#namespace).
+**6:** Capture name. The full name is shown, including all [prefixes](./catalogs.md#namespace). It is also a link to the [details page](#capture-details-page) of the capture.
 
 **7:** Capture type. The icon shows the type of source system data is captured from.
 
@@ -93,24 +96,11 @@ that the capture has written to its associated collections within a configurable
 Click the time interval in the header to select from **Today**, **Yesterday**, **This Week**, **Last Week**, **This Month**, or **Last Month**.
 Note that the time intervals are in UTC.
 
-**9:** Associated collections. The **Writes to** column shows all the collections to which the capture writes data. For captures with a large number of collections, hover over this column and scroll to view the full list.
+**9:** Associated collections. The **Writes to** column shows all the collections to which the capture writes data. For captures with a large number of collections, there is a chip stating how many collections are hidden. Clicking on this will all you to hover over this column and scroll to view the full list. These are also links to the details page of the collection.
 
-**10:** Publish time. Hover over this value to see the exact UTC time the capture was first published.
+**10:** Publish time. Hover over this value to see the exact UTC time the capture was last published.
 
-**11:** Options. Choose to **View Details** or **Edit Specification**.
-
-### Detail view
-
-When you click **View Details** for a capture, the **Status** and **Specification** viewers are revealed.
-
-The **Status** section shows the full identifier of the shard(s) that back your capture. If there's an error, you'll see an alert identifying the failing shard(s). Use the drop-down to open an expanded view of the failed shard's logs.
-
-In the **Specification** section, you can view the specification of the capture itself, as well as each collection to which it writes.
-Select a specification from the **Files** list to view the JSON.
-
-:::tip
-To change the size of each side of the **Specification** section, click and drag the center divider.
-:::
+**11:** Options. Click to open the menu to **Edit Specification**.
 
 ### Editing captures and collections
 
@@ -136,15 +126,21 @@ You can proceed to the materialization, or opt to exit to a different page of th
 ## Collections page
 
 The **Collections** page shows a read-only table of [collections](./collections.md) to which you have access.
-The table has many of the same features as the **Captures** table, with several important distinctions
+The table has nearly all of the same features as the **Captures** table, with several important distinctions
 that are called out in the image below.
 
 You can use the table to view each collection's specification and see a sample of its data.
-This can help you verify that collection data was captured as expected and that you'll be able to materialize it how you want, and troubleshoot it necessary.
+This can help you verify that collection data was captured as expected and that you'll be able to materialize it how you want, and troubleshoot if necessary.
 
 ![](<./webapp-images/collections-page.png>)
 
-**1:** Status indicator. If the collection does not contain a [derivation](./README.md#derivations), the indicator should always show green, and hover text will say "Collection."
+**1:** Select all or deselect all.
+
+**2:** Enable, Disable, and Delete buttons. These actions will be applied to the selected table rows. Choose **Disable** to temporarily pause the flow of data, **Enable** to resume, and **Delete** to permanently remove the collection(s).
+
+**3:** Filter collections by name. Type a catalog prefix, unique collection name to return collections that match your query.
+
+**4:** Status indicator. If the collection does not contain a [derivation](./README.md#derivations), the indicator should always show green, and hover text will say "Collection."
 In the event that the server cannot be reached, the indicator will show "Unknown" status (black in light mode and white in dark mode).
 
   If the collection contains a derivation, the status of the derivation's primary task [shard](./advanced/shards.md) will be indicated:
@@ -155,18 +151,14 @@ In the event that the server cannot be reached, the indicator will show "Unknown
   * **Disabled (Hollow circle)**: The derivation is disabled.
   * **Unknown (Black when app is in light mode; white when app is in dark mode)**: The web app is unable to determine shard status. Usually, this is due to a temporary connection error.
 
-**2:** Collection [statistics](./advanced/logs-stats.md#statistics). The **Data Written** column shows the total amount of data, in bytes and in [documents](./collections.md#documents),
+**5:** Collection name. The full name is shown, including all [prefixes](./catalogs.md#namespace). It is also a link to the [details page](#collection-details-page) of the collection.
+
+**6:** Collection [statistics](./advanced/logs-stats.md#statistics). The **Data Written** column shows the total amount of data, in bytes and in [documents](./collections.md#documents),
 that has been written to each collection from its associated capture or derivation within a configurable time interval.
 Click the time interval in the header to select from **Today**, **Yesterday**, **This Week**, **Last Week**, **This Month**, or **Last Month**.
 Note that the time intervals are in UTC.
 
-**3:** To reveal the **Specification** and **Data Preview** sections, expand **Details** next to a collection name.
-
-**4:** The **Specification** section shows the collection specification as JSON in a read-only editor.
-(If you need to modify a collection, edit the [capture](#editing-captures) that it came from.)
-
-**5:** The **Data Preview** section shows a sample of collection [documents](./collections.md#documents): the individual JSON files that comprise the collection.
-Documents are organized by their collection key value. Click a key from the list to view its document.
+**7:** Publish time. Hover over this value to see the exact UTC time the collection was last published.
 
 ## Materializations page
 
@@ -183,12 +175,10 @@ You use the table to monitor your materializations. It's nearly identical to the
 
 **3:** Filter materializations by name. Type a catalog prefix, unique materialization name, or connector name to return materializations that match your query.
 
-Materialization names follow the pattern `prefix/unique-identifier`, with `prefix` supporting multiple layers of nesting.
+Materialization names follow the pattern `prefix/unique-identifier/connector-name`, with `prefix` supporting multiple layers of nesting.
 You can search for any part of this full materialization name. You can also use the `*` wildcard.
-For example, if you have a materialization called `acmeCo/logistics/anvil-locations`,
-you can find it by filtering for `acmeCo*locations`.
-
-Unlike capture names, materialization names don't contain the connector name, but you can still filter them by connector.
+For example, if you have a materialization called `acmeCo/anvil-locations/materialize-mysql`,
+you can find it by filtering for `acmeCo*mysql`.
 
 **4:** Status indicator. Shows the status of the primary task [shard](./advanced/shards.md) that backs this materialization.
 
@@ -198,7 +188,7 @@ Unlike capture names, materialization names don't contain the connector name, bu
 * **Disabled (Hollow circle)**: The materialization is disabled.
 * **Unknown (Black when app is in light mode; white when app is in dark mode)**: The web app is unable to determine shard status. Usually, this is due to a temporary connection error.
 
-**5:** Materialization name. The full name is shown, including all [prefixes](./catalogs.md#namespace).
+**5:** Materialization name. The full name is shown, including all [prefixes](./catalogs.md#namespace). It is also a link to the [details page](#materialization-details-page) of the materialization.
 
 **6:** Materialization type. The icon shows the type of destination system data is materialized to.
 
@@ -207,21 +197,11 @@ that the materialization has read from its associated collections within a confi
 Click the time interval in the header to select from **Today**, **Yesterday**, **This Week**, **Last Week**, **This Month**, or **Last Month**.
 Note that the time intervals are in UTC.
 
-**8:** Associated collections. The **Reads from** column shows all the collections from which the materialization reads data. For materializations with a large number of collections, hover over this column and scroll to view the full list.
+**8:** Associated collections. The **Reads from** column shows all the collections from which the materialization reads data. For materializations with a large number of collections, there is a chip stating how many collections are hidden. Clicking on this will all you to hover over this column and scroll to view the full list. These are also links to the details page of the collection.
 
-**9:** Publish time. Hover over this value to see the exact UTC time the materialization was first published.
+**9:** Publish time. Hover over this value to see the exact UTC time the materialization was last published.
 
-**10:** Options. Choose to **View Details** or **Edit Specification**.
-
-### Detail view
-
-When you click **View Details** for a materialization, the **Status** and **Specification** viewers are revealed.
-
-The **Status** section shows the full identifier of the shard(s) that backs your materialization.
-If there's an error, you'll see an alert identifying the failing shard(s). Use the drop-down to open an expanded view of the failed shard's logs.
-
-In the **Specification** window, you can view the specification of the materialization itself, as well as each collection from which it reads.
-Select a specification from the **Files** list to view the JSON.
+**10:** Options. Click to open the menu to **Edit Specification**.
 
 ### Editing materializations
 
@@ -242,18 +222,103 @@ There are three ways to begin creating a materialization:
 When you initiate the workflow in any of these ways, all available materialization connectors are displayed.
 Select a connector to reveal the full form with configuration options specific to your desired destination.
 
-Fill out the **Endpoint Config** form and use the **Collection Selector** to map Flow collections to
-resources in the destination system.
-
-:::tip
-You can filter to quickly find the collections you want to include in your materialization.
-Hover your cursor within the Collection Selector table header, next to the **Remove All** button, to reveal an expandable menu icon (three dots).
-Click the menu icon, and then choose **Filter**.
-:::
+Fill out the **Endpoint Config** form and in the **Source Collections** section use the **Collection Selector** to map Flow collections to resources in the destination system.
 
 Note that if you entered the workflow from the Captures page or after publishing a capture, collections will be pre-populated for you.
 
 For detailed steps to create a materialization, see the [guide](../guides/create-dataflow.md#create-a-materialization).
+
+## Capture Details page
+
+When you click on the **name** of a capture on the [captures page](#captures-page) you will be taken to the capture details page to view data stats, sharding information, and general details.
+
+
+### Overview Tab
+
+![](<./webapp-images/capture-details-page--overview.png>)
+
+**1:** The full name of the capture.
+
+**2:** Capture [statistics](./advanced/logs-stats.md#statistics). The **Usage** section displays the total amount of data, in bytes and in [documents](./collections.md#documents) written by the capture, per hour. The number of hours being displayed in the chart can be changed by clicking the time interval in the header to select from **6 hours**, **12 hours**, **24 hours**.
+
+**3:** The **Details** section shows different pieces of information about the capture. When it was last updated, when it was created, the connector being used, and the collections to which the capture writes data. 
+
+**4:** Detailed tooltip. You can hover over a section in the graph to see the specific data of that hour.
+
+**5:** The most recent hour. This will automatically update every 15 seconds with the most recent data and docs.
+
+**6:** Associated collections. Shows all the collections to which the capture writes data and when clicked will take you to the collection's [detail page](#collection-details-page)
+
+**7:** The **Shard Information** section shows the full identifier of the shard(s) that back your capture. If there's an error, you'll see an alert identifying the failing shard(s). Use the drop-down to open an expanded view of the failed shard's logs.
+
+### Spec Tab
+![](<./webapp-images/capture-details-page--spec.png>)
+
+In the **Spec** tab, you can view the specification of the capture itself.
+
+## Collection Details page
+
+When you click on the **name** of a collection on the [collections page](#collections-page) you will be taken to the collection details page to view data stats, sharding information, preview of data, and general details.
+
+### Overview Tab
+
+![](<./webapp-images/collection-details-page--overview.png>)
+
+**1:** The full name of the collection.
+
+**2:** Collection [statistics](./advanced/logs-stats.md#statistics). The **Usage** section shows the total amount of data, in bytes and in [documents](./collections.md#documents) passing through a collection, per hour. The number of hours being displayed in the chart can be changed by clicking the time interval in the header to select from **6 hours**, **12 hours**, **24 hours**.
+
+**3:** The **Details** section shows different pieces of information about the collection. When it was last updated, when it was created, and the associated collections (if any).
+
+**4:** Detailed tooltip. You can hover over a section in the graph to see the specific data of that hour.
+
+**5:** The most recent hour. This will automatically update every 15 seconds with the most recent data and docs.
+
+**6:** Associated collections. Shows all the collections to which the capture writes data and when clicked will take you to the collection's [detail page](#collection-details-page)
+
+**7:** The **Shard Information** section (for derivations) shows the full identifier of the shard(s) that back your derivation. If there's an error, you'll see an alert identifying the failing shard(s). Use the drop-down to open an expanded view of the failed shard's logs.
+
+**8:** The **Data Preview** section shows a sample of collection [documents](./collections.md#documents): the individual JSON files that comprise the collection.
+Documents are organized by their collection key value. Click a key from the list to view its document.
+
+### Spec Tab
+![](<./webapp-images/collection-details-page--spec.png>)
+
+**1:** The collection's [key](./collections.md#keys) of the collection.
+
+**2:** The collection's [schema](./schema.md) displayed in a read only table. The table columns can be sorted to more easily find what you need.
+
+:::tip
+If you need to modify a collection, edit the [capture](#editing-captures) that it came from.
+:::
+
+## Materialization Details Page
+
+When you click on the **name** of a materialization on the [materializations page](#materializations-page) you will be taken to the detail page to view data stats, sharding information, and general details.
+
+
+### Overview Tab
+
+![](<./webapp-images/materialization-details-page--overview.png>)
+
+**1:** The full name of the materialization.
+
+**2:** Materialization [statistics](./advanced/logs-stats.md#statistics). The **Usage** section shows the total amount of data, in bytes and in [documents](./collections.md#documents) read by a materialization, per hour. The number of hours being displayed in the chart can be changed by clicking the time interval in the header to select from **6 hours**, **12 hours**, **24 hours**.
+
+**3:** The **Details** section shows different pieces of information about the materialization. When it was last updated, when it was created, and the associated collections.
+
+**4:** Detailed tooltip. You can hover over a section in the graph to see the specific data of that hour.
+
+**5:** The most recent hour. This will automatically update every 15 seconds with the most recent data and docs.
+
+**6:** Associated collections. Shows all the collections to which the capture writes data and when clicked will take you to the collection's [detail page](#collection-details-page)
+
+**7:** The **Shard Information** section shows the full identifier of the shard(s) that back your materialization. If there's an error, you'll see an alert identifying the failing shard(s). Use the drop-down to open an expanded view of the failed shard's logs.
+
+### Spec Tab
+![](<./webapp-images/materialization-details-page--spec.png>)
+
+In the **Spec** tab, you can view the specification of the materialization itself.
 
 ## Admin page
 
