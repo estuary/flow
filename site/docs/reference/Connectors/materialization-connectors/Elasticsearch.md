@@ -86,7 +86,7 @@ Alternatively, you can allow secure connections via SSH tunneling. To do so:
 
 1. Refer to the [guide](../../../../guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
 
-2. Configure your connector as described in the [configuration](#configuration) section above, with the addition of the `networkTunnel` stanza to enable the SSH tunnel, if using. See [Connecting to endpoints on secure networks](../../../concepts/connectors.d#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
+2. Configure your connector as described in the [configuration](#configuration) section above, with the addition of the `networkTunnel` stanza to enable the SSH tunnel, if using. See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
 ## Delta updates
 
