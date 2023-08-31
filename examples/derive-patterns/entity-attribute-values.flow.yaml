@@ -1,0 +1,72 @@
+collections:
+  patterns/entity-attribute-values:
+    key: [/entity_id]
+    schema:
+      type: object
+      properties:
+        entity_id: { type: string }
+        key: {type: string}
+        value: true
+      required: [entity_id, key, value]
+
+  patterns/normalized-entities:
+    key: [/entity_id]
+    schema:
+      type: object
+      properties:
+        entity_id: { type: string }
+        first_name: { type: string }
+        last_name: { type: string }
+        email: { type: string, format: email }
+      required: [entity_id]
+      reduce: { strategy: merge }
+    derive:
+      using:
+        sqlite: {}
+      transforms:
+        - name: fromKeyValuePairs
+          source: patterns/entity-attribute-values
+          shuffle: any
+          lambda: |
+            SELECT JSON_OBJECT(
+              'entity_id', $entity_id,
+              $key, $value
+            );
+
+tests:
+  patterns/normalizing-entity-attribute-values:
+    - ingest:
+        collection: patterns/entity-attribute-values
+        documents:
+          - { entity_id: "2", key: "email", value: "wilma@oldschooldialup.com"}
+          - { entity_id: "1", key: "email", value: "fred@oldschooldialup.com"}
+    - ingest:
+        collection: patterns/entity-attribute-values
+        documents:
+          - { entity_id: "1", key: "first_name", value: "Fred" }
+          - { entity_id: "2", key: "last_name", value: "Flintstone"}
+    - verify:
+        collection: patterns/normalized-entities
+        documents:
+          - entity_id: "1"
+            first_name: Fred
+            email: fred@oldschooldialup.com
+          - entity_id: "2"
+            last_name: Flintstone
+            email: wilma@oldschooldialup.com
+    - ingest:
+        collection: patterns/entity-attribute-values
+        documents:
+          - { entity_id: "2", key: "first_name", value: "Wilma" }
+          - { entity_id: "1", key: "last_name", value: "Flintstone"}
+    - verify:
+        collection: patterns/normalized-entities
+        documents:
+          - entity_id: "1"
+            first_name: Fred
+            last_name: Flintstone
+            email: fred@oldschooldialup.com
+          - entity_id: "2"
+            first_name: Wilma
+            last_name: Flintstone
+            email: wilma@oldschooldialup.com

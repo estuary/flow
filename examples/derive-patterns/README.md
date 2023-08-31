@@ -120,3 +120,24 @@ paired with a reduced snapshot of the RHS accumulator at that time.
 
 See [join-one-sided.flow.yaml](join-one-sided.yaml).
 
+## Entity attribute values
+
+This is a common pattern where you have source data with key-value pairs
+relating to a specific entity, and you want to normalize it into a table-like format.
+In other words, you want to go from this:
+
+```
+{"entity_id": "1", "key": "first_name", "value": "Fred"}
+{"entity_id": "1", "key": "last_name", "value": "Flintstone"}
+```
+
+to this:
+
+```
+{"entity_id": "1", "first_name": "Fred", "last_name": "Flintstone"}
+```
+
+This is super easy to do in Flow. The key is to use `reduce: { strategy: merge }`
+in the derivation's schema.
+
+See [entity-attribute-values.flow.yaml](entity-attribute-values.flow.yaml)
