@@ -1,5 +1,4 @@
 use anyhow::Context;
-use locate_bin::locate;
 use proto_flow::{derive, flow};
 use serde_json::json;
 use std::io::{BufRead, Write};
@@ -26,8 +25,9 @@ pub fn run() -> anyhow::Result<()> {
                     spec: Some(derive::response::Spec {
                         protocol: 3032023,
                         config_schema_json: "{}".to_string(),
-                        lambda_config_schema_json: "{}".to_string(),
+                        resource_config_schema_json: "{}".to_string(),
                         documentation_url: "https://docs.estuary.dev".to_string(),
+                        oauth2: None,
                     }),
                     ..Default::default()
                 })
@@ -89,7 +89,7 @@ pub fn run() -> anyhow::Result<()> {
     std::fs::write(temp_dir.join(MODULE_NAME), config.module)?;
     std::fs::write(temp_dir.join(MAIN_NAME), codegen::main_ts(&transforms))?;
 
-    let mut child = std::process::Command::new(locate("deno")?)
+    let mut child = std::process::Command::new("deno")
         .stdin(Stdio::piped())
         .current_dir(temp_dir)
         .args(["run", "--allow-net=api.openai.com", MAIN_NAME])
@@ -133,10 +133,9 @@ fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::respo
         shuffle_key_types: _,
         project_root,
         import_map,
-        network_ports: _,
-    } = validate;
+    } = &validate;
 
-    let collection = collection.unwrap();
+    let collection = collection.as_ref().unwrap();
 
     let config = serde_json::from_str::<Config>(&config_json)
         .with_context(|| format!("invalid derivation configuration: {config_json}"))?;
@@ -215,7 +214,7 @@ fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::respo
     std::fs::write(temp_dir.join(MODULE_NAME), config.module)?;
     std::fs::write(temp_dir.join(MAIN_NAME), codegen::main_ts(&transforms))?;
 
-    let output = std::process::Command::new(locate("deno")?)
+    let output = std::process::Command::new("deno")
         .current_dir(temp_dir)
         .args(["check", MAIN_NAME])
         .output()
