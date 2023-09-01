@@ -13,10 +13,13 @@ license.workspace = true
 [dependencies]
 agent-sql = { path = "../agent-sql" }
 async-process = { path = "../async-process" }
+build = { path = "../build" }
 doc = { path = "../doc" }
 models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
+runtime = { path = "../runtime" }
 tables = { path = "../tables", features = ["persist"] }
+validation = { path = "../validation" }
 
 anyhow = { workspace = true }
 async-trait = { workspace = true }
@@ -24,12 +27,13 @@ base64 = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
+colored_json = { workspace = true } # Used to render ops::Logs for UI.
+derivative = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
 lazy_static = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
-rusqlite = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -42,7 +46,6 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
 validator = { workspace = true }
-derivative = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }

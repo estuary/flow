@@ -301,7 +301,6 @@ impl PublishHandler {
             &self.builds_root,
             &draft_catalog,
             &self.connector_network,
-            &self.bindir,
             row.logs_token,
             &self.logs_tx,
             row.pub_id,
