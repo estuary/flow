@@ -44,8 +44,6 @@ begin
   perform * from pg_roles where rolname = current_setting('role') and rolbypassrls = true;
   has_bypassrls = found;
 
-  raise 'Test exception';
-
   if not has_admin_grant and not has_bypassrls then
     -- errcode 28000 causes PostgREST to return an HTTP 403
     -- see: https://www.postgresql.org/docs/current/errcodes-appendix.html
