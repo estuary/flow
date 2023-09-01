@@ -18,20 +18,7 @@ Sources {
     ],
     errors: [],
     fetches: [],
-    imports: [
-        Import {
-            scope: test://example/catalog.yaml#/collections/test/schema,
-            to_resource: test://external/a,
-        },
-        Import {
-            scope: test://external/a#/$defs/a/$ref,
-            to_resource: test://external/b,
-        },
-        Import {
-            scope: test://external/b#/$defs/c/$ref,
-            to_resource: test://external/c,
-        },
-    ],
+    imports: [],
     materializations: [],
     resources: [],
     storage_mappings: [],

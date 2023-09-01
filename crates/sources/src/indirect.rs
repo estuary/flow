@@ -1,4 +1,6 @@
 use super::Format;
+use crate::Scope;
+use proto_flow::flow::ContentType;
 use std::collections::BTreeMap;
 
 // Indirect sub-locations within `sources` into external resources which
@@ -8,7 +10,7 @@ pub fn indirect_large_files(sources: &mut tables::Sources, threshold: usize) {
         captures,
         collections,
         fetches: _,
-        imports: _,
+        imports,
         materializations,
         resources,
         storage_mappings: _,
@@ -17,16 +19,16 @@ pub fn indirect_large_files(sources: &mut tables::Sources, threshold: usize) {
     } = sources;
 
     for capture in captures.iter_mut() {
-        indirect_capture(capture, resources, threshold);
+        indirect_capture(capture, imports, resources, threshold);
     }
     for collection in collections.iter_mut() {
-        indirect_collection(collection, resources, threshold);
+        indirect_collection(collection, imports, resources, threshold);
     }
     for materialization in materializations.iter_mut() {
-        indirect_materialization(materialization, resources, threshold);
+        indirect_materialization(materialization, imports, resources, threshold);
     }
     for test in tests.iter_mut() {
-        indirect_test(test, resources, threshold);
+        indirect_test(test, imports, resources, threshold);
     }
 }
 
@@ -117,7 +119,7 @@ pub fn rebuild_catalog_resources(sources: &mut tables::Sources) {
             resource,
             content_dom,
             content: content_raw,
-            content_type: proto_flow::flow::ContentType::Catalog,
+            content_type: ContentType::Catalog,
         }
         .upsert_if_changed(resources)
     }
@@ -125,6 +127,7 @@ pub fn rebuild_catalog_resources(sources: &mut tables::Sources) {
 
 fn indirect_capture(
     capture: &mut tables::Capture,
+    imports: &mut tables::Imports,
     resources: &mut tables::Resources,
     threshold: usize,
 ) {
@@ -140,9 +143,14 @@ fn indirect_capture(
     match endpoint {
         models::CaptureEndpoint::Connector(models::ConnectorConfig { config, .. }) => {
             indirect_dom(
-                scope,
+                Scope::new(scope)
+                    .push_prop("endpoint")
+                    .push_prop("connector")
+                    .push_prop("config"),
                 config,
+                ContentType::Config,
                 format!("{base}.config"),
+                imports,
                 resources,
                 threshold,
             );
@@ -151,9 +159,14 @@ fn indirect_capture(
 
     for (index, models::CaptureBinding { resource, .. }) in bindings.iter_mut().enumerate() {
         indirect_dom(
-            scope,
+            Scope::new(scope)
+                .push_prop("bindings")
+                .push_item(index)
+                .push_prop("resource"),
             resource,
+            ContentType::Config,
             format!("{base}.resource.{index}.config"),
+            imports,
             resources,
             threshold,
         )
@@ -162,6 +175,7 @@ fn indirect_capture(
 
 fn indirect_collection(
     collection: &mut tables::Collection,
+    imports: &mut tables::Imports,
     resources: &mut tables::Resources,
     threshold: usize,
 ) {
@@ -184,33 +198,36 @@ fn indirect_collection(
 
     if let Some(schema) = schema {
         indirect_schema(
-            scope,
+            Scope::new(scope).push_prop("schema"),
             schema,
             format!("{base}.schema"),
+            imports,
             resources,
             threshold,
         );
     }
     if let Some(write_schema) = write_schema {
         indirect_schema(
-            scope,
+            Scope::new(scope).push_prop("writeSchema"),
             write_schema,
             format!("{base}.write.schema"),
+            imports,
             resources,
             threshold,
         )
     }
     if let Some(read_schema) = read_schema {
         indirect_schema(
-            scope,
+            Scope::new(scope).push_prop("readSchema"),
             read_schema,
             format!("{base}.read.schema"),
+            imports,
             resources,
             threshold,
         );
     }
     if let Some(derivation) = derive {
-        indirect_derivation(scope, derivation, base, resources, threshold);
+        indirect_derivation(scope, derivation, base, imports, resources, threshold);
     }
 }
 
@@ -218,6 +235,7 @@ fn indirect_derivation(
     scope: &url::Url,
     derivation: &mut models::Derivation,
     base: &str,
+    imports: &mut tables::Imports,
     resources: &mut tables::Resources,
     threshold: usize,
 ) {
@@ -232,9 +250,15 @@ fn indirect_derivation(
     match using {
         models::DeriveUsing::Connector(models::ConnectorConfig { config, .. }) => {
             indirect_dom(
-                scope,
+                Scope::new(scope)
+                    .push_prop("derive")
+                    .push_prop("using")
+                    .push_prop("connector")
+                    .push_prop("config"),
                 config,
+                ContentType::Config,
                 format!("{base}.config"),
+                imports,
                 resources,
                 threshold,
             );
@@ -244,56 +268,100 @@ fn indirect_derivation(
 
             for (index, migration) in migrations.iter_mut().enumerate() {
                 indirect_raw(
-                    scope,
+                    Scope::new(scope)
+                        .push_prop("derive")
+                        .push_prop("using")
+                        .push_prop("sqlite")
+                        .push_prop("migrations")
+                        .push_item(index),
                     migration,
                     format!("{base}.migration.{index}.sql"),
+                    imports,
                     resources,
                     threshold,
                 );
             }
         }
         models::DeriveUsing::Typescript(models::DeriveUsingTypescript { module }) => {
-            indirect_raw(scope, module, format!("{base}.ts"), resources, threshold);
+            indirect_raw(
+                Scope::new(scope)
+                    .push_prop("derive")
+                    .push_prop("using")
+                    .push_prop("typescript")
+                    .push_prop("module"),
+                module,
+                format!("{base}.ts"),
+                imports,
+                resources,
+                threshold,
+            );
         }
     }
 
-    for models::TransformDef {
-        name,
-        lambda,
-        shuffle,
-        ..
-    } in transforms
+    for (
+        index,
+        models::TransformDef {
+            name,
+            lambda,
+            shuffle,
+            ..
+        },
+    ) in transforms.iter_mut().enumerate()
     {
         if is_sql {
             indirect_raw(
-                scope,
+                Scope::new(scope)
+                    .push_prop("derive")
+                    .push_prop("transforms")
+                    .push_item(index)
+                    .push_prop("lambda"),
                 lambda,
                 format!("{base}.lambda.{name}.sql"),
+                imports,
                 resources,
                 threshold,
             );
             if let models::Shuffle::Lambda(lambda) = shuffle {
                 indirect_raw(
-                    scope,
+                    Scope::new(scope)
+                        .push_prop("derive")
+                        .push_prop("transforms")
+                        .push_item(index)
+                        .push_prop("shuffle")
+                        .push_prop("lambda"),
                     lambda,
                     format!("{base}.lambda.{name}.shuffle.sql"),
+                    imports,
                     resources,
                     threshold,
                 );
             }
         } else {
             indirect_dom(
-                scope,
+                Scope::new(scope)
+                    .push_prop("derive")
+                    .push_prop("transforms")
+                    .push_item(index)
+                    .push_prop("lambda"),
                 lambda,
+                ContentType::Config,
                 format!("{base}.lambda.{name}"),
+                imports,
                 resources,
                 threshold,
             );
             if let models::Shuffle::Lambda(lambda) = shuffle {
                 indirect_dom(
-                    scope,
+                    Scope::new(scope)
+                        .push_prop("derive")
+                        .push_prop("transforms")
+                        .push_item(index)
+                        .push_prop("shuffle")
+                        .push_prop("lambda"),
                     lambda,
+                    ContentType::Config,
                     format!("{base}.lambda.{name}.shuffle"),
+                    imports,
                     resources,
                     threshold,
                 );
@@ -304,6 +372,7 @@ fn indirect_derivation(
 
 fn indirect_materialization(
     materialization: &mut tables::Materialization,
+    imports: &mut tables::Imports,
     resources: &mut tables::Resources,
     threshold: usize,
 ) {
@@ -319,9 +388,14 @@ fn indirect_materialization(
     match endpoint {
         models::MaterializationEndpoint::Connector(models::ConnectorConfig { config, .. }) => {
             indirect_dom(
-                scope,
+                Scope::new(scope)
+                    .push_prop("endpoint")
+                    .push_prop("connector")
+                    .push_prop("config"),
                 config,
+                ContentType::Config,
                 format!("{base}.config"),
+                imports,
                 resources,
                 threshold,
             )
@@ -332,16 +406,26 @@ fn indirect_materialization(
     for (index, models::MaterializationBinding { resource, .. }) in bindings.iter_mut().enumerate()
     {
         indirect_dom(
-            scope,
+            Scope::new(scope)
+                .push_prop("bindings")
+                .push_item(index)
+                .push_prop("resource"),
             resource,
+            ContentType::Config,
             format!("{base}.resource.{index}.config"),
+            imports,
             resources,
             threshold,
         )
     }
 }
 
-fn indirect_test(test: &mut tables::Test, resources: &mut tables::Resources, threshold: usize) {
+fn indirect_test(
+    test: &mut tables::Test,
+    imports: &mut tables::Imports,
+    resources: &mut tables::Resources,
+    threshold: usize,
+) {
     let tables::Test { scope, test, spec } = test;
     let base = base_name(test);
 
@@ -351,9 +435,11 @@ fn indirect_test(test: &mut tables::Test, resources: &mut tables::Resources, thr
             | models::TestStep::Verify(models::TestStepVerify { documents, .. }) => documents,
         };
         indirect_dom(
-            scope,
+            Scope::new(scope).push_item(index).push_prop("documents"),
             documents,
+            ContentType::Config,
             format!("{base}.step.{index}"),
+            imports,
             resources,
             threshold,
         );
@@ -361,9 +447,10 @@ fn indirect_test(test: &mut tables::Test, resources: &mut tables::Resources, thr
 }
 
 fn indirect_schema(
-    scope: &url::Url,
+    scope: Scope,
     content_dom: &mut models::RawValue,
     filename: String,
+    imports: &mut tables::Imports,
     resources: &mut tables::Resources,
     threshold: usize,
 ) {
@@ -387,13 +474,23 @@ fn indirect_schema(
         _ => (),
     };
 
-    indirect_dom(scope, content_dom, filename, resources, threshold)
+    indirect_dom(
+        scope,
+        content_dom,
+        ContentType::JsonSchema,
+        filename,
+        imports,
+        resources,
+        threshold,
+    )
 }
 
 fn indirect_dom(
-    scope: &url::Url,
+    scope: Scope,
     content_dom: &mut models::RawValue,
+    content_type: ContentType,
     filename: String,
+    imports: &mut tables::Imports,
     resources: &mut tables::Resources,
     threshold: usize,
 ) {
@@ -402,26 +499,30 @@ fn indirect_dom(
         // This includes content_dom's which are already indirect.
         return;
     }
+    let scope = scope.flatten();
 
-    let fmt = Format::from_scope(scope);
+    let fmt = Format::from_scope(&scope);
     let filename = format!("{filename}.{}", fmt.extension());
 
     tables::Resource {
         resource: scope.join(&filename).unwrap(),
-        content_type: proto_flow::flow::ContentType::Config,
+        content_type,
         content: fmt.serialize(content_dom),
         content_dom: content_dom.clone(),
     }
     .upsert_if_changed(resources);
+
+    imports.insert_row(&scope, scope.join(&filename).unwrap());
 
     *content_dom =
         models::RawValue::from_string(serde_json::to_string(&filename).unwrap()).unwrap();
 }
 
 fn indirect_raw(
-    scope: &url::Url,
+    scope: Scope,
     content_dom: &mut models::RawValue,
     filename: String,
+    imports: &mut tables::Imports,
     resources: &mut tables::Resources,
     threshold: usize,
 ) {
@@ -430,17 +531,20 @@ fn indirect_raw(
         // This includes content_dom's which are already indirect.
         return;
     }
+    let scope = scope.flatten();
 
     let content_str =
         serde_json::from_str::<String>(content_dom.get()).expect("value must be a JSON string");
 
     tables::Resource {
         resource: scope.join(&filename).unwrap(),
-        content_type: proto_flow::flow::ContentType::Config,
+        content_type: ContentType::Config,
         content: content_str.into(),
         content_dom: std::mem::take(content_dom),
     }
     .upsert_if_changed(resources);
+
+    imports.insert_row(&scope, scope.join(&filename).unwrap());
 
     *content_dom =
         models::RawValue::from_string(serde_json::to_string(&filename).unwrap()).unwrap();

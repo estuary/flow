@@ -18,12 +18,7 @@ Sources {
     ],
     errors: [],
     fetches: [],
-    imports: [
-        Import {
-            scope: test://example/catalog.yaml#/collections/a~1collection/schema,
-            to_resource: test://example/actual,
-        },
-    ],
+    imports: [],
     materializations: [],
     resources: [],
     storage_mappings: [],

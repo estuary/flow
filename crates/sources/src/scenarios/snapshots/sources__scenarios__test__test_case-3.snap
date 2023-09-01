@@ -17,20 +17,8 @@ Sources {
             to_resource: test://example/catalog-err-not-an-object.yaml,
         },
         Import {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/0/documents,
-            to_resource: test://example/not-an-array.json,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1errors~1test/1/documents,
-            to_resource: test://example/not-found.json,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/3/documents,
-            to_resource: test://example/snapshots/ingest.json,
-        },
-        Import {
             scope: test://example/catalog.yaml#/tests/acmeCo~1widgest~1test/4/documents,
-            to_resource: test://example/snapshots/verify.json,
+            to_resource: test://example/test.step.4.yaml,
         },
     ],
     materializations: [],

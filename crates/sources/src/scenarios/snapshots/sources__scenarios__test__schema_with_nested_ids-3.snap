@@ -21,7 +21,7 @@ Sources {
     imports: [
         Import {
             scope: test://example/catalog.yaml#/collections/a~1collection/schema,
-            to_resource: test://example/actual,
+            to_resource: test://example/collection.schema.yaml,
         },
     ],
     materializations: [],
@@ -34,7 +34,7 @@ Sources {
         },
         Resource {
             resource: test://example/collection.schema.yaml,
-            content_type: "CONFIG",
+            content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: {"$defs":{"wrapper":{"$defs":{"a":{"$id":"test://fake/other/a-doc","items":[true,{"$ref":"b-doc#/items/1"}]},"b":{"$id":"test://fake/other/b-doc","items":[{"$ref":"a-doc#/items/0"},true]},"c":true},"$id":"test://fake/root","allOf":[{"$ref":"other/a-doc#/items/1"},{"$ref":"test://fake/other/b-doc#/items/0"},{"$ref":"#/$defs/c"},{"$ref":"test://fake/root#/$defs/c"}]}},"$id":"test://canonical/id","$ref":"test://fake/root"},
         },
