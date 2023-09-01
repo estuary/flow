@@ -1,9 +1,9 @@
 use crate::{Fetcher, Loader, Scope};
 use futures::channel::oneshot;
-use futures::future::{FutureExt, LocalBoxFuture};
+use futures::future::{BoxFuture, FutureExt};
 use proto_flow::flow;
-use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::sync::Mutex;
 use std::task::Poll;
 use url::Url;
 
@@ -55,7 +55,7 @@ mod test {
 }
 // MockFetcher queues and returns oneshot futures for started fetches.
 struct MockFetcher<'f> {
-    fetches: &'f RefCell<BTreeMap<String, oneshot::Sender<Result<bytes::Bytes, anyhow::Error>>>>,
+    fetches: &'f Mutex<BTreeMap<String, oneshot::Sender<anyhow::Result<bytes::Bytes>>>>,
 }
 
 impl<'f> Fetcher for MockFetcher<'f> {
@@ -63,13 +63,18 @@ impl<'f> Fetcher for MockFetcher<'f> {
         &self,
         resource: &'a Url,
         _content_type: flow::ContentType,
-    ) -> LocalBoxFuture<'a, Result<bytes::Bytes, anyhow::Error>> {
+    ) -> BoxFuture<'a, anyhow::Result<bytes::Bytes>> {
         let (tx, rx) = oneshot::channel();
 
-        if let Some(_) = self.fetches.borrow_mut().insert(resource.to_string(), tx) {
+        if let Some(_) = self
+            .fetches
+            .try_lock()
+            .unwrap()
+            .insert(resource.to_string(), tx)
+        {
             panic!("resource {} has already been fetched", resource);
         }
-        rx.map(|r| r.unwrap()).boxed_local()
+        rx.map(|r| r.unwrap()).boxed()
     }
 }
 
@@ -82,7 +87,7 @@ pub fn evaluate_fixtures(catalog: tables::Sources, fixture: &serde_json::Value) 
     // Fetches holds started fetches since the last future poll.
     // Use an ordered map so that we signal one-shots in a stable order,
     // making snapshots reliable.
-    let fetches = RefCell::new(BTreeMap::new());
+    let fetches = Mutex::new(BTreeMap::new());
 
     let loader = Loader::new(catalog, MockFetcher { fetches: &fetches });
     let root = Url::parse("test://example/catalog.yaml").unwrap();
@@ -128,13 +133,13 @@ pub fn evaluate_fixtures(catalog: tables::Sources, fixture: &serde_json::Value) 
                 std::mem::drop(fut);
                 return loader.into_tables();
             }
-            Poll::Pending if fetches.borrow().is_empty() => {
+            Poll::Pending if fetches.try_lock().unwrap().is_empty() => {
                 // Note the future can return Pending *only because* it's blocked
                 // waiting for one or more |fetch| fixtures above to resolve.
                 panic!("future is pending, but started no fetches")
             }
             Poll::Pending => {
-                for (url, tx) in fetches.borrow_mut().split_off("") {
+                for (url, tx) in fetches.try_lock().unwrap().split_off("") {
                     match fixtures.get(&url) {
                         Some(serde_json::Value::String(value)) => tx.send(Ok(value.clone().into())),
                         Some(value) => tx.send(Ok(serde_json::to_vec(&value).unwrap().into())),

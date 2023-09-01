@@ -1,10 +1,10 @@
 use super::Scope;
 use doc::Schema as CompiledSchema;
-use futures::future::{FutureExt, LocalBoxFuture};
+use futures::future::{BoxFuture, FutureExt};
 use json::schema::{self, build::build_schema};
 use models::RawValue;
 use proto_flow::flow;
-use std::cell::RefCell;
+use std::sync::{Mutex, MutexGuard};
 use url::Url;
 
 #[derive(thiserror::Error, Debug)]
@@ -36,21 +36,15 @@ pub enum LoadError {
     ResourceNotUTF8,
 }
 
-// FetchResult is the result type of a fetch operation,
-// and returns the resolved content of the resource.
-pub type FetchResult = Result<bytes::Bytes, anyhow::Error>;
-// FetchFuture is a Future of FetchResult.
-pub type FetchFuture<'a> = LocalBoxFuture<'a, FetchResult>;
-
 /// Fetcher resolves a resource URL to its byte content.
-pub trait Fetcher {
+pub trait Fetcher: Send + Sync {
     fn fetch<'a>(
         &'a self,
         // Resource to fetch.
         resource: &'a Url,
         // Expected content type of the resource.
         content_type: flow::ContentType,
-    ) -> FetchFuture<'a>;
+    ) -> BoxFuture<'a, anyhow::Result<bytes::Bytes>>;
 }
 
 /// Loader provides a stack-based driver for traversing catalog source
@@ -58,7 +52,10 @@ pub trait Fetcher {
 /// tracking of location context.
 pub struct Loader<F: Fetcher> {
     // Tables loaded by the build process.
-    tables: RefCell<tables::Sources>,
+    // `tables` is never held across await points or accessed across threads, and the
+    // tables_mut() accessor asserts that no other lock is held and does not block.
+    // Wrapping in a Mutex makes it easy to pass around futures holding a Loader.
+    tables: Mutex<tables::Sources>,
     // Fetcher for retrieving discovered, unvisited resources.
     fetcher: F,
 }
@@ -67,13 +64,13 @@ impl<F: Fetcher> Loader<F> {
     /// Build and return a new Loader.
     pub fn new(tables: tables::Sources, fetcher: F) -> Loader<F> {
         Loader {
-            tables: RefCell::new(tables),
+            tables: Mutex::new(tables),
             fetcher,
         }
     }
 
     pub fn into_tables(self) -> tables::Sources {
-        self.tables.into_inner()
+        std::mem::take(&mut *self.tables_mut())
     }
 
     /// Load (or re-load) a resource of the given ContentType.
@@ -84,7 +81,7 @@ impl<F: Fetcher> Loader<F> {
         content_type: flow::ContentType,
     ) {
         if resource.fragment().is_some() {
-            self.tables.borrow_mut().errors.insert_row(
+            self.tables_mut().errors.insert_row(
                 &scope.flatten(),
                 anyhow::anyhow!(LoadError::Fetch {
                     uri: resource.clone(),
@@ -96,8 +93,7 @@ impl<F: Fetcher> Loader<F> {
         }
 
         // Mark as visited, so that recursively-loaded imports don't re-visit.
-        self.tables
-            .borrow_mut()
+        self.tables_mut()
             .fetches
             .insert_row(scope.resource_depth() as u32, resource);
 
@@ -110,7 +106,7 @@ impl<F: Fetcher> Loader<F> {
                     .await
             }
             Err(err) => {
-                self.tables.borrow_mut().errors.insert_row(
+                self.tables_mut().errors.insert_row(
                     &scope.flatten(),
                     anyhow::anyhow!(LoadError::Fetch {
                         uri: resource.clone(),
@@ -131,7 +127,7 @@ impl<F: Fetcher> Loader<F> {
         resource: &'a Url,
         content: bytes::Bytes,
         content_type: flow::ContentType,
-    ) -> LocalBoxFuture<'a, ()> {
+    ) -> BoxFuture<'a, ()> {
         async move {
             let scope = scope.push_resource(&resource);
 
@@ -174,7 +170,7 @@ impl<F: Fetcher> Loader<F> {
             } else if let Ok(content) = std::str::from_utf8(&content) {
                 RawValue::from_string(serde_json::to_string(&content).unwrap()).unwrap()
             } else {
-                self.tables.borrow_mut().errors.insert_row(
+                self.tables_mut().errors.insert_row(
                     &scope.flatten(),
                     anyhow::anyhow!(LoadError::ResourceNotUTF8),
                 );
@@ -194,7 +190,7 @@ impl<F: Fetcher> Loader<F> {
                 _ => {}
             };
 
-            self.tables.borrow_mut().resources.insert_row(
+            self.tables_mut().resources.insert_row(
                 resource.clone(),
                 content_type,
                 content,
@@ -203,7 +199,7 @@ impl<F: Fetcher> Loader<F> {
             None
         }
         .map(|_: Option<()>| ())
-        .boxed_local()
+        .boxed()
     }
 
     async fn load_schema_document<'s>(
@@ -229,7 +225,7 @@ impl<F: Fetcher> Loader<F> {
         scope: Scope<'s>,
         index: &'s doc::SchemaIndex<'s>,
         schema: &'s CompiledSchema,
-    ) -> LocalBoxFuture<'s, ()> {
+    ) -> BoxFuture<'s, ()> {
         let mut tasks = Vec::with_capacity(schema.kw.len());
 
         // Walk keywords, looking for named schemas and references we must resolve.
@@ -274,7 +270,7 @@ impl<F: Fetcher> Loader<F> {
 
         futures::future::join_all(tasks.into_iter())
             .map(|_: Vec<()>| ())
-            .boxed_local()
+            .boxed()
     }
 
     /// Load a schema reference, which may be an inline schema.
@@ -331,8 +327,7 @@ impl<F: Fetcher> Loader<F> {
 
         // Recursively process the import if it's not already visited.
         if !self
-            .tables
-            .borrow_mut()
+            .tables_mut()
             .fetches
             .iter()
             .any(|f| f.resource == import)
@@ -340,8 +335,7 @@ impl<F: Fetcher> Loader<F> {
             self.load_resource(scope, &import, content_type).await;
         }
 
-        self.tables
-            .borrow_mut()
+        self.tables_mut()
             .imports
             .insert_row(scope.flatten(), import);
     }
@@ -374,7 +368,7 @@ impl<F: Fetcher> Loader<F> {
                     )
                     .await;
                 }
-                .boxed_local(),
+                .boxed(),
             );
         }
 
@@ -385,7 +379,7 @@ impl<F: Fetcher> Loader<F> {
                     self.load_capture(scope.push_prop("captures").push_prop(&name), &name, capture)
                         .await;
                 }
-                .boxed_local(),
+                .boxed(),
             );
         }
 
@@ -400,7 +394,7 @@ impl<F: Fetcher> Loader<F> {
                     )
                     .await;
                 }
-                .boxed_local(),
+                .boxed(),
             );
         }
 
@@ -415,7 +409,7 @@ impl<F: Fetcher> Loader<F> {
                     )
                     .await;
                 }
-                .boxed_local(),
+                .boxed(),
             );
         }
 
@@ -426,7 +420,7 @@ impl<F: Fetcher> Loader<F> {
                     self.load_test(scope.push_prop("tests").push_prop(&name), &name, test)
                         .await;
                 }
-                .boxed_local(),
+                .boxed(),
             );
         }
 
@@ -434,7 +428,7 @@ impl<F: Fetcher> Loader<F> {
         for (prefix, storage) in storage_mappings.into_iter() {
             let models::StorageDef { stores } = storage;
 
-            self.tables.borrow_mut().storage_mappings.insert_row(
+            self.tables_mut().storage_mappings.insert_row(
                 scope
                     .push_prop("storageMappings")
                     .push_prop(prefix.as_str())
@@ -458,32 +452,31 @@ impl<F: Fetcher> Loader<F> {
         if let Some(schema) = &spec.schema {
             tasks.push(
                 self.load_schema_reference(scope.push_prop("schema"), schema)
-                    .boxed_local(),
+                    .boxed(),
             );
         }
         if let Some(schema) = &spec.write_schema {
             tasks.push(
                 self.load_schema_reference(scope.push_prop("writeSchema"), schema)
-                    .boxed_local(),
+                    .boxed(),
             );
         }
         if let Some(schema) = &spec.read_schema {
             tasks.push(
                 self.load_schema_reference(scope.push_prop("readSchema"), schema)
-                    .boxed_local(),
+                    .boxed(),
             );
         }
         if let Some(derive) = &spec.derive {
             tasks.push(
                 self.load_derivation(scope.push_prop("derive"), derive)
-                    .boxed_local(),
+                    .boxed(),
             );
         }
 
         let _: Vec<()> = futures::future::join_all(tasks.into_iter()).await;
 
-        self.tables
-            .borrow_mut()
+        self.tables_mut()
             .collections
             .insert_row(scope.flatten(), collection_name, spec)
     }
@@ -504,7 +497,7 @@ impl<F: Fetcher> Loader<F> {
                         )
                         .await
                     }
-                    .boxed_local(),
+                    .boxed(),
                 );
             }
             models::DeriveUsing::Sqlite(models::DeriveUsingSqlite { migrations }) => {
@@ -521,7 +514,7 @@ impl<F: Fetcher> Loader<F> {
                             )
                             .await
                         }
-                        .boxed_local(),
+                        .boxed(),
                     );
                 }
             }
@@ -537,7 +530,7 @@ impl<F: Fetcher> Loader<F> {
                         )
                         .await
                     }
-                    .boxed_local(),
+                    .boxed(),
                 );
             }
         };
@@ -554,7 +547,7 @@ impl<F: Fetcher> Loader<F> {
                     )
                     .await
                 }
-                .boxed_local(),
+                .boxed(),
             );
 
             if let models::Shuffle::Lambda(lambda) = &transform.shuffle {
@@ -570,7 +563,7 @@ impl<F: Fetcher> Loader<F> {
                         )
                         .await
                     }
-                    .boxed_local(),
+                    .boxed(),
                 );
             }
         }
@@ -599,7 +592,7 @@ impl<F: Fetcher> Loader<F> {
                         )
                         .await
                     }
-                    .boxed_local(),
+                    .boxed(),
                 );
             }
         };
@@ -616,14 +609,13 @@ impl<F: Fetcher> Loader<F> {
                     )
                     .await
                 }
-                .boxed_local(),
+                .boxed(),
             );
         }
 
         let _: Vec<()> = futures::future::join_all(tasks.into_iter()).await;
 
-        self.tables
-            .borrow_mut()
+        self.tables_mut()
             .captures
             .insert_row(scope.flatten(), capture_name, spec);
     }
@@ -651,7 +643,7 @@ impl<F: Fetcher> Loader<F> {
                         )
                         .await
                     }
-                    .boxed_local(),
+                    .boxed(),
                 );
             }
             models::MaterializationEndpoint::Sqlite(_sqlite) => {}
@@ -670,18 +662,16 @@ impl<F: Fetcher> Loader<F> {
                         )
                         .await
                     }
-                    .boxed_local(),
+                    .boxed(),
                 );
             }
         }
 
         let _: Vec<()> = futures::future::join_all(tasks.into_iter()).await;
 
-        self.tables.borrow_mut().materializations.insert_row(
-            scope.flatten(),
-            materialization_name,
-            spec,
-        );
+        self.tables_mut()
+            .materializations
+            .insert_row(scope.flatten(), materialization_name, spec);
     }
 
     async fn load_test<'s>(
@@ -706,8 +696,7 @@ impl<F: Fetcher> Loader<F> {
 
         let _: Vec<()> = futures::future::join_all(tasks.into_iter()).await;
 
-        self.tables
-            .borrow_mut()
+        self.tables_mut()
             .tests
             .insert_row(scope.flatten(), test_name.clone(), spec);
     }
@@ -738,12 +727,17 @@ impl<F: Fetcher> Loader<F> {
         match r {
             Ok(t) => Some(t),
             Err(err) => {
-                self.tables
-                    .borrow_mut()
+                self.tables_mut()
                     .errors
                     .insert_row(scope.flatten(), anyhow::anyhow!(err.into()));
                 None
             }
         }
+    }
+
+    fn tables_mut<'a>(&'a self) -> MutexGuard<'a, tables::Sources> {
+        self.tables
+            .try_lock()
+            .expect("tables should never be accessed concurrently or locked across await points")
     }
 }
