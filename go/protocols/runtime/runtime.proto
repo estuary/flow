@@ -18,6 +18,7 @@ message TaskServiceConfig {
   int32 log_file_fd = 1;
   string task_name = 2;
   string uds_path = 3;
+  string container_network = 4;
 }
 
 // ShuffleRequest is the request message of a Shuffle RPC.
@@ -122,23 +123,39 @@ message RocksDBDescriptor {
     string rocksdb_path = 2;
 }
 
+// Container is a description of a running connector container.
+message Container {
+  string ip_addr = 1;
+  repeated flow.NetworkPort network_ports = 2;
+}
+
+message CaptureRequestExt {
+  ops.ShardLabeling labels = 1;
+}
+
+message CaptureResponseExt {
+  Container container = 1;
+}
+
 message DeriveRequestExt {
+  ops.ShardLabeling labels = 1;
+
   message Open {
-    // Configured log level.
-    ops.Log.Level log_level = 1;
     // URL with a registered SQLite VFS which should be opened.
-    string sqlite_vfs_uri = 2;
+    string sqlite_vfs_uri = 1;
     // RocksDB descriptor which should be opened.
-    RocksDBDescriptor rocksdb_descriptor = 3;
+    RocksDBDescriptor rocksdb_descriptor = 2;
   }
-  Open open = 1;
+  Open open = 2;
 }
 
 message DeriveResponseExt {
+  Container container = 1;
+
   message Opened {
     consumer.Checkpoint runtime_checkpoint = 1;
   }
-  Opened opened = 1;
+  Opened opened = 2;
 
   message Published {
       // Maximum UUID Clock of sourced document clocks which lead to this published document.
@@ -148,10 +165,18 @@ message DeriveResponseExt {
       // Packed partition values extracted from the published document.
       bytes partitions_packed = 3;
   }
-  Published published = 2;
+  Published published = 3;
 
   message Flushed {
     ops.Stats stats = 1;
   }
-  Flushed flushed = 3;
+  Flushed flushed = 4;
+}
+
+message MaterializeRequestExt {
+  ops.ShardLabeling labels = 1;
+}
+
+message MaterializeResponseExt {
+  Container container = 1;
 }

@@ -7,7 +7,12 @@ fn main() {
         .out_dir(&b.src_dir)
         .btree_map(&["."]) // Make ordering stable for snapshots.
         // Fields that hold tuple-encoded values use Bytes rather than Vec<u8>.
-        .bytes(&["key_packed", "values_packed", "partitions_packed"])
+        .bytes(&[
+            "internal",
+            "key_packed",
+            "partitions_packed",
+            "values_packed",
+        ])
         .file_descriptor_set_path(&b.descriptor_path)
         .compile_well_known_types()
         .extern_path(".consumer", "::proto_gazette::consumer")

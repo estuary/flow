@@ -156,17 +156,7 @@ expression: json_test(msg)
     "projectRoot": "file:///project/root",
     "importMap": {
       "/using/typescript/module": "file:///path/to/import"
-    },
-    "networkPorts": [
-      {
-        "number": 8080,
-        "protocol": "https",
-        "public": true
-      },
-      {
-        "number": 9000
-      }
-    ]
+    }
   },
   "open": {
     "collection": {
@@ -287,8 +277,5 @@ expression: json_test(msg)
     }
   },
   "reset": {},
-  "internal": {
-    "typeUrl": "flow://internal.thing",
-    "value": "EgJIaRgB"
-  }
+  "$internal": "EgJIaRgB"
 }

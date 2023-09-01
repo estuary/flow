@@ -114,9 +114,8 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 	}
 
 	var requestExt = &pr.DeriveRequestExt{
-		Open: &pr.DeriveRequestExt_Open{
-			LogLevel: d.labels.LogLevel,
-		},
+		Labels: &d.labels,
+		Open:   &pr.DeriveRequestExt_Open{},
 	}
 
 	if d.client != nil {
@@ -157,13 +156,13 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 			Version:    d.labels.Build,
 			Range:      &d.labels.Range,
 		},
-		Internal: pr.ToAny(requestExt),
+		Internal: pr.ToInternal(requestExt),
 	})
 	opened, err := doRecv(d.client)
 	if err != nil {
 		return pf.Checkpoint{}, err
 	}
-	var openedExt = pr.FromAny[pr.DeriveResponseExt](opened.Internal)
+	var openedExt = pr.FromInternal[pr.DeriveResponseExt](opened.Internal)
 
 	removeOldOpsJournalAckIntents(openedExt.Opened.RuntimeCheckpoint.AckIntents)
 
@@ -220,7 +219,7 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 		if err != nil {
 			return err
 		}
-		var responseExt = pr.FromAny[pr.DeriveResponseExt](response.Internal)
+		var responseExt = pr.FromInternal[pr.DeriveResponseExt](response.Internal)
 
 		if response.Published != nil {
 

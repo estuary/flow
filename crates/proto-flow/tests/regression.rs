@@ -313,17 +313,14 @@ fn ex_range() -> flow::RangeSpec {
     }
 }
 
-fn ex_internal() -> pbjson_types::Any {
-    pbjson_types::Any {
-        type_url: "flow://internal.thing".to_string(),
-        value: flow::Projection {
-            field: "Hi".to_string(),
-            explicit: true,
-            ..Default::default()
-        }
-        .encode_to_vec()
-        .into(),
+fn ex_internal() -> bytes::Bytes {
+    flow::Projection {
+        field: "Hi".to_string(),
+        explicit: true,
+        ..Default::default()
     }
+    .encode_to_vec()
+    .into()
 }
 
 fn ex_consumer_checkpoint() -> consumer::Checkpoint {
@@ -373,7 +370,6 @@ fn ex_capture_request() -> capture::Request {
                 collection: Some(ex_collection_spec()),
                 resource_config_json: json!({"resource":"config"}).to_string(),
             }],
-            network_ports: ex_network_ports(),
         }),
         apply: Some(capture::request::Apply {
             capture: Some(ex_capture_spec()),
@@ -387,7 +383,7 @@ fn ex_capture_request() -> capture::Request {
             state_json: json!({"connector": {"state": 42}}).to_string(),
         }),
         acknowledge: Some(capture::request::Acknowledge { checkpoints: 32 }),
-        internal: Some(ex_internal()),
+        internal: ex_internal(),
     }
 }
 
@@ -427,7 +423,7 @@ fn ex_capture_response() -> capture::Response {
         checkpoint: Some(capture::response::Checkpoint {
             state: Some(ex_connector_state()),
         }),
-        internal: Some(ex_internal()),
+        internal: ex_internal(),
     }
 }
 
@@ -457,7 +453,6 @@ fn ex_derive_request() -> derive::Request {
                 "file:///path/to/import".to_string(),
             )]
             .into(),
-            network_ports: ex_network_ports(),
         }),
         open: Some(derive::request::Open {
             collection: Some(ex_collection_spec()),
@@ -483,8 +478,7 @@ fn ex_derive_request() -> derive::Request {
             runtime_checkpoint: Some(ex_consumer_checkpoint()),
         }),
         reset: Some(derive::request::Reset {}),
-
-        internal: Some(ex_internal()),
+        internal: ex_internal(),
     }
 }
 
@@ -493,8 +487,9 @@ fn ex_derive_response() -> derive::Response {
         spec: Some(derive::response::Spec {
             protocol: 3032023,
             config_schema_json: json!({"config": "schema"}).to_string(),
-            lambda_config_schema_json: json!({"lambda": "schema"}).to_string(),
+            resource_config_schema_json: json!({"lambda": "schema"}).to_string(),
             documentation_url: "https://example/docs".to_string(),
+            oauth2: Some(ex_oauth2()),
         }),
         validated: Some(derive::response::Validated {
             transforms: vec![
@@ -515,7 +510,7 @@ fn ex_derive_response() -> derive::Response {
         started_commit: Some(derive::response::StartedCommit {
             state: Some(ex_connector_state()),
         }),
-        internal: Some(ex_internal()),
+        internal: ex_internal(),
     }
 }
 
@@ -534,7 +529,6 @@ fn ex_materialize_request() -> materialize::Request {
                 resource_config_json: json!({"resource":"config"}).to_string(),
                 field_config_json_map: ex_field_config(),
             }],
-            network_ports: ex_network_ports(),
         }),
         apply: Some(materialize::request::Apply {
             materialization: Some(ex_materialization_spec()),
@@ -566,7 +560,7 @@ fn ex_materialize_request() -> materialize::Request {
         start_commit: Some(materialize::request::StartCommit {
             runtime_checkpoint: Some(ex_consumer_checkpoint()),
         }),
-        internal: Some(ex_internal()),
+        internal: ex_internal(),
     }
 }
 
@@ -616,7 +610,7 @@ fn ex_materialize_response() -> materialize::Response {
         started_commit: Some(materialize::response::StartedCommit {
             state: Some(ex_connector_state()),
         }),
-        internal: Some(ex_internal()),
+        internal: ex_internal(),
     }
 }
 

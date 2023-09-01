@@ -366,7 +366,7 @@ message MaterializationSpec {
   consumer.ShardSpec shard_template = 5;
   // Template for recovery logs of shards of this materialization.
   protocol.JournalSpec recovery_log_template = 6;
-  // Network ports of this capture.
+  // Network ports of this materialization.
   repeated NetworkPort network_ports = 7;
 }
 
@@ -634,34 +634,10 @@ enum ContentType {
   DOCUMENTS_FIXTURE = 5;
 }
 
-// BuildAPI is a meta-message which name spaces messages of the Build API
-// bridge.
+// BuildAPI is deprecated and will be removed.
+// We're currently keeping Config around only to
+// avoid churning various Go snapshot tests.
 message BuildAPI {
-  // Code labels message codes passed over the CGO bridge.
-  enum Code {
-    // Begin a build with a Config (Go -> Rust).
-    BEGIN = 0;
-    // Poll the build after completing one or more trampoline tasks (Go ->
-    // Rust).
-    POLL = 1;
-    // Trampoline task start or completion (Rust <-> Go).
-    TRAMPOLINE = 2;
-    // Trampoline sub-type: Start fetch of a resource.
-    TRAMPOLINE_FETCH = 3;
-    // Trampoline sub-type: Start validation of a capture.
-    TRAMPOLINE_VALIDATE_CAPTURE = 4;
-    // Trampoline sub-type: Start validation of a materialization.
-    TRAMPOLINE_VALIDATE_MATERIALIZATION = 5;
-    // Build completed successfully (Rust -> Go).
-    DONE = 6;
-    // Build completed with errors (Rust -> Go).
-    DONE_WITH_ERRORS = 7;
-    // Trampoline sub-type: start docker ispect of an image
-    TRAMPOLINE_DOCKER_INSPECT = 8;
-    // Generate catalog specification JSON schema (Go <-> Rust)
-    CATALOG_SCHEMA = 100;
-  };
-
   message Config {
     // Identifier of this build.
     // The path of the output database is determined by joining the
@@ -679,11 +655,6 @@ message BuildAPI {
     string connector_network = 5;
     // URL which roots the Flow project.
     string project_root = 6;
-  }
-
-  message Fetch {
-    string resource_url = 1;
-    ContentType content_type = 2;
   }
 }
 
