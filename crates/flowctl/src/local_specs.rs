@@ -1,116 +1,102 @@
 use anyhow::Context;
-use futures::FutureExt;
-use proto_flow::{derive, flow};
+use futures::{future::BoxFuture, FutureExt};
 use std::collections::BTreeMap;
 
+/// Load and validate sources and derivation connectors (only).
+/// Capture and materialization connectors are not validated.
 pub(crate) async fn load_and_validate(
     client: crate::controlplane::Client,
     source: &str,
 ) -> anyhow::Result<(tables::Sources, tables::Validations)> {
-    let source = arg_source_to_url(source, false)?;
-    let sources = surface_errors(load(&source).await)?;
-    let (sources, validations) = surface_errors(build(client, sources).await)?;
-    Ok((sources, validations))
+    let source = build::arg_source_to_url(source, false)?;
+    let sources = surface_errors(load(&source).await.into_result())?;
+    let (sources, validations) = validate(client, true, false, true, sources).await;
+    Ok((sources, surface_errors(validations.into_result())?))
 }
 
-// Map a "--source" argument to a corresponding URL, optionally creating an empty
-// file if one doesn't exist, which is required when producing a canonical file:///
-// URL for a local file.
-pub(crate) fn arg_source_to_url(
-    source: &str,
-    create_if_not_exists: bool,
-) -> anyhow::Result<url::Url> {
-    // Special case that maps stdin into a URL constant.
-    if source == "-" {
-        return Ok(url::Url::parse(STDIN_URL).unwrap());
-    }
-    match url::Url::parse(source) {
-        Ok(url) => Ok(url),
-        Err(err) => {
-            tracing::debug!(
-                source = %source,
-                ?err,
-                "source is not a URL; assuming it's a filesystem path",
-            );
-
-            let source = match std::fs::canonicalize(source) {
-                Ok(p) => p,
-                Err(err)
-                    if matches!(err.kind(), std::io::ErrorKind::NotFound)
-                        && create_if_not_exists =>
-                {
-                    std::fs::write(source, "{}")
-                        .with_context(|| format!("failed to create new file {source}"))?;
-                    std::fs::canonicalize(source).expect("can canonicalize() a file we just wrote")
-                }
-                Err(err) => {
-                    return Err(err)
-                        .context(format!("could not find {source} in the local filesystem"));
-                }
-            };
-
-            // Safe unwrap since we've canonical-ized the path.
-            Ok(url::Url::from_file_path(&source).unwrap())
-        }
-    }
-}
-
-// Load all sources into tables.
-// Errors are returned but not inspected.
-// Loaded specifications are unmodified from their fetch representations.
-pub(crate) async fn load(source: &url::Url) -> (tables::Sources, tables::Errors) {
-    let loader = sources::Loader::new(tables::Sources::default(), Fetcher {});
-    loader
-        .load_resource(
-            sources::Scope::new(&source),
-            &source,
-            flow::ContentType::Catalog,
-        )
-        .await;
-    let mut sources = loader.into_tables();
-    let errors = std::mem::take(&mut sources.errors);
-
-    (sources, errors)
-}
-
-// Build sources by:
-// * Mapping them to their inline form.
-// * Performing validations which produce built specifications.
-// * Gathering and writing out all generated files.
-// Errors are returned but are not inspected.
-pub(crate) async fn build(
+/// Load and validate sources and all connectors.
+pub(crate) async fn load_and_validate_full(
     client: crate::controlplane::Client,
-    mut sources: tables::Sources,
-) -> ((tables::Sources, tables::Validations), tables::Errors) {
-    ::sources::inline_sources(&mut sources);
+    source: &str,
+) -> anyhow::Result<(tables::Sources, tables::Validations)> {
+    let source = build::arg_source_to_url(source, false)?;
+    let sources = surface_errors(load(&source).await.into_result())?;
+    let (sources, validations) = validate(client, false, false, false, sources).await;
+    Ok((sources, surface_errors(validations.into_result())?))
+}
 
-    let source = &sources.fetches[0].resource;
-    let project_root = project_root(source);
+/// Generate connector files by validating sources with derivation connectors.
+pub(crate) async fn generate_files(
+    client: crate::controlplane::Client,
+    sources: tables::Sources,
+) -> anyhow::Result<()> {
+    let source = &sources.fetches[0].resource.clone();
+    let project_root = build::project_root(source);
 
-    let mut validations = validation::validate(
-        &flow::build_api::Config {
-            build_db: String::new(),
-            build_id: "local-build".to_string(),
-            connector_network: "default".to_string(),
-            project_root: project_root.to_string(),
-            source: source.to_string(),
-            source_type: flow::ContentType::Catalog as i32,
-        },
-        &LocalConnectors(validation::NoOpDrivers {}),
+    let (mut sources, validations) = validate(client, true, false, true, sources).await;
+
+    build::generate_files(&project_root, &validations)?;
+
+    sources.errors = sources
+        .errors
+        .into_iter()
+        .filter_map(|tables::Error { scope, error }| {
+            match error.downcast_ref() {
+                // Skip load errors about missing resources. That's the point!
+                Some(sources::LoadError::Fetch { .. }) => None,
+                _ => Some(tables::Error { scope, error }),
+            }
+        })
+        .collect();
+
+    if let Err(errors) = sources
+        .into_result()
+        .and_then(|_| validations.into_result())
+    {
+        for tables::Error { scope, error } in errors.iter() {
+            tracing::error!(%scope, ?error);
+        }
+        tracing::error!(
+            "I may not have generated all files because the Flow specifications have errors.",
+        );
+    }
+
+    Ok(())
+}
+
+pub(crate) async fn load(source: &url::Url) -> tables::Sources {
+    // We never use a file root jail when loading on a user's machine.
+    build::load(source, std::path::Path::new("/")).await
+}
+
+async fn validate(
+    client: crate::controlplane::Client,
+    noop_captures: bool,
+    noop_derivations: bool,
+    noop_materializations: bool,
+    sources: tables::Sources,
+) -> (tables::Sources, tables::Validations) {
+    let source = &sources.fetches[0].resource.clone();
+    let project_root = build::project_root(source);
+
+    let (sources, mut validate) = build::validate(
+        "local-build",
+        "", // Use default connector network.
         &Resolver { client },
-        &sources.captures,
-        &sources.collections,
-        &sources.fetches,
-        &sources.imports,
-        &sources.materializations,
-        &sources.storage_mappings,
-        &sources.tests,
+        false, // Don't generate ops collections.
+        ops::tracing_log_handler,
+        noop_captures,
+        noop_derivations,
+        noop_materializations,
+        &project_root,
+        sources,
     )
     .await;
 
     // Local specs are not expected to satisfy all referential integrity checks.
     // Filter out errors which are not really "errors" for the Flow CLI.
-    let mut errors = std::mem::take(&mut validations.errors)
+    validate.errors = validate
+        .errors
         .into_iter()
         .filter(|err| match err.error.downcast_ref() {
             // Ok if *no* storage mappings are defined.
@@ -122,48 +108,18 @@ pub(crate) async fn build(
         })
         .collect::<tables::Errors>();
 
-    // Gather all files generated by validations.
-    let mut generated_files = BTreeMap::new();
-    for row in validations.built_collections.iter() {
-        let Some(validated) = &row.validated else { continue };
-        for (url, content) in &validated.generated_files {
-            match url::Url::parse(&url) {
-                Ok(url) => {
-                    generated_files.insert(url, content.as_bytes());
-                }
-                Err(err) => errors.insert_row(
-                    &row.scope,
-                    anyhow::anyhow!(err)
-                        .context("derive connector returns invalid generated file URL"),
-                ),
-            }
-        }
-    }
-
-    // Write out all generated files.
-    if let Err(error) = write_files(
-        &sources,
-        generated_files
-            .into_iter()
-            .map(|(resource, content)| (resource, content.to_vec()))
-            .collect(),
-    ) {
-        tracing::error!(?error, "failed to write generated files");
-    }
-
-    ((sources, validations), errors)
+    (sources, validate)
 }
 
-pub(crate) fn surface_errors<T>(result: (T, tables::Errors)) -> anyhow::Result<T> {
-    let (t, errors) = result;
-
-    for tables::Error { scope, error } in errors.iter() {
-        tracing::error!(%scope, ?error);
-    }
-    if !errors.is_empty() {
-        Err(anyhow::anyhow!("failed due to encountered errors"))
-    } else {
-        Ok(t)
+pub(crate) fn surface_errors<T>(result: Result<T, tables::Errors>) -> anyhow::Result<T> {
+    match result {
+        Err(errors) => {
+            for tables::Error { scope, error } in errors.iter() {
+                tracing::error!(%scope, ?error);
+            }
+            Err(anyhow::anyhow!("failed due to encountered errors"))
+        }
+        Ok(ok) => return Ok(ok),
     }
 }
 
@@ -177,10 +133,12 @@ pub(crate) fn indirect_and_write_resources(
 }
 
 pub(crate) fn write_resources(mut sources: tables::Sources) -> anyhow::Result<tables::Sources> {
+    let source = &sources.fetches[0].resource.clone();
+    let project_root = build::project_root(source);
     ::sources::rebuild_catalog_resources(&mut sources);
 
-    write_files(
-        &sources,
+    build::write_files(
+        &project_root,
         sources
             .resources
             .iter()
@@ -193,31 +151,6 @@ pub(crate) fn write_resources(mut sources: tables::Sources) -> anyhow::Result<ta
     )?;
 
     Ok(sources)
-}
-
-fn write_files(sources: &tables::Sources, files: Vec<(url::Url, Vec<u8>)>) -> anyhow::Result<()> {
-    let project_root = project_root(&sources.fetches[0].resource);
-
-    for (resource, content) in files {
-        let Ok(path) = resource.to_file_path() else {
-            tracing::info!(%resource, "not writing the resource because it's remote and not local");
-            continue;
-        };
-        if !resource.as_str().starts_with(project_root.as_str()) {
-            tracing::info!(%resource, %project_root,
-                "not writing local resource because it's not under the project root");
-            continue;
-        }
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(path.parent().unwrap()).with_context(|| {
-                format!("failed to create directory {}", parent.to_string_lossy())
-            })?;
-        }
-        std::fs::write(&path, content).with_context(|| format!("failed to write {resource}"))?;
-
-        tracing::info!(path=%path.to_str().unwrap_or(resource.as_str()), "wrote file");
-    }
-    Ok(())
 }
 
 pub(crate) fn into_catalog(sources: tables::Sources) -> models::Catalog {
@@ -294,152 +227,8 @@ pub(crate) fn pick_policy(
     }
 }
 
-struct LocalConnectors(validation::NoOpDrivers);
-
-impl validation::Connectors for LocalConnectors {
-    fn validate_capture<'a>(
-        &'a self,
-        request: proto_flow::capture::request::Validate,
-    ) -> futures::future::LocalBoxFuture<
-        'a,
-        Result<proto_flow::capture::response::Validated, anyhow::Error>,
-    > {
-        self.0.validate_capture(request)
-    }
-
-    fn validate_derivation<'a>(
-        &'a self,
-        request: proto_flow::derive::request::Validate,
-    ) -> futures::future::LocalBoxFuture<
-        'a,
-        Result<proto_flow::derive::response::Validated, anyhow::Error>,
-    > {
-        let middleware = runtime::derive::Middleware::new(ops::tracing_log_handler, None);
-
-        async move {
-            let request = derive::Request {
-                validate: Some(request.clone()),
-                ..Default::default()
-            };
-            let response = middleware
-                .serve_unary(request)
-                .await
-                .map_err(|status| anyhow::Error::msg(status.message().to_string()))?;
-
-            let validated = response
-                .validated
-                .context("derive Response is not Validated")?;
-
-            Ok(validated)
-        }
-        .boxed_local()
-    }
-
-    fn validate_materialization<'a>(
-        &'a self,
-        request: proto_flow::materialize::request::Validate,
-    ) -> futures::future::LocalBoxFuture<
-        'a,
-        Result<proto_flow::materialize::response::Validated, anyhow::Error>,
-    > {
-        self.0.validate_materialization(request)
-    }
-
-    fn inspect_image<'a>(
-        &'a self,
-        image: String,
-    ) -> futures::future::LocalBoxFuture<'a, Result<Vec<u8>, anyhow::Error>> {
-        self.0.inspect_image(image)
-    }
-}
-
-pub(crate) fn project_root(source: &url::Url) -> url::Url {
-    let current_dir =
-        std::env::current_dir().expect("failed to determine current working directory");
-    let source_path = source.to_file_path();
-
-    let dir = if let Ok(source_path) = &source_path {
-        let mut dir = source_path
-            .parent()
-            .expect("source path is an absolute filesystem path");
-
-        while let Some(parent) = dir.parent() {
-            if ["flow.yaml", "flow.yml", "flow.json"]
-                .iter()
-                .any(|name| parent.join(name).exists())
-            {
-                dir = parent;
-            } else {
-                break;
-            }
-        }
-        dir
-    } else {
-        // `source` isn't local. Use the current working directory.
-        &current_dir
-    };
-
-    url::Url::from_file_path(dir).expect("cannot map project directory into a URL")
-}
-
-/// Fetcher fetches resource URLs from the local filesystem or over the network.
-struct Fetcher;
-
-impl sources::Fetcher for Fetcher {
-    fn fetch<'a>(
-        &'a self,
-        // Resource to fetch.
-        resource: &'a url::Url,
-        // Expected content type of the resource.
-        content_type: flow::ContentType,
-    ) -> sources::FetchFuture<'a> {
-        tracing::debug!(%resource, ?content_type, "fetching resource");
-        let url = resource.clone();
-        Box::pin(fetch_async(url))
-    }
-}
-
-async fn fetch_async(resource: url::Url) -> Result<bytes::Bytes, anyhow::Error> {
-    match resource.scheme() {
-        "http" | "https" => {
-            let resp = reqwest::get(resource.as_str()).await?;
-            let status = resp.status();
-
-            if status.is_success() {
-                Ok(resp.bytes().await?)
-            } else {
-                let body = resp.text().await?;
-                anyhow::bail!("{status}: {body}");
-            }
-        }
-        "file" => {
-            let path = resource
-                .to_file_path()
-                .map_err(|err| anyhow::anyhow!("failed to convert file uri to path: {:?}", err))?;
-
-            let bytes =
-                std::fs::read(path).with_context(|| format!("failed to read {resource}"))?;
-            Ok(bytes.into())
-        }
-        "stdin" => {
-            use tokio::io::AsyncReadExt;
-
-            let mut bytes = Vec::new();
-            tokio::io::stdin()
-                .read_to_end(&mut bytes)
-                .await
-                .context("reading stdin")?;
-
-            Ok(bytes.into())
-        }
-        _ => Err(anyhow::anyhow!(
-            "cannot fetch unsupported URI scheme: '{resource}'"
-        )),
-    }
-}
-
-struct Resolver {
-    client: crate::controlplane::Client,
+pub(crate) struct Resolver {
+    pub client: crate::controlplane::Client,
 }
 
 impl validation::ControlPlane for Resolver {
@@ -448,10 +237,9 @@ impl validation::ControlPlane for Resolver {
         collections: Vec<models::Collection>,
         // These parameters are currently required, but can be removed once we're
         // actually resolving fuzzy pre-built CollectionSpecs from the control plane.
-        temp_build_config: &'b proto_flow::flow::build_api::Config,
+        temp_build_id: &'b str,
         temp_storage_mappings: &'b [tables::StorageMapping],
-    ) -> futures::future::LocalBoxFuture<'a, anyhow::Result<Vec<proto_flow::flow::CollectionSpec>>>
-    {
+    ) -> BoxFuture<'a, anyhow::Result<Vec<proto_flow::flow::CollectionSpec>>> {
         async move {
             // TODO(johnny): Introduce a new RPC for doing fuzzy-search given the list of
             // collection names, and use that instead to surface mis-spelt name suggestions.
@@ -496,21 +284,19 @@ impl validation::ControlPlane for Resolver {
             rows.into_iter()
                 .map(|row| {
                     use crate::catalog::SpecRow;
-                    let def = row
+                    let spec = row
                         .parse_spec::<models::CollectionDef>()
                         .context("parsing specification")?;
 
-                    Ok(Self::temp_build_collection_helper(
+                    Ok(self.temp_build_collection_helper(
                         row.catalog_name,
-                        def,
-                        temp_build_config,
+                        spec,
+                        temp_build_id,
                         temp_storage_mappings,
                     )?)
                 })
                 .collect::<anyhow::Result<_>>()
         }
-        .boxed_local()
+        .boxed()
     }
 }
-
-const STDIN_URL: &str = "stdin://root/flow.yaml";

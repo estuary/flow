@@ -300,6 +300,7 @@ install-tools: ${PKGDIR}/bin/deno ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 
 .PHONY: rust-gnu-test
 rust-gnu-test:
+	PATH=${PKGDIR}/bin:$$PATH ;\
 	cargo test --release --locked --workspace --exclude parser --exclude network-tunnel --exclude schemalate --exclude connector-init
 
 .PHONY: rust-musl-test
@@ -328,7 +329,7 @@ ifeq ($(SKIP_BUILD),true)
 data-plane-test-setup:
 	@echo "testing using pre-built binaries:"
 	@ls -al ${PKGDIR}/bin/
-	${PKGDIR}/bin/flowctl-go json-schema > flow.schema.json
+	${PKGDIR}/bin/flowctl raw json-schema > flow.schema.json
 else
 data-plane-test-setup: ${PKGDIR}/bin/flowctl-go ${PKGDIR}/bin/flowctl ${PKGDIR}/bin/flow-connector-init ${PKGDIR}/bin/gazette ${PKGDIR}/bin/deno ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops flow.schema.json
 endif
@@ -342,8 +343,8 @@ catalog-test: data-plane-test-setup
 end-to-end-test: data-plane-test-setup
 	./tests/run-all.sh
 
-flow.schema.json: |  ${PKGDIR}/bin/flowctl-go
-	${PKGDIR}/bin/flowctl-go json-schema > $@
+flow.schema.json: ${PKGDIR}/bin/flowctl
+	${PKGDIR}/bin/flowctl raw json-schema > $@
 
 # These docker targets intentionally don't depend on any upstream targets. This is because the
 # upstream targes are all PHONY as well, so there would be no way to prevent them from running twice if you

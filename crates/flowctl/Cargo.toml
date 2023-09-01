@@ -13,8 +13,8 @@ license.workspace = true
 [dependencies]
 assemble = { path = "../assemble" }
 async-process = { path = "../async-process" }
+build = { path = "../build" }
 connector-init = { path = "../connector-init" }
-derive-typescript = { path = "../derive-typescript" }
 doc = { path = "../doc" }
 extractors = { path = "../extractors" }
 journal-client = { path = "../journal-client" }
@@ -60,7 +60,6 @@ serde-transcode = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 size = { workspace = true }
-superslice = { workspace = true }
 tempfile = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
@@ -69,9 +68,7 @@ tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
-urlencoding = { workspace = true }
 uuid = { workspace = true }
-walkdir = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
