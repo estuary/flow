@@ -4,9 +4,7 @@ use futures::channel::mpsc;
 use futures::TryStreamExt;
 use futures::{SinkExt, Stream};
 use prost::Message;
-use proto_flow::runtime::{
-    derive_request_ext, derive_response_ext, DeriveRequestExt, DeriveResponseExt,
-};
+use proto_flow::runtime::{derive_request_ext, derive_response_ext, DeriveRequestExt};
 use proto_flow::{
     derive::{request, response, Request, Response},
     flow, RuntimeCheckpoint,
@@ -85,20 +83,13 @@ where
                 let _ = response_tx
                     .send(Ok(Response {
                         opened: Some(response::Opened {}),
-                        internal: Some(proto_flow::Any {
-                            type_url: "flow://runtime.DeriveResponseExt".to_string(),
-                            value: DeriveResponseExt {
-                                opened: Some(derive_response_ext::Opened {
-                                    runtime_checkpoint: Some(runtime_checkpoint),
-                                }),
-                                ..Default::default()
-                            }
-                            .encode_to_vec()
-                            .into(),
-                        }),
-
                         ..Default::default()
-                    }))
+                    }
+                    .with_internal(|internal| {
+                        internal.opened = Some(derive_response_ext::Opened {
+                            runtime_checkpoint: Some(runtime_checkpoint),
+                        });
+                    })))
                     .await;
 
                 maybe_handle = Some(handle);
@@ -164,7 +155,7 @@ where
 
 fn parse_open(
     open: request::Open,
-    internal: Option<proto_flow::Any>,
+    internal: bytes::Bytes,
 ) -> anyhow::Result<(String, Vec<String>, Vec<Transform>)> {
     let request::Open {
         collection,
@@ -173,21 +164,20 @@ fn parse_open(
         version: _,
     } = open;
 
-    let sqlite_uri = match internal {
+    let sqlite_uri = if internal.is_empty() {
         // If DeriveRequestExt was not sent, then use a :memory: DB.
-        None => ":memory:".to_string(),
+        ":memory:".to_string()
+    } else {
         // If it was sent, *require* that `sqlite_vfs_uri` is populated.
-        Some(internal) => {
-            let DeriveRequestExt { open: open_ext, .. } =
-                Message::decode(internal.value).context("internal is a DeriveRequestExt")?;
-            let derive_request_ext::Open { sqlite_vfs_uri, .. } =
-                open_ext.context("expected DeriveRequestExt.open to be set")?;
+        let DeriveRequestExt { open: open_ext, .. } =
+            Message::decode(internal).context("internal is a DeriveRequestExt")?;
+        let derive_request_ext::Open { sqlite_vfs_uri, .. } =
+            open_ext.context("expected DeriveRequestExt.open to be set")?;
 
-            if sqlite_vfs_uri.is_empty() {
-                anyhow::bail!("DeriveRequestExt.open.sqlite_vfs_uri is not set and must be");
-            }
-            sqlite_vfs_uri
+        if sqlite_vfs_uri.is_empty() {
+            anyhow::bail!("DeriveRequestExt.open.sqlite_vfs_uri is not set and must be");
         }
+        sqlite_vfs_uri
     };
 
     let flow::CollectionSpec { derivation, .. } = collection.unwrap();
@@ -196,9 +186,9 @@ fn parse_open(
         config_json,
         transforms,
         ..
-    } = derivation.unwrap();
+    } = derivation.as_ref().unwrap();
 
-    let config: Config = serde_json::from_str(&config_json)
+    let config: Config = serde_json::from_str(config_json)
         .with_context(|| format!("failed to parse SQLite configuration: {config_json}"))?;
 
     let transforms: Vec<Transform> = transforms
@@ -212,7 +202,7 @@ fn parse_open(
                 ..
             } = transform;
 
-            let source = source.unwrap();
+            let source = source.as_ref().unwrap();
             let params = source
                 .projections
                 .iter()
@@ -224,9 +214,9 @@ fn parse_open(
             })?;
 
             Ok(Transform {
-                name,
+                name: name.clone(),
                 block,
-                source: source.name,
+                source: source.name.clone(),
                 params,
             })
         })
