@@ -1,63 +1,69 @@
 use super::{Connectors, ControlPlane};
-use futures::future::{FutureExt, LocalBoxFuture};
-use proto_flow::{capture, derive, materialize};
+use futures::future::{BoxFuture, FutureExt};
+use proto_flow::{capture, derive, flow, materialize};
 use std::collections::BTreeMap;
 
-/// NoOpDrivers are permissive placeholders for interaction with connectors,
-/// that do not fail and return the right shape of response.
-pub struct NoOpDrivers;
+/// NoOpConnectors are permissive placeholders for interactions with connectors,
+/// that never fail and return the right shape of response.
+pub struct NoOpConnectors;
 
-impl Connectors for NoOpDrivers {
+impl Connectors for NoOpConnectors {
     fn validate_capture<'a>(
         &'a self,
-        request: capture::request::Validate,
-    ) -> LocalBoxFuture<'a, Result<capture::response::Validated, anyhow::Error>> {
+        request: capture::Request,
+    ) -> BoxFuture<'a, anyhow::Result<capture::Response>> {
+        let capture::Request{validate: Some(mut request), ..} = request else { unreachable!() };
         use capture::response::{validated::Binding, Validated};
 
         Box::pin(async move {
-            let bindings = request
-                .bindings
+            let bindings = std::mem::take(&mut request.bindings)
                 .into_iter()
                 .enumerate()
                 .map(|(i, _)| Binding {
                     resource_path: vec![format!("binding-{}", i)],
                 })
                 .collect::<Vec<_>>();
-            Ok(Validated { bindings })
+            Ok(capture::Response {
+                validated: Some(Validated { bindings }),
+                ..Default::default()
+            })
         })
     }
 
     fn validate_derivation<'a>(
         &'a self,
-        request: derive::request::Validate,
-    ) -> LocalBoxFuture<'a, Result<derive::response::Validated, anyhow::Error>> {
+        request: derive::Request,
+    ) -> BoxFuture<'a, anyhow::Result<derive::Response>> {
+        let derive::Request{validate: Some(mut request), ..} = request else { unreachable!() };
         use derive::response::{validated::Transform, Validated};
 
         Box::pin(async move {
-            let transforms = request
-                .transforms
+            let transforms = std::mem::take(&mut request.transforms)
                 .into_iter()
                 .map(|_| Transform { read_only: false })
                 .collect::<Vec<_>>();
-            Ok(Validated {
-                transforms,
-                generated_files: BTreeMap::new(),
+            Ok(derive::Response {
+                validated: Some(Validated {
+                    transforms,
+                    generated_files: BTreeMap::new(),
+                }),
+                ..Default::default()
             })
         })
     }
 
     fn validate_materialization<'a>(
         &'a self,
-        request: materialize::request::Validate,
-    ) -> LocalBoxFuture<'a, Result<materialize::response::Validated, anyhow::Error>> {
+        request: materialize::Request,
+    ) -> BoxFuture<'a, anyhow::Result<materialize::Response>> {
+        let materialize::Request{validate: Some(mut request), ..} = request else { unreachable!() };
         use materialize::response::{
             validated::{constraint::Type, Binding, Constraint},
             Validated,
         };
 
         Box::pin(async move {
-            let response_bindings = request
-                .bindings
+            let response_bindings = std::mem::take(&mut request.bindings)
                 .into_iter()
                 .enumerate()
                 .map(|(i, b)| {
@@ -84,20 +90,12 @@ impl Connectors for NoOpDrivers {
                     }
                 })
                 .collect::<Vec<_>>();
-            Ok(Validated {
-                bindings: response_bindings,
+            Ok(materialize::Response {
+                validated: Some(Validated {
+                    bindings: response_bindings,
+                }),
+                ..Default::default()
             })
-        })
-    }
-
-    fn inspect_image<'a>(
-        &'a self,
-        _image: String,
-    ) -> LocalBoxFuture<'a, Result<Vec<u8>, anyhow::Error>> {
-        // Just return a constant value that matches the basic shape of the `docker inspect` output.
-        // The `source` property is just to make it obvious where this came from if looking at a build db.
-        Box::pin(async move {
-            Ok(r#"[{"Config": {},"source": "flow no-op driver"}]"#.as_bytes().to_vec())
         })
     }
 }
@@ -108,9 +106,9 @@ impl ControlPlane for NoOpControlPlane {
     fn resolve_collections<'a, 'b: 'a>(
         &'a self,
         _collections: Vec<models::Collection>,
-        _temp_build_config: &'b proto_flow::flow::build_api::Config,
+        _temp_build_id: &'b str,
         _temp_storage_mappings: &'b [tables::StorageMapping],
-    ) -> LocalBoxFuture<'a, anyhow::Result<Vec<proto_flow::flow::CollectionSpec>>> {
+    ) -> BoxFuture<'a, anyhow::Result<Vec<flow::CollectionSpec>>> {
         async move { Ok(vec![]) }.boxed()
     }
 }

@@ -1,22 +1,18 @@
-use super::{
-    collection, image, indexed, reference, schema, storage_mapping, Connectors, Error, Scope,
-};
+use super::{collection, indexed, reference, schema, storage_mapping, Connectors, Error, Scope};
 use proto_flow::{
-    derive,
-    flow::{
-        self,
-        collection_spec::derivation::{ConnectorType, ShuffleType},
-    },
+    derive, flow,
+    flow::collection_spec::derivation::{ConnectorType, ShuffleType},
+    ops::log::Level as LogLevel,
 };
 use superslice::Ext;
 
-pub async fn walk_all_derivations<C: Connectors>(
-    build_config: &flow::build_api::Config,
+pub async fn walk_all_derivations(
+    build_id: &str,
     built_collections: &[tables::BuiltCollection],
     collections: &[tables::Collection],
-    connectors: &C,
-    images: &[image::Image],
+    connectors: &dyn Connectors,
     imports: &[tables::Import],
+    project_root: &url::Url,
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
 ) -> Vec<(
@@ -41,12 +37,11 @@ pub async fn walk_all_derivations<C: Connectors>(
         let Ok(built_index) = built_collections.binary_search_by_key(&collection, |b| &b.collection) else { continue };
 
         let validation = walk_derive_request(
-            build_config,
             built_collections,
             built_index,
             derive,
-            images,
             imports,
+            project_root,
             &mut derive_errors,
         );
 
@@ -62,7 +57,23 @@ pub async fn walk_all_derivations<C: Connectors>(
         validations
             .into_iter()
             .map(|(built_index, derivation, request)| async move {
-                let response = connectors.validate_derivation(request.clone());
+                let mut wrapped = derive::Request {
+                    validate: Some(request.clone()),
+                    ..Default::default()
+                };
+
+                if let Some(log_level) = derivation
+                    .shards
+                    .log_level
+                    .as_ref()
+                    .and_then(|s| LogLevel::from_str_name(s))
+                {
+                    wrapped.set_internal_log_level(log_level);
+                }
+
+                // For the moment, we continue to validate a disabled derivation.
+                // There's an argument that we shouldn't, but it's currently inconclusive.
+                let response = connectors.validate_derivation(wrapped);
                 (built_index, derivation, request, response.await)
             });
 
@@ -70,12 +81,12 @@ pub async fn walk_all_derivations<C: Connectors>(
         usize,
         &models::Derivation,
         derive::request::Validate,
-        anyhow::Result<derive::response::Validated>,
+        anyhow::Result<derive::Response>,
     )> = futures::future::join_all(validations).await;
 
     let mut specs = Vec::new();
 
-    for (built_index, derive, request, response) in validations {
+    for (built_index, derive, mut request, response) in validations {
         let tables::BuiltCollection {
             scope,
             collection: this_collection,
@@ -92,12 +103,12 @@ pub async fn walk_all_derivations<C: Connectors>(
         } = derive;
 
         // Unwrap `response` and bail out if it failed.
-        let validated = match response {
+        let (validated, network_ports) = match extract_validated(response) {
             Err(err) => {
-                Error::Connector { detail: err }.push(scope, errors);
+                err.push(scope, errors);
                 continue;
             }
-            Ok(response) => response,
+            Ok(ok) => ok,
         };
 
         let derive::request::Validate {
@@ -108,13 +119,22 @@ pub async fn walk_all_derivations<C: Connectors>(
             shuffle_key_types,
             project_root: _,
             import_map: _,
-            network_ports,
-        } = request;
+        } = &mut request;
 
         let derive::response::Validated {
+            generated_files,
             transforms: transform_responses,
-            generated_files: _,
         } = &validated;
+
+        for (maybe_url, _) in generated_files {
+            if let Err(err) = url::Url::parse(&maybe_url) {
+                Error::InvalidGeneratedFileUrl {
+                    url: maybe_url.clone(),
+                    detail: err,
+                }
+                .push(scope, errors)
+            }
+        }
 
         if transform_requests.len() != transform_responses.len() {
             Error::WrongConnectorBindings {
@@ -124,7 +144,7 @@ pub async fn walk_all_derivations<C: Connectors>(
             .push(scope, errors);
         }
 
-        let built_transforms: Vec<_> = transform_requests
+        let built_transforms: Vec<_> = std::mem::take(transform_requests)
             .into_iter()
             .zip(transform_responses.into_iter())
             .enumerate()
@@ -218,18 +238,18 @@ pub async fn walk_all_derivations<C: Connectors>(
         );
 
         let spec = flow::collection_spec::Derivation {
-            connector_type,
-            config_json,
+            connector_type: *connector_type,
+            config_json: std::mem::take(config_json),
             transforms: built_transforms,
-            shuffle_key_types,
+            shuffle_key_types: std::mem::take(shuffle_key_types),
             recovery_log_template: Some(assemble::recovery_log_template(
-                build_config,
+                build_id,
                 name,
                 labels::TASK_TYPE_DERIVATION,
                 recovery_stores,
             )),
             shard_template: Some(assemble::shard_template(
-                build_config,
+                build_id,
                 name,
                 labels::TASK_TYPE_DERIVATION,
                 &shards,
@@ -245,12 +265,11 @@ pub async fn walk_all_derivations<C: Connectors>(
 }
 
 fn walk_derive_request<'a>(
-    build_config: &flow::build_api::Config,
     built_collections: &[tables::BuiltCollection],
     built_index: usize,
     derivation: &'a models::Derivation,
-    images: &[image::Image],
     imports: &[tables::Import],
+    project_root: &url::Url,
     errors: &mut tables::Errors,
 ) -> Option<(usize, &'a models::Derivation, derive::request::Validate)> {
     let tables::BuiltCollection {
@@ -295,33 +314,21 @@ fn walk_derive_request<'a>(
         using,
         transforms,
         shuffle_key_types: given_shuffle_types,
-        shards,
+        shards: _,
     } = derivation;
 
-    let (connector_type, config_json, network_ports) = match using {
+    let (connector_type, config_json) = match using {
         models::DeriveUsing::Connector(config) => (
             ConnectorType::Image as i32,
             serde_json::to_string(config).unwrap(),
-            image::walk_image_network_ports(
-                scope
-                    .push_prop("using")
-                    .push_prop("connector")
-                    .push_prop("image"),
-                shards.disable,
-                &config.image,
-                images,
-                errors,
-            ),
         ),
         models::DeriveUsing::Sqlite(config) => (
             ConnectorType::Sqlite as i32,
             serde_json::to_string(config).unwrap(),
-            Vec::new(),
         ),
         models::DeriveUsing::Typescript(config) => (
             ConnectorType::Typescript as i32,
             serde_json::to_string(config).unwrap(),
-            Vec::new(),
         ),
     };
 
@@ -422,9 +429,8 @@ fn walk_derive_request<'a>(
         collection: Some(spec.clone()),
         transforms: transform_requests,
         shuffle_key_types,
-        project_root: build_config.project_root.clone(),
+        project_root: project_root.to_string(),
         import_map,
-        network_ports,
     };
 
     Some((built_index, derivation, request))
@@ -536,4 +542,31 @@ fn walk_derive_transform(
     };
 
     Some((request, shuffle_types))
+}
+
+fn extract_validated(
+    response: anyhow::Result<derive::Response>,
+) -> Result<(derive::response::Validated, Vec<flow::NetworkPort>), Error> {
+    let response = match response {
+        Ok(response) => response,
+        Err(err) => return Err(Error::Connector { detail: err }),
+    };
+
+    let internal = match response.get_internal() {
+        Ok(internal) => internal,
+        Err(err) => {
+            return Err(Error::Connector {
+                detail: anyhow::anyhow!("parsing internal: {err}"),
+            });
+        }
+    };
+
+    let Some(validated) = response.validated else {
+        return Err(Error::Connector {
+            detail: anyhow::anyhow!("expected Validated but got {}", serde_json::to_string(&response).unwrap()),
+        });
+    };
+    let network_ports = internal.container.unwrap_or_default().network_ports;
+
+    Ok((validated, network_ports))
 }

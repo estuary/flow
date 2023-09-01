@@ -1,15 +1,14 @@
 use super::{
-    collection, image, indexed, reference, storage_mapping, Connectors, Error, NoOpDrivers, Scope,
+    collection, indexed, reference, storage_mapping, Connectors, Error, NoOpConnectors, Scope,
 };
 use itertools::Itertools;
-use proto_flow::{flow, materialize};
+use proto_flow::{flow, materialize, ops::log::Level as LogLevel};
 use std::collections::{BTreeMap, HashMap};
 
-pub async fn walk_all_materializations<C: Connectors>(
-    build_config: &flow::build_api::Config,
+pub async fn walk_all_materializations(
+    build_id: &str,
     built_collections: &[tables::BuiltCollection],
-    connectors: &C,
-    images: &[image::Image],
+    connectors: &dyn Connectors,
     materializations: &[tables::Materialization],
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
@@ -20,7 +19,6 @@ pub async fn walk_all_materializations<C: Connectors>(
         let mut materialization_errors = tables::Errors::new();
         let validation = walk_materialization_request(
             built_collections,
-            images,
             materialization,
             &mut materialization_errors,
         );
@@ -37,13 +35,27 @@ pub async fn walk_all_materializations<C: Connectors>(
     let validations = validations
         .into_iter()
         .map(|(materialization, request)| async move {
-            // If shards are disabled, then don't ask the connector to validate. Users may
-            // disable materializations in response to the target system being unreachable, and
-            // we wouldn't want a validation error for a disabled task to terminate the build.
+            let mut wrapped = materialize::Request {
+                validate: Some(request.clone()),
+                ..Default::default()
+            };
+
+            if let Some(log_level) = materialization
+                .spec
+                .shards
+                .log_level
+                .as_ref()
+                .and_then(|s| LogLevel::from_str_name(s))
+            {
+                wrapped.set_internal_log_level(log_level);
+            }
+
+            // If shards are disabled, then don't ask the connector to validate.
+            // A broken but disabled endpoint should not cause a build to fail.
             let response = if materialization.spec.shards.disable {
-                NoOpDrivers {}.validate_materialization(request.clone())
+                NoOpConnectors.validate_materialization(wrapped)
             } else {
-                connectors.validate_materialization(request.clone())
+                connectors.validate_materialization(wrapped)
             };
             (materialization, request, response.await)
         });
@@ -51,12 +63,12 @@ pub async fn walk_all_materializations<C: Connectors>(
     let validations: Vec<(
         &tables::Materialization,
         materialize::request::Validate,
-        anyhow::Result<materialize::response::Validated>,
+        anyhow::Result<materialize::Response>,
     )> = futures::future::join_all(validations).await;
 
     let mut built_materializations = tables::BuiltMaterializations::new();
 
-    for (materialization, request, response) in validations {
+    for (materialization, mut request, response) in validations {
         let tables::Materialization {
             scope,
             materialization,
@@ -69,13 +81,13 @@ pub async fn walk_all_materializations<C: Connectors>(
         } = materialization;
         let scope = Scope::new(scope);
 
-        // Unwrap |response| and continue if an Err.
-        let validated = match response {
+        // Unwrap `response` and bail out if it failed.
+        let (validated, network_ports) = match extract_validated(response) {
             Err(err) => {
-                Error::Connector { detail: err }.push(scope, errors);
+                err.push(scope, errors);
                 continue;
             }
-            Ok(response) => response,
+            Ok(ok) => ok,
         };
 
         let materialize::request::Validate {
@@ -83,8 +95,7 @@ pub async fn walk_all_materializations<C: Connectors>(
             config_json,
             bindings: binding_requests,
             name,
-            network_ports,
-        } = request;
+        } = &mut request;
 
         let materialize::response::Validated {
             bindings: binding_responses,
@@ -100,7 +111,7 @@ pub async fn walk_all_materializations<C: Connectors>(
 
         // Join requests and responses to produce tuples
         // of (binding index, built binding).
-        let built_bindings: Vec<_> = binding_requests
+        let built_bindings: Vec<_> = std::mem::take(binding_requests)
             .into_iter()
             .zip(binding_responses.into_iter())
             .enumerate()
@@ -217,17 +228,17 @@ pub async fn walk_all_materializations<C: Connectors>(
 
         let spec = flow::MaterializationSpec {
             name: name.clone(),
-            connector_type,
-            config_json,
+            connector_type: *connector_type,
+            config_json: std::mem::take(config_json),
             bindings: built_bindings,
             recovery_log_template: Some(assemble::recovery_log_template(
-                build_config,
+                build_id,
                 &name,
                 labels::TASK_TYPE_MATERIALIZATION,
                 recovery_stores,
             )),
             shard_template: Some(assemble::shard_template(
-                build_config,
+                build_id,
                 &name,
                 labels::TASK_TYPE_MATERIALIZATION,
                 shards,
@@ -236,7 +247,7 @@ pub async fn walk_all_materializations<C: Connectors>(
             )),
             network_ports,
         };
-        built_materializations.insert_row(scope.flatten(), name, validated, spec);
+        built_materializations.insert_row(scope.flatten(), std::mem::take(name), validated, spec);
     }
 
     built_materializations
@@ -244,20 +255,15 @@ pub async fn walk_all_materializations<C: Connectors>(
 
 fn walk_materialization_request<'a>(
     built_collections: &'a [tables::BuiltCollection],
-    images: &[image::Image],
     materialization: &'a tables::Materialization,
     errors: &mut tables::Errors,
 ) -> Option<(&'a tables::Materialization, materialize::request::Validate)> {
     let tables::Materialization {
         scope,
         materialization: name,
-        spec:
-            models::MaterializationDef {
-                endpoint,
-                bindings,
-                shards,
-                ..
-            },
+        spec: models::MaterializationDef {
+            endpoint, bindings, ..
+        },
     } = materialization;
     let scope = Scope::new(scope);
 
@@ -270,25 +276,14 @@ fn walk_materialization_request<'a>(
         errors,
     );
 
-    let (connector_type, config_json, network_ports) = match endpoint {
+    let (connector_type, config_json) = match endpoint {
         models::MaterializationEndpoint::Connector(config) => (
             flow::materialization_spec::ConnectorType::Image as i32,
             serde_json::to_string(config).unwrap(),
-            image::walk_image_network_ports(
-                scope
-                    .push_prop("endpoint")
-                    .push_prop("connector")
-                    .push_prop("image"),
-                shards.disable,
-                &config.image,
-                images,
-                errors,
-            ),
         ),
         models::MaterializationEndpoint::Sqlite(sqlite) => (
             flow::materialization_spec::ConnectorType::Sqlite as i32,
             serde_json::to_string(sqlite).unwrap(),
-            Vec::new(),
         ),
     };
 
@@ -318,7 +313,6 @@ fn walk_materialization_request<'a>(
         connector_type,
         config_json,
         bindings,
-        network_ports,
     };
 
     Some((materialization, request))
@@ -640,4 +634,31 @@ fn walk_materialization_response(
         document,
         field_config_json_map,
     }
+}
+
+fn extract_validated(
+    response: anyhow::Result<materialize::Response>,
+) -> Result<(materialize::response::Validated, Vec<flow::NetworkPort>), Error> {
+    let response = match response {
+        Ok(response) => response,
+        Err(err) => return Err(Error::Connector { detail: err }),
+    };
+
+    let internal = match response.get_internal() {
+        Ok(internal) => internal,
+        Err(err) => {
+            return Err(Error::Connector {
+                detail: anyhow::anyhow!("parsing internal: {err}"),
+            });
+        }
+    };
+
+    let Some(validated) = response.validated else {
+        return Err(Error::Connector {
+            detail: anyhow::anyhow!("expected Validated but got {}", serde_json::to_string(&response).unwrap()),
+        });
+    };
+    let network_ports = internal.container.unwrap_or_default().network_ports;
+
+    Ok((validated, network_ports))
 }

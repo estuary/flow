@@ -1,0 +1,10 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/from-array-key#/collections/testing~1from-array-key,
+        error: connector returned an invalid generated file URL "this is not a URL! ": relative URL without a base,
+    },
+]
