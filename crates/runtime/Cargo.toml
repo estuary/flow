@@ -9,14 +9,17 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+async-process = { path = "../async-process" }
 connector-init = { path = "../connector-init"  }
 derive-sqlite = { path = "../derive-sqlite" }
 doc = { path = "../doc" }
 extractors = { path = "../extractors" }
+locate-bin = { path = "../locate-bin" }
+models = { path = "../models" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
-proto-grpc = { path = "../proto-grpc", features = ["derive_server"] }
+proto-grpc = { path = "../proto-grpc", features = ["capture_client", "derive_client", "derive_server", "materialize_client"] }
 tuple = { path = "../tuple" }
 
 anyhow = { workspace = true }
@@ -36,6 +39,7 @@ tokio = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }

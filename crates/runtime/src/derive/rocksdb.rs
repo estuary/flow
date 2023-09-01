@@ -1,12 +1,10 @@
-use super::anyhow_to_status;
+use crate::anyhow_to_status;
 use anyhow::Context;
 use futures::{channel::mpsc, Stream, StreamExt};
 use prost::Message;
 use proto_flow::derive::{request, Request, Response};
 use proto_flow::flow;
-use proto_flow::runtime::{
-    derive_response_ext, DeriveRequestExt, DeriveResponseExt, RocksDbDescriptor,
-};
+use proto_flow::runtime::{derive_response_ext, DeriveRequestExt, RocksDbDescriptor};
 use proto_gazette::consumer::Checkpoint;
 use std::sync::Arc;
 
@@ -20,11 +18,11 @@ where
     let db: Arc<RocksDB> = match peek_request {
         Request {
             open: Some(_open),
-            internal: Some(internal),
+            internal,
             ..
-        } => {
-            let DeriveRequestExt { open, .. } = Message::decode(internal.value.clone())
-                .context("internal is a DeriveRequestExt")?;
+        } if !internal.is_empty() => {
+            let DeriveRequestExt { open, .. } =
+                Message::decode(internal.clone()).context("internal is a DeriveRequestExt")?;
 
             RocksDB::open(open.and_then(|open| open.rocksdb_descriptor))?
         }
@@ -127,16 +125,10 @@ impl Backward {
                 "loaded and attached a persisted OpenedExt.runtime_checkpoint",
             );
 
-            response.internal = Some(::pbjson_types::Any {
-                type_url: "flow://runtime.DeriveResponseExt".to_string(),
-                value: DeriveResponseExt {
-                    opened: Some(derive_response_ext::Opened {
-                        runtime_checkpoint: Some(runtime_checkpoint),
-                    }),
-                    ..Default::default()
-                }
-                .encode_to_vec()
-                .into(),
+            response.set_internal(|internal| {
+                internal.opened = Some(derive_response_ext::Opened {
+                    runtime_checkpoint: Some(runtime_checkpoint),
+                });
             });
         }
 
