@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+exclude = ["crates/derive-typescript"]
 
 [workspace.package]
 version = "0.0.0"
@@ -39,6 +40,7 @@ caseless = "0.2"
 chardetng = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "3.2", features = ["derive", "env"] }
+colored_json = "3"
 comfy-table = "6.1"
 # The `console_error_panic_hook` crate causes panics in a Rust WASM module to be logged
 # with `console.error`.
@@ -159,16 +161,15 @@ tracing-subscriber = { version = "0.3", features = [
     "fmt",
 ] }
 shared_child = "1.0.0"
+zeroize = "1.6"
 
 unicode-bom = "1.1"
 unicode-normalization = "0.1"
 url = { version = "2.2", features = ["serde"] }
-urlencoding = { version = "2.1.2" }
 uuid = { version = "1.1", features = ["serde", "v4"] }
 validator = { version = "0.15", features = ["derive"] }
 quickcheck = "1.0"
 quickcheck_macros = "1.0"
-walkdir = "2"
 wasm-bindgen = "0.2.62"
 # `wee_alloc` is a tiny allocator for wasm that is only ~1K in code size
 # compared to the default allocator's ~10K. It is slower than the default
