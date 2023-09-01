@@ -1,5 +1,5 @@
 pub use std::process::{Command, Output, Stdio};
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use shared_child::SharedChild;
 #[cfg(unix)]
@@ -34,6 +34,7 @@ impl From<std::process::Child> for Child {
 }
 
 impl Child {
+    /// Wait on the Child asynchronously, using a blocking background thread.
     pub fn wait(
         &self,
     ) -> impl std::future::Future<Output = std::io::Result<std::process::ExitStatus>> {
@@ -89,17 +90,32 @@ impl Drop for Child {
 /// Spawn the command and wait for it to exit, buffering its stdout and stderr.
 /// Upon its exit return an Output having its stdout, stderr, and ExitStatus.
 pub async fn output(cmd: &mut Command) -> std::io::Result<Output> {
-    cmd.stdin(Stdio::null());
+    input_output(cmd, &[]).await
+}
+
+/// Span the command and wait for it to exit, passing it the given input and buffering its stdout and stderr.
+/// Upon its exit return an Output having its stdout, stderr, and ExitStatus.
+#[tracing::instrument(level = "debug", err, skip_all, fields(args=?cmd.get_args().collect::<Vec<_>>()))]
+pub async fn input_output(cmd: &mut Command, input: &[u8]) -> std::io::Result<Output> {
+    cmd.stdin(Stdio::piped());
     cmd.stderr(Stdio::piped());
     cmd.stdout(Stdio::piped());
 
     let mut child: Child = cmd.spawn()?.into();
 
-    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
-    let (mut stdout_pipe, mut stderr_pipe) =
-        (child.stdout.take().unwrap(), child.stderr.take().unwrap());
+    // Pre-allocate enough stdout to hold all of `input` without a reallocation.
+    // This is a security measure, to avoid extra allocations / heap copies if
+    // the output contains sensitive data, as is the case with `sops` decryptions.
+    let (mut stdout, mut stderr) = (Vec::with_capacity(input.len()), Vec::new());
+    let (mut stdin_pipe, mut stdout_pipe, mut stderr_pipe) = (
+        child.stdin.take().unwrap(),
+        child.stdout.take().unwrap(),
+        child.stderr.take().unwrap(),
+    );
 
-    let (_, _, wait) = tokio::join!(
+    let (_, _, _, wait) = tokio::join!(
+        // This wrapping future drops `stdin_pipe` once `input` is written (or fails).
+        async move { stdin_pipe.write_all(input).await },
         stdout_pipe.read_to_end(&mut stdout),
         stderr_pipe.read_to_end(&mut stderr),
         child.wait(),
@@ -124,7 +140,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::{output, Child, Command};
+    use super::{input_output, output, Child, Command};
 
     #[tokio::test]
     async fn test_wait() {
@@ -160,6 +176,29 @@ mod test {
                 ),
                 stdout: "",
                 stderr: "cat: /this/path/does/not/exist: No such file or directory\n",
+            },
+        )
+        "###);
+    }
+
+    #[tokio::test]
+    async fn test_input_output() {
+        let result = input_output(
+            Command::new("cat").arg("/dev/stdin"),
+            "Hello, world!".as_bytes(),
+        )
+        .await;
+
+        insta::assert_debug_snapshot!(result, @r###"
+        Ok(
+            Output {
+                status: ExitStatus(
+                    unix_wait_status(
+                        0,
+                    ),
+                ),
+                stdout: "Hello, world!",
+                stderr: "",
             },
         )
         "###);
