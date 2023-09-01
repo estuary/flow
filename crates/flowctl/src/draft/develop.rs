@@ -35,8 +35,8 @@ pub async fn do_develop(
     )
     .await?;
 
-    let target = local_specs::arg_source_to_url(&target, true)?;
-    let mut sources = local_specs::surface_errors(local_specs::load(&target).await)?;
+    let target = build::arg_source_to_url(&target, true)?;
+    let mut sources = local_specs::surface_errors(local_specs::load(&target).await.into_result())?;
 
     let count = local_specs::extend_from_catalog(
         &mut sources,
@@ -46,16 +46,8 @@ pub async fn do_develop(
     let sources = local_specs::indirect_and_write_resources(sources)?;
 
     println!("Wrote {count} specifications under {target}.");
+    let () = local_specs::generate_files(client, sources).await?;
 
-    // Build to generate associated files.
-    let (_, errors) = local_specs::build(client, sources).await;
-
-    if !errors.is_empty() {
-        tracing::warn!(
-            "The written Flow specifications have {} errors. Run `test` to review",
-            errors.len()
-        );
-    }
     Ok(())
 }
 

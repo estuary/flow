@@ -37,6 +37,9 @@ struct AccessTokenResponse {
 
 /// Creates a new client. **you should instead call `CliContext::controlplane_client(&mut Self)`**, which
 /// will re-use the existing client if possible.
+// TODO(johnny): This really needs a deep overhaul. We're not updating refresh
+// tokens as we should be, and the structure of the Config is problematic.
+// I'm resisting refactoring it more substantially right now, but it needs it.
 pub(crate) async fn new_client(ctx: &mut CliContext) -> anyhow::Result<Client> {
     match ctx.config_mut().api {
         Some(ref mut api) => {
@@ -88,7 +91,11 @@ pub(crate) async fn new_client(ctx: &mut CliContext) -> anyhow::Result<Client> {
                     .insert_header("Authorization", format!("Bearer {}", response.access_token));
                 Ok(Client(Arc::new(client)))
             } else {
-                anyhow::bail!("You must run `auth login` first")
+                tracing::warn!("You are not authenticated. Run `auth login` to login to Flow.");
+
+                let client = postgrest::Postgrest::new(ENDPOINT);
+                let client = client.insert_header("apikey", PUBLIC_TOKEN);
+                Ok(Client(Arc::new(client)))
             }
         }
     }

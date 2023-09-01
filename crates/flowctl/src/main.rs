@@ -1,22 +1,22 @@
 use clap::Parser;
+use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
 fn main() -> Result<(), anyhow::Error> {
-    // Colorization support for Win 10.
-    #[cfg(windows)]
-    let _ = colored_json::enable_ansi_support();
-
     let cli = flowctl::Cli::parse();
+
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::WARN.into()) // Otherwise it's ERROR.
+        .from_env_lossy();
+
+    tracing_subscriber::fmt::fmt()
+        .with_env_filter(env_filter)
+        .with_writer(std::io::stderr)
+        .init();
+
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("failed to start runtime");
-
-    // Use reasonable defaults for printing structured logs to stderr.
-    let subscriber = tracing_subscriber::FmtSubscriber::builder()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .with_writer(std::io::stderr)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
 
     let result = runtime.block_on(async move { cli.run().await });
 
