@@ -147,29 +147,80 @@ pub struct Validations {
     pub errors: Errors,
 }
 
-/// All combines Sources and Validations:
-///  * errors of the respective tables are combined.
-///  * Validations::implicit_projections is folded into Sources::projections.
-#[derive(Default, Debug)]
-pub struct All {
-    pub built_captures: BuiltCaptures,
-    pub built_collections: BuiltCollections,
-    pub built_materializations: BuiltMaterializations,
-    pub built_tests: BuiltTests,
-    pub captures: Captures,
-    pub collections: Collections,
-    pub errors: Errors,
-    pub fetches: Fetches,
-    pub imports: Imports,
-    pub materializations: Materializations,
-    pub meta: Meta,
-    pub resources: Resources,
-    pub storage_mappings: StorageMappings,
-    pub tests: Tests,
+#[cfg(feature = "persist")]
+impl Sources {
+    pub fn into_result(mut self) -> Result<Self, Errors> {
+        match std::mem::take(&mut self.errors) {
+            errors if errors.is_empty() => Ok(self),
+            errors => Err(errors),
+        }
+    }
+
+    // Access all tables as an array of dynamic TableObj instances.
+    pub fn as_tables(&self) -> Vec<&dyn SqlTableObj> {
+        // This de-structure ensures we can't fail to update as tables change.
+        let Self {
+            captures,
+            collections,
+            errors,
+            fetches,
+            imports,
+            materializations,
+            resources,
+            storage_mappings,
+            tests,
+        } = self;
+
+        vec![
+            captures,
+            collections,
+            errors,
+            fetches,
+            imports,
+            materializations,
+            resources,
+            storage_mappings,
+            tests,
+        ]
+    }
+
+    // Access all tables as an array of mutable dynamic SqlTableObj instances.
+    pub fn as_tables_mut(&mut self) -> Vec<&mut dyn SqlTableObj> {
+        let Self {
+            captures,
+            collections,
+            errors,
+            fetches,
+            imports,
+            materializations,
+            resources,
+            storage_mappings,
+            tests,
+        } = self;
+
+        vec![
+            captures,
+            collections,
+            errors,
+            fetches,
+            imports,
+            materializations,
+            resources,
+            storage_mappings,
+            tests,
+        ]
+    }
 }
 
 #[cfg(feature = "persist")]
-impl All {
+impl Validations {
+    pub fn into_result(mut self) -> Result<Self, Errors> {
+        match std::mem::take(&mut self.errors) {
+            errors if errors.is_empty() => Ok(self),
+            errors => Err(errors),
+        }
+    }
+
     // Access all tables as an array of dynamic TableObj instances.
     pub fn as_tables(&self) -> Vec<&dyn SqlTableObj> {
         // This de-structure ensures we can't fail to update as tables change.
@@ -178,16 +229,7 @@ impl All {
             built_collections,
             built_materializations,
             built_tests,
-            captures,
-            collections,
             errors,
-            fetches,
-            imports,
-            materializations,
-            meta,
-            resources,
-            storage_mappings,
-            tests,
         } = self;
 
         vec![
@@ -195,16 +237,7 @@ impl All {
             built_collections,
             built_materializations,
             built_tests,
-            captures,
-            collections,
             errors,
-            fetches,
-            imports,
-            materializations,
-            meta,
-            resources,
-            storage_mappings,
-            tests,
         ]
     }
 
@@ -215,16 +248,7 @@ impl All {
             built_collections,
             built_materializations,
             built_tests,
-            captures,
-            collections,
             errors,
-            fetches,
-            imports,
-            materializations,
-            meta,
-            resources,
-            storage_mappings,
-            tests,
         } = self;
 
         vec![
@@ -232,16 +256,7 @@ impl All {
             built_collections,
             built_materializations,
             built_tests,
-            captures,
-            collections,
             errors,
-            fetches,
-            imports,
-            materializations,
-            meta,
-            resources,
-            storage_mappings,
-            tests,
         ]
     }
 }
