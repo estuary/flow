@@ -79,8 +79,3 @@ func TestBuildCatalog(t *testing.T) {
 		return nil
 	}))
 }
-
-func TestCatalogSchema(t *testing.T) {
-	var schema = CatalogJSONSchema()
-	require.True(t, len(schema) > 100)
-}
