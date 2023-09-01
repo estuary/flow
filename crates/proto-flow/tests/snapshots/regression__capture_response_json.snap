@@ -72,8 +72,5 @@ expression: json_test(msg)
       "mergePatch": true
     }
   },
-  "internal": {
-    "typeUrl": "flow://internal.thing",
-    "value": "EgJIaRgB"
-  }
+  "$internal": "EgJIaRgB"
 }

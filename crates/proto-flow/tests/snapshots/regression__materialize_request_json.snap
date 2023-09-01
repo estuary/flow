@@ -85,16 +85,6 @@ expression: json_test(msg)
           "other/field": 42.5
         }
       }
-    ],
-    "networkPorts": [
-      {
-        "number": 8080,
-        "protocol": "https",
-        "public": true
-      },
-      {
-        "number": 9000
-      }
     ]
   },
   "apply": {
@@ -464,8 +454,5 @@ expression: json_test(msg)
     }
   },
   "acknowledge": {},
-  "internal": {
-    "typeUrl": "flow://internal.thing",
-    "value": "EgJIaRgB"
-  }
+  "$internal": "EgJIaRgB"
 }

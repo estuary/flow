@@ -20,8 +20,8 @@ pub struct Request {
     #[prost(message, optional, tag = "9")]
     pub acknowledge: ::core::option::Option<request::Acknowledge>,
     /// Reserved for internal use.
-    #[prost(message, optional, tag = "100")]
-    pub internal: ::core::option::Option<::pbjson_types::Any>,
+    #[prost(bytes = "bytes", tag = "100")]
+    pub internal: ::prost::bytes::Bytes,
 }
 /// Nested message and enum types in `Request`.
 pub mod request {
@@ -65,9 +65,6 @@ pub mod request {
         pub config_json: ::prost::alloc::string::String,
         #[prost(message, repeated, tag = "4")]
         pub bindings: ::prost::alloc::vec::Vec<validate::Binding>,
-        /// Network ports of this proposed materialization.
-        #[prost(message, repeated, tag = "5")]
-        pub network_ports: ::prost::alloc::vec::Vec<super::super::flow::NetworkPort>,
     }
     /// Nested message and enum types in `Validate`.
     pub mod validate {
@@ -238,8 +235,8 @@ pub struct Response {
     #[prost(message, optional, tag = "8")]
     pub acknowledged: ::core::option::Option<response::Acknowledged>,
     /// Reserved for internal use.
-    #[prost(message, optional, tag = "100")]
-    pub internal: ::core::option::Option<::pbjson_types::Any>,
+    #[prost(bytes = "bytes", tag = "100")]
+    pub internal: ::prost::bytes::Bytes,
 }
 /// Nested message and enum types in `Response`.
 pub mod response {

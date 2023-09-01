@@ -16,8 +16,8 @@ pub struct Request {
     #[prost(message, optional, tag = "7")]
     pub reset: ::core::option::Option<request::Reset>,
     /// Reserved for internal use.
-    #[prost(message, optional, tag = "100")]
-    pub internal: ::core::option::Option<::pbjson_types::Any>,
+    #[prost(bytes = "bytes", tag = "100")]
+    pub internal: ::prost::bytes::Bytes,
 }
 /// Nested message and enum types in `Request`.
 pub mod request {
@@ -84,9 +84,6 @@ pub mod request {
             ::prost::alloc::string::String,
             ::prost::alloc::string::String,
         >,
-        /// Network ports of this proposed derivation.
-        #[prost(message, repeated, tag = "8")]
-        pub network_ports: ::prost::alloc::vec::Vec<super::super::flow::NetworkPort>,
     }
     /// Nested message and enum types in `Validate`.
     pub mod validate {
@@ -206,8 +203,8 @@ pub struct Response {
     #[prost(message, optional, tag = "6")]
     pub started_commit: ::core::option::Option<response::StartedCommit>,
     /// Reserved for internal use.
-    #[prost(message, optional, tag = "100")]
-    pub internal: ::core::option::Option<::pbjson_types::Any>,
+    #[prost(bytes = "bytes", tag = "100")]
+    pub internal: ::prost::bytes::Bytes,
 }
 /// Nested message and enum types in `Response`.
 pub mod response {
@@ -221,12 +218,20 @@ pub mod response {
         /// JSON schema of the connector's configuration.
         #[prost(string, tag = "2")]
         pub config_schema_json: ::prost::alloc::string::String,
-        /// JSON schema of the connecor's lambda configuration.
+        /// JSON schema of the connector's lambda configuration.
+        /// The "resource" terminology is used with Response.Spec
+        /// only for symmetry with the capture and materialization protocols.
+        /// NOTE(johnny): We can encapsulate separate lambda config vs
+        /// shuffle lambda config schemas by encapsulating them as separate
+        /// definitions within the resource config schema.
         #[prost(string, tag = "3")]
-        pub lambda_config_schema_json: ::prost::alloc::string::String,
+        pub resource_config_schema_json: ::prost::alloc::string::String,
         /// URL for connector's documention.
         #[prost(string, tag = "4")]
         pub documentation_url: ::prost::alloc::string::String,
+        /// Optional OAuth2 configuration.
+        #[prost(message, optional, tag = "5")]
+        pub oauth2: ::core::option::Option<super::super::flow::OAuth2>,
     }
     /// Validated responds to Request.Validate.
     #[allow(clippy::derive_partial_eq_without_eq)]

@@ -7,6 +7,8 @@ pub struct TaskServiceConfig {
     pub task_name: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
     pub uds_path: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub container_network: ::prost::alloc::string::String,
 }
 /// ShuffleRequest is the request message of a Shuffle RPC.
 /// It's a description of a document shuffle,
@@ -122,10 +124,33 @@ pub struct RocksDbDescriptor {
     #[prost(string, tag = "2")]
     pub rocksdb_path: ::prost::alloc::string::String,
 }
+/// Container is a description of a running connector container.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Container {
+    #[prost(string, tag = "1")]
+    pub ip_addr: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
+    pub network_ports: ::prost::alloc::vec::Vec<super::flow::NetworkPort>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CaptureRequestExt {
+    #[prost(message, optional, tag = "1")]
+    pub labels: ::core::option::Option<super::ops::ShardLabeling>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CaptureResponseExt {
+    #[prost(message, optional, tag = "1")]
+    pub container: ::core::option::Option<Container>,
+}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DeriveRequestExt {
     #[prost(message, optional, tag = "1")]
+    pub labels: ::core::option::Option<super::ops::ShardLabeling>,
+    #[prost(message, optional, tag = "2")]
     pub open: ::core::option::Option<derive_request_ext::Open>,
 }
 /// Nested message and enum types in `DeriveRequestExt`.
@@ -133,14 +158,11 @@ pub mod derive_request_ext {
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Open {
-        /// Configured log level.
-        #[prost(enumeration = "super::super::ops::log::Level", tag = "1")]
-        pub log_level: i32,
         /// URL with a registered SQLite VFS which should be opened.
-        #[prost(string, tag = "2")]
+        #[prost(string, tag = "1")]
         pub sqlite_vfs_uri: ::prost::alloc::string::String,
         /// RocksDB descriptor which should be opened.
-        #[prost(message, optional, tag = "3")]
+        #[prost(message, optional, tag = "2")]
         pub rocksdb_descriptor: ::core::option::Option<super::RocksDbDescriptor>,
     }
 }
@@ -148,10 +170,12 @@ pub mod derive_request_ext {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DeriveResponseExt {
     #[prost(message, optional, tag = "1")]
-    pub opened: ::core::option::Option<derive_response_ext::Opened>,
+    pub container: ::core::option::Option<Container>,
     #[prost(message, optional, tag = "2")]
-    pub published: ::core::option::Option<derive_response_ext::Published>,
+    pub opened: ::core::option::Option<derive_response_ext::Opened>,
     #[prost(message, optional, tag = "3")]
+    pub published: ::core::option::Option<derive_response_ext::Published>,
+    #[prost(message, optional, tag = "4")]
     pub flushed: ::core::option::Option<derive_response_ext::Flushed>,
 }
 /// Nested message and enum types in `DeriveResponseExt`.
@@ -183,4 +207,16 @@ pub mod derive_response_ext {
         #[prost(message, optional, tag = "1")]
         pub stats: ::core::option::Option<super::super::ops::Stats>,
     }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MaterializeRequestExt {
+    #[prost(message, optional, tag = "1")]
+    pub labels: ::core::option::Option<super::ops::ShardLabeling>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MaterializeResponseExt {
+    #[prost(message, optional, tag = "1")]
+    pub container: ::core::option::Option<Container>,
 }

@@ -324,7 +324,7 @@ impl serde::Serialize for Request {
         if self.acknowledge.is_some() {
             len += 1;
         }
-        if self.internal.is_some() {
+        if !self.internal.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("materialize.Request", len)?;
@@ -355,8 +355,8 @@ impl serde::Serialize for Request {
         if let Some(v) = self.acknowledge.as_ref() {
             struct_ser.serialize_field("acknowledge", v)?;
         }
-        if let Some(v) = self.internal.as_ref() {
-            struct_ser.serialize_field("internal", v)?;
+        if !self.internal.is_empty() {
+            struct_ser.serialize_field("$internal", pbjson::private::base64::encode(&self.internal).as_str())?;
         }
         struct_ser.end()
     }
@@ -379,6 +379,7 @@ impl<'de> serde::Deserialize<'de> for Request {
             "startCommit",
             "acknowledge",
             "internal",
+            "$internal",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -423,7 +424,7 @@ impl<'de> serde::Deserialize<'de> for Request {
                             "store" => Ok(GeneratedField::Store),
                             "startCommit" | "start_commit" => Ok(GeneratedField::StartCommit),
                             "acknowledge" => Ok(GeneratedField::Acknowledge),
-                            "internal" => Ok(GeneratedField::Internal),
+                            "$internal" | "internal" => Ok(GeneratedField::Internal),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -511,9 +512,11 @@ impl<'de> serde::Deserialize<'de> for Request {
                         }
                         GeneratedField::Internal => {
                             if internal__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("internal"));
+                                return Err(serde::de::Error::duplicate_field("$internal"));
                             }
-                            internal__ = map.next_value()?;
+                            internal__ = 
+                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
                         }
                     }
                 }
@@ -527,7 +530,7 @@ impl<'de> serde::Deserialize<'de> for Request {
                     store: store__,
                     start_commit: start_commit__,
                     acknowledge: acknowledge__,
-                    internal: internal__,
+                    internal: internal__.unwrap_or_default(),
                 })
             }
         }
@@ -1504,9 +1507,6 @@ impl serde::Serialize for request::Validate {
         if !self.bindings.is_empty() {
             len += 1;
         }
-        if !self.network_ports.is_empty() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("materialize.Request.Validate", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -1521,9 +1521,6 @@ impl serde::Serialize for request::Validate {
         }
         if !self.bindings.is_empty() {
             struct_ser.serialize_field("bindings", &self.bindings)?;
-        }
-        if !self.network_ports.is_empty() {
-            struct_ser.serialize_field("networkPorts", &self.network_ports)?;
         }
         struct_ser.end()
     }
@@ -1541,8 +1538,6 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
             "config_json",
             "config",
             "bindings",
-            "network_ports",
-            "networkPorts",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1551,7 +1546,6 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
             ConnectorType,
             ConfigJson,
             Bindings,
-            NetworkPorts,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1577,7 +1571,6 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                             "connectorType" | "connector_type" => Ok(GeneratedField::ConnectorType),
                             "config" | "config_json" => Ok(GeneratedField::ConfigJson),
                             "bindings" => Ok(GeneratedField::Bindings),
-                            "networkPorts" | "network_ports" => Ok(GeneratedField::NetworkPorts),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1601,7 +1594,6 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                 let mut connector_type__ = None;
                 let mut config_json__ : Option<Box<serde_json::value::RawValue>> = None;
                 let mut bindings__ = None;
-                let mut network_ports__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -1628,12 +1620,6 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                             }
                             bindings__ = Some(map.next_value()?);
                         }
-                        GeneratedField::NetworkPorts => {
-                            if network_ports__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("networkPorts"));
-                            }
-                            network_ports__ = Some(map.next_value()?);
-                        }
                     }
                 }
                 Ok(request::Validate {
@@ -1641,7 +1627,6 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                     connector_type: connector_type__.unwrap_or_default(),
                     config_json: config_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
                     bindings: bindings__.unwrap_or_default(),
-                    network_ports: network_ports__.unwrap_or_default(),
                 })
             }
         }
@@ -1809,7 +1794,7 @@ impl serde::Serialize for Response {
         if self.acknowledged.is_some() {
             len += 1;
         }
-        if self.internal.is_some() {
+        if !self.internal.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("materialize.Response", len)?;
@@ -1837,8 +1822,8 @@ impl serde::Serialize for Response {
         if let Some(v) = self.acknowledged.as_ref() {
             struct_ser.serialize_field("acknowledged", v)?;
         }
-        if let Some(v) = self.internal.as_ref() {
-            struct_ser.serialize_field("internal", v)?;
+        if !self.internal.is_empty() {
+            struct_ser.serialize_field("$internal", pbjson::private::base64::encode(&self.internal).as_str())?;
         }
         struct_ser.end()
     }
@@ -1860,6 +1845,7 @@ impl<'de> serde::Deserialize<'de> for Response {
             "startedCommit",
             "acknowledged",
             "internal",
+            "$internal",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1902,7 +1888,7 @@ impl<'de> serde::Deserialize<'de> for Response {
                             "flushed" => Ok(GeneratedField::Flushed),
                             "startedCommit" | "started_commit" => Ok(GeneratedField::StartedCommit),
                             "acknowledged" => Ok(GeneratedField::Acknowledged),
-                            "internal" => Ok(GeneratedField::Internal),
+                            "$internal" | "internal" => Ok(GeneratedField::Internal),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1983,9 +1969,11 @@ impl<'de> serde::Deserialize<'de> for Response {
                         }
                         GeneratedField::Internal => {
                             if internal__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("internal"));
+                                return Err(serde::de::Error::duplicate_field("$internal"));
                             }
-                            internal__ = map.next_value()?;
+                            internal__ = 
+                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
                         }
                     }
                 }
@@ -1998,7 +1986,7 @@ impl<'de> serde::Deserialize<'de> for Response {
                     flushed: flushed__,
                     started_commit: started_commit__,
                     acknowledged: acknowledged__,
-                    internal: internal__,
+                    internal: internal__.unwrap_or_default(),
                 })
             }
         }

@@ -6,8 +6,32 @@ expression: json_test(msg)
   "spec": {
     "protocol": 3032023,
     "configSchema": {"config":"schema"},
-    "lambdaConfigSchema": {"lambda":"schema"},
-    "documentationUrl": "https://example/docs"
+    "resourceConfigSchema": {"lambda":"schema"},
+    "documentationUrl": "https://example/docs",
+    "oauth2": {
+      "provider": "oauth-provider",
+      "authUrlTemplate": "https://auth-url",
+      "accessTokenUrlTemplate": "https://access-token",
+      "accessTokenMethod": "POST",
+      "accessTokenBody": "foo",
+      "accessTokenHeaders": {
+        "hdr-one": {"hello":"hdr"},
+        "hdr-two": 42.5
+      },
+      "accessTokenResponseMap": {
+        "foo": true,
+        "key": "value"
+      },
+      "refreshTokenUrlTemplate": "https://refresh-token",
+      "refreshTokenMethod": "POST",
+      "refreshTokenBody": "refresh!",
+      "refreshTokenHeaders": {
+        "hdr-three": {"refresh":"hdr"}
+      },
+      "refreshTokenResponseMap": {
+        "access": "here"
+      }
+    }
   },
   "validated": {
     "transforms": [
@@ -31,8 +55,5 @@ expression: json_test(msg)
       "mergePatch": true
     }
   },
-  "internal": {
-    "typeUrl": "flow://internal.thing",
-    "value": "EgJIaRgB"
-  }
+  "$internal": "EgJIaRgB"
 }

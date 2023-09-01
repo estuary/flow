@@ -1,5 +1,5 @@
 use super::{codec::Codec, rpc};
-use futures::StreamExt;
+use futures::{StreamExt, TryStreamExt};
 use proto_flow::materialize::{Request, Response};
 
 pub struct Proxy {
@@ -20,7 +20,10 @@ impl proto_grpc::materialize::connector_server::Connector for Proxy {
             rpc::bidi::<Request, Response, _, _>(
                 rpc::new_command(&self.entrypoint),
                 self.codec,
-                request.into_inner(),
+                request.into_inner().map_ok(|mut request| {
+                    request.internal.clear(); // TODO(johnny): Temporarily remove $internal.
+                    request
+                }),
                 ops::stderr_log_handler,
             )?
             .boxed(),

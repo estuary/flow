@@ -17,6 +17,7 @@ pbjson-types = { workspace = true }
 prost = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+zeroize = { workspace = true }
 
 [build-dependencies]
 proto-build = { path = "../proto-build", optional = true }
