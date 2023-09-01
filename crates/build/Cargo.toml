@@ -10,12 +10,6 @@ license.workspace = true
 
 [dependencies]
 assemble = { path = "../assemble" }
-cgo = { path = "../cgo" }
-connector-init = { path = "../connector-init" }
-derive-typescript = { path = "../derive-typescript" }
-doc = { path = "../doc" }
-json = { path = "../json" }
-models = { path = "../models" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 runtime = { path = "../runtime" }
@@ -26,18 +20,9 @@ validation = { path = "../validation" }
 anyhow = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
-pbjson-types = { workspace = true }
-prost = { workspace = true }
+reqwest = { workspace = true }
 rusqlite = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
 tokio = { workspace = true }
+tonic = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
-
-[dev-dependencies]
-
-insta = { workspace = true }
-lazy_static = { workspace = true }
-serde_yaml = { workspace = true }
