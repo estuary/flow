@@ -3,13 +3,17 @@ use agent_sql::publications::{ExpandedRow, SpecRow};
 use agent_sql::CatalogType;
 use anyhow::Context;
 use itertools::Itertools;
+use proto_flow::{
+    materialize::response::validated::constraint::Type as ConstraintType,
+    ops::log::Level as LogLevel,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::types::Uuid;
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path;
-use tables::SqlTableObj;
 
+#[derive(Default)]
 pub struct BuildOutput {
     pub errors: tables::Errors,
     pub built_captures: tables::BuiltCaptures,
@@ -74,11 +78,17 @@ impl BuildOutput {
                 let Some(collection_name) = mat.spec.bindings[i].collection.as_ref().map(|c| c.name.as_str()) else {
                     continue;
                 };
-                let naughty_fields: Vec<RejectedField> = binding.constraints.iter().filter(|(_, constraint)| {
-                    constraint.r#type == proto_flow::materialize::response::validated::constraint::Type::Unsatisfiable as i32
-                }).map(|(field, constraint)| {
-                        RejectedField { field: field.clone(), reason: constraint.reason.clone() }
-                    }).collect();
+                let naughty_fields: Vec<RejectedField> = binding
+                    .constraints
+                    .iter()
+                    .filter(|(_, constraint)| {
+                        constraint.r#type == ConstraintType::Unsatisfiable as i32
+                    })
+                    .map(|(field, constraint)| RejectedField {
+                        field: field.clone(),
+                        reason: constraint.reason.clone(),
+                    })
+                    .collect();
                 if !naughty_fields.is_empty() {
                     let affected_consumers = naughty_collections
                         .entry(collection_name.to_owned())
@@ -108,7 +118,6 @@ pub async fn build_catalog(
     builds_root: &url::Url,
     catalog: &models::Catalog,
     connector_network: &str,
-    bindir: &str,
     logs_token: Uuid,
     logs_tx: &logs::Tx,
     pub_id: Id,
@@ -128,39 +137,50 @@ pub async fn build_catalog(
         .context("writing catalog file")?;
 
     let build_id = format!("{pub_id}");
+    let control_plane = validation::NoOpControlPlane {};
     let db_path = builds_dir.join(&build_id);
+    let log_handler = logs::ops_handler(logs_tx.clone(), "build".to_string(), logs_token);
+    let project_root = url::Url::parse("file:///").unwrap();
+    let source = url::Url::parse("file:///flow.json").unwrap();
 
-    let build_job = jobs::run(
-        "build",
-        logs_tx,
-        logs_token,
-        async_process::Command::new(format!("{bindir}/flowctl-go"))
-            .arg("api")
-            .arg("build")
-            .arg("--build-id")
-            .arg(&build_id)
-            .arg("--build-db")
-            .arg(&db_path)
-            .arg("--fs-root")
-            .arg(&builds_dir)
-            .arg("--network")
-            .arg(connector_network)
-            .arg("--source")
-            .arg("file:///flow.json")
-            .arg("--source-type")
-            .arg("catalog")
-            .arg("--log.level=warn")
-            .arg("--log.format=color")
-            .current_dir(tmpdir),
-    )
-    .await
-    .with_context(|| format!("building catalog in {builds_dir:?}"))?;
+    let managed_build = build::managed_build(
+        build_id.clone(),
+        connector_network.to_string(),
+        Box::new(control_plane),
+        builds_dir.clone(), // Root for file:// resolution.
+        log_handler.clone(),
+        project_root,
+        source.clone(),
+    );
+
+    // Build a tokio::Runtime that dispatches all tracing events to `log_handler`.
+    let tokio_context = runtime::TokioContext::new(
+        LogLevel::Warn,
+        log_handler,
+        format!("agent-build-{build_id}"),
+        1,
+    );
+    let build_result = tokio_context
+        .spawn(managed_build)
+        .await
+        .context("unable to join catalog build handle due to panic")?;
 
     // Persist the build before we do anything else.
+    build::persist(
+        proto_flow::flow::build_api::Config {
+            build_db: db_path.to_string_lossy().to_string(),
+            build_id,
+            source: source.into(),
+            source_type: proto_flow::flow::ContentType::Catalog as i32,
+            ..Default::default()
+        },
+        &db_path,
+        &build_result,
+    )?;
     let dest_url = builds_root.join(&pub_id.to_string())?;
 
-    // The gsutil job needs to access the GOOGLE_APPLICATION_CREDENTIALS environment variable, so
-    // we cannot use `jobs::run` here.
+    // The gsutil job needs to access the GOOGLE_APPLICATION_CREDENTIALS environment variable,
+    // so we cannot use `jobs::run` here.
     let persist_job = jobs::run_without_removing_env(
         "persist",
         &logs_tx,
@@ -178,43 +198,27 @@ pub async fn build_catalog(
         anyhow::bail!("persist of {db_path:?} exited with an error");
     }
 
-    // Inspect the database for build errors.
-    let db = rusqlite::Connection::open_with_flags(
-        &db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )?;
-
-    let mut errors = tables::Errors::new();
-    errors.load_all(&db).context("loading build errors")?;
-
-    if !build_job.success() && errors.is_empty() {
-        anyhow::bail!("build_job exited with failure but errors is empty");
-    }
-
-    let mut built_captures = tables::BuiltCaptures::new();
-    built_captures
-        .load_all(&db)
-        .context("loading built captures")?;
-
-    let mut built_collections = tables::BuiltCollections::new();
-    built_collections
-        .load_all(&db)
-        .context("loading built collections")?;
-
-    let mut built_materializations = tables::BuiltMaterializations::new();
-    built_materializations
-        .load_all(&db)
-        .context("loading built materailizations")?;
-
-    let mut built_tests = tables::BuiltTests::new();
-    built_tests.load_all(&db).context("loading built tests")?;
-
-    Ok(BuildOutput {
-        errors,
-        built_captures,
-        built_collections,
-        built_materializations,
-        built_tests,
+    Ok(match build_result {
+        Ok((
+            _sources,
+            tables::Validations {
+                built_captures,
+                built_collections,
+                built_materializations,
+                built_tests,
+                errors: _,
+            },
+        )) => BuildOutput {
+            built_captures,
+            built_collections,
+            built_materializations,
+            built_tests,
+            ..Default::default()
+        },
+        Err(errors) => BuildOutput {
+            errors,
+            ..Default::default()
+        },
     })
 }
 
