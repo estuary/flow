@@ -51,7 +51,7 @@ the access token method is the only supported method using the command line. Whi
 
 ### Using OAuth2 to authenticate with GitLab in the Flow web app
 
-* A GitLab user account with access to the repositories of interest, and which is a member of organizations of interest.
+* A GitLab user account with [access](https://docs.gitlab.com/ee/user/permissions.html) to the repositories of interest, and which is a member of organizations of interest.  [How to add a member](https://docs.gitlab.com/ee/user/project/members/#add-users-to-a-project).
 
 ### Configuring the connector specification manually using personal access token
 
