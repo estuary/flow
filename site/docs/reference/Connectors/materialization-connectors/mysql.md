@@ -27,17 +27,52 @@ Use the below properties to configure a MySQL materialization, which will direct
 
 #### Endpoint
 
-| Property                    | Title                  | Description                                                                                | Type   | Required/Default |
-|-----------------------------|------------------------|--------------------------------------------------------------------------------------------|--------|------------------|
-| **`/database`**             | Database               | Name of the logical database to materialize to.                                            | string | Required         |
-| **`/address`**              | Address                | Host and port of the database. If only the host is specified, port will default to `3306`. | string | Required         |
-| **`/password`**             | Password               | Password for the specified database user.                                                  | string | Required         |
-| **`/user`**                 | User                   | Database user to connect as.                                                               | string | Required         |
-| `/advanced`                 | Advanced Options       | Options for advanced users. You should not typically need to modify these.                 | object |                  |
-| `/advanced/sslmode`         | SSL Mode               | Overrides SSL connection behavior by setting the 'sslmode' parameter.                      | string |                  |
-| `/advanced/ssl_server_ca`   | SSL Server CA          | Optional server certificate authority to use when connecting with custom SSL mode          | string |                  |
-| `/advanced/ssl_client_cert` | SSL Client Certificate | Optional client certificate to use when connecting with custom SSL mode.                   | string |                  |
-| `/advanced/ssl_client_key`  | SSL Client Key         | Optional client key to use when connecting with custom SSL mode.                           | string |                  |
+| Property                    | Title                  | Description                                                                                                                                                                                                                                                                                                                                                                                | Type   | Required/Default |
+|-----------------------------|------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|------------------|
+| **`/database`**             | Database               | Name of the logical database to materialize to.                                                                                                                                                                                                                                                                                                                                            | string | Required         |
+| **`/address`**              | Address                | Host and port of the database. If only the host is specified, port will default to `3306`.                                                                                                                                                                                                                                                                                                 | string | Required         |
+| **`/password`**             | Password               | Password for the specified database user.                                                                                                                                                                                                                                                                                                                                                  | string | Required         |
+| **`/user`**                 | User                   | Database user to connect as.                                                                                                                                                                                                                                                                                                                                                               | string | Required         |
+| `/timezone`                 | Timezone               | Timezone to use when materializing datetime columns. Should normally be left blank to use the database's 'time_zone' system variable. Only required if the 'time_zone' system variable cannot be set and columns with type datetime are being materialized. Must be a valid IANA time zone name or +HH:MM offset. Takes precedence over the 'time_zone' system variable if both are set.   | string |                  |
+| `/advanced`                 | Advanced Options       | Options for advanced users. You should not typically need to modify these.                                                                                                                                                                                                                                                                                                                 | object |                  |
+| `/advanced/sslmode`         | SSL Mode               | Overrides SSL connection behavior by setting the 'sslmode' parameter.                                                                                                                                                                                                                                                                                                                      | string |                  |
+| `/advanced/ssl_server_ca`   | SSL Server CA          | Optional server certificate authority to use when connecting with custom SSL mode                                                                                                                                                                                                                                                                                                          | string |                  |
+| `/advanced/ssl_client_cert` | SSL Client Certificate | Optional client certificate to use when connecting with custom SSL mode.                                                                                                                                                                                                                                                                                                                   | string |                  |
+| `/advanced/ssl_client_key`  | SSL Client Key         | Optional client key to use when connecting with custom SSL mode.                                                                                                                                                                                                                                                                                                                           | string |                  |
+
+### Setting the MySQL time zone
+
+MySQL's [`time_zone` server system variable](https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html#sysvar_time_zone) is set to `SYSTEM` by default.
+
+If you intend to materialize collections including fields of with `format: date-time` or `format: time`,
+and `time_zone` is set to `SYSTEM`,
+Flow won't be able to detect the time zone and convert datetimes to the
+appropriate timezone when materializing.
+To avoid this, you must explicitly set the time zone for your database.
+
+You can:
+
+* Specify a numerical offset from UTC.
+   - For MySQL version 8.0.19 or higher, values from `-13:59` to `+14:00`, inclusive, are permitted.
+   - Prior to MySQL 8.0.19, values from `-12:59` to `+13:00`, inclusive, are permitted
+
+* Specify a named timezone in [IANA timezone format](https://www.iana.org/time-zones).
+
+* If you're using Amazon Aurora, create or modify the [DB cluster parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html)
+associated with your MySQL database.
+[Set](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.ModifyingCluster) the `time_zone` parameter to the correct value.
+
+For example, if you're located in New Jersey, USA, you could set `time_zone` to `-05:00` or `-04:00`, depending on the time of year.
+Because this region observes daylight savings time, you'd be responsible for changing the offset.
+Alternatively, you could set `time_zone` to `America/New_York`, and time changes would occur automatically.
+
+If using IANA time zones, your database must include time zone tables. [Learn more in the MySQL docs](https://dev.mysql.com/doc/refman/8.0/en/time-zone-support.html).
+
+:::tip Materialize Timezone Configuration
+If you are unable to set the `time_zone` in the database and need to materialize
+collections with date-time or time fields, the materialization can be configured
+to assume a time zone using the `timezone` configuration property (see above). The `timezone` configuration property can be set as a numerical offset or IANA timezone format.
+:::
 
 #### SSL Mode
 
