@@ -1,15 +1,12 @@
-use super::{derive, TaskRuntime};
+use super::{Runtime, TokioContext};
 use anyhow::Context;
 use futures::channel::oneshot;
 use futures::FutureExt;
-use proto_flow::{ops, runtime::TaskServiceConfig};
-use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::Arc;
-use tracing_subscriber::prelude::*;
+use proto_flow::runtime::TaskServiceConfig;
 
 pub struct TaskService {
     cancel_tx: oneshot::Sender<()>,
-    runtime: TaskRuntime,
+    tokio_context: TokioContext,
     server: tokio::task::JoinHandle<Result<(), tonic::transport::Error>>,
 }
 
@@ -19,41 +16,12 @@ impl TaskService {
             log_file_fd: _,
             task_name,
             uds_path,
+            container_network,
         } = config;
 
         if !std::path::Path::new(&uds_path).is_absolute() {
             anyhow::bail!("uds_path must be an absolute filesystem path");
         }
-
-        // Dynamically configurable ops::log::Level, as a shared atomic.
-        let log_level = std::sync::Arc::new(AtomicI32::new(ops::log::Level::Info as i32));
-
-        // Dynamic tracing log filter which uses our dynamic Level.
-        let log_level_clone = log_level.clone();
-        let log_filter = tracing_subscriber::filter::DynFilterFn::new(move |metadata, _cx| {
-            let cur_level = match metadata.level().as_str() {
-                "TRACE" => ops::log::Level::Trace as i32,
-                "DEBUG" => ops::log::Level::Debug as i32,
-                "INFO" => ops::log::Level::Info as i32,
-                "WARN" => ops::log::Level::Warn as i32,
-                "ERROR" => ops::log::Level::Error as i32,
-                _ => ops::log::Level::UndefinedLevel as i32,
-            };
-
-            if let Some(path) = metadata.module_path() {
-                // Hyper / HTTP/2 debug logs are just too noisy and not very useful.
-                if path.starts_with("h2::") && cur_level >= ops::log::Level::Debug as i32 {
-                    return false;
-                }
-            }
-
-            cur_level <= log_level_clone.load(Ordering::Relaxed)
-        });
-
-        // Function closure which allows for changing the dynamic log level.
-        let set_log_level = Arc::new(move |level: ops::log::Level| {
-            log_level.store(level as i32, Ordering::Relaxed)
-        });
 
         // We'll gather logs from tokio-tracing events of our TaskRuntime,
         // as well as logs which are forwarded from connector container delegates,
@@ -62,23 +30,22 @@ impl TaskService {
         let log_handler = ::ops::new_encoded_json_write_handler(std::sync::Arc::new(
             std::sync::Mutex::new(log_file),
         ));
-        // Configure a tracing::Dispatch, which is a type-erased form of a tracing::Subscriber,
-        // that gathers tracing events & spans and logs them to `log_handler`.
-        let log_dispatch: tracing::Dispatch = tracing_subscriber::registry()
-            .with(
-                ::ops::tracing::Layer::new(log_handler.clone(), std::time::SystemTime::now)
-                    .with_filter(log_filter),
-            )
-            .into();
-        let runtime = TaskRuntime::new(task_name, log_dispatch);
+        let tokio_context = TokioContext::new(
+            ops::LogLevel::Info,
+            log_handler.clone(),
+            task_name.clone(),
+            1,
+        );
 
         // Instantiate selected task service definitions.
-        let derive_service = Some(derive::Middleware::new(
-            log_handler.clone(),
-            Some(set_log_level.clone()),
-        ));
+        let runtime = Runtime::new(
+            container_network,
+            log_handler,
+            Some(tokio_context.set_log_level_fn()),
+            task_name,
+        );
 
-        let uds = runtime
+        let uds = tokio_context
             .block_on(async move { tokio::net::UnixListener::bind(uds_path) })
             .context("failed to bind task service unix domain socket")?;
         let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
@@ -95,20 +62,17 @@ impl TaskService {
         // completed, and will then immediately tear down client transports.
         // This means we MUST mask SIGPIPE, because it's quite common for us or our
         // peer to attempt to send messages over a transport that the other side has torn down.
-        let server = tonic::transport::Server::builder()
-            .add_optional_service(derive_service.map(|s| {
-                proto_grpc::derive::connector_server::ConnectorServer::new(s)
-                    .max_decoding_message_size(usize::MAX) // Up from 4MB. Accept whatever the Go runtime sends.
-                    .max_encoding_message_size(usize::MAX) // The default, made explicit.
-            }))
-            .serve_with_incoming_shutdown(uds_stream, async move {
-                _ = cancel_rx.await;
-            });
-        let server = runtime.spawn(server);
+        let server =
+            runtime
+                .build_tonic_server()
+                .serve_with_incoming_shutdown(uds_stream, async move {
+                    _ = cancel_rx.await;
+                });
+        let server = tokio_context.spawn(server);
 
         Ok(Self {
             cancel_tx,
-            runtime,
+            tokio_context,
             server,
         })
     }
@@ -116,13 +80,13 @@ impl TaskService {
     pub fn graceful_stop(self) {
         let Self {
             cancel_tx,
-            runtime,
+            tokio_context,
             server,
         } = self;
 
         _ = cancel_tx.send(());
 
-        let log = match runtime.block_on(server) {
+        let log = match tokio_context.block_on(server) {
             Err(panic) => async move {
                 tracing::error!(?panic, "task gRPC service exited with panic");
             }
@@ -137,8 +101,8 @@ impl TaskService {
             .boxed(),
         };
         // Spawn to log from a runtime thread, then block the current thread awaiting it.
-        let () = runtime.block_on(runtime.spawn(log)).unwrap();
+        let () = tokio_context.block_on(tokio_context.spawn(log)).unwrap();
 
-        // TaskRuntime implements Drop for shutdown.
+        // TokioContext implements Drop for shutdown.
     }
 }

@@ -1,11 +1,10 @@
-use super::anyhow_to_status;
+use crate::anyhow_to_status;
 use anyhow::Context;
 use futures::{channel::mpsc, Future, SinkExt, Stream, StreamExt, TryStreamExt};
-use prost::Message;
 use proto_flow::derive::{request, response, Request, Response};
 use proto_flow::flow::{self, collection_spec, CollectionSpec};
 use proto_flow::ops;
-use proto_flow::runtime::{derive_response_ext, DeriveResponseExt};
+use proto_flow::runtime::derive_response_ext;
 use std::time::SystemTime;
 
 pub fn adapt_requests<R>(
@@ -385,25 +384,19 @@ impl State {
             let partitions_packed =
                 doc::Extractor::extract_all_lazy(&doc, &self.partition_extractors, &mut buf);
 
-            let internal = DeriveResponseExt {
-                published: Some(derive_response_ext::Published {
-                    max_clock,
-                    key_packed,
-                    partitions_packed,
+            out.push(
+                Response {
+                    published: Some(response::Published { doc_json }),
+                    ..Default::default()
+                }
+                .with_internal_buf(&mut buf, |internal| {
+                    internal.published = Some(derive_response_ext::Published {
+                        max_clock,
+                        key_packed,
+                        partitions_packed,
+                    });
                 }),
-                ..Default::default()
-            };
-            buf.reserve(internal.encoded_len());
-            internal.encode(&mut buf).unwrap();
-
-            out.push(Response {
-                published: Some(response::Published { doc_json }),
-                internal: Some(::pbjson_types::Any {
-                    type_url: "flow://runtime.DeriveResponseExt".to_string(),
-                    value: buf.split().freeze(),
-                }),
-                ..Default::default()
-            });
+            );
 
             Ok::<bool, doc::combine::Error>(out.len() != out.capacity())
         })?;
@@ -465,17 +458,11 @@ impl State {
 
         Response {
             flushed: Some(flushed),
-            internal: Some(::pbjson_types::Any {
-                type_url: "flow://runtime.DeriveResponseExt".to_string(),
-                value: DeriveResponseExt {
-                    flushed: Some(derive_response_ext::Flushed { stats: Some(stats) }),
-                    ..Default::default()
-                }
-                .encode_to_vec()
-                .into(),
-            }),
             ..Default::default()
         }
+        .with_internal(|internal| {
+            internal.flushed = Some(derive_response_ext::Flushed { stats: Some(stats) });
+        })
     }
 }
 
