@@ -21,15 +21,7 @@ Sources {
     imports: [
         Import {
             scope: test://example/catalog.yaml#/collections/test/schema,
-            to_resource: test://external/a,
-        },
-        Import {
-            scope: test://external/a#/$defs/a/$ref,
-            to_resource: test://external/b,
-        },
-        Import {
-            scope: test://external/b#/$defs/c/$ref,
-            to_resource: test://external/c,
+            to_resource: test://example/test.schema.yaml,
         },
     ],
     materializations: [],
@@ -42,7 +34,7 @@ Sources {
         },
         Resource {
             resource: test://example/test.schema.yaml,
-            content_type: "CONFIG",
+            content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: {"$defs":{"__flowInline1":{"$defs":{"a":{"$ref":"b#/$defs/c"}},"$id":"test://external/a"},"__flowInline2":{"$defs":{"c":{"$ref":"c"}},"$id":"test://external/b"},"__flowInline3":{"$id":"test://external/c","allOf":[true]}},"$id":"test://example/catalog.yaml?ptr=/collections/test/schema","$ref":"test://external/a#/$defs/a"},
         },

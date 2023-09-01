@@ -131,36 +131,7 @@ Sources {
     ],
     errors: [],
     fetches: [],
-    imports: [
-        Import {
-            scope: test://example/catalog.yaml#/collections/d1~1collection/derive/using/typescript/module,
-            to_resource: test://example/catalog.ts,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/collections/d1~1collection/schema,
-            to_resource: test://example/a-schema.json,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/collections/d2~1collection/schema,
-            to_resource: test://example/a-schema.json,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/collections/d3~1collection/derive/transforms/0/shuffle/lambda,
-            to_resource: test://example/sql/shuffle_lambda.sql,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/collections/d3~1collection/derive/using/sqlite/migrations/1,
-            to_resource: test://example/sql/migration_two.sql,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/collections/d3~1collection/readSchema,
-            to_resource: test://example/other-schema.json,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/collections/d3~1collection/writeSchema,
-            to_resource: test://example/a-schema.json,
-        },
-    ],
+    imports: [],
     materializations: [],
     resources: [],
     storage_mappings: [],

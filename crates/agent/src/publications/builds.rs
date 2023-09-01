@@ -175,7 +175,7 @@ pub async fn build_catalog(
             ..Default::default()
         },
         &db_path,
-        &build_result,
+        build_result.as_ref(),
     )?;
     let dest_url = builds_root.join(&pub_id.to_string())?;
 

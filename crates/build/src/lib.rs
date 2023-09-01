@@ -77,12 +77,7 @@ pub fn project_root(source: &url::Url) -> url::Url {
 /// Load a Flow specification `source` into tables::Sources.
 /// All file:// resources are rooted ("jailed") to the given `file_root`.
 pub async fn load(source: &url::Url, file_root: &Path) -> tables::Sources {
-    let loader = sources::Loader::new(
-        tables::Sources::default(),
-        Fetcher {
-            file_root: file_root.to_owned(),
-        },
-    );
+    let loader = sources::Loader::new(tables::Sources::default(), Fetcher::new(file_root));
 
     loader
         .load_resource(
@@ -204,7 +199,7 @@ where
 pub fn persist(
     build_config: proto_flow::flow::build_api::Config,
     db_path: &Path,
-    result: &Result<(tables::Sources, tables::Validations), tables::Errors>,
+    result: Result<&(tables::Sources, tables::Validations), &tables::Errors>,
 ) -> anyhow::Result<()> {
     let db = rusqlite::Connection::open(db_path).context("failed to open catalog database")?;
 
@@ -281,7 +276,71 @@ pub fn write_files(project_root: &url::Url, files: Vec<(url::Url, Vec<u8>)>) -> 
 
 /// Fetcher is a general-purpose implementation of sources::Fetcher.
 struct Fetcher {
+    client: reqwest::Result<reqwest::Client>,
     file_root: PathBuf,
+}
+
+impl Fetcher {
+    fn new(file_root: impl Into<PathBuf>) -> Self {
+        let client = reqwest::ClientBuilder::new().timeout(FETCH_TIMEOUT).build();
+
+        Self {
+            client,
+            file_root: file_root.into(),
+        }
+    }
+
+    async fn fetch_inner(
+        &self,
+        resource: url::Url,
+        mut file_path: PathBuf,
+    ) -> anyhow::Result<bytes::Bytes> {
+        match resource.scheme() {
+            "http" | "https" => {
+                let client = match &self.client {
+                    Ok(ok) => ok,
+                    Err(err) => anyhow::bail!("failed to initialize HTTP client: {err}"),
+                };
+
+                let resp = client.get(resource).send().await?;
+                let status = resp.status();
+
+                if status.is_success() {
+                    Ok(resp.bytes().await?)
+                } else {
+                    let body = resp.text().await?;
+                    anyhow::bail!("{status}: {body}");
+                }
+            }
+            "file" => {
+                let rel_path = resource.to_file_path().map_err(|err| {
+                    anyhow::anyhow!("failed to convert file uri to path: {:?}", err)
+                })?;
+
+                // `rel_path` is absolute, so we must extend `file_path` rather than joining.
+                // Skip the first component, which is a RootDir token.
+                file_path.extend(rel_path.components().skip(1));
+
+                let bytes = std::fs::read(&file_path)
+                    .with_context(|| format!("failed to read {file_path:?}"))?;
+                Ok(bytes.into())
+            }
+            "stdin" => {
+                use tokio::io::AsyncReadExt;
+
+                let mut bytes = Vec::new();
+                tokio::io::stdin()
+                    .read_to_end(&mut bytes)
+                    .await
+                    .context("reading stdin")?;
+
+                Ok(bytes.into())
+            }
+            _ => Err(anyhow::anyhow!(
+                "cannot fetch unsupported URI scheme: '{resource}'"
+            )),
+        }
+    }
 }
 
 impl sources::Fetcher for Fetcher {
@@ -291,50 +350,8 @@ impl sources::Fetcher for Fetcher {
         content_type: flow::ContentType,
     ) -> BoxFuture<'a, anyhow::Result<bytes::Bytes>> {
         tracing::debug!(%resource, ?content_type, file_root=?self.file_root, "fetching resource");
-        fetch_async(resource.clone(), self.file_root.clone()).boxed()
-    }
-}
-
-async fn fetch_async(resource: url::Url, mut file_path: PathBuf) -> anyhow::Result<bytes::Bytes> {
-    match resource.scheme() {
-        "http" | "https" => {
-            let resp = reqwest::get(resource.as_str()).await?;
-            let status = resp.status();
-
-            if status.is_success() {
-                Ok(resp.bytes().await?)
-            } else {
-                let body = resp.text().await?;
-                anyhow::bail!("{status}: {body}");
-            }
-        }
-        "file" => {
-            let rel_path = resource
-                .to_file_path()
-                .map_err(|err| anyhow::anyhow!("failed to convert file uri to path: {:?}", err))?;
-
-            // `rel_path` is absolute, so we must extend `file_path` rather than joining.
-            // Skip the first component, which is a RootDir token.
-            file_path.extend(rel_path.components().skip(1));
-
-            let bytes = std::fs::read(&file_path)
-                .with_context(|| format!("failed to read {file_path:?}"))?;
-            Ok(bytes.into())
-        }
-        "stdin" => {
-            use tokio::io::AsyncReadExt;
-
-            let mut bytes = Vec::new();
-            tokio::io::stdin()
-                .read_to_end(&mut bytes)
-                .await
-                .context("reading stdin")?;
-
-            Ok(bytes.into())
-        }
-        _ => Err(anyhow::anyhow!(
-            "cannot fetch unsupported URI scheme: '{resource}'"
-        )),
+        self.fetch_inner(resource.clone(), self.file_root.clone())
+            .boxed()
     }
 }
 
@@ -420,5 +437,6 @@ fn status_to_anyhow(status: tonic::Status) -> anyhow::Error {
     anyhow::anyhow!(status.message().to_string())
 }
 
+pub const FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 pub const CONNECTOR_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300); // Five minutes.
 pub const STDIN_URL: &str = "stdin://root/flow.yaml";

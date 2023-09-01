@@ -18,7 +18,12 @@ Sources {
     ],
     errors: [],
     fetches: [],
-    imports: [],
+    imports: [
+        Import {
+            scope: test://example/catalog.yaml#/collections/test/schema,
+            to_resource: test://example/test.schema.yaml,
+        },
+    ],
     materializations: [],
     resources: [
         Resource {
@@ -29,7 +34,7 @@ Sources {
         },
         Resource {
             resource: test://example/test.schema.yaml,
-            content_type: "CONFIG",
+            content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: {"$id":"test://example/catalog.yaml?ptr=/collections/test/schema","additionalProperties":true,"type":"object"},
         },

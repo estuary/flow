@@ -1,6 +1,6 @@
 ---
 source: crates/sources/src/merge.rs
-expression: tgt
+expression: target
 ---
 Sources {
     captures: [
@@ -18,7 +18,7 @@ Sources {
             },
         },
         Capture {
-            scope: test://example/acmeCo/one/flow.yaml,
+            scope: test://example/acmeCo/one/flow.yaml#/captures/acmeCo~1one~1new,
             capture: acmeCo/one/new,
             spec: {
               "endpoint": {
@@ -43,7 +43,7 @@ Sources {
             },
         },
         Collection {
-            scope: test://example/acmeCo/one/flow.yaml,
+            scope: test://example/acmeCo/one/flow.yaml#/collections/acmeCo~1one~1new,
             collection: acmeCo/one/new,
             spec: {
               "schema": true,
@@ -97,7 +97,7 @@ Sources {
             },
         },
         Materialization {
-            scope: test://example/acmeCo/two/flow.yaml,
+            scope: test://example/acmeCo/two/flow.yaml#/materializations/acmeCo~1two~1new,
             materialization: acmeCo/two/new,
             spec: {
               "endpoint": {
@@ -144,7 +144,7 @@ Sources {
             spec: [],
         },
         Test {
-            scope: test://example/acmeCo/two/flow.yaml,
+            scope: test://example/acmeCo/two/flow.yaml#/tests/acmeCo~1two~1new,
             test: acmeCo/two/new,
             spec: [],
         },

@@ -27,10 +27,6 @@ Sources {
     fetches: [],
     imports: [
         Import {
-            scope: test://example/catalog.yaml#/collections/a~1collection/schema,
-            to_resource: test://example/schema,
-        },
-        Import {
             scope: test://example/catalog.yaml#/import/0,
             to_resource: test://example/sibling,
         },
