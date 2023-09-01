@@ -5,7 +5,6 @@ option go_package = "github.com/estuary/flow/go/protocols/capture";
 
 import "go/protocols/flow/flow.proto";
 import "gogoproto/gogo.proto";
-import "google/protobuf/any.proto";
 
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.protosizer_all) = true;
@@ -118,8 +117,6 @@ message Request {
       flow.CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
     }
     repeated Binding bindings = 4;
-    // Network ports of this proposed capture.
-    repeated flow.NetworkPort network_ports = 5;
   }
   Validate validate = 3;
 
@@ -173,7 +170,7 @@ message Request {
   Acknowledge acknowledge = 6;
 
   // Reserved for internal use.
-  google.protobuf.Any internal = 100;
+  bytes internal = 100 [ json_name = "$internal" ];
 }
 
 message Response {
@@ -286,5 +283,5 @@ message Response {
   Checkpoint checkpoint = 7;
 
   // Reserved for internal use.
-  google.protobuf.Any internal = 100;
+  bytes internal = 100 [ json_name = "$internal" ];
 }

@@ -516,7 +516,7 @@ pub struct MaterializationSpec {
     pub recovery_log_template: ::core::option::Option<
         ::proto_gazette::broker::JournalSpec,
     >,
-    /// Network ports of this capture.
+    /// Network ports of this materialization.
     #[prost(message, repeated, tag = "7")]
     pub network_ports: ::prost::alloc::vec::Vec<NetworkPort>,
 }
@@ -1002,8 +1002,9 @@ pub mod combine_api {
         }
     }
 }
-/// BuildAPI is a meta-message which name spaces messages of the Build API
-/// bridge.
+/// BuildAPI is deprecated and will be removed.
+/// We're currently keeping Config around only to
+/// avoid churning various Go snapshot tests.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BuildApi {}
@@ -1034,90 +1035,6 @@ pub mod build_api {
         /// URL which roots the Flow project.
         #[prost(string, tag = "6")]
         pub project_root: ::prost::alloc::string::String,
-    }
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Fetch {
-        #[prost(string, tag = "1")]
-        pub resource_url: ::prost::alloc::string::String,
-        #[prost(enumeration = "super::ContentType", tag = "2")]
-        pub content_type: i32,
-    }
-    /// Code labels message codes passed over the CGO bridge.
-    #[derive(
-        Clone,
-        Copy,
-        Debug,
-        PartialEq,
-        Eq,
-        Hash,
-        PartialOrd,
-        Ord,
-        ::prost::Enumeration
-    )]
-    #[repr(i32)]
-    pub enum Code {
-        /// Begin a build with a Config (Go -> Rust).
-        Begin = 0,
-        /// Poll the build after completing one or more trampoline tasks (Go ->
-        /// Rust).
-        Poll = 1,
-        /// Trampoline task start or completion (Rust <-> Go).
-        Trampoline = 2,
-        /// Trampoline sub-type: Start fetch of a resource.
-        TrampolineFetch = 3,
-        /// Trampoline sub-type: Start validation of a capture.
-        TrampolineValidateCapture = 4,
-        /// Trampoline sub-type: Start validation of a materialization.
-        TrampolineValidateMaterialization = 5,
-        /// Build completed successfully (Rust -> Go).
-        Done = 6,
-        /// Build completed with errors (Rust -> Go).
-        DoneWithErrors = 7,
-        /// Trampoline sub-type: start docker ispect of an image
-        TrampolineDockerInspect = 8,
-        /// Generate catalog specification JSON schema (Go <-> Rust)
-        CatalogSchema = 100,
-    }
-    impl Code {
-        /// String value of the enum field names used in the ProtoBuf definition.
-        ///
-        /// The values are not transformed in any way and thus are considered stable
-        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-        pub fn as_str_name(&self) -> &'static str {
-            match self {
-                Code::Begin => "BEGIN",
-                Code::Poll => "POLL",
-                Code::Trampoline => "TRAMPOLINE",
-                Code::TrampolineFetch => "TRAMPOLINE_FETCH",
-                Code::TrampolineValidateCapture => "TRAMPOLINE_VALIDATE_CAPTURE",
-                Code::TrampolineValidateMaterialization => {
-                    "TRAMPOLINE_VALIDATE_MATERIALIZATION"
-                }
-                Code::Done => "DONE",
-                Code::DoneWithErrors => "DONE_WITH_ERRORS",
-                Code::TrampolineDockerInspect => "TRAMPOLINE_DOCKER_INSPECT",
-                Code::CatalogSchema => "CATALOG_SCHEMA",
-            }
-        }
-        /// Creates an enum from field names used in the ProtoBuf definition.
-        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-            match value {
-                "BEGIN" => Some(Self::Begin),
-                "POLL" => Some(Self::Poll),
-                "TRAMPOLINE" => Some(Self::Trampoline),
-                "TRAMPOLINE_FETCH" => Some(Self::TrampolineFetch),
-                "TRAMPOLINE_VALIDATE_CAPTURE" => Some(Self::TrampolineValidateCapture),
-                "TRAMPOLINE_VALIDATE_MATERIALIZATION" => {
-                    Some(Self::TrampolineValidateMaterialization)
-                }
-                "DONE" => Some(Self::Done),
-                "DONE_WITH_ERRORS" => Some(Self::DoneWithErrors),
-                "TRAMPOLINE_DOCKER_INSPECT" => Some(Self::TrampolineDockerInspect),
-                "CATALOG_SCHEMA" => Some(Self::CatalogSchema),
-                _ => None,
-            }
-        }
     }
 }
 /// ResetStateRequest is the request of the Testing.ResetState RPC.

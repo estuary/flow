@@ -2,32 +2,31 @@ package runtime
 
 import (
 	proto "github.com/gogo/protobuf/proto"
-	"github.com/gogo/protobuf/types"
 )
 
-func ToAny[
+func ToInternal[
 	Message interface {
 		proto.Message
 		Marshal() ([]byte, error)
 	},
-](m Message) *types.Any {
+](m Message) []byte {
 	var b, err = m.Marshal()
 	if err != nil {
 		panic(err)
 	}
-	return &types.Any{Value: b}
+	return b
 }
 
-func FromAny[
+func FromInternal[
 	Message any,
 	MessagePtr interface {
 		*Message
 		proto.Message
 		Unmarshal([]byte) error
 	},
-](any *types.Any) *Message {
+](b []byte) *Message {
 	var msg = new(Message)
-	var err = MessagePtr(msg).Unmarshal(any.Value)
+	var err = MessagePtr(msg).Unmarshal(b)
 	if err != nil {
 		panic(err)
 	}

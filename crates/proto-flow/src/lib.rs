@@ -4,9 +4,11 @@ use std::collections::BTreeMap;
 pub mod capture;
 pub mod derive;
 pub mod flow;
+mod internal;
 pub mod materialize;
 pub mod ops;
 pub mod runtime;
+mod zeroize;
 
 // Adapt a &str of JSON to a &RawValue for serialization.
 fn as_raw_json<E: serde::ser::Error>(v: &str) -> Result<&RawValue, E> {
@@ -58,7 +60,6 @@ pub fn as_timestamp(ts: std::time::SystemTime) -> ::pbjson_types::Timestamp {
 }
 
 // Re-export some commonly used types.
-pub use pbjson_types::Any;
 pub use proto_gazette::consumer::checkpoint as runtime_checkpoint;
 pub use proto_gazette::consumer::Checkpoint as RuntimeCheckpoint;
 

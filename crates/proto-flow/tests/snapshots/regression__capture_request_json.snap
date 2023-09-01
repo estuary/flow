@@ -85,16 +85,6 @@ expression: json_test(msg)
           }
         }
       }
-    ],
-    "networkPorts": [
-      {
-        "number": 8080,
-        "protocol": "https",
-        "public": true
-      },
-      {
-        "number": 9000
-      }
     ]
   },
   "apply": {
@@ -363,8 +353,5 @@ expression: json_test(msg)
   "acknowledge": {
     "checkpoints": 32
   },
-  "internal": {
-    "typeUrl": "flow://internal.thing",
-    "value": "EgJIaRgB"
-  }
+  "$internal": "EgJIaRgB"
 }
