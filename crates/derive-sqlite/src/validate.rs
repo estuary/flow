@@ -16,8 +16,7 @@ pub fn parse_validate(
         shuffle_key_types: _,
         project_root: _,
         import_map: _,
-        network_ports: _,
-    } = validate;
+    } = &validate;
 
     let config: Config = serde_json::from_str(&config_json)
         .with_context(|| format!("failed to parse SQLite configuration: {config_json}"))?;
@@ -32,7 +31,7 @@ pub fn parse_validate(
                 shuffle_lambda_config_json: _,
             } = transform;
 
-            let source = source.unwrap();
+            let source = source.as_ref().unwrap();
             let params = source
                 .projections
                 .iter()
@@ -44,9 +43,9 @@ pub fn parse_validate(
             })?;
 
             Ok(Transform {
-                name,
+                name: name.clone(),
                 block,
-                source: source.name,
+                source: source.name.clone(),
                 params,
             })
         })

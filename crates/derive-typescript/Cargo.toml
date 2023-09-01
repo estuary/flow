@@ -1,34 +1,37 @@
 [package]
 name = "derive-typescript"
-version.workspace = true
-rust-version.workspace = true
-edition.workspace = true
-authors.workspace = true
-homepage.workspace = true
-repository.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "derive-typescript"
+path = "src/main.rs"
 
 [dependencies]
-doc = { path = "../doc" }
-json = { path = "../json" }
-proto-flow = { path = "../proto-flow" }
-locate-bin = { path = "../locate-bin" }
+doc = { git = "https://github.com/estuary/flow", branch = "johnny/rust-connectors" }
+json = { git = "https://github.com/estuary/flow", branch = "johnny/rust-connectors" }
+proto-flow = { git = "https://github.com/estuary/flow", branch = "johnny/rust-connectors" }
 
-anyhow = { workspace = true }
-itertools = { workspace = true }
-lazy_static = { workspace = true }
-regex = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-tempfile = { workspace = true }
-tracing = { workspace = true }
-url = { workspace = true }
+anyhow = "1"
+itertools = "0.11"
+lazy_static = "1"
+regex = "1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["raw_value"] }
+tempfile = "3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = [
+    "time",
+    "json",
+    "env-filter",
+    "fmt",
+] }
+url = "2"
 
 [dev-dependencies]
-models = { path = "../models" }
-sources = { path = "../sources" }
-tables = { path = "../tables" }
+models = { git = "https://github.com/estuary/flow", branch = "johnny/rust-connectors" }
+sources = { git = "https://github.com/estuary/flow", branch = "johnny/rust-connectors" }
+tables = { git = "https://github.com/estuary/flow", branch = "johnny/rust-connectors" }
 
-insta = { workspace = true }
-lazy_static = { workspace = true }
-serde_yaml = { workspace = true }
+insta = "1"
+serde_yaml = "0.9"
