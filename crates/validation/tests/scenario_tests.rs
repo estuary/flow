@@ -1,6 +1,6 @@
-use futures::{future::LocalBoxFuture, FutureExt};
+use futures::{future::BoxFuture, FutureExt};
 use lazy_static::lazy_static;
-use proto_flow::{capture, derive, flow, materialize};
+use proto_flow::{capture, derive, flow, materialize, runtime::Container};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -10,13 +10,68 @@ lazy_static! {
 
 #[test]
 fn test_golden_all_visits() {
-    let tables = run_test(
-        GOLDEN.clone(),
-        &flow::build_api::Config {
-            build_id: "a-build-id".to_string(),
-            ..Default::default()
-        },
-    );
+    let (
+        (
+            tables::Sources {
+                captures,
+                collections,
+                errors: _,
+                fetches,
+                imports,
+                materializations,
+                resources,
+                storage_mappings,
+                tests,
+            },
+            tables::Validations {
+                built_captures,
+                built_collections,
+                built_materializations,
+                built_tests,
+                errors: _,
+            },
+        ),
+        errors,
+    ) = run_test(GOLDEN.clone(), "a-build-id");
+
+    // NOTE(johnny): There used to be a tables::All which was removed.
+    // We re-constitute it here only to avoid churning this existing snapshot.
+    // We can remove this and separately update the snapshot of `sources` & `validations`.
+    #[derive(Debug)]
+    #[allow(dead_code)]
+    struct All {
+        built_captures: tables::BuiltCaptures,
+        built_collections: tables::BuiltCollections,
+        built_materializations: tables::BuiltMaterializations,
+        built_tests: tables::BuiltTests,
+        captures: tables::Captures,
+        collections: tables::Collections,
+        errors: tables::Errors,
+        fetches: tables::Fetches,
+        imports: tables::Imports,
+        materializations: tables::Materializations,
+        meta: tables::Meta,
+        resources: tables::Resources,
+        storage_mappings: tables::StorageMappings,
+        tests: tables::Tests,
+    }
+    let tables = All {
+        built_captures,
+        built_collections,
+        built_materializations,
+        built_tests,
+        captures,
+        collections,
+        errors,
+        fetches,
+        imports,
+        materializations,
+        meta: tables::Meta::default(),
+        resources,
+        storage_mappings,
+        tests,
+    };
+
     insta::assert_debug_snapshot!(tables);
 }
 
@@ -24,31 +79,27 @@ fn test_golden_all_visits() {
 fn connector_validation_is_skipped_when_shards_are_disabled() {
     let fixture =
         serde_yaml::from_slice(include_bytes!("validation_skipped_when_disabled.yaml")).unwrap();
-    let tables = run_test(
-        fixture,
-        &flow::build_api::Config {
-            build_id: "validation-skipped-build-id".to_string(),
-            ..Default::default()
-        },
-    );
+    let ((_, validations), errors) = run_test(fixture, "validation-skipped-build-id");
+    assert!(errors.is_empty(), "expected no errors, got: {errors:?}");
 
+    let tables::Validations {
+        built_captures,
+        built_materializations,
+        ..
+    } = validations;
+
+    assert_eq!(built_captures.len(), 1);
     assert!(
-        tables.errors.is_empty(),
-        "expected no errors, got: {:?}",
-        tables.errors
-    );
-    assert_eq!(tables.built_captures.len(), 1);
-    assert!(
-        tables.built_captures[0]
+        built_captures[0]
             .spec
             .shard_template
             .as_ref()
             .unwrap()
             .disable,
     );
-    assert_eq!(tables.built_materializations.len(), 1);
+    assert_eq!(built_materializations.len(), 1);
     assert!(
-        tables.built_materializations[0]
+        built_materializations[0]
             .spec
             .shard_template
             .as_ref()
@@ -85,21 +136,15 @@ driver:
 "##,
     )
     .unwrap();
-    let tables = run_test(
-        fixture,
-        &flow::build_api::Config {
-            build_id: "collection-contains-flow-document-build-id".to_string(),
-            ..Default::default()
-        },
-    );
+    let ((_, validations), errors) =
+        run_test(fixture, "collection-contains-flow-document-build-id");
+    assert!(errors.is_empty(), "expected no errors, got: {errors:?}");
 
-    assert!(
-        tables.errors.is_empty(),
-        "expected no errors, got: {:?}",
-        tables.errors
-    );
+    let tables::Validations {
+        built_collections, ..
+    } = validations;
 
-    let collection = &tables.built_collections[0];
+    let collection = &built_collections[0];
     assert!(!collection
         .spec
         .projections
@@ -266,42 +311,35 @@ driver:
 
   "##;
 
-    let tables = run_test(
-        serde_yaml::from_str(models).unwrap(),
-        &flow::build_api::Config {
-            build_id: "disabled-bindings".to_string(),
-            ..Default::default()
-        },
-    );
+    let ((_, validations), errors) =
+        run_test(serde_yaml::from_str(models).unwrap(), "disabled-bindings");
+    assert!(errors.is_empty(), "expected no errors, got: {errors:?}");
 
-    assert!(
-        tables.errors.is_empty(),
-        "expected no errors, got: {:?}",
-        tables.errors
-    );
-    assert_eq!(tables.built_captures.len(), 2);
-    let partly_disabled_cap = tables
-        .built_captures
+    let tables::Validations {
+        built_captures,
+        built_materializations,
+        ..
+    } = validations;
+
+    assert_eq!(built_captures.len(), 2);
+    let partly_disabled_cap = built_captures
         .iter()
         .find(|c| c.capture == "testing/partially-disabled-capture")
         .unwrap();
     assert_eq!(1, partly_disabled_cap.spec.bindings.len());
 
-    let fully_disabled_cap = tables
-        .built_captures
+    let fully_disabled_cap = built_captures
         .iter()
         .find(|c| c.capture == "testing/fully-disabled-capture")
         .unwrap();
     assert_eq!(0, fully_disabled_cap.spec.bindings.len());
 
-    let partly_disabled_mat = tables
-        .built_materializations
+    let partly_disabled_mat = built_materializations
         .iter()
         .find(|m| m.materialization == "testing/partially-disabled-materialization")
         .unwrap();
     assert_eq!(1, partly_disabled_mat.spec.bindings.len());
-    let fully_disabled_mat = tables
-        .built_materializations
+    let fully_disabled_mat = built_materializations
         .iter()
         .find(|m| m.materialization == "testing/fully-disabled-materialization")
         .unwrap();
@@ -310,22 +348,22 @@ driver:
 
 #[test]
 fn test_database_round_trip() {
-    let tables = run_test(
-        GOLDEN.clone(),
-        &flow::build_api::Config {
-            build_id: "a-build-id".to_string(),
-            ..Default::default()
-        },
-    );
+    let ((sources, validations), _) = run_test(GOLDEN.clone(), "a-build-id");
 
     // Round-trip source and built tables through the database, verifying equality.
     let db = rusqlite::Connection::open(":memory:").unwrap();
-    tables::persist_tables(&db, &tables.as_tables()).unwrap();
-    let mut reload_tables = tables::All::default();
-    tables::load_tables(&db, reload_tables.as_tables_mut().as_mut_slice()).unwrap();
 
-    let original = format!("{:#?}", tables);
-    let recovered = format!("{:#?}", reload_tables);
+    tables::persist_tables(&db, &sources.as_tables()).unwrap();
+    tables::persist_tables(&db, &validations.as_tables()).unwrap();
+
+    let mut reload_sources = tables::Sources::default();
+    let mut reload_validations = tables::Validations::default();
+
+    tables::load_tables(&db, reload_sources.as_tables_mut().as_mut_slice()).unwrap();
+    tables::load_tables(&db, reload_validations.as_tables_mut().as_mut_slice()).unwrap();
+
+    let original = format!("{sources:#?} {validations:#?}");
+    let recovered = format!("{reload_sources:#?} {reload_validations:#?}");
 
     if original != recovered {
         std::fs::write("ORIGINAL", original).unwrap();
@@ -1369,26 +1407,6 @@ test://example/int-halve:
 }
 
 #[test]
-fn test_image_inspection_is_malformed() {
-    let errors = run_test_errors(
-        &GOLDEN,
-        r#"
-driver:
-  imageInspections:
-    s3:
-      output: '[{"Invalid": "Inspection"}]'
-    database:
-      output: '[{"whoops": "bad"}]'
-    database/image:
-      output: '{"also": "bad"}'
-    webhook/connector:
-      output: '{"me": "too"}'
-"#,
-    );
-    insta::assert_debug_snapshot!(errors);
-}
-
-#[test]
 fn test_derivation_not_before_after_ordering() {
     let errors = run_test_errors(
         &GOLDEN,
@@ -1447,12 +1465,26 @@ test://example/int-string-tests:
     insta::assert_debug_snapshot!(errors);
 }
 
+#[test]
+fn test_invalid_generated_file_url() {
+    let errors = run_test_errors(
+        &GOLDEN,
+        r#"
+driver:
+  derivations:
+    testing/from-array-key:
+      generatedFiles:
+        "this is not a URL! ": generated content
+"#,
+    );
+    insta::assert_debug_snapshot!(errors);
+}
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MockDriverCalls {
     captures: BTreeMap<String, MockCaptureValidateCall>,
     derivations: BTreeMap<String, MockDeriveValidateCall>,
-    image_inspections: BTreeMap<String, MockImageInspectCall>,
     materializations: BTreeMap<String, MockMaterializationValidateCall>,
 }
 
@@ -1462,6 +1494,8 @@ struct MockCaptureValidateCall {
     connector_type: flow::capture_spec::ConnectorType,
     config: serde_json::Value,
     bindings: Vec<MockDriverBinding>,
+    #[serde(default)]
+    network_ports: Vec<flow::NetworkPort>,
     #[serde(default)]
     error: Option<String>,
 }
@@ -1474,6 +1508,8 @@ struct MockDeriveValidateCall {
     shuffle_key_types: Vec<flow::collection_spec::derivation::ShuffleType>,
     transforms: Vec<MockDeriveTransform>,
     generated_files: BTreeMap<String, String>,
+    #[serde(default)]
+    network_ports: Vec<flow::NetworkPort>,
     #[serde(default)]
     error: Option<String>,
 }
@@ -1493,13 +1529,9 @@ struct MockMaterializationValidateCall {
     #[serde(default)]
     delta_updates: bool,
     #[serde(default)]
+    network_ports: Vec<flow::NetworkPort>,
+    #[serde(default)]
     error: Option<String>,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-struct MockImageInspectCall {
-    output: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -1519,8 +1551,10 @@ struct MockDriverBinding {
 impl validation::Connectors for MockDriverCalls {
     fn validate_capture<'a>(
         &'a self,
-        request: capture::request::Validate,
-    ) -> LocalBoxFuture<'a, Result<capture::response::Validated, anyhow::Error>> {
+        request: capture::Request,
+    ) -> BoxFuture<'a, anyhow::Result<capture::Response>> {
+        let capture::Request{validate: Some(request), ..} = request else { unreachable!() };
+
         async move {
             let call = match self.captures.get(&request.name) {
                 Some(call) => call,
@@ -1560,15 +1594,26 @@ impl validation::Connectors for MockDriverCalls {
                 })
                 .collect();
 
-            return Ok(capture::response::Validated { bindings });
+            Ok(capture::Response {
+                validated: Some(capture::response::Validated { bindings }),
+                ..Default::default()
+            }
+            .with_internal(|internal| {
+                internal.container = Some(Container {
+                    ip_addr: "1.2.3.4".to_string(),
+                    network_ports: call.network_ports.clone(),
+                });
+            }))
         }
-        .boxed_local()
+        .boxed()
     }
 
     fn validate_derivation<'a>(
         &'a self,
-        request: derive::request::Validate,
-    ) -> LocalBoxFuture<'a, Result<derive::response::Validated, anyhow::Error>> {
+        request: derive::Request,
+    ) -> BoxFuture<'a, anyhow::Result<derive::Response>> {
+        let derive::Request{validate: Some(request), ..} = request else { unreachable!() };
+
         async move {
             let name = &request.collection.as_ref().unwrap().name;
 
@@ -1621,18 +1666,29 @@ impl validation::Connectors for MockDriverCalls {
                 })
                 .collect();
 
-            return Ok(derive::response::Validated {
-                transforms,
-                generated_files: call.generated_files.clone(),
-            });
+            Ok(derive::Response {
+                validated: Some(derive::response::Validated {
+                    transforms,
+                    generated_files: call.generated_files.clone(),
+                }),
+                ..Default::default()
+            }
+            .with_internal(|internal| {
+                internal.container = Some(Container {
+                    ip_addr: "1.2.3.4".to_string(),
+                    network_ports: call.network_ports.clone(),
+                });
+            }))
         }
-        .boxed_local()
+        .boxed()
     }
 
     fn validate_materialization<'a>(
         &'a self,
-        request: materialize::request::Validate,
-    ) -> LocalBoxFuture<'a, Result<materialize::response::Validated, anyhow::Error>> {
+        request: materialize::Request,
+    ) -> BoxFuture<'a, anyhow::Result<materialize::Response>> {
+        let materialize::Request{validate: Some(request), ..} = request else { unreachable!() };
+
         async move {
             let call = match self.materializations.get(&request.name) {
                 Some(call) => call,
@@ -1686,29 +1742,25 @@ impl validation::Connectors for MockDriverCalls {
                 })
                 .collect();
 
-            return Ok(materialize::response::Validated { bindings });
-        }
-        .boxed_local()
-    }
-
-    fn inspect_image<'a>(
-        &'a self,
-        image: String,
-    ) -> LocalBoxFuture<'a, Result<Vec<u8>, anyhow::Error>> {
-        async move {
-            if let Some(call) = self.image_inspections.get(&image) {
-                Ok(call.output.clone().into_bytes())
-            } else {
-                Err(anyhow::anyhow!(
-                    "driver fixture not found for image: '{image}'"
-                ))
+            Ok(materialize::Response {
+                validated: Some(materialize::response::Validated { bindings }),
+                ..Default::default()
             }
+            .with_internal(|internal| {
+                internal.container = Some(Container {
+                    ip_addr: "1.2.3.4".to_string(),
+                    network_ports: call.network_ports.clone(),
+                });
+            }))
         }
-        .boxed_local()
+        .boxed()
     }
 }
 
-fn run_test(mut fixture: Value, config: &flow::build_api::Config) -> tables::All {
+fn run_test(
+    mut fixture: Value,
+    build_id: &str,
+) -> ((tables::Sources, tables::Validations), tables::Errors) {
     // Extract out driver mock call fixtures.
     let mock_calls = fixture
         .get_mut("driver")
@@ -1722,52 +1774,33 @@ fn run_test(mut fixture: Value, config: &flow::build_api::Config) -> tables::All
     let tables::Sources {
         captures,
         collections,
-        mut errors,
+        errors: _,
         fetches,
         imports,
         materializations,
-        resources,
+        resources: _,
         storage_mappings,
         tests,
-    } = sources;
+    } = &sources;
 
-    let tables::Validations {
-        built_captures,
-        built_collections,
-        built_materializations,
-        built_tests,
-        errors: validation_errors,
-    } = futures::executor::block_on(validation::validate(
-        config,
+    let mut validations = futures::executor::block_on(validation::validate(
+        build_id,
+        &url::Url::parse("file:///project/root").unwrap(),
         &mock_calls,
         &validation::NoOpControlPlane,
-        &captures,
-        &collections,
-        &fetches,
-        &imports,
-        &materializations,
-        &storage_mappings,
-        &tests,
-    ));
-
-    errors.extend(validation_errors.into_iter());
-
-    tables::All {
-        built_captures,
-        built_collections,
-        built_materializations,
-        built_tests,
         captures,
         collections,
-        errors,
         fetches,
         imports,
         materializations,
-        meta: tables::Meta::new(),
-        resources,
         storage_mappings,
         tests,
-    }
+    ));
+
+    let mut errors = std::mem::take(&mut sources.errors);
+    errors.extend(std::mem::take(&mut validations.errors).into_iter());
+
+    ((sources, validations), errors)
 }
 
 #[must_use]
@@ -1776,13 +1809,7 @@ fn run_test_errors(fixture: &Value, patch: &str) -> tables::Errors {
     let patch: Value = serde_yaml::from_str(patch).unwrap();
     json_patch::merge(&mut fixture, &patch);
 
-    let tables::All { mut errors, .. } = run_test(
-        fixture,
-        &flow::build_api::Config {
-            build_id: "a-build-id".to_string(),
-            ..Default::default()
-        },
-    );
+    let (_, mut errors) = run_test(fixture, "a-build-id");
 
     // Squelch expected fixture error.
     if matches!(errors.first(), Some(err) if err.scope.as_str() == "test://example/from-array-key#/collections/testing~1from-array-key/derive/using/sqlite/migrations/1")

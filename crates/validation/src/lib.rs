@@ -1,4 +1,4 @@
-use futures::future::LocalBoxFuture;
+use futures::future::BoxFuture;
 use itertools::{EitherOrBoth, Itertools};
 use sources::Scope;
 
@@ -6,7 +6,6 @@ mod capture;
 mod collection;
 mod derivation;
 mod errors;
-mod image;
 mod indexed;
 mod materialization;
 mod noop;
@@ -16,33 +15,29 @@ mod storage_mapping;
 mod test_step;
 
 pub use errors::Error;
-pub use noop::{NoOpControlPlane, NoOpDrivers};
+pub use noop::{NoOpConnectors, NoOpControlPlane};
 
 /// Connectors is a delegated trait -- provided to validate -- through which
-/// connector validation RPCs are dispatched.
-pub trait Connectors {
-    fn inspect_image<'a>(
-        &'a self,
-        image: String,
-    ) -> LocalBoxFuture<'a, Result<Vec<u8>, anyhow::Error>>;
-
+/// connector validation RPCs are dispatched. Request and Response must always
+/// be Validate / Validated variants, but may include `internal` fields.
+pub trait Connectors: Send + Sync {
     fn validate_capture<'a>(
         &'a self,
-        request: proto_flow::capture::request::Validate,
-    ) -> LocalBoxFuture<'a, anyhow::Result<proto_flow::capture::response::Validated>>;
+        request: proto_flow::capture::Request,
+    ) -> BoxFuture<'a, anyhow::Result<proto_flow::capture::Response>>;
 
     fn validate_derivation<'a>(
         &'a self,
-        request: proto_flow::derive::request::Validate,
-    ) -> LocalBoxFuture<'a, anyhow::Result<proto_flow::derive::response::Validated>>;
+        request: proto_flow::derive::Request,
+    ) -> BoxFuture<'a, anyhow::Result<proto_flow::derive::Response>>;
 
     fn validate_materialization<'a>(
         &'a self,
-        request: proto_flow::materialize::request::Validate,
-    ) -> LocalBoxFuture<'a, anyhow::Result<proto_flow::materialize::response::Validated>>;
+        request: proto_flow::materialize::Request,
+    ) -> BoxFuture<'a, anyhow::Result<proto_flow::materialize::Response>>;
 }
 
-pub trait ControlPlane {
+pub trait ControlPlane: Send + Sync {
     // Resolve a set of collection names into pre-built CollectionSpecs from
     // the control plane. Resolution is fuzzy: if there is a spec that's *close*
     // to a provided name, it will be returned so that a suitable spelling
@@ -53,22 +48,23 @@ pub trait ControlPlane {
         collections: Vec<models::Collection>,
         // These parameters are currently required, but can be removed once we're
         // actually resolving fuzzy pre-built CollectionSpecs from the control plane.
-        temp_build_config: &'b proto_flow::flow::build_api::Config,
+        temp_build_id: &'b str,
         temp_storage_mappings: &'b [tables::StorageMapping],
-    ) -> LocalBoxFuture<'a, anyhow::Result<Vec<proto_flow::flow::CollectionSpec>>>;
+    ) -> BoxFuture<'a, anyhow::Result<Vec<proto_flow::flow::CollectionSpec>>>;
 
     // TODO(johnny): this is a temporary helper which supports the transition
     // to the control-plane holding built specifications.
     fn temp_build_collection_helper(
+        &self,
         name: String,
         spec: models::CollectionDef,
-        build_config: &proto_flow::flow::build_api::Config,
+        build_id: &str,
         storage_mappings: &[tables::StorageMapping],
     ) -> anyhow::Result<proto_flow::flow::CollectionSpec> {
         let mut errors = tables::Errors::new();
 
         if let Some(built_collection) = collection::walk_collection(
-            build_config,
+            build_id,
             &tables::Collection {
                 scope: url::Url::parse("flow://control-plane").unwrap(),
                 collection: models::Collection::new(name),
@@ -84,10 +80,11 @@ pub trait ControlPlane {
     }
 }
 
-pub async fn validate<C: Connectors, P: ControlPlane>(
-    build_config: &proto_flow::flow::build_api::Config,
-    connectors: &C,
-    control_plane: &P,
+pub async fn validate(
+    build_id: &str,
+    project_root: &url::Url,
+    connectors: &dyn Connectors,
+    control_plane: &dyn ControlPlane,
     captures: &[tables::Capture],
     collections: &[tables::Collection],
     fetches: &[tables::Fetch],
@@ -110,7 +107,7 @@ pub async fn validate<C: Connectors, P: ControlPlane>(
 
     // Build all local collections.
     let built_collections =
-        collection::walk_all_collections(build_config, collections, storage_mappings, &mut errors);
+        collection::walk_all_collections(build_id, collections, storage_mappings, &mut errors);
 
     // If we failed to build one or more collections then further validation
     // will generate lots of misleading "not found" errors.
@@ -133,7 +130,7 @@ pub async fn validate<C: Connectors, P: ControlPlane>(
                 materializations,
                 tests,
             ),
-            build_config,
+            build_id,
             storage_mappings,
         )
         .await
@@ -205,37 +202,32 @@ pub async fn validate<C: Connectors, P: ControlPlane>(
         &mut errors,
     );
 
-    let image_inspections =
-        image::walk_all_images(connectors, captures, collections, materializations).await;
-
     let built_captures = capture::walk_all_captures(
-        build_config,
+        build_id,
         &built_collections,
         captures,
         connectors,
-        &image_inspections,
         storage_mappings,
         &mut errors,
     );
 
     let mut derive_errors = tables::Errors::new();
     let built_derivations = derivation::walk_all_derivations(
-        build_config,
+        build_id,
         &built_collections,
         collections,
         connectors,
-        &image_inspections,
         imports,
+        project_root,
         storage_mappings,
         &mut derive_errors,
     );
 
     let mut materialize_errors = tables::Errors::new();
     let built_materializations = materialization::walk_all_materializations(
-        build_config,
+        build_id,
         &built_collections,
         connectors,
-        &image_inspections,
         materializations,
         storage_mappings,
         &mut materialize_errors,

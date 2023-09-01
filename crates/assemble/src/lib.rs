@@ -81,7 +81,7 @@ pub fn inference_uuid_v1_date_time() -> flow::Inference {
 // partition_template returns a template JournalSpec for creating
 // or updating data partitions of the collection.
 pub fn partition_template(
-    build_config: &flow::build_api::Config,
+    build_id: &str,
     collection: &models::Collection,
     journals: &models::JournalTemplate,
     stores: &[models::Store],
@@ -140,7 +140,7 @@ pub fn partition_template(
         },
         broker::Label {
             name: labels::BUILD.to_string(),
-            value: build_config.build_id.clone(),
+            value: build_id.to_string(),
         },
         broker::Label {
             name: labels::COLLECTION.to_string(),
@@ -172,7 +172,7 @@ pub fn partition_template(
 // recovery_log_template returns a template JournalSpec for creating
 // or updating recovery logs of task shards.
 pub fn recovery_log_template(
-    build_config: &flow::build_api::Config,
+    build_id: &str,
     task_name: &str,
     task_type: &str,
     stores: &[models::Store],
@@ -223,7 +223,7 @@ pub fn recovery_log_template(
         },
         broker::Label {
             name: labels::BUILD.to_string(),
-            value: build_config.build_id.clone(),
+            value: build_id.to_string(),
         },
         broker::Label {
             name: labels::TASK_NAME.to_string(),
@@ -272,7 +272,7 @@ pub fn shard_id_base(task_name: &str, task_type: &str) -> String {
 // shard_template returns a template ShardSpec for creating or updating
 // shards of the task.
 pub fn shard_template(
-    build_config: &flow::build_api::Config,
+    build_id: &str,
     task_name: &str,
     task_type: &str,
     shard: &models::ShardTemplate,
@@ -327,7 +327,7 @@ pub fn shard_template(
         },
         broker::Label {
             name: labels::BUILD.to_string(),
-            value: build_config.build_id.clone(),
+            value: build_id.to_string(),
         },
         broker::Label {
             name: labels::LOG_LEVEL.to_string(),
@@ -408,7 +408,7 @@ fn shard_hostname_label(task_name: &str) -> String {
 }
 
 pub fn collection_spec(
-    build_config: &flow::build_api::Config,
+    build_id: &str,
     collection: &tables::Collection,
     projections: Vec<flow::Projection>,
     stores: &[models::Store],
@@ -467,7 +467,7 @@ pub fn collection_spec(
                 "ack": true,
             } })
         .to_string(),
-        partition_template: Some(partition_template(build_config, name, journals, stores)),
+        partition_template: Some(partition_template(build_id, name, journals, stores)),
         derivation: None,
     }
 }

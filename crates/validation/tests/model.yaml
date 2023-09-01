@@ -291,23 +291,6 @@ test://example/int-string-len.schema:
       type: integer
 
 driver:
-  imageInspections:
-    s3:
-      output: &imageInspect '[{
-        "Id": "foo",
-        "Config":{
-        "ExposedPorts": {"567/tcp":{}, "123/udp": {}, "789":{} },
-        "Labels":{"dev.estuary.port-public.567":"true","dev.estuary.port-proto.789":"h2"}
-        }
-        }]'
-    database:
-      output: *imageInspect
-    # documenting the absolute minimal valid output from `docker inspect` that we're able to accept
-    database/image:
-      output: '[{"Config":{}}]'
-    webhook/connector:
-      output: *imageInspect
-
   materializations:
     testing/webhook/deliveries:
       connectorType: IMAGE
@@ -334,6 +317,9 @@ driver:
             Extra: { type: 2, reason: "location required" }
             Len: { type: 3, reason: "optional" }
           resourcePath: [targe+, two]
+      networkPorts: &networkPortsFixture
+        - { number: 567, public: true }
+        - { number: 789, protocol: h2 }
 
     testing/db-views:
       connectorType: IMAGE
@@ -392,6 +378,7 @@ driver:
       bindings:
         - resourcePath: [bucke+, pr@fix]
         - resourcePath: [other-bucket]
+      networkPorts: *networkPortsFixture
 
     testing/db-cdc:
       connectorType: IMAGE
@@ -402,6 +389,7 @@ driver:
           user: a-user
       bindings:
         - resourcePath: [schema, table]
+      networkPorts: *networkPortsFixture
 
 test://example/array-key.schema:
   # This schema models array additionalItems which provably exist,

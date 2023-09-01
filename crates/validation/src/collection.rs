@@ -4,7 +4,7 @@ use proto_flow::flow;
 use std::collections::BTreeMap;
 
 pub fn walk_all_collections(
-    build_config: &proto_flow::flow::build_api::Config,
+    build_id: &str,
     collections: &[tables::Collection],
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
@@ -12,7 +12,7 @@ pub fn walk_all_collections(
     let mut built_collections = tables::BuiltCollections::new();
 
     for collection in collections {
-        if let Some(spec) = walk_collection(build_config, collection, storage_mappings, errors) {
+        if let Some(spec) = walk_collection(build_id, collection, storage_mappings, errors) {
             built_collections.insert_row(&collection.scope, &collection.collection, None, spec);
         }
     }
@@ -22,7 +22,7 @@ pub fn walk_all_collections(
 // TODO(johnny): this is temporarily public, as we switch over to built
 // specs being explicitly represented by the control plane.
 pub fn walk_collection(
-    build_config: &proto_flow::flow::build_api::Config,
+    build_id: &str,
     collection: &tables::Collection,
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
@@ -115,7 +115,7 @@ pub fn walk_collection(
     );
 
     Some(assemble::collection_spec(
-        build_config,
+        build_id,
         collection,
         projections,
         partition_stores,

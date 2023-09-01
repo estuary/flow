@@ -1,13 +1,12 @@
-use super::{image, indexed, reference, storage_mapping, Connectors, Error, NoOpDrivers, Scope};
+use super::{indexed, reference, storage_mapping, Connectors, Error, NoOpConnectors, Scope};
 use itertools::Itertools;
-use proto_flow::{capture, flow};
+use proto_flow::{capture, flow, ops::log::Level as LogLevel};
 
-pub async fn walk_all_captures<C: Connectors>(
-    build_config: &flow::build_api::Config,
+pub async fn walk_all_captures(
+    build_id: &str,
     built_collections: &[tables::BuiltCollection],
     captures: &[tables::Capture],
-    connectors: &C,
-    images: &[image::Image],
+    connectors: &dyn Connectors,
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
 ) -> tables::BuiltCaptures {
@@ -15,8 +14,7 @@ pub async fn walk_all_captures<C: Connectors>(
 
     for capture in captures {
         let mut capture_errors = tables::Errors::new();
-        let validation =
-            walk_capture_request(built_collections, capture, images, &mut capture_errors);
+        let validation = walk_capture_request(built_collections, capture, &mut capture_errors);
 
         // Skip validation if errors were encountered while building the request.
         if !capture_errors.is_empty() {
@@ -30,13 +28,27 @@ pub async fn walk_all_captures<C: Connectors>(
     let validations = validations
         .into_iter()
         .map(|(capture, request)| async move {
-            // If shards are disabled, then don't ask the connector to validate. Users may
-            // disable captures in response to the source system being unreachable, and we
-            // wouldn't want a validation error for a disabled task to terminate the build.
+            let mut wrapped = capture::Request {
+                validate: Some(request.clone()),
+                ..Default::default()
+            };
+
+            if let Some(log_level) = capture
+                .spec
+                .shards
+                .log_level
+                .as_ref()
+                .and_then(|s| LogLevel::from_str_name(s))
+            {
+                wrapped.set_internal_log_level(log_level);
+            }
+
+            // If shards are disabled, then don't ask the connector to validate.
+            // A broken but disabled endpoint should not cause a build to fail.
             let response = if capture.spec.shards.disable {
-                NoOpDrivers {}.validate_capture(request.clone())
+                NoOpConnectors.validate_capture(wrapped)
             } else {
-                connectors.validate_capture(request.clone())
+                connectors.validate_capture(wrapped)
             };
             (capture, request, response.await)
         });
@@ -44,12 +56,12 @@ pub async fn walk_all_captures<C: Connectors>(
     let validations: Vec<(
         &tables::Capture,
         capture::request::Validate,
-        anyhow::Result<capture::response::Validated>,
+        anyhow::Result<capture::Response>,
     )> = futures::future::join_all(validations).await;
 
     let mut built_captures = tables::BuiltCaptures::new();
 
-    for (capture, request, response) in validations {
+    for (capture, mut request, response) in validations {
         let tables::Capture {
             scope,
             capture: _,
@@ -60,12 +72,12 @@ pub async fn walk_all_captures<C: Connectors>(
         let scope = Scope::new(scope);
 
         // Unwrap `response` and bail out if it failed.
-        let validated = match response {
+        let (validated, network_ports) = match extract_validated(response) {
             Err(err) => {
-                Error::Connector { detail: err }.push(scope, errors);
+                err.push(scope, errors);
                 continue;
             }
-            Ok(response) => response,
+            Ok(ok) => ok,
         };
 
         let capture::request::Validate {
@@ -73,8 +85,7 @@ pub async fn walk_all_captures<C: Connectors>(
             config_json,
             bindings: binding_requests,
             name,
-            network_ports,
-        } = request;
+        } = &mut request;
 
         let capture::response::Validated {
             bindings: binding_responses,
@@ -90,7 +101,7 @@ pub async fn walk_all_captures<C: Connectors>(
 
         // Join requests and responses to produce tuples
         // of (binding index, built binding).
-        let built_bindings: Vec<_> = binding_requests
+        let built_bindings: Vec<_> = std::mem::take(binding_requests)
             .into_iter()
             .zip(binding_responses.into_iter())
             .enumerate()
@@ -145,18 +156,18 @@ pub async fn walk_all_captures<C: Connectors>(
 
         let spec = flow::CaptureSpec {
             name: name.clone(),
-            connector_type,
-            config_json,
+            connector_type: *connector_type,
+            config_json: std::mem::take(config_json),
             bindings: built_bindings,
             interval_seconds: interval.as_secs() as u32,
             recovery_log_template: Some(assemble::recovery_log_template(
-                build_config,
+                build_id,
                 &name,
                 labels::TASK_TYPE_CAPTURE,
                 recovery_stores,
             )),
             shard_template: Some(assemble::shard_template(
-                build_config,
+                build_id,
                 &name,
                 labels::TASK_TYPE_CAPTURE,
                 &shards,
@@ -165,7 +176,7 @@ pub async fn walk_all_captures<C: Connectors>(
             )),
             network_ports,
         };
-        built_captures.insert_row(scope.flatten(), name, validated, spec);
+        built_captures.insert_row(scope.flatten(), std::mem::take(name), validated, spec);
     }
 
     built_captures
@@ -174,19 +185,14 @@ pub async fn walk_all_captures<C: Connectors>(
 fn walk_capture_request<'a>(
     built_collections: &'a [tables::BuiltCollection],
     capture: &'a tables::Capture,
-    images: &[image::Image],
     errors: &mut tables::Errors,
 ) -> Option<(&'a tables::Capture, capture::request::Validate)> {
     let tables::Capture {
         scope,
         capture: name,
-        spec:
-            models::CaptureDef {
-                endpoint,
-                bindings,
-                shards,
-                ..
-            },
+        spec: models::CaptureDef {
+            endpoint, bindings, ..
+        },
     } = capture;
     let scope = Scope::new(scope);
 
@@ -199,20 +205,10 @@ fn walk_capture_request<'a>(
         errors,
     );
 
-    let (connector_type, config_json, network_ports) = match endpoint {
+    let (connector_type, config_json) = match endpoint {
         models::CaptureEndpoint::Connector(config) => (
             flow::capture_spec::ConnectorType::Image as i32,
             serde_json::to_string(config).unwrap(),
-            image::walk_image_network_ports(
-                scope
-                    .push_prop("endpoint")
-                    .push_prop("connector")
-                    .push_prop("image"),
-                shards.disable,
-                &config.image,
-                images,
-                errors,
-            ),
         ),
     };
 
@@ -243,7 +239,6 @@ fn walk_capture_request<'a>(
         connector_type,
         config_json,
         bindings,
-        network_ports,
     };
 
     Some((capture, request))
@@ -278,4 +273,31 @@ fn walk_capture_binding<'a>(
     };
 
     Some(request)
+}
+
+fn extract_validated(
+    response: anyhow::Result<capture::Response>,
+) -> Result<(capture::response::Validated, Vec<flow::NetworkPort>), Error> {
+    let response = match response {
+        Ok(response) => response,
+        Err(err) => return Err(Error::Connector { detail: err }),
+    };
+
+    let internal = match response.get_internal() {
+        Ok(internal) => internal,
+        Err(err) => {
+            return Err(Error::Connector {
+                detail: anyhow::anyhow!("parsing internal: {err}"),
+            });
+        }
+    };
+
+    let Some(validated) = response.validated else {
+        return Err(Error::Connector {
+            detail: anyhow::anyhow!("expected Validated but got {}", serde_json::to_string(&response).unwrap()),
+        });
+    };
+    let network_ports = internal.container.unwrap_or_default().network_ports;
+
+    Ok((validated, network_ports))
 }
