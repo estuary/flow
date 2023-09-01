@@ -35,7 +35,6 @@ type Driver struct {
 type imageSpec struct {
 	Image  string          `json:"image"`
 	Config json.RawMessage `json:"config"`
-	Ports  json.RawMessage `json:"ports"`
 }
 
 // Validate returns an error if EndpointSpec is invalid.
