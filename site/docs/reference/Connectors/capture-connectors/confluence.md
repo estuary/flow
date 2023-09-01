@@ -39,7 +39,7 @@ You configure connectors either in the Flow web app, or by directly editing the 
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the GitHub source connector.
 
 1. Create an API Token 
- - For detailed instructions on creating an Atlassian API Token, please refer to the official documentation.
+ - For detailed instructions on creating an Atlassian API Token, please refer to the [official documentation](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/).
 2. Set up the Confluence connector in Estuary Flow
  - Log into Estuary Flow and click "Captures".
  - Select "Create Capture" search for and click on "Confluence"
