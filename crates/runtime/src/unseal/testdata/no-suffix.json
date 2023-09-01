@@ -1,0 +1,29 @@
+{
+	"foo": {
+		"bar": "ENC[AES256_GCM,data:JMc=,iv:C2f8jc7lL1BtVGWp6NSnKp8+WFg8dd90vKPcoYqBFc4=,tag:bH9kEzFsL4D6Ua/rgDTKog==,type:float]",
+		"some_sops": [
+			"ENC[AES256_GCM,data:Pg==,iv:8DGbYxbIhuDkQSQ9ZKBn/xRk1DnxfzMSRYiSVhe93PU=,tag:tyEvtNl6iq29h4vlWDf8/g==,type:float]",
+			"ENC[AES256_GCM,data:vDaeb+g=,iv:EFxSHUjYdlj/imKk5Rk4UohbA80CHNBwxDC+pBhhSDw=,tag:kRYCbEkLTz1IemMHyKLyAQ==,type:str]"
+		]
+	},
+	"tru": "ENC[AES256_GCM,data:1UL9ow==,iv:rda+o6KfLbWuEIb5FfPN2OgwiXwohtor66fSS5t+OMA=,tag:EtW4i7/9d/ZNcJUA87Jw3A==,type:bool]",
+	"false": null,
+	"sops": {
+		"kms": null,
+		"gcp_kms": [
+			{
+				"resource_id": "projects/helpful-kingdom-273219/locations/us-central1/keyRings/dev/cryptoKeys/CI-estuary-flow",
+				"created_at": "2021-11-28T19:07:38Z",
+				"enc": "CiQAW8BC2Encb0B8k/GsRZ7uEZw/6NDfS86A0kKBTCr7Hka1AlsSSQCnySJK1y4Dmurkgw8Jc2DbHc7aeyVTMw0f8kaNsFNrQMab46iohqZbN8zVzpH4ArQY7lLeKGYQPctFB7IjOB/HExVkmi0KvJk="
+			}
+		],
+		"azure_kv": null,
+		"hc_vault": null,
+		"age": null,
+		"lastmodified": "2021-11-28T19:07:39Z",
+		"mac": "ENC[AES256_GCM,data:P513NLVRtvjpgfpYUAyliI6/LfeWuD3iOW0R7tMuzPOPtUZ8qiorAG+0FbPfOsLV4Wf2R95CKQwb8+oVVTgJqCh4A8l64S3GFvS3rmUC4uLm3kjLjrYsAx+UiiFp+DrxjnPr1s7ufAiZ5mW+mlAwwtCI7VN0ieRjqUuCVSIQJiA=,iv:Z2QT31Ru2JnsEUBJrxAA8HHNfUt3lHj72Lbu6FFo4Oo=,tag:PGhz0U3gjCs0SMT1x7x7dw==,type:str]",
+		"pgp": null,
+		"unencrypted_suffix": "_unencrypted",
+		"version": "3.7.1"
+	}
+}

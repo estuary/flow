@@ -1,7 +1,12 @@
 use clap::Parser;
+use std::io::Write;
 use tracing_subscriber::prelude::*;
 
 fn main() {
+    // Write a byte to stderr to let our container host know that we're alive.
+    // Whitespace avoids interfering with JSON logs that also write to stderr.
+    std::io::stderr().write(" ".as_bytes()).unwrap();
+
     let args = connector_init::Args::parse();
 
     // Map the LOG_LEVEL variable to an equivalent tracing EnvFilter.
