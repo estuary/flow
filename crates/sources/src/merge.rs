@@ -1,4 +1,6 @@
 use super::Format;
+use crate::Scope;
+use std::collections::BTreeMap;
 
 /// Policy is a layout policy which maps a catalog name, source root,
 /// and possible current resource into a resource where the specification should live,
@@ -83,6 +85,61 @@ pub fn flat_layout_replace(
     }
 }
 
+// Map tables::Sources into a flattened Catalog.
+// Sources should already be inline.
+pub fn into_catalog(sources: tables::Sources) -> models::Catalog {
+    let tables::Sources {
+        captures,
+        collections,
+        fetches: _,
+        imports: _,
+        materializations,
+        resources: _,
+        storage_mappings: _,
+        tests,
+        errors,
+    } = sources;
+
+    assert!(errors.is_empty());
+
+    models::Catalog {
+        _schema: None,
+        import: Vec::new(), // Fully inline and requires no imports.
+        captures: captures
+            .into_iter()
+            .map(|tables::Capture { capture, spec, .. }| (capture, spec))
+            .collect(),
+        collections: collections
+            .into_iter()
+            .map(
+                |tables::Collection {
+                     collection, spec, ..
+                 }| (collection, spec),
+            )
+            .collect(),
+        materializations: materializations
+            .into_iter()
+            .map(
+                |tables::Materialization {
+                     materialization,
+                     spec,
+                     ..
+                 }| (materialization, spec),
+            )
+            .collect(),
+        tests: tests
+            .into_iter()
+            .map(|tables::Test { test, spec, .. }| (test, spec))
+            .collect(),
+
+        // We deliberately omit storage mappings.
+        // The control plane will inject these during its builds.
+        storage_mappings: BTreeMap::new(),
+    }
+}
+
+// Map specifications from a Catalog into tables::Sources.
+// Sources should already be inline.
 pub fn extend_from_catalog<P>(
     sources: &mut tables::Sources,
     catalog: models::Catalog,
@@ -110,6 +167,12 @@ where
         "catalog must not include storage mappings"
     );
 
+    const CAPTURES: &str = "captures";
+    const COLLECTIONS: &str = "collections";
+    const MATERIALIZATIONS: &str = "materializations";
+    const TESTS: &str = "tests";
+
+    let root = sources.fetches[0].resource.clone();
     let mut count = 0;
 
     for (capture, spec) in captures {
@@ -118,9 +181,11 @@ where
             .binary_search_by(|other| other.capture.cmp(&capture))
         {
             Ok(index) => {
-                let chain = policy(
+                let chain = eval_policy(
+                    &policy,
+                    CAPTURES,
                     &capture,
-                    &sources.fetches[0].resource,
+                    &root,
                     Some(&sources.captures[index].scope),
                 );
 
@@ -135,7 +200,7 @@ where
                 }
             }
             Err(_) => {
-                let chain = policy(&capture, &sources.fetches[0].resource, None);
+                let chain = eval_policy(&policy, CAPTURES, &capture, &root, None);
 
                 if let Some(last) = chain.last() {
                     sources.captures.insert_row(last, capture, spec);
@@ -151,9 +216,11 @@ where
             .binary_search_by(|other| other.collection.cmp(&collection))
         {
             Ok(index) => {
-                let chain = policy(
+                let chain = eval_policy(
+                    &policy,
+                    COLLECTIONS,
                     &collection,
-                    &sources.fetches[0].resource,
+                    &root,
                     Some(&sources.collections[index].scope),
                 );
 
@@ -168,7 +235,7 @@ where
                 }
             }
             Err(_) => {
-                let chain = policy(&collection, &sources.fetches[0].resource, None);
+                let chain = eval_policy(&policy, COLLECTIONS, &collection, &root, None);
 
                 if let Some(last) = chain.last() {
                     sources.collections.insert_row(last, collection, spec);
@@ -184,9 +251,11 @@ where
             .binary_search_by(|other| other.materialization.cmp(&materialization))
         {
             Ok(index) => {
-                let chain = policy(
+                let chain = eval_policy(
+                    &policy,
+                    MATERIALIZATIONS,
                     &materialization,
-                    &sources.fetches[0].resource,
+                    &root,
                     Some(&sources.materializations[index].scope),
                 );
 
@@ -201,7 +270,7 @@ where
                 }
             }
             Err(_) => {
-                let chain = policy(&materialization, &sources.fetches[0].resource, None);
+                let chain = eval_policy(&policy, MATERIALIZATIONS, &materialization, &root, None);
 
                 if let Some(last) = chain.last() {
                     sources
@@ -219,9 +288,11 @@ where
             .binary_search_by(|other| other.test.cmp(&test))
         {
             Ok(index) => {
-                let chain = policy(
+                let chain = eval_policy(
+                    &policy,
+                    TESTS,
                     &test,
-                    &sources.fetches[0].resource,
+                    &root,
                     Some(&sources.tests[index].scope),
                 );
 
@@ -236,7 +307,7 @@ where
                 }
             }
             Err(_) => {
-                let chain = policy(&test, &sources.fetches[0].resource, None);
+                let chain = eval_policy(&policy, TESTS, &test, &root, None);
 
                 if let Some(last) = chain.last() {
                     sources.tests.insert_row(last, test, spec);
@@ -249,15 +320,43 @@ where
     count
 }
 
+// Evaluate the policy, and then fix up the fragment-encoded JSON pointer of
+// the final URL, which is used as the specification scope within the entity table.
+fn eval_policy<P>(
+    policy: P,
+    entity: &str,
+    name: &str,
+    root: &url::Url,
+    exists: Option<&url::Url>,
+) -> Vec<url::Url>
+where
+    P: Fn(&str, &url::Url, Option<&url::Url>) -> Vec<url::Url>,
+{
+    let mut chain = policy(name, root, exists);
+
+    for u in chain.iter_mut() {
+        u.set_fragment(None);
+    }
+
+    if let Some(last) = chain.last_mut() {
+        *last = Scope::new(last).push_prop(entity).push_prop(name).flatten();
+    }
+
+    chain
+}
+
 fn add_imports(sources: &mut tables::Sources, chain: &[url::Url]) {
     for (importer, imports) in chain.windows(2).map(|pair| (&pair[0], &pair[1])) {
         let mut scope = importer.clone();
         scope.set_fragment(Some("/import/-"));
 
+        let mut imports = imports.clone();
+        imports.set_fragment(None);
+
         // Add a new import if we haven't added one already. We'll do more de-duplication later.
         if let Err(_) = sources
             .imports
-            .binary_search_by(|l| (&l.scope, &l.to_resource).cmp(&(&scope, imports)))
+            .binary_search_by(|l| (&l.scope, &l.to_resource).cmp(&(&scope, &imports)))
         {
             sources.imports.insert_row(scope, imports);
         }

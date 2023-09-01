@@ -224,7 +224,9 @@ macro_rules! json_sql_types {
                 "TEXT"
             }
             fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-                let s = serde_json::to_string(self)
+                // "pretty" encoding is not strictly required, but it makes database
+                // more pleasant to examine with SQLite GUI tooling.
+                let s = serde_json::to_string_pretty(self)
                     .map_err(|err| rusqlite::Error::ToSqlConversionFailure(err.into()))?;
                 Ok(s.into())
             }

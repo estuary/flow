@@ -71,19 +71,19 @@ Sources {
     imports: [
         Import {
             scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read/readSchema,
-            to_resource: test://example/schema.json,
+            to_resource: test://example/collection-with-write-and-read.read.schema.yaml,
         },
         Import {
             scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read/writeSchema,
-            to_resource: test://example/schema.json,
+            to_resource: test://example/collection-with-write-and-read.write.schema.yaml,
         },
         Import {
             scope: test://example/catalog.yaml#/collections/test~1collection/schema,
-            to_resource: test://example/schema.json,
+            to_resource: test://example/collection.schema.yaml,
         },
         Import {
             scope: test://example/catalog.yaml#/collections/test~1collection~1with-journals/schema,
-            to_resource: test://example/schema.json,
+            to_resource: test://example/with-journals.schema.yaml,
         },
     ],
     materializations: [],
@@ -96,25 +96,25 @@ Sources {
         },
         Resource {
             resource: test://example/collection-with-write-and-read.read.schema.yaml,
-            content_type: "CONFIG",
+            content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: {"$defs":{"__flowInline1":{"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"}},"$id":"test://example/catalog.yaml?ptr=/collections/test~1collection-with-write-and-read/readSchema","$ref":"schema.json#/properties/a"},
         },
         Resource {
             resource: test://example/collection-with-write-and-read.write.schema.yaml,
-            content_type: "CONFIG",
+            content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: {"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"},
         },
         Resource {
             resource: test://example/collection.schema.yaml,
-            content_type: "CONFIG",
+            content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: {"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"},
         },
         Resource {
             resource: test://example/with-journals.schema.yaml,
-            content_type: "CONFIG",
+            content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: {"$defs":{"__flowInline1":{"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"}},"$id":"test://example/catalog.yaml?ptr=/collections/test~1collection~1with-journals/schema","$ref":"schema.json#foobar"},
         },
