@@ -10,7 +10,7 @@ pub use indirect::{indirect_large_files, rebuild_catalog_resources};
 pub use inline::inline_sources;
 
 pub use bundle_schema::bundle_schema;
-pub use loader::{FetchFuture, Fetcher, LoadError, Loader};
+pub use loader::{Fetcher, LoadError, Loader};
 pub use scope::Scope;
 
 #[derive(Copy, Clone, Debug)]
