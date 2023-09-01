@@ -54,8 +54,8 @@ pub async fn do_discover(
 
     let catalog_file = format!("{connector_name}.flow.yaml");
 
-    let target = local_specs::arg_source_to_url(&catalog_file, true)?;
-    let mut sources = local_specs::surface_errors(local_specs::load(&target).await)?;
+    let target = build::arg_source_to_url(&catalog_file, true)?;
+    let mut sources = local_specs::surface_errors(local_specs::load(&target).await.into_result())?;
 
     let capture_name = format!("{prefix}/{connector_name}");
 

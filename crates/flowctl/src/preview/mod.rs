@@ -3,8 +3,7 @@ use anyhow::Context;
 use doc::shape::schema::to_schema;
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt, TryStreamExt};
-use prost::Message;
-use proto_flow::runtime::{derive_request_ext, DeriveRequestExt};
+use proto_flow::runtime::derive_request_ext;
 use proto_flow::{derive, flow, flow::collection_spec::derivation::Transform};
 use proto_gazette::broker;
 use tokio::sync::broadcast;
@@ -43,7 +42,7 @@ impl Preview {
             sqlite_uri: sqlite_path,
             interval: flush_interval,
         } = self;
-        let source = local_specs::arg_source_to_url(source, false)?;
+        let source = build::arg_source_to_url(source, false)?;
 
         if self.infer_schema && source.scheme() != "file" {
             anyhow::bail!("schema inference can only be used with a local file --source");
@@ -140,26 +139,25 @@ impl Preview {
                     version: "local".to_string(),
                     state_json: "{}".to_string(),
                 }),
-                internal: Some(proto_flow::Any {
-                    type_url: "flow://runtime.DeriveResponseExt".to_string(),
-                    value: DeriveRequestExt {
-                        open: Some(derive_request_ext::Open {
-                            sqlite_vfs_uri: sqlite_path.clone(),
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    }
-                    .encode_to_vec()
-                    .into(),
-                }),
                 ..Default::default()
-            }))
+            }
+            .with_internal(|internal| {
+                internal.open = Some(derive_request_ext::Open {
+                    sqlite_vfs_uri: sqlite_path.clone(),
+                    ..Default::default()
+                });
+            })))
             .await?;
 
-        let mut responses_rx = runtime::derive::Middleware::new(ops::tracing_log_handler, None)
-            .serve(request_rx)
-            .await
-            .map_err(|status| anyhow::anyhow!("{}", status.message()))?;
+        let mut responses_rx = runtime::Runtime::new(
+            String::new(),
+            ops::tracing_log_handler,
+            None,
+            "preview".to_string(),
+        )
+        .serve_derive(request_rx)
+        .await
+        .map_err(|status| anyhow::anyhow!("{}", status.message()))?;
 
         let _opened = responses_rx
             .next()
@@ -210,8 +208,9 @@ impl Preview {
         // Update with an inferred schema and write out the updated Flow spec.
         if let Some(schema) = schema {
             // Reload `sources`, this time without inlining them.
-            let mut sources = local_specs::surface_errors(local_specs::load(&source).await)
-                .expect("sources must load a second time");
+            let mut sources =
+                local_specs::surface_errors(local_specs::load(&source).await.into_result())
+                    .expect("sources must load a second time");
 
             // Find the derivation we just previewed.
             let index = sources
@@ -351,9 +350,9 @@ where
     while let Some(response) = responses_rx.next().await {
         let response = response.map_err(status_to_anyhow)?;
 
-        let internal: proto_flow::runtime::DeriveResponseExt =
-            Message::decode(response.internal.map(|i| i.value).unwrap_or_default())
-                .context("failed to decode internal runtime.DeriveResponseExt")?;
+        let internal = response
+            .get_internal()
+            .context("failed to decode internal runtime.DeriveResponseExt")?;
 
         if let Some(derive::response::Published { doc_json }) = response.published {
             let proto_flow::runtime::derive_response_ext::Published {
