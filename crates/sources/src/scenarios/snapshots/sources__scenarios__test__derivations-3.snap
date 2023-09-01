@@ -134,31 +134,35 @@ Sources {
     imports: [
         Import {
             scope: test://example/catalog.yaml#/collections/d1~1collection/derive/using/typescript/module,
-            to_resource: test://example/catalog.ts,
+            to_resource: test://example/collection.ts,
         },
         Import {
             scope: test://example/catalog.yaml#/collections/d1~1collection/schema,
-            to_resource: test://example/a-schema.json,
+            to_resource: test://example/collection.schema.yaml,
         },
         Import {
             scope: test://example/catalog.yaml#/collections/d2~1collection/schema,
-            to_resource: test://example/a-schema.json,
+            to_resource: test://example/collection.schema.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/d3~1collection/derive/transforms/0/lambda,
+            to_resource: test://example/collection.lambda.frob.sql,
         },
         Import {
             scope: test://example/catalog.yaml#/collections/d3~1collection/derive/transforms/0/shuffle/lambda,
-            to_resource: test://example/sql/shuffle_lambda.sql,
+            to_resource: test://example/collection.lambda.frob.shuffle.sql,
         },
         Import {
             scope: test://example/catalog.yaml#/collections/d3~1collection/derive/using/sqlite/migrations/1,
-            to_resource: test://example/sql/migration_two.sql,
+            to_resource: test://example/collection.migration.1.sql,
         },
         Import {
             scope: test://example/catalog.yaml#/collections/d3~1collection/readSchema,
-            to_resource: test://example/other-schema.json,
+            to_resource: test://example/collection.read.schema.yaml,
         },
         Import {
             scope: test://example/catalog.yaml#/collections/d3~1collection/writeSchema,
-            to_resource: test://example/a-schema.json,
+            to_resource: test://example/collection.write.schema.yaml,
         },
     ],
     materializations: [],
@@ -189,13 +193,13 @@ Sources {
         },
         Resource {
             resource: test://example/collection.read.schema.yaml,
-            content_type: "CONFIG",
+            content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: {"$anchor":"foobar","$id":"test://example/other-schema.json","properties":{"d1-key":{"type":"string"},"key":{"description":"the key description","title":"the key title","type":"integer"},"moar":{"type":"number"},"shuffle":{"type":"integer"}},"type":"object"},
         },
         Resource {
             resource: test://example/collection.schema.yaml,
-            content_type: "CONFIG",
+            content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: {"$id":"test://example/a-schema.json","allOf":[true]},
         },
@@ -207,7 +211,7 @@ Sources {
         },
         Resource {
             resource: test://example/collection.write.schema.yaml,
-            content_type: "CONFIG",
+            content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: {"$id":"test://example/a-schema.json","allOf":[true]},
         },

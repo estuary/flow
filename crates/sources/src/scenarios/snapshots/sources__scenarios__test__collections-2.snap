@@ -68,24 +68,7 @@ Sources {
     ],
     errors: [],
     fetches: [],
-    imports: [
-        Import {
-            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read/readSchema,
-            to_resource: test://example/schema.json,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read/writeSchema,
-            to_resource: test://example/schema.json,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/collections/test~1collection/schema,
-            to_resource: test://example/schema.json,
-        },
-        Import {
-            scope: test://example/catalog.yaml#/collections/test~1collection~1with-journals/schema,
-            to_resource: test://example/schema.json,
-        },
-    ],
+    imports: [],
     materializations: [],
     resources: [],
     storage_mappings: [],

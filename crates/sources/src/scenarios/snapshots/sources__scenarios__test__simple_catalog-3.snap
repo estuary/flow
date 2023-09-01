@@ -28,7 +28,7 @@ Sources {
     imports: [
         Import {
             scope: test://example/catalog.yaml#/collections/a~1collection/schema,
-            to_resource: test://example/schema,
+            to_resource: test://example/collection.schema.yaml,
         },
         Import {
             scope: test://example/catalog.yaml#/import/0,
@@ -53,7 +53,7 @@ Sources {
         },
         Resource {
             resource: test://example/collection.schema.yaml,
-            content_type: "CONFIG",
+            content_type: "JSON_SCHEMA",
             content: ".. binary ..",
             content_dom: {"$id":"test://example/schema","allOf":[true]},
         },

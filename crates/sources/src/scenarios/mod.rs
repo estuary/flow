@@ -28,6 +28,9 @@ mod test {
             tables.fetches = tables::Fetches::new();
             tables.resources = tables::Resources::new();
 
+            // Clear implicit imports, leaving only explicit catalog imports.
+            tables.imports.retain(|import| import.scope.fragment().unwrap().starts_with("/import"));
+
             // Verify shape of inline specs.
 			insta::assert_debug_snapshot!(tables);
 
@@ -35,6 +38,21 @@ mod test {
             crate::indirect_large_files(&mut tables, 32);
             crate::rebuild_catalog_resources(&mut tables);
 			insta::assert_debug_snapshot!(tables);
+
+            // Inline one last time, map into a Catalog, and JSON-encode.
+            crate::inline_sources(&mut tables);
+            tables.imports.clear();
+            let lhs = serde_json::to_string_pretty(&crate::merge::into_catalog(tables)).unwrap();
+
+            // Evaluate the fixture again, inline, map into a Catalog, and JSON-encode.
+			let mut tables_2 = evaluate_fixtures(Default::default(), &fixture);
+            tables_2.errors = tables::Errors::new();
+            crate::inline_sources(&mut tables_2);
+            let rhs = serde_json::to_string_pretty(&crate::merge::into_catalog(tables_2)).unwrap();
+
+            // Expect that `tables`, which was round-tripped through inlined => indirect'd => inlined,
+            // has the same specification content as `tables_2`, which was only inlined.
+            assert_eq!(lhs, rhs);
         }
     )*
     }

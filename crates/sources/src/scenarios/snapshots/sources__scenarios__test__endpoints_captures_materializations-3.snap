@@ -87,43 +87,47 @@ Sources {
     imports: [
         Import {
             scope: test://example/catalog.yaml#/captures/capture~1config-missing/bindings/0/resource,
-            to_resource: test://example/resource/not/found.yaml,
+            to_resource: test://example/config-missing.resource.0.config.yaml,
         },
         Import {
             scope: test://example/catalog.yaml#/captures/capture~1config-missing/endpoint/connector/config,
-            to_resource: test://example/config/not/found.yaml,
+            to_resource: test://example/config-missing.config.yaml,
         },
         Import {
             scope: test://example/catalog.yaml#/captures/capture~1config-raw/endpoint/connector/config,
-            to_resource: test://example/raw-config.foo,
+            to_resource: test://example/config-raw.config.yaml,
         },
         Import {
             scope: test://example/catalog.yaml#/captures/capture~1second/bindings/0/resource,
-            to_resource: test://example/referenced/resource.yaml,
+            to_resource: test://example/second.resource.0.config.yaml,
         },
         Import {
             scope: test://example/catalog.yaml#/captures/capture~1second/endpoint/connector/config,
-            to_resource: test://example/referenced/config.yaml,
+            to_resource: test://example/second.config.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/captures/first~1capture/endpoint/connector/config,
+            to_resource: test://example/capture.config.yaml,
         },
         Import {
             scope: test://example/catalog.yaml#/materializations/materialization~1missing-config/bindings/0/resource,
-            to_resource: test://example/referenced/not/found.yaml,
+            to_resource: test://example/missing-config.resource.0.config.yaml,
         },
         Import {
             scope: test://example/catalog.yaml#/materializations/materialization~1missing-config/endpoint/connector/config,
-            to_resource: test://example/config/not/found.yaml,
+            to_resource: test://example/missing-config.config.yaml,
         },
         Import {
             scope: test://example/catalog.yaml#/materializations/materialization~1with-config-fragment/endpoint/connector/config,
-            to_resource: test://example/referenced/config.yaml#/bad/fragment,
+            to_resource: test://example/with-config-fragment.config.yaml,
         },
         Import {
             scope: test://example/catalog.yaml#/materializations/materialization~1with-config/bindings/0/resource,
-            to_resource: test://example/referenced/resource.yaml,
+            to_resource: test://example/with-config.resource.0.config.yaml,
         },
         Import {
             scope: test://example/catalog.yaml#/materializations/materialization~1with-config/endpoint/connector/config,
-            to_resource: test://example/referenced/config.yaml,
+            to_resource: test://example/with-config.config.yaml,
         },
     ],
     materializations: [

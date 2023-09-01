@@ -1,6 +1,5 @@
 use anyhow::Context;
 use futures::{future::BoxFuture, FutureExt};
-use std::collections::BTreeMap;
 
 /// Load and validate sources and derivation connectors (only).
 /// Capture and materialization connectors are not validated.
@@ -30,11 +29,9 @@ pub(crate) async fn generate_files(
     client: crate::controlplane::Client,
     sources: tables::Sources,
 ) -> anyhow::Result<()> {
-    let source = &sources.fetches[0].resource.clone();
-    let project_root = build::project_root(source);
-
     let (mut sources, validations) = validate(client, true, false, true, sources).await;
 
+    let project_root = build::project_root(&sources.fetches[0].resource);
     build::generate_files(&project_root, &validations)?;
 
     sources.errors = sources
@@ -79,7 +76,7 @@ async fn validate(
     let source = &sources.fetches[0].resource.clone();
     let project_root = build::project_root(source);
 
-    let (sources, mut validate) = build::validate(
+    let (sources, mut validations) = build::validate(
         "local-build",
         "", // Use default connector network.
         &Resolver { client },
@@ -95,7 +92,7 @@ async fn validate(
 
     // Local specs are not expected to satisfy all referential integrity checks.
     // Filter out errors which are not really "errors" for the Flow CLI.
-    validate.errors = validate
+    validations.errors = validations
         .errors
         .into_iter()
         .filter(|err| match err.error.downcast_ref() {
@@ -108,7 +105,22 @@ async fn validate(
         })
         .collect::<tables::Errors>();
 
-    (sources, validate)
+    let out = (sources, validations);
+
+    // If DEBUG tracing is enabled, then write sources and validations to a
+    // debugging database that can be inspected or shipped to Estuary for support.
+    if tracing::enabled!(tracing::Level::DEBUG) {
+        let seconds = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let db_path = std::env::temp_dir().join(format!("flowctl_{seconds}.sqlite"));
+        build::persist(Default::default(), &db_path, Ok(&out)).expect("failed to write build DB");
+        tracing::debug!(db_path=%db_path.to_string_lossy(), "wrote debugging database");
+    }
+
+    out
 }
 
 pub(crate) fn surface_errors<T>(result: Result<T, tables::Errors>) -> anyhow::Result<T> {
@@ -154,54 +166,7 @@ pub(crate) fn write_resources(mut sources: tables::Sources) -> anyhow::Result<ta
 }
 
 pub(crate) fn into_catalog(sources: tables::Sources) -> models::Catalog {
-    let tables::Sources {
-        captures,
-        collections,
-        fetches: _,
-        imports: _,
-        materializations,
-        resources: _,
-        storage_mappings: _,
-        tests,
-        errors,
-    } = sources;
-
-    assert!(errors.is_empty());
-
-    models::Catalog {
-        _schema: None,
-        import: Vec::new(), // Fully inline and requires no imports.
-        captures: captures
-            .into_iter()
-            .map(|tables::Capture { capture, spec, .. }| (capture, spec))
-            .collect(),
-        collections: collections
-            .into_iter()
-            .map(
-                |tables::Collection {
-                     collection, spec, ..
-                 }| (collection, spec),
-            )
-            .collect(),
-        materializations: materializations
-            .into_iter()
-            .map(
-                |tables::Materialization {
-                     materialization,
-                     spec,
-                     ..
-                 }| (materialization, spec),
-            )
-            .collect(),
-        tests: tests
-            .into_iter()
-            .map(|tables::Test { test, spec, .. }| (test, spec))
-            .collect(),
-
-        // We deliberately omit storage mappings.
-        // The control plane will inject these during its builds.
-        storage_mappings: BTreeMap::new(),
-    }
+    ::sources::merge::into_catalog(sources)
 }
 
 pub(crate) fn extend_from_catalog<P>(
