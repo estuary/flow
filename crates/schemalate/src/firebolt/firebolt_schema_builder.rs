@@ -196,42 +196,47 @@ mod tests {
 
     #[test]
     fn test_build_firebolt_queries_bundle() {
-        assert_eq!(
-            build_firebolt_queries_bundle(MaterializationSpec {
-                config_json: json!({
-                    "aws_key_id": "aws_key",
-                    "aws_secret_key": "aws_secret",
-                    "s3_bucket": "my-bucket",
-                    "s3_prefix": "/test"
-                }).to_string(),
-                bindings: vec![Binding {
-                    resource_config_json: json!({
-                        "table": "test_table",
-                        "table_type": "fact"
-                    }).to_string(),
-                    field_selection: Some(FieldSelection {
-                        keys: vec!["test".to_string()],
-                        ..Default::default()
-                    }),
-                    collection: Some(CollectionSpec {
-                        write_schema_json: json!({
-                            "properties": {
-                                "test": {"type": "string"},
-                            },
-                            "required": ["test"],
-                            "type": "object"
-                        }).to_string(),
-                        projections: vec![Projection {
-                            field: "test".to_string(),
-                            ptr: "/test".to_string(),
-                            ..Default::default()
-                        }],
-                        ..Default::default()
-                    }),
+        let mut spec = MaterializationSpec::default();
+
+        spec.config_json = json!({
+            "aws_key_id": "aws_key",
+            "aws_secret_key": "aws_secret",
+            "s3_bucket": "my-bucket",
+            "s3_prefix": "/test"
+        })
+        .to_string();
+
+        spec.bindings = vec![Binding {
+            resource_config_json: json!({
+                "table": "test_table",
+                "table_type": "fact"
+            })
+            .to_string(),
+            field_selection: Some(FieldSelection {
+                keys: vec!["test".to_string()],
+                ..Default::default()
+            }),
+            collection: Some(CollectionSpec {
+                write_schema_json: json!({
+                    "properties": {
+                        "test": {"type": "string"},
+                    },
+                    "required": ["test"],
+                    "type": "object"
+                })
+                .to_string(),
+                projections: vec![Projection {
+                    field: "test".to_string(),
+                    ptr: "/test".to_string(),
                     ..Default::default()
                 }],
                 ..Default::default()
-            })
+            }),
+            ..Default::default()
+        }];
+
+        assert_eq!(
+            build_firebolt_queries_bundle(spec)
             .unwrap(),
             FireboltQueriesBundle {
                 bindings: vec![BindingBundle {
