@@ -16,12 +16,6 @@ func main() {
 Locally test a Flow catalog.
 		`, &cmdTest{})
 
-	addCmd(parser, "json-schema", "Print the catalog JSON schema", `
-Print the JSON schema specification of Flow catalogs, as understood by this
-specific build of Flow. This JSON schema can be used to enable IDE support
-and auto-completions.
-`, &cmdJSONSchema{})
-
 	addCmd(parser, "temp-data-plane", "Run an ephemeral, temporary local data plane", `
 Run a local data plane by shelling out to start Etcd, Gazette, and the Flow consumer.
 A local data plane is intended for local development and testing, and doesn't persist
