@@ -1,7 +1,10 @@
 use crate::local_specs;
 use anyhow::Context;
 use doc::combine;
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    path::PathBuf,
+};
 
 mod capture;
 mod discover;
@@ -37,12 +40,12 @@ pub enum Command {
     Rpc(Rpc),
     /// Issue a custom table update request to the API.
     Update(Update),
+    /// Perform a configured build of catalog sources.
+    Build(Build),
     /// Bundle catalog sources into a flattened and inlined catalog.
     Bundle(Bundle),
     /// Combine over an input stream of documents and write the output.
     Combine(Combine),
-    /// Deno derivation connector.
-    DenoDerive(DenoDerive),
     /// Generate a materialization fixture.
     MaterializeFixture(materialize_fixture::MaterializeFixture),
     /// Discover a connector and write catalog files
@@ -51,6 +54,8 @@ pub enum Command {
     Capture(capture::Capture),
     /// Suggest a schema that would alleviate document schema violations of a specific collection
     SuggestSchema(suggest_schema::SuggestSchema),
+    /// Emit the Flow specification JSON-Schema.
+    JsonSchema,
 }
 
 #[derive(Debug, clap::Args)]
@@ -92,6 +97,21 @@ pub struct Rpc {
     body: String,
 }
 
+#[derive(Debug, Clone, clap::Args)]
+#[clap(rename_all = "kebab-case")]
+pub struct Build {
+    #[clap(long)]
+    db_path: PathBuf,
+    #[clap(long)]
+    build_id: String,
+    #[clap(long, default_value = "")]
+    connector_network: String,
+    #[clap(long, default_value = "/")]
+    file_root: String,
+    #[clap(long)]
+    source: String,
+}
+
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct Bundle {
@@ -111,25 +131,25 @@ pub struct Combine {
     collection: String,
 }
 
-#[derive(Debug, clap::Args)]
-#[clap(rename_all = "kebab-case")]
-pub struct DenoDerive {}
-
 impl Advanced {
     pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
         match &self.cmd {
             Command::Get(get) => do_get(ctx, get).await,
             Command::Update(update) => do_update(ctx, update).await,
             Command::Rpc(rpc) => do_rpc(ctx, rpc).await,
+            Command::Build(build) => do_build(ctx, build).await,
             Command::Bundle(bundle) => do_bundle(ctx, bundle).await,
             Command::Combine(combine) => do_combine(ctx, combine).await,
-            Command::DenoDerive(_deno) => derive_typescript::run(),
             Command::MaterializeFixture(fixture) => {
                 materialize_fixture::do_materialize_fixture(ctx, fixture).await
             }
             Command::Discover(args) => discover::do_discover(ctx, args).await,
             Command::Capture(args) => capture::do_capture(ctx, args).await,
             Command::SuggestSchema(args) => suggest_schema::do_suggest_schema(ctx, args).await,
+            Command::JsonSchema => {
+                let schema = models::Catalog::root_json_schema();
+                Ok(serde_json::to_writer_pretty(std::io::stdout(), &schema)?)
+            }
         }
     }
 }
@@ -168,6 +188,46 @@ async fn do_rpc(
     tracing::debug!(?req, "built request to execute");
 
     println!("{}", req.send().await?.text().await?);
+    Ok(())
+}
+
+async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<()> {
+    let client = ctx.controlplane_client().await?;
+
+    let Build {
+        db_path,
+        build_id,
+        connector_network,
+        file_root,
+        source,
+    } = build.clone();
+
+    let source_url = build::arg_source_to_url(&source, false)?;
+    let project_root = build::project_root(&source_url);
+
+    let build_result = build::managed_build(
+        build_id.clone(),
+        connector_network.clone(),
+        Box::new(local_specs::Resolver { client }),
+        file_root.clone().into(),
+        ops::tracing_log_handler,
+        project_root.clone(),
+        source_url,
+    )
+    .await;
+
+    // build_api::Config is a legacy metadata structure which we still
+    // expect and validate when we open up a DB from Go.
+    let build_config = proto_flow::flow::build_api::Config {
+        build_db: db_path.to_string_lossy().to_string(),
+        build_id,
+        source,
+        source_type: proto_flow::flow::ContentType::Catalog as i32,
+        ..Default::default()
+    };
+
+    build::persist(build_config, &db_path, &build_result)?;
+
     Ok(())
 }
 
