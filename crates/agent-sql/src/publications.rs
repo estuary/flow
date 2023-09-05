@@ -117,6 +117,26 @@ pub async fn delete_draft(delete_draft_id: Id, pg_pool: &sqlx::PgPool) -> sqlx::
     Ok(())
 }
 
+pub async fn delete_pruned_live_specs(
+    last_pub_id: Id,
+    names: Vec<String>,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        r#"
+        delete from live_specs
+            where catalog_name = any ($1::text[])
+            and last_pub_id = $2
+        "#,
+        &names,
+        last_pub_id as Id
+    )
+    .execute(txn)
+    .await?;
+
+    Ok(())
+}
+
 pub async fn savepoint_noop(txn: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> sqlx::Result<()> {
     sqlx::query!("savepoint noop;").execute(txn).await?;
     Ok(())
@@ -287,7 +307,7 @@ pub async fn find_tenant_quotas(
                     where
                         live_specs.spec_type = 'capture' or
                         live_specs.spec_type = 'materialization' or
-                        live_specs.spec_type = 'collection' and live_specs.spec->'derivation' is not null
+                        live_specs.spec_type = 'collection' and live_specs.spec->'derive' is not null
                 ))::integer as tasks_used,
                 (count(live_specs.catalog_name) filter (
                     where live_specs.spec_type = 'collection'

@@ -266,7 +266,7 @@ async fn test_tenant_usage_quotas() {
             ('1000000000000000', 'usageA/CollectionA', '1', 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
             ('2000000000000000', 'usageA/CaptureA', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
             ('3000000000000000', 'usageA/MaterializationA', '1', 'materialization', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
-            ('5000000000000000', 'usageA/DerivationA', '{"derivation": {}}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
+            ('5000000000000000', 'usageA/DerivationA', '{"derive": {}}'::json, 'collection', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
             ('6000000000000000', 'usageB/CaptureA', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
             ('7000000000000000', 'usageB/CaptureB', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
             ('8000000000000000', 'usageB/CaptureC', '1', 'capture', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),

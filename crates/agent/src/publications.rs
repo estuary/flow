@@ -32,6 +32,11 @@ pub enum JobStatus {
         #[serde(skip_serializing_if = "Vec::is_empty")]
         linked_materialization_publications: Vec<Id>,
     },
+    /// Returned when there are no draft specs (after pruning unbound
+    /// collections). There will not be any `draft_errors` in this case, because
+    /// there's no `catalog_name` to associate with an error. And it may not be
+    /// desirable to treat this as an error, depending on the scenario.
+    EmptyDraft,
 }
 
 impl JobStatus {
@@ -145,7 +150,7 @@ impl PublishHandler {
             .await
             .context("creating savepoint")?;
 
-        let spec_rows =
+        let mut spec_rows =
             specs::resolve_specifications(row.draft_id, row.pub_id, row.user_id, txn).await?;
         tracing::debug!(specs = %spec_rows.len(), "resolved specifications");
 
@@ -196,9 +201,54 @@ impl PublishHandler {
             .await;
         }
 
-        let live_spec_ids: Vec<_> = spec_rows.iter().map(|row| row.live_spec_id).collect();
+        let expanded_rows = specs::expanded_specifications(row.user_id, &spec_rows, txn).await?;
+        tracing::debug!(specs = %expanded_rows.len(), "resolved expanded specifications");
+
+        let errors = draft::extend_catalog(
+            &mut draft_catalog,
+            expanded_rows
+                .iter()
+                .map(|r| (r.live_type, r.catalog_name.as_str(), r.live_spec.0.as_ref())),
+        );
+        if !errors.is_empty() {
+            anyhow::bail!("unexpected errors from expanded specs: {errors:?}");
+        }
+
+        // It's important that we prune unbound collection specs _after_ the catalog is expanded,
+        // and before checking resource quotas
+        let pruned_collections =
+            specs::prune_unbound_collections(&mut draft_catalog, &mut spec_rows);
+        // `resolve_specifications` will have created `live_specs` for each of the `draft_specs` in the publication.
+        // We need to delete any of those that correspond
+        if !pruned_collections.is_empty() {
+            tracing::info!(
+                ?pruned_collections,
+                "pruned unbound collections from catalog"
+            );
+            agent_sql::publications::delete_pruned_live_specs(
+                row.pub_id,
+                pruned_collections.clone(),
+                txn,
+            )
+            .await?;
+        }
+
+        if draft_catalog.is_empty() {
+            return stop_with_errors(vec![], JobStatus::EmptyDraft, row, txn).await;
+        }
+
+        let drafted_live_spec_ids: Vec<_> = spec_rows
+            .iter()
+            .filter_map(|r| {
+                if r.live_type.is_none() && r.last_pub_id == row.pub_id {
+                    Some(r.live_spec_id)
+                } else {
+                    None
+                }
+            })
+            .collect();
         let prev_quota_usage =
-            agent_sql::publications::find_tenant_quotas(live_spec_ids.clone(), txn).await?;
+            agent_sql::publications::find_tenant_quotas(drafted_live_spec_ids.clone(), txn).await?;
 
         for spec_row in &spec_rows {
             specs::apply_updates_for_row(
@@ -213,13 +263,16 @@ impl PublishHandler {
             .with_context(|| format!("applying spec updates for {}", spec_row.catalog_name))?;
         }
 
-        let errors = specs::enforce_resource_quotas(&spec_rows, prev_quota_usage, txn).await?;
+        let errors =
+            specs::enforce_resource_quotas(drafted_live_spec_ids.clone(), prev_quota_usage, txn)
+                .await?;
         if !errors.is_empty() {
             return stop_with_errors(errors, JobStatus::build_failed(Vec::new()), row, txn).await;
         }
 
         let unknown_connectors =
-            agent_sql::connector_tags::resolve_unknown_connectors(live_spec_ids, txn).await?;
+            agent_sql::connector_tags::resolve_unknown_connectors(drafted_live_spec_ids, txn)
+                .await?;
 
         let errors: Vec<Error> = unknown_connectors
             .into_iter()
@@ -239,9 +292,6 @@ impl PublishHandler {
             return stop_with_errors(errors, JobStatus::build_failed(Vec::new()), row, txn).await;
         }
 
-        let expanded_rows = specs::expanded_specifications(row.user_id, &spec_rows, txn).await?;
-        tracing::debug!(specs = %expanded_rows.len(), "resolved expanded specifications");
-
         // Touch all expanded specifications to update their build ID.
         // TODO(johnny): This can potentially deadlock. We may eventually want
         // to catch this condition and gracefully roll-back the transaction to
@@ -259,16 +309,6 @@ impl PublishHandler {
         )
         .await
         .context("updating build_id of expanded specifications")?;
-
-        let errors = draft::extend_catalog(
-            &mut draft_catalog,
-            expanded_rows
-                .iter()
-                .map(|r| (r.live_type, r.catalog_name.as_str(), r.live_spec.0.as_ref())),
-        );
-        if !errors.is_empty() {
-            anyhow::bail!("unexpected errors from expanded specs: {errors:?}");
-        }
 
         let errors = storage::inject_mappings(
             spec_rows

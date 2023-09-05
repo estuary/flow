@@ -5,7 +5,7 @@ use agent_sql::{Capability, CatalogType, Id};
 use anyhow::Context;
 use itertools::Itertools;
 use sqlx::types::Uuid;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 // resolve_specifications returns the definitive set of specifications which
 // are changing in this publication. It obtains sufficient locks to ensure
@@ -137,7 +137,8 @@ pub fn validate_transition(
             continue;
         }
         // Check that the specification is authorized to its referants.
-        let (reads_from, writes_to, _) = extract_spec_metadata(draft, spec_row);
+        let (reads_from, writes_to, _) =
+            extract_spec_metadata(draft, &spec_row.catalog_name, spec_row.draft_type);
 
         for source in reads_from.iter().flatten() {
             if !spec_capabilities.iter().any(|c| {
@@ -316,7 +317,7 @@ pub fn validate_transition(
 }
 
 pub async fn enforce_resource_quotas(
-    spec_rows: &[SpecRow],
+    drafted_live_spec_ids: Vec<Id>,
     prev_tenants: Vec<Tenant>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> anyhow::Result<Vec<Error>> {
@@ -324,12 +325,8 @@ pub async fn enforce_resource_quotas(
         .into_iter()
         .map(|tenant| (tenant.name.clone(), tenant))
         .collect::<HashMap<_, _>>();
-    let spec_ids = spec_rows
-        .iter()
-        .map(|spec_row| spec_row.live_spec_id)
-        .collect();
 
-    let errors = agent_sql::publications::find_tenant_quotas(spec_ids, txn)
+    let errors = agent_sql::publications::find_tenant_quotas(drafted_live_spec_ids, txn)
         .await?
         .into_iter()
         .flat_map(|tenant| {
@@ -435,7 +432,8 @@ pub async fn apply_updates_for_row(
     // the draft `catalog_name` in order to lock it. If the draft is a deletion,
     // that's marked as a DB NULL of `spec` and `spec_type`.
 
-    let (reads_from, writes_to, image_parts) = extract_spec_metadata(catalog, spec_row);
+    let (reads_from, writes_to, image_parts) =
+        extract_spec_metadata(catalog, &spec_row.catalog_name, spec_row.draft_type);
 
     agent_sql::publications::update_published_live_spec(
         catalog_name,
@@ -580,38 +578,100 @@ pub async fn add_built_specs_to_draft_specs(
     Ok(())
 }
 
+/// Removes unbound collections from both the catalog and `spec_rows`, returning
+/// the names of any such collections that were removed.
+pub fn prune_unbound_collections(
+    expanded_catalog: &mut models::Catalog,
+    spec_rows: &mut Vec<SpecRow>,
+) -> Vec<String> {
+    let mut names = get_unbound_collection_names(&*expanded_catalog);
+    for r in spec_rows.iter() {
+        // Don't prune anything if there is an existing live spec for it.
+        // This ensures that you can always update an existing collection, even if there's
+        // nothing reading from it at the moment.
+        if r.live_type == Some(CatalogType::Collection) {
+            names.remove(r.catalog_name.as_str());
+        }
+    }
+
+    spec_rows.retain(|r| !names.contains(r.catalog_name.as_str()));
+    for name in names.iter() {
+        expanded_catalog
+            .collections
+            .remove(&models::Collection::new(name.as_str()))
+            .expect("collection must be present in catalog");
+    }
+    names.into_iter().collect()
+}
+
+fn get_unbound_collection_names(catalog: &models::Catalog) -> HashSet<String> {
+    // We'll start with a set of all collections, and remove any that are used in any bindings.
+    let mut unbound_collections = catalog
+        .collections
+        .keys()
+        .map(|k| k.as_str().to_string())
+        .collect::<std::collections::HashSet<_>>();
+
+    for name in catalog.captures.keys() {
+        let (_, writes_to, _) = extract_spec_metadata(catalog, name, Some(CatalogType::Capture));
+        for collection in writes_to.unwrap() {
+            unbound_collections.remove(collection);
+        }
+    }
+    for name in catalog.collections.keys() {
+        // Collections may or may not have `reads_from`, depending on whether it's a derivation.
+        let (Some(reads_from), _, _) = extract_spec_metadata(catalog, name, Some(CatalogType::Collection)) else {
+            continue;
+        };
+        // If it does have a `reads_from`, then it's a derivation, and thus we should never prune this collection.
+        unbound_collections.remove(name.as_str());
+        for collection in reads_from {
+            unbound_collections.remove(collection);
+        }
+    }
+    for name in catalog.materializations.keys() {
+        let (reads_from, _, _) =
+            extract_spec_metadata(catalog, name, Some(CatalogType::Materialization));
+        for collection in reads_from.unwrap() {
+            unbound_collections.remove(collection);
+        }
+    }
+    for name in catalog.tests.keys() {
+        let (reads_from, writes_to, _) =
+            extract_spec_metadata(catalog, name, Some(CatalogType::Test));
+        for collection in reads_from.unwrap() {
+            unbound_collections.remove(collection);
+        }
+        for collection in writes_to.unwrap() {
+            unbound_collections.remove(collection);
+        }
+    }
+
+    unbound_collections
+}
+
 /// Returns a tuple containing:
 /// - catalog names that this spec reads from
 /// - catalog names that this spec writes to
 /// - connector image parts, if applicable
+/// If the `draft_type` is `Some(CatalogType::Capture)` or `Some(CatalogType::Materialization)`, then the
+/// respective `writes_to` and `reads_from` options are guaranteed to be `Some`.
+///
+/// **Panics:** if `draft_type` is `Some` and the given `catalog` does not contain a spec of the expected type.
 fn extract_spec_metadata<'a>(
     catalog: &'a models::Catalog,
-    spec_row: &'a SpecRow,
+    catalog_name: &str,
+    draft_type: Option<CatalogType>,
 ) -> (
     Option<Vec<&'a str>>,
     Option<Vec<&'a str>>,
     Option<(String, String)>,
 ) {
-    let SpecRow {
-        user_capability: _,
-        spec_capabilities: _,
-        catalog_name,
-        draft_spec: _,
-        draft_spec_id: _,
-        draft_type,
-        expect_pub_id: _,
-        last_build_id: _,
-        last_pub_id: _,
-        live_spec: _,
-        live_spec_id: _,
-        live_type: _,
-    } = spec_row;
-
     let mut reads_from = Vec::new();
     let mut writes_to = Vec::new();
     let mut image_parts = None;
 
-    match *draft_type {
+    match draft_type {
         Some(CatalogType::Capture) => {
             let key = models::Capture::new(catalog_name);
             let capture = catalog.captures.get(&key).unwrap();
@@ -1065,7 +1125,7 @@ mod test {
             p3 as (
               insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
               ('1111000000000000', '1110000000000000', 'usageB/CaptureC', '{
-                  "bindings": [{"target": "usageB/CaptureC", "resource": {"binding": "foo", "syncMode": "incremental"}}],
+                  "bindings": [{"target": "usageB/aCollection", "resource": {"binding": "foo", "syncMode": "incremental"}}],
                   "endpoint": {"connector": {"image": "forbidden_connector", "config": {}}}
               }'::json, 'capture')
             ),
@@ -1097,6 +1157,78 @@ mod test {
                 errors: [
                     "Forbidden connector image 'forbidden_connector'",
                 ],
+                live_specs: [],
+            },
+        ]
+        "###);
+    }
+
+    #[tokio::test]
+    #[serial_test::parallel]
+    async fn test_prune_unbound_collections_publication() {
+        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+            .await
+            .unwrap();
+        let mut txn = conn.begin().await.unwrap();
+
+        sqlx::query(include_str!("test_resources/prune_collections.sql"))
+            .execute(&mut txn)
+            .await
+            .unwrap();
+
+        let results = execute_publications(&mut txn).await;
+        insta::assert_debug_snapshot!(results);
+    }
+
+    #[tokio::test]
+    #[serial_test::parallel]
+    async fn test_publish_error_when_all_collections_are_pruned() {
+        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+            .await
+            .unwrap();
+        let mut txn = conn.begin().await.unwrap();
+
+        sqlx::query(r#"
+          with setup_user as (
+              insert into auth.users (id) values
+              ('43a18a3e-5a59-11ed-9b6a-0242ac120002')
+            ),
+            setup_user_grants as (
+              insert into user_grants (user_id, object_role, capability) values
+              ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'acmeCo/', 'admin')
+            ),
+            setup_role_grants as (
+              insert into role_grants (subject_role, object_role, capability) values
+              ('acmeCo/', 'acmeCo/', 'admin')
+            ),
+            setup_draft as (
+              insert into drafts (id, user_id) values
+              ('1111000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120002')
+            ),
+            setup_draft_specs as (
+              insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
+              ('1111111111111111', '1111000000000000', 'acmeCo/should_prune', '{
+                "schema": { "type": "object" },
+                "key": ["/id"]
+              }', 'collection')
+            ),
+            setup_publications as (
+              insert into publications (id, job_status, user_id, draft_id) values
+              ('1111100000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120002', '1111000000000000')
+            )
+            select 1;
+            "#)
+            .execute(&mut txn)
+            .await
+            .unwrap();
+
+        let results = execute_publications(&mut txn).await;
+        insta::assert_debug_snapshot!(results, @r###"
+        [
+            ScenarioResult {
+                draft_id: 1111000000000000,
+                status: EmptyDraft,
+                errors: [],
                 live_specs: [],
             },
         ]
@@ -1301,7 +1433,14 @@ mod test {
               ),
               p5 as (
                 insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
-                ('1112000000000000', '1120000000000000', 'usageB/DerivationA', '{"schema": {}, "key": ["foo"], "derivation": {"transform":{"key": {"source": {"name": "usageB/CollectionA"}}}}}'::json, 'collection')
+                ('1112000000000000', '1120000000000000', 'usageB/DerivationA', '{
+                  "schema": {},
+                  "key": ["foo"],
+                  "derive": {
+                    "using": { "typescript": {"module": "foo.ts"} },
+                    "transforms": [{"name": "foo", "source": "usageB/CollectionA"}]
+                  }
+                }'::json, 'collection')
               ),
               p6 as (
                 insert into publications (id, job_status, user_id, draft_id) values
