@@ -1,6 +1,7 @@
 use futures::future::BoxFuture;
 use itertools::{EitherOrBoth, Itertools};
 use sources::Scope;
+use std::collections::BTreeMap;
 
 mod capture;
 mod collection;
@@ -43,10 +44,17 @@ pub trait ControlPlane: Send + Sync {
     // *close* to a provided name, it will be returned so that a suitable spelling
     // hint can be surfaced to the user. This implies we must account for possible
     // overlap with locally-built collections even if none were asked for.
-    fn resolve_collections<'a, 'b: 'a>(
+    fn resolve_collections<'a>(
         &'a self,
         collections: Vec<models::Collection>,
     ) -> BoxFuture<'a, anyhow::Result<Vec<proto_flow::flow::CollectionSpec>>>;
+
+    /// Retrieve the inferred schema of each of the given `collections`.
+    /// Collections for which a schema is not found should be omitted from the response.
+    fn get_inferred_schemas<'a>(
+        &'a self,
+        collections: Vec<models::Collection>,
+    ) -> BoxFuture<'a, anyhow::Result<BTreeMap<models::Collection, models::Schema>>>;
 }
 
 pub async fn validate(
@@ -74,9 +82,63 @@ pub async fn validate(
     }
     storage_mapping::walk_all_storage_mappings(storage_mappings, &mut errors);
 
+    // Names of collection which use inferred schemas.
+    let inferred_collections = reference::gather_inferred_collections(collections);
+    // Names of collections which are referenced, but are not being validated themselves.
+    let remote_collections =
+        reference::gather_referenced_collections(captures, collections, materializations, tests);
+
+    // Concurrently fetch referenced collections and inferred schemas from the control-plane.
+    let (inferred_schemas, remote_collections) = match futures::try_join!(
+        control_plane.get_inferred_schemas(inferred_collections),
+        control_plane.resolve_collections(remote_collections),
+        // TODO(johnny): Also fetch storage mappings here.
+    ) {
+        Ok(ok) => ok,
+        Err(err) => {
+            // If we failed to fetch from the control-plane then further validation
+            // will generate lots of misleading errors, so fail now.
+            Error::ControlPlane { detail: err }.push(root_scope, &mut errors);
+            return tables::Validations {
+                built_captures: tables::BuiltCaptures::new(),
+                built_collections: tables::BuiltCollections::new(),
+                built_materializations: tables::BuiltMaterializations::new(),
+                built_tests: tables::BuiltTests::new(),
+                errors,
+            };
+        }
+    };
+
+    let remote_collections = remote_collections
+        .into_iter()
+        .map(|mut spec| {
+            tracing::debug!(collection=%spec.name, "resolved referenced remote collection");
+
+            // Clear a derivation (if there is one), as we do not need it
+            // when embedding a referenced collection.
+            spec.derivation = None;
+
+            tables::BuiltCollection {
+                collection: models::Collection::new(&spec.name),
+                scope: url::Url::parse("flow://control-plane").unwrap(),
+                spec,
+                validated: None,
+            }
+        })
+        .collect::<tables::BuiltCollections>();
+
+    if remote_collections.is_empty() {
+        tracing::debug!("there were no remote collections to resolve");
+    }
+
     // Build all local collections.
-    let built_collections =
-        collection::walk_all_collections(build_id, collections, storage_mappings, &mut errors);
+    let built_collections = collection::walk_all_collections(
+        build_id,
+        collections,
+        &inferred_schemas,
+        storage_mappings,
+        &mut errors,
+    );
 
     // If we failed to build one or more collections then further validation
     // will generate lots of misleading "not found" errors.
@@ -88,52 +150,6 @@ pub async fn validate(
             built_tests: tables::BuiltTests::new(),
             errors,
         };
-    }
-
-    // Next resolve all referenced collections which are not in local `collections`.
-    let remote_collections = match control_plane
-        .resolve_collections(reference::gather_referenced_collections(
-            captures,
-            collections,
-            materializations,
-            tests,
-        ))
-        .await
-    {
-        Err(err) => {
-            // If we failed to complete the resolve operation then further validation
-            // will generate lots of misleading "not found" errors. This is distinct
-            // from collections not being found, which is communicated by their absence
-            // and/or presence of nearly-matched names in the resolved set.
-            Error::ResolveCollections { detail: err }.push(root_scope, &mut errors);
-            return tables::Validations {
-                built_captures: tables::BuiltCaptures::new(),
-                built_collections,
-                built_materializations: tables::BuiltMaterializations::new(),
-                built_tests: tables::BuiltTests::new(),
-                errors,
-            };
-        }
-        Ok(c) => c
-            .into_iter()
-            .map(|mut spec| {
-                tracing::debug!(collection=%spec.name, "resolved referenced remote collection");
-
-                // Clear a derivation (if there is one), as we do not need it
-                // when embedding a referenced collection.
-                spec.derivation = None;
-
-                tables::BuiltCollection {
-                    collection: models::Collection::new(&spec.name),
-                    scope: url::Url::parse("flow://control-plane").unwrap(),
-                    spec,
-                    validated: None,
-                }
-            })
-            .collect::<tables::BuiltCollections>(),
-    };
-    if remote_collections.is_empty() {
-        tracing::debug!("there were no remote collections to resolve");
     }
 
     // Merge local and remote BuiltCollections. On conflict, keep the local one.

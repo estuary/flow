@@ -36,6 +36,18 @@ Sources {
             },
         },
         Collection {
+            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-inferred-read,
+            collection: test/collection-with-write-and-inferred-read,
+            spec: {
+              "writeSchema": {"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"},
+              "readSchema": {"$id":"test://example/catalog.yaml?ptr=/collections/test~1collection-with-write-and-inferred-read/readSchema","allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
+              "key": [
+                "/key/1",
+                "/key/0"
+              ]
+            },
+        },
+        Collection {
             scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read,
             collection: test/collection-with-write-and-read,
             spec: {

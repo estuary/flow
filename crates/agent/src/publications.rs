@@ -1,4 +1,5 @@
 use self::builds::IncompatibleCollection;
+use self::validation::ControlPlane;
 use super::{
     draft::{self, Error},
     logs, Handler, HandlerStatus, Id,
@@ -12,6 +13,7 @@ pub mod builds;
 mod linked_materializations;
 pub mod specs;
 mod storage;
+mod validation;
 
 /// JobStatus is the possible outcomes of a handled draft submission.
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
@@ -56,6 +58,7 @@ pub struct PublishHandler {
     builds_root: url::Url,
     connector_network: String,
     consumer_address: url::Url,
+    control_plane: ControlPlane,
     logs_tx: logs::Tx,
 }
 
@@ -68,6 +71,7 @@ impl PublishHandler {
         connector_network: &str,
         consumer_address: &url::Url,
         logs_tx: &logs::Tx,
+        pool: Option<&sqlx::PgPool>,
     ) -> Self {
         Self {
             agent_user_email: agent_user_email.into(),
@@ -76,6 +80,7 @@ impl PublishHandler {
             builds_root: builds_root.clone(),
             connector_network: connector_network.to_string(),
             consumer_address: consumer_address.clone(),
+            control_plane: ControlPlane::new(pool),
             logs_tx: logs_tx.clone(),
         }
     }
@@ -301,6 +306,7 @@ impl PublishHandler {
             &self.builds_root,
             &draft_catalog,
             &self.connector_network,
+            self.control_plane.clone(),
             row.logs_token,
             &self.logs_tx,
             row.pub_id,

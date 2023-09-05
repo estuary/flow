@@ -128,11 +128,7 @@ test://example/catalog.yaml:
       stores: [{provider: S3, bucket: a-bucket}]
     recovery/:
       stores: [{provider: S3, bucket: a-bucket}]
-driver:
-  imageInspections: {}
-  captures: {}
-  derivations: {}
-  materializations: {}
+driver: {}
 "##,
     )
     .unwrap();
@@ -255,10 +251,6 @@ test://example/catalog.yaml:
       stores: [{provider: S3, bucket: a-bucket}]
 
 driver:
-  imageInspections:
-    s3:
-      output: '[{"Config": {}}]'
-
   derivations:
     testing/partly-disabled-derivation:
       connectorType: SQLITE
@@ -507,10 +499,7 @@ test://example/captures:
     # Illegal duplicates under naming collation.
     testing/some-source: *spec
     testing/SoMe-source: *spec
-driver:
-  imageInspections: { "an/image": {output: '[{"Config":{}}]' }}
-  materializations: {}
-  captures: {}
+driver: {}
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -550,10 +539,7 @@ test://example/materializations:
     # Illegal duplicates under naming collation.
     testing/some-target: *spec
     testing/SoMe-target: *spec
-driver:
-  imageInspections: { "an/image": {output: '[{"Config":{}}]' }}
-  materializations: {}
-  captures: {}
+driver: {}
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -636,10 +622,7 @@ test://example/catalog.yaml:
           documents: []
 
     testing/b/4/suffix: *test_spec
-driver:
-  imageInspections: { "an/image": {output: '[{"Config":{}}]' }}
-  materializations: {}
-  captures: {}
+driver: {}
 "#,
     );
     insta::assert_debug_snapshot!(errors);
@@ -1481,10 +1464,15 @@ driver:
 }
 
 #[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct MockDriverCalls {
+    #[serde(default)]
     captures: BTreeMap<String, MockCaptureValidateCall>,
+    #[serde(default)]
     derivations: BTreeMap<String, MockDeriveValidateCall>,
+    #[serde(default)]
+    inferred_schemas: BTreeMap<models::Collection, models::Schema>,
+    #[serde(default)]
     materializations: BTreeMap<String, MockMaterializationValidateCall>,
 }
 
@@ -1760,6 +1748,31 @@ impl validation::Connectors for MockDriverCalls {
     }
 }
 
+impl validation::ControlPlane for MockDriverCalls {
+    fn resolve_collections<'a>(
+        &'a self,
+        _collections: Vec<models::Collection>,
+    ) -> BoxFuture<'a, anyhow::Result<Vec<proto_flow::flow::CollectionSpec>>> {
+        async move { Ok(Vec::new()) }.boxed()
+    }
+
+    fn get_inferred_schemas<'a>(
+        &'a self,
+        collections: Vec<models::Collection>,
+    ) -> BoxFuture<'a, anyhow::Result<BTreeMap<models::Collection, models::Schema>>> {
+        let out = collections
+            .iter()
+            .filter_map(|collection| {
+                self.inferred_schemas
+                    .get(collection)
+                    .map(|schema| (collection.clone(), schema.clone()))
+            })
+            .collect();
+
+        async move { Ok(out) }.boxed()
+    }
+}
+
 fn run_test(
     mut fixture: Value,
     build_id: &str,
@@ -1790,7 +1803,7 @@ fn run_test(
         build_id,
         &url::Url::parse("file:///project/root").unwrap(),
         &mock_calls,
-        &validation::NoOpControlPlane,
+        &mock_calls,
         captures,
         collections,
         fetches,

@@ -240,7 +240,9 @@ impl<F: Fetcher> Loader<F> {
                             let mut uri = uri.clone();
                             uri.set_fragment(None);
 
-                            if index.fetch(&uri).is_none() {
+                            // The "flow" scheme is used to inject contextual schemas
+                            // and is not attempted to be fetched.
+                            if index.fetch(&uri).is_none() && uri.scheme() != "flow" {
                                 Some(uri)
                             } else {
                                 None

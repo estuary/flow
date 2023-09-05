@@ -52,15 +52,16 @@ local_resource('gazette', serve_cmd='%s/flow/.build/package/bin/gazette serve \
 local_resource('reactor', serve_cmd='%s/flow/.build/package/bin/flowctl-go serve consumer \
     --broker.address http://localhost:8080 \
     --broker.cache.size 128 \
+    --consumer.host localhost \
     --consumer.limit 1024 \
     --consumer.max-hot-standbys 0 \
     --consumer.port 9000 \
-    --consumer.host localhost \
     --etcd.address http://localhost:2379 \
     --flow.builds-root file://%s/ \
+    --flow.enable-schema-inference \
+    --flow.network supabase_network_flow \
     --log.format text \
-    --log.level info \
-    --flow.network supabase_network_flow' % (REPO_BASE, FLOW_BUILDS_DIR),
+    --log.level info' % (REPO_BASE, FLOW_BUILDS_DIR),
     links='http://localhost:9000/debug/pprof',
     resource_deps=['etcd'],
     readiness_probe=probe(
