@@ -103,10 +103,17 @@ impl Connectors for NoOpConnectors {
 pub struct NoOpControlPlane;
 
 impl ControlPlane for NoOpControlPlane {
-    fn resolve_collections<'a, 'b: 'a>(
+    fn resolve_collections<'a>(
         &'a self,
         _collections: Vec<models::Collection>,
     ) -> BoxFuture<'a, anyhow::Result<Vec<flow::CollectionSpec>>> {
-        async move { Ok(vec![]) }.boxed()
+        async move { Ok(Vec::new()) }.boxed()
+    }
+
+    fn get_inferred_schemas<'a>(
+        &'a self,
+        _collections: Vec<models::Collection>,
+    ) -> BoxFuture<'a, anyhow::Result<BTreeMap<models::Collection, models::Schema>>> {
+        async move { Ok(BTreeMap::new()) }.boxed()
     }
 }

@@ -153,8 +153,8 @@ pub enum Error {
     },
     #[error("connector returned wrong number of bindings (expected {expect}, got {got})")]
     WrongConnectorBindings { expect: usize, got: usize },
-    #[error("error while resolving referenced collections from the control plane")]
-    ResolveCollections {
+    #[error("error while communicating with the Flow control-plane API")]
+    ControlPlane {
         #[source]
         detail: anyhow::Error,
     },

@@ -62,7 +62,7 @@ impl BuildOutput {
             .iter()
             .map(|e| Error {
                 scope: Some(e.scope.to_string()),
-                detail: e.error.to_string(),
+                detail: format!("{:#}", e.error),
                 ..Default::default()
             })
             .collect()
@@ -118,6 +118,7 @@ pub async fn build_catalog(
     builds_root: &url::Url,
     catalog: &models::Catalog,
     connector_network: &str,
+    control_plane: super::ControlPlane,
     logs_token: Uuid,
     logs_tx: &logs::Tx,
     pub_id: Id,
@@ -137,7 +138,6 @@ pub async fn build_catalog(
         .context("writing catalog file")?;
 
     let build_id = format!("{pub_id}");
-    let control_plane = validation::NoOpControlPlane {};
     let db_path = builds_dir.join(&build_id);
     let log_handler = logs::ops_handler(logs_tx.clone(), "build".to_string(), logs_token);
     let project_root = url::Url::parse("file:///").unwrap();

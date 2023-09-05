@@ -618,3 +618,48 @@ pub async fn resolve_storage_mappings(
     .fetch_all(&mut *txn)
     .await
 }
+
+pub struct ResolvedCollectionRow {
+    pub built_spec: Option<Json<proto_flow::flow::CollectionSpec>>,
+}
+
+pub async fn resolve_collections(
+    collections: Vec<String>,
+    pool: sqlx::PgPool,
+) -> sqlx::Result<Vec<ResolvedCollectionRow>> {
+    sqlx::query_as!(
+        ResolvedCollectionRow,
+        r#"select
+            built_spec as "built_spec: Json<proto_flow::flow::CollectionSpec>"
+            from live_specs
+            where catalog_name = ANY($1::text[])
+            and spec_type = 'collection'
+            "#,
+        collections as Vec<String>,
+    )
+    .fetch_all(&pool)
+    .await
+}
+
+pub struct InferredSchemaRow {
+    pub collection_name: String,
+    pub schema: Json<Box<RawValue>>,
+}
+
+pub async fn get_inferred_schemas(
+    collections: Vec<String>,
+    pool: sqlx::PgPool,
+) -> sqlx::Result<Vec<InferredSchemaRow>> {
+    sqlx::query_as!(
+        InferredSchemaRow,
+        r#"select
+            collection_name,
+            schema as "schema!: Json<Box<RawValue>>"
+            from inferred_schemas
+            where collection_name = ANY($1::text[])
+            "#,
+        collections as Vec<String>,
+    )
+    .fetch_all(&pool)
+    .await
+}

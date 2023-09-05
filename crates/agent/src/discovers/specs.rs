@@ -123,7 +123,9 @@ pub fn merge_collections(
         },
     ) in targets.into_iter().zip(discovered_bindings.into_iter())
     {
-        let document_schema: models::Schema = serde_json::from_str(&document_schema_json).unwrap();
+        let document_schema =
+            models::Schema::new(models::RawValue::from_string(document_schema_json).unwrap());
+
         // Unwrap a fetched collection, or initialize a blank one.
         let mut collection =
             fetched_collections
@@ -141,6 +143,20 @@ pub fn merge_collections(
 
         if collection.read_schema.is_some() {
             collection.write_schema = Some(document_schema);
+        } else if matches!(
+            // Does the connector use schema inference?
+            document_schema.to_value().get("x-infer-schema"),
+            Some(serde_json::Value::Bool(true))
+        ) {
+            collection.schema = None;
+            collection.write_schema = Some(document_schema);
+
+            // Synthesize a minimal read schema.
+            collection.read_schema = Some(models::Schema::new(models::RawValue::from_value(
+                &serde_json::json!({
+                    "allOf": [{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}],
+                }),
+            )));
         } else {
             collection.schema = Some(document_schema)
         }
@@ -240,7 +256,11 @@ mod tests {
                 // case/3: If discovered key is empty, it doesn't replace the collection key.
                 {"documentSchema": {"const": 42}, "key": [], "recommendedName": "", "resourceConfig": {}},
                 // case/4: If fetched collection has read & write schemas, only the write schema is updated.
-                {"documentSchema": {"const": "write!"}, "key": ["/foo", "/bar"], "recommendedName": "", "resourceConfig": {}},
+                {"documentSchema": {"x-infer-schema": true, "const": "write!"}, "key": ["/foo", "/bar"], "recommendedName": "", "resourceConfig": {}},
+                // case/5: If there is no fetched collection but schema inference is used, an initial read schema is created.
+                {"documentSchema": {"x-infer-schema": true, "const": "write!"}, "key": ["/key"], "recommendedName": "", "resourceConfig": {}},
+                // case/6: The fetched collection did not use schema inference, but now does.
+                {"documentSchema": {"x-infer-schema": true, "const": "write!"}, "key": ["/key"], "recommendedName": "", "resourceConfig": {}},
             ],
             {
                 "case/2": {
@@ -262,12 +282,18 @@ mod tests {
                     "readSchema": {"const": "read!"},
                     "key": ["/old"],
                 },
+                "case/6": {
+                    "schema": false,
+                    "key": ["/old"],
+                },
             },
             [
                 "case/1",
                 "case/2",
                 "case/3",
                 "case/4",
+                "case/5",
+                "case/6",
             ]
         ]))
         .unwrap();
@@ -387,7 +413,7 @@ mod tests {
             ("Foo", "Foo"),
             ("foo/bar", "foo/bar"),
             ("/foo/bar//baz/", "foo/bar_baz"), // Invalid leading, middle, & trailing slash.
-            ("#੫൬    , bar-_!", "੫൬_bar-_"), // Invalid leading, middle, & trailing chars.
+            ("#੫൬    , bar-_!", "੫൬_bar-_"),   // Invalid leading, middle, & trailing chars.
             ("One! two/_three", "One_two/_three"),
         ] {
             assert_eq!(

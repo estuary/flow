@@ -67,6 +67,14 @@ test://example/int-string:
           location: /bit
           partition: true
 
+    testing/int-string-inferred:
+      writeSchema: test://example/int-string.schema
+      readSchema:
+        allOf:
+          - { $ref: flow://write-schema }
+          - { $ref: flow://inferred-schema }
+      key: [/int]
+
 test://example/int-string-captures:
   import:
     - test://example/int-string
@@ -390,6 +398,16 @@ driver:
       bindings:
         - resourcePath: [schema, table]
       networkPorts: *networkPortsFixture
+
+  inferredSchemas:
+    testing/int-string-inferred:
+      type: object
+      properties:
+        # Novel property which is only inferred.
+        inferred-field: { const: 42 }
+        # Property is merged with projection from the write-schema.
+        str:
+          maxLength: 8675309
 
 test://example/array-key.schema:
   # This schema models array additionalItems which provably exist,

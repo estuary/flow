@@ -1,5 +1,5 @@
-use anyhow::Context;
-use futures::{future::BoxFuture, FutureExt};
+use futures::{future::BoxFuture, FutureExt, TryStreamExt};
+use itertools::Itertools;
 
 /// Load and validate sources and derivation connectors (only).
 /// Capture and materialization connectors are not validated.
@@ -197,58 +197,107 @@ pub(crate) struct Resolver {
 }
 
 impl validation::ControlPlane for Resolver {
-    fn resolve_collections<'a, 'b: 'a>(
+    fn resolve_collections<'a>(
         &'a self,
         collections: Vec<models::Collection>,
     ) -> BoxFuture<'a, anyhow::Result<Vec<proto_flow::flow::CollectionSpec>>> {
         #[derive(serde::Deserialize, Clone)]
         struct Row {
             pub catalog_name: String,
-            pub built_spec: Option<models::RawValue>,
+            pub built_spec: Option<proto_flow::flow::CollectionSpec>,
         }
 
+        let type_selector = crate::catalog::SpecTypeSelector {
+            captures: Some(false),
+            collections: Some(true),
+            materializations: Some(false),
+            tests: Some(false),
+        };
+
+        let rows = collections
+            .into_iter()
+            .chunks(API_FETCH_CHUNK_SIZE)
+            .into_iter()
+            .map(|names| {
+                let builder = self
+                    .client
+                    .from("live_specs_ext")
+                    .select("catalog_name,built_spec")
+                    .in_("catalog_name", names);
+                let builder = type_selector.add_live_specs_filters(builder, false);
+
+                async move { crate::api_exec::<Vec<Row>>(builder).await }
+            })
+            .collect::<futures::stream::FuturesUnordered<_>>()
+            .try_collect::<Vec<Vec<Row>>>();
+
         async move {
-            // NameSelector will return *all* collections, rather than *no*
-            // collections, if its selector is empty.
-            if collections.is_empty() {
-                return Ok(vec![]);
-            }
+            let rows = rows.await?;
 
-            let list = crate::catalog::List {
-                flows: false,
-                name_selector: crate::catalog::NameSelector {
-                    name: collections.into_iter().map(|c| c.to_string()).collect(),
-                    prefix: Vec::new(),
-                },
-                type_selector: crate::catalog::SpecTypeSelector {
-                    captures: Some(false),
-                    collections: Some(true),
-                    materializations: Some(false),
-                    tests: Some(false),
-                },
-                deleted: false,
-            };
+            rows
+                .into_iter()
+                .map(|chunk| chunk.into_iter().map(
+                    |Row{ catalog_name, built_spec}| {
+                        let Some(built_spec) = built_spec else {
+                            anyhow::bail!("collection {catalog_name} is an old specification which must be upgraded to continue. Please contact support for assistance");
+                        };
+                        Ok(built_spec)
+                    }
+                ))
+                .flatten()
+                .try_collect()
+        }
+        .boxed()
+    }
 
-            let columns = vec![
-                "catalog_name",
-                "built_spec",
-            ];
-            let rows = crate::catalog::fetch_live_specs::<Row>(self.client.clone(), &list, columns)
-                .await
-                .context("failed to fetch collection specs")?;
+    fn get_inferred_schemas<'a>(
+        &'a self,
+        collections: Vec<models::Collection>,
+    ) -> BoxFuture<'a, anyhow::Result<std::collections::BTreeMap<models::Collection, models::Schema>>>
+    {
+        #[derive(serde::Deserialize, Clone)]
+        struct Row {
+            pub collection_name: models::Collection,
+            pub schema: models::Schema,
+        }
 
-            tracing::debug!(name=?list.name_selector.name, rows=?rows.len(), "resolved remote collections");
+        let rows = collections
+            .into_iter()
+            .chunks(API_FETCH_CHUNK_SIZE)
+            .into_iter()
+            .map(|names| {
+                let builder = self
+                    .client
+                    .from("inferred_schemas")
+                    .select("collection_name,schema")
+                    .in_("collection_name", names);
 
-            rows.into_iter()
-                .map(|Row{ catalog_name, built_spec}| {
-                    let Some(built_spec) = built_spec else {
-                        anyhow::bail!("collection {catalog_name} is an old specification which must be upgraded to continue. Please contact support for assistance");
-                    };
-                    Ok(serde_json::from_str(built_spec.get())
-                        .with_context(|| format!("failed to parse previously-built specification of {catalog_name}"))?)
+                async move { crate::api_exec::<Vec<Row>>(builder).await }
+            })
+            .collect::<futures::stream::FuturesUnordered<_>>()
+            .try_collect::<Vec<Vec<Row>>>();
+
+        async move {
+            let rows = rows.await?;
+
+            Ok(rows
+                .into_iter()
+                .map(|chunk| {
+                    chunk.into_iter().map(
+                        |Row {
+                             collection_name,
+                             schema,
+                         }| (collection_name, schema),
+                    )
                 })
-                .collect::<anyhow::Result<_>>()
+                .flatten()
+                .collect())
         }
         .boxed()
     }
 }
+
+// API_BATCH_SIZE is used to chunk a set of API entities fetched in a single request.
+// PostgREST passes query predicates as URL parameters, so if we don't chunk requests
+// then we run into URL length limits.
+const API_FETCH_CHUNK_SIZE: usize = 25;

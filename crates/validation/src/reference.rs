@@ -47,6 +47,25 @@ pub fn gather_referenced_collections<'a>(
     out.into_iter().cloned().collect()
 }
 
+pub fn gather_inferred_collections(collections: &[tables::Collection]) -> Vec<models::Collection> {
+    collections
+        .iter()
+        .filter_map(|row| {
+            if row
+                .spec
+                .read_schema
+                .as_ref()
+                .map(|schema| schema.get().contains(super::REF_INFERRED_SCHEMA_PATTERN))
+                .unwrap_or_default()
+            {
+                Some(row.collection.clone())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 pub fn walk_reference<'a, T, F>(
     this_scope: Scope<'a>,
     this_entity: &str,
