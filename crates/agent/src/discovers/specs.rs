@@ -51,7 +51,10 @@ pub fn merge_capture(
             Vec::new(),
             models::CaptureDef::default_interval(),
             models::ShardTemplate::default(),
-            None,
+            Some(models::AutoDiscover {
+                add_new_bindings: true,
+                evolve_incompatible_collections: false,
+            }),
         ),
     };
 
