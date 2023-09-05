@@ -411,23 +411,24 @@ pub fn collection_spec(
     build_id: &str,
     collection: &tables::Collection,
     projections: Vec<flow::Projection>,
+    read_bundle: Option<models::RawValue>,
     stores: &[models::Store],
     uuid_ptr: &str,
+    write_bundle: models::RawValue,
 ) -> flow::CollectionSpec {
     let tables::Collection {
         scope: _,
         collection: name,
         spec:
             models::CollectionDef {
-                schema,
-                read_schema,
-                write_schema,
+                schema: _,
+                read_schema: _,
+                write_schema: _,
                 key,
                 projections: _,
                 journals,
                 derivation: _,
                 derive: _,
-                ..
             },
     } = collection;
 
@@ -446,18 +447,16 @@ pub fn collection_spec(
         })
         .collect();
 
-    let (write_schema_json, read_schema_json) = match (schema, write_schema, read_schema) {
-        (Some(schema), None, None) => (schema.to_string(), String::new()),
-        (None, Some(write_schema), Some(read_schema)) => {
-            (write_schema.to_string(), read_schema.to_string())
-        }
-        _ => (String::new(), String::new()),
+    let bundle_to_string = |b: models::RawValue| -> String {
+        let b: Box<serde_json::value::RawValue> = b.into();
+        let b: Box<str> = b.into();
+        b.into()
     };
 
     flow::CollectionSpec {
         name: name.to_string(),
-        write_schema_json,
-        read_schema_json,
+        write_schema_json: bundle_to_string(write_bundle),
+        read_schema_json: read_bundle.map(bundle_to_string).unwrap_or_default(),
         key: key.iter().map(|p| p.to_string()).collect(),
         projections,
         partition_fields,

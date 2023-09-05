@@ -43,9 +43,5 @@ test://example/catalog.yaml:
     recovery/acmeCo/:
       stores: [{ provider: S3, bucket: data-bucket }]
 
-driver:
-  # Expect that no actual driver calls are made.
-  captures: {}
-  derivations: {}
-  imageInspections: {}
-  materializations: {}
+# Expect that no actual driver calls are made.
+driver: {}

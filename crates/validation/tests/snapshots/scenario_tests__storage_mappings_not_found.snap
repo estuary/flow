@@ -24,6 +24,10 @@ expression: errors
         error: could not map collection testing/int-string into a storage mapping; did you mean TestinG/ defined at test://example/int-string#/storageMappings/TestinG~1?,
     },
     Error {
+        scope: test://example/int-string#/collections/testing~1int-string-inferred,
+        error: could not map collection testing/int-string-inferred into a storage mapping; did you mean TestinG/ defined at test://example/int-string#/storageMappings/TestinG~1?,
+    },
+    Error {
         scope: test://example/int-string#/collections/testing~1int-string-rw,
         error: could not map collection testing/int-string-rw into a storage mapping; did you mean TestinG/ defined at test://example/int-string#/storageMappings/TestinG~1?,
     },
