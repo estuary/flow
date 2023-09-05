@@ -68,9 +68,10 @@ begin
 end
 $$ language plpgsql;
 
-create or replace function internal.incremental_usage_report(requested_grain text, billed_prefix catalog_prefix, billed_range tstzrange)
+create or replace function internal.incremental_usage_report(requested_grain text, billed_prefix catalog_prefix, billed_month timestamptz)
 returns jsonb as $$
 declare
+  billed_range tstzrange;
   -- Retrieved from tenants table.
   data_tiers  integer[];
   usage_tiers integer[];
@@ -93,9 +94,8 @@ declare
 begin
   -- Because usage tiers reset at the beginning of every month, the logic defined here
   -- is only correct when operating on at most a whole month.
-  if upper(billed_range) > date_trunc('month', lower(billed_range)) + '1 month' then
-    raise 'Invalid input range, must span at most one month: %', billed_range;
-  end if;
+  billed_month = date_trunc('month', billed_month);
+  billed_range = tstzrange(billed_month, billed_month + '1 month', '[)');
 
   select into data_tiers, usage_tiers
     t.data_tiers,
@@ -160,6 +160,9 @@ declare
   billed_range tstzrange;
   free_trial_overlap tstzrange;
 
+  incremental_usage jsonb;
+  daily_usage jsonb;
+
   free_trial_credit numeric;
 
   -- Temporary line items holders for free trial calculations
@@ -208,7 +211,7 @@ begin
       case
       	when t.free_trial_start is null then 'empty'::tstzrange
         -- Inclusive start, exclusive end
-       	else tstzrange(date_trunc('day', t.free_trial_start), date_trunc('day', t.free_trial_start) + '1 month', '[)')
+       	else tstzrange(date_trunc('day', t.free_trial_start), date_trunc('day', t.free_trial_start) + '30 days', '[)')
       end
     from tenants t
     where billed_prefix ^@ t.tenant
@@ -244,7 +247,11 @@ begin
     ),
     (report->0->'processed_data_gb')::numeric,
     (report->0->'task_usage_hours')::numeric
-  from internal.incremental_usage_report('monthly', billed_prefix, billed_range) as report;
+  from internal.incremental_usage_report('monthly', billed_prefix, billed_month) as report;
+
+  select into incremental_usage
+    report
+  from internal.incremental_usage_report('daily', billed_prefix, billed_month) as report;
 
   -- Does the free trial range overlap the month in question?
   if not isempty(free_trial_range) and (free_trial_range && billed_range) then
@@ -255,12 +262,11 @@ begin
     select into
       free_trial_credit coalesce(sum((line_item->>'subtotal_frac')::numeric), 0)
     from
-      jsonb_array_elements(
-        internal.incremental_usage_report('daily', billed_prefix, free_trial_overlap)
-      ) as line_item;
+      jsonb_array_elements(incremental_usage) as line_item
+    where free_trial_overlap @> (line_item->>'ts')::timestamptz;
 
     line_items = line_items || jsonb_build_object(
-      'description', 'Free trial credit',
+      'description', format('Free trial credit (%s to %s)', lower(free_trial_range)::date,upper(free_trial_range)::date),
       'count', 1,
       'rate', round(free_trial_credit) * -1,
       'subtotal', round(free_trial_credit) * -1
@@ -283,6 +289,26 @@ begin
   select into subtotal_usd_cents sum((l->>'subtotal')::numeric)
     from jsonb_array_elements(line_items) l;
 
+  -- Build up a list of days and their usage, with a default of 0
+  select into daily_usage json_agg(
+    case
+      when usage is null then jsonb_build_object(
+          'line_items', '[]'::jsonb,
+          'subtotal', 0,
+          'processed_data_gb', 0,
+          'task_usage_hours', 0,
+          'ts', date_of_month
+        )
+      else (usage - 'subtotal_frac') || jsonb_build_object(
+          'subtotal', round((usage->'subtotal_frac')::numeric)
+      )
+    end
+  )
+  -- Despite the range being exclusive on the upper bound, upper() still returns the upper bound
+  -- See this thread https://www.postgresql.org/message-id/20150116152713.2582.10294@wrigleys.postgresql.org
+  from generate_series(lower(billed_range)::date, upper(billed_range)::date - interval '1 day', interval '1 day') as date_of_month
+  left join jsonb_array_elements(incremental_usage) as usage on (usage->>'ts')::date = date_of_month::date;
+
   return jsonb_build_object(
     'billed_month', billed_month,
     'billed_prefix', billed_prefix,
@@ -290,7 +316,8 @@ begin
     'processed_data_gb', processed_data_gb,
     'recurring_fee', coalesce(recurring_usd_cents, 0),
     'subtotal', subtotal_usd_cents,
-    'task_usage_hours', task_usage_hours
+    'task_usage_hours', task_usage_hours,
+    'daily_usage', daily_usage
   );
 
 end

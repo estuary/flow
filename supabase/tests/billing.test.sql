@@ -159,10 +159,12 @@ begin
     catalog_name, grain, ts, flow_document, bytes_written_by_me, bytes_read_by_me, usage_seconds
   ) values
     ('aliceCo/aa/hello', 'monthly', '2022-08-01T00:00:00Z', '{}', 5.125 * 1024 * 1024 * 1024, 0, 3600 * 720),
+    ('aliceCo/aa/hello', 'daily', '2022-08-01T00:00:00Z', '{}', 5.125 * 1024 * 1024 * 1024, 0, 3600 * 720),
     ('aliceCo/aa/big',   'monthly', '2022-08-01T00:00:00Z', '{}', 7::bigint * 1024 * 1024 * 1024, 9::bigint * 1024 * 1024 * 1024, 0),
     ('aliceCo/aa/big',   'daily', '2022-08-01T00:00:00Z', '{}', 6::bigint * 1024 * 1024 * 1024, 7::bigint * 1024 * 1024 * 1024, 0),
     ('aliceCo/aa/big',   'daily', '2022-08-30T00:00:00Z', '{}', 1::bigint * 1024 * 1024 * 1024, 2::bigint * 1024 * 1024 * 1024, 0),
-    ('aliceCo/bb/world', 'monthly', '2022-08-01T00:00:00Z', '{}', 0, 22::bigint * 1024 * 1024 * 1024, 3600 * 18.375)
+    ('aliceCo/bb/world', 'monthly', '2022-08-01T00:00:00Z', '{}', 0, 22::bigint * 1024 * 1024 * 1024, 3600 * 18.375),
+    ('aliceCo/bb/world', 'daily', '2022-08-01T00:00:00Z', '{}', 0, 22::bigint * 1024 * 1024 * 1024, 3600 * 18.375)
   ;
 
   insert into internal.billing_adjustments (
@@ -177,7 +179,7 @@ begin
   -- We're authorized as Alice.
   perform set_authenticated_context('11111111-1111-1111-1111-111111111111');
 
-  return query select is(billing_report_202308('aliceCo/', '2022-08-29T13:00:00Z'), '{
+  return query select is(billing_report_202308('aliceCo/', '2022-08-29T13:00:00Z') - 'daily_usage', '{
     "billed_month": "2022-08-01T00:00:00+00:00",
     "billed_prefix": "aliceCo/",
     "line_items": [
@@ -267,7 +269,7 @@ begin
   -- Again, but now look at a narrower billed prefix.
   -- Note that we don't see fixed cost or adjustment,
   -- just rolled-up usage of the prefixed catalog tasks.
-  return query select is(billing_report_202308('aliceCo/aa/', '2022-08-29T13:00:00Z'), '{
+  return query select is((billing_report_202308('aliceCo/aa/', '2022-08-29T13:00:00Z') - 'daily_usage'), '{
     "billed_month": "2022-08-01T00:00:00+00:00",
     "billed_prefix": "aliceCo/aa/",
     "line_items": [
@@ -315,10 +317,290 @@ begin
 
   perform set_authenticated_context('11111111-1111-1111-1111-111111111111');
 
-  -- aliceCo/aa has a free trial set, and has free trial usage, so let's check that
+  -- aliceCo has a free trial set, and has free trial usage, so let's check that
   return query select is(billing_report_202308('aliceCo/aa/', '2022-08-29T13:00:00Z'), '{
     "billed_month": "2022-08-01T00:00:00+00:00",
     "billed_prefix": "aliceCo/aa/",
+    "daily_usage": [
+        {
+            "line_items": [
+                {
+                    "count": 5,
+                    "description": "Data processing (first 5GB at $0.50/GB)",
+                    "rate": 50,
+                    "subtotal_frac": 250
+                },
+                {
+                    "count": 13.125,
+                    "description": "Data processing (at $0.20/GB)",
+                    "rate": 20,
+                    "subtotal_frac": 262.5
+                },
+                {
+                    "count": 720,
+                    "description": "Task usage (at $0.15/hour)",
+                    "rate": 15,
+                    "subtotal_frac": 10800
+                }
+            ],
+            "processed_data_gb": 18.125,
+            "subtotal": 11313,
+            "task_usage_hours": 720,
+            "ts": "2022-08-01T00:00:00+00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-02T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-03T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-04T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-05T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-06T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-07T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-08T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-09T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-10T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-11T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-12T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-13T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-14T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-15T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-16T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-17T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-18T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-19T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-20T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-21T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-22T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-23T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-24T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-25T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-26T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-27T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-28T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-29T00:00:00"
+        },
+        {
+            "line_items": [
+                {
+                    "count": 3,
+                    "description": "Data processing (at $0.20/GB)",
+                    "rate": 20,
+                    "subtotal_frac": 60
+                },
+                {
+                    "count": 0,
+                    "description": "Task usage (at $0.15/hour)",
+                    "rate": 15,
+                    "subtotal_frac": 0
+                }
+            ],
+            "processed_data_gb": 3,
+            "subtotal": 60,
+            "task_usage_hours": 0,
+            "ts": "2022-08-30T00:00:00+00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-31T00:00:00"
+        }
+    ],
     "line_items": [
         {
             "count": 5,
@@ -340,14 +622,14 @@ begin
         },
         {
             "count": 1,
-            "description": "Free trial credit",
-            "rate": -150,
-            "subtotal": -150
+            "description": "Free trial credit (2022-08-15 to 2022-09-14)",
+            "rate": -60,
+            "subtotal": -60
         }
     ],
     "processed_data_gb": 21.125,
     "recurring_fee": 0,
-    "subtotal": 11223,
+    "subtotal": 11313,
     "task_usage_hours": 720
   }'::jsonb);
 
@@ -356,6 +638,274 @@ begin
   return query select is(billing_report_202308('aliceCo/bb/', '2022-08-29T13:00:00Z'), '{
     "billed_month": "2022-08-01T00:00:00+00:00",
     "billed_prefix": "aliceCo/bb/",
+    "daily_usage": [
+        {
+            "line_items": [
+                {
+                    "count": 5,
+                    "description": "Data processing (first 5GB at $0.50/GB)",
+                    "rate": 50,
+                    "subtotal_frac": 250
+                },
+                {
+                    "count": 17,
+                    "description": "Data processing (at $0.20/GB)",
+                    "rate": 20,
+                    "subtotal_frac": 340
+                },
+                {
+                    "count": 18.375,
+                    "description": "Task usage (at $0.15/hour)",
+                    "rate": 15,
+                    "subtotal_frac": 275.625
+                }
+            ],
+            "processed_data_gb": 22,
+            "subtotal": 866,
+            "task_usage_hours": 18.375,
+            "ts": "2022-08-01T00:00:00+00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-02T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-03T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-04T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-05T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-06T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-07T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-08T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-09T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-10T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-11T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-12T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-13T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-14T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-15T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-16T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-17T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-18T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-19T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-20T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-21T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-22T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-23T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-24T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-25T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-26T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-27T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-28T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-29T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-30T00:00:00"
+        },
+        {
+            "line_items": [
+            ],
+            "processed_data_gb": 0,
+            "subtotal": 0,
+            "task_usage_hours": 0,
+            "ts": "2022-08-31T00:00:00"
+        }
+    ],
     "line_items": [
         {
             "count": 5,
@@ -377,7 +927,7 @@ begin
         },
         {
             "count": 1,
-            "description": "Free trial credit",
+            "description": "Free trial credit (2022-08-15 to 2022-09-14)",
             "rate": 0,
             "subtotal": 0
         }
