@@ -15,6 +15,7 @@ agent-sql = { path = "../agent-sql" }
 async-process = { path = "../async-process" }
 build = { path = "../build" }
 doc = { path = "../doc" }
+json = { path = "../json" }
 models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
 runtime = { path = "../runtime" }

@@ -752,6 +752,7 @@ mod test {
             "",
             &bs_url,
             &logs_tx,
+            None,
         );
 
         let mut results: Vec<ScenarioResult> = vec![];

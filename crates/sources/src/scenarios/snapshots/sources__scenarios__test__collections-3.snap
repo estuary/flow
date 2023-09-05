@@ -36,6 +36,18 @@ Sources {
             },
         },
         Collection {
+            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-inferred-read,
+            collection: test/collection-with-write-and-inferred-read,
+            spec: {
+              "writeSchema": "collection-with-write-and-inferred-read.write.schema.yaml",
+              "readSchema": "collection-with-write-and-inferred-read.read.schema.yaml",
+              "key": [
+                "/key/1",
+                "/key/0"
+              ]
+            },
+        },
+        Collection {
             scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read,
             collection: test/collection-with-write-and-read,
             spec: {
@@ -70,6 +82,14 @@ Sources {
     fetches: [],
     imports: [
         Import {
+            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-inferred-read/readSchema,
+            to_resource: test://example/collection-with-write-and-inferred-read.read.schema.yaml,
+        },
+        Import {
+            scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-inferred-read/writeSchema,
+            to_resource: test://example/collection-with-write-and-inferred-read.write.schema.yaml,
+        },
+        Import {
             scope: test://example/catalog.yaml#/collections/test~1collection-with-write-and-read/readSchema,
             to_resource: test://example/collection-with-write-and-read.read.schema.yaml,
         },
@@ -92,7 +112,19 @@ Sources {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"test/collection":{"schema":"collection.schema.yaml","key":["/key/1","/key/0"],"projections":{"field_a":{"location":"/a/a","partition":true},"field_b":{"location":"/b/b","partition":false}}},"test/collection-no-schema":{"key":["/key"]},"test/collection-with-write-and-read":{"writeSchema":"collection-with-write-and-read.write.schema.yaml","readSchema":"collection-with-write-and-read.read.schema.yaml","key":["/key/1","/key/0"]},"test/collection/with-journals":{"schema":"with-journals.schema.yaml","key":["/a/key"],"journals":{"fragments":{"length":12345,"compressionCodec":"GZIP_OFFLOAD_DECOMPRESSION","retention":"13days 8h","flushInterval":"15m"}}}}},
+            content_dom: {"collections":{"test/collection":{"schema":"collection.schema.yaml","key":["/key/1","/key/0"],"projections":{"field_a":{"location":"/a/a","partition":true},"field_b":{"location":"/b/b","partition":false}}},"test/collection-no-schema":{"key":["/key"]},"test/collection-with-write-and-inferred-read":{"writeSchema":"collection-with-write-and-inferred-read.write.schema.yaml","readSchema":"collection-with-write-and-inferred-read.read.schema.yaml","key":["/key/1","/key/0"]},"test/collection-with-write-and-read":{"writeSchema":"collection-with-write-and-read.write.schema.yaml","readSchema":"collection-with-write-and-read.read.schema.yaml","key":["/key/1","/key/0"]},"test/collection/with-journals":{"schema":"with-journals.schema.yaml","key":["/a/key"],"journals":{"fragments":{"length":12345,"compressionCodec":"GZIP_OFFLOAD_DECOMPRESSION","retention":"13days 8h","flushInterval":"15m"}}}}},
+        },
+        Resource {
+            resource: test://example/collection-with-write-and-inferred-read.read.schema.yaml,
+            content_type: "JSON_SCHEMA",
+            content: ".. binary ..",
+            content_dom: {"$id":"test://example/catalog.yaml?ptr=/collections/test~1collection-with-write-and-inferred-read/readSchema","allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
+        },
+        Resource {
+            resource: test://example/collection-with-write-and-inferred-read.write.schema.yaml,
+            content_type: "JSON_SCHEMA",
+            content: ".. binary ..",
+            content_dom: {"$anchor":"foobar","$id":"test://example/schema.json","properties":{"a":{"properties":{"a":{"type":"string"}},"type":"object"},"b":{"properties":{"b":{"type":"string"}},"type":"object"},"key":{"items":{"type":"string"},"minItems":2,"type":"array"}},"type":"object"},
         },
         Resource {
             resource: test://example/collection-with-write-and-read.read.schema.yaml,

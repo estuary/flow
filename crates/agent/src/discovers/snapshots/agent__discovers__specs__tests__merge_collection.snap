@@ -39,11 +39,25 @@ expression: "serde_json::to_string_pretty(&out).unwrap()"
     ]
   },
   "case/4": {
-    "writeSchema": {"const":"write!"},
+    "writeSchema": {"const":"write!","x-infer-schema":true},
     "readSchema": {"const":"read!"},
     "key": [
       "/foo",
       "/bar"
+    ]
+  },
+  "case/5": {
+    "writeSchema": {"const":"write!","x-infer-schema":true},
+    "readSchema": {"allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
+    "key": [
+      "/key"
+    ]
+  },
+  "case/6": {
+    "writeSchema": {"const":"write!","x-infer-schema":true},
+    "readSchema": {"allOf":[{"$ref":"flow://write-schema"},{"$ref":"flow://inferred-schema"}]},
+    "key": [
+      "/key"
     ]
   }
 }

@@ -42,6 +42,7 @@ dependencies = [
  "futures",
  "insta",
  "itertools 0.10.5",
+ "json",
  "lazy_static",
  "models",
  "proto-flow",
