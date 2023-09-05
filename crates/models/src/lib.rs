@@ -18,7 +18,7 @@ mod source;
 mod tests;
 
 pub use crate::labels::{Label, LabelSelector, LabelSet};
-pub use captures::{CaptureBinding, CaptureDef, CaptureEndpoint};
+pub use captures::{AutoDiscover, CaptureBinding, CaptureDef, CaptureEndpoint};
 pub use catalogs::Catalog;
 pub use collections::{CollectionDef, Projection};
 pub use connector::ConnectorConfig;

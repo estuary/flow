@@ -4,6 +4,10 @@ expression: json!(out)
 ---
 [
   {
+    "autoDiscover": {
+      "addNewBindings": true,
+      "evolveIncompatibleCollections": false
+    },
     "bindings": [
       {
         "resource": {

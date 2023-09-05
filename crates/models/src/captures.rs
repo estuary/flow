@@ -46,12 +46,12 @@ pub struct CaptureDef {
 pub struct AutoDiscover {
     /// Automatically add new bindings discovered from the source.
     #[serde(default)]
-    add_new_bindings: bool,
+    pub add_new_bindings: bool,
     /// Whether to automatically evolve collections and/or materialization
     /// bindings to handle changes to collections that would otherwise be
     /// incompatible with the existing catalog.
     #[serde(default)]
-    evolve_incompatible_collections: bool,
+    pub evolve_incompatible_collections: bool,
 }
 
 /// An endpoint from which Flow will capture.
