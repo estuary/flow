@@ -22,6 +22,14 @@ test://example/catalog.yaml:
       readSchema: schema.json#/properties/a
       key: [/key/1, /key/0]
 
+    test/collection-with-write-and-inferred-read:
+      writeSchema: schema.json
+      readSchema:
+        allOf:
+          - { $ref: flow://write-schema }
+          - { $ref: flow://inferred-schema }
+      key: [/key/1, /key/0]
+
     test/collection-no-schema:
       key: [/key]
 

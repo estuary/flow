@@ -102,6 +102,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 &args.connector_network,
                 &args.consumer_address,
                 &logs_tx,
+                Some(&pg_pool),
             )),
             Box::new(agent::TagHandler::new(
                 &args.connector_network,
