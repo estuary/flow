@@ -3,7 +3,7 @@ sidebar_position: 5
 ---
 # NetSuite
 
-This connector captures data from NetSuite into Flow collections.
+This connector captures data from Oracle NetSuite into Flow collections.
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-netsuite:dev`](https://ghcr.io/estuary/source-netsuite:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
@@ -16,68 +16,6 @@ but keep in mind that the two versions may be significantly different.
 
 Flow captures collections from any NetSuite object to which you grant access during [setup](#setup), including `Transactions`, `Reports`, `Lists`, and `Setup`.
 
-## Setup
-
-Step 1: Create NetSuite account
- - Create account on [Oracle NetSuite](https://www.netsuite.com/portal/home.shtml)
- - Confirm your Email
-Step 2: Setup NetSuite account
- - Step 2.1: Obtain Realm info
-     - Log back into your NetSuite account
-     - Go to Setup -> Company -> Company Information
-     - Copy your Account ID ("Realm"). It should look like 2345678 for a Production env. or 2345678_SB2 - for a Sandbox
-- Step 2.2: Enable features
-    - Navigate to "Setup" -> "Company" -> "Enable Features"
-    - Click on the "SuiteCloud" tab
-    - Scroll down to the "SuiteScript" section
-    - Select the checkboxes labeled "CLIENT SUITESCRIPT" and "SERVER SUITESCRIPT"
-    - Scroll to the "Manage Authentication" section
-    - Select the checkbox labeled "TOKEN-BASED AUTHENTICATION"
-    - Scroll down to "SuiteTalk (Web Services)"
-    - Select the checkbox labeled "REST WEB SERVICES"
-    - Save the changes
-- Step 2.3: Create an "Integration" to obtain a Consumer Key and Consumer Secret
-    - Navigate to "Setup" -> "Integration" -> "Manage Integrations" -> "New"
-    - Fill the "Name" field (Ex. estuary-rest-integration)
-    - Make sure the "State" option is enabled
-    - Select the checkbox labeled "Token-Based Authentication" in the Authentication section
-    - Save
-    - Next, your Consumer Key and Consumer Secret will be shown once (copy them to the safe place)
- - Step 2.4: Setup Role
-    - Go to Setup » Users/Roles » Manage Roles » New
-    - Fill in the "Name" field (Ex. estuary-integration-role)
-    - Scroll down to the "Permissions" tab
-    - (IMPORTANT) Click "Transactions" and add all the dropdown entities with either full or view access level.
-    - (IMPORTANT) Click "Reports" and add all the dropdown entities with either full or view access level.
-    - (IMPORTANT) Click "Lists" and add all the dropdown entities with either full or view access level.
-    - (IMPORTANT) Click "Setup" an add all the dropdown entities with either full or view access level.
-    - Please edit these parameters again when you rename or customize any Object in Netsuite for the `estuary-integration-role` to reflect such changes.
- - Step 2.5: Setup User
-     - Go to "Setup" -> "Users/Roles" -> "Manage Users"
-     - In column "Name" click on the user’s name you want to give access to the estuary-integration-role
-     - Click the Edit button under the user’s name
-     - Scroll down to the "Access" tab at the bottom
-     - Select from the dropdown list the "estuary-integration-role" role which you created in step 2.4
-     - Save your changes
- - Step 2.6: Create "Access Token" for role
-     - Go to "Setup" -> "Users/Roles" -> "Access Tokens" -> "New"
-     - Select an "Application Name"
-     - Under "User", select the user you assigned the estuary-integration-role in the step 2.4
-     - Inside "Role" select the one you gave to the user in the step 2.5
-     - Under "Token Name" you can give a descriptive name to the Token you are creating (Ex. estuary-rest-integration-token)
-     - Save changes
-     - Now, "Token ID" and "Token Secret" will be shown once (copy them to the safe place)
- - Step 2.7: Summary
-     - You now have a properly configured account with the correct permissions and:
-     - Realm (Account ID)
-     - Consumer Key
-     - Consumer Secret
-     - Token ID
-     - Token Secret
-
-
-See the following [documentation](https://docs.oracle.com/en/cloud/saas/netsuite/ns-online-help/bridgehead_N286284.html) from Oracle. Any objects to which you grant the estuary-role access will be captured.
-
 ## Prerequisites
 
 * Oracle NetSuite [account](https://system.netsuite.com/pages/customerlogin.jsp?country=US)
@@ -86,6 +24,106 @@ See the following [documentation](https://docs.oracle.com/en/cloud/saas/netsuite
 * A custom role with access to objects you want to capture. See [setup](#setup).
 * A new user assigned to the custom role
 * Access token generated for the custom role
+
+## Setup
+
+**Create a NetSuite account**
+
+1. Create an account on the [Oracle NetSuite](https://www.netsuite.com/portal/home.shtml) portal.
+
+2. Confirm your email address.
+
+**Set up your NetSuite account**
+
+1. Find your *Realm*, or Account ID. You'll use this to connect with Flow.
+
+   1. In your NetSuite portal, go to **Setup** > **Company** > **Company Information**.
+
+   2. Copy your Account ID.
+
+      If you have a production account, it will look like `2345678`. If you're using a sandbox, it'll look like `2345678_SB2`.
+
+2. Enable the required features.
+
+   1. Navigate to **Setup** > **Company** > **Enable Features**.
+
+   2. Click the **SuiteCloud** tab.
+
+   3. In the **SuiteScript** section, check the checkboxes labeled **CLIENT SUITESCRIPT** and **SERVER SUITESCRIPT**.
+
+   4. In the **Manage Authentication** section, check the checkbox labeled **TOKEN-BASED AUTHENTICATION**.
+
+   5. In the **SuiteTalk (Web Services)** section, check the checkbox labeled **REST WEB SERVICES**.
+
+   6. Save your changes.
+
+3. Create a NetSuite *integration* to obtain a Consumer Key and Consumer Secret.
+
+   1. Navigate to **Setup** > **Integration** > **Manage Integrations** > **New**.
+
+   2. Give the integration a name, for example, `estuary-rest-integration`.
+
+   3. Make sure the **State** option is enabled.
+
+   4. In the **Authentication** section, check the **Token-Based Authentication** checkbox.
+
+   5. Save your changes.
+
+   Your Consumer Key and Consumer Secret will be shown once. Copy them to a safe place.
+
+4. Set up a role for use with Flow.
+
+   1. Go to **Setup** > **Users/Roles** > **Manage Roles** > **New**.
+
+   2. Give the role a name, for example, `estuary-integration-role`.
+
+   3. Scroll to the **Permissions** section.
+
+   4. (IMPORTANT) Click **Transactions** and add all the dropdown entities with either **full** or **view** access level.
+
+   5. (IMPORTANT) Click **Reports** and add all the dropdown entities with either **full** or **view** access level.
+
+   6. (IMPORTANT) Click **Lists** and add all the dropdown entities with either **full** or **view** access level.
+
+   7. (IMPORTANT) Click **Setup** an add all the dropdown entities with either **full** or **view** access level.
+
+   To allow your custom role to reflect future changes, be sure to edit these parameters again when you rename or customize any NetSuite object.
+
+5. Set up user for use with Flow.
+
+   1. Go to **Setup** > **Users/Roles** > **Manage Users**.
+
+   2. Find the user you want to give access to use with Flow. In the **Name** column, click the user's name. Then, click the **Edit** button.
+
+   3. Find the **Access** tab.
+
+   4. From the dropdown list, select role you created previously; for example, `estuary-integration-role`.
+
+   5. Save your changes.
+
+6. Generate an access token.
+
+   1. Go to **Setup** > **Users/Roles** > **Access Tokens** > **New**.
+
+   2. Select an **Application Name**.
+
+   3. Under **User**, select the user you assigned the role previously.
+
+   4. Under **Role**, select the role you assigned to the user previously.
+
+   5. Under **Token Name**,  give a descriptive name to the token you are creating, for example `estuary-rest-integration-token`.
+
+   6. Save your changes.
+
+   Your Token ID and Token Secret will be shown once. Copy them to a safe place.
+
+You now have a properly configured account with the correct permissions and all the information you need to connect with Flow:
+
+* Realm (Account ID)
+* Consumer Key
+* Consumer Secret
+* Token ID
+* Token Secret
 
 ## Configuration
 
