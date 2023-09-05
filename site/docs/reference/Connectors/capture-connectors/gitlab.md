@@ -1,9 +1,9 @@
 ---
 sidebar_position: 1
 ---
-# GitlLab
+# GitLab
 
-This connector captures data from GitLab repositories and organizations into Flow collections via GitLabs's API V4.  It can also work with self-hosted GitLab.
+This connector captures data from GitLab repositories and organizations into Flow collections via GitLabs's API V4. It can also work with self-hosted GitLab.
 
 It is available for use in the Flow web application. For local development or open-source workflows, [`ghcr.io/estuary/source-gitlab:dev`](https://ghcr.io/estuary/source-gitlab:dev) provides the latest version of the connector as a Docker image. You can also follow the link in your browser to see past image versions.
 
@@ -19,25 +19,25 @@ From your selection, the following data resources are captured:
 
 ### Resources
 
- - [Branches](https://docs.gitlab.com/ee/api/branches.html) 
+ - [Branches](https://docs.gitlab.com/ee/api/branches.html)
  - [Commits](https://docs.gitlab.com/ee/api/commits.html)
  - [Issues](https://docs.gitlab.com/ee/api/issues.html)
- - [Group Issue Boards](https://docs.gitlab.com/ee/api/group_boards.html) 
+ - [Group Issue Boards](https://docs.gitlab.com/ee/api/group_boards.html)
  - [Pipelines](https://docs.gitlab.com/ee/api/pipelines.html)
- - [Jobs](https://docs.gitlab.com/ee/api/jobs.html) 
- - [Projects](https://docs.gitlab.com/ee/api/projects.html) 
- - [Project Milestones](https://docs.gitlab.com/ee/api/milestones.html) 
+ - [Jobs](https://docs.gitlab.com/ee/api/jobs.html)
+ - [Projects](https://docs.gitlab.com/ee/api/projects.html)
+ - [Project Milestones](https://docs.gitlab.com/ee/api/milestones.html)
  - [Project Merge Requests](https://docs.gitlab.com/ee/api/merge_requests.html)
- - [Users](https://docs.gitlab.com/ee/api/users.html) 
- - [Groups](https://docs.gitlab.com/ee/api/groups.html)  
+ - [Users](https://docs.gitlab.com/ee/api/users.html)
+ - [Groups](https://docs.gitlab.com/ee/api/groups.html)
  - [Group Milestones](https://docs.gitlab.com/ee/api/group_milestones.html)
  - [Group and Project Members](https://docs.gitlab.com/ee/api/members.html)
- - [Tags](https://docs.gitlab.com/ee/api/tags.html) 
- - [Releases](https://docs.gitlab.com/ee/api/releases/index.html) 
- - [Group Labels](https://docs.gitlab.com/ee/api/group_labels.html) 
- - [Project Labels](https://docs.gitlab.com/ee/api/labels.html) 
- - [Epics](https://docs.gitlab.com/ee/api/epics.html)(only available for GitLab Ultimate and GitLab.com Gold accounts) 
- - [Epic Issues](https://docs.gitlab.com/ee/api/epic_issues.html) (only available for GitLab Ultimate and GitLab.com Gold accounts) 
+ - [Tags](https://docs.gitlab.com/ee/api/tags.html)
+ - [Releases](https://docs.gitlab.com/ee/api/releases/index.html)
+ - [Group Labels](https://docs.gitlab.com/ee/api/group_labels.html)
+ - [Project Labels](https://docs.gitlab.com/ee/api/labels.html)
+ - [Epics](https://docs.gitlab.com/ee/api/epics.html)(only available for GitLab Ultimate and GitLab.com Gold accounts)
+ - [Epic Issues](https://docs.gitlab.com/ee/api/epic_issues.html) (only available for GitLab Ultimate and GitLab.com Gold accounts)
 
 Each resource is mapped to a Flow collection through a separate binding.
 
