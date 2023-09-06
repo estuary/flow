@@ -325,10 +325,18 @@ func (a *azureBackend) buildBlobURL(cfg AzureStoreConfig, client pipeline.Pipeli
 
 // Cache UserDelegationCredentials and refresh them when needed
 func (a *azureBackend) getUserDelegationCredential() (*service.UserDelegationCredential, error) {
-	// We want to make sure we create a new credential well before the existing one expires
-	// So this gives us a 60 second buffer before the credential expires to make a new one.
-	if a.udc == nil || (a.udcExp != nil && a.udcExp.After(time.Now().Add(time.Minute))) {
-		var expTime = time.Now().Add(time.Hour * 24)
+	// https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blob-user-delegation-sas-create-cli#use-azure-ad-credentials-to-secure-a-sas
+	// According to the above docs, signed URLs generated with a UDC are invalid after
+	// that UDC expires. In addition, a UDC can live up to 7 days. So let's ensure that
+	// we always sign URLs with a UDC that has at least 5 days of useful life left in it.
+
+	// ----| NOW |------|NOW+5Day|-----| udcExp |---- No need to refresh
+	// ----| NOW  |-----| udcExp |-----|NOW+5Day|---- Need to refresh
+	// ----|udcExp|-----|  NOW   | ------------------ Need to refresh
+	if a.udc == nil || (a.udcExp != nil && a.udcExp.Before(time.Now().Add(time.Hour*24*5))) {
+		// Generate UDCs that expire 6 days from now, and refresh them after they
+		// have less than 5 days left until they expire.
+		var expTime = time.Now().Add(time.Hour * 24 * 6)
 		var info = service.KeyInfo{
 			Start:  to.Ptr(time.Now().Add(time.Second * -10).UTC().Format(sas.TimeFormat)),
 			Expiry: to.Ptr(expTime.UTC().Format(sas.TimeFormat)),
