@@ -179,6 +179,7 @@ message CollectionSpec {
       SQLITE = 1;
       TYPESCRIPT = 2;
       IMAGE = 3;
+      LOCAL = 4;
     }
     // Type of the derivation's connector.
     ConnectorType connector_type = 1;
@@ -272,6 +273,7 @@ message CaptureSpec {
   enum ConnectorType {
     INVALID = 0;
     IMAGE = 7;
+    LOCAL = 8;
   }
   ConnectorType connector_type = 2;
   // JSON-encoded connector configuration of this capture.
@@ -313,8 +315,8 @@ message MaterializationSpec {
   // Type of the materialization's connector.
   enum ConnectorType {
     INVALID = 0;
-    SQLITE = 2;
     IMAGE = 8;
+    LOCAL = 9;
   }
   ConnectorType connector_type = 2;
   // JSON-encoded connector configuration of this materialization.

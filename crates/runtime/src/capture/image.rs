@@ -33,8 +33,9 @@ fn unseal(mut request: Request) -> Result<UnsealFuture<Request>, Request> {
         let models::CaptureEndpoint::Connector(models::ConnectorConfig {
             image,
             config: sealed_config,
-        }) = endpoint;
-        /* else { anyhow::bail!("task connector type has changed and is no longer an image") }; */
+        }) = endpoint else {
+            anyhow::bail!("task connector type has changed and is no longer an image")
+        };
 
         *config_json = unseal::decrypt_sops(&sealed_config).await?.to_string();
 

@@ -128,6 +128,28 @@ Sources {
               }
             },
         },
+        Collection {
+            scope: test://example/catalog.yaml#/collections/d4~1local,
+            collection: d4/local,
+            spec: {
+              "schema": {"$id":"test://example/a-schema.json","allOf":[true]},
+              "key": [
+                "/key"
+              ],
+              "derive": {
+                "using": {
+                  "local": {
+                    "command": [
+                      "some-command",
+                      "--with-args"
+                    ],
+                    "config": {"some-local":"config"}
+                  }
+                },
+                "transforms": []
+              }
+            },
+        },
     ],
     errors: [],
     fetches: [],
