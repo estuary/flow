@@ -773,6 +773,7 @@ impl serde::Serialize for capture_spec::ConnectorType {
         let variant = match self {
             Self::Invalid => "INVALID",
             Self::Image => "IMAGE",
+            Self::Local => "LOCAL",
         };
         serializer.serialize_str(variant)
     }
@@ -786,6 +787,7 @@ impl<'de> serde::Deserialize<'de> for capture_spec::ConnectorType {
         const FIELDS: &[&str] = &[
             "INVALID",
             "IMAGE",
+            "LOCAL",
         ];
 
         struct GeneratedVisitor;
@@ -830,6 +832,7 @@ impl<'de> serde::Deserialize<'de> for capture_spec::ConnectorType {
                 match value {
                     "INVALID" => Ok(capture_spec::ConnectorType::Invalid),
                     "IMAGE" => Ok(capture_spec::ConnectorType::Image),
+                    "LOCAL" => Ok(capture_spec::ConnectorType::Local),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -1303,6 +1306,7 @@ impl serde::Serialize for collection_spec::derivation::ConnectorType {
             Self::Sqlite => "SQLITE",
             Self::Typescript => "TYPESCRIPT",
             Self::Image => "IMAGE",
+            Self::Local => "LOCAL",
         };
         serializer.serialize_str(variant)
     }
@@ -1318,6 +1322,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::ConnectorType
             "SQLITE",
             "TYPESCRIPT",
             "IMAGE",
+            "LOCAL",
         ];
 
         struct GeneratedVisitor;
@@ -1364,6 +1369,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::ConnectorType
                     "SQLITE" => Ok(collection_spec::derivation::ConnectorType::Sqlite),
                     "TYPESCRIPT" => Ok(collection_spec::derivation::ConnectorType::Typescript),
                     "IMAGE" => Ok(collection_spec::derivation::ConnectorType::Image),
+                    "LOCAL" => Ok(collection_spec::derivation::ConnectorType::Local),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -4233,8 +4239,8 @@ impl serde::Serialize for materialization_spec::ConnectorType {
     {
         let variant = match self {
             Self::Invalid => "INVALID",
-            Self::Sqlite => "SQLITE",
             Self::Image => "IMAGE",
+            Self::Local => "LOCAL",
         };
         serializer.serialize_str(variant)
     }
@@ -4247,8 +4253,8 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::ConnectorType {
     {
         const FIELDS: &[&str] = &[
             "INVALID",
-            "SQLITE",
             "IMAGE",
+            "LOCAL",
         ];
 
         struct GeneratedVisitor;
@@ -4292,8 +4298,8 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::ConnectorType {
             {
                 match value {
                     "INVALID" => Ok(materialization_spec::ConnectorType::Invalid),
-                    "SQLITE" => Ok(materialization_spec::ConnectorType::Sqlite),
                     "IMAGE" => Ok(materialization_spec::ConnectorType::Image),
+                    "LOCAL" => Ok(materialization_spec::ConnectorType::Local),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }

@@ -155,6 +155,20 @@ fn indirect_capture(
                 threshold,
             );
         }
+        models::CaptureEndpoint::Local(models::LocalConfig { config, .. }) => {
+            indirect_dom(
+                Scope::new(scope)
+                    .push_prop("endpoint")
+                    .push_prop("local")
+                    .push_prop("config"),
+                config,
+                ContentType::Config,
+                format!("{base}.config"),
+                imports,
+                resources,
+                threshold,
+            );
+        }
     }
 
     for (index, models::CaptureBinding { resource, .. }) in bindings.iter_mut().enumerate() {
@@ -253,6 +267,21 @@ fn indirect_derivation(
                     .push_prop("derive")
                     .push_prop("using")
                     .push_prop("connector")
+                    .push_prop("config"),
+                config,
+                ContentType::Config,
+                format!("{base}.config"),
+                imports,
+                resources,
+                threshold,
+            );
+        }
+        models::DeriveUsing::Local(models::LocalConfig { config, .. }) => {
+            indirect_dom(
+                Scope::new(scope)
+                    .push_prop("derive")
+                    .push_prop("using")
+                    .push_prop("local")
                     .push_prop("config"),
                 config,
                 ContentType::Config,

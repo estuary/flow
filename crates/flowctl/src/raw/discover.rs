@@ -69,6 +69,7 @@ pub async fn do_discover(
         .first()
         .and_then(|c| match &c.spec.endpoint {
             CaptureEndpoint::Connector(conn) => Some(conn.config.clone()),
+            CaptureEndpoint::Local(_) => todo!(),
         });
 
     // If config file exists, try a Discover RPC with the config file
