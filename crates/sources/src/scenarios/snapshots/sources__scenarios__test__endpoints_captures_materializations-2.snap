@@ -36,6 +36,24 @@ Sources {
             },
         },
         Capture {
+            scope: test://example/catalog.yaml#/captures/capture~1local,
+            capture: capture/local,
+            spec: {
+              "endpoint": {
+                "local": {
+                  "command": [
+                    "do-the-thing",
+                    "--arg=one",
+                    "--arg",
+                    "two"
+                  ],
+                  "config": {"some":"local config"}
+                }
+              },
+              "bindings": []
+            },
+        },
+        Capture {
             scope: test://example/catalog.yaml#/captures/capture~1second,
             capture: capture/second,
             spec: {
@@ -136,6 +154,35 @@ Sources {
             },
         },
         Materialization {
+            scope: test://example/catalog.yaml#/materializations/materialization~1local,
+            materialization: materialization/local,
+            spec: {
+              "endpoint": {
+                "local": {
+                  "command": [
+                    "do-the-thing",
+                    "--arg=one",
+                    "--arg",
+                    "two"
+                  ],
+                  "config": {"some":"local config"}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"table":"table_three"},
+                  "source": "final/source/collection",
+                  "fields": {
+                    "recommended": true
+                  }
+                }
+              ],
+              "shards": {
+                "ringBufferSize": 12345
+              }
+            },
+        },
+        Materialization {
             scope: test://example/catalog.yaml#/materializations/materialization~1missing-config,
             materialization: materialization/missing-config,
             spec: {
@@ -188,29 +235,6 @@ Sources {
                 }
               },
               "bindings": []
-            },
-        },
-        Materialization {
-            scope: test://example/catalog.yaml#/materializations/to~1sqlite,
-            materialization: to/sqlite,
-            spec: {
-              "endpoint": {
-                "sqlite": {
-                  "path": "test://example/relative/to/scope.db"
-                }
-              },
-              "bindings": [
-                {
-                  "resource": {"table":"table_three"},
-                  "source": "final/source/collection",
-                  "fields": {
-                    "recommended": true
-                  }
-                }
-              ],
-              "shards": {
-                "ringBufferSize": 12345
-              }
             },
         },
     ],

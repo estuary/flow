@@ -1,5 +1,5 @@
 use super::{
-    is_false, Capture, ConnectorConfig, Field, RawValue, RelativeUrl, ShardTemplate, Source,
+    Capture, ConnectorConfig, Field, LocalConfig, RawValue, RelativeUrl, ShardTemplate, Source,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -30,10 +30,8 @@ pub enum MaterializationEndpoint {
     /// # A Connector.
     #[serde(alias = "flowSink")]
     Connector(ConnectorConfig),
-    /// # A SQLite database.
-    /// TODO(johnny): Remove.
-    #[schemars(skip)]
-    Sqlite(SqliteConfig),
+    /// # A local command (development only).
+    Local(LocalConfig),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
@@ -46,7 +44,7 @@ pub struct MaterializationBinding {
     pub source: Source,
     /// # Whether to disable the binding
     /// Disabled bindings are inactive, and not validated.
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "super::is_false")]
     pub disable: bool,
     /// # Priority applied to documents processed by this binding.
     /// When all bindings are of equal priority, Flow processes documents

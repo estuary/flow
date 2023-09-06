@@ -38,6 +38,9 @@ fn inline_capture(capture: &mut tables::Capture, resources: &[tables::Resource])
         models::CaptureEndpoint::Connector(models::ConnectorConfig { config, .. }) => {
             inline_config(config, scope, resources)
         }
+        models::CaptureEndpoint::Local(models::LocalConfig { config, .. }) => {
+            inline_config(config, scope, resources)
+        }
     }
 
     for models::CaptureBinding { resource, .. } in bindings {
@@ -117,6 +120,9 @@ fn inline_derivation(
         models::DeriveUsing::Typescript(models::DeriveUsingTypescript { module }) => {
             inline_config(module, scope, resources);
         }
+        models::DeriveUsing::Local(models::LocalConfig { config, .. }) => {
+            inline_config(config, scope, resources)
+        }
     }
 
     for models::TransformDef {
@@ -148,17 +154,11 @@ fn inline_materialization(
     } = materialization;
 
     match endpoint {
-        models::MaterializationEndpoint::Connector(models::ConnectorConfig {
-            image: _,
-            config,
-        }) => inline_config(config, scope, resources),
-        models::MaterializationEndpoint::Sqlite(models::SqliteConfig { path }) => {
-            if path.starts_with(":memory:") {
-                // Already absolute.
-            } else if let Ok(joined) = scope.join(&path) {
-                // Resolve relative database path relative to current scope.
-                *path = models::RelativeUrl::new(joined.to_string());
-            }
+        models::MaterializationEndpoint::Connector(models::ConnectorConfig { config, .. }) => {
+            inline_config(config, scope, resources)
+        }
+        models::MaterializationEndpoint::Local(models::LocalConfig { config, .. }) => {
+            inline_config(config, scope, resources)
         }
     }
 

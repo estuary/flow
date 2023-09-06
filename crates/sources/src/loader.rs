@@ -535,6 +535,21 @@ impl<F: Fetcher> Loader<F> {
                     .boxed(),
                 );
             }
+            models::DeriveUsing::Local(models::LocalConfig { config, .. }) => {
+                tasks.push(
+                    async move {
+                        self.load_config(
+                            scope
+                                .push_prop("using")
+                                .push_prop("local")
+                                .push_prop("config"),
+                            config,
+                        )
+                        .await
+                    }
+                    .boxed(),
+                );
+            }
         };
 
         for (index, transform) in spec.transforms.iter().enumerate() {
@@ -597,6 +612,21 @@ impl<F: Fetcher> Loader<F> {
                     .boxed(),
                 );
             }
+            models::CaptureEndpoint::Local(models::LocalConfig { config, .. }) => {
+                tasks.push(
+                    async move {
+                        self.load_config(
+                            scope
+                                .push_prop("endpoint")
+                                .push_prop("local")
+                                .push_prop("config"),
+                            config,
+                        )
+                        .await
+                    }
+                    .boxed(),
+                );
+            }
         };
 
         for (index, binding) in spec.bindings.iter().enumerate() {
@@ -648,7 +678,21 @@ impl<F: Fetcher> Loader<F> {
                     .boxed(),
                 );
             }
-            models::MaterializationEndpoint::Sqlite(_sqlite) => {}
+            models::MaterializationEndpoint::Local(models::LocalConfig { config, .. }) => {
+                tasks.push(
+                    async move {
+                        self.load_config(
+                            scope
+                                .push_prop("endpoint")
+                                .push_prop("local")
+                                .push_prop("config"),
+                            config,
+                        )
+                        .await
+                    }
+                    .boxed(),
+                );
+            }
         };
 
         for (index, binding) in spec.bindings.iter().enumerate() {
