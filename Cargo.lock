@@ -2882,6 +2882,7 @@ name = "ops"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "colored_json",
  "insta",
  "lazy_static",
  "proto-flow",
