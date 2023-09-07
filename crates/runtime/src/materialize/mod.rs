@@ -96,6 +96,11 @@ where
                 &self.task_name,
             )
             .boxed(),
+            models::MaterializationEndpoint::Local(_) if !self.allow_local => {
+                return Err(tonic::Status::failed_precondition(
+                    "Local connectors are not permitted in this context",
+                ))
+            }
             models::MaterializationEndpoint::Local(_) => todo!(),
         };
 

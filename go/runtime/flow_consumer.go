@@ -27,6 +27,7 @@ import (
 type FlowConsumerConfig struct {
 	runconsumer.BaseConfig
 	Flow struct {
+		AllowLocal            bool   `long:"allow-local" description:"Allow local connectors. True for local stacks, and false otherwise."`
 		BuildsRoot            string `long:"builds-root" required:"true" env:"BUILDS_ROOT" description:"Base URL for fetching Flow catalog builds"`
 		BrokerRoot            string `long:"broker-root" required:"true" env:"BROKER_ROOT" default:"/gazette/cluster" description:"Broker Etcd base prefix"`
 		Network               string `long:"network" description:"The Docker network that connector containers are given access to, defaults to the bridge network"`

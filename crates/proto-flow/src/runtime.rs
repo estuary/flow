@@ -9,6 +9,8 @@ pub struct TaskServiceConfig {
     pub uds_path: ::prost::alloc::string::String,
     #[prost(string, tag = "4")]
     pub container_network: ::prost::alloc::string::String,
+    #[prost(bool, tag = "5")]
+    pub allow_local: bool,
 }
 /// ShuffleRequest is the request message of a Shuffle RPC.
 /// It's a description of a document shuffle,

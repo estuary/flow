@@ -754,6 +754,7 @@ mod test {
 
         let mut handler = PublishHandler::new(
             "support@estuary.dev",
+            false,
             "",
             &bs_url,
             &bs_url,

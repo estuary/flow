@@ -94,6 +94,7 @@ pub async fn load(source: &url::Url, file_root: &Path) -> tables::Sources {
 /// * If `generate_ops_collections` is set, then ops collections are added into `sources`.
 /// * If any of `noop_*` is true, then validations are skipped for connectors of that type.
 pub async fn validate<L>(
+    allow_local: bool,
     build_id: &str,
     connector_network: &str,
     control_plane: &dyn validation::ControlPlane,
@@ -116,6 +117,7 @@ where
     ::sources::inline_sources(&mut sources);
 
     let runtime = runtime::Runtime::new(
+        allow_local,
         connector_network.to_string(),
         log_handler,
         None,
@@ -167,6 +169,7 @@ where
 /// components but not the `flowctl` CLI, which requires finer-grain
 /// control over build behavior.
 pub async fn managed_build<L>(
+    allow_local: bool,
     build_id: String,
     connector_network: String,
     control_plane: Box<dyn validation::ControlPlane>,
@@ -179,6 +182,7 @@ where
     L: Fn(&ops::Log) + Send + Sync + Clone + 'static,
 {
     let (sources, validations) = validate(
+        allow_local,
         &build_id,
         &connector_network,
         &*control_plane,

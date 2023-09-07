@@ -27,6 +27,7 @@ pub struct Runtime<L>
 where
     L: Fn(&ops::Log) + Send + Sync + Clone + 'static,
 {
+    allow_local: bool,
     container_network: String,
     log_handler: L,
     set_log_level: Option<Arc<dyn Fn(ops::LogLevel) + Send + Sync>>,
@@ -38,17 +39,20 @@ where
     L: Fn(&ops::Log) + Send + Sync + Clone + 'static,
 {
     /// Build a new Runtime.
+    /// * `allow_local`: Whether local connectors are permitted by this Runtime.
     /// * `container_network`: the Docker container network used for connector containers.
     /// * `log_handler`: handler to which connector logs are dispatched.
     /// * `set_log_level`: callback for adjusting the log level implied by runtime requests.
     /// * `task_name`: name which is used to label any started connector containers.
     pub fn new(
+        allow_local: bool,
         container_network: String,
         log_handler: L,
         set_log_level: Option<Arc<dyn Fn(ops::LogLevel) + Send + Sync>>,
         task_name: String,
     ) -> Self {
         Self {
+            allow_local,
             container_network,
             log_handler,
             set_log_level,
