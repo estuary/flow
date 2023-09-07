@@ -1,6 +1,7 @@
 mod connector_tags;
 mod directives;
 mod discovers;
+mod derivation_previews;
 pub(crate) mod draft;
 pub(crate) mod evolution;
 mod handlers;
@@ -13,6 +14,7 @@ pub use agent_sql::{CatalogType, Id};
 pub use connector_tags::TagHandler;
 pub use directives::DirectiveHandler;
 pub use discovers::DiscoverHandler;
+pub use derivation_previews::DerivationPreviewHandler;
 pub use evolution::EvolutionHandler;
 pub use handlers::{serve, Handler, HandlerStatus};
 use lazy_static::lazy_static;

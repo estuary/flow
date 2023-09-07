@@ -1,7 +1,8 @@
 use super::logs;
-use futures::TryFutureExt;
+use futures::{TryFutureExt, StreamExt, TryStreamExt};
 use sqlx::types::Uuid;
-use tokio::io::AsyncRead;
+use tokio::io::{AsyncRead, BufReader};
+use bytelines::AsyncByteLines;
 use tracing::debug;
 
 #[derive(Debug, thiserror::Error)]
@@ -112,6 +113,33 @@ where
         read_stdout(stdout)
     )
     .map_err(|err| Error::detail(err, name, cmd))?)
+}
+
+// run_with_input_output spawns the provided Command, capturing its stderr
+// into the provided logs_tx identified by |logs_token| and returning its stdout.
+// stdin is copied into the Command.
+#[tracing::instrument(err, skip(logs_tx, stdin, cmd))]
+pub async fn run_with_input_output_lines<I>(
+    name: &str,
+    logs_tx: &logs::Tx,
+    logs_token: Uuid,
+    stdin: I,
+    lines: usize,
+    cmd: &mut async_process::Command,
+) -> Result<(std::process::ExitStatus, Vec<Vec<u8>>), Error>
+where
+    I: AsyncRead + Unpin,
+{
+    let mut child = spawn(name, cmd)?;
+    let stdout = child.stdout.take().unwrap();
+
+    let lines = AsyncByteLines::new(BufReader::new(stdout)).into_stream().take(lines).try_collect::<Vec<Vec<u8>>>();
+
+    Ok(futures::try_join!(
+        wait(name, logs_tx, logs_token, stdin, child),
+        lines.map_err(|err| Error::Stdout(err))
+    ).map_err(|err| Error::detail(err, name, cmd))?)
+        
 }
 
 /// spawn a command with the provided job name, returning its created Child.

@@ -14,6 +14,7 @@ license.workspace = true
 agent-sql = { path = "../agent-sql" }
 async-process = { path = "../async-process" }
 doc = { path = "../doc" }
+journal-client = { path = "../journal-client" }
 models = { path = "../models" }
 proto-flow = { path = "../proto-flow" }
 tables = { path = "../tables", features = ["persist"] }
@@ -21,6 +22,7 @@ tables = { path = "../tables", features = ["persist"] }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
+bytelines = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
@@ -35,6 +37,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 tempfile = { workspace = true }
+tempdir = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
