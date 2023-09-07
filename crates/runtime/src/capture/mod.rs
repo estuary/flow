@@ -88,6 +88,11 @@ where
                 &self.task_name,
             )
             .boxed(),
+            models::CaptureEndpoint::Local(_) if !self.allow_local => {
+                return Err(tonic::Status::failed_precondition(
+                    "Local connectors are not permitted in this context",
+                ))
+            }
             models::CaptureEndpoint::Local(_) => todo!(),
         };
 

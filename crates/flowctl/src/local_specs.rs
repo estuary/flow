@@ -77,6 +77,7 @@ async fn validate(
     let project_root = build::project_root(source);
 
     let (sources, mut validations) = build::validate(
+        true, // Allow local connectors.
         "local-build",
         "", // Use default connector network.
         &Resolver { client },

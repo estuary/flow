@@ -117,6 +117,7 @@ impl BuildOutput {
 }
 
 pub async fn build_catalog(
+    allow_local: bool,
     builds_root: &url::Url,
     catalog: &models::Catalog,
     connector_network: &str,
@@ -146,6 +147,7 @@ pub async fn build_catalog(
     let source = url::Url::parse("file:///flow.json").unwrap();
 
     let managed_build = build::managed_build(
+        allow_local,
         build_id.clone(),
         connector_network.to_string(),
         Box::new(control_plane),

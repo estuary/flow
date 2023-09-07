@@ -150,6 +150,7 @@ impl Preview {
             .await?;
 
         let mut responses_rx = runtime::Runtime::new(
+            true, // Allow local connectors.
             String::new(),
             ops::tracing_log_handler,
             None,

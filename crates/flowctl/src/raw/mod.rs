@@ -206,6 +206,7 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
     let project_root = build::project_root(&source_url);
 
     let build_result = build::managed_build(
+        true, // Allow local connectors.
         build_id.clone(),
         connector_network.clone(),
         Box::new(local_specs::Resolver { client }),
