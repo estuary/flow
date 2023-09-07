@@ -43,6 +43,9 @@ struct Args {
     /// Email address of user which provisions and maintains tenant accounts.
     #[clap(long = "accounts-email", default_value = "support@estuary.dev")]
     accounts_email: String,
+    /// Allow local connectors. True for local stacks, and false otherwise.
+    #[clap(long = "allow-local", default_value = "false")]
+    allow_local: bool,
 }
 
 #[tokio::main]
@@ -96,6 +99,7 @@ async fn main() -> Result<(), anyhow::Error> {
         vec![
             Box::new(agent::PublishHandler::new(
                 &args.accounts_email,
+                args.allow_local,
                 &bindir,
                 &args.broker_address,
                 &builds_root,

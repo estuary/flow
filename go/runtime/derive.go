@@ -105,8 +105,10 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err 
 		// No-op.
 	} else if d.svc, err = bindings.NewTaskService(
 		pr.TaskServiceConfig{
-			TaskName: d.collection.Name.String(),
-			UdsPath:  path.Join(d.recorder.Dir(), "socket"),
+			AllowLocal:       d.host.Config.Flow.AllowLocal,
+			ContainerNetwork: d.host.Config.Flow.Network,
+			TaskName:         d.collection.Name.String(),
+			UdsPath:          path.Join(d.recorder.Dir(), "socket"),
 		},
 		d.opsPublisher,
 	); err != nil {

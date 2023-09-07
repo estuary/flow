@@ -103,6 +103,11 @@ where
 
                 response_rx.boxed()
             }
+            models::DeriveUsing::Local(_) if !self.allow_local => {
+                return Err(tonic::Status::failed_precondition(
+                    "Local connectors are not permitted in this context",
+                ))
+            }
             models::DeriveUsing::Local(_) => todo!(),
             models::DeriveUsing::Sqlite(_) => {
                 // Invoke the underlying SQLite connector.
