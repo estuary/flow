@@ -1,6 +1,7 @@
 use anyhow::Context;
 use futures::channel::oneshot;
 use proto_flow::{flow, runtime};
+use std::collections::BTreeMap;
 use tokio::io::AsyncBufReadExt;
 
 // Port on which flow-connector-init listens for requests.
@@ -24,15 +25,6 @@ pub async fn start<L>(
 where
     L: Fn(&ops::Log) + Send + Sync + 'static,
 {
-    // We can't start a container without flow-connector-init.
-    let connector_init = locate_bin::locate("flow-connector-init")
-        .context("failed to locate flow-connector-init")?;
-
-    // Generate a unique name for this container instance. Pull and inspect its image.
-    let name = unique_container_name();
-    let inspect_content = inspect_image(image.to_string()).await?;
-    let network_ports = parse_network_ports(&inspect_content)?;
-
     // Many operational contexts only allow for docker volume mounts
     // from certain locations:
     //  * Docker for Mac restricts file shares to /User, /tmp, and a couple others.
@@ -55,13 +47,13 @@ where
         tmp_docker_inspect.as_file_mut().set_permissions(perms)?;
     }
 
-    // Write `inspect_content` output to its temporary file.
-    // Copy `flow-connector-init` to its temporary file.
-    ((), _) = futures::try_join!(
-        tokio::fs::write(tmp_docker_inspect.path(), &inspect_content),
-        tokio::fs::copy(connector_init, tmp_connector_init.path())
-    )
-    .context("writing container temporary file")?;
+    // Concurrently 1) find or fetch a copy of `flow-connector-init`, copying it
+    // into a temp path, and 2) inspect the image, also copying into a temp path,
+    // and parsing its advertised network ports.
+    let ((), network_ports) = futures::try_join!(
+        find_connector_init_and_copy(tmp_connector_init.path()),
+        inspect_image_and_copy(image, tmp_docker_inspect.path()),
+    )?;
 
     // Close our open files but retain a deletion guard.
     let tmp_connector_init = tmp_connector_init.into_temp_path();
@@ -71,43 +63,56 @@ where
     let network = if network == "" { "bridge" } else { network };
     let log_level = log_level.unwrap_or(ops::LogLevel::Warn);
 
+    // Generate a unique name for this container instance.
+    let name = unique_container_name();
+
     let mut process: async_process::Child = async_process::Command::new("docker")
         .args([
-            "run".to_string(),
+            "run",
             // Remove the docker container upon its exit.
-            "--rm".to_string(),
+            "--rm",
             // Addressable name of this connector.
-            format!("--name={name}"),
+            &format!("--name={name}"),
             // Network to which the container should attach.
-            format!("--network={}", network),
+            &format!("--network={}", network),
             // The entrypoint into a connector is always flow-connector-init,
             // which will delegate to the actual entrypoint of the connector.
-            "--entrypoint=/flow-connector-init".to_string(),
+            "--entrypoint=/flow-connector-init",
             // Mount the flow-connector-init binary and `docker inspect` output.
-            format!(
+            &format!(
                 "--mount=type=bind,source={},target=/flow-connector-init",
                 tmp_connector_init.to_string_lossy()
             ),
-            format!(
+            &format!(
                 "--mount=type=bind,source={},target=/image-inspect.json",
                 tmp_docker_inspect.to_string_lossy(),
             ),
             // Thread-through the logging configuration of the connector.
-            "--env=LOG_FORMAT=json".to_string(),
-            format!("--env=LOG_LEVEL={}", log_level.as_str_name()),
+            "--env=LOG_FORMAT=json",
+            &format!("--env=LOG_LEVEL={}", log_level.as_str_name()),
             // Cgroup memory / CPU resource limits.
             // TODO(johnny): we intend to tighten these down further, over time.
-            "--memory=1g".to_string(),
-            "--cpus=2".to_string(),
+            "--memory=1g",
+            "--cpus=2",
+            // For now, we support only Linux amd64 connectors.
+            "--platform=linux/amd64",
             // Attach labels that let us group connector resource usage under a few dimensions.
-            format!("--label=image={}", image),
-            format!("--label=task-name={}", task_name),
-            format!("--label=task-type={}", task_type.as_str_name()),
+            &format!("--label=image={}", image),
+            &format!("--label=task-name={}", task_name),
+            &format!("--label=task-type={}", task_type.as_str_name()),
+            // Support Docker Desktop in non-production contexts (for example, `flowctl`)
+            // where the container IP is not directly addressable. As an alternative,
+            // we ask Docker to provide mapped host ports that are then advertised
+            // in the attached runtime::Container description.
+            #[cfg(not(target_os = "linux"))]
+            &format!("--publish=0.0.0.0:0:{CONNECTOR_INIT_PORT}"),
+            #[cfg(not(target_os = "linux"))]
+            "--publish-all",
             // Image to run.
-            image.to_string(),
+            &image,
             // The following are arguments of flow-connector-init, not docker.
-            "--image-inspect-json-path=/image-inspect.json".to_string(),
-            format!("--port={CONNECTOR_INIT_PORT}"),
+            "--image-inspect-json-path=/image-inspect.json",
+            &format!("--port={CONNECTOR_INIT_PORT}"),
         ])
         .stdin(async_process::Stdio::null())
         .stdout(async_process::Stdio::null())
@@ -166,24 +171,38 @@ where
         _ = ready_rx => (),
     }
 
-    // Ask docker for the IP address it assigned to the container.
-    let ip_addr = inspect_container_ip(&name).await?;
+    // Ask docker for network configuration that it assigned to the container.
+    let (ip_addr, mapped_host_ports) = inspect_container_network(&name).await?;
 
     // Dial the gRPC endpoint hosted by `flow-connector-init` within the container context.
-    let channel =
-        tonic::transport::Endpoint::new(format!("http://{ip_addr}:{CONNECTOR_INIT_PORT}"))
-            .expect("formatting endpoint address")
-            .connect_timeout(std::time::Duration::from_secs(5))
-            .connect()
-            .await
-            .context("failed to connect to connector-init inside of container")?;
+    let init_address = if let Some(addr) = mapped_host_ports.get(&(CONNECTOR_INIT_PORT as u32)) {
+        format!("http://{addr}")
+    } else {
+        format!("http://{ip_addr}:{CONNECTOR_INIT_PORT}")
+    };
+    let channel = tonic::transport::Endpoint::new(init_address.clone())
+        .expect("formatting endpoint address")
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .connect()
+        .await
+        .context("failed to connect to connector-init inside of container")?;
 
-    tracing::info!(%image, %name, %task_name, ?task_type, "started connector");
+    tracing::info!(
+        %image,
+        %init_address,
+        %ip_addr,
+        ?mapped_host_ports,
+        %name,
+        %task_name,
+        ?task_type,
+        "started connector"
+    );
 
     Ok((
         runtime::Container {
             ip_addr: format!("{ip_addr}"),
             network_ports: network_ports.clone(),
+            mapped_host_ports,
         },
         channel,
         Guard {
@@ -228,46 +247,81 @@ where
     Ok(output.stdout)
 }
 
-async fn inspect_image(image: String) -> anyhow::Result<Vec<u8>> {
-    if !image.ends_with(":local") {
-        _ = docker_cmd(&["pull", &image, "--quiet"]).await?;
+async fn inspect_container_network(
+    name: &str,
+) -> anyhow::Result<(std::net::IpAddr, BTreeMap<u32, String>)> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "PascalCase", deny_unknown_fields)]
+    struct HostPort {
+        host_ip: std::net::IpAddr,
+        host_port: String,
     }
-    docker_cmd(&["inspect", &image]).await
-}
 
-async fn inspect_container_ip(name: &str) -> anyhow::Result<std::net::IpAddr> {
+    #[derive(serde::Deserialize)]
+    struct Output {
+        status: String,
+        ip: std::net::IpAddr,
+        ports: BTreeMap<String, Option<Vec<HostPort>>>,
+    }
+
     let output = docker_cmd(&[
         "inspect",
         "--format",
-        "{{.State.Status}}|{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+        r#"{
+            "ip": "{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+            "ports": {{json .NetworkSettings.Ports}},
+            "status": {{json .State.Status}}
+        }"#,
         name,
     ])
     .await
     .context("failed to inspect a started docker container (did it crash?)")?;
 
     let output = String::from_utf8_lossy(&output);
-
-    let (status, ip_addr) = output
-        .split_once("|")
+    let Output { status, ip, ports } = serde_json::from_str(&output)
         .with_context(|| format!("malformed docker container inspection output: {output}"))?;
 
     if status != "running" {
         anyhow::bail!("container failed to start; did it crash? (docker status is {status:?})");
     }
 
-    let ip_addr: std::net::IpAddr = ip_addr.trim_end().parse().with_context(|| {
-        format!(
-            "failed to parse IP address from docker inspect output {:?}",
-            ip_addr.trim_end()
-        )
-    })?;
+    let mut mapped_host_ports = BTreeMap::new();
 
-    Ok(ip_addr)
+    for (container_port, mappings) in ports {
+        let Some(mappings) = mappings else { continue };
+
+        for HostPort { host_ip, host_port } in mappings {
+            if container_port.ends_with("/udp") {
+                continue; // Not supported.
+            }
+
+            // Technically, ports are allowed to appear without the '/tcp' suffix.
+            let container_port = container_port
+                .strip_suffix("/tcp")
+                .unwrap_or(&container_port);
+
+            let container_port = container_port.parse::<u16>().with_context(|| {
+                format!("invalid port in inspected NetworkSettings.Ports '{container_port}'")
+            })?;
+            let host_port = host_port.parse::<u16>().with_context(|| {
+                format!("invalid port in inspected NetworkSettings.Ports.*.HostPort '{host_port}'")
+            })?;
+
+            _ = mapped_host_ports.insert(
+                container_port as u32,
+                if host_ip.is_ipv6() {
+                    format!("[{host_ip}]:{host_port}")
+                } else {
+                    format!("{host_ip}:{host_port}")
+                },
+            );
+        }
+    }
+
+    Ok((ip, mapped_host_ports))
 }
 
 fn parse_network_ports(content: &[u8]) -> anyhow::Result<Vec<flow::NetworkPort>> {
-    use std::collections::BTreeMap;
-
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "PascalCase")]
     struct InspectConfig {
@@ -335,6 +389,59 @@ fn parse_network_ports(content: &[u8]) -> anyhow::Result<Vec<flow::NetworkPort>>
     Ok(ports)
 }
 
+async fn find_connector_init_and_copy(tmp_path: &std::path::Path) -> anyhow::Result<()> {
+    // If we can locate an installed flow-connector-init, use that.
+    // This is common when developing or within a container workspace.
+    if let Ok(connector_init) = locate_bin::locate("flow-connector-init") {
+        tokio::fs::copy(connector_init, tmp_path).await?;
+        return Ok(());
+    }
+
+    // Create -- but don't start -- a container.
+    let name = format!("{}_fci", unique_container_name());
+    docker_cmd(&[
+        "create",
+        "--platform=linux/amd64",
+        &format!("--name={name}"),
+        CONNECTOR_INIT_IMAGE,
+    ])
+    .await?;
+
+    // Ask docker to copy the binary to our temp location.
+    docker_cmd(&[
+        "cp",
+        &format!("{name}:{CONNECTOR_INIT_IMAGE_PATH}"),
+        &tmp_path.to_str().expect("temp is UTF-8"),
+    ])
+    .await?;
+
+    // Clean up the created container.
+    docker_cmd(&["rm", "--volumes", &name]).await?;
+
+    Ok(())
+}
+
+async fn inspect_image_and_copy(
+    image: &str,
+    tmp_path: &std::path::Path,
+) -> anyhow::Result<Vec<flow::NetworkPort>> {
+    if !image.ends_with(":local") {
+        _ = docker_cmd(&["pull", &image, "--quiet"]).await?;
+    }
+    let inspect_content = docker_cmd(&["inspect", &image]).await?;
+
+    tokio::fs::write(tmp_path, &inspect_content)
+        .await
+        .context("writing docker inspect output")?;
+
+    parse_network_ports(&inspect_content)
+}
+
+// TODO(johnny): Consider better packaging and versioning of `flow-connector-init`.
+// TODO(johnny): Update tag once https://github.com/estuary/flow/pull/1167 is merged.
+const CONNECTOR_INIT_IMAGE: &str = "ghcr.io/estuary/flow:v0.3.5-40-g1751ed2af";
+const CONNECTOR_INIT_IMAGE_PATH: &str = "/usr/local/bin/flow-connector-init";
+
 #[cfg(test)]
 mod test {
     use super::{parse_network_ports, start};
@@ -389,6 +496,11 @@ mod test {
                 public: true
             }]
         );
+
+        #[cfg(target_os = "linux")]
+        assert_eq!(container.mapped_host_ports, super::BTreeMap::new());
+        #[cfg(not(target_os = "linux"))]
+        assert_ne!(container.mapped_host_ports, super::BTreeMap::new());
     }
 
     #[tokio::test]

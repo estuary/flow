@@ -1,12 +1,7 @@
 use clap::Parser;
-use std::io::Write;
 use tracing_subscriber::prelude::*;
 
 fn main() {
-    // Write a byte to stderr to let our container host know that we're alive.
-    // Whitespace avoids interfering with JSON logs that also write to stderr.
-    std::io::stderr().write(" ".as_bytes()).unwrap();
-
     let args = connector_init::Args::parse();
 
     // Map the LOG_LEVEL variable to an equivalent tracing EnvFilter.
@@ -40,8 +35,7 @@ fn main() {
     };
 
     // Run until signaled, then gracefully stop.
-    tracing::info!(%log_level, port=args.port, message = "connector-init started");
-    let result = runtime.block_on(connector_init::run(args));
+    let result = runtime.block_on(connector_init::run(args, log_level));
 
     // Explicitly call Runtime::shutdown_background as an alternative to calling Runtime::Drop.
     // This shuts down the runtime without waiting for blocking background tasks to complete,
