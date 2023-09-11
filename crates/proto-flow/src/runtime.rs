@@ -128,10 +128,22 @@ pub struct RocksDbDescriptor {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Container {
+    /// IP Address of the running container.
+    /// If this IP is accessible (it may not be, in contexts like Docker Desktop for Mac),
+    /// then it is *only* accessible from the hosting server.
     #[prost(string, tag = "1")]
     pub ip_addr: ::prost::alloc::string::String,
+    /// Network ports which are available for this container.
     #[prost(message, repeated, tag = "2")]
     pub network_ports: ::prost::alloc::vec::Vec<super::flow::NetworkPort>,
+    /// Mapping of ports from `network_ports` to a corresponding "host-ip:port" address,
+    /// as either IPv4 or IPv6, through which the port can be accessed. If empty,
+    /// then the container `ip_addr` should be used directly.
+    #[prost(btree_map = "uint32, string", tag = "3")]
+    pub mapped_host_ports: ::prost::alloc::collections::BTreeMap<
+        u32,
+        ::prost::alloc::string::String,
+    >,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

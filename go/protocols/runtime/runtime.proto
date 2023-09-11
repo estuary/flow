@@ -125,8 +125,16 @@ message RocksDBDescriptor {
 
 // Container is a description of a running connector container.
 message Container {
+  // IP Address of the running container.
+  // If this IP is accessible (it may not be, in contexts like Docker Desktop for Mac),
+  // then it is *only* accessible from the hosting server.
   string ip_addr = 1;
+  // Network ports which are available for this container.
   repeated flow.NetworkPort network_ports = 2;
+  // Mapping of ports from `network_ports` to a corresponding "host-ip:port" address,
+  // as either IPv4 or IPv6, through which the port can be accessed. If empty,
+  // then the container `ip_addr` should be used directly.
+  map<uint32, string> mapped_host_ports = 3;
 }
 
 message CaptureRequestExt {

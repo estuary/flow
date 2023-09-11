@@ -1,8 +1,8 @@
 use anyhow::Context;
 pub use codec::Codec;
+use std::io::Write;
 use tokio::signal::unix;
 use tonic::transport::server::TcpIncoming;
-use anyhow::anyhow;
 
 mod capture;
 mod codec;
@@ -26,8 +26,24 @@ pub struct Args {
     pub port: u16,
 }
 
-pub async fn run(args: Args) -> anyhow::Result<()> {
-    let image = inspect::Image::parse_from_json_file(&args.image_inspect_json_path)
+pub async fn run(
+    Args {
+        image_inspect_json_path,
+        port,
+    }: Args,
+    log_level: String,
+) -> anyhow::Result<()> {
+    // Bind our port before we do anything else.
+    let addr = format!("0.0.0.0:{}", port).parse().unwrap();
+    let incoming = TcpIncoming::new(addr, true, None)
+        .map_err(|e| anyhow::anyhow!("tcp incoming error {}", e))?;
+
+    // Now write a byte to stderr to let our container host know that we're alive.
+    // Whitespace avoids interfering with JSON logs that also write to stderr.
+    std::io::stderr().write(" ".as_bytes()).unwrap();
+    tracing::info!(%log_level, port, message = "connector-init started");
+
+    let image = inspect::Image::parse_from_json_file(&image_inspect_json_path)
         .context("reading image inspect JSON")?;
     let entrypoint = image.get_argv()?;
 
@@ -35,9 +51,6 @@ pub async fn run(args: Args) -> anyhow::Result<()> {
         Some(protocol) if protocol == "json" => Codec::Json,
         _ => Codec::Proto,
     };
-
-    let addr = format!("0.0.0.0:{}", args.port).parse().unwrap();
-    let incoming = TcpIncoming::new(addr, true, None).map_err(|e| anyhow!("tcp incoming error {}", e))?;
 
     check_protocol(&entrypoint, codec).await?;
 

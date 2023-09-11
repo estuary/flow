@@ -1602,6 +1602,7 @@ impl validation::Connectors for MockDriverCalls {
                 internal.container = Some(Container {
                     ip_addr: "1.2.3.4".to_string(),
                     network_ports: call.network_ports.clone(),
+                    mapped_host_ports: Default::default(),
                 });
             }))
         }
@@ -1677,6 +1678,7 @@ impl validation::Connectors for MockDriverCalls {
                 internal.container = Some(Container {
                     ip_addr: "1.2.3.4".to_string(),
                     network_ports: call.network_ports.clone(),
+                    mapped_host_ports: Default::default(),
                 });
             }))
         }
@@ -1750,6 +1752,7 @@ impl validation::Connectors for MockDriverCalls {
                 internal.container = Some(Container {
                     ip_addr: "1.2.3.4".to_string(),
                     network_ports: call.network_ports.clone(),
+                    mapped_host_ports: Default::default(),
                 });
             }))
         }
