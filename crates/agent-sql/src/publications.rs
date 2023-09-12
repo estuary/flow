@@ -663,3 +663,29 @@ pub async fn get_inferred_schemas(
     .fetch_all(&pool)
     .await
 }
+
+/// Deletes any `live_specs` (and `publication_specs`) that meet ALL of these criteria:
+/// - were newly created by this (as yet uncommitted) publication
+/// - are not used as the `source` or `target` of any enabled bindings
+/// - are not derviations
+///
+/// Note that `publication_specs` are deleted due to the `on delete cascade` constraint
+/// on that table.
+pub async fn prune_unbound_collections(
+    pub_id: Id,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<Vec<String>> {
+    let res = sqlx::query!(r#"
+        delete from live_specs l
+        where l.spec_type = 'collection'
+            and l.last_pub_id = $1
+            and l.created_at = now()
+            and l.spec->'derive' is null
+            and (select 1 from live_spec_flows lsf where l.id = lsf.source_id or l.id = lsf.target_id limit 1) is null
+        returning l.catalog_name
+        "#, pub_id as Id)
+    .fetch_all(txn)
+    .await?;
+
+    Ok(res.into_iter().map(|r| r.catalog_name).collect())
+}
