@@ -784,7 +784,8 @@ mod test {
                                spec,
                                spec_type as "spec_type: String"
                         from live_specs
-                        where live_specs.last_pub_id = $1::flowid;"#,
+                        where live_specs.last_pub_id = $1::flowid
+                        order by live_specs.catalog_name;"#,
                         pub_id as Id
                     )
                     .fetch_all(&mut *txn)
