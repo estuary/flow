@@ -5,7 +5,7 @@ use agent_sql::{Capability, CatalogType, Id};
 use anyhow::Context;
 use itertools::Itertools;
 use sqlx::types::Uuid;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 // resolve_specifications returns the definitive set of specifications which
 // are changing in this publication. It obtains sufficient locks to ensure
@@ -315,6 +315,8 @@ pub fn validate_transition(
     }
 }
 
+/// Note that `spec_rows` may contain `live_spec_id`s that have already been deleted
+/// due to being unbound collections, which have been pruned.
 pub async fn enforce_resource_quotas(
     spec_rows: &[SpecRow],
     prev_tenants: Vec<Tenant>,
@@ -470,13 +472,17 @@ pub async fn apply_updates_for_row(
 // the list of spec_rows.
 pub async fn add_built_specs_to_live_specs(
     spec_rows: &[SpecRow],
+    pruned_collections: &HashSet<String>,
     build_output: &builds::BuildOutput,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), sqlx::Error> {
     for collection in build_output.built_collections.iter() {
+        // Note that only non-pruned collections must be updated as part of this function.
+        // Pruned collections will already have had their live_specs rows deleted.
         if let Some(row) = spec_rows
             .iter()
             .find(|r| r.catalog_name == collection.collection.as_str())
+            .filter(|r| !pruned_collections.contains(r.catalog_name.as_str()))
         {
             agent_sql::publications::add_built_specs(row.live_spec_id, &collection.spec, txn)
                 .await?;
@@ -1235,7 +1241,12 @@ mod test {
                 ('1111000000000000', '1110000000000000', 'usageB/CaptureC', '{
                     "bindings": [{"target": "usageB/CaptureC", "resource": {"binding": "foo", "syncMode": "incremental"}}],
                     "endpoint": {"connector": {"image": "foo", "config": {}}}
-                }'::json, 'capture')
+                }'::json, 'capture'),
+                -- This collection should be pruned, and thus _not_ count against the quota of 2 collections.
+                ('1111200000000000', '1110000000000000', 'usageB/UnboundCollection', '{
+                    "schema": {},
+                    "key": ["/id"]
+                }'::json, 'collection')
               ),
               p6 as (
                 insert into publications (id, job_status, user_id, draft_id) values
@@ -1302,7 +1313,14 @@ mod test {
               ),
               p5 as (
                 insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
-                ('1112000000000000', '1120000000000000', 'usageB/DerivationA', '{"schema": {}, "key": ["foo"], "derive": {"using": {"sqlite": {}}, "transforms":[{"name": "a-transform", "source": "usageB/CollectionA"}]}}'::json, 'collection')
+                ('1112000000000000', '1120000000000000', 'usageB/DerivationA', '{
+                  "schema": {},
+                  "key": ["foo"],
+                  "derive": {
+                    "using":{"typescript": {"module": "foo.ts"}},
+                    "transforms": [{"source":"usageB/CollectionA","shuffle":"any","name":"foo"}]
+                  }
+                }'::json, 'collection')
               ),
               p6 as (
                 insert into publications (id, job_status, user_id, draft_id) values
@@ -1452,6 +1470,78 @@ mod test {
                         ),
                     },
                 ],
+            },
+        ]
+        "###);
+    }
+
+    #[tokio::test]
+    #[serial_test::parallel]
+    async fn test_prune_unbound_collections_publication() {
+        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+            .await
+            .unwrap();
+        let mut txn = conn.begin().await.unwrap();
+
+        sqlx::query(include_str!("test_resources/prune_collections.sql"))
+            .execute(&mut txn)
+            .await
+            .unwrap();
+
+        let results = execute_publications(&mut txn).await;
+        insta::assert_debug_snapshot!(results);
+    }
+
+    #[tokio::test]
+    #[serial_test::parallel]
+    async fn test_publish_error_when_all_collections_are_pruned() {
+        let mut conn = sqlx::postgres::PgConnection::connect(&FIXED_DATABASE_URL)
+            .await
+            .unwrap();
+        let mut txn = conn.begin().await.unwrap();
+
+        sqlx::query(r#"
+          with setup_user as (
+              insert into auth.users (id) values
+              ('43a18a3e-5a59-11ed-9b6a-0242ac120002')
+            ),
+            setup_user_grants as (
+              insert into user_grants (user_id, object_role, capability) values
+              ('43a18a3e-5a59-11ed-9b6a-0242ac120002', 'acmeCo/', 'admin')
+            ),
+            setup_role_grants as (
+              insert into role_grants (subject_role, object_role, capability) values
+              ('acmeCo/', 'acmeCo/', 'admin')
+            ),
+            setup_draft as (
+              insert into drafts (id, user_id) values
+              ('1111000000000000', '43a18a3e-5a59-11ed-9b6a-0242ac120002')
+            ),
+            setup_draft_specs as (
+              insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
+              ('1111111111111111', '1111000000000000', 'acmeCo/should_prune', '{
+                "schema": { "type": "object" },
+                "key": ["/id"]
+              }', 'collection')
+            ),
+            setup_publications as (
+              insert into publications (id, job_status, user_id, draft_id) values
+              ('1111100000000000', '{"type": "queued"}'::json, '43a18a3e-5a59-11ed-9b6a-0242ac120002', '1111000000000000')
+            )
+            select 1;
+            "#)
+            .execute(&mut txn)
+            .await
+            .unwrap();
+
+        let results = execute_publications(&mut txn).await;
+        insta::assert_debug_snapshot!(results, @r###"
+        [
+            ScenarioResult {
+                draft_id: 1111000000000000,
+                status: EmptyDraft,
+                errors: [],
+                live_specs: [],
             },
         ]
         "###);

@@ -1,0 +1,200 @@
+---
+source: crates/agent/src/publications/specs.rs
+expression: results
+---
+[
+    ScenarioResult {
+        draft_id: 1110000000000000,
+        status: Success {
+            linked_materialization_publications: [],
+        },
+        errors: [],
+        live_specs: [
+            LiveSpec {
+                catalog_name: "acmeCo/CaptureA",
+                connector_image_name: Some(
+                    "allowed_connector",
+                ),
+                connector_image_tag: Some(
+                    "",
+                ),
+                reads_from: None,
+                writes_to: Some(
+                    [
+                        "acmeCo/should_stay",
+                    ],
+                ),
+                spec: Some(
+                    Object {
+                        "bindings": Array [
+                            Object {
+                                "resource": Object {
+                                    "thingy": String("foo"),
+                                },
+                                "target": String("acmeCo/should_stay"),
+                            },
+                            Object {
+                                "disable": Bool(true),
+                                "resource": Object {
+                                    "thingy": String("foo"),
+                                },
+                                "target": String("acmeCo/should_stay2"),
+                            },
+                            Object {
+                                "disable": Bool(true),
+                                "resource": Object {
+                                    "thingy": String("foo"),
+                                },
+                                "target": String("acmeCo/should_stay3"),
+                            },
+                            Object {
+                                "disable": Bool(true),
+                                "resource": Object {
+                                    "thingy": String("bar"),
+                                },
+                                "target": String("acmeCo/should_prune"),
+                            },
+                        ],
+                        "endpoint": Object {
+                            "connector": Object {
+                                "config": Object {},
+                                "image": String("allowed_connector"),
+                            },
+                        },
+                    },
+                ),
+                spec_type: Some(
+                    "capture",
+                ),
+            },
+            LiveSpec {
+                catalog_name: "acmeCo/should_stay",
+                connector_image_name: None,
+                connector_image_tag: None,
+                reads_from: None,
+                writes_to: None,
+                spec: Some(
+                    Object {
+                        "key": Array [
+                            String("/id"),
+                        ],
+                        "schema": Object {
+                            "type": String("object"),
+                        },
+                    },
+                ),
+                spec_type: Some(
+                    "collection",
+                ),
+            },
+            LiveSpec {
+                catalog_name: "acmeCo/should_stay2",
+                connector_image_name: None,
+                connector_image_tag: None,
+                reads_from: None,
+                writes_to: None,
+                spec: Some(
+                    Object {
+                        "key": Array [
+                            String("/id"),
+                        ],
+                        "schema": Object {
+                            "type": String("object"),
+                        },
+                    },
+                ),
+                spec_type: Some(
+                    "collection",
+                ),
+            },
+            LiveSpec {
+                catalog_name: "acmeCo/should_stay3",
+                connector_image_name: None,
+                connector_image_tag: None,
+                reads_from: None,
+                writes_to: None,
+                spec: Some(
+                    Object {
+                        "key": Array [
+                            String("/id"),
+                        ],
+                        "schema": Object {
+                            "type": String("object"),
+                        },
+                    },
+                ),
+                spec_type: Some(
+                    "collection",
+                ),
+            },
+            LiveSpec {
+                catalog_name: "acmeCo/should_stay4",
+                connector_image_name: None,
+                connector_image_tag: None,
+                reads_from: None,
+                writes_to: None,
+                spec: Some(
+                    Object {
+                        "key": Array [
+                            String("/id"),
+                        ],
+                        "schema": Object {
+                            "type": String("object"),
+                        },
+                    },
+                ),
+                spec_type: Some(
+                    "collection",
+                ),
+            },
+            LiveSpec {
+                catalog_name: "acmeCo/should_stay5",
+                connector_image_name: None,
+                connector_image_tag: None,
+                reads_from: None,
+                writes_to: None,
+                spec: Some(
+                    Object {
+                        "key": Array [
+                            String("/id"),
+                        ],
+                        "schema": Object {
+                            "type": String("object"),
+                        },
+                    },
+                ),
+                spec_type: Some(
+                    "collection",
+                ),
+            },
+            LiveSpec {
+                catalog_name: "acmeCo/should_stay6",
+                connector_image_name: None,
+                connector_image_tag: None,
+                reads_from: Some(
+                    [],
+                ),
+                writes_to: None,
+                spec: Some(
+                    Object {
+                        "derive": Object {
+                            "transforms": Array [],
+                            "using": Object {
+                                "sqlite": Object {},
+                            },
+                        },
+                        "key": Array [
+                            String("/id"),
+                        ],
+                        "schema": Object {
+                            "type": String("object"),
+                        },
+                    },
+                ),
+                spec_type: Some(
+                    "collection",
+                ),
+            },
+        ],
+    },
+]
