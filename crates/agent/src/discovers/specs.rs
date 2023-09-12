@@ -138,7 +138,6 @@ pub fn merge_collections(
                     projections: Default::default(),
                     journals: Default::default(),
                     derive: None,
-                    derivation: None,
                 });
 
         if collection.read_schema.is_some() {

@@ -113,7 +113,6 @@ pub async fn do_discover(
                             .collect::<Vec<JsonPointer>>(),
                     ),
                     derive: None,
-                    derivation: None,
                     projections: Default::default(),
                     journals: Default::default(),
                 },

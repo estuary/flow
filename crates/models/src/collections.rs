@@ -1,4 +1,4 @@
-use super::{CompositeKey, Derivation, Field, JournalTemplate, JsonPointer, RawValue, Schema};
+use super::{CompositeKey, Derivation, Field, JournalTemplate, JsonPointer, Schema};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};
@@ -38,10 +38,6 @@ pub struct CollectionDef {
     // # Derivation which builds this collection as transformations of other collections.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub derive: Option<Derivation>,
-    // TODO(johnny): Remove after cut-over.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(skip)]
-    pub derivation: Option<RawValue>,
 }
 
 impl CollectionDef {
@@ -54,7 +50,6 @@ impl CollectionDef {
             projections: BTreeMap::new(),
             journals: JournalTemplate::default(),
             derive: None,
-            derivation: None,
         }
     }
 }
