@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use self::builds::IncompatibleCollection;
 use self::validation::ControlPlane;
 use super::{
@@ -34,6 +36,11 @@ pub enum JobStatus {
         #[serde(skip_serializing_if = "Vec::is_empty")]
         linked_materialization_publications: Vec<Id>,
     },
+    /// Returned when there are no draft specs (after pruning unbound
+    /// collections). There will not be any `draft_errors` in this case, because
+    /// there's no `catalog_name` to associate with an error. And it may not be
+    /// desirable to treat this as an error, depending on the scenario.
+    EmptyDraft,
 }
 
 impl JobStatus {
@@ -218,6 +225,17 @@ impl PublishHandler {
             .with_context(|| format!("applying spec updates for {}", spec_row.catalog_name))?;
         }
 
+        let pruned_collections =
+            agent_sql::publications::prune_unbound_collections(row.pub_id, txn).await?;
+        if !pruned_collections.is_empty() {
+            tracing::info!(?pruned_collections, "pruned unbound collections");
+        }
+        let pruned_collections = pruned_collections.into_iter().collect::<HashSet<_>>();
+
+        if spec_rows.len() - pruned_collections.len() == 0 {
+            return stop_with_errors(Vec::new(), JobStatus::EmptyDraft, row, txn).await;
+        }
+
         let errors = specs::enforce_resource_quotas(&spec_rows, prev_quota_usage, txn).await?;
         if !errors.is_empty() {
             return stop_with_errors(errors, JobStatus::build_failed(Vec::new()), row, txn).await;
@@ -375,7 +393,7 @@ impl PublishHandler {
         }
 
         // Add built specs to the live spec when publishing a build.
-        specs::add_built_specs_to_live_specs(&spec_rows, &build_output, txn)
+        specs::add_built_specs_to_live_specs(&spec_rows, &pruned_collections, &build_output, txn)
             .await
             .context("adding built specs to live specs")?;
 
@@ -389,6 +407,7 @@ impl PublishHandler {
             &self.logs_tx,
             row.pub_id,
             &spec_rows,
+            &pruned_collections,
         )
         .await
         .context("deploying build")?;

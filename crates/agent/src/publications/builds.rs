@@ -9,7 +9,7 @@ use proto_flow::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::types::Uuid;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::io::Write;
 use std::path;
 
@@ -384,15 +384,22 @@ pub async fn deploy_build(
     logs_tx: &logs::Tx,
     pub_id: Id,
     spec_rows: &[SpecRow],
+    pruned_collections: &HashSet<String>,
 ) -> anyhow::Result<Vec<Error>> {
     let mut errors = Vec::new();
 
     let spec_rows = spec_rows
         .iter()
-        // Filter specs which are tests, or are deletions of already-deleted specs.
+        // Filter specs to be activated
         .filter(|r| match (r.live_type, r.draft_type) {
-            (None, None) => false, // Before and after are both deleted.
+            // Before and after are both deleted.
+            (None, None) => false,
+            // Tests don't need activated
             (Some(CatalogType::Test), _) | (_, Some(CatalogType::Test)) => false,
+            // Collections may have been pruned if they are not bound to anything
+            (Some(_), Some(CatalogType::Collection)) => {
+                !pruned_collections.contains(r.catalog_name.as_str())
+            }
             _ => true,
         });
 
