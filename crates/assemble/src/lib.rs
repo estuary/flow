@@ -411,10 +411,10 @@ pub fn collection_spec(
     build_id: &str,
     collection: &tables::Collection,
     projections: Vec<flow::Projection>,
-    read_bundle: Option<models::RawValue>,
+    read_bundle: Option<models::Schema>,
     stores: &[models::Store],
     uuid_ptr: &str,
-    write_bundle: models::RawValue,
+    write_bundle: models::Schema,
 ) -> flow::CollectionSpec {
     let tables::Collection {
         scope: _,
@@ -446,8 +446,8 @@ pub fn collection_spec(
         })
         .collect();
 
-    let bundle_to_string = |b: models::RawValue| -> String {
-        let b: Box<serde_json::value::RawValue> = b.into();
+    let bundle_to_string = |b: models::Schema| -> String {
+        let b: Box<serde_json::value::RawValue> = b.into_inner().into();
         let b: Box<str> = b.into();
         b.into()
     };

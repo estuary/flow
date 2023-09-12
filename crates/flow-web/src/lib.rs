@@ -33,6 +33,7 @@ pub struct Property {
     pub enum_vals: Vec<serde_json::Value>,
     pub string_format: Option<String>,
 }
+
 fn reduce_description(reduce: Reduction) -> &'static str {
     match reduce {
         Reduction::Multiple => "multiple strategies may apply",
@@ -116,8 +117,34 @@ pub fn infer(schema: JsValue) -> Result<JsValue, JsValue> {
             }
         })
         .collect();
+
     serde_wasm_bindgen::to_value(&AnalyzedSchema { properties }).map_err(|err| {
         let msg = format!("failed to serialize result: {}", err);
         JsValue::from_str(&msg)
     })
+}
+
+#[wasm_bindgen]
+pub fn extend_read_bundle(input: JsValue) -> Result<JsValue, JsValue> {
+    let input: serde_json::Value = ::serde_wasm_bindgen::from_value(input)
+        .map_err(|err| JsValue::from_str(&format!("invalid JSON: {:?}", err)))?;
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct Input {
+        read: models::Schema,
+        write: models::Schema,
+        inferred: Option<models::Schema>,
+    }
+
+    let Input {
+        read,
+        write,
+        inferred,
+    } = serde_json::from_value(input)
+        .map_err(|err| JsValue::from_str(&format!("invalid input: {:?}", err)))?;
+
+    let output = models::Schema::extend_read_bundle(&read, &write, inferred.as_ref());
+
+    serde_wasm_bindgen::to_value(&output).map_err(|err| JsValue::from_str(&format!("{err:?}")))
 }

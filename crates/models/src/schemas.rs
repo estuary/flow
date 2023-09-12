@@ -2,6 +2,7 @@ use super::RawValue;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json};
+use std::collections::BTreeMap;
 
 /// A schema is a draft 2020-12 JSON Schema which validates Flow documents.
 /// Schemas also provide annotations at document locations, such as reduction
@@ -36,6 +37,9 @@ impl Schema {
     pub fn new(v: RawValue) -> Self {
         Self(v)
     }
+    pub fn into_inner(self) -> RawValue {
+        self.0
+    }
 
     // URL for referencing the inferred schema of a collection, which may be used within a read schema.
     pub const REF_INFERRED_SCHEMA_URL: &str = "flow://inferred-schema";
@@ -66,6 +70,75 @@ impl Schema {
             }
         }))
         .unwrap()
+    }
+
+    /// Extend a bundled Flow read schema, which may include references to the
+    /// canonical collection write schema URI and inferred schema URI,
+    /// with inline definitions that fully resolve these references.
+    /// If an inferred schema is not available then `{}` is used.
+    pub fn extend_read_bundle(
+        read_bundle: &Self,
+        write_bundle: &Self,
+        inferred_bundle: Option<&Self>,
+    ) -> Self {
+        const KEYWORD_DEF: &str = "$defs";
+        const KEYWORD_ID: &str = "$id";
+
+        use serde_json::{value::to_raw_value, Value};
+        type Skim = BTreeMap<String, RawValue>;
+
+        let mut read_schema: Skim = serde_json::from_str(read_bundle.get()).unwrap();
+        let mut read_defs: Skim = read_schema
+            .get(KEYWORD_DEF)
+            .map(|d| serde_json::from_str(d.get()).unwrap())
+            .unwrap_or_default();
+
+        // Add a definition for the write schema if it's referenced.
+        // We cannot add it in all cases because the existing `read_bundle` and
+        // `write_bundle` may have a common sub-schema defined, and naively adding
+        // it would result in an indexing error due to the duplicate definition.
+        // So, we treat $ref: flow://write-schema as a user assertion that there is
+        // no such conflicting definition (and we may produce an indexing error
+        // later if they're wrong).
+        if read_bundle.references_write_schema() {
+            let mut write_schema: Skim = serde_json::from_str(write_bundle.get()).unwrap();
+
+            // Set $id to "flow://write-schema".
+            _ = write_schema.insert(
+                KEYWORD_ID.to_string(),
+                RawValue::from_value(&Value::String(Self::REF_WRITE_SCHEMA_URL.to_string())),
+            );
+            // Add as a definition within the read schema.
+            read_defs.insert(
+                Self::REF_WRITE_SCHEMA_URL.to_string(),
+                to_raw_value(&write_schema).unwrap().into(),
+            );
+        }
+
+        // Add a definition for the inferred schema if it's referenced.
+        if read_bundle.references_inferred_schema() {
+            let mut inferred_schema: Skim = inferred_bundle
+                .map(|s| serde_json::from_str(s.get()).unwrap())
+                .unwrap_or(Skim::new()); // Default to the "anything" schema {}.
+
+            // Set $id to "flow://inferred-schema".
+            _ = inferred_schema.insert(
+                KEYWORD_ID.to_string(),
+                RawValue::from_value(&Value::String(Self::REF_INFERRED_SCHEMA_URL.to_string())),
+            );
+            // Add as a definition within the read schema.
+            read_defs.insert(
+                Self::REF_INFERRED_SCHEMA_URL.to_string(),
+                to_raw_value(&inferred_schema).unwrap().into(),
+            );
+        }
+
+        // Re-serialize the updated definitions of the read schema.
+        _ = read_schema.insert(
+            KEYWORD_DEF.to_string(),
+            serde_json::value::to_raw_value(&read_defs).unwrap().into(),
+        );
+        Self(to_raw_value(&read_schema).unwrap().into())
     }
 }
 
@@ -117,5 +190,71 @@ mod test {
 
         assert!(!fixture.references_inferred_schema());
         assert!(!fixture.references_write_schema());
+    }
+
+    #[test]
+    fn test_extend_read_schema() {
+        let read_schema = Schema::new(RawValue::from_value(&json!({
+            "$defs": {
+                "existing://def": {"type": "array"},
+            },
+            "maxProperties": 10,
+            "allOf": [
+                {"$ref": "flow://inferred-schema"},
+                {"$ref": "flow://write-schema"},
+            ]
+        })));
+        let write_schema = Schema::new(RawValue::from_value(&json!({
+            "$id": "old://value",
+            "required": ["a_key"],
+        })));
+        let inferred_schema = Schema::new(RawValue::from_value(&json!({
+            "$id": "old://value",
+            "minProperties": 5,
+        })));
+
+        assert_eq!(
+            Schema::extend_read_bundle(&read_schema, &write_schema, Some(&inferred_schema))
+                .to_value(),
+            json!({
+                "$defs": {
+                    "existing://def": {"type": "array"}, // Left alone.
+                    "flow://write-schema": { "$id": "flow://write-schema", "required": ["a_key"] },
+                    "flow://inferred-schema": { "$id": "flow://inferred-schema", "minProperties": 5 },
+                },
+                "maxProperties": 10,
+                "allOf": [
+                    {"$ref": "flow://inferred-schema"},
+                    {"$ref": "flow://write-schema"},
+                ]
+            })
+        );
+
+        // Case: no inferred schema is available.
+        assert_eq!(
+            Schema::extend_read_bundle(&read_schema, &write_schema, None).to_value(),
+            json!({
+                "$defs": {
+                    "existing://def": {"type": "array"}, // Left alone.
+                    "flow://write-schema": { "$id": "flow://write-schema", "required": ["a_key"] },
+                    "flow://inferred-schema": { "$id": "flow://inferred-schema" },
+                },
+                "maxProperties": 10,
+                "allOf": [
+                    {"$ref": "flow://inferred-schema"},
+                    {"$ref": "flow://write-schema"},
+                ]
+            })
+        );
+
+        // Case: pass `write_schema` which has no references.
+        assert_eq!(
+            Schema::extend_read_bundle(&write_schema, &write_schema, None).to_value(),
+            json!({
+                "$defs": {},
+                "$id": "old://value",
+                "required": ["a_key"],
+            })
+        );
     }
 }
