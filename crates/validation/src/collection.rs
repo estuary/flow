@@ -69,7 +69,7 @@ fn walk_collection(
         // One schema used for both writes and reads.
         (Some(bundle), None, None) => (
             walk_collection_schema(scope.push_prop("schema"), bundle, errors)?,
-            (&bundle as &models::RawValue).clone(),
+            bundle.clone(),
             None,
         ),
         // Separate schemas used for writes and reads.
@@ -79,7 +79,7 @@ fn walk_collection(
 
             // Potentially extend the user's read schema with definitions
             // for the collection's current write and inferred schemas.
-            let read_bundle = extend_read_bundle(
+            let read_bundle = models::Schema::extend_read_bundle(
                 read_bundle,
                 write_bundle,
                 inferred_schemas.get(&collection.collection),
@@ -89,7 +89,7 @@ fn walk_collection(
                 walk_collection_schema(scope.push_prop("readSchema"), &read_bundle, errors);
             (
                 write_schema?,
-                (&write_bundle as &models::RawValue).clone(),
+                write_bundle.clone(),
                 Some((read_schema?, read_bundle)),
             )
         }
@@ -148,7 +148,7 @@ fn walk_collection(
 
 fn walk_collection_schema(
     scope: Scope,
-    bundle: &models::RawValue,
+    bundle: &models::Schema,
     errors: &mut tables::Errors,
 ) -> Option<schema::Schema> {
     let schema = match schema::Schema::new(bundle.get()) {
@@ -177,7 +177,7 @@ fn walk_collection_schema(
 fn walk_collection_projections(
     scope: Scope,
     write_schema: &schema::Schema,
-    read_schema_bundle: Option<&(schema::Schema, models::RawValue)>,
+    read_schema_bundle: Option<&(schema::Schema, models::Schema)>,
     key: &models::CompositeKey,
     projections: &BTreeMap<models::Field, models::Projection>,
     errors: &mut tables::Errors,
@@ -425,73 +425,6 @@ pub fn walk_selector(
     }
 }
 
-fn extend_read_bundle(
-    read_bundle: &models::Schema,
-    write_bundle: &models::Schema,
-    inferred_bundle: Option<&models::Schema>,
-) -> models::RawValue {
-    use json::schema::keywords;
-    use serde_json::{value::to_raw_value, Value};
-    type Skim = BTreeMap<String, models::RawValue>;
-
-    let mut read_schema: Skim = serde_json::from_str(read_bundle.get()).unwrap();
-    let mut read_defs: Skim = read_schema
-        .get(keywords::DEF)
-        .map(|d| serde_json::from_str(d.get()).unwrap())
-        .unwrap_or_default();
-
-    // Add a definition for the write schema if it's referenced.
-    // We cannot add it in all cases because the existing `read_bundle` and
-    // `write_bundle` may have a common sub-schema defined, and naively adding
-    // it would result in an indexing error due to the duplicate definition.
-    // So, we treat $ref: flow://write-schema as a user assertion that there is
-    // no such conflicting definition (and we may produce an indexing error
-    // later if they're wrong).
-    if read_bundle.references_write_schema() {
-        let mut write_schema: Skim = serde_json::from_str(write_bundle.get()).unwrap();
-
-        // Set $id to "flow://write-schema".
-        _ = write_schema.insert(
-            keywords::ID.to_string(),
-            models::RawValue::from_value(&Value::String(
-                models::Schema::REF_WRITE_SCHEMA_URL.to_string(),
-            )),
-        );
-        // Add as a definition within the read schema.
-        read_defs.insert(
-            models::Schema::REF_WRITE_SCHEMA_URL.to_string(),
-            to_raw_value(&write_schema).unwrap().into(),
-        );
-    }
-
-    // Add a definition for the inferred schema if it's referenced.
-    if read_bundle.references_inferred_schema() {
-        let mut inferred_schema: Skim = inferred_bundle
-            .map(|s| serde_json::from_str(s.get()).unwrap())
-            .unwrap_or(Skim::new()); // Default to the "anything" schema {}.
-
-        // Set $id to "flow://inferred-schema".
-        _ = inferred_schema.insert(
-            keywords::ID.to_string(),
-            models::RawValue::from_value(&Value::String(
-                models::Schema::REF_INFERRED_SCHEMA_URL.to_string(),
-            )),
-        );
-        // Add as a definition within the read schema.
-        read_defs.insert(
-            models::Schema::REF_INFERRED_SCHEMA_URL.to_string(),
-            to_raw_value(&inferred_schema).unwrap().into(),
-        );
-    }
-
-    // Re-serialize the updated definitions of the read schema.
-    _ = read_schema.insert(
-        keywords::DEF.to_string(),
-        serde_json::value::to_raw_value(&read_defs).unwrap().into(),
-    );
-    to_raw_value(&read_schema).unwrap().into()
-}
-
 /// The default field name for the root document projection.
 const FLOW_DOCUMENT: &str = "flow_document";
 /// The default field name for the document publication time.
@@ -501,74 +434,3 @@ const UUID_PTR: &str = "/_meta/uuid";
 /// The JSON Pointer of the synthetic document publication time.
 /// This pointer typically pairs with the FLOW_PUBLISHED_AT field.
 const UUID_DATE_TIME_PTR: &str = "/_meta/uuid/date-time";
-
-#[cfg(test)]
-mod test {
-    use serde_json::json;
-
-    #[test]
-    fn test_extend_read_schema() {
-        let read_schema = models::Schema::new(models::RawValue::from_value(&json!({
-            "$defs": {
-                "existing://def": {"type": "array"},
-            },
-            "maxProperties": 10,
-            "allOf": [
-                {"$ref": "flow://inferred-schema"},
-                {"$ref": "flow://write-schema"},
-            ]
-        })));
-        let write_schema = models::Schema::new(models::RawValue::from_value(&json!({
-            "$id": "old://value",
-            "required": ["a_key"],
-        })));
-        let inferred_schema = models::Schema::new(models::RawValue::from_value(&json!({
-            "$id": "old://value",
-            "minProperties": 5,
-        })));
-
-        assert_eq!(
-            super::extend_read_bundle(&read_schema, &write_schema, Some(&inferred_schema))
-                .to_value(),
-            json!({
-                "$defs": {
-                    "existing://def": {"type": "array"}, // Left alone.
-                    "flow://write-schema": { "$id": "flow://write-schema", "required": ["a_key"] },
-                    "flow://inferred-schema": { "$id": "flow://inferred-schema", "minProperties": 5 },
-                },
-                "maxProperties": 10,
-                "allOf": [
-                    {"$ref": "flow://inferred-schema"},
-                    {"$ref": "flow://write-schema"},
-                ]
-            })
-        );
-
-        // Case: no inferred schema is available.
-        assert_eq!(
-            super::extend_read_bundle(&read_schema, &write_schema, None).to_value(),
-            json!({
-                "$defs": {
-                    "existing://def": {"type": "array"}, // Left alone.
-                    "flow://write-schema": { "$id": "flow://write-schema", "required": ["a_key"] },
-                    "flow://inferred-schema": { "$id": "flow://inferred-schema" },
-                },
-                "maxProperties": 10,
-                "allOf": [
-                    {"$ref": "flow://inferred-schema"},
-                    {"$ref": "flow://write-schema"},
-                ]
-            })
-        );
-
-        // Case: pass `write_schema` which has no references.
-        assert_eq!(
-            super::extend_read_bundle(&write_schema, &write_schema, None).to_value(),
-            json!({
-                "$defs": {},
-                "$id": "old://value",
-                "required": ["a_key"],
-            })
-        );
-    }
-}

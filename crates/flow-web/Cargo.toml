@@ -2,7 +2,7 @@
 name = "flow-web"
 
 # wasm-pack isn't yet fully compatible with workspace inheritance, so we can't use that for these fields
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Estuary developers  <engineering@estuary.dev>"]
 edition = "2021"
 license = "BSL"
@@ -29,9 +29,9 @@ opt-level = "s"
 default = ["console_error_panic_hook"]
 
 [dependencies]
+doc = { path = "../doc", default-features = false } # `combine` feature requires `lz4`, which doesn't WASM.
 json = { path = "../json" }
-# Disable default-featrues of doc to exclude `combine`, which requires `lz4`, which doesn't currently compile to WASM.
-doc = { path = "../doc", default-features = false }
+models = { path = "../models" }
 
 url = { workspace = true }
 thiserror = { workspace = true }
