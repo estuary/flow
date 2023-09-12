@@ -45,24 +45,6 @@ collections:
             INSERT INTO join_state (key, rhs) VALUES ($Key, JSON_ARRAY($String))
             ON CONFLICT (key) DO UPDATE SET rhs = JSON_INSERT(COALESCE(rhs, '[]'), '$[#]', $String);
 
-    derivation:
-      register:
-        schema: schema.yaml#Join
-        initial: { RHS: [] }
-
-      transform:
-        publishLHS:
-          source: { name: patterns/ints }
-          shuffle: { key: [/Key] }
-          publish: { lambda: typescript }
-
-        updateRHS:
-          source: { name: patterns/strings }
-          shuffle: { key: [/Key] }
-          update: { lambda: typescript }
-      typescript:
-        module: join-one-sided.flow.ts
-
 tests:
   patterns/test/one-sided-join:
     - ingest:

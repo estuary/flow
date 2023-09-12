@@ -427,7 +427,6 @@ pub fn collection_spec(
                 key,
                 projections: _,
                 journals,
-                derivation: _,
                 derive: _,
             },
     } = collection;

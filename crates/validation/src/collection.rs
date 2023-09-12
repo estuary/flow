@@ -45,7 +45,6 @@ fn walk_collection(
                 projections,
                 journals: _,
                 derive: _,
-                derivation: _,
             },
     } = collection;
     let scope = Scope::new(scope);

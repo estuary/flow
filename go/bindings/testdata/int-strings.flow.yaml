@@ -17,13 +17,3 @@ collections:
     projections:
       part_a: /s/1
       part_b: /i
-    derivation:
-      typescript:
-        module: |
-          import stuff;
-          doOtherStuff();
-      transform:
-        appendStrings:
-          source:
-            name: int-string
-          publish: { lambda: typescript }
