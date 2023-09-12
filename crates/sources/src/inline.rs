@@ -62,7 +62,6 @@ fn inline_collection(
                 projections: _,
                 journals: _,
                 derive,
-                derivation: _,
             },
     } = collection;
 

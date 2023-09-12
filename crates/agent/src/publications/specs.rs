@@ -1302,7 +1302,7 @@ mod test {
               ),
               p5 as (
                 insert into draft_specs (id, draft_id, catalog_name, spec, spec_type) values
-                ('1112000000000000', '1120000000000000', 'usageB/DerivationA', '{"schema": {}, "key": ["foo"], "derivation": {"transform":{"key": {"source": {"name": "usageB/CollectionA"}}}}}'::json, 'collection')
+                ('1112000000000000', '1120000000000000', 'usageB/DerivationA', '{"schema": {}, "key": ["foo"], "derive": {"using": {"sqlite": {}}, "transforms":[{"name": "a-transform", "source": "usageB/CollectionA"}]}}'::json, 'collection')
               ),
               p6 as (
                 insert into publications (id, job_status, user_id, draft_id) values

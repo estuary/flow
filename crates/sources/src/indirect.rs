@@ -191,7 +191,6 @@ fn indirect_collection(
                 projections: _,
                 journals: _,
                 derive,
-                derivation: _,
             },
     } = collection;
     let base = base_name(collection);

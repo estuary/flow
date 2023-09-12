@@ -104,7 +104,7 @@ collections:
     # Derivation that builds this collection from others through transformations.
     # See the "Derivations" concept page to learn more.
     # Optional, type: object
-    derivation:
+    derive: ~
 ```
 
 ## Schemas
