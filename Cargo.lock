@@ -1448,13 +1448,14 @@ dependencies = [
 
 [[package]]
 name = "flow-web"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "console_error_panic_hook",
  "doc",
  "getrandom 0.2.9",
  "js-sys",
  "json",
+ "models",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",

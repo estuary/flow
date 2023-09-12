@@ -3,7 +3,6 @@
 #![cfg(target_arch = "wasm32")]
 
 extern crate wasm_bindgen_test;
-use flow_web::{infer, AnalyzedSchema, Property};
 use serde_json::json;
 use serde_wasm_bindgen::{from_value as from_js_value, Serializer};
 use wasm_bindgen::JsValue;
@@ -12,7 +11,7 @@ use wasm_bindgen_test::*;
 wasm_bindgen_test_configure!(run_in_browser);
 
 #[wasm_bindgen_test]
-fn test_end_to_end_schema_inferrence() {
+fn test_end_to_end_schema_inference() {
     let schema: JsValue = to_js_value(&json!({
         "type": "object",
         "reduce": { "strategy": "merge" },
@@ -31,7 +30,7 @@ fn test_end_to_end_schema_inferrence() {
         },
         "required": ["a", "e"]
     }));
-    let result = infer(schema).expect("failed to infer");
+    let result = flow_web::infer(schema).expect("failed to infer");
     let inferred: serde_json::Value =
         from_js_value(result).expect("failed to deserialize analyzed schema");
 
@@ -136,6 +135,71 @@ fn test_end_to_end_schema_inferrence() {
       ]
     });
     assert_eq!(expected, inferred);
+}
+
+#[wasm_bindgen_test]
+fn test_end_to_end_extend_read_bundle() {
+    let input: JsValue = to_js_value(&json!({
+      "read": {
+        "$defs": {
+            "existing://def": {"type": "array"},
+        },
+        "maxProperties": 10,
+        "allOf": [
+            {"$ref": "flow://inferred-schema"},
+            {"$ref": "flow://write-schema"},
+        ]
+      },
+      "write": {
+        "$id": "old://value",
+        "required": ["a_key"],
+      },
+      "inferred": {
+        "$id": "old://value",
+        "minProperties": 5,
+      }
+    }));
+
+    let output = flow_web::extend_read_bundle(input).expect("extend first bundle");
+    let output: serde_json::Value = from_js_value(output).expect("failed to deserialize output");
+
+    assert_eq!(
+        output,
+        json!({
+          "$defs": {
+              "existing://def": {"type": "array"}, // Left alone.
+              "flow://write-schema": { "$id": "flow://write-schema", "required": ["a_key"] },
+              "flow://inferred-schema": { "$id": "flow://inferred-schema", "minProperties": 5 },
+          },
+          "maxProperties": 10,
+          "allOf": [
+              {"$ref": "flow://inferred-schema"},
+              {"$ref": "flow://write-schema"},
+          ]
+        })
+    );
+
+    let input: JsValue = to_js_value(&json!({
+      "read": {
+        "maxProperties": 10,
+      },
+      "write": {
+        "$id": "old://value",
+        "required": ["a_key"],
+      },
+      "inferred": null,
+    }));
+
+    let output = flow_web::extend_read_bundle(input).expect("extend second bundle");
+    let output: serde_json::Value = from_js_value(output).expect("failed to deserialize output");
+
+    assert_eq!(
+        output,
+        json!({
+          "$defs": {},
+          "maxProperties": 10,
+        })
+    );
 }
 
 fn to_js_value(val: &serde_json::Value) -> JsValue {

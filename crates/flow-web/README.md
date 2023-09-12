@@ -1,8 +1,8 @@
 # Flow all up in your browser
 
-This is the source for the `flow-web` NPM package, which exposes Javascript/Typescript bindings to Flow library functions in Web Assembly (WASM).
-The gist is that we compile this Rust crate to WASM and then generate the corresponding JS/TS files using `wasm-bindgen`. We use `wasm-pack` to put
-everything together into an NPM package that works with Webpack, and publish that to Github packages.
+This is the source for the `flow-web` NPM package, which exposes Javascript/Typescript bindings to Flow library functions in Web Assembly (WASM). The gist is
+that we compile this Rust crate to WASM and then generate the corresponding JS/TS files using `wasm-bindgen`. We use `wasm-pack` to put everything together into
+an NPM package that works with Webpack, and publish that to Github packages.
 
 ### Prerequisites
 
@@ -23,9 +23,16 @@ wasm-pack build crates/flow-web
 wasm-pack test --headless --firefox crates/flow-web
 ```
 
-
 ## Capabilities
 
-Currently, this only exposes a basic schema inference function, to prove out the functionality and give us a starting point.
-We'll very likely need to add functionality in order to make this truly useful by the UI.
+- `infer`: takes a JSON schema as input, and produces metadata about its inferred locations.
+- `extend_read_bundle`: takes `read`, `write`, and `inferred` schemas (where `inferred` is null if no inferred schema is available), and returns an updated
+  read-schema bundle which potentially inlines the write and inferred schemas.
 
+## Making a Change?
+
+Update the version in `crates/flow-web/Cargo.toml`.
+
+The crate version needs to be updated in that file in order for the publication to the GitHub NPM registry to succeed. That registry doesn't allow overwriting
+versions. When when originally set this up, it wasn't clear how to plumb through our dynamically generated versions through all the wasm/js/npm layers. It may
+be possible to improve, but for now, flow-web will only be successfully published when the version number in Cargo.toml is incremented.
