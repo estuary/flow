@@ -22,13 +22,8 @@ You'll need:
 
 * Credentials for connecting to your MongoDB instance and database
 
-    * Read and write access to your MongoDB database and desired collections, see
-      [Role-Based Access
-      Control](https://www.mongodb.com/docs/manual/core/authorization/) for more
-      information.
-    * Flow will need access to create a new collection in your database in order
-      to store its checkpoints. The collection will be called
-      `flow_checkpoints`.
+* Read and write access to your MongoDB database and desired collections, see [Role-Based Access
+  Control](https://www.mongodb.com/docs/manual/core/authorization/) for more information.
 
 * If you are using MongoDB Atlas, or your MongoDB provider requires whitelisting
   of IPs, you need to whitelist Estuary's IP `34.121.207.128`.
@@ -80,4 +75,3 @@ materializations:
 
 This connector supports both standard (merge) and [delta updates](../../../concepts/materialization.md#delta-updates).
 The default is to use standard updates.
-
