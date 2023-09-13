@@ -124,7 +124,7 @@ Be sure to replace `YOUR-S3-BUCKET` with the actual name of your bucket.
       "Principal": {
         "AWS": "arn:aws:iam::789740162118:user/flow-aws"
       },
-      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
       "Resource": "arn:aws:s3:::YOUR-S3-BUCKET/*"
     },
     {
