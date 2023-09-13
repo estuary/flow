@@ -1,20 +1,26 @@
-use crate::controlplane;
 use anyhow::bail;
 use futures::{StreamExt, TryStreamExt};
-use itertools::Itertools;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use sqlx::{
+    postgres::PgPoolOptions,
+    types::chrono::{NaiveDate, Utc},
+    Pool,
+};
+use sqlx::{types::chrono::DateTime, Postgres};
 use std::{
     collections::HashMap,
     time::{SystemTime, UNIX_EPOCH},
 };
 use stripe::List;
-use time::{macros::format_description, Date, Duration, OffsetDateTime};
+use time::{macros::format_description, Date, Duration};
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 /// Publish bills from the control-plane database as Stripe invoices.
-/// Recommend running with RUST_LOG=info to get logging
 pub struct PublishInvoice {
+    /// Control-plane DB connection string
+    #[clap(long)]
+    connection_string: String,
     /// Stripe API key.
     #[clap(long)]
     stripe_api_key: String,
@@ -39,29 +45,22 @@ fn parse_date(arg: &str) -> Result<Date, time::error::Parse> {
     Date::parse(arg, &format_description!("[year]-[month]-[day]"))
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 struct LineItem {
     count: f64,
     subtotal: i64,
     description: Option<String>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 struct Bill {
     subtotal: i64,
     line_items: Vec<LineItem>,
-    #[serde(with = "time::serde::rfc3339")]
-    billed_month: OffsetDateTime,
+    billed_month: DateTime<Utc>,
     billed_prefix: String,
     recurring_fee: i64,
     task_usage_hours: f64,
     processed_data_gb: f64,
-}
-
-#[derive(Deserialize, Debug)]
-struct UserResponse {
-    capability: String,
-    user_email: String,
 }
 
 const TENANT_METADATA_KEY: &str = "estuary.dev/tenant_name";
@@ -87,9 +86,10 @@ async fn stripe_search<R: DeserializeOwned + 'static + Send>(
         .await
 }
 
+#[tracing::instrument(skip_all)]
 async fn get_or_create_customer_for_tenant(
     client: &stripe::Client,
-    ctrlplane_client: &controlplane::Client,
+    db_client: &Pool<Postgres>,
     tenant: String,
 ) -> anyhow::Result<stripe::Customer> {
     let customers = stripe_search::<stripe::Customer>(
@@ -103,13 +103,10 @@ async fn get_or_create_customer_for_tenant(
     .await?;
 
     let customer = if let Some(customer) = customers.data.into_iter().next() {
-        tracing::debug!(
-            "Found existing customer {id} for tenant {tenant}",
-            id = customer.id.to_string()
-        );
+        tracing::debug!("Found existing customer {id}", id = customer.id.to_string());
         customer
     } else {
-        tracing::debug!("Creating new customer for tenant {tenant}");
+        tracing::debug!("Creating new customer");
         let new_customer = stripe::Customer::create(
             client,
             stripe::CreateCustomer {
@@ -133,48 +130,45 @@ async fn get_or_create_customer_for_tenant(
     };
 
     if customer.email.is_none() {
-        let query = vec![
-            ("select", "capability,user_full_name,user_email".to_string()),
-            (
-                "and",
-                format!("(user_email.neq.null,object_role.eq.{tenant})"),
-            ),
-        ];
-        let responses = ctrlplane_client
-            .from("combined_grants_ext")
-            .build()
-            .query(query.as_slice())
-            .send()
-            .await?
-            .json::<Vec<UserResponse>>()
-            .await?;
+        let responses = sqlx::query!(
+            r#"
+                select user_full_name, user_email
+                from combined_grants_ext
+                where user_email is not null and object_role = $1
+                and capability = 'admin'
+            "#,
+            tenant
+        )
+        .fetch_all(db_client)
+        .await?;
 
-        let found_admin = responses
-            .iter()
-            .find(|response| response.user_email.len() > 0 && response.capability.eq(&"admin"));
-        if let Some(admin) = found_admin {
-            tracing::warn!("Stripe customer object for {tenant} is missing an email. Going with {email}, an admin on that tenant.", email=admin.user_email);
+        if let Some(email) = responses
+            .into_iter()
+            .find_map(|response| response.user_email)
+        {
+            tracing::warn!("Stripe customer object is missing an email. Going with {email}, an admin on that tenant.");
             stripe::Customer::update(
                 client,
                 &customer.id,
                 stripe::UpdateCustomer {
-                    email: Some(&admin.user_email),
+                    email: Some(&email),
                     ..Default::default()
                 },
             )
             .await?;
         } else {
-            bail!("Stripe customer object for {tenant} is missing an email. No admins found for that tenant, unable to create invoice without email. Skipping");
+            bail!("Stripe customer object is missing an email. No admins found for that tenant, unable to create invoice without email. Skipping");
         }
     }
     Ok(customer)
 }
 
 impl Bill {
+    #[tracing::instrument(skip_all, fields(tenant=self.billed_prefix.to_owned()))]
     pub async fn upsert_invoice(
         &self,
         client: &stripe::Client,
-        ctrlplane_client: &controlplane::Client,
+        db_client: &Pool<Postgres>,
         recreate_finalized: bool,
     ) -> anyhow::Result<()> {
         let tenant = self.billed_prefix.to_owned();
@@ -184,24 +178,21 @@ impl Bill {
             || self.task_usage_hours > 0.0
             || self.subtotal > 0)
         {
-            tracing::debug!("Skipping tenant '{tenant}' with no usage");
+            tracing::debug!("Skipping tenant with no usage");
             return Ok(());
         } else {
             tracing::info!(
-                "Publishing invoice for '{tenant}': ${amount:.2}",
+                "Publishing invoice for: ${amount:.2}",
                 amount = self.subtotal as f64 / 100.0
             );
         }
 
         let customer =
-            get_or_create_customer_for_tenant(client, ctrlplane_client, tenant.to_owned()).await?;
+            get_or_create_customer_for_tenant(client, db_client, tenant.to_owned()).await?;
+
         let customer_id = customer.id.to_string();
-        let billed_month_repr = self
-            .billed_month
-            .format(&format_description!("[year]-[month]"))?;
-        let billed_month_human_repr = self
-            .billed_month
-            .format(&format_description!("[month repr:long] [year]"))?;
+        let billed_month_repr = self.billed_month.format("%Y-%m").to_string();
+        let billed_month_human_repr = self.billed_month.format("%B %Y").to_string();
 
         let maybe_invoice = if let Some(invoice) = stripe_search::<stripe::Invoice>(
             client,
@@ -225,7 +216,7 @@ impl Bill {
                     if recreate_finalized =>
                 {
                     tracing::warn!(
-                        "Found invoice {id} for {tenant}, in state {state} deleting and recreating",
+                        "Found invoice {id} in state {state} deleting and recreating",
                         id = invoice.id.to_string(),
                         state = state
                     );
@@ -234,24 +225,24 @@ impl Bill {
                 }
                 Some(stripe::InvoiceStatus::Draft) => {
                     tracing::debug!(
-                        "Updating existing invoice {id} for {tenant}",
+                        "Updating existing invoice {id}",
                         id = invoice.id.to_string()
                     );
                     Some(invoice)
                 }
                 Some(stripe::InvoiceStatus::Open) => {
-                    bail!("Found finalized invoice {id} for {tenant}. Pass --recreate-finalized to delete and recreate this invoice.", id = invoice.id.to_string())
+                    bail!("Found finalized invoice {id}. Pass --recreate-finalized to delete and recreate this invoice.", id = invoice.id.to_string())
                 }
                 Some(status) => {
                     bail!(
-                        "Found invoice {id} for {tenant} in unsupported state {status}, skipping.",
+                        "Found invoice {id} in unsupported state {status}, skipping.",
                         id = invoice.id.to_string(),
                         status = status
                     );
                 }
                 None => {
                     bail!(
-                        "Unexpected missing status from invoice {id} for {tenant}",
+                        "Unexpected missing status from invoice {id}",
                         id = invoice.id.to_string()
                     );
                 }
@@ -265,7 +256,7 @@ impl Bill {
         let invoice = match maybe_invoice {
             Some(inv) => inv,
             None => {
-                tracing::debug!("Creating a new invoice for {tenant}");
+                tracing::debug!("Creating a new invoice");
                 stripe::Invoice::create(
                     client,
                     stripe::CreateInvoice {
@@ -313,24 +304,26 @@ impl Bill {
         .data
         .into_iter()
         {
+            tracing::debug!(
+                "Delete invoice line item: '{desc}'",
+                desc = item.description.to_owned().unwrap_or_default()
+            );
             stripe::InvoiceItem::delete(client, &item.id).await?;
         }
 
         for item in self.line_items.iter() {
-            tracing::debug!(
-                "Created new invoice line item for {tenant}: '{desc}'",
-                desc = item.description.to_owned().unwrap_or_default()
+            let desc = format!(
+                "{desc} - {amount}",
+                desc = item.description.to_owned().unwrap_or_default(),
+                amount = (item.count * 100.0).floor() / 100.0
             );
+            tracing::debug!("Created new invoice line item: '{desc}'",);
             stripe::InvoiceItem::create(
                 client,
                 stripe::CreateInvoiceItem {
                     amount: Some(item.subtotal),
                     currency: Some(stripe::Currency::USD),
-                    description: Some(&format!(
-                        "{desc} - {amount}",
-                        desc = item.description.to_owned().unwrap_or_default(),
-                        amount = (item.count * 100.0).floor() / 100.0
-                    )),
+                    description: Some(&desc),
                     invoice: Some(invoice.id.to_owned()),
                     ..stripe::CreateInvoiceItem::new(customer.id.to_owned())
                 },
@@ -353,64 +346,67 @@ impl Bill {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, sqlx::FromRow)]
 struct Response {
-    report: Bill,
+    report: sqlx::types::Json<Bill>,
 }
 
-pub async fn do_publish_invoices(
-    ctx: &mut crate::CliContext,
-    cmd: &PublishInvoice,
-) -> anyhow::Result<()> {
-    let ctrl_plane_client = ctx.controlplane_client().await?;
+pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
     let stripe_client = stripe::Client::new(cmd.stripe_api_key.to_owned());
+    let db_pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&cmd.connection_string)
+        .await?;
 
     let month_human_repr = cmd
         .month
         .format(&format_description!("[month repr:long] [year]"))?;
 
-    let month_pg_repr = cmd
-        .month
-        .format(&format_description!("[year]-[month]-[day]"))?;
+    let month_pg_repr = cmd.month.format(&format_description!("[year]-[month]-1"))?;
+
+    let month_pg_repr = NaiveDate::parse_from_str(&month_pg_repr, "%Y-%m-%d")?;
 
     tracing::info!("Fetching billing data for {month_human_repr}");
 
-    let mut query = vec![
-        ("select", "report".to_string()),
-        ("billed_month", format!("eq.{month_pg_repr}")),
-    ];
-
-    if cmd.tenants.len() > 0 {
-        let joined = cmd
-            .tenants
-            .iter()
-            .map(|tenant| format!("\"{tenant}\""))
-            .join(",");
-        // See docs for filtering operations in postrgrest:
-        // https://postgrest.org/en/stable/references/api/tables_views.html?highlight=querying#operators
-        let inner = format!("in.({joined})");
-        query.push(("tenant", inner));
-    }
-
-    let req = ctrl_plane_client
-        .from("billing_historicals")
-        .build()
-        .query(query.as_slice());
-    tracing::debug!(?req, "built request to execute");
-
-    let responses = req.send().await?.json::<Vec<Response>>().await?;
+    let responses: Vec<Response> = if cmd.tenants.len() > 0 {
+        sqlx::query_as!(
+            Response,
+            r#"
+                select report as "report!: sqlx::types::Json<Bill>"
+                from billing_historicals
+                where billed_month = date_trunc('day', $1::date)
+                and tenant = any($2)
+            "#,
+            month_pg_repr,
+            &cmd.tenants[..]
+        )
+        .fetch_all(&db_pool)
+        .await?
+    } else {
+        sqlx::query_as!(
+            Response,
+            r#"
+                select report as "report!: sqlx::types::Json<Bill>"
+                from billing_historicals
+                where billed_month = date_trunc('day', $1::date)
+            "#,
+            month_pg_repr
+        )
+        .fetch_all(&db_pool)
+        .await?
+    };
 
     let futures = responses.iter().map(|response| {
         let client = stripe_client.clone();
-        let ctrlplane_client = ctrl_plane_client.clone();
+        let db_pool = db_pool.clone();
         async move {
             let res = response
                 .report
-                .upsert_invoice(&client, &ctrlplane_client, cmd.recreate_finalized)
+                .upsert_invoice(&client, &db_pool, cmd.recreate_finalized)
                 .await;
             if let Err(error) = res {
                 let formatted = format!(
-                    "Error publishing invoice for tenant {tenant}: {err}",
+                    "Error publishing invoice for {tenant}: {err}",
                     tenant = response.report.billed_prefix,
                     err = error.to_string()
                 );

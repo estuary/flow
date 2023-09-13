@@ -6,7 +6,6 @@ use std::io::{self, Write};
 mod capture;
 mod discover;
 mod materialize_fixture;
-mod stripe;
 mod suggest_schema;
 
 #[derive(Debug, clap::Args)]
@@ -52,8 +51,6 @@ pub enum Command {
     Capture(capture::Capture),
     /// Suggest a schema that would alleviate document schema violations of a specific collection
     SuggestSchema(suggest_schema::SuggestSchema),
-    #[clap(hide(true))]
-    PublishStripeInvoices(stripe::PublishInvoice),
 }
 
 #[derive(Debug, clap::Args)]
@@ -133,7 +130,6 @@ impl Advanced {
             Command::Discover(args) => discover::do_discover(ctx, args).await,
             Command::Capture(args) => capture::do_capture(ctx, args).await,
             Command::SuggestSchema(args) => suggest_schema::do_suggest_schema(ctx, args).await,
-            Command::PublishStripeInvoices(args) => stripe::do_publish_invoices(ctx, args).await,
         }
     }
 }
