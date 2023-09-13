@@ -193,19 +193,19 @@ begin
         "rate": 30,
         "count": 4,
         "subtotal": 120,
-        "description": "Data processing (first 4GB at $0.30/GB)"
+        "description": "Data processing (first 4 GBs at $0.30/GB)"
       },
       {
         "rate": 25,
         "count": 6,
         "subtotal": 150,
-        "description": "Data processing (next 6GB at $0.25/GB)"
+        "description": "Data processing (next 6 GBs at $0.25/GB)"
       },
       {
         "rate": 20,
         "count": 20,
         "subtotal": 400,
-        "description": "Data processing (next 20GB at $0.20/GB)"
+        "description": "Data processing (next 20 GBs at $0.20/GB)"
       },
       {
         "rate": 15,
@@ -253,7 +253,9 @@ begin
     "processed_data_gb": 43.125,
     "recurring_fee": 10000,
     "subtotal": 22044,
-    "task_usage_hours": 738.375
+    "task_usage_hours": 738.375,
+    "trial_credit": 0,
+    "trial_start": null
   }'::jsonb);
 
   set role postgres;
@@ -277,7 +279,7 @@ begin
         "rate": 50,
         "count": 21.125,
         "subtotal": 1056,
-        "description": "Data processing (first 30GB at $0.50/GB)"
+        "description": "Data processing (first 30 GBs at $0.50/GB)"
       },
       {
         "rate": 20,
@@ -295,7 +297,9 @@ begin
     "processed_data_gb": 21.125,
     "recurring_fee": 0,
     "subtotal": 11856,
-    "task_usage_hours": 720
+    "task_usage_hours": 720,
+    "trial_credit": 0,
+    "trial_start": null
   }'::jsonb);
 
   -- We're authorized as Bob.
@@ -311,7 +315,7 @@ begin
   -- Switch tiers so usage spills over
   -- and set trial so half of August is covered
   update tenants set
-    free_trial_start='2022-08-15',
+    trial_start='2022-08-15',
     data_tiers = '{50, 5, 20}'
     where tenant = 'aliceCo/';
 
@@ -323,288 +327,24 @@ begin
     "billed_prefix": "aliceCo/aa/",
     "daily_usage": [
         {
-            "line_items": [
-                {
-                    "count": 5,
-                    "description": "Data processing (first 5GB at $0.50/GB)",
-                    "rate": 50,
-                    "subtotal_frac": 250
-                },
-                {
-                    "count": 13.125,
-                    "description": "Data processing (at $0.20/GB)",
-                    "rate": 20,
-                    "subtotal_frac": 262.5
-                },
-                {
-                    "count": 720,
-                    "description": "Task usage (at $0.15/hour)",
-                    "rate": 15,
-                    "subtotal_frac": 10800
-                }
-            ],
-            "processed_data_gb": 18.125,
-            "subtotal": 11313,
-            "task_usage_hours": 720,
+            "data_gb": 18.125,
+            "data_subtotal": 513,
+            "task_hours": 720,
+            "task_subtotal": 10800,
             "ts": "2022-08-01T00:00:00+00:00"
         },
         {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-02T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-03T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-04T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-05T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-06T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-07T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-08T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-09T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-10T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-11T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-12T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-13T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-14T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-15T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-16T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-17T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-18T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-19T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-20T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-21T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-22T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-23T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-24T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-25T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-26T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-27T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-28T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-29T00:00:00"
-        },
-        {
-            "line_items": [
-                {
-                    "count": 3,
-                    "description": "Data processing (at $0.20/GB)",
-                    "rate": 20,
-                    "subtotal_frac": 60
-                },
-                {
-                    "count": 0,
-                    "description": "Task usage (at $0.15/hour)",
-                    "rate": 15,
-                    "subtotal_frac": 0
-                }
-            ],
-            "processed_data_gb": 3,
-            "subtotal": 60,
-            "task_usage_hours": 0,
+            "data_gb": 3,
+            "data_subtotal": 60,
+            "task_hours": 0,
+            "task_subtotal": 0,
             "ts": "2022-08-30T00:00:00+00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-31T00:00:00"
         }
     ],
     "line_items": [
         {
             "count": 5,
-            "description": "Data processing (first 5GB at $0.50/GB)",
+            "description": "Data processing (first 5 GBs at $0.50/GB)",
             "rate": 50,
             "subtotal": 250
         },
@@ -622,7 +362,7 @@ begin
         },
         {
             "count": 1,
-            "description": "Free trial credit (2022-08-15 to 2022-09-14)",
+            "description": "Free trial credit (2022-08-15 - 2022-09-14)",
             "rate": -60,
             "subtotal": -60
         }
@@ -630,7 +370,9 @@ begin
     "processed_data_gb": 21.125,
     "recurring_fee": 0,
     "subtotal": 11313,
-    "task_usage_hours": 720
+    "task_usage_hours": 720,
+    "trial_credit": 60,
+    "trial_start": "2022-08-15"
   }'::jsonb);
 
   -- aliceCo/bb has a free trial set, but has no usage in the trial period
@@ -639,277 +381,18 @@ begin
     "billed_month": "2022-08-01T00:00:00+00:00",
     "billed_prefix": "aliceCo/bb/",
     "daily_usage": [
-        {
-            "line_items": [
-                {
-                    "count": 5,
-                    "description": "Data processing (first 5GB at $0.50/GB)",
-                    "rate": 50,
-                    "subtotal_frac": 250
-                },
-                {
-                    "count": 17,
-                    "description": "Data processing (at $0.20/GB)",
-                    "rate": 20,
-                    "subtotal_frac": 340
-                },
-                {
-                    "count": 18.375,
-                    "description": "Task usage (at $0.15/hour)",
-                    "rate": 15,
-                    "subtotal_frac": 275.625
-                }
-            ],
-            "processed_data_gb": 22,
-            "subtotal": 866,
-            "task_usage_hours": 18.375,
-            "ts": "2022-08-01T00:00:00+00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-02T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-03T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-04T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-05T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-06T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-07T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-08T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-09T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-10T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-11T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-12T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-13T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-14T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-15T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-16T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-17T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-18T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-19T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-20T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-21T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-22T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-23T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-24T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-25T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-26T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-27T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-28T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-29T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-30T00:00:00"
-        },
-        {
-            "line_items": [
-            ],
-            "processed_data_gb": 0,
-            "subtotal": 0,
-            "task_usage_hours": 0,
-            "ts": "2022-08-31T00:00:00"
-        }
+      {
+        "ts": "2022-08-01T00:00:00+00:00",
+        "data_gb": 22,
+        "task_hours": 18.375,
+        "data_subtotal": 590,
+        "task_subtotal": 276
+      }
     ],
     "line_items": [
         {
             "count": 5,
-            "description": "Data processing (first 5GB at $0.50/GB)",
+            "description": "Data processing (first 5 GBs at $0.50/GB)",
             "rate": 50,
             "subtotal": 250
         },
@@ -927,7 +410,7 @@ begin
         },
         {
             "count": 1,
-            "description": "Free trial credit (2022-08-15 to 2022-09-14)",
+            "description": "Free trial credit (2022-08-15 - 2022-09-14)",
             "rate": 0,
             "subtotal": 0
         }
@@ -935,7 +418,9 @@ begin
     "processed_data_gb": 22,
     "recurring_fee": 0,
     "subtotal": 866,
-    "task_usage_hours": 18.375
+    "task_usage_hours": 18.375,
+    "trial_start": "2022-08-15",
+    "trial_credit": 0
   }'::jsonb);
 
 end
