@@ -92,7 +92,12 @@ pub fn run() -> anyhow::Result<()> {
     let mut child = std::process::Command::new("deno")
         .stdin(Stdio::piped())
         .current_dir(temp_dir)
-        .args(["run", "--allow-net=api.openai.com", MAIN_NAME])
+        .args([
+            "run",
+            "--inspect=0.0.0.0:3113",
+            "--allow-net=api.openai.com",
+            MAIN_NAME,
+        ])
         .spawn()?;
 
     // Forward `open` and the remainder of stdin to `deno`.
