@@ -3,6 +3,8 @@ collections:
     schema: schema-inference.schema.yaml
     key: [/collection_name]
     derive:
+      shards:
+        minTxnDuration: 10s
       using:
         sqlite: {}
       transforms:
@@ -37,6 +39,8 @@ collections:
     schema: schema-inference.schema.yaml
     key: [/collection_name]
     derive:
+      shards:
+        minTxnDuration: 10s
       using:
         sqlite: {}
       # The idea with this L2 collection is to merge

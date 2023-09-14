@@ -1,6 +1,8 @@
 collections:
   ops.us-central1.v1/failure-notifications/v1:
     derive:
+      shards:
+        minTxnDuration: 10s
       using:
         sqlite:
           migrations:
