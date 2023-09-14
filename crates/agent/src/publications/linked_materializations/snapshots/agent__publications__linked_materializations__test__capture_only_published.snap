@@ -113,4 +113,48 @@ expression: results
             },
         ),
     },
+    Record {
+        catalog_name: "acmeCo/matC/already-matching",
+        spec_type: Some(
+            Materialization,
+        ),
+        spec: Some(
+            Object {
+                "bindings": Array [
+                    Object {
+                        "disable": Bool(true),
+                        "fields": Object {
+                            "recommended": Bool(true),
+                        },
+                        "resource": Object {},
+                        "source": String("acmeCo/captureA/c1"),
+                    },
+                    Object {
+                        "disable": Bool(true),
+                        "fields": Object {
+                            "recommended": Bool(true),
+                        },
+                        "resource": Object {},
+                        "source": String("acmeCo/captureA/c3"),
+                    },
+                    Object {
+                        "fields": Object {
+                            "recommended": Bool(true),
+                        },
+                        "resource": Object {
+                            "targetThingy": String("c4"),
+                        },
+                        "source": String("acmeCo/captureA/c4"),
+                    },
+                ],
+                "endpoint": Object {
+                    "connector": Object {
+                        "config": Object {},
+                        "image": String("matImage:v1"),
+                    },
+                },
+                "sourceCapture": String("acmeCo/captureA/source-happy"),
+            },
+        ),
+    },
 ]
