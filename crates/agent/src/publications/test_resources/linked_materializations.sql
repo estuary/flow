@@ -87,9 +87,10 @@ setup_live_specs as (
     }'::json, null, 'materialization', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
     ('1600000000000000', 'acmeCo/matC/already-matching', '{
       "endpoint": {"connector":{"image":"matImage:v1","config":{}}},
-      "sourceCapture": "acmeCo/captureC/source-empty",
+      "sourceCapture": "acmeCo/captureA/source-happy",
       "bindings": [
-        {"source": "acmeCo/captureC/c1","disable": true}
+        {"source": "acmeCo/captureA/c1","disable": true, "resource": {}},
+        {"source": "acmeCo/captureA/c3","disable": true, "resource": {}}
       ]
     }'::json, null, 'materialization', 'bbbbbbbbbbbbbbbb', 'bbbbbbbbbbbbbbbb'),
 
