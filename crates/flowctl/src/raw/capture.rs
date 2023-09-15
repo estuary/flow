@@ -22,6 +22,10 @@ pub struct Capture {
     /// Print the reduced checkpoint of the connector as it gets updated
     #[clap(long, action)]
     print_checkpoint: bool,
+
+    /// Docker network to run the connector
+    #[clap(long, default_value="bridge")]
+    network: String,
 }
 
 #[derive(Deserialize)]
@@ -40,6 +44,7 @@ pub async fn do_capture(
     ctx: &mut crate::CliContext,
     Capture {
         source,
+        network,
         print_checkpoint,
     }: &Capture,
 ) -> anyhow::Result<()> {
@@ -80,7 +85,7 @@ pub async fn do_capture(
         ..Default::default()
     };
 
-    let apply_output = docker_run(&cfg.image, apply)
+    let apply_output = docker_run(&cfg.image, &network, apply)
         .await
         .context("connector apply")?;
 
@@ -159,6 +164,7 @@ pub async fn do_capture(
     });
     let mut out_stream = docker_run_stream(
         &cfg.image,
+        &network,
         Box::pin(stream::once(async { open }).chain(in_stream)),
     )
     .await
