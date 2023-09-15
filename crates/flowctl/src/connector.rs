@@ -26,7 +26,7 @@ fn inspect(image: &str) -> anyhow::Result<Output> {
 
 const CONNECTOR_INIT_PORT: u16 = 49092;
 
-pub fn docker_spawn(image: &str, args: &[&str]) -> anyhow::Result<(Child, TempDir, u16)> {
+pub fn docker_spawn(image: &str, args: &[&str], network: &str) -> anyhow::Result<(Child, TempDir, u16)> {
     pull(image).context(format!("pulling {image}"))?;
 
     let inspect_output = inspect(image).context(format!("inspecting {image}"))?;
@@ -58,6 +58,8 @@ pub fn docker_spawn(image: &str, args: &[&str]) -> anyhow::Result<(Child, TempDi
                     ),
                     "--mount",
                     &format!("type=bind,source={host_inspect_str},target={target_inspect}"),
+                    "--network",
+                    network,
                     "--publish",
                     &format!("0.0.0.0:{}:{}/tcp", port, CONNECTOR_INIT_PORT),
                     image,
@@ -86,8 +88,8 @@ async fn connector_client(port: u16) -> anyhow::Result<ConnectorClient<tonic::tr
     }
 }
 
-pub async fn docker_run(image: &str, req: Request) -> anyhow::Result<Response> {
-    let (_child, _dir, port) = docker_spawn(image, &[])?;
+pub async fn docker_run(image: &str, network: &str, req: Request) -> anyhow::Result<Response> {
+    let (_child, _dir, port) = docker_spawn(image, &[], network)?;
 
     let mut client = connector_client(port).await?;
 
@@ -100,11 +102,12 @@ pub async fn docker_run(image: &str, req: Request) -> anyhow::Result<Response> {
 
 pub async fn docker_run_stream(
     image: &str,
+    network: &str,
     stream: Pin<Box<dyn Stream<Item = Request> + Send + Sync>>,
 ) -> anyhow::Result<
     Pin<Box<dyn TryStream<Item = anyhow::Result<Response>, Ok = Response, Error = anyhow::Error>>>,
 > {
-    let (_child, _dir, port) = docker_spawn(image, &[])?;
+    let (_child, _dir, port) = docker_spawn(image, &[], network)?;
     let mut client = connector_client(port).await?;
     let response_stream = client.capture(stream).await?;
 

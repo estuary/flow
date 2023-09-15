@@ -33,6 +33,10 @@ pub struct Discover {
     /// Should specs be written to the single specification file, or written in the canonical layout?
     #[clap(long)]
     flat: bool,
+
+    /// Docker network to run the connector
+    #[clap(long, default_value="bridge")]
+    network: String,
 }
 
 pub async fn do_discover(
@@ -42,6 +46,7 @@ pub async fn do_discover(
         prefix,
         overwrite,
         flat,
+        network,
     }: &Discover,
 ) -> anyhow::Result<()> {
     let connector_name = image
@@ -70,6 +75,7 @@ pub async fn do_discover(
     if let Some(config) = cfg {
         let discover_output = docker_run(
             image,
+            &network,
             Request {
                 discover: Some(request::Discover {
                     connector_type: ConnectorType::Image.into(),
@@ -150,6 +156,7 @@ pub async fn do_discover(
         // Otherwise send a Spec RPC and use that to write a sample config file
         let spec_output = docker_run(
             image,
+            &network,
             Request {
                 spec: Some(request::Spec {
                     connector_type: ConnectorType::Image.into(),
