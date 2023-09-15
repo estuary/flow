@@ -15,7 +15,7 @@ create or replace function tier_line_items(
 returns jsonb as $$
 declare
   o_line_items jsonb = '[]'; -- Output variable.
-  tier_count   numeric;
+  tier_count   integer;
   tier_pivot   integer;
   tier_rate    integer;
 begin
@@ -23,7 +23,7 @@ begin
   for idx in 1..array_length(tiers, 1) by 2 loop
     tier_rate = tiers[idx];
     tier_pivot = tiers[idx+1];
-    tier_count = least(amount, tier_pivot);
+    tier_count = ceil(least(amount, tier_pivot));
     amount = amount - tier_count;
 
     o_line_items = o_line_items || jsonb_build_object(
@@ -40,7 +40,7 @@ begin
       ),
       'count', tier_count,
       'rate', tier_rate,
-      'subtotal', round(tier_count * tier_rate)
+      'subtotal', tier_count * tier_rate
     );
   end loop;
 
@@ -124,8 +124,8 @@ begin
   daily_stats as (
     select
       ts,
-      ceil(sum(data_gb) over w) as data_gb,
-      ceil(sum(task_hours) over w) as task_hours
+      sum(data_gb) over w as data_gb,
+      sum(task_hours) over w as task_hours
     from daily_stat_deltas
     window w as (order by ts)
   ),

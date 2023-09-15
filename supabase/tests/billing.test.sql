@@ -265,10 +265,10 @@ begin
         "description": "An extra charge for some reason"
       }
     ],
-    "processed_data_gb": 44,
+    "processed_data_gb": 43.125,
     "recurring_fee": 10000,
     "subtotal": 22066,
-    "task_usage_hours": 739,
+    "task_usage_hours": 738.375,
     "trial_credit": 0,
     "trial_start": null
   }'::jsonb);
@@ -309,7 +309,7 @@ begin
         "description": "Task usage (at $0.15/hour)"
       }
     ],
-    "processed_data_gb": 22,
+    "processed_data_gb": 21.125,
     "recurring_fee": 0,
     "subtotal": 11900,
     "task_usage_hours": 720,
@@ -342,7 +342,7 @@ begin
     "billed_prefix": "aliceCo/aa/",
     "daily_usage": [
         {
-            "data_gb": 19,
+            "data_gb": 18.125,
             "data_subtotal": 530,
             "task_hours": 720,
             "task_subtotal": 10800,
@@ -382,7 +382,7 @@ begin
             "subtotal": -60
         }
     ],
-    "processed_data_gb": 22,
+    "processed_data_gb": 21.125,
     "recurring_fee": 0,
     "subtotal": 11330,
     "task_usage_hours": 720,
@@ -399,7 +399,7 @@ begin
       {
         "ts": "2022-08-01T00:00:00+00:00",
         "data_gb": 22,
-        "task_hours": 19,
+        "task_hours": 18.375,
         "data_subtotal": 590,
         "task_subtotal": 285
       }
@@ -433,7 +433,7 @@ begin
     "processed_data_gb": 22,
     "recurring_fee": 0,
     "subtotal": 875,
-    "task_usage_hours": 19,
+    "task_usage_hours": 18.375,
     "trial_start": "2022-08-15",
     "trial_credit": 0
   }'::jsonb);
@@ -441,162 +441,162 @@ begin
   -- aliceCo/cc has a free trial set, but has no usage in the trial period
   -- and multiple days of fractional usage. Let's see if they round correctly
   return query select is(billing_report_202308('aliceCo/cc/', '2022-07-20T13:00:00Z'), '{
-    "billed_month": "2022-07-01T00:00:00+00:00",
-    "billed_prefix": "aliceCo/cc/",
-    "daily_usage": [
-        {
-            "data_gb": 1,
-            "data_subtotal": 50,
-            "task_hours": 0,
-            "task_subtotal": 0,
-            "ts": "2022-07-01T00:00:00+00:00"
-        },
-        {
-            "data_gb": 0,
-            "data_subtotal": 0,
-            "task_hours": 0,
-            "task_subtotal": 0,
-            "ts": "2022-07-02T00:00:00+00:00"
-        },
-        {
-            "data_gb": 0,
-            "data_subtotal": 0,
-            "task_hours": 0,
-            "task_subtotal": 0,
-            "ts": "2022-07-03T00:00:00+00:00"
-        },
-        {
-            "data_gb": 0,
-            "data_subtotal": 0,
-            "task_hours": 0,
-            "task_subtotal": 0,
-            "ts": "2022-07-04T00:00:00+00:00"
-        },
-        {
-            "data_gb": 0,
-            "data_subtotal": 0,
-            "task_hours": 0,
-            "task_subtotal": 0,
-            "ts": "2022-07-05T00:00:00+00:00"
-        },
-        {
-            "data_gb": 0,
-            "data_subtotal": 0,
-            "task_hours": 0,
-            "task_subtotal": 0,
-            "ts": "2022-07-06T00:00:00+00:00"
-        },
-        {
-            "data_gb": 0,
-            "data_subtotal": 0,
-            "task_hours": 0,
-            "task_subtotal": 0,
-            "ts": "2022-07-07T00:00:00+00:00"
-        },
-        {
-            "data_gb": 0,
-            "data_subtotal": 0,
-            "task_hours": 0,
-            "task_subtotal": 0,
-            "ts": "2022-07-08T00:00:00+00:00"
-        },
-        {
-            "data_gb": 0,
-            "data_subtotal": 0,
-            "task_hours": 0,
-            "task_subtotal": 0,
-            "ts": "2022-07-09T00:00:00+00:00"
-        },
-        {
-            "data_gb": 0,
-            "data_subtotal": 0,
-            "task_hours": 0,
-            "task_subtotal": 0,
-            "ts": "2022-07-10T00:00:00+00:00"
-        },
-        {
-            "data_gb": 1,
-            "data_subtotal": 50,
-            "task_hours": 0,
-            "task_subtotal": 0,
-            "ts": "2022-07-11T00:00:00+00:00"
-        },
-        {
-            "data_gb": 0,
-            "data_subtotal": 0,
-            "task_hours": 0,
-            "task_subtotal": 0,
-            "ts": "2022-07-12T00:00:00+00:00"
-        },
-        {
-            "data_gb": 0,
-            "data_subtotal": 0,
-            "task_hours": 0,
-            "task_subtotal": 0,
-            "ts": "2022-07-13T00:00:00+00:00"
-        },
-        {
-            "data_gb": 0,
-            "data_subtotal": 0,
-            "task_hours": 0,
-            "task_subtotal": 0,
-            "ts": "2022-07-14T00:00:00+00:00"
-        },
-        {
-            "data_gb": 0,
-            "data_subtotal": 0,
-            "task_hours": 0,
-            "task_subtotal": 0,
-            "ts": "2022-07-15T00:00:00+00:00"
-        },
-        {
-            "data_gb": 0,
-            "data_subtotal": 0,
-            "task_hours": 0,
-            "task_subtotal": 0,
-            "ts": "2022-07-16T00:00:00+00:00"
-        },
-        {
-            "data_gb": 0,
-            "data_subtotal": 0,
-            "task_hours": 0,
-            "task_subtotal": 0,
-            "ts": "2022-07-17T00:00:00+00:00"
-        },
-        {
-            "data_gb": 0,
-            "data_subtotal": 0,
-            "task_hours": 0,
-            "task_subtotal": 0,
-            "ts": "2022-07-18T00:00:00+00:00"
-        }
-    ],
-    "line_items": [
-        {
-            "count": 2,
-            "description": "Data processing (first 5 GBs at $0.50/GB)",
-            "rate": 50,
-            "subtotal": 100
-        },
-        {
-            "count": 0,
-            "description": "Data processing (at $0.20/GB)",
-            "rate": 20,
-            "subtotal": 0
-        },
-        {
-            "count": 0,
-            "description": "Task usage (at $0.15/hour)",
-            "rate": 15,
-            "subtotal": 0
-        }
-    ],
-    "processed_data_gb": 2,
-    "recurring_fee": 0,
-    "subtotal": 100,
-    "task_usage_hours": 0,
-    "trial_credit": 0,
-    "trial_start": "2022-08-15"
+   "subtotal":100,
+   "line_items":[
+      {
+         "rate":50,
+         "count":2,
+         "subtotal":100,
+         "description":"Data processing (first 5 GBs at $0.50/GB)"
+      },
+      {
+         "rate":20,
+         "count":0,
+         "subtotal":0,
+         "description":"Data processing (at $0.20/GB)"
+      },
+      {
+         "rate":15,
+         "count":0,
+         "subtotal":0,
+         "description":"Task usage (at $0.15/hour)"
+      }
+   ],
+   "daily_usage":[
+      {
+         "ts":"2022-07-01T00:00:00+00:00",
+         "data_gb":0.09999999962747097015,
+         "task_hours":0.00000000000000000000,
+         "data_subtotal":50,
+         "task_subtotal":0
+      },
+      {
+         "ts":"2022-07-02T00:00:00+00:00",
+         "data_gb":0.09999999962747097015,
+         "task_hours":0.00000000000000000000,
+         "data_subtotal":0,
+         "task_subtotal":0
+      },
+      {
+         "ts":"2022-07-03T00:00:00+00:00",
+         "data_gb":0.09999999962747097015,
+         "task_hours":0.00000000000000000000,
+         "data_subtotal":0,
+         "task_subtotal":0
+      },
+      {
+         "ts":"2022-07-04T00:00:00+00:00",
+         "data_gb":0.09999999962747097015,
+         "task_hours":0.00000000000000000000,
+         "data_subtotal":0,
+         "task_subtotal":0
+      },
+      {
+         "ts":"2022-07-05T00:00:00+00:00",
+         "data_gb":0.09999999962747097015,
+         "task_hours":0.00000000000000000000,
+         "data_subtotal":0,
+         "task_subtotal":0
+      },
+      {
+         "ts":"2022-07-06T00:00:00+00:00",
+         "data_gb":0.09999999962747097015,
+         "task_hours":0.00000000000000000000,
+         "data_subtotal":0,
+         "task_subtotal":0
+      },
+      {
+         "ts":"2022-07-07T00:00:00+00:00",
+         "data_gb":0.09999999962747097015,
+         "task_hours":0.00000000000000000000,
+         "data_subtotal":0,
+         "task_subtotal":0
+      },
+      {
+         "ts":"2022-07-08T00:00:00+00:00",
+         "data_gb":0.09999999962747097015,
+         "task_hours":0.00000000000000000000,
+         "data_subtotal":0,
+         "task_subtotal":0
+      },
+      {
+         "ts":"2022-07-09T00:00:00+00:00",
+         "data_gb":0.09999999962747097015,
+         "task_hours":0.00000000000000000000,
+         "data_subtotal":0,
+         "task_subtotal":0
+      },
+      {
+         "ts":"2022-07-10T00:00:00+00:00",
+         "data_gb":0.09999999962747097015,
+         "task_hours":0.00000000000000000000,
+         "data_subtotal":0,
+         "task_subtotal":0
+      },
+      {
+         "ts":"2022-07-11T00:00:00+00:00",
+         "data_gb":0.09999999962747097015,
+         "task_hours":0.00000000000000000000,
+         "data_subtotal":50,
+         "task_subtotal":0
+      },
+      {
+         "ts":"2022-07-12T00:00:00+00:00",
+         "data_gb":0.09999999962747097015,
+         "task_hours":0.00000000000000000000,
+         "data_subtotal":0,
+         "task_subtotal":0
+      },
+      {
+         "ts":"2022-07-13T00:00:00+00:00",
+         "data_gb":0.09999999962747097015,
+         "task_hours":0.00000000000000000000,
+         "data_subtotal":0,
+         "task_subtotal":0
+      },
+      {
+         "ts":"2022-07-14T00:00:00+00:00",
+         "data_gb":0.09999999962747097015,
+         "task_hours":0.00000000000000000000,
+         "data_subtotal":0,
+         "task_subtotal":0
+      },
+      {
+         "ts":"2022-07-15T00:00:00+00:00",
+         "data_gb":0.09999999962747097015,
+         "task_hours":0.00000000000000000000,
+         "data_subtotal":0,
+         "task_subtotal":0
+      },
+      {
+         "ts":"2022-07-16T00:00:00+00:00",
+         "data_gb":0.09999999962747097015,
+         "task_hours":0.00000000000000000000,
+         "data_subtotal":0,
+         "task_subtotal":0
+      },
+      {
+         "ts":"2022-07-17T00:00:00+00:00",
+         "data_gb":0.09999999962747097015,
+         "task_hours":0.00000000000000000000,
+         "data_subtotal":0,
+         "task_subtotal":0
+      },
+      {
+         "ts":"2022-07-18T00:00:00+00:00",
+         "data_gb":0.09999999962747097015,
+         "task_hours":0.00000000000000000000,
+         "data_subtotal":0,
+         "task_subtotal":0
+      }
+   ],
+   "trial_start":"2022-08-15",
+   "billed_month":"2022-07-01T00:00:00+00:00",
+   "trial_credit":0,
+   "billed_prefix":"aliceCo/cc/",
+   "recurring_fee":0,
+   "task_usage_hours":0.00000000000000000000,
+   "processed_data_gb":1.79999999329447746270
   }'::jsonb);
 
 
