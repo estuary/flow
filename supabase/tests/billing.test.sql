@@ -161,7 +161,25 @@ begin
     ('aliceCo/aa/hello', 'daily', '2022-08-01T00:00:00Z', '{}', 5.125 * 1024 * 1024 * 1024, 0, 3600 * 720),
     ('aliceCo/aa/big',   'daily', '2022-08-01T00:00:00Z', '{}', 6::bigint * 1024 * 1024 * 1024, 7::bigint * 1024 * 1024 * 1024, 0),
     ('aliceCo/aa/big',   'daily', '2022-08-30T00:00:00Z', '{}', 1::bigint * 1024 * 1024 * 1024, 2::bigint * 1024 * 1024 * 1024, 0),
-    ('aliceCo/bb/world', 'daily', '2022-08-01T00:00:00Z', '{}', 0, 22::bigint * 1024 * 1024 * 1024, 3600 * 18.375)
+    ('aliceCo/bb/world', 'daily', '2022-08-01T00:00:00Z', '{}', 0, 22::bigint * 1024 * 1024 * 1024, 3600 * 18.375),
+    ('aliceCo/cc/round', 'daily', '2022-07-01T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
+    ('aliceCo/cc/round', 'daily', '2022-07-02T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
+    ('aliceCo/cc/round', 'daily', '2022-07-03T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
+    ('aliceCo/cc/round', 'daily', '2022-07-04T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
+    ('aliceCo/cc/round', 'daily', '2022-07-05T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
+    ('aliceCo/cc/round', 'daily', '2022-07-06T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
+    ('aliceCo/cc/round', 'daily', '2022-07-07T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
+    ('aliceCo/cc/round', 'daily', '2022-07-08T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
+    ('aliceCo/cc/round', 'daily', '2022-07-09T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
+    ('aliceCo/cc/round', 'daily', '2022-07-10T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
+    ('aliceCo/cc/round', 'daily', '2022-07-11T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
+    ('aliceCo/cc/round', 'daily', '2022-07-12T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
+    ('aliceCo/cc/round', 'daily', '2022-07-13T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
+    ('aliceCo/cc/round', 'daily', '2022-07-14T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
+    ('aliceCo/cc/round', 'daily', '2022-07-15T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
+    ('aliceCo/cc/round', 'daily', '2022-07-16T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
+    ('aliceCo/cc/round', 'daily', '2022-07-17T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
+    ('aliceCo/cc/round', 'daily', '2022-07-18T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0)
   ;
 
   insert into internal.billing_adjustments (
@@ -206,8 +224,8 @@ begin
       },
       {
         "rate": 15,
-        "count": 13.125,
-        "subtotal": 197,
+        "count": 14,
+        "subtotal": 210,
         "description": "Data processing (at $0.15/GB)"
       },
       {
@@ -230,8 +248,8 @@ begin
       },
       {
         "rate": 14,
-        "count": 438.375,
-        "subtotal": 6137,
+        "count": 439,
+        "subtotal": 6146,
         "description": "Task usage (at $0.14/hour)"
       },
       {
@@ -247,10 +265,10 @@ begin
         "description": "An extra charge for some reason"
       }
     ],
-    "processed_data_gb": 43.125,
+    "processed_data_gb": 44,
     "recurring_fee": 10000,
-    "subtotal": 22044,
-    "task_usage_hours": 738.375,
+    "subtotal": 22066,
+    "task_usage_hours": 739,
     "trial_credit": 0,
     "trial_start": null
   }'::jsonb);
@@ -274,8 +292,8 @@ begin
     "line_items": [
       {
         "rate": 50,
-        "count": 21.125,
-        "subtotal": 1056,
+        "count": 22,
+        "subtotal": 1100,
         "description": "Data processing (first 30 GBs at $0.50/GB)"
       },
       {
@@ -291,9 +309,9 @@ begin
         "description": "Task usage (at $0.15/hour)"
       }
     ],
-    "processed_data_gb": 21.125,
+    "processed_data_gb": 22,
     "recurring_fee": 0,
-    "subtotal": 11856,
+    "subtotal": 11900,
     "task_usage_hours": 720,
     "trial_credit": 0,
     "trial_start": null
@@ -324,8 +342,8 @@ begin
     "billed_prefix": "aliceCo/aa/",
     "daily_usage": [
         {
-            "data_gb": 18.125,
-            "data_subtotal": 513,
+            "data_gb": 19,
+            "data_subtotal": 530,
             "task_hours": 720,
             "task_subtotal": 10800,
             "ts": "2022-08-01T00:00:00+00:00"
@@ -346,10 +364,10 @@ begin
             "subtotal": 250
         },
         {
-            "count": 16.125,
+            "count": 17,
             "description": "Data processing (at $0.20/GB)",
             "rate": 20,
-            "subtotal": 323
+            "subtotal": 340
         },
         {
             "count": 720,
@@ -364,9 +382,9 @@ begin
             "subtotal": -60
         }
     ],
-    "processed_data_gb": 21.125,
+    "processed_data_gb": 22,
     "recurring_fee": 0,
-    "subtotal": 11313,
+    "subtotal": 11330,
     "task_usage_hours": 720,
     "trial_credit": 60,
     "trial_start": "2022-08-15"
@@ -381,9 +399,9 @@ begin
       {
         "ts": "2022-08-01T00:00:00+00:00",
         "data_gb": 22,
-        "task_hours": 18.375,
+        "task_hours": 19,
         "data_subtotal": 590,
-        "task_subtotal": 276
+        "task_subtotal": 285
       }
     ],
     "line_items": [
@@ -400,10 +418,10 @@ begin
             "subtotal": 340
         },
         {
-            "count": 18.375,
+            "count": 19,
             "description": "Task usage (at $0.15/hour)",
             "rate": 15,
-            "subtotal": 276
+            "subtotal": 285
         },
         {
             "count": 1,
@@ -414,11 +432,174 @@ begin
     ],
     "processed_data_gb": 22,
     "recurring_fee": 0,
-    "subtotal": 866,
-    "task_usage_hours": 18.375,
+    "subtotal": 875,
+    "task_usage_hours": 19,
     "trial_start": "2022-08-15",
     "trial_credit": 0
   }'::jsonb);
+
+  -- aliceCo/cc has a free trial set, but has no usage in the trial period
+  -- and multiple days of fractional usage. Let's see if they round correctly
+  return query select is(billing_report_202308('aliceCo/cc/', '2022-07-20T13:00:00Z'), '{
+    "billed_month": "2022-07-01T00:00:00+00:00",
+    "billed_prefix": "aliceCo/cc/",
+    "daily_usage": [
+        {
+            "data_gb": 1,
+            "data_subtotal": 50,
+            "task_hours": 0,
+            "task_subtotal": 0,
+            "ts": "2022-07-01T00:00:00+00:00"
+        },
+        {
+            "data_gb": 0,
+            "data_subtotal": 0,
+            "task_hours": 0,
+            "task_subtotal": 0,
+            "ts": "2022-07-02T00:00:00+00:00"
+        },
+        {
+            "data_gb": 0,
+            "data_subtotal": 0,
+            "task_hours": 0,
+            "task_subtotal": 0,
+            "ts": "2022-07-03T00:00:00+00:00"
+        },
+        {
+            "data_gb": 0,
+            "data_subtotal": 0,
+            "task_hours": 0,
+            "task_subtotal": 0,
+            "ts": "2022-07-04T00:00:00+00:00"
+        },
+        {
+            "data_gb": 0,
+            "data_subtotal": 0,
+            "task_hours": 0,
+            "task_subtotal": 0,
+            "ts": "2022-07-05T00:00:00+00:00"
+        },
+        {
+            "data_gb": 0,
+            "data_subtotal": 0,
+            "task_hours": 0,
+            "task_subtotal": 0,
+            "ts": "2022-07-06T00:00:00+00:00"
+        },
+        {
+            "data_gb": 0,
+            "data_subtotal": 0,
+            "task_hours": 0,
+            "task_subtotal": 0,
+            "ts": "2022-07-07T00:00:00+00:00"
+        },
+        {
+            "data_gb": 0,
+            "data_subtotal": 0,
+            "task_hours": 0,
+            "task_subtotal": 0,
+            "ts": "2022-07-08T00:00:00+00:00"
+        },
+        {
+            "data_gb": 0,
+            "data_subtotal": 0,
+            "task_hours": 0,
+            "task_subtotal": 0,
+            "ts": "2022-07-09T00:00:00+00:00"
+        },
+        {
+            "data_gb": 0,
+            "data_subtotal": 0,
+            "task_hours": 0,
+            "task_subtotal": 0,
+            "ts": "2022-07-10T00:00:00+00:00"
+        },
+        {
+            "data_gb": 1,
+            "data_subtotal": 50,
+            "task_hours": 0,
+            "task_subtotal": 0,
+            "ts": "2022-07-11T00:00:00+00:00"
+        },
+        {
+            "data_gb": 0,
+            "data_subtotal": 0,
+            "task_hours": 0,
+            "task_subtotal": 0,
+            "ts": "2022-07-12T00:00:00+00:00"
+        },
+        {
+            "data_gb": 0,
+            "data_subtotal": 0,
+            "task_hours": 0,
+            "task_subtotal": 0,
+            "ts": "2022-07-13T00:00:00+00:00"
+        },
+        {
+            "data_gb": 0,
+            "data_subtotal": 0,
+            "task_hours": 0,
+            "task_subtotal": 0,
+            "ts": "2022-07-14T00:00:00+00:00"
+        },
+        {
+            "data_gb": 0,
+            "data_subtotal": 0,
+            "task_hours": 0,
+            "task_subtotal": 0,
+            "ts": "2022-07-15T00:00:00+00:00"
+        },
+        {
+            "data_gb": 0,
+            "data_subtotal": 0,
+            "task_hours": 0,
+            "task_subtotal": 0,
+            "ts": "2022-07-16T00:00:00+00:00"
+        },
+        {
+            "data_gb": 0,
+            "data_subtotal": 0,
+            "task_hours": 0,
+            "task_subtotal": 0,
+            "ts": "2022-07-17T00:00:00+00:00"
+        },
+        {
+            "data_gb": 0,
+            "data_subtotal": 0,
+            "task_hours": 0,
+            "task_subtotal": 0,
+            "ts": "2022-07-18T00:00:00+00:00"
+        }
+    ],
+    "line_items": [
+        {
+            "count": 2,
+            "description": "Data processing (first 5 GBs at $0.50/GB)",
+            "rate": 50,
+            "subtotal": 100
+        },
+        {
+            "count": 0,
+            "description": "Data processing (at $0.20/GB)",
+            "rate": 20,
+            "subtotal": 0
+        },
+        {
+            "count": 0,
+            "description": "Task usage (at $0.15/hour)",
+            "rate": 15,
+            "subtotal": 0
+        }
+    ],
+    "processed_data_gb": 2,
+    "recurring_fee": 0,
+    "subtotal": 100,
+    "task_usage_hours": 0,
+    "trial_credit": 0,
+    "trial_start": "2022-08-15"
+  }'::jsonb);
+
+
 
 end
 $$ language plpgsql;
