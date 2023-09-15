@@ -104,9 +104,9 @@ where
             // where the container IP is not directly addressable. As an alternative,
             // we ask Docker to provide mapped host ports that are then advertised
             // in the attached runtime::Container description.
-            #[cfg(not(target_os = "linux"))]
+            // #[cfg(not(target_os = "linux"))]
             &format!("--publish=0.0.0.0:0:{CONNECTOR_INIT_PORT}"),
-            #[cfg(not(target_os = "linux"))]
+            // #[cfg(not(target_os = "linux"))]
             "--publish-all",
             // Image to run.
             &image,
