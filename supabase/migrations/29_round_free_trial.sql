@@ -3,7 +3,7 @@ begin;
 -- Compute a JSONB array of line-items detailing usage under a tenant's effective tiers.
 create or replace function tier_line_items(
   -- Ammount of usage we're breaking out.
-  amount numeric,
+  amount integer,
   -- Effective tenant tiers as ordered pairs of (quantity, cents), followed
   -- by a final unpaired cents for unbounded usage beyond the final quantity.
   tiers integer[],
@@ -23,7 +23,7 @@ begin
   for idx in 1..array_length(tiers, 1) by 2 loop
     tier_rate = tiers[idx];
     tier_pivot = tiers[idx+1];
-    tier_count = ceil(least(amount, tier_pivot));
+    tier_count = least(amount, tier_pivot);
     amount = amount - tier_count;
 
     o_line_items = o_line_items || jsonb_build_object(
@@ -133,8 +133,8 @@ begin
   daily_line_items as (
     select
       daily_stats.*,
-      tier_line_items(data_gb, data_tiers, 'Data processing', 'GB') as data_line_items,
-      tier_line_items(task_hours, usage_tiers, 'Task usage', 'hour') as task_line_items
+      tier_line_items(ceil(data_gb), data_tiers, 'Data processing', 'GB') as data_line_items,
+      tier_line_items(ceil(task_hours), usage_tiers, 'Task usage', 'hour') as task_line_items
     from daily_stats, vars
   ),
   -- Extend with per-category subtotals for the period ending with the given day.
