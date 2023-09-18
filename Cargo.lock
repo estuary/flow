@@ -406,12 +406,12 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "async-stripe",
+ "chrono",
  "clap 3.2.24",
  "futures",
  "serde",
  "serde_json",
  "sqlx",
- "time 0.3.20",
  "tokio",
  "tokio-util",
  "tracing",
