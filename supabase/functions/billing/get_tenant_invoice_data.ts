@@ -35,6 +35,7 @@ export async function getTenantInvoiceData(
                 amount_due: resp.data[0].amount_due,
                 invoice_pdf: resp.data[0].invoice_pdf,
                 hosted_invoice_url: resp.data[0].hosted_invoice_url,
+                status: resp.data[0].status,
             };
 
             return [JSON.stringify({ invoice: limited_invoice }), {
