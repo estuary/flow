@@ -17,7 +17,7 @@ You can configure the Redshift source connector either through the Flow web app 
 
 ### Properties
 
-#### Connection Details
+#### Endpoint
 
 | Property        | Title         | Description                                                  | Type    | Required/Default       |
 |-----------------|---------------|--------------------------------------------------------------|---------|------------------------|
