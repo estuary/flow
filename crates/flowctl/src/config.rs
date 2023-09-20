@@ -52,20 +52,35 @@ impl Config {
     /// Write the config to the file corresponding to the given named `profile`.
     /// The file path is determined as documented in `load`.
     pub fn write(&self, profile: &str) -> anyhow::Result<()> {
-        let config_file = Config::file_path(profile)?;
-        if let Some(parent) = config_file.parent() {
-            std::fs::create_dir_all(parent).context("couldn't create user config directory")?;
-        }
         let ser = serde_json::to_vec_pretty(self)?;
-        std::fs::write(&config_file, &ser).context("writing config")?;
+        let dir = Config::config_dir()?;
+        std::fs::create_dir_all(&dir).context("creating config dir")?;
+
+        // It's important that we persist the config file atomically, so that
+        // concurrent invocations of flowctl don't accidentially observe the
+        // truncated file before we overwrite it. The `persist` function will
+        // use a rename in order to ensure that the operation is atomic. In
+        // order for that to work, we must ensure that `temp` and `real` are on
+        // the same filesystem, which is why we use the config directory as the
+        // temp dir.
+        let temp = tempfile::NamedTempFile::new_in(dir)?;
+        std::fs::write(&temp, &ser).context("writing config")?;
+
+        let real = Config::file_path(profile)?;
+        temp.persist(real).context("persisting config file")?;
+
         Ok(())
     }
 
-    fn file_path(profile: &str) -> anyhow::Result<PathBuf> {
+    fn config_dir() -> anyhow::Result<PathBuf> {
         let path = dirs::config_dir()
             .context("couldn't determine user config directory")?
-            .join("flowctl")
-            .join(format!("{profile}.json"));
+            .join("flowctl");
+        Ok(path)
+    }
+
+    fn file_path(profile: &str) -> anyhow::Result<PathBuf> {
+        let path = Config::config_dir()?.join(format!("{profile}.json"));
         Ok(path)
     }
 
