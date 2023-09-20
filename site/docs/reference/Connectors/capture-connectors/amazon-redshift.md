@@ -21,8 +21,8 @@ You can configure the Redshift source connector either through the Flow web app 
 
 | Property        | Title         | Description                                                  | Type    | Required/Default       |
 |-----------------|---------------|--------------------------------------------------------------|---------|------------------------|
-| **`/host`**     | Host          | Hostname or IP address of your Amazon Redshift cluster.      | string  | Required               |
-| **`/port`**     | Port          | Port number for the Amazon Redshift cluster.                 | number  | Required (default: 5439)|
+| **`/host`**     | Host          | Hostname or IP address of your Redshift cluster.             | string  | Required               |
+| **`/port`**     | Port          | Port number for the cluster.                                 | number  | Required               |
 | **`/database`** | Database Name | Name of the database to capture data from.                   | string  | Required               |
 | **`/user`**     | User          | Database user with necessary permissions.                    | string  | Required               |
 | **`/password`** | Password      | Password for the specified database user.                    | string  | Required               |
