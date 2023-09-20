@@ -9,7 +9,7 @@ export interface getTenantPaymentMethodsParams {
 const INVOICE_TYPE_KEY = "estuary.dev/invoice_type";
 const BILLING_PERIOD_START_KEY = "estuary.dev/period_start";
 
-export async function getTenantInvoiceData(
+export async function getTenantInvoice(
     req_body: getTenantPaymentMethodsParams,
     full_req: Request,
 ): Promise<ConstructorParameters<typeof Response>> {
