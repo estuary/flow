@@ -43,7 +43,7 @@ captures:
       connector:
         image: ghcr.io/estuary/source-redshift:dev
         config:
-          host: "redshift-cluster.endpoint.com"
+          host: "example-redshift-cluster.us-east-2.redshift.amazonaws.com"
           port: 5439
           database: "sample_db"
           user: "sample_user"
