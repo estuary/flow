@@ -599,7 +599,98 @@ begin
    "processed_data_gb":1.79999999329447746270
   }'::jsonb);
 
+  set role postgres;
+  perform internal.freeze_billing_month('2022-08-01');
 
+  insert into manual_bills (tenant, usd_cents, description, date_start, date_end)
+  values ('aliceCo/',12356,'Test manually entered bill','2022-10-12','2022-11-25');
+
+  perform set_authenticated_context('11111111-1111-1111-1111-111111111111');
+  return query select is((select jsonb_agg(invoices.jsonified) from (
+    select row_to_json(invoices_ext) as jsonified
+    from invoices_ext
+  ) as invoices), jsonb_build_array(
+    jsonb_build_object(
+      'date_start', date_trunc('month', now()),
+      'date_end', date_trunc('month', now()) + interval '1 month' - interval '1 day',
+      'subtotal', null::jsonb,
+      'line_items', null::jsonb,
+      'invoice_type', 'current_month',
+      'billed_prefix', 'aliceCo/'
+    ),
+    '{
+        "billed_prefix": "aliceCo/",
+        "date_end": "2022-11-25T00:00:00+00:00",
+        "date_start": "2022-10-12T00:00:00+00:00",
+        "invoice_type": "manual",
+        "line_items": [
+            {
+                "count": 1,
+                "description": "Test manually entered bill",
+                "rate": 12356,
+                "subtotal": 12356
+            }
+        ],
+        "subtotal": 12356
+    }'::jsonb,
+    '{
+        "billed_prefix": "aliceCo/",
+        "date_end": "2022-08-31T00:00:00+00:00",
+        "date_start": "2022-08-01T00:00:00+00:00",
+        "invoice_type": "usage",
+        "line_items": [
+            {
+                "count": 1,
+                "description": "Recurring service charge",
+                "rate": 10000,
+                "subtotal": 10000
+            },
+            {
+                "count": 5,
+                "description": "Data processing (first 5 GBs at $0.50/GB)",
+                "rate": 50,
+                "subtotal": 250
+            },
+            {
+                "count": 39,
+                "description": "Data processing (at $0.20/GB)",
+                "rate": 20,
+                "subtotal": 780
+            },
+            {
+                "count": 739,
+                "description": "Task usage (at $0.15/hour)",
+                "rate": 15,
+                "subtotal": 11085
+            },
+            {
+                "count": 1,
+                "description": "A make good from a whoops",
+                "rate": -250,
+                "subtotal": -250
+            },
+            {
+                "count": 1,
+                "description": "An extra charge for some reason",
+                "rate": 350,
+                "subtotal": 350
+            },
+            {
+                "count": 1,
+                "description": "Free trial credit (2022-08-15 - 2022-09-14)",
+                "rate": -60,
+                "subtotal": -60
+            }
+        ],
+        "subtotal": 22155
+    }'::jsonb
+  ));
+
+  -- return query select results_eq(
+  --   $i$ select invoices_ext.date_start::timestamptz, invoices_ext.date_end::timestamptz from invoices_ext $i$,
+  --   $i$ values  ('2023-01-01', '2023-01-02'), ('2023-01-01', '2023-01-02') $i$,
+  --   'invoices_ext works'
+  -- );
 
 end
 $$ language plpgsql;
