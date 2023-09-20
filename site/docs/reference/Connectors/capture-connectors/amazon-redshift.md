@@ -1,6 +1,3 @@
----
-sidebar_position: 1
----
 # Amazon Redshift
 
 This connector captures data from your Amazon Redshift cluster into Flow collections.
