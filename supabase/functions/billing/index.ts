@@ -5,6 +5,7 @@ import { getTenantPaymentMethods } from "./get_tenant_payment_methods.ts";
 import { deleteTenantPaymentMethod } from "./delete_tenant_payment_method.ts";
 import { setTenantPrimaryPaymentMethod } from "./set_tenant_primary_payment_method.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.0.5";
+import { getTenantInvoice } from "./get_tenant_invoice_data.ts";
 
 // Now that the supabase CLI supports multiple edge functions,
 // we should refactor this into individual functions instead
@@ -54,6 +55,8 @@ serve(async (req) => {
                     res = await deleteTenantPaymentMethod(request, req);
                 } else if (request.operation === "set-tenant-primary-payment-method") {
                     res = await setTenantPrimaryPaymentMethod(request, req);
+                } else if (request.operation === "get-tenant-invoice") {
+                    res = await getTenantInvoice(request, req);
                 } else {
                     res = [JSON.stringify({ error: "unknown_operation" }), {
                         headers: { "Content-Type": "application/json" },
