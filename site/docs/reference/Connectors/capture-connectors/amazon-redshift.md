@@ -33,6 +33,7 @@ You can configure the Redshift source connector either through the Flow web app 
 | ----------------- | ---------- | ------------------------------ | ------- | ---------------------- |
 | **`/table`**      | Table Name | Name of the table to capture.   | string  | Required               |
 | **`/meta/op`**    | Operation  | Types of operation on records. | string | Optional              |
+| **`/cursor_field`**    | User-defined Cursor     | Field for incremental syncs. Uses ascending values to ensure queries are sequential. | string or integer | Required |
 
 ### Sample
 
@@ -52,24 +53,6 @@ captures:
       - resource:
           schema: public
           table: users
+        cursor_field: cursor
         target: ${PREFIX}/users
-      - field:
-          source: /_meta/op
-          target: ${PREFIX}/operation_type
 ```
-
-## Flow CDC and the "/_meta/op" Field
-
-Estuary Flow uses a special field called "/_meta/op" for the purposes of Change Data Capture (CDC). This is essential for capturing and processing data changes from your Amazon Redshift cluster. The "/_meta/op" field takes specific values based on the type of operation that has occurred and provides information about whether a record has been inserted, updated, or deleted within your source database.
-
-### Values for "/_meta/op"
-
-The "/_meta/op" field can take the following values:
-
-- `insert`: Indicates that a new record has been added to the source database.
-- `update`: An existing record in the source database has been modified.
-- `delete`: A record has been removed from the source database.
-
-### Using the "/_meta/op" Field
-
-To use the "/_meta/op" field to configure the Redshift connector, you have to include it as part of your connector setup. This lets you tailor your data processing and integration workflows based on the type of operation performed on the source data from your Redshift collections.
