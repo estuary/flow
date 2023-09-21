@@ -1,8 +1,8 @@
 use anyhow::{bail, Context};
-use chrono::{Months, ParseError, Utc};
-use core::fmt;
-use futures::{Future, FutureExt, StreamExt, TryStreamExt};
+use chrono::{ParseError, Utc};
+use futures::{FutureExt, StreamExt, TryStreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_enum_str::{Deserialize_enum_str, Serialize_enum_str};
 use sqlx::{postgres::PgPoolOptions, types::chrono::NaiveDate, Pool};
 use sqlx::{types::chrono::DateTime, Postgres};
 use std::collections::HashMap;
@@ -45,32 +45,17 @@ fn parse_date(arg: &str) -> Result<NaiveDate, ParseError> {
     NaiveDate::parse_from_str(arg, "%Y-%m-%d")
 }
 
-#[derive(Debug)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, sqlx::Type, Deserialize_enum_str, Serialize_enum_str,
+)]
+#[sqlx(rename_all = "snake_case")]
 enum InvoiceType {
+    #[serde(rename = "usage")]
     Usage,
+    #[serde(rename = "manual")]
     Manual,
-}
-
-impl InvoiceType {
-    pub fn to_string(&self) -> String {
-        match self {
-            InvoiceType::Usage => "usage".to_string(),
-            InvoiceType::Manual => "manual".to_string(),
-        }
-    }
-    pub fn from_str(str: &str) -> Option<Self> {
-        match str {
-            "Usage" => Some(Self::Usage),
-            "Manual" => Some(Self::Manual),
-            _ => None,
-        }
-    }
-}
-
-impl fmt::Display for InvoiceType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.to_string())
-    }
+    #[serde(rename = "current_month")]
+    CurrentMonth,
 }
 
 #[derive(Serialize, Default, Debug)]
@@ -93,41 +78,12 @@ async fn stripe_search<R: DeserializeOwned + 'static + Send>(
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct ManualBill {
-    tenant: String,
-    usd_cents: i32,
-    description: String,
-    date_start: NaiveDate,
-    date_end: NaiveDate,
-}
-
-impl ManualBill {
-    pub async fn upsert_invoice(
-        &self,
-        client: &stripe::Client,
-        db_client: &Pool<Postgres>,
-        recreate_finalized: bool,
-    ) -> anyhow::Result<()> {
-        upsert_invoice(
-            client,
-            db_client,
-            self.date_start,
-            self.date_end,
-            self.tenant.to_owned(),
-            InvoiceType::Manual,
-            self.usd_cents as i64,
-            vec![LineItem {
-                count: 1.0,
-                subtotal: self.usd_cents as i64,
-                rate: self.usd_cents as i64,
-                description: Some(self.description.to_owned()),
-            }],
-            recreate_finalized,
-        )
-        .await?;
-
-        Ok(())
-    }
+struct Extra {
+    trial_start: Option<DateTime<Utc>>,
+    trial_credit: i64,
+    recurring_fee: i64,
+    task_usage_hours: f64,
+    processed_data_gb: f64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -138,47 +94,270 @@ struct LineItem {
     description: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct Bill {
+#[derive(Serialize, Deserialize, Debug, Clone, sqlx::FromRow)]
+struct Invoice {
     subtotal: i64,
-    line_items: Vec<LineItem>,
-    billed_month: DateTime<Utc>,
+    line_items: sqlx::types::Json<Vec<LineItem>>,
+    date_start: DateTime<Utc>,
+    date_end: DateTime<Utc>,
     billed_prefix: String,
-    recurring_fee: i64,
-    task_usage_hours: f64,
-    processed_data_gb: f64,
+    invoice_type: InvoiceType,
+    extra: Option<sqlx::types::Json<Option<Extra>>>,
 }
 
-impl Bill {
+impl Invoice {
+    #[tracing::instrument(skip(self, client, db_client), fields(tenant=self.billed_prefix, invoice_type=format!("{:?}",self.invoice_type), subtotal=format!("${:.2}", self.subtotal as f64 / 100.0)))]
     pub async fn upsert_invoice(
         &self,
         client: &stripe::Client,
         db_client: &Pool<Postgres>,
         recreate_finalized: bool,
     ) -> anyhow::Result<()> {
-        if !(self.recurring_fee > 0
-            || self.processed_data_gb > 0.0
-            || self.task_usage_hours > 0.0
-            || self.subtotal > 0)
-        {
-            tracing::debug!("Skipping tenant with no usage");
-            return Ok(());
+        match (&self.invoice_type, &self.extra) {
+            (InvoiceType::CurrentMonth, _) => {
+                bail!("Should not create Stripe invoices for dynamic current_month invoices")
+            }
+            (InvoiceType::Usage, Some(extra)) => {
+                let unwrapped_extra = extra.clone().0.expect(
+                    "This is just a sqlx quirk, if the outer Option is Some then this will be Some",
+                );
+                if !(unwrapped_extra.recurring_fee > 0
+                    || unwrapped_extra.processed_data_gb > 0.0
+                    || unwrapped_extra.task_usage_hours > 0.0
+                    || self.subtotal > 0)
+                {
+                    tracing::debug!("Skipping invoice with no usage");
+                    return Ok(());
+                }
+            }
+            (InvoiceType::Usage, None) => {
+                bail!("Invoice should have extra")
+            }
+            _ => {}
+        };
+
+        // An invoice should be generated in Stripe if the tenant is on a paid plan, which means:
+        // * The tenant has a free trial start date
+        if let InvoiceType::Usage = self.invoice_type {
+            if let None = get_tenant_trial_date(&db_client, self.billed_prefix.to_owned()).await? {
+                tracing::info!("Skipping usage invoice for tenant in free tier");
+                return Ok(());
+            }
         }
-        upsert_invoice(
+
+        // Anything before 12:00:00 renders as the previous day in Stripe
+        let date_start_secs = self
+            .date_start
+            .date_naive()
+            .and_hms_opt(12, 0, 0)
+            .expect("Error manipulating date")
+            .and_local_timezone(Utc)
+            .single()
+            .expect("Error manipulating date")
+            .timestamp();
+        let date_end_secs = self
+            .date_end
+            .date_naive()
+            .and_hms_opt(12, 0, 0)
+            .expect("Error manipulating date")
+            .and_local_timezone(Utc)
+            .single()
+            .expect("Error manipulating date")
+            .timestamp();
+
+        let timestamp_now = Utc::now().timestamp();
+
+        let date_start_human = self.date_start.format("%B %d %Y").to_string();
+        let date_end_human = self.date_end.format("%B %d %Y").to_string();
+
+        let date_start_repr = self.date_start.format("%F").to_string();
+        let date_end_repr = self.date_end.format("%F").to_string();
+
+        let invoice_type_str = self.invoice_type.to_string();
+
+        let customer =
+            get_or_create_customer_for_tenant(client, db_client, self.billed_prefix.to_owned())
+                .await?;
+        let customer_id = customer.id.to_string();
+
+        let invoice_search = stripe_search::<stripe::Invoice>(
             client,
-            db_client,
-            self.billed_month.date_naive(),
-            self.billed_month
-                .date_naive()
-                .checked_add_months(Months::new(1))
-                .expect("Only fails when adding > max 32-bit int months"),
-            self.billed_prefix.to_owned(),
-            InvoiceType::Usage,
-            self.subtotal,
-            self.line_items.clone(),
-            recreate_finalized,
+            "invoices",
+            SearchParams {
+                query: format!(
+                    r#"
+                -status:"deleted" AND
+                customer:"{customer_id}" AND
+                metadata["{INVOICE_TYPE_KEY}"]:"{invoice_type_str}" AND
+                metadata["{BILLING_PERIOD_START_KEY}"]:"{date_start_repr}" AND
+                metadata["{BILLING_PERIOD_END_KEY}"]:"{date_end_repr}"
+            "#
+                ),
+                ..Default::default()
+            },
         )
-        .await?;
+        .await
+        .context("Searching for an invoice")?;
+
+        let maybe_invoice = if let Some(invoice) = invoice_search.data.into_iter().next() {
+            match invoice.status {
+                Some(state @ (stripe::InvoiceStatus::Open | stripe::InvoiceStatus::Draft))
+                    if recreate_finalized =>
+                {
+                    tracing::warn!(
+                        "Found invoice {id} in state {state} deleting and recreating",
+                        id = invoice.id.to_string(),
+                        state = state
+                    );
+                    stripe::Invoice::delete(client, &invoice.id).await?;
+                    None
+                }
+                Some(stripe::InvoiceStatus::Draft) => {
+                    tracing::debug!(
+                        "Updating existing invoice {id}",
+                        id = invoice.id.to_string()
+                    );
+                    Some(invoice)
+                }
+                Some(stripe::InvoiceStatus::Open) => {
+                    bail!("Found finalized invoice {id}. Pass --recreate-finalized to delete and recreate this invoice.", id = invoice.id.to_string())
+                }
+                Some(status) => {
+                    bail!(
+                        "Found invoice {id} in unsupported state {status}, skipping.",
+                        id = invoice.id.to_string(),
+                        status = status
+                    );
+                }
+                None => {
+                    bail!(
+                        "Unexpected missing status from invoice {id}",
+                        id = invoice.id.to_string()
+                    );
+                }
+            }
+        } else {
+            None
+        };
+
+        let invoice = match maybe_invoice.clone() {
+            Some(inv) => inv,
+            None => {
+                let invoice = stripe::Invoice::create(
+            client,
+            stripe::CreateInvoice {
+                customer: Some(customer.id.to_owned()),
+                // Stripe timestamps are measured in _seconds_ since epoch
+                // Due date must be in the future
+                due_date: if date_end_secs > timestamp_now { Some(date_end_secs) } else {Some(timestamp_now + 10)},
+                description: Some(
+                    format!(
+                        "Your Flow bill for the billing preiod between {date_start_human} - {date_end_human}"
+                    )
+                    .as_str(),
+                ),
+                collection_method: Some(stripe::CollectionMethod::SendInvoice),
+                auto_advance: Some(false),
+                custom_fields: Some(vec![
+                    stripe::CreateInvoiceCustomFields {
+                        name: "Billing Period Start".to_string(),
+                        value: date_start_human.to_owned(),
+                    },
+                    stripe::CreateInvoiceCustomFields {
+                        name: "Billing Period End".to_string(),
+                        value: date_end_human.to_owned(),
+                    },
+                    stripe::CreateInvoiceCustomFields {
+                        name: "Tenant".to_string(),
+                        value: self.billed_prefix.to_owned(),
+                    },
+                ]),
+                metadata: Some(HashMap::from([
+                    (TENANT_METADATA_KEY.to_string(), self.billed_prefix.to_owned()),
+                    (INVOICE_TYPE_KEY.to_string(), invoice_type_str.to_owned()),
+                    (BILLING_PERIOD_START_KEY.to_string(), date_start_repr),
+                    (BILLING_PERIOD_END_KEY.to_string(), date_end_repr)
+                ])),
+                ..Default::default()
+            },
+        )
+        .await.context("Creating a new invoice")?;
+
+                tracing::debug!("Created a new invoice {id}", id = invoice.id);
+
+                invoice
+            }
+        };
+
+        // Clear out line items from invoice, if there are any
+        for item in stripe::InvoiceItem::list(
+            client,
+            &stripe::ListInvoiceItems {
+                invoice: Some(invoice.id.to_owned()),
+                ..Default::default()
+            },
+        )
+        .await?
+        .data
+        .into_iter()
+        {
+            tracing::debug!(
+                "Delete invoice line item: '{desc}'",
+                desc = item.description.to_owned().unwrap_or_default()
+            );
+            stripe::InvoiceItem::delete(client, &item.id).await?;
+        }
+
+        let mut diff: f64 = 0.0;
+
+        for item in self.line_items.iter() {
+            let description = item
+                .description
+                .clone()
+                .ok_or(anyhow::anyhow!("Missing line item description. Skipping"))?;
+            tracing::debug!("Created new invoice line item: '{description}'");
+            diff = diff + ((item.count.ceil() - item.count) * item.rate as f64);
+            stripe::InvoiceItem::create(
+                client,
+                stripe::CreateInvoiceItem {
+                    quantity: Some(item.count.ceil() as u64),
+                    unit_amount: Some(item.rate),
+                    currency: Some(stripe::Currency::USD),
+                    description: Some(description.as_str()),
+                    invoice: Some(invoice.id.to_owned()),
+                    period: Some(stripe::Period {
+                        start: Some(date_start_secs),
+                        end: Some(date_end_secs),
+                    }),
+                    ..stripe::CreateInvoiceItem::new(customer.id.to_owned())
+                },
+            )
+            .await?;
+        }
+
+        if diff > 0.0 {
+            tracing::warn!("Invoice line items use fractional quantities, which Stripe does not allow. Rounding up resulted in a difference of ${difference:.2}", difference = diff.ceil()/100.0);
+        }
+
+        // Let's double-check that the invoice total matches the desired total
+        let check_invoice = stripe::Invoice::retrieve(client, &invoice.id, &[]).await?;
+
+        if !check_invoice
+            .amount_due
+            .eq(&Some(self.subtotal + (diff.ceil() as i64)))
+        {
+            bail!(
+                "The correct bill is ${our_bill:.2}, but the invoice's total is ${their_bill:.2}",
+                our_bill = self.subtotal as f64 / 100.0,
+                their_bill = check_invoice.amount_due.unwrap_or(0) as f64 / 100.0
+            )
+        }
+
+        if maybe_invoice.is_some() {
+            tracing::info!("Updated existing invoice");
+        } else {
+            tracing::info!("Published new invoice")
+        }
 
         Ok(())
     }
@@ -195,39 +374,78 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
 
     tracing::info!("Fetching billing data for {month_human_repr}");
 
-    let billing_historicals: Vec<_> = if cmd.tenants.len() > 0 {
-        sqlx::query!(
+    let invoices: Vec<Invoice> = if cmd.tenants.len() > 0 {
+        sqlx::query_as!(
+            Invoice,
             r#"
-                select report as "report!: sqlx::types::Json<Bill>"
-                from billing_historicals
-                where billed_month = date_trunc('day', $1::date)
-                and tenant = any($2)
+                select
+                    date_start as "date_start!",
+                    date_end as "date_end!",
+                    billed_prefix as "billed_prefix!",
+                    invoice_type as "invoice_type!: InvoiceType",
+                    line_items as "line_items!: sqlx::types::Json<Vec<LineItem>>",
+                    subtotal::bigint as "subtotal!",
+                    extra as "extra: sqlx::types::Json<Option<Extra>>"
+                from invoices_ext
+                where ((
+                    date_start >= date_trunc('day', $1::date)
+                    and date_end <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
+                    and invoice_type = 'usage'
+                ) or (
+                    invoice_type = 'manual'
+                ))
+                and billed_prefix = any($2)
             "#,
             cmd.month,
             &cmd.tenants[..]
         )
         .fetch_all(&db_pool)
         .await?
-        .into_iter()
-        .map(|response| response.report)
-        .collect()
     } else {
-        sqlx::query!(
+        sqlx::query_as!(
+            Invoice,
             r#"
-                select report as "report!: sqlx::types::Json<Bill>"
-                from billing_historicals
-                where billed_month = date_trunc('day', $1::date)
+                select
+                    date_start as "date_start!",
+                    date_end as "date_end!",
+                    billed_prefix as "billed_prefix!",
+                    invoice_type as "invoice_type!: InvoiceType",
+                    line_items as "line_items!: sqlx::types::Json<Vec<LineItem>>",
+                    subtotal::bigint as "subtotal!",
+                    extra as "extra: sqlx::types::Json<Option<Extra>>"
+                from invoices_ext
+                where (
+                    date_start >= date_trunc('day', $1::date)
+                    and date_end <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
+                    and invoice_type = 'usage'
+                ) or (
+                    invoice_type = 'manual'
+                )
             "#,
             cmd.month
         )
         .fetch_all(&db_pool)
         .await?
-        .into_iter()
-        .map(|response| response.report)
-        .collect()
     };
 
-    let billing_historicals_futures: Vec<_> = billing_historicals
+    let mut invoice_type_counter: HashMap<InvoiceType, usize> = HashMap::new();
+    invoices.iter().for_each(|invoice| {
+        *invoice_type_counter
+            .entry(invoice.invoice_type.clone())
+            .or_default() += 1;
+    });
+
+    tracing::info!(
+        "Processing {usage} usage-based bills, and {manual} manually-entered bills.",
+        usage = invoice_type_counter
+            .remove(&InvoiceType::Usage)
+            .unwrap_or_default(),
+        manual = invoice_type_counter
+            .remove(&InvoiceType::Manual)
+            .unwrap_or_default(),
+    );
+
+    let invoice_futures: Vec<_> = invoices
         .iter()
         .map(|response| {
             let client = stripe_client.clone();
@@ -249,80 +467,39 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
         })
         .collect();
 
-    let manual_bills: Vec<ManualBill> = if cmd.tenants.len() > 0 {
-        sqlx::query_as!(
-            ManualBill,
-            r#"
-                select tenant, usd_cents, description, date_start, date_end
-                from manual_bills
-                where date_start >= date_trunc('day', $1::date)
-                and tenant = any($2)
-            "#,
-            cmd.month,
-            &cmd.tenants[..]
-        )
-        .fetch_all(&db_pool)
-        .await?
-    } else {
-        sqlx::query_as!(
-            ManualBill,
-            r#"
-                select tenant, usd_cents, description, date_start, date_end
-                from manual_bills
-                where date_start >= date_trunc('day', $1::date)
-            "#,
-            cmd.month
-        )
-        .fetch_all(&db_pool)
-        .await?
-    };
-
-    let manual_futures: Vec<_> = manual_bills
-        .iter()
-        .map(|response| {
-            let client = stripe_client.clone();
-            let db_pool = db_pool.clone();
-            async move {
-                let res = response
-                    .upsert_invoice(&client, &db_pool, cmd.recreate_finalized)
-                    .await;
-                if let Err(error) = res {
-                    let formatted = format!(
-                        "Error publishing invoice for {tenant}",
-                        tenant = response.tenant,
-                    );
-                    bail!("{}\n{err:?}", formatted, err = error);
-                }
+    futures::stream::iter(invoice_futures)
+        // Let's run 10 `upsert_invoice()`s at a time
+        .buffer_unordered(10)
+        .or_else(|err| async move {
+            if !cmd.fail_fast {
+                tracing::error!("{}", err.to_string());
                 Ok(())
+            } else {
+                Err(err)
             }
-            .boxed()
         })
-        .collect();
+        // Collects into Result<(), anyhow::Error> because a stream of ()s can be collected into a single ()
+        .try_collect()
+        .await
+}
 
-    tracing::info!(
-        "Processing {usage} usage-based bills, and {manual} manually-entered bills.",
-        usage = billing_historicals.len(),
-        manual = manual_bills.len()
-    );
-
-    futures::stream::iter(
-        manual_futures
-            .into_iter()
-            .chain(billing_historicals_futures.into_iter()),
+#[tracing::instrument(skip(db_client))]
+async fn get_tenant_trial_date(
+    db_client: &Pool<Postgres>,
+    tenant: String,
+) -> anyhow::Result<Option<NaiveDate>> {
+    let query_result = sqlx::query!(
+        r#"
+            select tenants.trial_start
+            from tenants
+            where tenants.tenant = $1
+        "#,
+        tenant
     )
-    // Let's run 10 `upsert_invoice()`s at a time
-    .buffer_unordered(10)
-    .or_else(|err| async move {
-        if !cmd.fail_fast {
-            tracing::error!("{}", err.to_string());
-            Ok(())
-        } else {
-            Err(err)
-        }
-    })
-    // Collects into Result<(), anyhow::Error> because a stream of ()s can be collected into a single ()
-    .try_collect()
-    .await
+    .fetch_one(db_client)
+    .await?;
+
+    Ok(query_result.trial_start)
 }
 
 #[tracing::instrument(skip_all)]
@@ -403,225 +580,4 @@ async fn get_or_create_customer_for_tenant(
         }
     }
     Ok(customer)
-}
-
-#[tracing::instrument(skip(client, db_client, subtotal, items), fields(subtotal=format!("${:.2}", subtotal as f64 / 100.0)))]
-async fn upsert_invoice(
-    client: &stripe::Client,
-    db_client: &Pool<Postgres>,
-    date_start: NaiveDate,
-    date_end: NaiveDate,
-    tenant: String,
-    invoice_type: InvoiceType,
-    subtotal: i64,
-    items: Vec<LineItem>,
-    recreate_finalized: bool,
-) -> anyhow::Result<stripe::Invoice> {
-    // Anything before 12:00:00 renders as the previous day in Stripe
-    let date_start_secs = date_start
-        .and_hms_opt(12, 0, 0)
-        .expect("Error manipulating date")
-        .and_local_timezone(Utc)
-        .single()
-        .expect("Error manipulating date")
-        .timestamp();
-    let date_end_secs = date_end
-        .and_hms_opt(12, 0, 0)
-        .expect("Error manipulating date")
-        .and_local_timezone(Utc)
-        .single()
-        .expect("Error manipulating date")
-        .timestamp();
-
-    let timestamp_now = Utc::now().timestamp();
-
-    tracing::debug!(date_start_secs, date_end_secs, "Debug");
-
-    let date_start_human = date_start.format("%B %d %Y").to_string();
-    let date_end_human = date_end.format("%B %d %Y").to_string();
-
-    let date_start_repr = date_start.format("%F").to_string();
-    let date_end_repr = date_end.format("%F").to_string();
-
-    let invoice_type_str = invoice_type.to_string();
-
-    let customer = get_or_create_customer_for_tenant(client, db_client, tenant.to_owned()).await?;
-    let customer_id = customer.id.to_string();
-
-    let invoice_search = stripe_search::<stripe::Invoice>(
-        client,
-        "invoices",
-        SearchParams {
-            query: format!(
-                r#"
-                    -status:"deleted" AND
-                    customer:"{customer_id}" AND
-                    metadata["{INVOICE_TYPE_KEY}"]:"{invoice_type_str}" AND
-                    metadata["{BILLING_PERIOD_START_KEY}"]:"{date_start_repr}" AND
-                    metadata["{BILLING_PERIOD_END_KEY}"]:"{date_end_repr}"
-                "#
-            ),
-            ..Default::default()
-        },
-    )
-    .await
-    .context("Searching for an invoice")?;
-
-    let maybe_invoice = if let Some(invoice) = invoice_search.data.into_iter().next() {
-        match invoice.status {
-            Some(state @ (stripe::InvoiceStatus::Open | stripe::InvoiceStatus::Draft))
-                if recreate_finalized =>
-            {
-                tracing::warn!(
-                    "Found invoice {id} in state {state} deleting and recreating",
-                    id = invoice.id.to_string(),
-                    state = state
-                );
-                stripe::Invoice::delete(client, &invoice.id).await?;
-                None
-            }
-            Some(stripe::InvoiceStatus::Draft) => {
-                tracing::debug!(
-                    "Updating existing invoice {id}",
-                    id = invoice.id.to_string()
-                );
-                Some(invoice)
-            }
-            Some(stripe::InvoiceStatus::Open) => {
-                bail!("Found finalized invoice {id}. Pass --recreate-finalized to delete and recreate this invoice.", id = invoice.id.to_string())
-            }
-            Some(status) => {
-                bail!(
-                    "Found invoice {id} in unsupported state {status}, skipping.",
-                    id = invoice.id.to_string(),
-                    status = status
-                );
-            }
-            None => {
-                bail!(
-                    "Unexpected missing status from invoice {id}",
-                    id = invoice.id.to_string()
-                );
-            }
-        }
-    } else {
-        None
-    };
-
-    let invoice = match maybe_invoice {
-        Some(inv) => inv,
-        None => {
-            let invoice = stripe::Invoice::create(
-                client,
-                stripe::CreateInvoice {
-                    customer: Some(customer.id.to_owned()),
-                    // Stripe timestamps are measured in _seconds_ since epoch
-                    // Due date must be in the future
-                    due_date: if date_end_secs > timestamp_now { Some(date_end_secs) } else {Some(timestamp_now + 10)},
-                    description: Some(
-                        format!(
-                            "Your Flow bill for the billing preiod between {date_start_human} - {date_end_human}"
-                        )
-                        .as_str(),
-                    ),
-                    collection_method: Some(stripe::CollectionMethod::SendInvoice),
-                    auto_advance: Some(false),
-                    custom_fields: Some(vec![
-                        stripe::CreateInvoiceCustomFields {
-                            name: "Billing Period Start".to_string(),
-                            value: date_start_human.to_owned(),
-                        },
-                        stripe::CreateInvoiceCustomFields {
-                            name: "Billing Period End".to_string(),
-                            value: date_end_human.to_owned(),
-                        },
-                        stripe::CreateInvoiceCustomFields {
-                            name: "Tenant".to_string(),
-                            value: tenant.to_owned(),
-                        },
-                    ]),
-                    metadata: Some(HashMap::from([
-                        (TENANT_METADATA_KEY.to_string(), tenant.to_owned()),
-                        (INVOICE_TYPE_KEY.to_string(), invoice_type_str.to_owned()),
-                        (BILLING_PERIOD_START_KEY.to_string(), date_start_repr),
-                        (BILLING_PERIOD_END_KEY.to_string(), date_end_repr)
-                    ])),
-                    ..Default::default()
-                },
-            )
-            .await.context("Creating a new invoice")?;
-
-            tracing::debug!("Created a new invoice {id}", id = invoice.id);
-
-            invoice
-        }
-    };
-
-    // Clear out line items from invoice, if there are any
-    for item in stripe::InvoiceItem::list(
-        client,
-        &stripe::ListInvoiceItems {
-            invoice: Some(invoice.id.to_owned()),
-            ..Default::default()
-        },
-    )
-    .await?
-    .data
-    .into_iter()
-    {
-        tracing::debug!(
-            "Delete invoice line item: '{desc}'",
-            desc = item.description.to_owned().unwrap_or_default()
-        );
-        stripe::InvoiceItem::delete(client, &item.id).await?;
-    }
-
-    let mut diff: f64 = 0.0;
-
-    for item in items.iter() {
-        let description = item
-            .description
-            .clone()
-            .ok_or(anyhow::anyhow!("Missing line item description. Skipping"))?;
-        tracing::debug!("Created new invoice line item: '{description}'");
-        diff = diff + ((item.count.ceil() - item.count) * item.rate as f64);
-        stripe::InvoiceItem::create(
-            client,
-            stripe::CreateInvoiceItem {
-                quantity: Some(item.count.ceil() as u64),
-                unit_amount: Some(item.rate),
-                currency: Some(stripe::Currency::USD),
-                description: Some(description.as_str()),
-                invoice: Some(invoice.id.to_owned()),
-                period: Some(stripe::Period {
-                    start: Some(date_start_secs),
-                    end: Some(date_end_secs),
-                }),
-                ..stripe::CreateInvoiceItem::new(customer.id.to_owned())
-            },
-        )
-        .await?;
-    }
-
-    if diff > 0.0 {
-        tracing::warn!("Invoice line items use fractional quantities, which Stripe does not allow. Rounding up resulted in a difference of ${difference:.2}", difference = diff.ceil()/100.0);
-    }
-
-    // Let's double-check that the invoice total matches the desired total
-    let check_invoice = stripe::Invoice::retrieve(client, &invoice.id, &[]).await?;
-
-    if !check_invoice
-        .amount_due
-        .eq(&Some(subtotal + (diff.ceil() as i64)))
-    {
-        bail!(
-            "The correct bill is ${our_bill:.2}, but the invoice's total is ${their_bill:.2}",
-            our_bill = subtotal as f64 / 100.0,
-            their_bill = check_invoice.amount_due.unwrap_or(0) as f64 / 100.0
-        )
-    }
-
-    tracing::info!("Published invoice");
-
-    Ok(invoice)
 }
