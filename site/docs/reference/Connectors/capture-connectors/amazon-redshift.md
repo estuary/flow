@@ -30,7 +30,7 @@ You can configure the Redshift source connector either through the Flow web app 
 | **`/jdbc_params`** | JDBC URL Params | Additional properties to pass to the JDBC URL string when connecting to the database formatted as 'key=value' pairs. | string |               |
 
 
-### Bindings
+#### Bindings
 
 | Property          | Title      | Description                    | Type    | Required/Default       |
 | ----------------- | ---------- | ------------------------------ | ------- | ---------------------- |
