@@ -54,8 +54,8 @@ enum InvoiceType {
 impl InvoiceType {
     pub fn to_string(&self) -> String {
         match self {
-            InvoiceType::Usage => "Usage".to_string(),
-            InvoiceType::Manual => "Manual".to_string(),
+            InvoiceType::Usage => "usage".to_string(),
+            InvoiceType::Manual => "manual".to_string(),
         }
     }
     pub fn from_str(str: &str) -> Option<Self> {
