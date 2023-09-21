@@ -710,11 +710,5 @@ begin
     }'::jsonb
   ));
 
-  -- return query select results_eq(
-  --   $i$ select invoices_ext.date_start::timestamptz, invoices_ext.date_end::timestamptz from invoices_ext $i$,
-  --   $i$ values  ('2023-01-01', '2023-01-02'), ('2023-01-01', '2023-01-02') $i$,
-  --   'invoices_ext works'
-  -- );
-
 end
 $$ language plpgsql;
