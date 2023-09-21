@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 pub use bundle_schema::bundle_schema;
 pub use indirect::{indirect_large_files, rebuild_catalog_resources};
-pub use inline::inline_sources;
+pub use inline::{inline_capture, inline_sources};
 pub use loader::{Fetcher, LoadError, Loader};
 pub use scope::Scope;
 use serde::Serialize;
@@ -35,7 +35,7 @@ impl Format {
             Self::Yaml => "yaml",
         }
     }
-    fn serialize(&self, value: &models::RawValue) -> bytes::Bytes {
+    pub fn serialize(&self, value: &models::RawValue) -> Vec<u8> {
         let mut de = serde_json::Deserializer::from_str(value.get());
         let mut buf = Vec::new();
 
@@ -53,7 +53,7 @@ impl Format {
                     .unwrap()
             }
         }
-        buf.into()
+        buf
     }
 }
 
