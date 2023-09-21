@@ -26,8 +26,8 @@ You can configure the Redshift source connector either through the Flow web app 
 | **`/database`** | Database Name | Name of the database to capture data from.                   | string  | Required               |
 | **`/user`**     | User          | Database user with necessary permissions.                    | string  | Required               |
 | **`/password`** | Password      | Password for the specified database user.                    | string  | Required               |
-| **`/schemas`**     | Schemas         | List of schemas to include.                                  | string  | default                |
-| **`/jdbc_params`** | JDBC URL Params | Additional properties to pass to the JDBC URL string when connecting to the database formatted as 'key=value' pairs. | string | Optional               |
+| **`/schemas`**     | Schemas         | List of schemas to include.                                  | string  |              |
+| **`/jdbc_params`** | JDBC URL Params | Additional properties to pass to the JDBC URL string when connecting to the database formatted as 'key=value' pairs. | string |               |
 
 
 ### Bindings
