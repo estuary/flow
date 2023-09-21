@@ -11,7 +11,7 @@ use tokio::sync::broadcast;
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct Preview {
-    /// Path or URL to a Flow specification file to generate development files for.
+    /// Path or URL to a Flow specification file.
     #[clap(long)]
     source: String,
     /// Name of the derived collection to preview within the Flow specification file.
@@ -60,7 +60,7 @@ impl Preview {
         } else if sources.collections.is_empty() {
             anyhow::bail!("sourced specification files do not contain any derivations");
         } else {
-            anyhow::bail!("sourced specification files contain multiple derivations. Use --collection to identify the specific one to preview");
+            anyhow::bail!("sourced specification files contain multiple derivations. Use --collection to identify a specific one");
         };
 
         // Resolve the built collection and its contained derivation.
@@ -158,13 +158,13 @@ impl Preview {
         )
         .serve_derive(request_rx)
         .await
-        .map_err(|status| anyhow::anyhow!("{}", status.message()))?;
+        .map_err(crate::status_to_anyhow)?;
 
         let _opened = responses_rx
             .next()
             .await
             .context("expected Opened, not EOF")?
-            .map_err(status_to_anyhow)?
+            .map_err(crate::status_to_anyhow)?
             .opened
             .context("expected Opened")?;
 
@@ -349,7 +349,7 @@ where
     let mut inferred_shape = doc::Shape::nothing();
 
     while let Some(response) = responses_rx.next().await {
-        let response = response.map_err(status_to_anyhow)?;
+        let response = response.map_err(crate::status_to_anyhow)?;
 
         let internal = response
             .get_internal()
@@ -388,8 +388,4 @@ where
     } else {
         None
     })
-}
-
-fn status_to_anyhow(status: tonic::Status) -> anyhow::Error {
-    anyhow::anyhow!(status.message().to_string())
 }
