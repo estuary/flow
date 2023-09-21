@@ -22,10 +22,13 @@ You can configure the Redshift source connector either through the Flow web app 
 | Property        | Title         | Description                                                  | Type    | Required/Default       |
 |-----------------|---------------|--------------------------------------------------------------|---------|------------------------|
 | **`/host`**     | Host          | Hostname or IP address of your Redshift cluster.             | string  | Required               |
-| **`/port`**     | Port          | Port number for the cluster.                                 | number  | Required               |
+| **`/port`**     | Port          | Port number for the cluster.                                 | integer  | Default               |
 | **`/database`** | Database Name | Name of the database to capture data from.                   | string  | Required               |
 | **`/user`**     | User          | Database user with necessary permissions.                    | string  | Required               |
 | **`/password`** | Password      | Password for the specified database user.                    | string  | Required               |
+| **`/schemas`**     | Schemas         | List of schemas to include.                                  | string  | default                |
+| **`/jdbc_params`** | JDBC URL Params | Additional properties to pass to the JDBC URL string when connecting to the database formatted as 'key=value' pairs. | string | Optional               |
+
 
 ### Bindings
 
@@ -48,10 +51,11 @@ captures:
           database: "sample_db"
           user: "sample_user"
           password: "sample_password"
+          schemas: "public"
+          jdbc_params: "key1=value1&key2=value2&key3=value3"
     bindings:
       - resource:
-          schema: public
           table: users
-        cursor_field: cursor
+          cursor_field: cursor
         target: ${PREFIX}/users
 ```
