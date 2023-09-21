@@ -4,6 +4,7 @@ mod capture;
 mod container;
 mod derive;
 mod image_connector;
+mod local_connector;
 mod materialize;
 mod task_service;
 mod tokio_context;
@@ -16,6 +17,13 @@ pub use tokio_context::TokioContext;
 // This constant is shared between Rust and Go code.
 // See go/protocols/flow/document_extensions.go.
 pub const UUID_PLACEHOLDER: &str = "DocUUIDPlaceholder-329Bb50aa48EAa9ef";
+
+/// CHANNEL_BUFFER is the standard buffer size used for holding documents in an
+/// asynchronous processing pipeline. User documents can be large -- up to 64MB --
+/// so this value should be small. At the same time, processing steps such as
+/// schema validation are greatly accelerated when they can loop over multiple
+/// documents without yielding, so it should not be *too* small.
+pub const CHANNEL_BUFFER: usize = 8;
 
 fn anyhow_to_status(err: anyhow::Error) -> tonic::Status {
     tonic::Status::internal(format!("{err:?}"))
@@ -80,5 +88,3 @@ where
             )
     }
 }
-
-const CHANNEL_BUFFER: usize = 8;

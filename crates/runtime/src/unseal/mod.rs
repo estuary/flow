@@ -1,11 +1,16 @@
 use anyhow::Context;
-use serde_json::value::RawValue;
 use zeroize::Zeroizing;
 
 /// Decrypt a `sops`-protected document using `sops` and application default credentials.
-pub async fn decrypt_sops(config: &RawValue) -> anyhow::Result<Box<RawValue>> {
+pub async fn decrypt_sops(config: &models::RawValue) -> anyhow::Result<models::RawValue> {
     let jq = locate_bin::locate("jq").context("failed to locate sops")?;
     let sops = locate_bin::locate("sops").context("failed to locate sops")?;
+
+    // Only objects can be `sops` documents.
+    let dom = config.to_value();
+    if !dom.is_object() {
+        return Ok(config.to_owned());
+    }
 
     #[derive(serde::Deserialize)]
     struct Document {
@@ -19,7 +24,7 @@ pub async fn decrypt_sops(config: &RawValue) -> anyhow::Result<Box<RawValue>> {
     }
 
     let doc: Document =
-        serde_json::from_str(config.get()).context("decoding `sops` stanza of endpoint config")?;
+        serde_json::from_value(dom).context("decoding `sops` stanza of endpoint config")?;
 
     // If this isn't a `sops` document, then return a copy of it unmodified.
     let Some(Sops{encrypted_suffix}) = doc.sops else {
@@ -101,11 +106,10 @@ pub async fn decrypt_sops(config: &RawValue) -> anyhow::Result<Box<RawValue>> {
 mod test {
     use super::decrypt_sops;
     use futures::StreamExt;
-    use serde_json::value::RawValue;
 
     #[tokio::test]
     async fn test_fixtures() {
-        let configs: Vec<Box<RawValue>> = vec![
+        let configs: Vec<Box<models::RawValue>> = vec![
             serde_json::from_slice(include_bytes!("testdata/empty-input.json")).unwrap(),
             serde_json::from_slice(include_bytes!("testdata/hyphen-suffix.json")).unwrap(),
             serde_json::from_slice(include_bytes!("testdata/no-suffix.json")).unwrap(),

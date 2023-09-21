@@ -34,6 +34,7 @@ use std::sync::Arc;
 //  - Acknowledged: Forward.
 
 mod image;
+mod local;
 
 pub type BoxStream = futures::stream::BoxStream<'static, tonic::Result<Response>>;
 
@@ -101,7 +102,9 @@ where
                     "Local connectors are not permitted in this context",
                 ))
             }
-            models::MaterializationEndpoint::Local(_) => todo!(),
+            models::MaterializationEndpoint::Local(_) => {
+                local::connector(self.log_handler, request_rx).boxed()
+            }
         };
 
         Ok(response_rx)
