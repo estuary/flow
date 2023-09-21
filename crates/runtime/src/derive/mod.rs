@@ -8,9 +8,10 @@ use proto_flow::runtime::DeriveRequestExt;
 use std::pin::Pin;
 use std::sync::Arc;
 
-pub mod combine;
-pub mod image;
-pub mod rocksdb;
+mod combine;
+mod image;
+mod local;
+mod rocksdb;
 
 pub type BoxStream = futures::stream::BoxStream<'static, tonic::Result<Response>>;
 
@@ -108,7 +109,21 @@ where
                     "Local connectors are not permitted in this context",
                 ))
             }
-            models::DeriveUsing::Local(_) => todo!(),
+            models::DeriveUsing::Local(_) => {
+                // Request interceptor for stateful RocksDB storage.
+                let (request_rx, rocks_back) = rocksdb::adapt_requests(&peek_request, request_rx)
+                    .map_err(crate::anyhow_to_status)?;
+
+                // Invoke the underlying local connector.
+                let response_rx = local::connector(self.log_handler, request_rx);
+
+                // Response interceptor for stateful RocksDB storage.
+                let response_rx = rocks_back.adapt_responses(response_rx);
+                // Response interceptor for combining over documents.
+                let response_rx = combine_back.adapt_responses(response_rx);
+
+                response_rx.boxed()
+            }
             models::DeriveUsing::Sqlite(_) => {
                 // Invoke the underlying SQLite connector.
                 let response_rx = ::derive_sqlite::connector(&peek_request, request_rx)?;
@@ -125,7 +140,7 @@ where
     }
 }
 
-pub fn adjust_log_level<R>(
+fn adjust_log_level<R>(
     request_rx: R,
     set_log_level: Option<Arc<dyn Fn(ops::log::Level) + Send + Sync>>,
 ) -> impl Stream<Item = tonic::Result<Request>>

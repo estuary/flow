@@ -26,6 +26,7 @@ use std::sync::Arc;
 //          Forward Checkpoint enriched with stats.
 
 mod image;
+mod local;
 
 pub type BoxStream = futures::stream::BoxStream<'static, tonic::Result<Response>>;
 
@@ -93,7 +94,9 @@ where
                     "Local connectors are not permitted in this context",
                 ))
             }
-            models::CaptureEndpoint::Local(_) => todo!(),
+            models::CaptureEndpoint::Local(_) => {
+                local::connector(self.log_handler, request_rx).boxed()
+            }
         };
 
         Ok(response_rx)
