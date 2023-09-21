@@ -32,7 +32,6 @@ You can configure the Redshift source connector either through the Flow web app 
 | Property          | Title      | Description                    | Type    | Required/Default       |
 | ----------------- | ---------- | ------------------------------ | ------- | ---------------------- |
 | **`/table`**      | Table Name | Name of the table to capture.   | string  | Required               |
-| **`/meta/op`**    | Operation  | Types of operation on records. | string | Optional              |
 | **`/cursor_field`**    | User-defined Cursor     | Field for incremental syncs. Uses ascending values to ensure queries are sequential. | string or integer | Required |
 
 ### Sample
