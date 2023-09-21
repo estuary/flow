@@ -8,7 +8,6 @@ mod auth;
 mod catalog;
 mod collection;
 mod config;
-mod connector;
 mod controlplane;
 mod dataplane;
 mod draft;
@@ -271,4 +270,8 @@ fn format_user(email: Option<String>, full_name: Option<String>, id: Option<uuid
         email = email.unwrap_or_default(),
         id = id.map(|id| id.to_string()).unwrap_or_default(),
     )
+}
+
+fn status_to_anyhow(status: tonic::Status) -> anyhow::Error {
+    anyhow::anyhow!(status.message().to_string())
 }

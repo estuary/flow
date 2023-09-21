@@ -118,7 +118,7 @@ pub fn rebuild_catalog_resources(sources: &mut tables::Sources) {
         tables::Resource {
             resource,
             content_dom,
-            content: content_raw,
+            content: content_raw.into(),
             content_type: ContentType::Catalog,
         }
         .upsert_if_changed(resources)
@@ -535,7 +535,7 @@ fn indirect_dom(
     tables::Resource {
         resource: scope.join(&filename).unwrap(),
         content_type,
-        content: fmt.serialize(content_dom),
+        content: fmt.serialize(content_dom).into(),
         content_dom: content_dom.clone(),
     }
     .upsert_if_changed(resources);
