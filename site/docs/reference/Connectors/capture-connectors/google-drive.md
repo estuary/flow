@@ -15,7 +15,7 @@ To use this connector, make sure you have the following:
 
 ## Configuration
 
-You can set up the Google Drive source connector either through the Flow web app or by editing the Flow specification file directly. For more information on setting up this connector, refer to our guide on using connectors.
+You can set up the Google Drive source connector either through the Flow web app or by editing the Flow specification file directly. For more information on setting up this connector, refer to our guide on using [connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors).
 
 The values and specification sample below provide configuration details specific to the Google Drive connector.
 
