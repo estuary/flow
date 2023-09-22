@@ -307,7 +307,7 @@ begin
     data_tiers = '{50, 5, 20}'
     where tenant ^@ 'aliceCo_';
 
-  truncate table billing_historicals;
+  truncate table internal.billing_historicals;
   perform internal.freeze_billing_month('2022-08-01');
   perform set_authenticated_context('11111111-1111-1111-1111-111111111111');
 
@@ -598,10 +598,10 @@ begin
 
   set role postgres;
 
-  insert into manual_bills (tenant, usd_cents, description, date_start, date_end)
+  insert into internal.manual_bills (tenant, usd_cents, description, date_start, date_end)
   values ('aliceCo/',12356,'Test manually entered bill','2022-10-12','2022-11-25');
 
-  truncate table billing_historicals;
+  truncate table internal.billing_historicals;
   perform internal.freeze_billing_month('2022-08-01');
 
   perform set_authenticated_context('11111111-1111-1111-1111-111111111111');
@@ -609,10 +609,11 @@ begin
     select row_to_json(invoices_ext) as jsonified
     from invoices_ext
     where billed_prefix='aliceCo/'
+    order by date_start desc
   ) as invoices), jsonb_build_array(
     jsonb_build_object(
-      'date_start', date_trunc('month', now()),
-      'date_end', date_trunc('month', now()) + interval '1 month' - interval '1 day',
+      'date_start', date_trunc('month', now())::date,
+      'date_end', (date_trunc('month', now()) + interval '1 month' - interval '1 day')::date,
       'subtotal', null::jsonb,
       'line_items', null::jsonb,
       'invoice_type', 'current_month',
@@ -620,8 +621,8 @@ begin
     ),
     '{
         "billed_prefix": "aliceCo/",
-        "date_end": "2022-11-25T00:00:00+00:00",
-        "date_start": "2022-10-12T00:00:00+00:00",
+        "date_end": "2022-11-25",
+        "date_start": "2022-10-12",
         "invoice_type": "manual",
         "line_items": [
             {
@@ -635,8 +636,8 @@ begin
     }'::jsonb,
     '{
         "billed_prefix": "aliceCo/",
-        "date_end": "2022-08-31T00:00:00+00:00",
-        "date_start": "2022-08-01T00:00:00+00:00",
+        "date_end": "2022-08-31",
+        "date_start": "2022-08-01",
         "invoice_type": "usage",
         "line_items": [
             {
