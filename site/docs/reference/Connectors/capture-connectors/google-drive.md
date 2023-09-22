@@ -11,6 +11,8 @@ To use this connector, make sure you have the following:
 - An active Google Drive account with access credentials.
 - Properly configured permissions for your Google Drive resources.
 
+**Note:** This connector is designed specifically for .csv files located in a specified Google Drive folder.
+
 ## Configuration
 
 You can set up the Google Drive source connector either through the Flow web app or by editing the Flow specification file directly. For more information on setting up this connector, refer to our guide on using connectors.
