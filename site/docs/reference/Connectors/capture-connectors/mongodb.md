@@ -25,6 +25,18 @@ You'll need:
       [Role-Based Access
       Control](https://www.mongodb.com/docs/manual/core/authorization/) for more
       information.
+    * Read access to the `local` database and `oplog.rs` collection in that
+      database are also necessary.
+    
+    In order to grant these permissions with a command like so:
+    ```
+    use admin;
+    db.createUser({
+     user: "<username>",
+     pwd: "<password>",
+     roles: [ "readAnyDatabase" ]
+   })
+    ```
 
 * ReplicaSet enabled on your database, see [Deploy a Replica
   Set](https://www.mongodb.com/docs/manual/tutorial/deploy-replica-set/).
@@ -89,8 +101,8 @@ connector's ability to do this depends on the size of the [replica set
 oplog](https://www.mongodb.com/docs/manual/core/replica-set-oplog/), and in
 certain circumstances, when the pause has been long enough for the oplog to have
 evicted old change events, the connector will need to re-do the backfill to
-ensure data consistency. In such cases, the connector will error out the first
-time it is run with a message indicating that it is going to re-do a backfill on
-the next run, and it will be restarted by Flow runtime. This new run of the
-connector will do a backfill and once fully caught up, will start capturing
-change events.
+ensure data consistency. In such cases, the connector will error, and to resolve
+this case, first try to increase the size of your oplog to avoid this issue in
+the future, and then you need to remove the binding that is unable to be
+captured, publishing your task, and then adding the binding back so the backfill
+is restarted.
