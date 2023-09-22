@@ -1,6 +1,6 @@
 begin;
 
-create table manual_bills (
+create table internal.manual_bills (
   tenant       catalog_tenant not null references tenants(tenant),
   usd_cents    integer        not null,
   description  text           not null,
@@ -10,7 +10,7 @@ create table manual_bills (
   primary key (tenant, date_start, date_end)
 );
 
-comment on table manual_bills is
+comment on table internal.manual_bills is
   'Manually entered bills that span an arbitrary date range';
 
 -- Move billing report gen to internal
@@ -18,6 +18,12 @@ comment on table manual_bills is
 -- Drop the public functions
 drop function billing_report_202308(catalog_prefix, timestamptz);
 drop function tier_line_items(integer, integer[], text, text);
+
+-- Move `billing_historicals` to internal and revoke access
+alter table billing_historicals disable row level security;
+drop policy "Users must be authorized to their catalog tenant" on billing_historicals;
+
+alter table billing_historicals set schema internal;
 
 -- Compute a JSONB array of line-items detailing usage under a tenant's effective tiers.
 create or replace function internal.tier_line_items(
@@ -74,10 +80,6 @@ $$ language plpgsql;
 create or replace function internal.billing_report_202308(billed_prefix catalog_prefix, billed_month timestamptz)
 returns jsonb as $$
 declare
-  -- Auth checks
-  has_admin_grant boolean;
-  has_bypassrls boolean;
-
   -- Output variables.
   o_daily_usage   jsonb;
   o_data_gb       numeric;
@@ -264,7 +266,7 @@ declare
     tenant_count integer = 0;
 begin
     for tenant_row in select tenant as tenant_name from tenants loop
-        insert into billing_historicals
+        insert into internal.billing_historicals
         select
             report->>'billed_prefix' as tenant,
             (report->>'billed_month')::timestamptz as billed_month,
@@ -295,13 +297,13 @@ authorized_tenants as (
 ),
 historical_bills as (
   select
-    date_trunc('month', (report->>'billed_month')::timestamptz) as date_start,
-    date_trunc('month', (report->>'billed_month')::timestamptz) + interval '1 month' - interval '1 day' as date_end,
+    date_trunc('month', (report->>'billed_month')::timestamptz)::date as date_start,
+    (date_trunc('month', (report->>'billed_month')::timestamptz) + interval '1 month' - interval '1 day')::date as date_end,
     report->>'billed_prefix' as billed_prefix,
     report->'line_items' as line_items,
     report->'subtotal' as subtotal,
     report as extra
-  from billing_historicals
+  from internal.billing_historicals
   -- inner join should give only rows that match the join condition
   inner join authorized_tenants on billing_historicals.tenant ^@ authorized_tenants.tenant
 ),
@@ -320,34 +322,30 @@ manual_bills as (
     ) as line_items,
     to_jsonb(usd_cents) as subtotal,
     'null'::jsonb as extra
-  from manual_bills
+  from internal.manual_bills
   inner join authorized_tenants on manual_bills.tenant ^@ authorized_tenants.tenant
 ),
 current_month as (
   select
-    date_trunc('month', (report->>'billed_month')::timestamptz) as date_start,
-    date_trunc('month', (report->>'billed_month')::timestamptz) + interval '1 month' - interval '1 day' as date_end,
+    date_trunc('month', (report->>'billed_month')::timestamptz)::date as date_start,
+    (date_trunc('month', (report->>'billed_month')::timestamptz) + interval '1 month' - interval '1 day')::date as date_end,
     report->>'billed_prefix' as billed_prefix,
     report->'line_items' as line_items,
     report->'subtotal' as subtotal,
     report as extra
   from authorized_tenants, internal.billing_report_202308(authorized_tenants.tenant, now()) as report
-),
-combined as (
-  select
-    h.date_start, h.date_end, h.billed_prefix, h.line_items, h.subtotal, h.extra, 'usage' as invoice_type
-  from historical_bills h
-  union all
-  select
-    m.date_start, m.date_end, m.billed_prefix, m.line_items, m.subtotal, m.extra, 'manual' as invoice_type
-  from manual_bills m
-  union all
-  select
-    c.date_start, c.date_end, c.billed_prefix, c.line_items, c.subtotal, c.extra, 'current_month' as invoice_type
-  from current_month c
 )
-select * from combined
-order by date_start desc;
+select
+  h.date_start, h.date_end, h.billed_prefix, h.line_items, h.subtotal, h.extra, 'usage' as invoice_type
+from historical_bills h
+union all
+select
+  m.date_start, m.date_end, m.billed_prefix, m.line_items, m.subtotal, m.extra, 'manual' as invoice_type
+from manual_bills m
+union all
+select
+  c.date_start, c.date_end, c.billed_prefix, c.line_items, c.subtotal, c.extra, 'current_month' as invoice_type
+from current_month c;
 
 grant select on table invoices_ext to authenticated;
 
