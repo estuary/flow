@@ -98,8 +98,8 @@ struct LineItem {
 struct Invoice {
     subtotal: i64,
     line_items: sqlx::types::Json<Vec<LineItem>>,
-    date_start: DateTime<Utc>,
-    date_end: DateTime<Utc>,
+    date_start: NaiveDate,
+    date_end: NaiveDate,
     billed_prefix: String,
     invoice_type: InvoiceType,
     extra: Option<sqlx::types::Json<Option<Extra>>>,
@@ -148,7 +148,6 @@ impl Invoice {
         // Anything before 12:00:00 renders as the previous day in Stripe
         let date_start_secs = self
             .date_start
-            .date_naive()
             .and_hms_opt(12, 0, 0)
             .expect("Error manipulating date")
             .and_local_timezone(Utc)
@@ -157,7 +156,6 @@ impl Invoice {
             .timestamp();
         let date_end_secs = self
             .date_end
-            .date_naive()
             .and_hms_opt(12, 0, 0)
             .expect("Error manipulating date")
             .and_local_timezone(Utc)
