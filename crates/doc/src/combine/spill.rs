@@ -1,12 +1,11 @@
-use super::{Error, FLAG_REDUCED};
-use crate::{
-    validation::Validator, ArchivedDoc, ArchivedNode, Extractor, HeapDoc, HeapNode, LazyNode,
-};
+use super::{Error, Spec, FLAG_REDUCED};
+use crate::{ArchivedDoc, ArchivedNode, Extractor, HeapDoc, HeapNode, LazyNode};
 use rkyv::ser::Serializer;
 use std::cmp;
 use std::collections::BinaryHeap;
 use std::io;
 use std::ops::Range;
+use std::sync::Arc;
 
 /// SpillWriter writes segments of sorted documents to a spill file,
 /// and tracks each of the written segment range offsets within the file.
@@ -30,8 +29,8 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
         })
     }
 
-    /// Write a segment to the spill file. The segment iterator must yield
-    /// documents in sorted key order. Documents will be grouped into chunks
+    /// Write a segment to the spill file. The segment array documents must
+    /// already be in sorted key order. Documents will be grouped into chunks
     /// of the given size, and are then written in-order to the spill file.
     /// Each chunks is compressed using LZ4.
     /// The written size of the segment is returned.
@@ -159,7 +158,7 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
 /// this iterator-like object will also yield documents in ascending key order.
 pub struct Segment {
     docs: &'static [ArchivedDoc],
-    key: Box<[Extractor]>,
+    keys: Arc<Box<[Box<[Extractor]>]>>,
     next: Range<u64>,
     zz_backing: rkyv::AlignedVec,
 }
@@ -169,7 +168,7 @@ impl Segment {
     /// The given AlignedVec buffer, which may have pre-allocated capacity,
     /// is used to back the archived documents read from the spill file.
     pub fn new<R: io::Read + io::Seek>(
-        key: Box<[Extractor]>,
+        keys: Arc<Box<[Box<[Extractor]>]>>,
         r: &mut R,
         range: Range<u64>,
     ) -> Result<Self, io::Error> {
@@ -219,7 +218,7 @@ impl Segment {
         Ok(Self {
             zz_backing: backing,
             docs,
-            key,
+            keys,
             next,
         })
     }
@@ -237,7 +236,7 @@ impl Segment {
     pub fn next<R: io::Read + io::Seek>(self, r: &mut R) -> Result<Option<Self>, io::Error> {
         let Segment {
             docs,
-            key,
+            keys,
             next,
             zz_backing,
         } = self;
@@ -245,12 +244,12 @@ impl Segment {
         if docs.len() != 1 {
             Ok(Some(Segment {
                 docs: &docs[1..],
-                key,
+                keys,
                 next,
                 zz_backing,
             }))
         } else if !next.is_empty() {
-            Ok(Some(Self::new(key, r, next)?))
+            Ok(Some(Self::new(keys, r, next)?))
         } else {
             Ok(None)
         }
@@ -259,11 +258,21 @@ impl Segment {
 
 impl Ord for Segment {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        Extractor::compare_key(&self.key, &self.docs[0].root, &other.docs[0].root).then(
-            // When keys are equal than take the Segment which was produced into the spill file first.
-            // This maintains the left-to-right associative ordering of reductions.
-            self.next.start.cmp(&other.next.start),
-        )
+        let (lhs, rhs) = (self.head(), other.head());
+
+        lhs.binding
+            .cmp(&rhs.binding)
+            .then_with(|| {
+                Extractor::compare_key(
+                    &self.keys[lhs.binding.value() as usize],
+                    &lhs.root,
+                    &rhs.root,
+                )
+            })
+            .then_with(||
+                // When keys are equal than take the Segment which was produced into the spill file first.
+                // This maintains the left-to-right associative ordering of reductions.
+                self.next.start.cmp(&other.next.start))
     }
 }
 impl PartialOrd for Segment {
@@ -282,47 +291,31 @@ impl Eq for Segment {}
 /// yielding one document per key in ascending order.
 pub struct SpillDrainer<F: io::Read + io::Write + io::Seek> {
     heap: BinaryHeap<cmp::Reverse<Segment>>,
-    key: Box<[Extractor]>,
-    schema: Option<url::Url>,
+    spec: Spec,
     spill: F,
-    validator: Validator,
 }
 
 impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
     /// Build a new SpillDrainer which drains the given segment ranges previously
     /// written to the spill file.
-    pub fn new(
-        key: Box<[Extractor]>,
-        schema: Option<url::Url>,
-        mut spill: F,
-        ranges: &[Range<u64>],
-        validator: Validator,
-    ) -> Result<Self, std::io::Error> {
+    pub fn new(spec: Spec, mut spill: F, ranges: &[Range<u64>]) -> Result<Self, std::io::Error> {
         let mut heap = BinaryHeap::with_capacity(ranges.len());
 
         for range in ranges {
-            let segment = Segment::new(key.clone(), &mut spill, range.clone())?;
+            let segment = Segment::new(spec.keys.clone(), &mut spill, range.clone())?;
             heap.push(cmp::Reverse(segment));
         }
 
-        Ok(Self {
-            heap,
-            key,
-            schema,
-            spill,
-            validator,
-        })
+        Ok(Self { heap, spec, spill })
     }
 
-    pub fn into_parts(self) -> (Box<[Extractor]>, Option<url::Url>, F, Validator) {
+    pub fn into_parts(self) -> (Spec, F) {
         let Self {
             heap: _,
-            key,
-            schema,
+            spec,
             spill,
-            validator,
         } = self;
-        (key, schema, spill, validator)
+        (spec, spill)
     }
 
     /// Drain documents from this SpillDrainer by invoking the given callback.
@@ -335,50 +328,63 @@ impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
     /// remain to drain, and false only after all documents have been drained.
     pub fn drain_while<C, CE>(&mut self, mut callback: C) -> Result<bool, CE>
     where
-        C: for<'alloc> FnMut(LazyNode<'alloc, 'static, ArchivedNode>, bool) -> Result<bool, CE>,
+        C: for<'alloc> FnMut(
+            u32,
+            LazyNode<'alloc, 'static, ArchivedNode>,
+            bool,
+        ) -> Result<bool, CE>,
         CE: From<Error>,
     {
         while let Some(cmp::Reverse(cur)) = self.heap.pop() {
             let alloc = HeapNode::new_allocator();
 
-            let mut cur_root = LazyNode::Node(&cur.head().root);
-            let mut cur_flags = cur.head().flags;
+            let binding = cur.head().binding.value();
+            let (validator, ref schema) = &mut self.spec.validators[binding as usize];
 
-            // Poll the heap to find additional documents in other segments which share root's key.
+            let mut flags = cur.head().flags;
+            let mut doc = LazyNode::Node(&cur.head().root);
+
+            // Poll the heap to find additional documents in other segments which share doc's key.
             // Note that there can be at-most one instance of a key within a single segment,
-            // so we don't need to also check `segment`.
+            // so we don't need to also check Segment `cur`.
             while matches!(self.heap.peek(), Some(cmp::Reverse(peek))
-                if Extractor::compare_key_lazy(&self.key, &cur_root, &LazyNode::Node(&peek.head().root)).is_eq())
+                if binding == peek.head().binding.value()
+                    && Extractor::compare_key_lazy(
+                        &self.spec.keys[binding as usize],
+                        &doc,
+                        &LazyNode::Node(&peek.head().root)
+                    ).is_eq())
             {
                 let other = self.heap.pop().unwrap().0;
 
                 let ArchivedDoc {
-                    root: next_root,
-                    flags: next_flags,
+                    binding: _,
+                    flags: rhs_flags,
+                    root: rhs_doc,
                 } = other.head();
 
                 let out = super::smash(
                     &alloc,
-                    cur_root,
-                    cur_flags,
-                    LazyNode::Node(next_root),
-                    *next_flags,
-                    self.schema.as_ref(),
-                    &mut self.validator,
+                    binding,
+                    doc,
+                    flags,
+                    LazyNode::Node(rhs_doc),
+                    *rhs_flags,
+                    schema.as_ref(),
+                    validator,
                 )?;
-                (cur_root, cur_flags) = (LazyNode::Heap(out.root), out.flags);
+                (doc, flags) = (LazyNode::Heap(out.root), out.flags);
 
                 if let Some(other) = other.next(&mut self.spill).map_err(Error::SpillIO)? {
                     self.heap.push(cmp::Reverse(other));
                 }
             }
 
-            cur_root
-                .validate_ok(&mut self.validator, self.schema.as_ref())
+            doc.validate_ok(validator, schema.as_ref())
                 .map_err(Error::SchemaError)?
                 .map_err(Error::FailedValidation)?;
 
-            let done = !callback(cur_root, cur_flags & FLAG_REDUCED != 0)?;
+            let done = !callback(binding, doc, flags & FLAG_REDUCED != 0)?;
 
             if let Some(segment) = cur.next(&mut self.spill).map_err(Error::SpillIO)? {
                 self.heap.push(cmp::Reverse(segment));
@@ -403,12 +409,14 @@ mod test {
         let alloc = HeapNode::new_allocator();
         let segment = segment_fixture(
             &[
-                (json!({"key": "aaa", "v": "apple"}), 0),
-                (json!({"key": "bbb", "v": "banana"}), FLAG_REDUCED),
-                (json!({"key": "ccc", "v": "carrot"}), FLAG_REDUCED),
+                (0, json!({"key": "aaa", "v": "apple"}), 0),
+                (1, json!({"key": "bbb", "v": "banana"}), FLAG_REDUCED),
+                (2, json!({"key": "ccc", "v": "carrot"}), FLAG_REDUCED),
             ],
             &alloc,
         );
+        let keys: Arc<Box<[Box<[Extractor]>]>> =
+            Arc::new(vec![vec![Extractor::new("/key")].into()].into());
 
         // Write segment fixture into a SpillWriter.
         let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
@@ -418,7 +426,7 @@ mod test {
         let (mut spill, ranges) = spill.into_parts();
 
         // Assert we wrote the expected range and regression fixture.
-        assert_eq!(ranges, vec![0..190]);
+        assert_eq!(ranges, vec![0..191]);
 
         insta::assert_snapshot!(to_hex(&spill.get_ref()), @r###"
         |67000000 98000000 f1006b65 79000000| g.........key... 00000000
@@ -427,99 +435,129 @@ mod test {
         |11000830 00306262 62130010 03050008| ...0.0bbb....... 00000030
         |30008062 616e616e 61000618 00000500| 0..banana....... 00000040
         |509cffff ff020d00 07020000 180017b4| P............... 00000050
-        |18001301 1c0080d0 ffffff02 00000047| ...............G 00000060
+        |18001301 040080d0 ffffff02 00000048| ...............H 00000060
         |00000050 000000f1 006b6579 00000000| ...P.....key.... 00000070
         |03080000 00636363 0c000005 00107605| .....ccc......v. 00000080
         |00310000 01180070 6172726f 74000611| .1.....parrot... 00000090
-        |00000500 50ccffff ff020d00 41000000| ....P.......A... 000000a0
-        |010600a0 0000e8ff ffff0100 0000|     ..............   000000b0
-                                                               000000be
+        |00000500 50ccffff ff020d00 30000000| ....P.......0... 000000a0
+        |0800c001 000000e8 ffffff01 000000|   ...............  000000b0
+                                                               000000bf
         "###);
 
         // Parse the region as a Segment.
-        let key: Box<[Extractor]> = vec![Extractor::new("/key")].into();
         let mut actual = Vec::new();
-        let mut segment = Segment::new(key, &mut spill, ranges[0].clone()).unwrap();
+        let mut segment = Segment::new(keys, &mut spill, ranges[0].clone()).unwrap();
 
         // First chunk has two documents.
         assert_eq!(segment.docs.len(), 2);
         assert_eq!(segment.zz_backing.len(), 152);
-        assert_eq!(segment.next, 111..190);
+        assert_eq!(segment.next, 111..191);
 
-        actual.push(serde_json::to_value(&segment.head().root.as_node()).unwrap());
+        actual.push((
+            segment.head().binding.value(),
+            serde_json::to_value(&segment.head().root.as_node()).unwrap(),
+        ));
 
         segment = segment.next(&mut spill).unwrap().unwrap();
-        actual.push(serde_json::to_value(&segment.head().root.as_node()).unwrap());
+        actual.push((
+            segment.head().binding.value(),
+            serde_json::to_value(&segment.head().root.as_node()).unwrap(),
+        ));
 
         // Next chunk is read and has one document.
         segment = segment.next(&mut spill).unwrap().unwrap();
 
         assert_eq!(segment.docs.len(), 1);
         assert_eq!(segment.zz_backing.len(), 80);
-        assert_eq!(segment.next, 190..190);
+        assert_eq!(segment.next, 191..191);
 
-        actual.push(serde_json::to_value(&segment.head().root.as_node()).unwrap());
+        actual.push((
+            segment.head().binding.value(),
+            serde_json::to_value(&segment.head().root.as_node()).unwrap(),
+        ));
 
         // Stepping the segment again consumes it, as no chunks remain.
         assert!(segment.next(&mut spill).unwrap().is_none());
 
         insta::assert_json_snapshot!(actual, @r###"
         [
-          {
-            "key": "aaa",
-            "v": "apple"
-          },
-          {
-            "key": "bbb",
-            "v": "banana"
-          },
-          {
-            "key": "ccc",
-            "v": "carrot"
-          }
+          [
+            0,
+            {
+              "key": "aaa",
+              "v": "apple"
+            }
+          ],
+          [
+            1,
+            {
+              "key": "bbb",
+              "v": "banana"
+            }
+          ],
+          [
+            2,
+            {
+              "key": "ccc",
+              "v": "carrot"
+            }
+          ]
         ]
         "###);
     }
 
     #[test]
     fn test_heap_merge() {
-        let schema = json!({
-            "properties": {
-                "key": { "type": "string" },
-                "v": {
-                    "type": "array",
-                    "reduce": { "strategy": "append" }
-                }
-            },
-            "reduce": { "strategy": "merge" }
-        });
-        let key: Box<[Extractor]> = vec![Extractor::new("/key")].into();
-        let curi = url::Url::parse("http://example/schema").unwrap();
-        let validator = Validator::new(build_schema(curi, &schema).unwrap()).unwrap();
+        let spec = Spec::with_bindings(
+            std::iter::repeat_with(|| {
+                let schema = build_schema(
+                    url::Url::parse("http://example/schema").unwrap(),
+                    &json!({
+                        "properties": {
+                            "key": { "type": "string", "default": "def" },
+                            "v": {
+                                "type": "array",
+                                "reduce": { "strategy": "append" }
+                            }
+                        },
+                        "reduce": { "strategy": "merge" }
+                    }),
+                )
+                .unwrap();
+
+                (
+                    vec![Extractor::with_default("/key", json!("def"))],
+                    None,
+                    Validator::new(schema).unwrap(),
+                )
+            })
+            .take(3),
+        );
 
         let alloc = HeapNode::new_allocator();
         let fixtures = vec![
             segment_fixture(
                 &[
-                    (json!({"key": "aaa", "v": ["apple"]}), FLAG_REDUCED),
-                    (json!({"key": "bbb", "v": ["banana"]}), 0),
-                    (json!({"key": "ccc", "v": ["carrot"]}), 0),
+                    (0, json!({"key": "aaa", "v": ["apple"]}), FLAG_REDUCED),
+                    (0, json!({"key": "bbb", "v": ["banana"]}), 0),
+                    (1, json!({"key": "ccc", "v": ["carrot"]}), 0),
                 ],
                 &alloc,
             ),
             segment_fixture(
                 &[
-                    (json!({"key": "bbb", "v": ["avocado"]}), FLAG_REDUCED),
-                    (json!({"key": "ccc", "v": ["raisin"]}), FLAG_REDUCED),
-                    (json!({"key": "ddd", "v": ["tomato"]}), FLAG_REDUCED),
+                    (0, json!({"key": "bbb", "v": ["avocado"]}), FLAG_REDUCED),
+                    (1, json!({"key": "bbb", "v": ["apricot"]}), FLAG_REDUCED),
+                    (1, json!({"key": "ccc", "v": ["raisin"]}), FLAG_REDUCED),
+                    (2, json!({"key": "ddd", "v": ["tomato"]}), FLAG_REDUCED),
                 ],
                 &alloc,
             ),
             segment_fixture(
                 &[
-                    (json!({"key": "ccc", "v": ["dill"]}), 0),
-                    (json!({"key": "ddd", "v": ["pickle"]}), 0),
-                    (json!({"key": "eee", "v": ["squash"]}), 0),
+                    (1, json!({"key": "ccc", "v": ["dill"]}), 0),
+                    (2, json!({"key": "ddd", "v": ["pickle"]}), 0),
+                    (2, json!({"key": "eee", "v": ["squash"]}), 0),
                 ],
                 &alloc,
             ),
@@ -532,15 +570,13 @@ mod test {
 
         // Map from SpillWriter => SpillDrainer.
         let (spill, ranges) = spill.into_parts();
-        let mut drainer = SpillDrainer::new(key, None, spill, &ranges, validator).unwrap();
+        let mut drainer = SpillDrainer::new(spec, spill, &ranges).unwrap();
 
         let mut actual = Vec::new();
         loop {
             if !drainer
-                .drain_while(|node, full| {
-                    let node = serde_json::to_value(&node).unwrap();
-
-                    actual.push((node, full));
+                .drain_while(|binding, node, full| {
+                    actual.push((binding, serde_json::to_value(&node).unwrap(), full));
                     Ok::<_, Error>(actual.len() % 2 != 0)
                 })
                 .unwrap()
@@ -552,6 +588,7 @@ mod test {
         insta::assert_json_snapshot!(actual, @r###"
         [
           [
+            0,
             {
               "key": "aaa",
               "v": [
@@ -561,6 +598,7 @@ mod test {
             true
           ],
           [
+            0,
             {
               "key": "bbb",
               "v": [
@@ -571,6 +609,17 @@ mod test {
             true
           ],
           [
+            1,
+            {
+              "key": "bbb",
+              "v": [
+                "apricot"
+              ]
+            },
+            true
+          ],
+          [
+            1,
             {
               "key": "ccc",
               "v": [
@@ -582,6 +631,7 @@ mod test {
             true
           ],
           [
+            2,
             {
               "key": "ddd",
               "v": [
@@ -592,6 +642,7 @@ mod test {
             true
           ],
           [
+            2,
             {
               "key": "eee",
               "v": [
@@ -625,11 +676,11 @@ mod test {
         let alloc = HeapNode::new_allocator();
         let segment = segment_fixture(
             &[
-                (json!("one"), 0),
-                (json!("twotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwo"), 0),
-                (json!("three"), 0),
-                (json!("four"), 0),
-                (json!("five"), 0),
+                (0, json!("one"), 0),
+                (0, json!("twotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwo"), 0),
+                (0, json!("three"), 0),
+                (0, json!("four"), 0),
+                (0, json!("five"), 0),
             ],
             &alloc,
         );
@@ -638,8 +689,7 @@ mod test {
         spill.write_segment(&segment, 109..110).unwrap();
         let (mut spill, ranges) = spill.into_parts();
 
-        let key: Box<[Extractor]> = vec![Extractor::new("")].into();
-        let mut segment = Segment::new(key, &mut spill, ranges[0].clone()).unwrap();
+        let mut segment = Segment::new(Arc::new([].into()), &mut spill, ranges[0].clone()).unwrap();
 
         // First chunk is retried until its narrowed to a single document.
         assert_eq!(segment.docs.len(), 1);
@@ -673,14 +723,15 @@ mod test {
     }
 
     fn segment_fixture<'alloc>(
-        fixture: &[(Value, u8)],
+        fixture: &[(u32, Value, u8)],
         alloc: &'alloc bumpalo::Bump,
     ) -> Vec<HeapDoc<'alloc>> {
         fixture
             .into_iter()
-            .map(|(value, flags)| HeapDoc {
-                root: HeapNode::from_node(value, &alloc),
+            .map(|(binding, value, flags)| HeapDoc {
+                binding: *binding,
                 flags: *flags,
+                root: HeapNode::from_node(value, &alloc),
             })
             .collect()
     }
