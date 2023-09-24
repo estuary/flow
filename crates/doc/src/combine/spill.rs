@@ -344,6 +344,10 @@ impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
             let mut flags = cur.head().flags;
             let mut doc = LazyNode::Node(&cur.head().root);
 
+            // All documents are validated when spilled to disk.
+            // We must only validate again if a reduction occurs.
+            let mut must_validate = false;
+
             // Poll the heap to find additional documents in other segments which share doc's key.
             // Note that there can be at-most one instance of a key within a single segment,
             // so we don't need to also check Segment `cur`.
@@ -378,11 +382,14 @@ impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
                 if let Some(other) = other.next(&mut self.spill).map_err(Error::SpillIO)? {
                     self.heap.push(cmp::Reverse(other));
                 }
+                must_validate = true;
             }
 
-            doc.validate_ok(validator, schema.as_ref())
-                .map_err(Error::SchemaError)?
-                .map_err(Error::FailedValidation)?;
+            if must_validate {
+                doc.validate_ok(validator, schema.as_ref())
+                    .map_err(Error::SchemaError)?
+                    .map_err(Error::FailedValidation)?;
+            }
 
             let done = !callback(binding, doc, flags & FLAG_REDUCED != 0)?;
 

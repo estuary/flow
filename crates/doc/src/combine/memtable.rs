@@ -169,21 +169,6 @@ impl MemTable {
         let entries = unsafe { &mut *self.entries.get() };
         let doc = unsafe { std::mem::transmute::<HeapNode<'s>, HeapNode<'static>>(doc) };
 
-        // If `doc` is fully reduced we must validate now and cannot defer.
-        // We do defer right-hand documents, as they're validated immediately
-        // prior to reduction in order to gather annotations. Or, if they're
-        // never reduced, they'll be validated upon being drained.
-        //
-        // A left-hand document, though, is _not_ validated prior to reduction
-        // and it's thus possible that we otherwise skip its validation entirely.
-        if reduced {
-            let (validator, ref schema) = &mut entries.spec.validators[binding as usize];
-            validator
-                .validate(schema.as_ref(), &doc)?
-                .ok()
-                .map_err(Error::FailedValidation)?;
-        }
-
         entries.queued.push(HeapDoc {
             binding,
             flags: if reduced { FLAG_REDUCED } else { 0 },
@@ -243,11 +228,33 @@ impl MemTable {
         writer: &mut SpillWriter<F>,
         chunk_target_size: ops::Range<usize>,
     ) -> Result<Spec, Error> {
-        let (sorted, spec, alloc) = self.try_into_parts()?;
+        let (sorted, mut spec, alloc) = self.try_into_parts()?;
 
         let docs = sorted.len();
         let pivot = sorted.partition_point(|doc| doc.flags & FLAG_REDUCED == 0);
         let mem_used = alloc.allocated_bytes() - alloc.chunk_capacity();
+
+        // Validate all documents of the spilled segment.
+        //
+        // Technically, it's more efficient to defer all validation until we're
+        // draining the combiner, and validating now does very slightly slow the
+        // `combiner_perf` benchmark because we do extra validations that end up
+        // needing to be re-done. But. In the common case we do very little little
+        // reduction across spilled segments and when we're adding/spilling documents
+        // that happens in parallel to useful work an associated connector is doing.
+        // Whereas when we're draining the combiner the connector often can't do other
+        // useful work, and total throughput is thus more sensitive to drain performance.
+        // This is also a nice, tight loop that takes maximum advantage of processor
+        // cache hierarchy and branch prediction as well as memory layout (we read
+        // and write transactions in key order so `sorted` is often layed out in
+        // ascending order within `alloc`).
+        for doc in sorted.iter() {
+            let (validator, ref schema) = &mut spec.validators[doc.binding as usize];
+            validator
+                .validate(schema.as_ref(), &doc.root)?
+                .ok()
+                .map_err(Error::FailedValidation)?;
+        }
 
         // We write combined and reduced documents into separate segments,
         // because each segment may contain only sorted and unique keys.
