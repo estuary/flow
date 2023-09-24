@@ -4,10 +4,12 @@ use super::{AsNode, BumpStr, BumpVec, Field, Fields, Node};
 #[derive(Debug, rkyv::Archive, rkyv::Serialize)]
 #[archive(archived = "ArchivedDoc")]
 pub struct HeapDoc<'alloc> {
-    /// Root node of the document.
-    pub root: HeapNode<'alloc>,
+    /// Binding to which this HeapDoc belongs.
+    pub binding: u32,
     /// Arbitrary flags used to persist document processing status.
     pub flags: u8,
+    /// Root node of the document.
+    pub root: HeapNode<'alloc>,
 }
 
 /// HeapNode is a document node representation stored in the heap.

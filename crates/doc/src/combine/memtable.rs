@@ -1,5 +1,5 @@
-use super::{Error, SpillWriter, FLAG_REDUCED};
-use crate::{ArchivedNode, Extractor, HeapDoc, HeapNode, LazyNode, Validator};
+use super::{Error, Spec, SpillWriter, FLAG_REDUCED};
+use crate::{ArchivedNode, Extractor, HeapDoc, HeapNode, LazyNode};
 use bumpalo::Bump;
 use std::cell::UnsafeCell;
 use std::pin::Pin;
@@ -17,8 +17,6 @@ pub struct MemTable {
     //
     // Safety: MemTable never lends a reference to `entries`.
     entries: UnsafeCell<Entries>,
-    key: Box<[Extractor]>,
-    schema: Option<url::Url>,
     zz_alloc: Pin<Box<Bump>>,
 }
 
@@ -32,15 +30,15 @@ struct Entries {
     // Queued documents are in any order.
     queued: Vec<HeapDoc<'static>>,
     // Sorted documents are ordered such that partial combined documents are first,
-    // and fully-reduced documents are second. A key may appear at most twice,
-    // with different types. We must hold reduced keys separate from combined keys
-    // in order to preserve the overall associative order of reductions. We cannot,
-    // for example, reduce a reduced LHS with a combined RHS if we might later
-    // discover there were other combined documents which are associatively before
-    // the RHS we just smashed into LHS.
+    // and fully-reduced documents are second. A (binding, key) may appear at most
+    // twice, once as combined and again as reduced. We must hold reduced keys
+    // separate from combined keys in order to preserve the overall associative
+    // order of reductions. We cannot, for example, reduce a reduced LHS with a
+    // combined RHS if we might later discover there were other combined
+    // documents which are associatively before the RHS we just smashed into LHS.
     sorted: Vec<HeapDoc<'static>>,
-    // Owned validator for reductions.
-    validator: Validator,
+    // Specification of the combine operation.
+    spec: Spec,
 }
 
 impl Entries {
@@ -59,30 +57,23 @@ impl Entries {
         //   their (larger) combination into a (still larger) left-hand document.
         //
         // So, seek to double the number of output documents each time, assuming
-        // keys are unique -- and if they aren't that's fine. In the pedantic case
+        // keys are unique -- and if they aren't that's fine. In the worst case
         // of just one key which is reduced over and over, ensure we're combining
         // over a bunch of (small) right-hand documents before combining into its
         // value in `self.sorted`.
         self.queued.len() >= cmp::max(32, self.sorted.len())
     }
 
-    fn compact(
-        &mut self,
-        alloc: &'static Bump,
-        key: &[Extractor],
-        schema: Option<&url::Url>,
-    ) -> Result<(), Error> {
+    fn compact(&mut self, alloc: &'static Bump) -> Result<(), Error> {
         // Documents are sorted such that partial-combine documents come before
         // fully-reduced reduce documents, and within each type they're ordered
-        // on `self.key`. There are typically fewer reduce documents so they're
-        // cheaper to split off of the Vec end when we drain.
+        // on (binding, key). There are typically fewer fully-reduced documents
+        // so, coming second, they're cheaper to split_off() in Self::try_into_drainer().
         let key_cmp = |lhs: &HeapDoc, rhs: &HeapDoc| {
             let c = (lhs.flags & FLAG_REDUCED != 0).cmp(&(rhs.flags & FLAG_REDUCED != 0));
-            if c.is_eq() {
-                Extractor::compare_key(key, &lhs.root, &rhs.root)
-            } else {
-                c
-            }
+            c.then(lhs.binding.cmp(&rhs.binding)).then_with(|| {
+                Extractor::compare_key(&self.spec.keys[lhs.binding as usize], &lhs.root, &rhs.root)
+            })
         };
 
         // Sort queued documents. It's important that this be a stable sort,
@@ -103,17 +94,20 @@ impl Entries {
                 next.push(sorted.next().unwrap());
             }
 
+            let (validator, ref schema) = &mut self.spec.validators[cur.binding as usize];
+
             // Look for additional documents of this key from `queued` to combine into `cur`.
             while matches!(queued.peek(), Some(peek) if key_cmp(&cur, peek).is_eq()) {
                 let next = queued.next().unwrap();
                 cur = super::smash(
                     alloc,
+                    cur.binding,
                     LazyNode::Heap(cur.root),
                     cur.flags,
                     LazyNode::Heap(next.root),
                     next.flags,
-                    schema,
-                    &mut self.validator,
+                    schema.as_ref(),
+                    validator,
                 )?;
             }
 
@@ -123,12 +117,13 @@ impl Entries {
                 let prev = sorted.next().unwrap();
                 cur = super::smash(
                     alloc,
+                    cur.binding,
                     LazyNode::Heap(prev.root),
                     prev.flags,
                     LazyNode::Heap(cur.root),
                     cur.flags,
-                    schema,
-                    &mut self.validator,
+                    schema.as_ref(),
+                    validator,
                 )?;
             }
 
@@ -150,20 +145,14 @@ impl Entries {
 }
 
 impl MemTable {
-    pub fn new(key: Box<[Extractor]>, schema: Option<url::Url>, validator: Validator) -> Self {
-        assert!(!key.is_empty());
-
-        let alloc = Box::pin(HeapNode::new_allocator());
-
+    pub fn new(spec: Spec) -> Self {
         Self {
             entries: UnsafeCell::new(Entries {
                 queued: Vec::new(),
                 sorted: Vec::new(),
-                validator,
+                spec,
             }),
-            key,
-            schema,
-            zz_alloc: alloc,
+            zz_alloc: Box::pin(HeapNode::new_allocator()),
         }
     }
 
@@ -175,7 +164,7 @@ impl MemTable {
     }
 
     /// Add the document to the MemTable.
-    pub fn add<'s>(&'s self, doc: HeapNode<'s>, reduced: bool) -> Result<(), Error> {
+    pub fn add<'s>(&'s self, binding: u32, doc: HeapNode<'s>, reduced: bool) -> Result<(), Error> {
         // Safety: mutable borrow does not escape this function.
         let entries = unsafe { &mut *self.entries.get() };
         let doc = unsafe { std::mem::transmute::<HeapNode<'s>, HeapNode<'static>>(doc) };
@@ -188,16 +177,17 @@ impl MemTable {
         // A left-hand document, though, is _not_ validated prior to reduction
         // and it's thus possible that we otherwise skip its validation entirely.
         if reduced {
-            entries
-                .validator
-                .validate(self.schema.as_ref(), &doc)?
+            let (validator, ref schema) = &mut entries.spec.validators[binding as usize];
+            validator
+                .validate(schema.as_ref(), &doc)?
                 .ok()
                 .map_err(Error::FailedValidation)?;
         }
 
         entries.queued.push(HeapDoc {
-            root: doc,
+            binding,
             flags: if reduced { FLAG_REDUCED } else { 0 },
+            root: doc,
         });
 
         if entries.should_compact() {
@@ -212,43 +202,25 @@ impl MemTable {
         let entries = unsafe { &mut *self.entries.get() };
         let alloc = unsafe { std::mem::transmute::<&Bump, &'static Bump>(&self.zz_alloc) };
 
-        entries.compact(alloc, &self.key, self.schema.as_ref())
+        entries.compact(alloc)
     }
 
-    fn try_into_parts(
-        self,
-    ) -> Result<
-        (
-            Vec<HeapDoc<'static>>,
-            Box<[Extractor]>,
-            Option<url::Url>,
-            Validator,
-            Pin<Box<Bump>>,
-        ),
-        Error,
-    > {
-        let MemTable {
-            entries,
-            key,
-            schema,
-            zz_alloc,
-        } = self;
+    fn try_into_parts(self) -> Result<(Vec<HeapDoc<'static>>, Spec, Pin<Box<Bump>>), Error> {
+        let MemTable { entries, zz_alloc } = self;
 
         // Perform a final compaction, then decompose Entries.
         let mut entries = entries.into_inner();
         let alloc = unsafe { std::mem::transmute::<&Bump, &'static Bump>(&zz_alloc) };
-        entries.compact(alloc, &key, schema.as_ref())?;
+        entries.compact(alloc)?;
 
-        let Entries {
-            sorted, validator, ..
-        } = entries;
+        let Entries { sorted, spec, .. } = entries;
 
-        Ok((sorted, key, schema, validator, zz_alloc))
+        Ok((sorted, spec, zz_alloc))
     }
 
     /// Convert this MemTable into a MemDrainer.
     pub fn try_into_drainer(self) -> Result<MemDrainer, Error> {
-        let (mut sorted, key, schema, validator, zz_alloc) = self.try_into_parts()?;
+        let (mut sorted, spec, zz_alloc) = self.try_into_parts()?;
 
         let pivot = sorted.partition_point(|doc| doc.flags & FLAG_REDUCED == 0);
         let other = sorted.split_off(pivot);
@@ -256,9 +228,7 @@ impl MemTable {
         Ok(MemDrainer {
             it1: sorted.into_iter().peekable(),
             it2: other.into_iter().peekable(),
-            key,
-            schema,
-            validator,
+            spec,
             zz_alloc,
         })
     }
@@ -272,8 +242,8 @@ impl MemTable {
         self,
         writer: &mut SpillWriter<F>,
         chunk_target_size: ops::Range<usize>,
-    ) -> Result<(Box<[Extractor]>, Option<url::Url>, Validator), Error> {
-        let (sorted, key, schema, validator, alloc) = self.try_into_parts()?;
+    ) -> Result<Spec, Error> {
+        let (sorted, spec, alloc) = self.try_into_parts()?;
 
         let docs = sorted.len();
         let pivot = sorted.partition_point(|doc| doc.flags & FLAG_REDUCED == 0);
@@ -300,16 +270,14 @@ impl MemTable {
         );
         std::mem::drop(alloc); // Now safe to drop.
 
-        Ok((key, schema, validator))
+        Ok(spec)
     }
 }
 
 pub struct MemDrainer {
     it1: std::iter::Peekable<std::vec::IntoIter<HeapDoc<'static>>>,
     it2: std::iter::Peekable<std::vec::IntoIter<HeapDoc<'static>>>,
-    key: Box<[Extractor]>,
-    schema: Option<url::Url>,
-    validator: Validator,
+    spec: Spec,
     zz_alloc: Pin<Box<Bump>>, // Careful! Order matters. See MemTable.
 }
 
@@ -328,54 +296,74 @@ impl MemDrainer {
     /// remain to drain, and false only after all documents have been drained.
     pub fn drain_while<C, CE>(&mut self, mut callback: C) -> Result<bool, CE>
     where
-        C: for<'alloc> FnMut(LazyNode<'alloc, 'static, ArchivedNode>, bool) -> Result<bool, CE>,
+        C: for<'alloc> FnMut(
+            u32,
+            LazyNode<'alloc, 'static, ArchivedNode>,
+            bool,
+        ) -> Result<bool, CE>,
         CE: From<Error>,
     {
         // Incrementally merge the ordered sequence of documents from `it1` and `it2`.
         loop {
-            let doc = match (self.it1.peek(), self.it2.peek()) {
+            let HeapDoc {
+                binding,
+                flags,
+                root: doc,
+            } = match (self.it1.peek(), self.it2.peek()) {
                 (None, None) => return Ok(false),
                 (Some(_), None) => self.it1.next().unwrap(),
                 (None, Some(_)) => self.it2.next().unwrap(),
-                (Some(l), Some(r)) => match Extractor::compare_key(&self.key, &l.root, &r.root) {
-                    cmp::Ordering::Less => self.it1.next().unwrap(),
-                    cmp::Ordering::Greater => self.it2.next().unwrap(),
-                    cmp::Ordering::Equal => {
-                        let l = self.it1.next().unwrap();
-                        let r = self.it2.next().unwrap();
+                (Some(l), Some(r)) => {
+                    match l.binding.cmp(&r.binding).then_with(|| {
+                        Extractor::compare_key(
+                            &self.spec.keys[l.binding as usize],
+                            &l.root,
+                            &r.root,
+                        )
+                    }) {
+                        cmp::Ordering::Less => self.it1.next().unwrap(),
+                        cmp::Ordering::Greater => self.it2.next().unwrap(),
+                        cmp::Ordering::Equal => {
+                            let l = self.it1.next().unwrap();
+                            let r = self.it2.next().unwrap();
 
-                        super::smash(
-                            &self.zz_alloc,
-                            LazyNode::Heap(l.root),
-                            l.flags,
-                            LazyNode::Heap(r.root),
-                            r.flags,
-                            self.schema.as_ref(),
-                            &mut self.validator,
-                        )?
+                            let (validator, ref schema) =
+                                &mut self.spec.validators[l.binding as usize];
+
+                            super::smash(
+                                &self.zz_alloc,
+                                l.binding,
+                                LazyNode::Heap(l.root),
+                                l.flags,
+                                LazyNode::Heap(r.root),
+                                r.flags,
+                                schema.as_ref(),
+                                validator,
+                            )?
+                        }
                     }
-                },
+                }
             };
 
-            self.validator
-                .validate(self.schema.as_ref(), &doc.root)
+            let (validator, ref schema) = &mut self.spec.validators[binding as usize];
+
+            validator
+                .validate(schema.as_ref(), &doc)
                 .map_err(Error::SchemaError)?
                 .ok()
                 .map_err(Error::FailedValidation)?;
 
-            if !callback(LazyNode::Heap(doc.root), doc.flags & FLAG_REDUCED != 0)? {
+            if !callback(binding, LazyNode::Heap(doc), flags & FLAG_REDUCED != 0)? {
                 return Ok(true);
             }
         }
     }
 
-    pub fn into_parts(self) -> (Box<[Extractor]>, Option<url::Url>, Validator) {
+    pub fn into_spec(self) -> Spec {
         let MemDrainer {
             it1,
             it2,
-            key,
-            schema,
-            validator,
+            spec,
             zz_alloc,
         } = self;
 
@@ -385,7 +373,7 @@ impl MemDrainer {
         std::mem::drop(it2);
         std::mem::drop(zz_alloc);
 
-        (key, schema, validator)
+        spec
     }
 }
 
@@ -399,30 +387,39 @@ mod test {
 
     #[test]
     fn test_memtable_combine_reduce_sequence() {
-        let schema = build_schema(
-            url::Url::parse("http://example/schema").unwrap(),
-            &json!({
-                "properties": {
-                    "key": { "type": "string", "default": "def" },
-                    "v": {
-                        "type": "array",
-                        "reduce": { "strategy": "append" }
-                    }
-                },
-                "reduce": { "strategy": "merge" }
-            }),
-        )
-        .unwrap();
+        let spec = Spec::with_bindings(
+            std::iter::repeat_with(|| {
+                let schema = build_schema(
+                    url::Url::parse("http://example/schema").unwrap(),
+                    &json!({
+                        "properties": {
+                            "key": { "type": "string", "default": "def" },
+                            "v": {
+                                "type": "array",
+                                "reduce": { "strategy": "append" }
+                            }
+                        },
+                        "reduce": { "strategy": "merge" }
+                    }),
+                )
+                .unwrap();
 
-        let memtable = MemTable::new(
-            vec![Extractor::with_default("/key", json!("def"))].into(),
-            None,
-            Validator::new(schema).unwrap(),
+                (
+                    vec![Extractor::with_default("/key", json!("def"))],
+                    None,
+                    Validator::new(schema).unwrap(),
+                )
+            })
+            .take(2),
         );
+        let memtable = MemTable::new(spec);
+
         let add_and_compact = |docs: &[(bool, Value)]| {
             for (full, doc) in docs {
-                let fixture = HeapNode::from_node(doc, memtable.alloc());
-                memtable.add(fixture, *full).unwrap();
+                let doc_0 = HeapNode::from_node(doc, memtable.alloc());
+                let doc_1 = HeapNode::from_node(doc, memtable.alloc());
+                memtable.add(0, doc_0, *full).unwrap();
+                memtable.add(1, doc_1, *full).unwrap();
             }
             memtable.compact().unwrap();
         };
@@ -460,10 +457,8 @@ mod test {
 
         loop {
             if !drainer
-                .drain_while(|node, full| {
-                    let node = serde_json::to_value(&node).unwrap();
-
-                    actual.push((node, full));
+                .drain_while(|binding, node, full| {
+                    actual.push((binding, serde_json::to_value(&node).unwrap(), full));
                     Ok::<_, Error>(actual.len() % 2 != 0)
                 })
                 .unwrap()
@@ -475,6 +470,7 @@ mod test {
         insta::assert_json_snapshot!(actual, @r###"
         [
           [
+            0,
             {
               "key": "a",
               "v": [
@@ -484,6 +480,7 @@ mod test {
             false
           ],
           [
+            0,
             {
               "key": "aaa",
               "v": [
@@ -494,6 +491,7 @@ mod test {
             false
           ],
           [
+            0,
             {
               "key": "ab",
               "v": [
@@ -503,6 +501,7 @@ mod test {
             false
           ],
           [
+            0,
             {
               "key": "bbb",
               "v": [
@@ -514,6 +513,7 @@ mod test {
             true
           ],
           [
+            0,
             {
               "key": "bc",
               "v": [
@@ -524,6 +524,7 @@ mod test {
             true
           ],
           [
+            0,
             {
               "key": "ccc",
               "v": [
@@ -535,6 +536,7 @@ mod test {
             true
           ],
           [
+            0,
             {
               "key": "d",
               "v": [
@@ -545,6 +547,95 @@ mod test {
             false
           ],
           [
+            0,
+            {
+              "key": "def",
+              "v": [
+                "explicit-default",
+                "implicit-default"
+              ]
+            },
+            false
+          ],
+          [
+            1,
+            {
+              "key": "a",
+              "v": [
+                "before all"
+              ]
+            },
+            false
+          ],
+          [
+            1,
+            {
+              "key": "aaa",
+              "v": [
+                "apple",
+                "banana"
+              ]
+            },
+            false
+          ],
+          [
+            1,
+            {
+              "key": "ab",
+              "v": [
+                "first between"
+              ]
+            },
+            false
+          ],
+          [
+            1,
+            {
+              "key": "bbb",
+              "v": [
+                "avocado",
+                "carrot",
+                "raisin"
+              ]
+            },
+            true
+          ],
+          [
+            1,
+            {
+              "key": "bc",
+              "v": [
+                "second",
+                "between"
+              ]
+            },
+            true
+          ],
+          [
+            1,
+            {
+              "key": "ccc",
+              "v": [
+                "grape",
+                "tomato",
+                "broccoli"
+              ]
+            },
+            true
+          ],
+          [
+            1,
+            {
+              "key": "d",
+              "v": [
+                "after",
+                "all"
+              ]
+            },
+            false
+          ],
+          [
+            1,
             {
               "key": "def",
               "v": [
