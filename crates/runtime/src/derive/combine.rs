@@ -296,10 +296,8 @@ impl State {
             doc::Validator::new(write_schema_json).context("could not build a schema validator")?;
 
         let combiner = doc::Combiner::new(
-            key_extractors.clone().into(),
-            None,
+            doc::combine::Spec::with_one_binding(key_extractors.clone(), None, validator),
             tempfile::tempfile().context("opening temporary spill file")?,
-            validator,
         )?;
 
         // Identify ordered, partitioned projections to extract on combiner drain.
@@ -355,7 +353,7 @@ impl State {
                     doc::HeapNode::String(doc::BumpStr::from_str(crate::UUID_PLACEHOLDER, alloc));
             }
         }
-        memtable.add(doc, false)?;
+        memtable.add(0, doc, false)?;
 
         self.publish_stats.docs_total += 1;
         self.publish_stats.bytes_total += published.doc_json.len() as u64;
@@ -374,7 +372,7 @@ impl State {
         };
         let mut buf = bytes::BytesMut::new();
 
-        let more = drainer.drain_while(|doc, _fully_reduced| {
+        let more = drainer.drain_while(|_binding, doc, _fully_reduced| {
             let doc_json = serde_json::to_string(&doc).expect("document serialization cannot fail");
 
             self.drain_stats.docs_total += 1;
