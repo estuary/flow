@@ -668,14 +668,10 @@ mod test {
         assert_eq!(alloc.chunk_capacity(), 36800);
 
         // Allocation which fits within the current chunk.
-        alloc.alloc_str("hello world");
+        let s = alloc.alloc_str("hello world");
 
         // Expect chunk capacity is lower than before, because of the allocation.
-        // TODO(johnny): This is broken currently.
-        // Filed issue: https://github.com/fitzgen/bumpalo/issues/185
-        // I'm leaving this test in to identify when it's fixed,
-        // because we'll want to update our MemTable spill logic to reflect the new behavior.
-        assert_eq!(alloc.chunk_capacity(), 36800); // <- Should be assert_ne!().
+        assert_eq!(alloc.chunk_capacity(), 36800 - s.len());
     }
 
     #[test]

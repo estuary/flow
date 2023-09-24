@@ -92,9 +92,6 @@ impl Accumulator {
             unreachable!("memtable is always Some");
         };
 
-        // TODO(johnny): This is somewhat broken because chunk_capacity() is broken.
-        // Currently this means the mem_used value is very quantized and doubles ~quadratically.
-        // See: https://github.com/fitzgen/bumpalo/issues/185
         let mem_used = memtable.alloc().allocated_bytes() - memtable.alloc().chunk_capacity();
         if mem_used > SPILL_THRESHOLD {
             let spec = self
@@ -274,7 +271,7 @@ fn smash<'alloc>(
 //
 // There may be hypothetical use cases that benefit from more in-memory reduction.
 // At the moment, I suspect this would still be pretty marginal.
-const SPILL_THRESHOLD: usize = 8 * (1 << 28) / 10; // 80% of 256MB.
+const SPILL_THRESHOLD: usize = 1 << 28; // 256MB.
 
 // The chunk target determines the amortization of archiving and
 // compressing documents. We want chunks to be:

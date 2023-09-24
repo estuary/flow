@@ -270,9 +270,6 @@ impl MemTable {
             %mem_used,
             %reduce_bytes,
             %combine_bytes,
-            // TODO(johnny): remove when `mem_used` calculation is accurate.
-            mem_alloc=%alloc.allocated_bytes(),
-            mem_cap=%alloc.chunk_capacity(),
             "spilled MemTable to disk segment",
         );
         std::mem::drop(alloc); // Now safe to drop.
