@@ -34,7 +34,6 @@ uuid = { workspace = true }
 [dev-dependencies]
 allocator = { path = "../allocator" }
 
-criterion = { workspace = true }
 hexdump = { workspace = true }
 insta = { workspace = true }
 pretty_assertions = { workspace = true }
