@@ -34,7 +34,7 @@ bitvec = "0.19"
 bytecount = { version = "0.6.3", features = ["runtime-dispatch-simd"] }
 bytes = "1.2"
 bytesize = "1.1.0"
-bumpalo = { version = "3.11", features = ["collections"] }
+bumpalo = { version = "3.14", features = ["collections"] }
 bytelines = "2.4"
 byteorder = "1.4"
 caseless = "0.2"
