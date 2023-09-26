@@ -23,6 +23,7 @@ drop function tier_line_items(integer, integer[], text, text);
 alter table billing_historicals disable row level security;
 drop policy "Users must be authorized to their catalog tenant" on billing_historicals;
 
+revoke select on billing_historicals from authenticated;
 alter table billing_historicals set schema internal;
 
 -- Compute a JSONB array of line-items detailing usage under a tenant's effective tiers.
@@ -289,7 +290,7 @@ with has_bypassrls as (
   select exists(select 1 from pg_roles where rolname = current_role and rolbypassrls = true) as bypass
 ),
 authorized_tenants as (
-  select tenants.tenant
+  select tenants.tenant, tenants.created_at
   from tenants
   left join has_bypassrls on true
   left join auth_roles('admin') on tenants.tenant ^@ auth_roles.role_prefix
@@ -300,8 +301,8 @@ historical_bills as (
     date_trunc('month', (report->>'billed_month')::timestamptz)::date as date_start,
     (date_trunc('month', (report->>'billed_month')::timestamptz) + interval '1 month' - interval '1 day')::date as date_end,
     report->>'billed_prefix' as billed_prefix,
-    report->'line_items' as line_items,
-    report->'subtotal' as subtotal,
+    coalesce(nullif(report->'line_items', 'null'::jsonb), '[]'::jsonb) as line_items,
+    coalesce(nullif(report->'subtotal', 'null'::jsonb), to_jsonb(0))::integer as subtotal,
     report as extra
   from internal.billing_historicals
   -- inner join should give only rows that match the join condition
@@ -320,7 +321,7 @@ manual_bills as (
         'subtotal', manual_bills.usd_cents
       )
     ) as line_items,
-    to_jsonb(usd_cents) as subtotal,
+    usd_cents as subtotal,
     'null'::jsonb as extra
   from internal.manual_bills
   inner join authorized_tenants on manual_bills.tenant ^@ authorized_tenants.tenant
@@ -330,14 +331,34 @@ current_month as (
     date_trunc('month', (report->>'billed_month')::timestamptz)::date as date_start,
     (date_trunc('month', (report->>'billed_month')::timestamptz) + interval '1 month' - interval '1 day')::date as date_end,
     report->>'billed_prefix' as billed_prefix,
-    report->'line_items' as line_items,
-    report->'subtotal' as subtotal,
+    coalesce(nullif(report->'line_items', 'null'::jsonb), '[]'::jsonb) as line_items,
+    coalesce(nullif(report->'subtotal', 'null'::jsonb), to_jsonb(0))::integer as subtotal,
     report as extra
   from authorized_tenants, internal.billing_report_202308(authorized_tenants.tenant, now()) as report
+),
+generated_prior_months as (
+  select
+    date_trunc('month', (report->>'billed_month')::timestamptz)::date as date_start,
+    (date_trunc('month', (report->>'billed_month')::timestamptz) + interval '1 month' - interval '1 day')::date as date_end,
+    report->>'billed_prefix' as billed_prefix,
+    coalesce(nullif(report->'line_items', 'null'::jsonb), '[]'::jsonb) as line_items,
+    coalesce(nullif(report->'subtotal', 'null'::jsonb), to_jsonb(0))::integer as subtotal,
+    report as extra
+  from authorized_tenants
+  join generate_series(
+    greatest(date '2023-08-01', date_trunc('month', authorized_tenants.created_at)::date),
+    date_trunc('month',now()::date - interval '1 month'),
+    '1 month'
+  ) as invoice_month on not exists(select 1 from historical_bills where historical_bills.date_start = invoice_month)
+  join internal.billing_report_202308(authorized_tenants.tenant, invoice_month) as report on true
 )
 select
   h.date_start, h.date_end, h.billed_prefix, h.line_items, h.subtotal, h.extra, 'usage' as invoice_type
 from historical_bills h
+union all
+select
+  p.date_start, p.date_end, p.billed_prefix, p.line_items, p.subtotal, p.extra, 'preview' as invoice_type
+from generated_prior_months p
 union all
 select
   m.date_start, m.date_end, m.billed_prefix, m.line_items, m.subtotal, m.extra, 'manual' as invoice_type

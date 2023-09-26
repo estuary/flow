@@ -56,6 +56,8 @@ enum InvoiceType {
     Manual,
     #[serde(rename = "current_month")]
     CurrentMonth,
+    #[serde(rename = "preview")]
+    Preview,
 }
 
 #[derive(Serialize, Default, Debug)]
