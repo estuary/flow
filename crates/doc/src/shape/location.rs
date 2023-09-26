@@ -118,7 +118,7 @@ impl Shape {
                 Exists::Cannot,
             ),
 
-            Token::AdditionalProperties if self.type_.overlaps(types::OBJECT) => (
+            Token::NextProperty if self.type_.overlaps(types::OBJECT) => (
                 self.object
                     .additional_properties
                     .as_ref()
@@ -143,7 +143,7 @@ impl Shape {
             Token::Index(_) => (&SENTINEL_SHAPE, Exists::Cannot),
             Token::NextIndex => (&SENTINEL_SHAPE, Exists::Cannot),
             Token::Property(_) => (&SENTINEL_SHAPE, Exists::Cannot),
-            Token::AdditionalProperties => (&SENTINEL_SHAPE, Exists::Cannot),
+            Token::NextProperty => (&SENTINEL_SHAPE, Exists::Cannot),
         }
     }
 
@@ -221,7 +221,7 @@ impl Shape {
 
         if let Some(child) = &self.object.additional_properties {
             child.locations_inner(
-                location.push_additional_properties(),
+                location.push_next_property(),
                 exists.extend(Exists::May),
                 true,
                 out,
