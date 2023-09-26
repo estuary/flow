@@ -71,6 +71,11 @@ where
             "run",
             // Remove the docker container upon its exit.
             "--rm",
+            // Allocate a pseudo-terminal.
+            // This is a hack to work around a presumed Gitpod issue:
+            // https://github.com/gitpod-io/gitpod/issues/18814
+            // We should revert this commit once the underlying issue is resolved.
+            "--tty",
             // Addressable name of this connector.
             &format!("--name={name}"),
             // Network to which the container should attach.
@@ -115,8 +120,8 @@ where
             &format!("--port={CONNECTOR_INIT_PORT}"),
         ])
         .stdin(async_process::Stdio::null())
-        .stdout(async_process::Stdio::null())
-        .stderr(async_process::Stdio::piped())
+        .stdout(async_process::Stdio::piped()) // Stderr comes over stdout due to --tty
+        .stderr(async_process::Stdio::null())
         .spawn()
         .context("failed to docker run the connector")?
         .into();
@@ -129,7 +134,7 @@ where
     let (ready_tx, ready_rx) = oneshot::channel::<()>();
 
     // Service process stderr by decoding ops::Logs and sending to our handler.
-    let stderr = process.stderr.take().unwrap();
+    let stderr = process.stdout.take().unwrap();
     tokio::spawn(async move {
         let mut stderr = tokio::io::BufReader::new(stderr);
         let mut line = String::new();
