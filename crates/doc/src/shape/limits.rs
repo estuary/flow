@@ -28,7 +28,7 @@ fn squash_location_inner(shape: &mut Shape, name: &Token) {
         // Squashing of `additional*` fields is not possible here because we don't
         // have access to the parent shape
         Token::NextIndex => unreachable!(),
-        Token::AdditionalProperties => unreachable!(),
+        Token::NextProperty => unreachable!(),
 
         Token::Index(_) => {
             // Pop the last element from the array tuple shape to avoid
@@ -99,13 +99,13 @@ fn squash_location(shape: &mut Shape, location: &[Token]) {
     match location {
         [] => unreachable!(),
         [Token::NextIndex] => unreachable!(),
-        [Token::AdditionalProperties] => unreachable!(),
+        [Token::NextProperty] => unreachable!(),
 
         [first] => squash_location_inner(shape, first),
         [first, more @ ..] => {
             let inner = match first {
                 Token::NextIndex => shape.array.additional_items.as_deref_mut(),
-                Token::AdditionalProperties => shape.object.additional_properties.as_deref_mut(),
+                Token::NextProperty => shape.object.additional_properties.as_deref_mut(),
                 Token::Index(idx) => shape.array.tuple.get_mut(*idx),
                 Token::Property(prop_name) => shape
                     .object
@@ -134,7 +134,7 @@ pub fn enforce_shape_complexity_limit(shape: &mut Shape, limit: usize) {
             // but we don't want to include those locations that are leaf nodes, since
             // leaf node recursion is squashed every time we squash a concrete property.
             [.., Token::NextIndex] => None,
-            [.., Token::AdditionalProperties] => None,
+            [.., Token::NextProperty] => None,
             [] => None,
             _ => Some(ptr),
         })

@@ -9,8 +9,8 @@ pub enum Token {
     Index(usize),
     /// JSON object property name without escaping. Never an integer.
     Property(String),
-    // Schema representing an object's additionalProperties
-    AdditionalProperties,
+    // Represents the concept of "the next property" to be added
+    NextProperty,
     /// Next JSON index which is one beyond the current array extent.
     /// If applied to a JSON object, the property literal "-" is used.
     NextIndex,
@@ -18,9 +18,7 @@ pub enum Token {
 
 impl Token {
     pub fn from_str(s: &str) -> Self {
-        if s == "-" {
-            Token::NextIndex
-        } else if s.starts_with('+') || (s.starts_with('0') && s.len() > 1) {
+        if s.starts_with('+') || (s.starts_with('0') && s.len() > 1) {
             Token::Property(s.to_string())
         } else if let Ok(ind) = usize::from_str(&s) {
             Token::Index(ind)
@@ -35,7 +33,7 @@ impl<'t> std::fmt::Display for Token {
         match self {
             Token::Index(ind) => write!(f, "{ind}"),
             Token::Property(prop) => write!(f, "{prop}"),
-            Token::AdditionalProperties => write!(f, "*"),
+            Token::NextProperty => write!(f, "*"),
             Token::NextIndex => write!(f, "-"),
         }
     }
@@ -119,8 +117,8 @@ impl Pointer {
                 json::Location::EndOfArray(_) => {
                     ptr.push(Token::NextIndex);
                 }
-                json::Location::AdditionalProperties(_) => {
-                    ptr.push(Token::AdditionalProperties);
+                json::Location::NextProperty(_) => {
+                    ptr.push(Token::NextProperty);
                 }
             }
             ptr
@@ -146,13 +144,12 @@ impl Pointer {
                 Node::Object(fields) => match token {
                     Token::Index(ind) => fields.get(&ind.to_string()),
                     Token::Property(property) => fields.get(&property),
-                    Token::AdditionalProperties => None,
-                    Token::NextIndex => fields.get("-"),
+                    Token::NextProperty | Token::NextIndex => None,
                 }
                 .map(|field| field.value()),
                 Node::Array(arr) => match token {
                     Token::Index(ind) => arr.get(*ind),
-                    Token::Property(_) | Token::NextIndex | Token::AdditionalProperties => None,
+                    Token::Property(_) | Token::NextIndex | Token::NextProperty => None,
                 },
                 _ => None,
             };
@@ -188,7 +185,7 @@ impl Pointer {
             // which we'll create the next child location.
             if let Value::Null = v {
                 match token {
-                    Token::Property(_) | Token::AdditionalProperties => {
+                    Token::Property(_) | Token::NextProperty => {
                         *v = Value::Object(serde_json::map::Map::new());
                     }
                     Token::Index(_) | Token::NextIndex => {
@@ -202,8 +199,7 @@ impl Pointer {
                     // Create or modify existing entry.
                     Token::Index(ind) => map.entry(ind.to_string()).or_insert(Value::Null),
                     Token::Property(prop) => map.entry(prop).or_insert(Value::Null),
-                    Token::NextIndex => map.entry("-").or_insert(Value::Null),
-                    Token::AdditionalProperties => map.entry("*").or_insert(Value::Null),
+                    Token::NextProperty | Token::NextIndex => return None,
                 },
                 Value::Array(arr) => match token {
                     Token::Index(ind) => {
@@ -221,7 +217,7 @@ impl Pointer {
                     }
                     // Cannot match (attempt to query property of an array).
                     Token::Property(_) => return None,
-                    Token::AdditionalProperties => return None,
+                    Token::NextProperty => return None,
                 },
                 Value::Number(_) | Value::Bool(_) | Value::String(_) => {
                     return None; // Cannot match (attempt to take child of scalar).
@@ -245,12 +241,13 @@ impl Pointer {
             // which we'll create the next child location.
             if let HeapNode::Null = v {
                 match token {
-                    Token::Property(_) | Token::AdditionalProperties => {
+                    Token::Property(_) => {
                         *v = HeapNode::Object(BumpVec::new());
                     }
-                    Token::Index(_) | Token::NextIndex => {
+                    Token::Index(_) => {
                         *v = HeapNode::Array(BumpVec::new());
                     }
+                    Token::NextProperty | Token::NextIndex => return None,
                 };
             }
 
@@ -259,8 +256,7 @@ impl Pointer {
                     // Create or modify existing entry.
                     Token::Index(ind) => fields.insert_property(&ind.to_string(), alloc),
                     Token::Property(property) => fields.insert_property(property, alloc),
-                    Token::NextIndex => fields.insert_property("-", alloc),
-                    Token::AdditionalProperties => fields.insert_property("*", alloc),
+                    Token::NextProperty | Token::NextIndex => return None,
                 },
                 HeapNode::Array(arr) => match token {
                     Token::Index(ind) => {
@@ -281,7 +277,7 @@ impl Pointer {
                     }
                     // Cannot match (attempt to query property of an array).
                     Token::Property(_) => return None,
-                    Token::AdditionalProperties => return None,
+                    Token::NextProperty => return None,
                 },
                 HeapNode::Bool(_)
                 | HeapNode::Bytes(_)
@@ -344,7 +340,7 @@ impl std::fmt::Display for Pointer {
             write!(f, "/")?;
             match item {
                 Token::NextIndex => write!(f, "-")?,
-                Token::AdditionalProperties => write!(f, "*")?,
+                Token::NextProperty => write!(f, "*")?,
                 Token::Property(p) => write!(f, "{}", replace_escapes(p))?,
                 Token::Index(ind) => write!(f, "{}", ind)?,
             };
