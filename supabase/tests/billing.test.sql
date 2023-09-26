@@ -616,7 +616,7 @@ begin
       'date_end', (date_trunc('month', now()) + interval '1 month' - interval '1 day')::date,
       'subtotal', 0,
       'line_items', '[]'::jsonb,
-      'invoice_type', 'current_month',
+      'invoice_type', 'preview',
       'billed_prefix', 'aliceCo/'
     ),
     '{
@@ -638,7 +638,7 @@ begin
         "billed_prefix": "aliceCo/",
         "date_end": "2022-08-31",
         "date_start": "2022-08-01",
-        "invoice_type": "usage",
+        "invoice_type": "final",
         "line_items": [
             {
                 "count": 1,

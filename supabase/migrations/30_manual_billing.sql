@@ -326,16 +326,6 @@ manual_bills as (
   from internal.manual_bills
   inner join authorized_tenants on manual_bills.tenant ^@ authorized_tenants.tenant
 ),
-current_month as (
-  select
-    date_trunc('month', (report->>'billed_month')::timestamptz)::date as date_start,
-    (date_trunc('month', (report->>'billed_month')::timestamptz) + interval '1 month' - interval '1 day')::date as date_end,
-    report->>'billed_prefix' as billed_prefix,
-    coalesce(nullif(report->'line_items', 'null'::jsonb), '[]'::jsonb) as line_items,
-    coalesce(nullif(report->'subtotal', 'null'::jsonb), to_jsonb(0))::integer as subtotal,
-    report as extra
-  from authorized_tenants, internal.billing_report_202308(authorized_tenants.tenant, now()) as report
-),
 generated_prior_months as (
   select
     date_trunc('month', (report->>'billed_month')::timestamptz)::date as date_start,
@@ -347,13 +337,13 @@ generated_prior_months as (
   from authorized_tenants
   join generate_series(
     greatest(date '2023-08-01', date_trunc('month', authorized_tenants.created_at)::date),
-    date_trunc('month',now()::date - interval '1 month'),
+    date_trunc('month',now()::date),
     '1 month'
   ) as invoice_month on not exists(select 1 from historical_bills where historical_bills.date_start = invoice_month)
   join internal.billing_report_202308(authorized_tenants.tenant, invoice_month) as report on true
 )
 select
-  h.date_start, h.date_end, h.billed_prefix, h.line_items, h.subtotal, h.extra, 'usage' as invoice_type
+  h.date_start, h.date_end, h.billed_prefix, h.line_items, h.subtotal, h.extra, 'final' as invoice_type
 from historical_bills h
 union all
 select
@@ -362,11 +352,7 @@ from generated_prior_months p
 union all
 select
   m.date_start, m.date_end, m.billed_prefix, m.line_items, m.subtotal, m.extra, 'manual' as invoice_type
-from manual_bills m
-union all
-select
-  c.date_start, c.date_end, c.billed_prefix, c.line_items, c.subtotal, c.extra, 'current_month' as invoice_type
-from current_month c;
+from manual_bills m;
 
 grant select on table invoices_ext to authenticated;
 
