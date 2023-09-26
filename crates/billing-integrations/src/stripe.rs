@@ -47,14 +47,12 @@ fn parse_date(arg: &str) -> Result<NaiveDate, ParseError> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, sqlx::Type, Serialize, Deserialize)]
 #[sqlx(rename_all = "snake_case")]
 enum InvoiceType {
-    #[serde(rename = "usage")]
-    Usage,
-    #[serde(rename = "manual")]
-    Manual,
-    #[serde(rename = "current_month")]
-    CurrentMonth,
+    #[serde(rename = "final")]
+    Final,
     #[serde(rename = "preview")]
     Preview,
+    #[serde(rename = "manual")]
+    Manual,
 }
 
 #[derive(Serialize, Default, Debug)]
@@ -113,10 +111,10 @@ impl Invoice {
         recreate_finalized: bool,
     ) -> anyhow::Result<()> {
         match (&self.invoice_type, &self.extra) {
-            (InvoiceType::CurrentMonth, _) => {
-                bail!("Should not create Stripe invoices for dynamic current_month invoices")
+            (InvoiceType::Preview, _) => {
+                bail!("Should not create Stripe invoices for preview invoices")
             }
-            (InvoiceType::Usage, Some(extra)) => {
+            (InvoiceType::Final, Some(extra)) => {
                 let unwrapped_extra = extra.clone().0.expect(
                     "This is just a sqlx quirk, if the outer Option is Some then this will be Some",
                 );
@@ -129,7 +127,7 @@ impl Invoice {
                     return Ok(());
                 }
             }
-            (InvoiceType::Usage, None) => {
+            (InvoiceType::Final, None) => {
                 bail!("Invoice should have extra")
             }
             _ => {}
@@ -137,7 +135,7 @@ impl Invoice {
 
         // An invoice should be generated in Stripe if the tenant is on a paid plan, which means:
         // * The tenant has a free trial start date
-        if let InvoiceType::Usage = self.invoice_type {
+        if let InvoiceType::Final = self.invoice_type {
             if let None = get_tenant_trial_date(&db_client, self.billed_prefix.to_owned()).await? {
                 tracing::info!("Skipping usage invoice for tenant in free tier");
                 return Ok(());
@@ -437,9 +435,9 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
     });
 
     tracing::info!(
-        "Processing {usage} usage-based bills, and {manual} manually-entered bills.",
+        "Processing {usage} usage-based invoices, and {manual} manually-entered invoices.",
         usage = invoice_type_counter
-            .remove(&InvoiceType::Usage)
+            .remove(&InvoiceType::Final)
             .unwrap_or_default(),
         manual = invoice_type_counter
             .remove(&InvoiceType::Manual)
