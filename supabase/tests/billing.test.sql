@@ -614,8 +614,8 @@ begin
     jsonb_build_object(
       'date_start', date_trunc('month', now())::date,
       'date_end', (date_trunc('month', now()) + interval '1 month' - interval '1 day')::date,
-      'subtotal', null::jsonb,
-      'line_items', null::jsonb,
+      'subtotal', 0,
+      'line_items', '[]'::jsonb,
       'invoice_type', 'current_month',
       'billed_prefix', 'aliceCo/'
     ),
