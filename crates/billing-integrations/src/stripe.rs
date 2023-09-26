@@ -2,7 +2,6 @@ use anyhow::{bail, Context};
 use chrono::{ParseError, Utc};
 use futures::{FutureExt, StreamExt, TryStreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_enum_str::{Deserialize_enum_str, Serialize_enum_str};
 use sqlx::{postgres::PgPoolOptions, types::chrono::NaiveDate, Pool};
 use sqlx::{types::chrono::DateTime, Postgres};
 use std::collections::HashMap;
@@ -45,9 +44,7 @@ fn parse_date(arg: &str) -> Result<NaiveDate, ParseError> {
     NaiveDate::parse_from_str(arg, "%Y-%m-%d")
 }
 
-#[derive(
-    Debug, Clone, PartialEq, Eq, Hash, sqlx::Type, Deserialize_enum_str, Serialize_enum_str,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, sqlx::Type, Serialize, Deserialize)]
 #[sqlx(rename_all = "snake_case")]
 enum InvoiceType {
     #[serde(rename = "usage")]
@@ -173,7 +170,11 @@ impl Invoice {
         let date_start_repr = self.date_start.format("%F").to_string();
         let date_end_repr = self.date_end.format("%F").to_string();
 
-        let invoice_type_str = self.invoice_type.to_string();
+        let invoice_type_val =
+            serde_json::to_value(self.invoice_type.clone()).expect("InvoiceType is serializable");
+        let invoice_type_str = invoice_type_val
+            .as_str()
+            .expect("InvoiceType is serializable");
 
         let customer =
             get_or_create_customer_for_tenant(client, db_client, self.billed_prefix.to_owned())
