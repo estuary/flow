@@ -81,10 +81,13 @@ CREATE USER flow_capture WITH PASSWORD 'secret' REPLICATION;
 CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
 GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
 CREATE PUBLICATION flow_publication;
+ALTER PUBLICATION flow_publication SET (publish_via_partition_root = true);
 ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
 ```
 
-where `<other_tables>` lists all tables that will be captured from.
+where `<other_tables>` lists all tables that will be captured from. The `publish_via_partition_root`
+setting is recommended (because most users will want changes to a partitioned table to be captured
+under the name of the root table) but is not required.
 
 4. Set WAL level to logical:
 ```sql
@@ -135,10 +138,13 @@ and set up the watermarks table and publication.
   CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
   GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
   CREATE PUBLICATION flow_publication;
+  ALTER PUBLICATION flow_publication SET (publish_via_partition_root = true);
   ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
   ```
 
-  where `<other_tables>` lists all tables that will be captured from.
+  where `<other_tables>` lists all tables that will be captured from. The `publish_via_partition_root`
+  setting is recommended (because most users will want changes to a partitioned table to be captured
+  under the name of the root table) but is not required.
 
 6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
 
@@ -188,10 +194,13 @@ and set up the watermarks table and publication.
   CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
   GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
   CREATE PUBLICATION flow_publication;
+  ALTER PUBLICATION flow_publication SET (publish_via_partition_root = true);
   ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
   ```
 
-  where `<other_tables>` lists all tables that will be captured from.
+  where `<other_tables>` lists all tables that will be captured from. The `publish_via_partition_root`
+  setting is recommended (because most users will want changes to a partitioned table to be captured
+  under the name of the root table) but is not required.
 
 6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
 
@@ -224,10 +233,13 @@ and set up the watermarks table and publication.
   CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
   GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
   CREATE PUBLICATION flow_publication;
+  ALTER PUBLICATION flow_publication SET (publish_via_partition_root = true);
   ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
   ```
 
-  where `<other_tables>` lists all tables that will be captured from.
+  where `<other_tables>` lists all tables that will be captured from. The `publish_via_partition_root`
+  setting is recommended (because most users will want changes to a partitioned table to be captured
+  under the name of the root table) but is not required.
 
 4. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `5432`.
 Together, you'll use the host:port as the `address` property when you configure the connector.
@@ -285,7 +297,9 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public, <others> TO flow_capture;
 GRANT SELECT ON information_schema.columns, information_schema.tables, pg_catalog.pg_attribute, pg_catalog.pg_class, pg_catalog.pg_index, pg_catalog.pg_namespace TO flow_capture;
 CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
 GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
-CREATE PUBLICATION flow_publication FOR TABLE schema.table1, schema.table2;
+CREATE PUBLICATION flow_publication;
+ALTER PUBLICATION flow_publication SET (publish_via_partition_root = true);
+ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
 ```
 
 5. Note the following important items for configuration:
@@ -399,7 +413,7 @@ WAL to record all values regardless of size. However, this can have performance 
 It is recommended that the publication used by the capture only contain the tables that will be captured. In some cases it may be desirable to create this publication for all tables in the database instead of specific tables, for example using:
 
 ```sql
-CREATE PUBLICATION flow_publication FOR ALL TABLES;
+CREATE PUBLICATION flow_publication FOR ALL TABLES WITH (publish_via_partition_root = true);
 ```
 
 Caution must be used if creating the publication in this way as all existing tables (even those not part of the capture) will be included in it, and if any of them do not have a primary key they will no longer be able to process updates or deletes.
