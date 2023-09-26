@@ -2,6 +2,7 @@ pub mod avro;
 pub mod character_separated;
 pub mod json;
 pub mod protobuf;
+pub mod sanitize;
 
 use crate::config::ErrorThreshold;
 use crate::decorate::{AddFieldError, Decorator};
@@ -46,6 +47,9 @@ pub enum ParseError {
 
     #[error("error limit exceeded")]
     ErrorLimitExceeded(ErrorThreshold),
+
+    #[error("failed to sanitize documents: {0}")]
+    SanitizeError(#[from] sanitize::SanitizeError),
 }
 
 /// Runs format inference if the config does not specify a `format`. The expectation is that more
@@ -162,7 +166,8 @@ fn parse_file(
     starting_offset: u64,
 ) -> Result<u64, ParseError> {
     let output = parser.parse(input)?;
-    format_output(&config, output, dest, starting_offset)
+    let sanitized_output = sanitize::sanitize_output(&config, output)?;
+    format_output(&config, sanitized_output, dest, starting_offset)
 }
 
 fn parser_for(format: Format) -> Box<dyn Parser> {
