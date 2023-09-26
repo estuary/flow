@@ -8,21 +8,34 @@ begin;
 delete from evolutions e where not exists (select d.id from drafts d where d.id = e.draft_id);
 alter table evolutions add foreign key (draft_id) references drafts(id) on delete cascade;
 
-create or replace function internal.delete_old_drafts()
-returns bigint as $$
-  -- These CTE shennanigans brought to you by this rando:
-  -- https://stackoverflow.com/a/47857304
+create or replace function internal.delete_old_rows()
+returns jsonb as $$
+declare
+  n_drafts integer;
+  n_logs integer;
+begin
   with d as (
-    delete from drafts where updated_at < (now() - '30 days'::interval) returning *
+    delete from public.drafts where updated_at < (now() - '30 days'::interval) returning *
   )
-  select count(*) from d;
-$$ language sql security definer;
+  select into n_drafts count(*) as n from d;
+
+  with l as (
+    delete from internal.log_lines where logged_at < (now() - '30 days'::interval) returning *
+  )
+  select into n_logs count(*) as n from l;
+
+  return json_build_object(
+    'drafts', coalesce(n_drafts, 0),
+    'log_lines', coalesce(n_logs)
+  );
+end;
+$$ language plpgsql security definer;
 
 create extension if not exists pg_cron with schema extensions;
 select cron.schedule(
-	'delete-drafts', -- name of the cron job
-	'0 15 * * *', -- Every day at 15:00Z (midmorning EST)
-	$$ select internal.delete_old_drafts() $$
+  'delete-drafts', -- name of the cron job
+  '0 05 * * *', -- Every day at 05:00Z
+  $$ select internal.delete_old_rows() $$
 );
 
 commit;

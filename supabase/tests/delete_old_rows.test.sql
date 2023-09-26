@@ -1,6 +1,6 @@
 
 
-create function tests.test_draft_deletion()
+create function tests.test_delete_old_rows()
 returns setof text as $$
 declare
   test_user_id uuid = '5ec31342-bfda-43d7-ac62-107e7e2f7f96';
@@ -32,7 +32,18 @@ begin
     (old_draft_id, test_connector_tag_id, 'should delete', 'a/b/c', '{"type": "discoverFailed"}', '{}'),
     (new_draft_id, test_connector_tag_id, 'should retain', 'a/b/d', '{"type": "discoverFailed"}', '{}');
 
-  return query select ok(internal.delete_old_drafts() = 1, 'one draft should have been deleted');
+
+  insert into internal.log_lines (log_line, stream, logged_at, token) values
+    ('should delete line', 'foo', now() - '90 days'::interval, gen_random_uuid()),
+    ('should delete line too', 'foo', now() - '31 days'::interval, gen_random_uuid()),
+    ('should delete line', 'foo', now() - '29 days'::interval, gen_random_uuid()),
+    ('should delete line', 'foo', now() - '5 minutes'::interval, gen_random_uuid());
+
+  --return query select ok(internal.delete_old_drafts() = 1, 'one draft should have been deleted');
+  return query select results_eq(
+    $i$ select internal.delete_old_rows() $i$,
+    $i$ values ('{"drafts": 1, "log_lines": 2}'::jsonb) $i$
+  );
 
   return query select results_eq(
     $i$ select ds.catalog_name::text
