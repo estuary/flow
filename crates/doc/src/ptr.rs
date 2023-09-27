@@ -54,12 +54,11 @@ impl Pointer {
     /// ```
     /// use doc::ptr::{Pointer, Token};
     ///
-    /// let pointer = Pointer::from_str("/foo/ba~1ar/3/-");
+    /// let pointer = Pointer::from_str("/foo/ba~1ar/3");
     /// let expected_tokens = vec![
     ///     Token::Property("foo".to_string()),
     ///     Token::Property("ba/ar".to_string()),
     ///     Token::Index(3),
-    ///     Token::NextIndex,
     /// ];
     /// assert_eq!(expected_tokens, pointer.0);
     /// ```
@@ -362,12 +361,11 @@ mod test {
         use Token::*;
 
         // Basic example.
-        let ptr = Pointer::from("/p1/2/p3/-");
+        let ptr = Pointer::from("/p1/2/p3");
         assert!(vec![
             Property("p1".to_string()),
             Index(2),
-            Property("p3".to_string()),
-            NextIndex
+            Property("p3".to_string())
         ]
         .iter()
         .eq(ptr.iter()));
@@ -392,13 +390,12 @@ mod test {
         );
 
         // Handles disallowed integer representations.
-        let ptr = Pointer::from("/01/+2/-3/4/-");
+        let ptr = Pointer::from("/01/+2/-3/4");
         assert!(vec![
             Property("01".to_string()),
             Property("+2".to_string()),
             Property("-3".to_string()),
-            Index(4),
-            NextIndex,
+            Index(4)
         ]
         .iter()
         .eq(ptr.iter()));
@@ -490,10 +487,9 @@ mod test {
             ("/foo/2/a", json!("hello")),
             // Add property to existing object.
             ("/foo/2/b", json!(3)),
-            ("/foo/0", json!(false)),   // Update existing Null.
-            ("/bar", json!(null)),      // Add property to doc root.
-            ("/foo/0", json!(true)),    // Update from 'false'.
-            ("/foo/-", json!("world")), // NextIndex extends Array.
+            ("/foo/0", json!(false)), // Update existing Null.
+            ("/bar", json!(null)),    // Add property to doc root.
+            ("/foo/0", json!(true)),  // Update from 'false'.
             // Index token is interpreted as property because object exists.
             ("/foo/2/4", json!(5)),
             // NextIndex token is also interpreted as property.
@@ -510,7 +506,7 @@ mod test {
         }
 
         let expect = json!({
-            "foo": [true, null, {"-": false, "a": "hello", "b": 3, "4": 5}, "world"],
+            "foo": [true, null, {"-": false, "a": "hello", "b": 3, "4": 5}],
             "bar": null,
         });
 
