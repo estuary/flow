@@ -340,7 +340,7 @@ mod test {
             (&arr1, "/3", ("addl-item", Exists::May)),
             (&arr1, "/9", ("addl-item", Exists::May)),
             (&arr1, "/10", ("addl-item", Exists::Cannot)),
-            (&arr1, "/-", ("addl-item", Exists::Cannot)),
+            (&arr1, "/-", ("<missing>", Exists::Cannot)),
             (&arr2, "/0", ("0", Exists::May)),
             (&arr2, "/1", ("1", Exists::May)),
             (&arr2, "/123", ("<missing>", Exists::Implicit)),
