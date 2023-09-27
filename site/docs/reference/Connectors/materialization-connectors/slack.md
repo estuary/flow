@@ -32,7 +32,7 @@ You can set up the Slack destination connector either through the Flow web app o
 | /display_name | Display Name | The display name for the sender in Slack. | string | |
 | /logo_emoji | Logo Emoji | The emoji to be used. | string |  |
 
-In the example below, the `bindings` section is configured to specify the source, channel, and sender details:
+### Sample
 
 ```yaml
 bindings:
