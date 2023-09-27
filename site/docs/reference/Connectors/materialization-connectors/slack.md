@@ -9,19 +9,20 @@ This connector lets you materialize data from Estuary Flow directly into Slack c
 To use this connector, ensure you have the following:
 
 1. An active Slack workspace with appropriate permissions.
-2. Properly configured Slack credentials for authentication.
+2. Slack credentials and access token for authentication.
+3. At least one Flow collection.
 
 ### Configuration
 
-You can set up the Slack destination connector either through the Flow web app or by editing the Flow specification file directly. To learn more about connectors and how to set them up, read our guide on [using connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors).
+The Slack connector is available for use in the Flow web application. To learn more about connectors and how to set them up, read our guide on [using connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors).
 
 #### Endpoint
 
 | Property | Title | Description | Type | Required/Default |
 | --- | --- | --- | --- | --- |
 | /access_token | Access Token | The Slack API access token for authentication. | string | Required |
-| /client_id | Client ID | The Slack API client ID for authentication. | string | Required |
-| /client_secret | Client Secret | The Slack API client secret for authentication. | string | Required |
+| /client_id | Client ID | Client ID for authentication. | string | Required |
+| /client_secret | Client Secret | The Slack API client secret. | string | Required |
 
 #### Bindings
 
@@ -35,11 +36,22 @@ You can set up the Slack destination connector either through the Flow web app o
 ### Sample
 
 ```yaml
-bindings:
-  - source: ${PREFIX}/source_name
-    resource:
-      channel: "id: C05A95LJHSL"
-      sender_config:
-        display_name: Task Monitor
-        logo_emoji: ":eyes:
+materializations:
+  ${PREFIX}/${MATERIALIZATION_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/materialize-slack:dev
+        config:
+          credentials:
+            auth_type: OAuth
+            access_token: {secret}
+            client_id: {your_client_id}
+            client_secret: {secret}
+    bindings:
+      - source: ${PREFIX}/source_name
+        resource:
+          channel: "id: C05A95LJHSL"
+          sender_config:
+            display_name: Task Monitor
+            logo_emoji: ":eyes:"
 ```
