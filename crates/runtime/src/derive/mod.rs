@@ -8,9 +8,10 @@ use proto_flow::runtime::DeriveRequestExt;
 use std::pin::Pin;
 use std::sync::Arc;
 
-pub mod combine;
-pub mod image;
-pub mod rocksdb;
+mod combine;
+mod image;
+mod local;
+mod rocksdb;
 
 pub type BoxStream = futures::stream::BoxStream<'static, tonic::Result<Response>>;
 
@@ -83,16 +84,7 @@ where
             combine::adapt_requests(&peek_request, request_rx).map_err(crate::anyhow_to_status)?;
 
         let response_rx = match endpoint {
-            models::DeriveUsing::Sqlite(_) => {
-                // Invoke the underlying SQLite connector.
-                let response_rx = ::derive_sqlite::connector(&peek_request, request_rx)?;
-
-                // Response interceptor for combining over documents.
-                let response_rx = combine_back.adapt_responses(response_rx);
-
-                response_rx.boxed()
-            }
-            models::DeriveUsing::Connector(models::ConnectorConfig { .. }) => {
+            models::DeriveUsing::Connector(_) => {
                 // Request interceptor for stateful RocksDB storage.
                 let (request_rx, rocks_back) = rocksdb::adapt_requests(&peek_request, request_rx)
                     .map_err(crate::anyhow_to_status)?;
@@ -112,6 +104,35 @@ where
 
                 response_rx.boxed()
             }
+            models::DeriveUsing::Local(_) if !self.allow_local => {
+                return Err(tonic::Status::failed_precondition(
+                    "Local connectors are not permitted in this context",
+                ))
+            }
+            models::DeriveUsing::Local(_) => {
+                // Request interceptor for stateful RocksDB storage.
+                let (request_rx, rocks_back) = rocksdb::adapt_requests(&peek_request, request_rx)
+                    .map_err(crate::anyhow_to_status)?;
+
+                // Invoke the underlying local connector.
+                let response_rx = local::connector(self.log_handler, request_rx);
+
+                // Response interceptor for stateful RocksDB storage.
+                let response_rx = rocks_back.adapt_responses(response_rx);
+                // Response interceptor for combining over documents.
+                let response_rx = combine_back.adapt_responses(response_rx);
+
+                response_rx.boxed()
+            }
+            models::DeriveUsing::Sqlite(_) => {
+                // Invoke the underlying SQLite connector.
+                let response_rx = ::derive_sqlite::connector(&peek_request, request_rx)?;
+
+                // Response interceptor for combining over documents.
+                let response_rx = combine_back.adapt_responses(response_rx);
+
+                response_rx.boxed()
+            }
             models::DeriveUsing::Typescript(_) => unreachable!(),
         };
 
@@ -119,7 +140,7 @@ where
     }
 }
 
-pub fn adjust_log_level<R>(
+fn adjust_log_level<R>(
     request_rx: R,
     set_log_level: Option<Arc<dyn Fn(ops::log::Level) + Send + Sync>>,
 ) -> impl Stream<Item = tonic::Result<Request>>
@@ -170,6 +191,13 @@ fn extract_endpoint<'r>(
         Ok((
             models::DeriveUsing::Connector(
                 serde_json::from_str(config_json).context("parsing connector config")?,
+            ),
+            config_json,
+        ))
+    } else if connector_type == ConnectorType::Local as i32 {
+        Ok((
+            models::DeriveUsing::Local(
+                serde_json::from_str(config_json).context("parsing local config")?,
             ),
             config_json,
         ))

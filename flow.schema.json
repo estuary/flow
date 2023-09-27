@@ -272,6 +272,19 @@
             }
           },
           "additionalProperties": false
+        },
+        {
+          "title": "A local command (development only).",
+          "type": "object",
+          "required": [
+            "local"
+          ],
+          "properties": {
+            "local": {
+              "$ref": "#/definitions/LocalConfig"
+            }
+          },
+          "additionalProperties": false
         }
       ]
     },
@@ -494,6 +507,19 @@
             }
           },
           "additionalProperties": false
+        },
+        {
+          "title": "A local command (development only).",
+          "type": "object",
+          "required": [
+            "local"
+          ],
+          "properties": {
+            "local": {
+              "$ref": "#/definitions/LocalConfig"
+            }
+          },
+          "additionalProperties": false
         }
       ]
     },
@@ -689,6 +715,37 @@
       "type": "string",
       "pattern": "^(/([^/~]|(~[01]))+)*$"
     },
+    "LocalConfig": {
+      "description": "Local command and its configuration.",
+      "type": "object",
+      "required": [
+        "command",
+        "config"
+      ],
+      "properties": {
+        "command": {
+          "title": "Command to execute",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "config": {
+          "title": "Configuration of the command."
+        },
+        "env": {
+          "title": "Environment variables",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "protobuf": {
+          "title": "Use protobuf codec instead of JSON.",
+          "type": "boolean"
+        }
+      }
+    },
     "Materialization": {
       "description": "Materialization names are paths of Unicode letters, numbers, '-', '_', or '.'. Each path component is separated by a slash '/', and a name may not begin or end in a '/'.",
       "examples": [
@@ -786,6 +843,19 @@
           "properties": {
             "connector": {
               "$ref": "#/definitions/ConnectorConfig"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "title": "A local command (development only).",
+          "type": "object",
+          "required": [
+            "local"
+          ],
+          "properties": {
+            "local": {
+              "$ref": "#/definitions/LocalConfig"
             }
           },
           "additionalProperties": false

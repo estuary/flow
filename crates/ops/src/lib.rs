@@ -1,4 +1,5 @@
 use serde::{de::Error, Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::io::Write;
 
 pub mod decode;
@@ -91,31 +92,59 @@ where
     }
 }
 
-// new_tracing_dispatch_handler returns a log handler that
-// writes tracing events using the given dispatcher.
-pub fn new_tracing_dispatch_handler(
-    dispatcher: ::tracing::Dispatch,
-) -> impl Fn(&Log) + Send + Sync + Clone + 'static {
-    move |log| ::tracing::dispatcher::with_default(&dispatcher, || tracing_log_handler(log))
-}
-
 /// tracing_log_handler is a log handler that writes logs
 /// as tracing events.
 pub fn tracing_log_handler(
     Log {
         level,
-        fields_json_map: fields,
+        fields_json_map,
         message,
         ..
     }: &Log,
 ) {
+    let fields = DebugJson(
+        fields_json_map
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    serde_json::value::RawValue::from_string(v.clone()).unwrap(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>(),
+    );
+
     match LogLevel::from_i32(*level).unwrap_or_default() {
-        LogLevel::Trace => ::tracing::trace!(?fields, message),
-        LogLevel::Debug => ::tracing::debug!(?fields, message),
-        LogLevel::Info => ::tracing::info!(?fields, message),
-        LogLevel::Warn => ::tracing::warn!(?fields, message),
-        LogLevel::Error => ::tracing::error!(?fields, message),
+        LogLevel::Trace => ::tracing::trace!(message, ?fields),
+        LogLevel::Debug => ::tracing::debug!(message, ?fields),
+        LogLevel::Info => ::tracing::info!(message, ?fields),
+        LogLevel::Warn => ::tracing::warn!(message, ?fields),
+        LogLevel::Error => ::tracing::error!(message, ?fields),
         LogLevel::UndefinedLevel => (),
+    }
+}
+
+/// DebugJson is a new-type wrapper around any Serialize implementation
+/// that wishes to support the Debug trait via JSON encoding itself.
+/// If stderr is a terminal, it colorizes and styles its output for legibility.
+pub struct DebugJson<S: Serialize>(pub S);
+
+impl<S: Serialize> std::fmt::Debug for DebugJson<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use colored_json::{ColorMode, ColoredFormatter, CompactFormatter, Output, Styler};
+
+        let value = ColoredFormatter::with_styler(
+            CompactFormatter {},
+            // This can be customized, but it's default already matches `jq` 👍.
+            Styler::default(),
+        )
+        .to_colored_json(
+            &serde_json::to_value(&self.0).unwrap(),
+            ColorMode::Auto(Output::StdErr),
+        )
+        .unwrap();
+
+        f.write_str(&value)
     }
 }
 

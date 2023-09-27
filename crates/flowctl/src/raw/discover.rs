@@ -1,253 +1,157 @@
-use anyhow::Context;
-use doc::{SchemaIndexBuilder, Shape};
-use json::schema::{build::build_schema, types};
-use models::{
-    Capture, CaptureBinding, CaptureDef, CaptureEndpoint, Catalog, Collection, CollectionDef,
-    CompositeKey, ConnectorConfig, JsonPointer, Schema, ShardTemplate,
-};
-use proto_flow::{
-    capture::{request, Request},
-    flow::capture_spec::ConnectorType,
-};
-use serde_json::{json, value::RawValue};
-use std::collections::BTreeMap;
-use url::Url;
-
-use crate::connector::docker_run;
 use crate::local_specs;
+use anyhow::Context;
+use proto_flow::{capture, flow};
+use std::collections::BTreeMap;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct Discover {
-    /// Connector image to discover
-    image: String,
-
-    /// Prefix
-    #[clap(default_value_t = String::from("acmeCo"))]
-    prefix: String,
-
-    /// Should existing specs be over-written by specs from the Flow control plane?
+    /// Path or URL to a Flow specification file.
     #[clap(long)]
-    overwrite: bool,
-
-    /// Should specs be written to the single specification file, or written in the canonical layout?
+    source: String,
+    /// Name of the capture to discover within the Flow specification file.
+    /// Capture is required if there are multiple captures in --source specifications.
+    #[clap(long)]
+    capture: Option<String>,
+    /// Should specs be written to one specification file, instead of the canonical layout?
     #[clap(long)]
     flat: bool,
-
-    /// Docker network to run the connector
-    #[clap(long, default_value="bridge")]
+    /// Docker network to run the connector.
+    #[clap(long, default_value = "bridge")]
     network: String,
 }
 
 pub async fn do_discover(
     _ctx: &mut crate::CliContext,
     Discover {
-        image,
-        prefix,
-        overwrite,
+        source,
+        capture,
         flat,
         network,
     }: &Discover,
 ) -> anyhow::Result<()> {
-    let connector_name = image
-        .rsplit_once('/')
-        .expect("image must include slashes")
-        .1
-        .split_once(':')
-        .expect("image must include tag")
-        .0;
+    let source = build::arg_source_to_url(source, false)?;
+    let mut sources = local_specs::surface_errors(local_specs::load(&source).await.into_result())?;
 
-    let catalog_file = format!("{connector_name}.flow.yaml");
+    // Identify the capture to discover.
+    let needle = if let Some(needle) = capture {
+        needle.as_str()
+    } else if sources.captures.len() == 1 {
+        sources.captures.first().unwrap().capture.as_str()
+    } else if sources.captures.is_empty() {
+        anyhow::bail!("sourced specification files do not contain any captures");
+    } else {
+        anyhow::bail!("sourced specification files contain multiple captures. Use --capture to identify a specific one");
+    };
 
-    let target = build::arg_source_to_url(&catalog_file, true)?;
-    let mut sources = local_specs::surface_errors(local_specs::load(&target).await.into_result())?;
-
-    let capture_name = format!("{prefix}/{connector_name}");
-
-    let cfg = sources
+    let capture = match sources
         .captures
-        .first()
-        .and_then(|c| match &c.spec.endpoint {
-            CaptureEndpoint::Connector(conn) => Some(conn.config.clone()),
+        .binary_search_by_key(&needle, |c| c.capture.as_str())
+    {
+        Ok(index) => &mut sources.captures[index],
+        Err(_) => anyhow::bail!("could not find the capture {needle}"),
+    };
+
+    // Inline a clone of the capture spec for use with the discover RPC.
+    let mut spec_clone = capture.spec.clone();
+    sources::inline_capture(&capture.scope, &mut spec_clone, &sources.resources);
+
+    let discover = match &spec_clone.endpoint {
+        models::CaptureEndpoint::Connector(config) => capture::request::Discover {
+            connector_type: flow::capture_spec::ConnectorType::Image as i32,
+            config_json: serde_json::to_string(&config).unwrap(),
+        },
+        models::CaptureEndpoint::Local(config) => capture::request::Discover {
+            connector_type: flow::capture_spec::ConnectorType::Local as i32,
+            config_json: serde_json::to_string(config).unwrap(),
+        },
+    };
+    let mut discover = capture::Request {
+        discover: Some(discover),
+        ..Default::default()
+    };
+
+    if let Some(log_level) = capture
+        .spec
+        .shards
+        .log_level
+        .as_ref()
+        .and_then(|s| ops::LogLevel::from_str_name(s))
+    {
+        discover.set_internal_log_level(log_level);
+    }
+
+    let capture::response::Discovered { bindings } = runtime::Runtime::new(
+        true, // All local.
+        network.clone(),
+        ops::tracing_log_handler,
+        None,
+        format!("discover/{}", capture.capture),
+    )
+    .unary_capture(discover, build::CONNECTOR_TIMEOUT)
+    .await
+    .map_err(crate::status_to_anyhow)?
+    .discovered
+    .context("connector didn't send expected Discovered response")?;
+
+    // Modify the capture's bindings in-place.
+    // TODO(johnny): Refactor and re-use discover deep-merge behavior from the agent.
+    capture.spec.bindings.clear();
+
+    let prefix = capture
+        .capture
+        .rsplit_once("/")
+        .map(|(prefix, _)| prefix)
+        .unwrap_or("acmeCo");
+
+    // Create a catalog with the discovered bindings
+    let mut collections = BTreeMap::new();
+    for binding in bindings {
+        let collection_name = format!("{prefix}/{}", binding.recommended_name);
+        let collection = models::Collection::new(collection_name);
+
+        capture.spec.bindings.push(models::CaptureBinding {
+            target: collection.clone(),
+            disable: false,
+            resource: models::RawValue::from_string(binding.resource_config_json)?,
         });
 
-    // If config file exists, try a Discover RPC with the config file
-    if let Some(config) = cfg {
-        let discover_output = docker_run(
-            image,
-            &network,
-            Request {
-                discover: Some(request::Discover {
-                    connector_type: ConnectorType::Image.into(),
-                    config_json: config.to_string(),
-                }),
-                ..Default::default()
+        collections.insert(
+            collection,
+            models::CollectionDef {
+                schema: Some(models::Schema::new(models::RawValue::from_string(
+                    binding.document_schema_json,
+                )?)),
+                write_schema: None,
+                read_schema: None,
+                key: models::CompositeKey::new(
+                    binding
+                        .key
+                        .iter()
+                        .map(models::JsonPointer::new)
+                        .collect::<Vec<_>>(),
+                ),
+                derive: None,
+                projections: Default::default(),
+                journals: Default::default(),
             },
-        )
-        .await
-        .context("connector discover")?;
-
-        let bindings = discover_output.discovered.unwrap().bindings;
-
-        let mut capture_bindings: Vec<CaptureBinding> = Vec::with_capacity(bindings.len());
-        let mut collections: BTreeMap<Collection, CollectionDef> = BTreeMap::new();
-
-        // Create a catalog with the discovered bindings
-        for binding in bindings.iter() {
-            let collection_name = format!("{prefix}/{}", binding.recommended_name);
-            let collection = Collection::new(collection_name);
-
-            capture_bindings.push(CaptureBinding {
-                target: collection.clone(),
-                disable: false,
-                resource: RawValue::from_string(binding.resource_config_json.clone())?.into(),
-            });
-
-            collections.insert(
-                collection,
-                CollectionDef {
-                    schema: Some(Schema::new(
-                        RawValue::from_string(binding.document_schema_json.clone())?.into(),
-                    )),
-                    write_schema: None,
-                    read_schema: None,
-                    key: CompositeKey::new(
-                        binding
-                            .key
-                            .iter()
-                            .map(JsonPointer::new)
-                            .collect::<Vec<JsonPointer>>(),
-                    ),
-                    derive: None,
-                    projections: Default::default(),
-                    journals: Default::default(),
-                },
-            );
-        }
-
-        let catalog = Catalog {
-            captures: BTreeMap::from([(
-                Capture::new(capture_name),
-                CaptureDef {
-                    auto_discover: None,
-                    endpoint: CaptureEndpoint::Connector(ConnectorConfig {
-                        image: image.to_string(),
-                        config,
-                    }),
-                    bindings: capture_bindings,
-                    interval: CaptureDef::default_interval(),
-                    shards: ShardTemplate::default(),
-                },
-            )]),
-            collections,
-            ..Default::default()
-        };
-
-        let count = local_specs::extend_from_catalog(
-            &mut sources,
-            catalog,
-            // We need to overwrite here to allow for bindings to be added to the capture
-            local_specs::pick_policy(true, *flat),
         );
-
-        local_specs::indirect_and_write_resources(sources)?;
-        println!("Wrote {count} specifications under {target}.");
-    } else {
-        // Otherwise send a Spec RPC and use that to write a sample config file
-        let spec_output = docker_run(
-            image,
-            &network,
-            Request {
-                spec: Some(request::Spec {
-                    connector_type: ConnectorType::Image.into(),
-                    config_json: "{}".to_string(),
-                }),
-                ..Default::default()
-            },
-        )
-        .await?;
-
-        let config_schema_json = serde_json::from_str::<serde_json::Value>(
-            &spec_output.spec.unwrap().config_schema_json,
-        )?;
-
-        // Run inference on the schema
-        let curi = Url::parse("https://example/schema").unwrap();
-        let schema_root =
-            build_schema(curi, &config_schema_json).context("failed to build JSON schema")?;
-
-        let mut index = SchemaIndexBuilder::new();
-        index.add(&schema_root).unwrap();
-        index.verify_references().unwrap();
-        let index = index.into_index();
-        let shape = Shape::infer(&schema_root, &index);
-
-        // Create a stub config file
-        let config = schema_to_sample_json(&shape)?;
-
-        let catalog = Catalog {
-            captures: BTreeMap::from([(
-                Capture::new(capture_name),
-                CaptureDef {
-                    auto_discover: None,
-                    endpoint: CaptureEndpoint::Connector(ConnectorConfig {
-                        image: image.to_string(),
-                        config: serde_json::from_value(config)?,
-                    }),
-                    bindings: Vec::new(),
-                    interval: CaptureDef::default_interval(),
-                    shards: ShardTemplate::default(),
-                },
-            )]),
-            ..Default::default()
-        };
-
-        let count = local_specs::extend_from_catalog(
-            &mut sources,
-            catalog,
-            local_specs::pick_policy(*overwrite, *flat),
-        );
-        local_specs::indirect_and_write_resources(sources)?;
-
-        println!("Wrote {count} specifications under {target}.");
     }
+
+    let catalog = models::Catalog {
+        collections,
+        ..Default::default()
+    };
+
+    let count = local_specs::extend_from_catalog(
+        &mut sources,
+        catalog,
+        // We need to overwrite here to allow for bindings to be added to the capture
+        local_specs::pick_policy(true, *flat),
+    );
+
+    local_specs::indirect_and_write_resources(sources)?;
+    println!("Wrote {count} specifications under {source}.");
 
     Ok(())
-}
-
-fn schema_to_sample_json(schema_shape: &Shape) -> Result<serde_json::Value, anyhow::Error> {
-    let mut config = json!({});
-    let locs = schema_shape.locations();
-
-    for (p, _is_pattern, shape, _exists) in locs.iter() {
-        let v = p
-            .create_value(&mut config)
-            .expect("structure must be valid");
-
-        // If there is a default value for this location, use that
-        if let Some(default_value) = &shape.default {
-            *v = default_value.0.clone()
-        }
-        // Otherwise set a value depending on the type
-
-        let value = if shape.type_.overlaps(types::STRING) {
-            json!("")
-        } else if shape.type_.overlaps(types::INTEGER) {
-            json!(0)
-        } else if shape.type_.overlaps(types::BOOLEAN) {
-            json!(false)
-        } else if shape.type_.overlaps(types::FRACTIONAL) {
-            json!(0.0)
-        } else if shape.type_.overlaps(types::ARRAY) {
-            json!([])
-        } else if shape.type_.overlaps(types::OBJECT) {
-            json!({})
-        } else {
-            json!(null)
-        };
-
-        *v = value;
-    }
-
-    Ok(config)
 }

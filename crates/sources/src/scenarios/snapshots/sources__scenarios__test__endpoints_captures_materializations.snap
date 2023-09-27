@@ -36,6 +36,24 @@ Sources {
             },
         },
         Capture {
+            scope: test://example/catalog.yaml#/captures/capture~1local,
+            capture: capture/local,
+            spec: {
+              "endpoint": {
+                "local": {
+                  "command": [
+                    "do-the-thing",
+                    "--arg=one",
+                    "--arg",
+                    "two"
+                  ],
+                  "config": {"some":"local config"}
+                }
+              },
+              "bindings": []
+            },
+        },
+        Capture {
             scope: test://example/catalog.yaml#/captures/capture~1second,
             capture: capture/second,
             spec: {
@@ -223,6 +241,35 @@ Sources {
             },
         },
         Materialization {
+            scope: test://example/catalog.yaml#/materializations/materialization~1local,
+            materialization: materialization/local,
+            spec: {
+              "endpoint": {
+                "local": {
+                  "command": [
+                    "do-the-thing",
+                    "--arg=one",
+                    "--arg",
+                    "two"
+                  ],
+                  "config": {"some":"local config"}
+                }
+              },
+              "bindings": [
+                {
+                  "resource": {"table":"table_three"},
+                  "source": "final/source/collection",
+                  "fields": {
+                    "recommended": true
+                  }
+                }
+              ],
+              "shards": {
+                "ringBufferSize": 12345
+              }
+            },
+        },
+        Materialization {
             scope: test://example/catalog.yaml#/materializations/materialization~1missing-config,
             materialization: materialization/missing-config,
             spec: {
@@ -277,36 +324,13 @@ Sources {
               "bindings": []
             },
         },
-        Materialization {
-            scope: test://example/catalog.yaml#/materializations/to~1sqlite,
-            materialization: to/sqlite,
-            spec: {
-              "endpoint": {
-                "sqlite": {
-                  "path": "relative/to/scope.db"
-                }
-              },
-              "bindings": [
-                {
-                  "resource": {"table":"table_three"},
-                  "source": "final/source/collection",
-                  "fields": {
-                    "recommended": true
-                  }
-                }
-              ],
-              "shards": {
-                "ringBufferSize": 12345
-              }
-            },
-        },
     ],
     resources: [
         Resource {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"captures":{"capture/config-missing":{"bindings":[{"resource":"resource/not/found.yaml","target":"some/collection"}],"endpoint":{"connector":{"config":"config/not/found.yaml","image":"another/image"}}},"capture/config-raw":{"bindings":[],"endpoint":{"connector":{"config":"raw-config.foo","image":"another/image"}}},"capture/second":{"bindings":[{"resource":"referenced/resource.yaml","target":"third/collection"}],"endpoint":{"connector":{"config":"referenced/config.yaml","image":"another/image"}},"interval":"3m","shards":{"logLevel":"debug","maxTxnDuration":"30s"}},"first/capture":{"bindings":[{"resource":{"stream":"contents"},"target":"a/collection"},{"resource":{"extra":"stuff"},"target":"other/collection"}],"endpoint":{"connector":{"config":{"bucket":"foobar","prefix":"path/prefix"},"image":"an/image"}}}},"materializations":{"a/materialization":{"bindings":[{"resource":{"table":"table_one"},"source":"source/collection"},{"fields":{"exclude":["del"],"include":{"add":{}},"recommended":true},"resource":{"table":"table_two"},"source":{"name":"other/source/collection","partitions":{"exclude":{"other":[42]},"include":{"a_field":["some-val"]}}}}],"endpoint":{"connector":{"config":{"its":"config"},"image":"materialization/image"}},"sourceCapture":"a/capture"},"materialization/missing-config":{"bindings":[{"resource":"referenced/not/found.yaml","source":"other/source/collection"}],"endpoint":{"connector":{"config":"config/not/found.yaml","image":"materialization/image"}}},"materialization/with-config":{"bindings":[{"resource":"referenced/resource.yaml","source":"some/source/collection"}],"endpoint":{"connector":{"config":"referenced/config.yaml","image":"materialization/another:image"}}},"materialization/with-config-fragment":{"bindings":[],"endpoint":{"connector":{"config":"referenced/config.yaml#/bad/fragment","image":"materialization/another:image"}}},"to/sqlite":{"bindings":[{"resource":{"table":"table_three"},"source":"final/source/collection"}],"endpoint":{"sqlite":{"path":"relative/to/scope.db"}},"shards":{"ringBufferSize":12345}}}},
+            content_dom: {"captures":{"capture/config-missing":{"bindings":[{"resource":"resource/not/found.yaml","target":"some/collection"}],"endpoint":{"connector":{"config":"config/not/found.yaml","image":"another/image"}}},"capture/config-raw":{"bindings":[],"endpoint":{"connector":{"config":"raw-config.foo","image":"another/image"}}},"capture/local":{"bindings":[],"endpoint":{"local":{"command":["do-the-thing","--arg=one","--arg","two"],"config":{"some":"local config"}}}},"capture/second":{"bindings":[{"resource":"referenced/resource.yaml","target":"third/collection"}],"endpoint":{"connector":{"config":"referenced/config.yaml","image":"another/image"}},"interval":"3m","shards":{"logLevel":"debug","maxTxnDuration":"30s"}},"first/capture":{"bindings":[{"resource":{"stream":"contents"},"target":"a/collection"},{"resource":{"extra":"stuff"},"target":"other/collection"}],"endpoint":{"connector":{"config":{"bucket":"foobar","prefix":"path/prefix"},"image":"an/image"}}}},"materializations":{"a/materialization":{"bindings":[{"resource":{"table":"table_one"},"source":"source/collection"},{"fields":{"exclude":["del"],"include":{"add":{}},"recommended":true},"resource":{"table":"table_two"},"source":{"name":"other/source/collection","partitions":{"exclude":{"other":[42]},"include":{"a_field":["some-val"]}}}}],"endpoint":{"connector":{"config":{"its":"config"},"image":"materialization/image"}},"sourceCapture":"a/capture"},"materialization/local":{"bindings":[{"resource":{"table":"table_three"},"source":"final/source/collection"}],"endpoint":{"local":{"command":["do-the-thing","--arg=one","--arg","two"],"config":{"some":"local config"}}},"shards":{"ringBufferSize":12345}},"materialization/missing-config":{"bindings":[{"resource":"referenced/not/found.yaml","source":"other/source/collection"}],"endpoint":{"connector":{"config":"config/not/found.yaml","image":"materialization/image"}}},"materialization/with-config":{"bindings":[{"resource":"referenced/resource.yaml","source":"some/source/collection"}],"endpoint":{"connector":{"config":"referenced/config.yaml","image":"materialization/another:image"}}},"materialization/with-config-fragment":{"bindings":[],"endpoint":{"connector":{"config":"referenced/config.yaml#/bad/fragment","image":"materialization/another:image"}}}}},
         },
         Resource {
             resource: test://example/raw-config.foo,

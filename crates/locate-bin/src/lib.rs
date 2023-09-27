@@ -5,7 +5,7 @@ pub fn locate(binary: &str) -> anyhow::Result<PathBuf> {
     // Look for binary alongside this program.
     let this_program = std::env::args().next().unwrap();
 
-    tracing::debug!(%this_program, "attempting for find '{binary}'");
+    tracing::debug!(%this_program, "attempting to find '{binary}'");
     let mut bin = std::path::Path::new(&this_program)
         .parent()
         .unwrap()

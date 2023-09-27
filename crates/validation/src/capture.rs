@@ -210,6 +210,10 @@ fn walk_capture_request<'a>(
             flow::capture_spec::ConnectorType::Image as i32,
             serde_json::to_string(config).unwrap(),
         ),
+        models::CaptureEndpoint::Local(config) => (
+            flow::capture_spec::ConnectorType::Local as i32,
+            serde_json::to_string(config).unwrap(),
+        ),
     };
 
     let bindings = bindings

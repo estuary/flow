@@ -1,4 +1,4 @@
-use super::{is_false, Collection, ConnectorConfig, RawValue, ShardTemplate};
+use super::{Collection, ConnectorConfig, LocalConfig, RawValue, ShardTemplate};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -60,6 +60,8 @@ pub struct AutoDiscover {
 pub enum CaptureEndpoint {
     /// # A Connector.
     Connector(ConnectorConfig),
+    /// # A local command (development only).
+    Local(LocalConfig),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
@@ -72,7 +74,7 @@ pub struct CaptureBinding {
     /// Disabled bindings are inactive, and not validated.
     /// They can be used to represent discovered resources that are
     /// intentionally not being captured.
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "super::is_false")]
     pub disable: bool,
     /// # Name of the collection to capture into.
     // Note(johnny): If we need to add details about how data is written to a

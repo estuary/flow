@@ -322,6 +322,10 @@ fn walk_derive_request<'a>(
             ConnectorType::Image as i32,
             serde_json::to_string(config).unwrap(),
         ),
+        models::DeriveUsing::Local(config) => (
+            ConnectorType::Local as i32,
+            serde_json::to_string(config).unwrap(),
+        ),
         models::DeriveUsing::Sqlite(config) => (
             ConnectorType::Sqlite as i32,
             serde_json::to_string(config).unwrap(),

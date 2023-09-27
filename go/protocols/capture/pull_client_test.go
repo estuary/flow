@@ -18,7 +18,7 @@ import (
 	"go.gazette.dev/core/task"
 )
 
-//go:generate flowctl-go api build --build-id test-build --build-db testdata/temp.db --source testdata/flow.yaml
+//go:generate flowctl raw build --build-id test-build --db-path testdata/temp.db --source testdata/flow.yaml
 //go:generate sqlite3 file:testdata/temp.db "SELECT WRITEFILE('testdata/capture.proto', spec) FROM built_captures WHERE capture = 'acmeCo/source-test';"
 
 func TestPullClientLifecycle(t *testing.T) {

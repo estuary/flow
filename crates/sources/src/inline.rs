@@ -12,30 +12,33 @@ pub fn inline_sources(sources: &mut tables::Sources) {
     } = sources;
 
     for capture in captures.iter_mut() {
-        inline_capture(capture, resources);
+        inline_capture(&capture.scope, &mut capture.spec, resources);
     }
     for collection in collections.iter_mut() {
-        inline_collection(collection, imports, resources);
+        inline_collection(&collection.scope, &mut collection.spec, imports, resources);
     }
     for materialization in materializations.iter_mut() {
-        inline_materialization(materialization, resources);
+        inline_materialization(&materialization.scope, &mut materialization.spec, resources);
     }
     for test in tests.iter_mut() {
-        inline_test(test, resources);
+        inline_test(&test.scope, &mut test.spec, resources);
     }
 }
 
-fn inline_capture(capture: &mut tables::Capture, resources: &[tables::Resource]) {
-    let tables::Capture {
-        scope,
-        capture: _,
-        spec: models::CaptureDef {
-            endpoint, bindings, ..
-        },
-    } = capture;
+pub fn inline_capture(
+    scope: &url::Url,
+    spec: &mut models::CaptureDef,
+    resources: &[tables::Resource],
+) {
+    let models::CaptureDef {
+        endpoint, bindings, ..
+    } = spec;
 
     match endpoint {
         models::CaptureEndpoint::Connector(models::ConnectorConfig { config, .. }) => {
+            inline_config(config, scope, resources)
+        }
+        models::CaptureEndpoint::Local(models::LocalConfig { config, .. }) => {
             inline_config(config, scope, resources)
         }
     }
@@ -46,24 +49,20 @@ fn inline_capture(capture: &mut tables::Capture, resources: &[tables::Resource])
 }
 
 fn inline_collection(
-    collection: &mut tables::Collection,
+    scope: &url::Url,
+    spec: &mut models::CollectionDef,
     imports: &[tables::Import],
     resources: &[tables::Resource],
 ) {
-    let tables::Collection {
-        scope,
-        collection: _,
-        spec:
-            models::CollectionDef {
-                schema,
-                write_schema,
-                read_schema,
-                key: _,
-                projections: _,
-                journals: _,
-                derive,
-            },
-    } = collection;
+    let models::CollectionDef {
+        schema,
+        write_schema,
+        read_schema,
+        key: _,
+        projections: _,
+        journals: _,
+        derive,
+    } = spec;
 
     let extend_scope = |location: &str| {
         let mut scope = scope.clone();
@@ -117,6 +116,9 @@ fn inline_derivation(
         models::DeriveUsing::Typescript(models::DeriveUsingTypescript { module }) => {
             inline_config(module, scope, resources);
         }
+        models::DeriveUsing::Local(models::LocalConfig { config, .. }) => {
+            inline_config(config, scope, resources)
+        }
     }
 
     for models::TransformDef {
@@ -132,33 +134,23 @@ fn inline_derivation(
 }
 
 fn inline_materialization(
-    materialization: &mut tables::Materialization,
+    scope: &url::Url,
+    spec: &mut models::MaterializationDef,
     resources: &[tables::Resource],
 ) {
-    let tables::Materialization {
-        scope,
-        materialization: _,
-        spec:
-            models::MaterializationDef {
-                source_capture: _,
-                endpoint,
-                bindings,
-                shards: _,
-            },
-    } = materialization;
+    let models::MaterializationDef {
+        source_capture: _,
+        endpoint,
+        bindings,
+        shards: _,
+    } = spec;
 
     match endpoint {
-        models::MaterializationEndpoint::Connector(models::ConnectorConfig {
-            image: _,
-            config,
-        }) => inline_config(config, scope, resources),
-        models::MaterializationEndpoint::Sqlite(models::SqliteConfig { path }) => {
-            if path.starts_with(":memory:") {
-                // Already absolute.
-            } else if let Ok(joined) = scope.join(&path) {
-                // Resolve relative database path relative to current scope.
-                *path = models::RelativeUrl::new(joined.to_string());
-            }
+        models::MaterializationEndpoint::Connector(models::ConnectorConfig { config, .. }) => {
+            inline_config(config, scope, resources)
+        }
+        models::MaterializationEndpoint::Local(models::LocalConfig { config, .. }) => {
+            inline_config(config, scope, resources)
         }
     }
 
@@ -167,13 +159,7 @@ fn inline_materialization(
     }
 }
 
-fn inline_test(test: &mut tables::Test, resources: &[tables::Resource]) {
-    let tables::Test {
-        scope,
-        test: _,
-        spec,
-    } = test;
-
+fn inline_test(scope: &url::Url, spec: &mut Vec<models::TestStep>, resources: &[tables::Resource]) {
     for step in spec {
         let documents = match step {
             models::TestStep::Ingest(models::TestStepIngest { documents, .. })

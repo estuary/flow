@@ -60,9 +60,12 @@ impl Codec {
                 let Some(bound) = buf.iter().position(|b| *b == b'\n') else { break };
                 let bound = bound + 1; // Byte index after '\n'.
 
-                out.push(
-                    serde_json::from_slice::<M>(&buf[..bound]).context("parsing JSON message")?,
-                );
+                out.push(serde_json::from_slice::<M>(&buf[..bound]).with_context(|| {
+                    format!(
+                        "could not parse '{}' into JSON response",
+                        String::from_utf8_lossy(&buf[..bound])
+                    )
+                })?);
                 consumed += bound;
 
                 buf = &buf[bound..];
