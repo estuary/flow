@@ -306,6 +306,17 @@ func playLog(ctx context.Context, hints FSMHints, dir string, ajc client.AsyncJo
 				readLog = segment.Log
 				offset = reader.seek(segment.Log, segment.FirstOffset)
 				readThrough = barriers[segment.Log].Response().Commit.End
+
+				log.WithFields(log.Fields{
+					"log":         readLog,
+					"offset":      offset,
+					"firstOffset": segment.FirstOffset,
+					"firstSeqNo":  segment.FirstSeqNo,
+					"lastOffset":  segment.LastOffset,
+					"lastSeqNo":   segment.LastSeqNo,
+					"readThrough": readThrough,
+				}).Debug("seeking to next hinted segment")
+
 			} else if offset >= readThrough {
 				// We've read through |readThrough|, but still have not read all hinted log segments.
 				err = errors.Errorf("offset %v:%d >= readThrough %d, but FSM has unused hints; possible data loss",

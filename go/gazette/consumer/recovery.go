@@ -283,7 +283,10 @@ func completeRecovery(s *shard) (_ pc.Checkpoint, err error) {
 		return cp, errors.WithMessage(err, "store.RestoreCheckpoint")
 	}
 
-	// Store |recoveredHints| as a backup.
+	// Store |recoveredHints| as a backup. We do this _after_ restoring the
+	// checkpoint as a sanity check, so that any integrity issues encountered
+	// during checkpoint recovery are surfaced before we over-write backup hints.
+	//
 	// For some workflows, the recoveredHints.Log may not equal our own log,
 	// in which case we omit this step.
 	// For example, Flow's shard split workflow instruments GetHints to

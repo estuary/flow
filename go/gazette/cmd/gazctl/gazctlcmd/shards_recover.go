@@ -64,6 +64,8 @@ func (cmd *cmdShardsRecover) Execute([]string) error {
 	})
 	mbp.Must(err, "failed to fetch hints for shard")
 
+	log.WithField("hints", hintResp).Debug("fetched shard recovery hints")
+
 	var recoveryLog = shardResp.Shards[0].Spec.RecoveryLog()
 	var hints = consumer.PickFirstHints(hintResp, recoveryLog)
 	var rjc = ShardsCfg.Broker.MustRoutedJournalClient(ctx)

@@ -2,7 +2,6 @@ package gazctlcmd
 
 import (
 	"context"
-	"fmt"
 
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
@@ -53,29 +52,40 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 
 	for _, shard := range listShards(rsc, cmd.Selector).Shards {
 		metrics.shardsTotal++
-		var lastHints = fetchOldestHints(ctx, rsc, shard.Spec.Id)
+
+		var allHints, err = consumer.FetchHints(ctx, rsc, &pc.GetHintsRequest{
+			Shard: shard.Spec.Id,
+		})
+		mbp.Must(err, "failed to fetch hints")
+
 		var recoveryLog = shard.Spec.RecoveryLog()
 
-		// We require that we see hints for _all_ shards before we may make _any_ deletions.
-		// This is because shards could technically include segments from any log,
-		// and without comprehensive hints which are proof-positive that _no_ shard
-		// references a given journal fragment, we cannot be sure it's safe to remove.
-		// For this reason, we must track the journals to be skipped, so we can be sure
-		// we don't prune journals that are used by a shard that hasn't persisted hints.
-		if lastHints != nil && len(lastHints.LiveNodes) > 0 {
-			foldHintsIntoSegments(*lastHints, logSegmentSets)
-		} else {
-			skipRecoveryLogs[recoveryLog] = true
-			metrics.skippedJournals++
-			var reason = "has not written backup hints required for pruning"
-			if lastHints != nil {
-				reason = "hints have no live files"
+		for _, curHints := range append(allHints.BackupHints, allHints.PrimaryHints) {
+			var hints = curHints.Hints
+
+			// We require that we see _all_ hints for a shards before we may make _any_ deletions.
+			// This is because shards could technically include segments from any log,
+			// and without comprehensive hints which are proof-positive that _no_ shard
+			// references a given journal fragment, we cannot be sure it's safe to remove.
+			// For this reason, we must track the journals to be skipped, so we can be sure
+			// we don't prune journals that are used by a shard that hasn't persisted hints.
+			if hints != nil && len(hints.LiveNodes) > 0 {
+				foldHintsIntoSegments(*hints, logSegmentSets)
+			} else {
+				skipRecoveryLogs[recoveryLog] = true
+				metrics.skippedJournals++
+				var reason = "has not written all hints required for pruning"
+				if hints != nil {
+					reason = "hints have no live files"
+				}
+				log.WithFields(log.Fields{
+					"shard":   shard.Spec.Id,
+					"reason":  reason,
+					"journal": recoveryLog,
+				}).Warn("will skip pruning recovery log journal")
+
+				break
 			}
-			log.WithFields(log.Fields{
-				"shard":   shard.Spec.Id,
-				"reason":  reason,
-				"journal": recoveryLog,
-			}).Warn("will skip pruning recovery log journal")
 		}
 	}
 
@@ -110,27 +120,6 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 		logShardsPruneMetrics(metrics, journal.String(), "finished pruning log")
 	}
 	logShardsPruneMetrics(metrics, "", "finished pruning logs for all shards")
-	return nil
-}
-
-func fetchOldestHints(ctx context.Context, shardClient pc.ShardClient, id pc.ShardID) *recoverylog.FSMHints {
-	var req = &pc.GetHintsRequest{
-		Shard: id,
-	}
-
-	var resp, err = consumer.FetchHints(ctx, shardClient, req)
-	mbp.Must(err, "failed to fetch hints")
-	if resp.Status != pc.Status_OK {
-		err = fmt.Errorf(resp.Status.String())
-	}
-	mbp.Must(err, "failed to fetch oldest hints")
-
-	for i := len(resp.BackupHints) - 1; i >= 0; i-- {
-		if resp.BackupHints[i].Hints != nil {
-			return resp.BackupHints[i].Hints
-		}
-	}
-
 	return nil
 }
 
