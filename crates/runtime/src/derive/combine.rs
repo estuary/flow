@@ -121,7 +121,7 @@ impl Backward {
     where
         R: Stream<Item = tonic::Result<Response>> + Send + 'static,
     {
-        let (mut response_tx, response_rx) = mpsc::channel(32);
+        let (mut response_tx, response_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
 
         // TODO(johnny): We could avoid the spawn by using try_unfold.
         tokio::spawn(async move {
@@ -201,16 +201,53 @@ impl Backward {
                         .context("connector sent Flushed before Flush")?;
 
                     // Drain combiner into Published responses.
-                    let mut more = true;
-                    while more {
-                        let mut chunk = Vec::with_capacity(16);
-                        (state, more) = state.drain_chunk(max_clock, &mut chunk)?;
+                    let doc::Combiner::Accumulator(accumulator) = state.combiner else { unreachable!() };
+                    let mut drainer = accumulator.into_drainer()?;
+                    let mut buf = bytes::BytesMut::new();
 
-                        let () = response_tx
-                            .send_all(&mut futures::stream::iter(chunk).map(Ok).map(Ok))
-                            .await?;
+                    while let Some(drained) = drainer.next() {
+                        let doc::combine::DrainedDoc {
+                            binding: _, // Always zero.
+                            reduced: _, // Always false.
+                            root,
+                        } = drained?;
+
+                        let doc_json = serde_json::to_string(&root)
+                            .expect("document serialization cannot fail");
+
+                        state.drain_stats.docs_total += 1;
+                        state.drain_stats.bytes_total += doc_json.len() as u64;
+
+                        let key_packed = doc::Extractor::extract_all_owned(
+                            &root,
+                            &state.key_extractors,
+                            &mut buf,
+                        );
+                        let partitions_packed = doc::Extractor::extract_all_owned(
+                            &root,
+                            &state.partition_extractors,
+                            &mut buf,
+                        );
+
+                        let published = Response {
+                            published: Some(response::Published { doc_json }),
+                            ..Default::default()
+                        }
+                        .with_internal_buf(&mut buf, |internal| {
+                            internal.published = Some(derive_response_ext::Published {
+                                max_clock,
+                                key_packed,
+                                partitions_packed,
+                            });
+                        });
+
+                        let () = response_tx.feed(Ok(published)).await?;
                     }
-                    // Then send the delegate's Flushed response extended with accumulated stats.
+
+                    // Combiner is drained and ready to accumulate again.
+                    state.combiner = doc::Combiner::Accumulator(drainer.into_new_accumulator()?);
+
+                    // Now send the delegate's Flushed response extended with accumulated stats.
                     let () = response_tx
                         .send(Ok(state.flushed(started_at, read_stats, flushed)))
                         .await?;
@@ -359,53 +396,6 @@ impl State {
         self.publish_stats.bytes_total += published.doc_json.len() as u64;
 
         Ok(())
-    }
-
-    pub fn drain_chunk(
-        mut self,
-        max_clock: u64,
-        out: &mut Vec<Response>,
-    ) -> Result<(Self, bool), doc::combine::Error> {
-        let mut drainer = match self.combiner {
-            doc::Combiner::Accumulator(accumulator) => accumulator.into_drainer()?,
-            doc::Combiner::Drainer(d) => d,
-        };
-        let mut buf = bytes::BytesMut::new();
-
-        let more = drainer.drain_while(|_binding, doc, _fully_reduced| {
-            let doc_json = serde_json::to_string(&doc).expect("document serialization cannot fail");
-
-            self.drain_stats.docs_total += 1;
-            self.drain_stats.bytes_total += doc_json.len() as u64;
-
-            let key_packed = doc::Extractor::extract_all_lazy(&doc, &self.key_extractors, &mut buf);
-            let partitions_packed =
-                doc::Extractor::extract_all_lazy(&doc, &self.partition_extractors, &mut buf);
-
-            out.push(
-                Response {
-                    published: Some(response::Published { doc_json }),
-                    ..Default::default()
-                }
-                .with_internal_buf(&mut buf, |internal| {
-                    internal.published = Some(derive_response_ext::Published {
-                        max_clock,
-                        key_packed,
-                        partitions_packed,
-                    });
-                }),
-            );
-
-            Ok::<bool, doc::combine::Error>(out.len() != out.capacity())
-        })?;
-
-        if more {
-            self.combiner = doc::Combiner::Drainer(drainer);
-        } else {
-            self.combiner = doc::Combiner::Accumulator(drainer.into_new_accumulator()?);
-        }
-
-        Ok((self, more))
     }
 
     pub fn flushed(

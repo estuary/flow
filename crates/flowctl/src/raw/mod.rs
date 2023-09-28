@@ -292,16 +292,13 @@ async fn do_combine(
     let mut out = io::BufWriter::new(io::stdout().lock());
 
     let mut drainer = accumulator.into_drainer()?;
-    assert_eq!(
-        false,
-        drainer.drain_while(|_binding, node, _fully_reduced| {
-            serde_json::to_writer(&mut out, &node).context("writing document to stdout")?;
-            out.write(b"\n")?;
-            out_docs += 1;
-            Ok::<_, anyhow::Error>(true)
-        })?,
-        "implementation error: drain_while exited with remaining items to drain"
-    );
+    while let Some(drained) = drainer.next() {
+        let drained = drained?;
+
+        serde_json::to_writer(&mut out, &drained.root).context("writing document to stdout")?;
+        out.write(b"\n")?;
+        out_docs += 1;
+    }
     out.flush()?;
 
     tracing::info!(

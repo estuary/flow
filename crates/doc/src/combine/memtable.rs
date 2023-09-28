@@ -1,8 +1,8 @@
-use super::{Error, Spec, SpillWriter, FLAG_REDUCED};
-use crate::{ArchivedNode, Extractor, HeapDoc, HeapNode, LazyNode};
+use super::{DrainedDoc, Error, HeapEntry, Spec, SpillWriter};
+use crate::{Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
 use bumpalo::Bump;
 use std::cell::UnsafeCell;
-use std::pin::Pin;
+use std::sync::Arc;
 use std::{cmp, io, ops};
 
 /// MemTable is an in-memory combiner of HeapDocs.
@@ -17,7 +17,7 @@ pub struct MemTable {
     //
     // Safety: MemTable never lends a reference to `entries`.
     entries: UnsafeCell<Entries>,
-    zz_alloc: Pin<Box<Bump>>,
+    zz_alloc: Bump,
 }
 
 // Safety: MemTable is safe to Send because `entries` never has lent references,
@@ -28,7 +28,7 @@ unsafe impl Send for MemTable {}
 
 struct Entries {
     // Queued documents are in any order.
-    queued: Vec<HeapDoc<'static>>,
+    queued: Vec<HeapEntry<'static>>,
     // Sorted documents are ordered such that partial combined documents are first,
     // and fully-reduced documents are second. A (binding, key) may appear at most
     // twice, once as combined and again as reduced. We must hold reduced keys
@@ -36,7 +36,7 @@ struct Entries {
     // order of reductions. We cannot, for example, reduce a reduced LHS with a
     // combined RHS if we might later discover there were other combined
     // documents which are associatively before the RHS we just smashed into LHS.
-    sorted: Vec<HeapDoc<'static>>,
+    sorted: Vec<HeapEntry<'static>>,
     // Specification of the combine operation.
     spec: Spec,
 }
@@ -69,8 +69,8 @@ impl Entries {
         // fully-reduced reduce documents, and within each type they're ordered
         // on (binding, key). There are typically fewer fully-reduced documents
         // so, coming second, they're cheaper to split_off() in Self::try_into_drainer().
-        let key_cmp = |lhs: &HeapDoc, rhs: &HeapDoc| {
-            let c = (lhs.flags & FLAG_REDUCED != 0).cmp(&(rhs.flags & FLAG_REDUCED != 0));
+        let key_cmp = |lhs: &HeapEntry, rhs: &HeapEntry| {
+            let c = lhs.reduced.cmp(&rhs.reduced);
             c.then(lhs.binding.cmp(&rhs.binding)).then_with(|| {
                 Extractor::compare_key(&self.spec.keys[lhs.binding as usize], &lhs.root, &rhs.root)
             })
@@ -99,13 +99,12 @@ impl Entries {
             // Look for additional documents of this key from `queued` to combine into `cur`.
             while matches!(queued.peek(), Some(peek) if key_cmp(&cur, peek).is_eq()) {
                 let next = queued.next().unwrap();
-                cur = super::smash(
+                (cur.root, cur.reduced) = super::smash(
                     alloc,
-                    cur.binding,
                     LazyNode::Heap(cur.root),
-                    cur.flags,
+                    cur.reduced,
                     LazyNode::Heap(next.root),
-                    next.flags,
+                    next.reduced,
                     schema.as_ref(),
                     validator,
                 )?;
@@ -115,13 +114,12 @@ impl Entries {
             // which comes before it under our application order.
             if matches!(sorted.peek(), Some(peek) if key_cmp(&cur, peek).is_eq()) {
                 let prev = sorted.next().unwrap();
-                cur = super::smash(
+                (cur.root, cur.reduced) = super::smash(
                     alloc,
-                    cur.binding,
                     LazyNode::Heap(prev.root),
-                    prev.flags,
+                    prev.reduced,
                     LazyNode::Heap(cur.root),
-                    cur.flags,
+                    cur.reduced,
                     schema.as_ref(),
                     validator,
                 )?;
@@ -152,7 +150,7 @@ impl MemTable {
                 sorted: Vec::new(),
                 spec,
             }),
-            zz_alloc: Box::pin(HeapNode::new_allocator()),
+            zz_alloc: HeapNode::new_allocator(),
         }
     }
 
@@ -164,15 +162,15 @@ impl MemTable {
     }
 
     /// Add the document to the MemTable.
-    pub fn add<'s>(&'s self, binding: u32, doc: HeapNode<'s>, reduced: bool) -> Result<(), Error> {
+    pub fn add<'s>(&'s self, binding: u32, root: HeapNode<'s>, reduced: bool) -> Result<(), Error> {
         // Safety: mutable borrow does not escape this function.
         let entries = unsafe { &mut *self.entries.get() };
-        let doc = unsafe { std::mem::transmute::<HeapNode<'s>, HeapNode<'static>>(doc) };
+        let root = unsafe { std::mem::transmute::<HeapNode<'s>, HeapNode<'static>>(root) };
 
-        entries.queued.push(HeapDoc {
+        entries.queued.push(HeapEntry {
             binding,
-            flags: if reduced { FLAG_REDUCED } else { 0 },
-            root: doc,
+            reduced,
+            root,
         });
 
         if entries.should_compact() {
@@ -190,7 +188,7 @@ impl MemTable {
         entries.compact(alloc)
     }
 
-    fn try_into_parts(self) -> Result<(Vec<HeapDoc<'static>>, Spec, Pin<Box<Bump>>), Error> {
+    fn try_into_parts(self) -> Result<(Vec<HeapEntry<'static>>, Spec, Bump), Error> {
         let MemTable { entries, zz_alloc } = self;
 
         // Perform a final compaction, then decompose Entries.
@@ -207,14 +205,14 @@ impl MemTable {
     pub fn try_into_drainer(self) -> Result<MemDrainer, Error> {
         let (mut sorted, spec, zz_alloc) = self.try_into_parts()?;
 
-        let pivot = sorted.partition_point(|doc| doc.flags & FLAG_REDUCED == 0);
+        let pivot = sorted.partition_point(|doc| !doc.reduced);
         let other = sorted.split_off(pivot);
 
         Ok(MemDrainer {
             it1: sorted.into_iter().peekable(),
             it2: other.into_iter().peekable(),
             spec,
-            zz_alloc,
+            zz_alloc: Arc::new(zz_alloc),
         })
     }
 
@@ -231,7 +229,7 @@ impl MemTable {
         let (sorted, mut spec, alloc) = self.try_into_parts()?;
 
         let docs = sorted.len();
-        let pivot = sorted.partition_point(|doc| doc.flags & FLAG_REDUCED == 0);
+        let pivot = sorted.partition_point(|doc| !doc.reduced);
         let mem_used = alloc.allocated_bytes() - alloc.chunk_capacity();
 
         // Validate all documents of the spilled segment.
@@ -279,71 +277,72 @@ impl MemTable {
 }
 
 pub struct MemDrainer {
-    it1: std::iter::Peekable<std::vec::IntoIter<HeapDoc<'static>>>,
-    it2: std::iter::Peekable<std::vec::IntoIter<HeapDoc<'static>>>,
+    it1: std::iter::Peekable<std::vec::IntoIter<HeapEntry<'static>>>,
+    it2: std::iter::Peekable<std::vec::IntoIter<HeapEntry<'static>>>,
     spec: Spec,
-    zz_alloc: Pin<Box<Bump>>, // Careful! Order matters. See MemTable.
+    zz_alloc: Arc<Bump>, // Careful! Order matters. See MemTable.
 }
 
 // Safety: MemDrainer is safe to Send because its iterators never have lent references,
 // and we're sending them and their backing Bump allocator together.
 unsafe impl Send for MemDrainer {}
 
-impl MemDrainer {
-    /// Drain documents from this MemDrainer by invoking the given callback.
-    /// Documents passed to the callback MUST NOT be accessed after it returns.
-    /// The callback returns true if it would like to be called further, or false
-    /// if a present call to drain_while() should return, yielding back to the caller.
-    ///
-    /// A future call to drain_while() can then resume the drain operation at
-    /// its next ordered document. drain_while() returns true while documents
-    /// remain to drain, and false only after all documents have been drained.
-    pub fn drain_while<C, CE>(&mut self, mut callback: C) -> Result<bool, CE>
-    where
-        C: for<'alloc> FnMut(
-            u32,
-            LazyNode<'alloc, 'static, ArchivedNode>,
-            bool,
-        ) -> Result<bool, CE>,
-        CE: From<Error>,
-    {
-        // Incrementally merge the ordered sequence of documents from `it1` and `it2`.
-        loop {
-            let HeapDoc {
+impl Iterator for MemDrainer {
+    type Item = Result<DrainedDoc, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut inner = || {
+            // This multi-level match is a little gross, but benchmarks as being
+            // significantly faster than Itertools::merge_join_by()
+            let HeapEntry {
                 binding,
-                flags,
-                root: doc,
+                reduced,
+                root,
             } = match (self.it1.peek(), self.it2.peek()) {
-                (None, None) => return Ok(false),
-                (Some(_), None) => self.it1.next().unwrap(),
+                (Some(_), None) => self.it1.next().unwrap(), // Most common case.
                 (None, Some(_)) => self.it2.next().unwrap(),
-                (Some(l), Some(r)) => {
-                    match l.binding.cmp(&r.binding).then_with(|| {
+                (None, None) => return Ok(None),
+                (Some(lhs), Some(rhs)) => {
+                    match lhs.binding.cmp(&rhs.binding).then_with(|| {
                         Extractor::compare_key(
-                            &self.spec.keys[l.binding as usize],
-                            &l.root,
-                            &r.root,
+                            &self.spec.keys[lhs.binding as usize],
+                            &lhs.root,
+                            &rhs.root,
                         )
                     }) {
                         cmp::Ordering::Less => self.it1.next().unwrap(),
                         cmp::Ordering::Greater => self.it2.next().unwrap(),
                         cmp::Ordering::Equal => {
-                            let l = self.it1.next().unwrap();
-                            let r = self.it2.next().unwrap();
+                            let HeapEntry {
+                                binding,
+                                reduced: lhs_reduced,
+                                root: lhs_root,
+                            } = self.it1.next().unwrap();
+
+                            let HeapEntry {
+                                binding: _,
+                                reduced: rhs_reduced,
+                                root: rhs_root,
+                            } = self.it2.next().unwrap();
 
                             let (validator, ref schema) =
-                                &mut self.spec.validators[l.binding as usize];
+                                &mut self.spec.validators[binding as usize];
 
-                            super::smash(
+                            let (root, reduced) = super::smash(
                                 &self.zz_alloc,
-                                l.binding,
-                                LazyNode::Heap(l.root),
-                                l.flags,
-                                LazyNode::Heap(r.root),
-                                r.flags,
+                                LazyNode::Heap(lhs_root),
+                                lhs_reduced,
+                                LazyNode::Heap(rhs_root),
+                                rhs_reduced,
                                 schema.as_ref(),
                                 validator,
-                            )?
+                            )?;
+
+                            HeapEntry {
+                                binding,
+                                reduced,
+                                root,
+                            }
                         }
                     }
                 }
@@ -352,17 +351,25 @@ impl MemDrainer {
             let (validator, ref schema) = &mut self.spec.validators[binding as usize];
 
             validator
-                .validate(schema.as_ref(), &doc)
+                .validate(schema.as_ref(), &root)
                 .map_err(Error::SchemaError)?
                 .ok()
                 .map_err(Error::FailedValidation)?;
 
-            if !callback(binding, LazyNode::Heap(doc), flags & FLAG_REDUCED != 0)? {
-                return Ok(true);
-            }
-        }
-    }
+            // Safety: `root` was allocated from `self.zz_alloc`.
+            let root = unsafe { OwnedHeapNode::new(root, self.zz_alloc.clone()) };
 
+            Ok(Some(DrainedDoc {
+                binding,
+                reduced,
+                root: OwnedNode::Heap(root),
+            }))
+        };
+        inner().transpose()
+    }
+}
+
+impl MemDrainer {
     pub fn into_spec(self) -> Spec {
         let MemDrainer {
             it1,
@@ -387,6 +394,7 @@ mod test {
     use serde_json::{json, Value};
 
     use crate::Validator;
+    use itertools::Itertools;
     use json::schema::build::build_schema;
 
     #[test]
@@ -456,20 +464,18 @@ mod test {
             (false, json!({"key": "d", "v": ["all"]})),
         ]);
 
-        let mut actual = Vec::new();
-        let mut drainer = memtable.try_into_drainer().unwrap();
-
-        loop {
-            if !drainer
-                .drain_while(|binding, node, full| {
-                    actual.push((binding, serde_json::to_value(&node).unwrap(), full));
-                    Ok::<_, Error>(actual.len() % 2 != 0)
-                })
-                .unwrap()
-            {
-                break;
-            }
-        }
+        let actual = memtable
+            .try_into_drainer()
+            .unwrap()
+            .map_ok(|doc| {
+                (
+                    doc.binding,
+                    serde_json::to_value(doc.root).unwrap(),
+                    doc.reduced,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
 
         insta::assert_json_snapshot!(actual, @r###"
         [

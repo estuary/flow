@@ -3,9 +3,8 @@ use rkyv::ser::Serializer;
 
 // `rkyv` generates types that mirror the 'alloc lifetime parameter,
 // but this lifetime has no meaning (as far as I can tell).
-// The only meaningful lifetime for ArchiveDoc is that its references
-// &ArchiveDoc live no longer than its backing buffer.
-pub type ArchivedDoc = heap::ArchivedDoc<'static>;
+// The only meaningful lifetime for ArchiveNode is that its
+// references &ArchiveNode must live no longer than its backing buffer.
 pub type ArchivedField = heap::ArchivedField<'static>;
 pub type ArchivedNode = heap::ArchivedNode<'static>;
 
@@ -24,13 +23,13 @@ impl ArchivedNode {
     // from_archive casts the given (aligned) byte buffer to an ArchivedNode,
     // without any copy or deserialization.
     pub fn from_archive<'buf>(buf: &'buf [u8]) -> &'buf Self {
-        let expect_align = core::mem::align_of::<ArchivedNode>();
-        let actual_align = (buf.as_ptr() as usize) & (expect_align - 1);
+        const EXPECT_ALIGN: usize = core::mem::align_of::<ArchivedNode>();
+        let actual_align = (buf.as_ptr() as usize) & (EXPECT_ALIGN - 1);
 
         assert_eq!(
             actual_align, 0,
             "from_buffer requires that buffers be aligned to {}",
-            expect_align
+            EXPECT_ALIGN
         );
         unsafe { rkyv::archived_root::<HeapNode>(buf) }
     }

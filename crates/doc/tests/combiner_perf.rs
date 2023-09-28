@@ -163,18 +163,11 @@ pub fn combiner_perf() {
     let mut drained: usize = 0;
     let mut shape = doc::Shape::nothing();
 
-    let mut drainer = accum.into_drainer().unwrap();
-    while drainer
-        .drain_while(|_binding, entry, _reduce| {
-            drained += 1;
-            match entry {
-                doc::LazyNode::Heap(entry) => shape.widen(&entry),
-                doc::LazyNode::Node(entry) => shape.widen(entry),
-            };
-            Ok::<_, doc::combine::Error>(true)
-        })
-        .unwrap()
-    {}
+    for drained_doc in accum.into_drainer().unwrap() {
+        let drained_doc = drained_doc.unwrap();
+        drained += 1;
+        shape.widen_owned(&drained_doc.root);
+    }
 
     let duration = begin.elapsed();
     let trough_stats = allocator::current_mem_stats();
