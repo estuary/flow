@@ -33,7 +33,7 @@ pub async fn do_capture(
     }: &Capture,
 ) -> anyhow::Result<()> {
     let client = ctx.controlplane_client().await?;
-    let (sources, validations) = local_specs::load_and_validate_full(client, &source).await?;
+    let (sources, validations) = local_specs::load_and_validate_full(client, &source, &network).await?;
 
     // Identify the capture to discover.
     let needle = if let Some(needle) = capture {
