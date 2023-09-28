@@ -45,9 +45,9 @@ pub trait Field<'a, N: AsNode> {
 // an ArchivedNode serialized by the `rkyv` crate,
 // and an implementation upon serde_json::Value.
 mod archived;
-pub use archived::{ArchivedDoc, ArchivedField, ArchivedNode};
+pub use archived::{ArchivedField, ArchivedNode};
 pub mod heap;
-pub use heap::{HeapDoc, HeapField, HeapNode};
+pub use heap::{HeapField, HeapNode};
 mod value;
 
 // BumpStr is a low-level String type built upon a Bump allocator.
@@ -85,6 +85,10 @@ pub mod walker;
 // Optimized conversions from AsNode implementations into HeapNode.
 pub mod lazy;
 pub use lazy::LazyNode;
+
+// OwnedNode owns its HeapNode or ArchivedNode.
+mod owned;
+pub use owned::{OwnedArchivedNode, OwnedHeapNode, OwnedNode};
 
 // JSON-schema annotation extensions supported by Flow documents.
 mod annotation;
