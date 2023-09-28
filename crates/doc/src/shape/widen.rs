@@ -2,7 +2,7 @@
 // of a Shape as needed, to allow a given document to properly validate.
 // It's used as a base operation for schema inference.
 use super::*;
-use crate::{AsNode, Node};
+use crate::{AsNode, Node, OwnedNode};
 use std::cmp::Ordering;
 
 impl StringShape {
@@ -310,6 +310,14 @@ impl Shape {
                 self.object.widen::<N>(fields, is_first)
             }
             Node::String(s) => self.string.widen(s, apply_type(types::STRING)),
+        }
+    }
+
+    #[inline]
+    pub fn widen_owned(&mut self, node: &OwnedNode) -> bool {
+        match node {
+            OwnedNode::Heap(n) => self.widen(n.get()),
+            OwnedNode::Archived(n) => self.widen(n.get()),
         }
     }
 

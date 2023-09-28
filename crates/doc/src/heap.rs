@@ -1,17 +1,5 @@
 use super::{AsNode, BumpStr, BumpVec, Field, Fields, Node};
 
-/// HeapDoc is a document representation stored in the heap.
-#[derive(Debug, rkyv::Archive, rkyv::Serialize)]
-#[archive(archived = "ArchivedDoc")]
-pub struct HeapDoc<'alloc> {
-    /// Binding to which this HeapDoc belongs.
-    pub binding: u32,
-    /// Arbitrary flags used to persist document processing status.
-    pub flags: u8,
-    /// Root node of the document.
-    pub root: HeapNode<'alloc>,
-}
-
 /// HeapNode is a document node representation stored in the heap.
 // The additional archive bounds are required to satisfy the compiler due to
 // the recursive nature of this structure. For more explanation see:

@@ -1,4 +1,4 @@
-use crate::{compare::compare, ArchivedNode, AsNode, LazyNode, Node, Pointer};
+use crate::{compare::compare, AsNode, LazyNode, Node, OwnedNode, Pointer};
 use bytes::BufMut;
 use std::borrow::Cow;
 use tuple::TuplePack;
@@ -99,15 +99,15 @@ impl Extractor {
         out.split().freeze()
     }
 
-    /// Extract a packed tuple representation from an instance of doc::LazyNode.
-    pub fn extract_all_lazy<'alloc>(
-        doc: &LazyNode<'alloc, 'static, ArchivedNode>,
+    /// Extract a packed tuple representation from an instance of doc::OwnedNode.
+    pub fn extract_all_owned<'alloc>(
+        doc: &OwnedNode,
         extractors: &[Self],
         out: &mut bytes::BytesMut,
     ) -> bytes::Bytes {
         match doc {
-            LazyNode::Heap(doc) => Self::extract_all(doc, extractors, out),
-            LazyNode::Node(doc) => Self::extract_all(*doc, extractors, out),
+            OwnedNode::Heap(n) => Self::extract_all(n.get(), extractors, out),
+            OwnedNode::Archived(n) => Self::extract_all(n.get(), extractors, out),
         }
     }
 

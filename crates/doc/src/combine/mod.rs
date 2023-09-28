@@ -1,7 +1,7 @@
 use crate::{
     reduce,
     validation::{FailedValidation, Validator},
-    ArchivedNode, Extractor, HeapDoc, LazyNode,
+    ArchivedNode, Extractor, HeapNode, LazyNode, OwnedNode,
 };
 use std::io::{self, Seek};
 use std::sync::Arc;
@@ -23,7 +23,7 @@ pub enum Error {
 /// Specification of how Combine operations are to be done
 /// over one or more bindings.
 pub struct Spec {
-    keys: Arc<Box<[Box<[Extractor]>]>>,
+    keys: Arc<[Box<[Extractor]>]>,
     validators: Vec<(Validator, Option<url::Url>)>,
 }
 
@@ -38,7 +38,7 @@ impl Spec {
         assert!(!key.is_empty());
 
         Self {
-            keys: Arc::new([key].into()),
+            keys: vec![key].into(),
             validators: vec![(validator, schema)],
         }
     }
@@ -55,10 +55,18 @@ impl Spec {
             .unzip();
 
         Self {
-            keys: Arc::new(keys.into()),
+            keys: keys.into(),
             validators,
         }
     }
+}
+
+/// HeapEntry is a combiner entry that exists in memory.
+/// It's produced by MemTable and is consumed by SpillWriter.
+pub struct HeapEntry<'s> {
+    binding: u32,
+    reduced: bool,
+    root: HeapNode<'s>,
 }
 
 pub mod memtable;
@@ -92,8 +100,7 @@ impl Accumulator {
             unreachable!("memtable is always Some");
         };
 
-        let mem_used = memtable.alloc().allocated_bytes() - memtable.alloc().chunk_capacity();
-        if mem_used > SPILL_THRESHOLD {
+        if bump_mem_used(memtable.alloc()) > BUMP_THRESHOLD {
             let spec = self
                 .memtable
                 .take()
@@ -145,30 +152,25 @@ pub enum Drainer {
     },
 }
 
-impl Drainer {
-    /// Drain documents from this Drainer by invoking the given callback.
-    /// Documents passed to the callback MUST NOT be accessed after it returns.
-    /// The callback returns true if it would like to be called further, or false
-    /// if a present call to drain_while() should return, yielding back to the caller.
-    ///
-    /// A future call to drain_while() can then resume the drain operation at
-    /// its next ordered document. drain_while() returns true while documents
-    /// remain to drain, and false only after all documents have been drained.
-    pub fn drain_while<C, CE>(&mut self, callback: C) -> Result<bool, CE>
-    where
-        C: for<'alloc> FnMut(
-            u32,
-            LazyNode<'alloc, 'static, ArchivedNode>,
-            bool,
-        ) -> Result<bool, CE>,
-        CE: From<Error>,
-    {
+/// DrainedDoc is a document drained from a Drainer.
+pub struct DrainedDoc {
+    pub binding: u32,
+    pub reduced: bool,
+    pub root: OwnedNode,
+}
+
+impl Iterator for Drainer {
+    type Item = Result<DrainedDoc, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
         match self {
-            Drainer::Mem { drainer, .. } => drainer.drain_while(callback),
-            Drainer::Spill { drainer } => drainer.drain_while(callback),
+            Self::Mem { drainer, .. } => drainer.next(),
+            Self::Spill { drainer } => drainer.next(),
         }
     }
+}
 
+impl Drainer {
     /// Map this Drainer into a new and empty Accumulator.
     /// Any un-drained documents are dropped.
     pub fn into_new_accumulator(self) -> Result<Accumulator, Error> {
@@ -203,28 +205,17 @@ impl Combiner {
     }
 }
 
-// Bit flags set on HeapDoc::flags to mark combiner processing status.
-// A the moment there's just one: a bit that indicates the document
-// is fully reduced, and not merely right-combined.
-const FLAG_REDUCED: u8 = 1;
-
 // Smash two documents together.
 fn smash<'alloc>(
     alloc: &'alloc bumpalo::Bump,
-    binding: u32,
     lhs_doc: LazyNode<'alloc, '_, ArchivedNode>,
-    lhs_flags: u8,
+    lhs_reduced: bool,
     rhs_doc: LazyNode<'alloc, '_, ArchivedNode>,
-    rhs_flags: u8,
+    rhs_reduced: bool,
     schema: Option<&url::Url>,
     validator: &mut Validator,
-) -> Result<HeapDoc<'alloc>, Error> {
-    match (
-        lhs_doc,
-        lhs_flags & FLAG_REDUCED != 0,
-        rhs_doc,
-        rhs_flags & FLAG_REDUCED != 0,
-    ) {
+) -> Result<(HeapNode<'alloc>, bool), Error> {
+    match (lhs_doc, lhs_reduced, rhs_doc, rhs_reduced) {
         // `rhs_doc` is being combined into `lhs_doc`, which may or may not be fully reduced.
         (lhs, lhs_reduced, rhs, false) => {
             let rhs_valid = rhs
@@ -232,12 +223,11 @@ fn smash<'alloc>(
                 .map_err(Error::SchemaError)?
                 .map_err(Error::FailedValidation)?;
 
-            Ok(HeapDoc {
-                binding,
-                root: reduce::reduce(lhs, rhs, rhs_valid, &alloc, lhs_reduced)
+            Ok((
+                reduce::reduce(lhs, rhs, rhs_valid, &alloc, lhs_reduced)
                     .map_err(Error::Reduction)?,
-                flags: if lhs_reduced { FLAG_REDUCED } else { 0 },
-            })
+                lhs_reduced,
+            ))
         }
         // `rhs_doc` is actually a fully-reduced LHS, which is reduced with `lhs_doc`.
         (rhs, false, lhs, true) => {
@@ -246,17 +236,20 @@ fn smash<'alloc>(
                 .map_err(Error::SchemaError)?
                 .map_err(Error::FailedValidation)?;
 
-            Ok(HeapDoc {
-                binding,
-                root: reduce::reduce(lhs, rhs, rhs_valid, &alloc, true)
-                    .map_err(Error::Reduction)?,
-                flags: FLAG_REDUCED,
-            })
+            Ok((
+                reduce::reduce(lhs, rhs, rhs_valid, &alloc, true).map_err(Error::Reduction)?,
+                true,
+            ))
         }
         (_lhs, true, rhs, true) => {
             return Err(Error::AlreadyFullyReduced(serde_json::to_value(&rhs).unwrap()).into())
         }
     }
+}
+
+// The number of used bytes within a Bump allocator.
+fn bump_mem_used(alloc: &bumpalo::Bump) -> usize {
+    alloc.allocated_bytes() - alloc.chunk_capacity()
 }
 
 // The bump-allocator threshold after which we'll spill a MemTable to a SpillWriter.
@@ -271,7 +264,7 @@ fn smash<'alloc>(
 //
 // There may be hypothetical use cases that benefit from more in-memory reduction.
 // At the moment, I suspect this would still be pretty marginal.
-const SPILL_THRESHOLD: usize = 1 << 28; // 256MB.
+const BUMP_THRESHOLD: usize = 1 << 28; // 256MB.
 
 // The chunk target determines the amortization of archiving and
 // compressing documents. We want chunks to be:
