@@ -46,4 +46,3 @@ endpoint:
         Content-Type: application/json
         Authorization: Bearer <your_token>
 ```
-```
