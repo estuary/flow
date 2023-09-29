@@ -11,7 +11,6 @@ To use this materialization connector, you’ll need the following:
 - The necessary authentication credentials. Authentication can be handled via `None`, `Basic`, or `OAuth`. For `Basic` authentication, you'll need a `username` and `password`. For `OAuth`, you'll need to provide `client_id` and `client_secret`.
 - At least one Flow collection.
 
-
 ## Configuration
 The Webhooks connector is available for use in the Flow web application. To learn more about connectors and setting them up, visit our guide on [using connectors](https://docs.estuary.dev/concepts/connectors/#using-connectors).
 
