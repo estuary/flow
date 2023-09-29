@@ -1,12 +1,13 @@
-use super::{Error, FLAG_REDUCED};
-use crate::{
-    validation::Validator, ArchivedDoc, ArchivedNode, Extractor, HeapDoc, HeapNode, LazyNode,
-};
+use super::{bump_mem_used, DrainedDoc, Error, HeapEntry, Spec, BUMP_THRESHOLD};
+use crate::owned::OwnedArchivedNode;
+use crate::{Extractor, LazyNode, OwnedHeapNode, OwnedNode};
+use bumpalo::Bump;
+use bytes::Buf;
 use rkyv::ser::Serializer;
-use std::cmp;
 use std::collections::BinaryHeap;
-use std::io;
 use std::ops::Range;
+use std::sync::Arc;
+use std::{cmp, io};
 
 /// SpillWriter writes segments of sorted documents to a spill file,
 /// and tracks each of the written segment range offsets within the file.
@@ -30,71 +31,72 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
         })
     }
 
-    /// Write a segment to the spill file. The segment iterator must yield
-    /// documents in sorted key order. Documents will be grouped into chunks
+    /// Write a segment to the spill file. The segment array documents must
+    /// already be in sorted key order. Documents will be grouped into chunks
     /// of the given size, and are then written in-order to the spill file.
     /// Each chunks is compressed using LZ4.
     /// The written size of the segment is returned.
-    pub fn write_segment<'alloc>(
+    pub fn write_segment(
         &mut self,
-        mut segment: &[HeapDoc<'alloc>],
+        entries: &[HeapEntry<'_>],
         chunk_target_size: Range<usize>,
     ) -> Result<u64, io::Error> {
-        if segment.is_empty() {
+        if entries.is_empty() {
             return Ok(0);
         }
-        // Estimate an initial bytes per document from the first document. This
-        // can change as we process the segment - consider a grouping key over
-        // a user's union type that bakes in a "kind of document" component.
-        let mut last_bytes_per_doc = segment[0].root.to_archive().len();
 
         let begin = self.spill.seek(io::SeekFrom::Current(0))?;
-        let mut ser = rkyv::ser::serializers::AllocSerializer::<8192>::default();
-        let mut lz4_buf = Vec::new();
 
-        while !segment.is_empty() {
-            // Project `last_bytes_per_doc` into a number of documents for this chunk,
-            // in order to achieve an archived size equal to `chunk_target_size.begin`.
-            // It can't be larger than the remaining documents, and can't be smaller than one.
-            let chunk_docs = cmp::min(
-                cmp::max(1, chunk_target_size.start / last_bytes_per_doc),
-                segment.len(),
+        let mut last_chunk_index = 0;
+        let mut lz4_buf = Vec::new();
+        let mut raw_buf = rkyv::AlignedVec::with_capacity(11 * chunk_target_size.start / 10);
+        let mut rkyv_scratch = Default::default();
+
+        for (
+            index,
+            HeapEntry {
+                binding,
+                reduced,
+                root,
+            },
+        ) in entries.iter().enumerate()
+        {
+            let offset = raw_buf.len();
+
+            // Pack `reduced` into binding by setting its high bit.
+            let binding = binding | if *reduced { 1 << 31 } else { 0 };
+            // Write binding header.
+            raw_buf.extend_from_slice(&u32::to_le_bytes(binding));
+            // Reserve space for document size header.
+            raw_buf.extend_from_slice(&[0; 4]);
+
+            // Re-constitute an rkyv serializer around `raw_buf`.
+            let mut wrapped_buf = rkyv::ser::serializers::AlignedSerializer::new(raw_buf);
+            let mut rkyver = rkyv::ser::serializers::AllocSerializer::<8192>::new(
+                wrapped_buf,
+                rkyv_scratch,
+                Default::default(), // We don't use shared smart pointers, so this is always empty.
             );
 
-            // Archive chunk into uncompressed "raw" buffer.
-            ser.serialize_unsized_value(&segment[..chunk_docs])
-                .expect("serialize of HeapDoc to memory always succeeds");
-            let (raw_buf, scratch, _shared) = ser.into_components();
-            let mut raw_buf = raw_buf.into_inner();
+            _ = rkyver
+                .serialize_value(root)
+                .expect("serialize of HeapNode to memory always succeeds");
 
-            let cur_bytes_per_doc = raw_buf.len() / chunk_docs;
+            // Disassemble `rkyver` to recover `raw_buf`.
+            (wrapped_buf, rkyv_scratch, _) = rkyver.into_components();
+            raw_buf = wrapped_buf.into_inner();
 
-            // If `raw_buf` is outside of our upper `chunk_target_size` range
-            // and it's possible to make it smaller, then do so. This check lets
-            // us bound how much a reader must keep in memory when later
-            // processing a current chunk across all segments.
-            if chunk_docs > 1 && raw_buf.len() > chunk_target_size.end {
-                tracing::debug!(
-                    chunk_docs,
-                    %cur_bytes_per_doc,
-                    %last_bytes_per_doc,
-                    raw_buf_len = %raw_buf.len(),
-                    "archived buffer is too large (trying again)",
-                );
+            // Update header with the final document length, excluding header.
+            let doc_len = raw_buf.len() - offset - 8;
+            raw_buf[offset + 4..offset + 8].copy_from_slice(&u32::to_le_bytes(doc_len as u32));
 
-                // We allocated an over-large `raw_buf`: don't re-use it.
-                // This should be rare.
-                ser = Default::default();
-
-                // By construction, `cur_bytes_per_doc` must be larger that before.
-                // Otherwise we wouldn't be here. Update and try again.
-                assert!(cur_bytes_per_doc > last_bytes_per_doc);
-                last_bytes_per_doc = cur_bytes_per_doc;
+            // If this isn't the last element and our chunk is under threshold then continue accruing documents.
+            if index != entries.len() - 1 && raw_buf.len() < chunk_target_size.start {
                 continue;
             }
+            // We have a complete chunk. Next we compress and write it to the spill file.
 
-            // Prepare a buffer to hold the compressed result, reserving the leading eight bytes for the chunk header.
-            lz4_buf.clear();
+            // Prepare `lz4_buf` to hold the compressed result, reserving leading bytes for a chunk header.
             lz4_buf.reserve(8 + lz4::block::compress_bound(raw_buf.len())?);
             unsafe { lz4_buf.set_len(lz4_buf.capacity()) };
 
@@ -117,24 +119,17 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
             self.spill.write_all(&lz4_buf)?;
 
             tracing::trace!(
-                chunk_docs,
-                bytes_per_doc = %cur_bytes_per_doc,
+                chunk_docs = %(index - last_chunk_index),
+                bytes_per_doc = (raw_buf.len() / (index - last_chunk_index)),
                 raw_len = %raw_buf.len(),
                 lz4_len = %lz4_buf.len(),
-                remaining = %(segment.len() - chunk_docs),
+                remaining = %(entries.len() - index),
                 "wrote chunk",
             );
 
-            // Re-compose the `rkyv` serializer, preserving allocated capacity of `raw_buf`.
+            last_chunk_index = index;
+            lz4_buf.clear();
             raw_buf.clear();
-            ser = rkyv::ser::serializers::CompositeSerializer::new(
-                rkyv::ser::serializers::AlignedSerializer::new(raw_buf),
-                scratch,
-                Default::default(),
-            );
-
-            last_bytes_per_doc = cur_bytes_per_doc;
-            segment = &segment[chunk_docs..];
         }
 
         let end = self.spill.seek(io::SeekFrom::Current(0))?;
@@ -154,22 +149,73 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
     }
 }
 
+// Entry is a parsed document entry of a spill file.
+struct Entry {
+    binding: u32,
+    reduced: bool,
+    root: OwnedArchivedNode,
+}
+
+impl Entry {
+    // Parse the next Entry from a SpillWriter chunk.
+    fn parse(mut chunk: bytes::Bytes) -> Result<(Self, bytes::Bytes), io::Error> {
+        if chunk.len() < 8 {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!(
+                    "corrupt segment: chunk length is smaller than header: {}",
+                    chunk.len()
+                ),
+            ));
+        }
+
+        // Parse entry header.
+        let reduced_binding = u32::from_le_bytes(chunk[0..4].try_into().unwrap());
+        let doc_len = u32::from_le_bytes(chunk[4..8].try_into().unwrap()) as usize;
+        chunk.advance(8); // Consume header.
+
+        // Decompose `reduced_binding` into its parts.
+        let reduced = reduced_binding & 1 << 31 != 0;
+        let binding = reduced_binding & ((1 << 31) - 1);
+
+        if chunk.len() < doc_len {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!(
+                    "corrupt segment: chunk is smaller than document length: {} vs {doc_len}",
+                    chunk.len(),
+                ),
+            ));
+        }
+
+        let rest = chunk.split_off(doc_len);
+        let root = unsafe { OwnedArchivedNode::new(chunk) };
+
+        Ok((
+            Self {
+                binding,
+                reduced,
+                root,
+            },
+            rest,
+        ))
+    }
+}
+
 /// Segment is a segment region of a spill file which is being incrementally read.
-/// As documents are written to the spill file in sorted order within a segment,
-/// this iterator-like object will also yield documents in ascending key order.
-pub struct Segment {
-    docs: &'static [ArchivedDoc],
-    key: Box<[Extractor]>,
-    next: Range<u64>,
-    zz_backing: rkyv::AlignedVec,
+/// Entries are written to the spill file in sorted order within a segment,
+/// so this iterator-like object will yield entries in ascending order.
+struct Segment {
+    head: Entry,                   // Next Entry of Segment.
+    keys: Arc<[Box<[Extractor]>]>, // Keys for comparing Entries across Segments.
+    next: Range<u64>,              // Next chunk of this Segment.
+    tail: bytes::Bytes,            // Remainder of the current chunk.
 }
 
 impl Segment {
     /// Build a new Segment covering the given range of the spill file.
-    /// The given AlignedVec buffer, which may have pre-allocated capacity,
-    /// is used to back the archived documents read from the spill file.
-    pub fn new<R: io::Read + io::Seek>(
-        key: Box<[Extractor]>,
+    fn new<R: io::Read + io::Seek>(
+        keys: Arc<[Box<[Extractor]>]>,
         r: &mut R,
         range: Range<u64>,
     ) -> Result<Self, io::Error> {
@@ -185,10 +231,12 @@ impl Segment {
 
         // Compute implied next chunk range and ensure it remains valid.
         let next = range.start + 8 + lz4_len..range.end;
-        assert!(
-            next.start <= next.end,
-            "read header len {lz4_len} which is outside of region {next:?}"
-        );
+        if next.start > next.end {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("read header len {lz4_len} which is outside of region {next:?}"),
+            ));
+        }
 
         // Allocate and read compressed chunk into `lz4_buf`.
         // Safety: we're immediately reading into allocated memory, overwriting its uninitialized content.
@@ -196,74 +244,82 @@ impl Segment {
         unsafe { lz4_buf.set_len(lz4_len as usize) }
         r.read_exact(&mut lz4_buf)?;
 
-        // Allocate and decompress into `backing`.
+        // Allocate and decompress into `raw_buf`.
         // Safety: we're immediately decompressing into allocated memory, overwriting its uninitialized content.
-        let mut backing = rkyv::AlignedVec::with_capacity(raw_len as usize);
-        unsafe { backing.set_len(raw_len as usize) }
+        let mut raw_buf = rkyv::AlignedVec::with_capacity(raw_len as usize);
+        unsafe { raw_buf.set_len(raw_len as usize) }
 
-        assert_eq!(
-            lz4::block::decompress_to_buffer(&lz4_buf, Some(raw_len as i32), &mut backing)?,
-            backing.len(),
-            "bytes actually decompressed don't match the length encoded in the chunk header"
-        );
+        let decompressed_bytes =
+            lz4::block::decompress_to_buffer(&lz4_buf, Some(raw_len as i32), &mut raw_buf)?;
 
-        // Cast `backing` into its archived type.
-        let docs = unsafe { rkyv::archived_unsized_root::<[HeapDoc]>(&backing) };
+        if decompressed_bytes != raw_buf.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("corrupt segment: decompressed chunk bytes don't match the length encoded in the chunk header: {decompressed_bytes} vs {}", raw_buf.len()),
+            ));
+        }
 
-        // Transmute from the implied Self lifetime of backing to &'static lifetime.
-        // Safety: Segment is a guard which maintains the lifetime of `backing`
-        // alongside its borrowed `docs` reference.
-        let docs: &[ArchivedDoc] = unsafe { std::mem::transmute(docs) };
-        assert_ne!(docs.len(), 0);
+        let chunk: bytes::Bytes = raw_buf.into_vec().into();
+        let (head, tail) = Entry::parse(chunk)?;
 
         Ok(Self {
-            zz_backing: backing,
-            docs,
-            key,
+            head,
+            keys,
             next,
+            tail,
         })
     }
 
-    /// Head is the next ordered document of the Segment.
-    /// Despite the static lifetime, the head() document cannot be referenced
-    /// after a subsequent call to next().
-    pub fn head(&self) -> &'static ArchivedDoc {
-        &self.docs[0]
-    }
-
-    /// Next is called after the current head() has been fully processed.
-    /// It is unsafe to access a previous head() after calling next().
-    /// If no more documents remain in the Segment then Ok(None) is returned.
-    pub fn next<R: io::Read + io::Seek>(self, r: &mut R) -> Result<Option<Self>, io::Error> {
+    // Pop the head Entry of the Segment, returning ownership to the caller,
+    // as well as a Segment Option if any further Entries remain.
+    fn pop_head<R: io::Read + io::Seek>(
+        self,
+        r: &mut R,
+    ) -> Result<(Entry, Option<Self>), io::Error> {
         let Segment {
-            docs,
-            key,
+            head: popped,
+            keys,
             next,
-            zz_backing,
+            tail,
         } = self;
 
-        if docs.len() != 1 {
-            Ok(Some(Segment {
-                docs: &docs[1..],
-                key,
-                next,
-                zz_backing,
-            }))
+        if !tail.is_empty() {
+            let (head, tail) = Entry::parse(tail)?;
+
+            Ok((
+                popped,
+                Some(Self {
+                    head,
+                    keys,
+                    next,
+                    tail,
+                }),
+            ))
         } else if !next.is_empty() {
-            Ok(Some(Self::new(key, r, next)?))
+            Ok((popped, Some(Self::new(keys, r, next)?)))
         } else {
-            Ok(None)
+            Ok((popped, None))
         }
     }
 }
 
 impl Ord for Segment {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        Extractor::compare_key(&self.key, &self.docs[0].root, &other.docs[0].root).then(
-            // When keys are equal than take the Segment which was produced into the spill file first.
-            // This maintains the left-to-right associative ordering of reductions.
-            self.next.start.cmp(&other.next.start),
-        )
+        let (lhs, rhs) = (&self.head, &other.head);
+
+        lhs.binding
+            .cmp(&rhs.binding)
+            .then_with(|| {
+                Extractor::compare_key(
+                    &self.keys[lhs.binding as usize],
+                    lhs.root.get(),
+                    rhs.root.get(),
+                )
+            })
+            .then_with(||
+                // When keys are equal than take the Segment which was produced into the spill file first.
+                // This maintains the left-to-right associative ordering of reductions.
+                self.next.start.cmp(&other.next.start))
     }
 }
 impl PartialOrd for Segment {
@@ -279,136 +335,169 @@ impl PartialEq for Segment {
 impl Eq for Segment {}
 
 /// SpillDrainer drains documents across all segments of a spill file,
-/// yielding one document per key in ascending order.
-pub struct SpillDrainer<F: io::Read + io::Write + io::Seek> {
+/// yielding drained entries (one per binding & key) in ascending order.
+pub struct SpillDrainer<F: io::Read + io::Seek> {
     heap: BinaryHeap<cmp::Reverse<Segment>>,
-    key: Box<[Extractor]>,
-    schema: Option<url::Url>,
+    spec: Spec,
     spill: F,
-    validator: Validator,
+    // Allocator for reductions, which is not referenced by other internal state of SpillDrainer.
+    alloc: Arc<Bump>,
 }
 
-impl<F: io::Read + io::Write + io::Seek> SpillDrainer<F> {
-    /// Build a new SpillDrainer which drains the given segment ranges previously
-    /// written to the spill file.
-    pub fn new(
-        key: Box<[Extractor]>,
-        schema: Option<url::Url>,
-        mut spill: F,
-        ranges: &[Range<u64>],
-        validator: Validator,
-    ) -> Result<Self, std::io::Error> {
-        let mut heap = BinaryHeap::with_capacity(ranges.len());
+// Safety: SpillDrainer is safe to Send because its iterators never have lent references,
+// and we're sending them and their backing Bump allocator together.
+unsafe impl<F: io::Read + io::Seek> Send for SpillDrainer<F> {}
 
-        for range in ranges {
-            let segment = Segment::new(key.clone(), &mut spill, range.clone())?;
-            heap.push(cmp::Reverse(segment));
-        }
+impl<F: io::Read + io::Seek> Iterator for SpillDrainer<F> {
+    type Item = Result<DrainedDoc, Error>;
 
-        Ok(Self {
-            heap,
-            key,
-            schema,
-            spill,
-            validator,
-        })
-    }
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut inner = || {
+            let Some(cmp::Reverse(cur_segment)) = self.heap.pop() else { return Ok(None) };
 
-    pub fn into_parts(self) -> (Box<[Extractor]>, Option<url::Url>, F, Validator) {
-        let Self {
-            heap: _,
-            key,
-            schema,
-            spill,
-            validator,
-        } = self;
-        (key, schema, spill, validator)
-    }
+            let (
+                Entry {
+                    binding,
+                    mut reduced,
+                    root: owned_root,
+                },
+                cur_segment,
+            ) = cur_segment.pop_head(&mut self.spill)?;
 
-    /// Drain documents from this SpillDrainer by invoking the given callback.
-    /// Documents passed to the callback MUST NOT be accessed after it returns.
-    /// The callback returns true if it would like to be called further, or false
-    /// if a present call to drain_while() should return, yielding back to the caller.
-    ///
-    /// A future call to drain_while() can then resume the drain operation at
-    /// its next ordered document. drain_while() returns true while documents
-    /// remain to drain, and false only after all documents have been drained.
-    pub fn drain_while<C, CE>(&mut self, mut callback: C) -> Result<bool, CE>
-    where
-        C: for<'alloc> FnMut(LazyNode<'alloc, 'static, ArchivedNode>, bool) -> Result<bool, CE>,
-        CE: From<Error>,
-    {
-        while let Some(cmp::Reverse(cur)) = self.heap.pop() {
-            let alloc = HeapNode::new_allocator();
+            let key = &self.spec.keys[binding as usize];
+            let (validator, ref schema) = &mut self.spec.validators[binding as usize];
 
-            let mut cur_root = LazyNode::Node(&cur.head().root);
-            let mut cur_flags = cur.head().flags;
+            // LazyNode root which is updated as reductions occur.
+            let mut root = LazyNode::Node(owned_root.get());
 
             // Poll the heap to find additional documents in other segments which share root's key.
             // Note that there can be at-most one instance of a key within a single segment,
-            // so we don't need to also check `segment`.
+            // so we don't need to re-heap `cur_segment` just yet.
             while matches!(self.heap.peek(), Some(cmp::Reverse(peek))
-                if Extractor::compare_key_lazy(&self.key, &cur_root, &LazyNode::Node(&peek.head().root)).is_eq())
+                if binding == peek.head.binding
+                    && Extractor::compare_key_lazy(
+                        key,
+                        &root,
+                        &LazyNode::Node(peek.head.root.get())
+                    ).is_eq())
             {
-                let other = self.heap.pop().unwrap().0;
+                let other_segment = self.heap.pop().unwrap().0;
 
-                let ArchivedDoc {
-                    root: next_root,
-                    flags: next_flags,
-                } = other.head();
+                let (
+                    Entry {
+                        binding: _,
+                        reduced: rhs_reduced,
+                        root: rhs_root,
+                    },
+                    other_segment,
+                ) = other_segment.pop_head(&mut self.spill)?;
 
-                let out = super::smash(
-                    &alloc,
-                    cur_root,
-                    cur_flags,
-                    LazyNode::Node(next_root),
-                    *next_flags,
-                    self.schema.as_ref(),
-                    &mut self.validator,
+                let smashed = super::smash(
+                    &self.alloc,
+                    root,
+                    reduced,
+                    LazyNode::Node(rhs_root.get()),
+                    rhs_reduced,
+                    schema.as_ref(),
+                    validator,
                 )?;
-                (cur_root, cur_flags) = (LazyNode::Heap(out.root), out.flags);
+                (root, reduced) = (LazyNode::Heap(smashed.0), smashed.1);
 
-                if let Some(other) = other.next(&mut self.spill).map_err(Error::SpillIO)? {
+                // Re-heap `other_segment`.
+                if let Some(other) = other_segment {
                     self.heap.push(cmp::Reverse(other));
                 }
             }
 
-            cur_root
-                .validate_ok(&mut self.validator, self.schema.as_ref())
-                .map_err(Error::SchemaError)?
-                .map_err(Error::FailedValidation)?;
-
-            let done = !callback(cur_root, cur_flags & FLAG_REDUCED != 0)?;
-
-            if let Some(segment) = cur.next(&mut self.spill).map_err(Error::SpillIO)? {
+            // Re-heap `cur_segment`.
+            if let Some(segment) = cur_segment {
                 self.heap.push(cmp::Reverse(segment));
             }
 
-            if done {
-                return Ok(true);
-            }
+            // Map `root` into an owned variant.
+            let root = match root {
+                LazyNode::Node(_) => {
+                    // Already validated (no reduction occurred).
+                    OwnedNode::Archived(owned_root)
+                }
+                LazyNode::Heap(root) => {
+                    // We built `doc` via reduction and must re-validate it.
+                    validator
+                        .validate(schema.as_ref(), &root)
+                        .map_err(Error::SchemaError)?
+                        .ok()
+                        .map_err(Error::FailedValidation)?;
+
+                    // Safety: we allocated `root` out of `self.alloc`.
+                    let root = unsafe { OwnedHeapNode::new(root, self.alloc.clone()) };
+
+                    // Safety: we must hold `alloc` constant for all reductions of a yielded entry.
+                    if bump_mem_used(&self.alloc) > BUMP_THRESHOLD {
+                        self.alloc = Arc::new(Bump::new());
+                    }
+
+                    OwnedNode::Heap(root)
+                }
+            };
+
+            Ok(Some(DrainedDoc {
+                binding,
+                reduced,
+                root,
+            }))
+        };
+        inner().transpose()
+    }
+}
+
+impl<F: io::Read + io::Seek> SpillDrainer<F> {
+    /// Build a new SpillDrainer which drains the given segment ranges previously
+    /// written to the spill file.
+    pub fn new(spec: Spec, mut spill: F, ranges: &[Range<u64>]) -> Result<Self, std::io::Error> {
+        let mut heap = BinaryHeap::with_capacity(ranges.len());
+
+        for range in ranges {
+            let segment = Segment::new(spec.keys.clone(), &mut spill, range.clone())?;
+            heap.push(cmp::Reverse(segment));
         }
-        Ok(false)
+
+        Ok(Self {
+            alloc: Arc::new(Bump::new()),
+            heap,
+            spec,
+            spill,
+        })
+    }
+
+    pub fn into_parts(self) -> (Spec, F) {
+        let Self {
+            alloc: _,
+            heap: _,
+            spec,
+            spill,
+        } = self;
+        (spec, spill)
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{combine::CHUNK_MAX_LEN, validation::build_schema, AsNode, Validator};
+    use crate::{combine::CHUNK_MAX_LEN, validation::build_schema, HeapNode, Validator};
+    use itertools::Itertools;
     use serde_json::{json, Value};
 
     #[test]
     fn test_spill_writes_to_segments() {
-        let alloc = HeapNode::new_allocator();
-        let segment = segment_fixture(
-            &[
-                (json!({"key": "aaa", "v": "apple"}), 0),
-                (json!({"key": "bbb", "v": "banana"}), FLAG_REDUCED),
-                (json!({"key": "ccc", "v": "carrot"}), FLAG_REDUCED),
-            ],
-            &alloc,
-        );
+        let fixture = &[
+            (0, json!({"key": "aaa", "v": "apple"}), false),
+            (1, json!({"key": "bbb", "v": "banana"}), true),
+            (2, json!({"key": "ccc", "v": "carrot"}), true),
+        ];
+        let alloc = Bump::new();
+        let segment = segment_fixture(fixture, &alloc);
+        // We're not using a SpillDrainer and are not comparing keys.
+        let keys: Arc<[Box<[Extractor]>]> = Vec::new().into();
 
         // Write segment fixture into a SpillWriter.
         let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
@@ -418,108 +507,110 @@ mod test {
         let (mut spill, ranges) = spill.into_parts();
 
         // Assert we wrote the expected range and regression fixture.
-        assert_eq!(ranges, vec![0..190]);
+        assert_eq!(ranges, vec![0..186]);
 
         insta::assert_snapshot!(to_hex(&spill.get_ref()), @r###"
-        |67000000 98000000 f1006b65 79000000| g.........key... 00000000
-        |00030800 00006161 610c0000 05001076| ......aaa......v 00000010
-        |05003100 00011800 7070706c 65000005| ..1.....ppple... 00000020
-        |11000830 00306262 62130010 03050008| ...0.0bbb....... 00000030
-        |30008062 616e616e 61000618 00000500| 0..banana....... 00000040
-        |509cffff ff020d00 07020000 180017b4| P............... 00000050
-        |18001301 1c0080d0 ffffff02 00000047| ...............G 00000060
-        |00000050 000000f1 006b6579 00000000| ...P.....key.... 00000070
-        |03080000 00636363 0c000005 00107605| .....ccc......v. 00000080
-        |00310000 01180070 6172726f 74000611| .1.....parrot... 00000090
-        |00000500 50ccffff ff020d00 41000000| ....P.......A... 000000a0
-        |010600a0 0000e8ff ffff0100 0000|     ..............   000000b0
-                                                               000000be
+        |68000000 90000000 b0000000 00400000| h............@.. 00000000
+        |006b6579 0b008103 08000000 6161610c| .key........aaa. 00000010
+        |00000500 10760500 31000001 18007070| .....v..1.....pp 00000020
+        |706c6500 00051100 90060000 00ccffff| ple............. 00000030
+        |ff020d00 7c000000 01000080 48003062| ....|.......H.0b 00000040
+        |62621c00 10030500 08480061 62616e61| bb.......H.abana 00000050
+        |6e614300 01050003 48005000 00000000| naC.....H.P..... 00000060
+        |42000000 48000000 f1080200 00804000| B...H.........@. 00000070
+        |00006b65 79000000 00030800 00006363| ..key.........cc 00000080
+        |630c0000 05001076 05003100 00011800| c......v..1..... 00000090
+        |70617272 6f740006 11000005 00c0ccff| parrot.......... 000000a0
+        |ffff0200 00000000 0000|              ..........       000000b0
+                                                               000000ba
         "###);
 
         // Parse the region as a Segment.
-        let key: Box<[Extractor]> = vec![Extractor::new("/key")].into();
-        let mut actual = Vec::new();
-        let mut segment = Segment::new(key, &mut spill, ranges[0].clone()).unwrap();
+        let mut segment = Segment::new(keys, &mut spill, ranges[0].clone()).unwrap();
 
         // First chunk has two documents.
-        assert_eq!(segment.docs.len(), 2);
-        assert_eq!(segment.zz_backing.len(), 152);
-        assert_eq!(segment.next, 111..190);
+        assert_eq!(segment.head.binding, 0);
+        assert_eq!(segment.head.reduced, false);
+        assert!(crate::compare(segment.head.root.get(), &fixture[0].1).is_eq());
+        assert!(!segment.tail.is_empty());
+        assert_eq!(segment.next, 112..186);
 
-        actual.push(serde_json::to_value(&segment.head().root.as_node()).unwrap());
+        let (_, next_segment) = segment.pop_head(&mut spill).unwrap();
+        segment = next_segment.unwrap();
 
-        segment = segment.next(&mut spill).unwrap().unwrap();
-        actual.push(serde_json::to_value(&segment.head().root.as_node()).unwrap());
+        assert_eq!(segment.head.binding, 1);
+        assert_eq!(segment.head.reduced, true);
+        assert!(crate::compare(segment.head.root.get(), &fixture[1].1).is_eq());
+        assert!(segment.tail.is_empty()); // Chunk is empty.
+        assert_eq!(segment.next, 112..186);
 
         // Next chunk is read and has one document.
-        segment = segment.next(&mut spill).unwrap().unwrap();
+        let (_, next_segment) = segment.pop_head(&mut spill).unwrap();
+        segment = next_segment.unwrap();
 
-        assert_eq!(segment.docs.len(), 1);
-        assert_eq!(segment.zz_backing.len(), 80);
-        assert_eq!(segment.next, 190..190);
-
-        actual.push(serde_json::to_value(&segment.head().root.as_node()).unwrap());
+        assert_eq!(segment.head.binding, 2);
+        assert_eq!(segment.head.reduced, true);
+        assert!(crate::compare(segment.head.root.get(), &fixture[2].1).is_eq());
+        assert!(segment.tail.is_empty()); // Chunk is empty.
+        assert_eq!(segment.next, 186..186);
 
         // Stepping the segment again consumes it, as no chunks remain.
-        assert!(segment.next(&mut spill).unwrap().is_none());
-
-        insta::assert_json_snapshot!(actual, @r###"
-        [
-          {
-            "key": "aaa",
-            "v": "apple"
-          },
-          {
-            "key": "bbb",
-            "v": "banana"
-          },
-          {
-            "key": "ccc",
-            "v": "carrot"
-          }
-        ]
-        "###);
+        let (_, next_segment) = segment.pop_head(&mut spill).unwrap();
+        assert!(next_segment.is_none());
     }
 
     #[test]
     fn test_heap_merge() {
-        let schema = json!({
-            "properties": {
-                "key": { "type": "string" },
-                "v": {
-                    "type": "array",
-                    "reduce": { "strategy": "append" }
-                }
-            },
-            "reduce": { "strategy": "merge" }
-        });
-        let key: Box<[Extractor]> = vec![Extractor::new("/key")].into();
-        let curi = url::Url::parse("http://example/schema").unwrap();
-        let validator = Validator::new(build_schema(curi, &schema).unwrap()).unwrap();
+        let spec = Spec::with_bindings(
+            std::iter::repeat_with(|| {
+                let schema = build_schema(
+                    url::Url::parse("http://example/schema").unwrap(),
+                    &json!({
+                        "properties": {
+                            "key": { "type": "string", "default": "def" },
+                            "v": {
+                                "type": "array",
+                                "reduce": { "strategy": "append" }
+                            }
+                        },
+                        "reduce": { "strategy": "merge" }
+                    }),
+                )
+                .unwrap();
 
-        let alloc = HeapNode::new_allocator();
+                (
+                    vec![Extractor::with_default("/key", json!("def"))],
+                    None,
+                    Validator::new(schema).unwrap(),
+                )
+            })
+            .take(3),
+        );
+
+        let alloc = Bump::new();
         let fixtures = vec![
             segment_fixture(
                 &[
-                    (json!({"key": "aaa", "v": ["apple"]}), FLAG_REDUCED),
-                    (json!({"key": "bbb", "v": ["banana"]}), 0),
-                    (json!({"key": "ccc", "v": ["carrot"]}), 0),
+                    (0, json!({"key": "aaa", "v": ["apple"]}), true),
+                    (0, json!({"key": "bbb", "v": ["banana"]}), false),
+                    (1, json!({"key": "ccc", "v": ["carrot"]}), false),
                 ],
                 &alloc,
             ),
             segment_fixture(
                 &[
-                    (json!({"key": "bbb", "v": ["avocado"]}), FLAG_REDUCED),
-                    (json!({"key": "ccc", "v": ["raisin"]}), FLAG_REDUCED),
-                    (json!({"key": "ddd", "v": ["tomato"]}), FLAG_REDUCED),
+                    (0, json!({"key": "bbb", "v": ["avocado"]}), true),
+                    (1, json!({"key": "bbb", "v": ["apricot"]}), true),
+                    (1, json!({"key": "ccc", "v": ["raisin"]}), true),
+                    (2, json!({"key": "ddd", "v": ["tomato"]}), true),
                 ],
                 &alloc,
             ),
             segment_fixture(
                 &[
-                    (json!({"key": "ccc", "v": ["dill"]}), 0),
-                    (json!({"key": "ddd", "v": ["pickle"]}), 0),
-                    (json!({"key": "eee", "v": ["squash"]}), 0),
+                    (1, json!({"key": "ccc", "v": ["dill"]}), false),
+                    (2, json!({"key": "ddd", "v": ["pickle"]}), false),
+                    (2, json!({"key": "eee", "v": ["squash"]}), false),
                 ],
                 &alloc,
             ),
@@ -532,26 +623,23 @@ mod test {
 
         // Map from SpillWriter => SpillDrainer.
         let (spill, ranges) = spill.into_parts();
-        let mut drainer = SpillDrainer::new(key, None, spill, &ranges, validator).unwrap();
+        let drainer = SpillDrainer::new(spec, spill, &ranges).unwrap();
 
-        let mut actual = Vec::new();
-        loop {
-            if !drainer
-                .drain_while(|node, full| {
-                    let node = serde_json::to_value(&node).unwrap();
-
-                    actual.push((node, full));
-                    Ok::<_, Error>(actual.len() % 2 != 0)
-                })
-                .unwrap()
-            {
-                break;
-            }
-        }
+        let actual = drainer
+            .map_ok(|doc| {
+                (
+                    doc.binding,
+                    serde_json::to_value(&doc.root).unwrap(),
+                    doc.reduced,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
 
         insta::assert_json_snapshot!(actual, @r###"
         [
           [
+            0,
             {
               "key": "aaa",
               "v": [
@@ -561,6 +649,7 @@ mod test {
             true
           ],
           [
+            0,
             {
               "key": "bbb",
               "v": [
@@ -571,6 +660,17 @@ mod test {
             true
           ],
           [
+            1,
+            {
+              "key": "bbb",
+              "v": [
+                "apricot"
+              ]
+            },
+            true
+          ],
+          [
+            1,
             {
               "key": "ccc",
               "v": [
@@ -582,6 +682,7 @@ mod test {
             true
           ],
           [
+            2,
             {
               "key": "ddd",
               "v": [
@@ -592,6 +693,7 @@ mod test {
             true
           ],
           [
+            2,
             {
               "key": "eee",
               "v": [
@@ -610,59 +712,10 @@ mod test {
         assert_eq!(alloc.chunk_capacity(), 36800);
 
         // Allocation which fits within the current chunk.
-        alloc.alloc_str("hello world");
+        let s = alloc.alloc_str("hello world");
 
         // Expect chunk capacity is lower than before, because of the allocation.
-        // TODO(johnny): This is broken currently.
-        // Filed issue: https://github.com/fitzgen/bumpalo/issues/185
-        // I'm leaving this test in to identify when it's fixed,
-        // because we'll want to update our MemTable spill logic to reflect the new behavior.
-        assert_eq!(alloc.chunk_capacity(), 36800); // <- Should be assert_ne!().
-    }
-
-    #[test]
-    fn test_spill_chunk_too_large() {
-        let alloc = HeapNode::new_allocator();
-        let segment = segment_fixture(
-            &[
-                (json!("one"), 0),
-                (json!("twotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwotwo"), 0),
-                (json!("three"), 0),
-                (json!("four"), 0),
-                (json!("five"), 0),
-            ],
-            &alloc,
-        );
-
-        let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
-        spill.write_segment(&segment, 109..110).unwrap();
-        let (mut spill, ranges) = spill.into_parts();
-
-        let key: Box<[Extractor]> = vec![Extractor::new("")].into();
-        let mut segment = Segment::new(key, &mut spill, ranges[0].clone()).unwrap();
-
-        // First chunk is retried until its narrowed to a single document.
-        assert_eq!(segment.docs.len(), 1);
-        assert_eq!(segment.zz_backing.len(), 32);
-        segment = segment.next(&mut spill).unwrap().unwrap();
-
-        // Second chunk can only proceed by encoding the document by itself.
-        // It's still too large given our maximum chunk size, but we let it through.
-        assert_eq!(segment.docs.len(), 1);
-        assert_eq!(segment.zz_backing.len(), 120);
-        segment = segment.next(&mut spill).unwrap().unwrap();
-
-        // Third chunk is very conservative because `last_bytes_per_doc` is so large,
-        // but then re-sets the expectation for the fourth chunk.
-        assert_eq!(segment.docs.len(), 1);
-        assert_eq!(segment.zz_backing.len(), 32);
-        segment = segment.next(&mut spill).unwrap().unwrap();
-
-        // Fourth chunk includes multiple documents.
-        assert_eq!(segment.docs.len(), 2);
-        assert_eq!(segment.zz_backing.len(), 56);
-        segment = segment.next(&mut spill).unwrap().unwrap();
-        assert!(segment.next(&mut spill).unwrap().is_none());
+        assert_eq!(alloc.chunk_capacity(), 36800 - s.len());
     }
 
     fn to_hex(b: &[u8]) -> String {
@@ -673,14 +726,15 @@ mod test {
     }
 
     fn segment_fixture<'alloc>(
-        fixture: &[(Value, u8)],
+        fixture: &[(u32, Value, bool)],
         alloc: &'alloc bumpalo::Bump,
-    ) -> Vec<HeapDoc<'alloc>> {
+    ) -> Vec<HeapEntry<'alloc>> {
         fixture
             .into_iter()
-            .map(|(value, flags)| HeapDoc {
+            .map(|(binding, value, reduced)| HeapEntry {
+                binding: *binding,
+                reduced: *reduced,
                 root: HeapNode::from_node(value, &alloc),
-                flags: *flags,
             })
             .collect()
     }

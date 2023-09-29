@@ -1,9 +1,10 @@
 use crate::{
     reduce,
     validation::{FailedValidation, Validator},
-    ArchivedNode, Extractor, HeapDoc, LazyNode,
+    ArchivedNode, Extractor, HeapNode, LazyNode, OwnedNode,
 };
 use std::io::{self, Seek};
+use std::sync::Arc;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -17,6 +18,55 @@ pub enum Error {
     SchemaError(#[from] json::schema::index::Error),
     #[error("spill file IO error")]
     SpillIO(#[from] io::Error),
+}
+
+/// Specification of how Combine operations are to be done
+/// over one or more bindings.
+pub struct Spec {
+    keys: Arc<[Box<[Extractor]>]>,
+    validators: Vec<(Validator, Option<url::Url>)>,
+}
+
+impl Spec {
+    /// Build a Spec from a single binding.
+    pub fn with_one_binding(
+        key: impl Into<Box<[Extractor]>>,
+        schema: Option<url::Url>,
+        validator: Validator,
+    ) -> Self {
+        let key = key.into();
+        assert!(!key.is_empty());
+
+        Self {
+            keys: vec![key].into(),
+            validators: vec![(validator, schema)],
+        }
+    }
+
+    /// Build a Spec from an Iterator of bindings.
+    pub fn with_bindings<I, K>(bindings: I) -> Self
+    where
+        I: IntoIterator<Item = (K, Option<url::Url>, Validator)>,
+        K: Into<Box<[Extractor]>>,
+    {
+        let (keys, validators): (Vec<_>, _) = bindings
+            .into_iter()
+            .map(|(key, schema, validator)| (key.into(), (validator, schema)))
+            .unzip();
+
+        Self {
+            keys: keys.into(),
+            validators,
+        }
+    }
+}
+
+/// HeapEntry is a combiner entry that exists in memory.
+/// It's produced by MemTable and is consumed by SpillWriter.
+pub struct HeapEntry<'s> {
+    binding: u32,
+    reduced: bool,
+    root: HeapNode<'s>,
 }
 
 pub mod memtable;
@@ -35,14 +85,9 @@ pub struct Accumulator {
 }
 
 impl Accumulator {
-    pub fn new(
-        key: Box<[Extractor]>,
-        schema: Option<url::Url>,
-        spill: std::fs::File,
-        validator: Validator,
-    ) -> Result<Self, Error> {
+    pub fn new(spec: Spec, spill: std::fs::File) -> Result<Self, Error> {
         Ok(Self {
-            memtable: Some(MemTable::new(key, schema, validator)),
+            memtable: Some(MemTable::new(spec)),
             spill: SpillWriter::new(spill)?,
         })
     }
@@ -55,17 +100,13 @@ impl Accumulator {
             unreachable!("memtable is always Some");
         };
 
-        // TODO(johnny): This is somewhat broken because chunk_capacity() is broken.
-        // Currently this means the mem_used value is very quantized and doubles ~quadratically.
-        // See: https://github.com/fitzgen/bumpalo/issues/185
-        let mem_used = memtable.alloc().allocated_bytes() - memtable.alloc().chunk_capacity();
-        if mem_used > SPILL_THRESHOLD {
-            let (key, schema, validator) = self
+        if bump_mem_used(memtable.alloc()) > BUMP_THRESHOLD {
+            let spec = self
                 .memtable
                 .take()
                 .unwrap()
                 .spill(spill, CHUNK_TARGET_LEN..CHUNK_MAX_LEN)?;
-            self.memtable = Some(MemTable::new(key, schema, validator));
+            self.memtable = Some(MemTable::new(spec));
         }
 
         Ok(self.memtable.as_ref().unwrap())
@@ -90,12 +131,11 @@ impl Accumulator {
             })
         } else {
             // Spill the final MemTable segment.
-            let (key, schema, validator) =
-                memtable.spill(&mut spill, CHUNK_TARGET_LEN..CHUNK_MAX_LEN)?;
+            let spec = memtable.spill(&mut spill, CHUNK_TARGET_LEN..CHUNK_MAX_LEN)?;
             let (spill, ranges) = spill.into_parts();
 
             Ok(Drainer::Spill {
-                drainer: SpillDrainer::new(key, schema, spill, &ranges, validator)?,
+                drainer: SpillDrainer::new(spec, spill, &ranges)?,
             })
         }
     }
@@ -112,41 +152,40 @@ pub enum Drainer {
     },
 }
 
-impl Drainer {
-    /// Drain documents from this Drainer by invoking the given callback.
-    /// Documents passed to the callback MUST NOT be accessed after it returns.
-    /// The callback returns true if it would like to be called further, or false
-    /// if a present call to drain_while() should return, yielding back to the caller.
-    ///
-    /// A future call to drain_while() can then resume the drain operation at
-    /// its next ordered document. drain_while() returns true while documents
-    /// remain to drain, and false only after all documents have been drained.
-    pub fn drain_while<C, CE>(&mut self, callback: C) -> Result<bool, CE>
-    where
-        C: for<'alloc> FnMut(LazyNode<'alloc, 'static, ArchivedNode>, bool) -> Result<bool, CE>,
-        CE: From<Error>,
-    {
+/// DrainedDoc is a document drained from a Drainer.
+pub struct DrainedDoc {
+    pub binding: u32,
+    pub reduced: bool,
+    pub root: OwnedNode,
+}
+
+impl Iterator for Drainer {
+    type Item = Result<DrainedDoc, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
         match self {
-            Drainer::Mem { drainer, .. } => drainer.drain_while(callback),
-            Drainer::Spill { drainer } => drainer.drain_while(callback),
+            Self::Mem { drainer, .. } => drainer.next(),
+            Self::Spill { drainer } => drainer.next(),
         }
     }
+}
 
+impl Drainer {
     /// Map this Drainer into a new and empty Accumulator.
     /// Any un-drained documents are dropped.
     pub fn into_new_accumulator(self) -> Result<Accumulator, Error> {
         match self {
             Drainer::Mem { spill, drainer } => {
-                let (key, schema, validator) = drainer.into_parts();
-                Ok(Accumulator::new(key, schema, spill, validator)?)
+                let spec = drainer.into_spec();
+                Ok(Accumulator::new(spec, spill)?)
             }
             Drainer::Spill { drainer } => {
-                let (key, schema, mut spill, validator) = drainer.into_parts();
+                let (spec, mut spill) = drainer.into_parts();
 
                 spill.seek(io::SeekFrom::Start(0))?; // Reset to start.
                 spill.set_len(0)?; // Release allocated size to OS.
 
-                Ok(Accumulator::new(key, schema, spill, validator)?)
+                Ok(Accumulator::new(spec, spill)?)
             }
         }
     }
@@ -161,39 +200,22 @@ pub enum Combiner {
 
 impl Combiner {
     /// Build a Combiner initialized as an empty, new Accumulator.
-    pub fn new(
-        key: Box<[Extractor]>,
-        schema: Option<url::Url>,
-        spill: std::fs::File,
-        validator: Validator,
-    ) -> Result<Self, Error> {
-        Ok(Self::Accumulator(Accumulator::new(
-            key, schema, spill, validator,
-        )?))
+    pub fn new(spec: Spec, spill: std::fs::File) -> Result<Self, Error> {
+        Ok(Self::Accumulator(Accumulator::new(spec, spill)?))
     }
 }
-
-// Bit flags set on HeapDoc::flags to mark combiner processing status.
-// A the moment there's just one: a bit that indicates the document
-// is fully reduced, and not merely right-combined.
-const FLAG_REDUCED: u8 = 1;
 
 // Smash two documents together.
 fn smash<'alloc>(
     alloc: &'alloc bumpalo::Bump,
     lhs_doc: LazyNode<'alloc, '_, ArchivedNode>,
-    lhs_flags: u8,
+    lhs_reduced: bool,
     rhs_doc: LazyNode<'alloc, '_, ArchivedNode>,
-    rhs_flags: u8,
+    rhs_reduced: bool,
     schema: Option<&url::Url>,
     validator: &mut Validator,
-) -> Result<HeapDoc<'alloc>, Error> {
-    match (
-        lhs_doc,
-        lhs_flags & FLAG_REDUCED != 0,
-        rhs_doc,
-        rhs_flags & FLAG_REDUCED != 0,
-    ) {
+) -> Result<(HeapNode<'alloc>, bool), Error> {
+    match (lhs_doc, lhs_reduced, rhs_doc, rhs_reduced) {
         // `rhs_doc` is being combined into `lhs_doc`, which may or may not be fully reduced.
         (lhs, lhs_reduced, rhs, false) => {
             let rhs_valid = rhs
@@ -201,11 +223,11 @@ fn smash<'alloc>(
                 .map_err(Error::SchemaError)?
                 .map_err(Error::FailedValidation)?;
 
-            Ok(HeapDoc {
-                root: reduce::reduce(lhs, rhs, rhs_valid, &alloc, lhs_reduced)
+            Ok((
+                reduce::reduce(lhs, rhs, rhs_valid, &alloc, lhs_reduced)
                     .map_err(Error::Reduction)?,
-                flags: if lhs_reduced { FLAG_REDUCED } else { 0 },
-            })
+                lhs_reduced,
+            ))
         }
         // `rhs_doc` is actually a fully-reduced LHS, which is reduced with `lhs_doc`.
         (rhs, false, lhs, true) => {
@@ -214,16 +236,20 @@ fn smash<'alloc>(
                 .map_err(Error::SchemaError)?
                 .map_err(Error::FailedValidation)?;
 
-            Ok(HeapDoc {
-                root: reduce::reduce(lhs, rhs, rhs_valid, &alloc, true)
-                    .map_err(Error::Reduction)?,
-                flags: FLAG_REDUCED,
-            })
+            Ok((
+                reduce::reduce(lhs, rhs, rhs_valid, &alloc, true).map_err(Error::Reduction)?,
+                true,
+            ))
         }
         (_lhs, true, rhs, true) => {
             return Err(Error::AlreadyFullyReduced(serde_json::to_value(&rhs).unwrap()).into())
         }
     }
+}
+
+// The number of used bytes within a Bump allocator.
+fn bump_mem_used(alloc: &bumpalo::Bump) -> usize {
+    alloc.allocated_bytes() - alloc.chunk_capacity()
 }
 
 // The bump-allocator threshold after which we'll spill a MemTable to a SpillWriter.
@@ -238,7 +264,7 @@ fn smash<'alloc>(
 //
 // There may be hypothetical use cases that benefit from more in-memory reduction.
 // At the moment, I suspect this would still be pretty marginal.
-const SPILL_THRESHOLD: usize = 8 * (1 << 28) / 10; // 80% of 256MB.
+const BUMP_THRESHOLD: usize = 1 << 28; // 256MB.
 
 // The chunk target determines the amortization of archiving and
 // compressing documents. We want chunks to be:

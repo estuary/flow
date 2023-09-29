@@ -314,7 +314,7 @@ rust-musl-test:
 .PHONY: go-test-fast
 go-test-fast: $(GO_BUILD_DEPS) | ${PKGDIR}/bin/deno ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 	PATH=${PKGDIR}/bin:$$PATH ;\
-	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" ./go/...
+	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --count=1 ./go/...
 
 .PHONY: go-test-ci
 go-test-ci:

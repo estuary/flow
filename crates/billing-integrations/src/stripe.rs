@@ -389,7 +389,7 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                 where ((
                     date_start >= date_trunc('day', $1::date)
                     and date_end <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
-                    and invoice_type = 'usage'
+                    and invoice_type = 'final'
                 ) or (
                     invoice_type = 'manual'
                 ))
@@ -416,7 +416,7 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
                 where (
                     date_start >= date_trunc('day', $1::date)
                     and date_end <= date_trunc('day', ($1::date)) + interval '1 month' - interval '1 day'
-                    and invoice_type = 'usage'
+                    and invoice_type = 'final'
                 ) or (
                     invoice_type = 'manual'
                 )
