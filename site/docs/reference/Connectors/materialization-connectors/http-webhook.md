@@ -33,14 +33,14 @@ The Webhooks connector is available for use in the Flow web application. To lear
 
 ```yaml
 bindings:
-- source: TestSamagra/attendance-1/attendance
+- source: ProductionData/orders/orderDetails
   resource:
     relativePath: webhook/estuary
 endpoint:
   connector:
     image: ghcr.io/estuary/materialize-webhook:v1
     config:
-      address: http://64.227.184.175:3000/
+      address: http://192.168.1.100:3000/
       method: POST
       headers:
         Content-Type: application/json
