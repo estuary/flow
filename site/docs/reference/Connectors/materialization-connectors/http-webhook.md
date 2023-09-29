@@ -16,7 +16,7 @@ The Webhooks connector is available for use in the Flow web application. To lear
 
 ## Properties
 
-### Connection Details
+### Endpoint
 
 | Property              | Title         | Description                                         | Type   | Required/Default       |
 |-----------------------|---------------|-----------------------------------------------------|--------|------------------------|
