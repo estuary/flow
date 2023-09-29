@@ -51,7 +51,7 @@ materializations:
           path: /data
           method: POST
         target: ${PREFIX}/webhook_target
-    ```
+```
 
 ## Timeout and Notifications
 
