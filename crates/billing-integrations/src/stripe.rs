@@ -142,6 +142,13 @@ impl Invoice {
             }
         }
 
+        // The minimum chargable amount of USD in Stripe is $0.50.
+        // https://stripe.com/docs/currencies#minimum-and-maximum-charge-amounts
+        if self.subtotal < 50 {
+            tracing::info!("Skipping invoice for less than the minimum chargable amount ($0.50)");
+            return Ok(());
+        }
+
         // Anything before 12:00:00 renders as the previous day in Stripe
         let date_start_secs = self
             .date_start
@@ -219,7 +226,7 @@ impl Invoice {
                     Some(invoice)
                 }
                 Some(stripe::InvoiceStatus::Open) => {
-                    bail!("Found finalized invoice {id}. Pass --recreate-finalized to delete and recreate this invoice.", id = invoice.id.to_string())
+                    bail!("Found open invoice {id}. Pass --recreate-finalized to delete and recreate this invoice.", id = invoice.id.to_string())
                 }
                 Some(status) => {
                     bail!(
@@ -243,47 +250,45 @@ impl Invoice {
             Some(inv) => inv,
             None => {
                 let invoice = stripe::Invoice::create(
-            client,
-            stripe::CreateInvoice {
-                customer: Some(customer.id.to_owned()),
-                // Stripe timestamps are measured in _seconds_ since epoch
-                // Due date must be in the future
-                due_date: if date_end_secs > timestamp_now { Some(date_end_secs) } else {Some(timestamp_now + 10)},
-                description: Some(
-                    format!(
-                        "Your Flow bill for the billing preiod between {date_start_human} - {date_end_human}"
-                    )
-                    .as_str(),
-                ),
-                collection_method: Some(stripe::CollectionMethod::SendInvoice),
-                auto_advance: Some(false),
-                custom_fields: Some(vec![
-                    stripe::CreateInvoiceCustomFields {
-                        name: "Billing Period Start".to_string(),
-                        value: date_start_human.to_owned(),
+                    client,
+                    stripe::CreateInvoice {
+                        customer: Some(customer.id.to_owned()),
+                        // Stripe timestamps are measured in _seconds_ since epoch
+                        // Due date must be in the future
+                        due_date: if date_end_secs > timestamp_now { Some(date_end_secs) } else {Some(timestamp_now + 10)},
+                        description: Some(
+                            format!(
+                                "Your Flow bill for the billing preiod between {date_start_human} - {date_end_human}"
+                            )
+                            .as_str(),
+                        ),
+                        collection_method: Some(stripe::CollectionMethod::SendInvoice),
+                        auto_advance: Some(false),
+                        custom_fields: Some(vec![
+                            stripe::CreateInvoiceCustomFields {
+                                name: "Billing Period Start".to_string(),
+                                value: date_start_human.to_owned(),
+                            },
+                            stripe::CreateInvoiceCustomFields {
+                                name: "Billing Period End".to_string(),
+                                value: date_end_human.to_owned(),
+                            },
+                            stripe::CreateInvoiceCustomFields {
+                                name: "Tenant".to_string(),
+                                value: self.billed_prefix.to_owned(),
+                            },
+                        ]),
+                        metadata: Some(HashMap::from([
+                            (TENANT_METADATA_KEY.to_string(), self.billed_prefix.to_owned()),
+                            (INVOICE_TYPE_KEY.to_string(), invoice_type_str.to_owned()),
+                            (BILLING_PERIOD_START_KEY.to_string(), date_start_repr),
+                            (BILLING_PERIOD_END_KEY.to_string(), date_end_repr)
+                        ])),
+                        ..Default::default()
                     },
-                    stripe::CreateInvoiceCustomFields {
-                        name: "Billing Period End".to_string(),
-                        value: date_end_human.to_owned(),
-                    },
-                    stripe::CreateInvoiceCustomFields {
-                        name: "Tenant".to_string(),
-                        value: self.billed_prefix.to_owned(),
-                    },
-                ]),
-                metadata: Some(HashMap::from([
-                    (TENANT_METADATA_KEY.to_string(), self.billed_prefix.to_owned()),
-                    (INVOICE_TYPE_KEY.to_string(), invoice_type_str.to_owned()),
-                    (BILLING_PERIOD_START_KEY.to_string(), date_start_repr),
-                    (BILLING_PERIOD_END_KEY.to_string(), date_end_repr)
-                ])),
-                ..Default::default()
-            },
-        )
-        .await.context("Creating a new invoice")?;
-
+                )
+                .await.context("Creating a new invoice")?;
                 tracing::debug!("Created a new invoice {id}", id = invoice.id);
-
                 invoice
             }
         };
