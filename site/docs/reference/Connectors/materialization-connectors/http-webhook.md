@@ -32,6 +32,8 @@ The Webhooks connector is available for use in the Flow web application. To lear
 |-----------------------|----------------|----------------------------------------|--------|------------------------|
 | **`/path`**    | Payload Path   | Path to extract the payload from the incoming data. | string | Required               |
 | **`/method`**         | HTTP Method    | HTTP method to use (`GET`, `POST`, `PUT`, `DELETE`). | string | Required (default: `POST`) |
+| **`/timeout`**        | Timeout       | Timeout for HTTP requests (in seconds).            | integer | |
+| **`/notificationUrl`**| Notification URL | URL to send notifications on success/failure.   | string |               |
 
 ## Sample
 
@@ -52,13 +54,6 @@ materializations:
           method: POST
         target: ${PREFIX}/webhook_target
 ```
-
-## Timeout and Notifications
-
-| Property              | Title         | Description                                         | Type   | Required/Default       |
-|-----------------------|---------------|-----------------------------------------------------|--------|------------------------|
-| **`/timeout`**        | Timeout       | Timeout for HTTP requests (in seconds).            | integer | |
-| **`/notificationUrl`**| Notification URL | URL to send notifications on success/failure.   | string |               |
 
 
 
