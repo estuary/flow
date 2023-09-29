@@ -7,7 +7,7 @@ This connector lets you materialize data from Estuary Flow directly to specified
 ## Prerequisites
 To use this materialization connector, you’ll need the following:
 
-- A server or service that can accept HTTP requests at the desired endpoint.
+- A server or service that can accept HTTP requests at the target endpoint.
 - The necessary authentication credentials. Authentication can be handled via `None`, `Basic`, or `OAuth`. For `Basic` authentication, you'll need a `username` and `password`. For `OAuth`, you'll need to provide `client_id` and `client_secret`.
 - At least one Flow collection.
 
