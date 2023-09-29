@@ -2,13 +2,12 @@
 
 This connector lets you materialize data from Estuary Flow directly to specified HTTP endpoints via webhooks.
 
-[`ghcr.io/estuary/materialize-webhook:dev`](https://ghcr.io/estuary/materialize-webhook:dev) provides the latest connector image. For earlier versions, please follow the link in your browser.
+[`ghcr.io/estuary/materialize-webhook:v1`](https://ghcr.io/estuary/materialize-webhook:v1) provides the latest connector image. For earlier versions, please follow the link in your browser.
 
 ## Prerequisites
 To use this materialization connector, you’ll need the following:
 
 - A server or service that can accept HTTP requests at the target endpoint.
-- The necessary authentication credentials. Authentication can be handled via `None`, `Basic`, or `OAuth`. For `Basic` authentication, you'll need a `username` and `password`. For `OAuth`, you'll need to provide `client_id` and `client_secret`.
 - At least one Flow collection.
 
 ## Configuration
@@ -18,42 +17,33 @@ The Webhooks connector is available for use in the Flow web application. To lear
 
 ### Endpoint
 
-| Property              | Title         | Description                                         | Type   | Required/Default       |
-|-----------------------|---------------|-----------------------------------------------------|--------|------------------------|
-| **`/endpointUrl`**    | Endpoint URL  | The URL of the endpoint to send data to.       | string | Required               |
-| **`/authType`**       | Authentication| The type of authentication to use. | string | Required |
-| **`/username`**       | Username      | Username for authentication.       | string |                |
-| **`/password`**       | Password      | Password for authentication.       | string |                |
-| **`/headers`**        | Headers       | Additional headers to include in the HTTP request. | object |                |
+| Property           | Title          | Description                              | Type   | Required/Default       |
+|--------------------|----------------|------------------------------------------|--------|------------------------|
+| **`/address`**     | Address        | The URL of the endpoint to send data to. | string | Required               |
+| **`/method`**      | HTTP Method    | HTTP method to use (e.g., `POST` or `PUT`). | string | default: `POST` |
+| **`/headers`**     | Headers        | Additional headers to include in the HTTP request. | object |               |
 
 ### Bindings
 
-| Property              | Title          | Description                            | Type   | Required/Default       |
-|-----------------------|----------------|----------------------------------------|--------|------------------------|
-| **`/path`**    | Payload Path   | Path to extract the payload from the incoming data. | string | Required               |
-| **`/method`**         | HTTP Method    | HTTP method to use (e.g., `POST` or `PUT`). | string | Required (default: `POST`) |
-| **`/timeout`**        | Timeout       | Timeout for HTTP requests (in seconds).            | integer | |
-| **`/notificationUrl`**| Notification URL | URL to send notifications on success/failure.   | string |               |
+| Property           | Title          | Description                                    | Type   | Required/Default       |
+|--------------------|----------------|------------------------------------------------|--------|------------------------|
+| **`/relativePath`**| Relative Path  | The relative path on the server where data will be sent. | string | Required               |
 
 ## Sample
 
 ```yaml
-materializations:
-  ${PREFIX}/${mat_name}:
-    endpoint:
-      connector:
-        image: ghcr.io/estuary/materialize-http-webhooks:dev
-        config:
-          endpointUrl: "http://webhook.endpoint.com"
-          authType: "Basic"
-          username: "user"
-          password: "password"
-    bindings:
-      - resource:
-          path: /data
-          method: POST
-        target: ${PREFIX}/webhook_target
+bindings:
+- source: TestSamagra/attendance-1/attendance
+  resource:
+    relativePath: webhook/estuary
+endpoint:
+  connector:
+    image: ghcr.io/estuary/materialize-webhook:v1
+    config:
+      address: http://64.227.184.175:3000/
+      method: POST
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer <your_token>
 ```
-
-
-
+```
