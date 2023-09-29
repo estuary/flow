@@ -23,8 +23,7 @@ having (
     count(distinct live_specs.id) filter (where live_specs.spec_type = 'capture') > 0 or
     count(distinct live_specs.id) filter (where live_specs.spec_type = 'materialization') > 0
   )
-)
-order by max_daily_usage_hours desc, max_monthly_usage_hours desc, max_monthly_gb desc;
+);
 
 create or replace function internal.set_new_free_trials()
 returns integer as $$
@@ -44,5 +43,12 @@ begin
     return update_count;
 end
 $$ language plpgsql volatile;
+
+create extension if not exists pg_cron with schema extensions;
+select cron.schedule(
+  'free-trials', -- name of the cron job
+  '0 05 * * *', -- Every day at 05:00Z
+  $$ select internal.set_new_free_trials() $$
+);
 
 commit;
