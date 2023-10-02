@@ -54,7 +54,12 @@ pub async fn do_discover(
 
     // Inline a clone of the capture spec for use with the discover RPC.
     let mut spec_clone = capture.spec.clone();
-    sources::inline_capture(&capture.scope, &mut spec_clone, &sources.resources);
+    sources::inline_capture(
+        &capture.scope,
+        &mut spec_clone,
+        &mut sources.imports,
+        &sources.resources,
+    );
 
     let discover = match &spec_clone.endpoint {
         models::CaptureEndpoint::Connector(config) => capture::request::Discover {
