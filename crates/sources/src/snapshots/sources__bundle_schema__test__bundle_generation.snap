@@ -63,6 +63,13 @@ testing/one:
   required:
     - int
   type: object
+testing/seven:
+  $id: "test://example/schema.Simple"
+  properties:
+    int:
+      type: integer
+    str:
+      type: string
 testing/six:
   $id: "test://external/ActualCanonicalURI"
   properties:

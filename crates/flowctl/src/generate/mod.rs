@@ -49,6 +49,7 @@ impl Generate {
         Ok(())
     }
 }
+
 // Generates stubs for all missing connector configuration files,
 // returning tuples of:
 // * The missing config file URL.
