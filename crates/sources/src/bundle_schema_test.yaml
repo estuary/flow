@@ -38,6 +38,10 @@ test://example/catalog.yaml:
       schema: test://example/NonCanonical
       key: [/int]
 
+    testing/seven:
+      schema: schema.Simple
+      key: [/int]
+
 test://example/schema.A:
   type: object
   properties:
@@ -52,7 +56,7 @@ test://example/schema.B:
   $defs:
     nested:
       properties:
-        something: {const: something}
+        something: { const: something }
 
 test://external/Canonical:
   $id: test://external/Canonical
@@ -68,3 +72,8 @@ test://example/NonCanonical:
   type: object
   properties:
     some: { const: stuff }
+
+test://example/schema.Simple:
+  properties:
+    int: { type: integer }
+    str: { type: string }

@@ -18,7 +18,16 @@ Sources {
     ],
     errors: [],
     fetches: [],
-    imports: [],
+    imports: [
+        Import {
+            scope: test://external/a#/$defs/a/$ref,
+            to_resource: test://external/b,
+        },
+        Import {
+            scope: test://external/b#/$defs/c/$ref,
+            to_resource: test://external/c,
+        },
+    ],
     materializations: [],
     resources: [],
     storage_mappings: [],
