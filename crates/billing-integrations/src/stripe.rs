@@ -254,11 +254,12 @@ impl Invoice {
                     stripe::CreateInvoice {
                         customer: Some(customer.id.to_owned()),
                         // Stripe timestamps are measured in _seconds_ since epoch
-                        // Due date must be in the future
-                        due_date: if date_end_secs > timestamp_now { Some(date_end_secs) } else {Some(timestamp_now + 10)},
+                        // Due date must be in the future. Bill net-30, so 30 days from today
+                        due_date: Some((Utc::now() + Duration::days(30)).timestamp()),
                         description: Some(
                             format!(
-                                "Your Flow bill for the billing preiod between {date_start_human} - {date_end_human}"
+                                "Your Flow bill for the billing preiod between {date_start_human} - {date_end_human}. Tenant: {tenant}",
+                                tenant=self.billed_prefix.to_owned()
                             )
                             .as_str(),
                         ),
