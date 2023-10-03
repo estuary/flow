@@ -1,5 +1,5 @@
 use anyhow::{bail, Context};
-use chrono::{ParseError, Utc};
+use chrono::{Duration, ParseError, Utc};
 use futures::{FutureExt, StreamExt, TryStreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{postgres::PgPoolOptions, types::chrono::NaiveDate, Pool};
@@ -76,11 +76,11 @@ async fn stripe_search<R: DeserializeOwned + 'static + Send>(
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Extra {
-    trial_start: Option<DateTime<Utc>>,
-    trial_credit: i64,
-    recurring_fee: i64,
-    task_usage_hours: f64,
-    processed_data_gb: f64,
+    trial_start: Option<NaiveDate>,
+    trial_credit: Option<i64>,
+    recurring_fee: Option<i64>,
+    task_usage_hours: Option<f64>,
+    processed_data_gb: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -118,9 +118,9 @@ impl Invoice {
                 let unwrapped_extra = extra.clone().0.expect(
                     "This is just a sqlx quirk, if the outer Option is Some then this will be Some",
                 );
-                if !(unwrapped_extra.recurring_fee > 0
-                    || unwrapped_extra.processed_data_gb > 0.0
-                    || unwrapped_extra.task_usage_hours > 0.0
+                if !(unwrapped_extra.recurring_fee.unwrap_or(0) > 0
+                    || unwrapped_extra.processed_data_gb.unwrap_or(0.0) > 0.0
+                    || unwrapped_extra.task_usage_hours.unwrap_or(0.0) > 0.0
                     || self.subtotal > 0)
                 {
                     tracing::debug!("Skipping invoice with no usage");
@@ -135,10 +135,18 @@ impl Invoice {
 
         // An invoice should be generated in Stripe if the tenant is on a paid plan, which means:
         // * The tenant has a free trial start date
+        // * The tenant's free trial start date is before the invoice period's end date
         if let InvoiceType::Final = self.invoice_type {
-            if let None = get_tenant_trial_date(&db_client, self.billed_prefix.to_owned()).await? {
-                tracing::info!("Skipping usage invoice for tenant in free tier");
-                return Ok(());
+            match get_tenant_trial_date(&db_client, self.billed_prefix.to_owned()).await? {
+                Some(trial_start) if self.date_end < trial_start => {
+                    tracing::info!("Skipping invoice ending before free trial start date");
+                    return Ok(());
+                }
+                None => {
+                    tracing::info!("Skipping usage invoice for tenant in free tier");
+                    return Ok(());
+                }
+                _ => {}
             }
         }
 
@@ -166,8 +174,6 @@ impl Invoice {
             .single()
             .expect("Error manipulating date")
             .timestamp();
-
-        let timestamp_now = Utc::now().timestamp();
 
         let date_start_human = self.date_start.format("%B %d %Y").to_string();
         let date_end_human = self.date_end.format("%B %d %Y").to_string();
@@ -273,10 +279,6 @@ impl Invoice {
                             stripe::CreateInvoiceCustomFields {
                                 name: "Billing Period End".to_string(),
                                 value: date_end_human.to_owned(),
-                            },
-                            stripe::CreateInvoiceCustomFields {
-                                name: "Tenant".to_string(),
-                                value: self.billed_prefix.to_owned(),
                             },
                         ]),
                         metadata: Some(HashMap::from([
