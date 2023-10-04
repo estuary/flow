@@ -23,7 +23,7 @@ Select one or more of your Flow collections to start using this connector. The c
 | **`/database`**         | Database           | Name of the logical database to send data to.  | string | Required               |
 | **`/user`**         | User           | Username for authentication.               | string | Required               |
 | **`/password`**         | Password           | Password for authentication.               | string | Required               |
-| `/timezone`                 | Timezone               | Timezone to use when materializing datetime columns. Should normally be left blank to use the database's 'time_zone' system variable. Only required if the 'time_zone' system variable cannot be read.  | string |                  |
+| **`/timezone`**                 | Timezone               | Timezone to use when materializing datetime columns. Should normally be left blank to use the database's 'time_zone' system variable. Only required if the 'time_zone' system variable cannot be read.  | string |                  |
 
 ### Advanced: SSL Mode
 Configuring the SSL mode strengthens security when transferring data to Oracle MySQL HeatWave. Here are the possible values for SSL mode:
