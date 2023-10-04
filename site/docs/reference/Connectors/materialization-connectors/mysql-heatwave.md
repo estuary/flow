@@ -61,7 +61,7 @@ materializations:
         source: ${PREFIX}/${COLLECTION_NAME}
 ```
 
-## Oracle MySQL HeatWave on Managed Cloud Platforms
+## MySQL HeatWave on Managed Cloud Platforms
 
 This connector supports cloud-based MySQL HeatWave instances. For secure connections, it's highly recommended to use an SSH tunnel.
 
