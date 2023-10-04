@@ -264,7 +264,7 @@ impl Invoice {
                         due_date: Some((Utc::now() + Duration::days(30)).timestamp()),
                         description: Some(
                             format!(
-                                "Your Flow bill for the billing preiod between {date_start_human} - {date_end_human}. Tenant: {tenant}",
+                                "Your Flow bill for the billing period between {date_start_human} - {date_end_human}. Tenant: {tenant}",
                                 tenant=self.billed_prefix.to_owned()
                             )
                             .as_str(),
