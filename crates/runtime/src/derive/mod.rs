@@ -13,14 +13,12 @@ mod image;
 mod local;
 mod rocksdb;
 
-pub type BoxStream = futures::stream::BoxStream<'static, tonic::Result<Response>>;
-
 #[tonic::async_trait]
 impl<H> proto_grpc::derive::connector_server::Connector for Runtime<H>
 where
     H: Fn(&ops::Log) + Send + Sync + Clone + 'static,
 {
-    type DeriveStream = BoxStream;
+    type DeriveStream = futures::stream::BoxStream<'static, tonic::Result<Response>>;
 
     async fn derive(
         &self,
@@ -31,9 +29,17 @@ where
             .get::<tonic::transport::server::UdsConnectInfo>();
         tracing::debug!(?request, ?conn_info, "started derive request");
 
-        let response_rx = self.clone().serve_derive(request.into_inner()).await?;
+        let request_rx = crate::stream_status_to_error(request.into_inner());
 
-        Ok(tonic::Response::new(response_rx))
+        let response_rx = self
+            .clone()
+            .serve_derive(request_rx)
+            .await
+            .map_err(crate::anyhow_to_status)?;
+
+        Ok(tonic::Response::new(
+            crate::stream_error_to_status(response_rx).boxed(),
+        ))
     }
 }
 
@@ -41,15 +47,18 @@ impl<H> Runtime<H>
 where
     H: Fn(&ops::Log) + Send + Sync + Clone + 'static,
 {
-    pub async fn serve_derive<In>(self, request_rx: In) -> tonic::Result<BoxStream>
+    pub async fn serve_derive<In>(
+        self,
+        request_rx: In,
+    ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Response>> + Send>
     where
-        In: futures::Stream<Item = tonic::Result<Request>> + Send + Unpin + 'static,
+        In: Stream<Item = anyhow::Result<Request>> + Send + Unpin + 'static,
     {
         let mut request_rx = request_rx.peekable();
 
         let mut peek_request = match Pin::new(&mut request_rx).peek().await {
             Some(Ok(peek)) => peek.clone(),
-            Some(Err(status)) => return Err(status.clone()),
+            Some(Err(_status)) => return Err(request_rx.try_next().await.unwrap_err()),
             None => return Ok(futures::stream::empty().boxed()),
         };
         let (endpoint, _) = extract_endpoint(&mut peek_request).map_err(crate::anyhow_to_status)?;
@@ -98,16 +107,16 @@ where
                 );
 
                 // Response interceptor for stateful RocksDB storage.
-                let response_rx = rocks_back.adapt_responses(response_rx);
+                let response_rx = rocksdb::adapt_responses(rocks_back, response_rx);
                 // Response interceptor for combining over documents.
-                let response_rx = combine_back.adapt_responses(response_rx);
+                let response_rx = combine::adapt_responses(combine_back, response_rx);
 
                 response_rx.boxed()
             }
             models::DeriveUsing::Local(_) if !self.allow_local => {
-                return Err(tonic::Status::failed_precondition(
+                Err(tonic::Status::failed_precondition(
                     "Local connectors are not permitted in this context",
-                ))
+                ))?
             }
             models::DeriveUsing::Local(_) => {
                 // Request interceptor for stateful RocksDB storage.
@@ -118,9 +127,9 @@ where
                 let response_rx = local::connector(self.log_handler, request_rx);
 
                 // Response interceptor for stateful RocksDB storage.
-                let response_rx = rocks_back.adapt_responses(response_rx);
+                let response_rx = rocksdb::adapt_responses(rocks_back, response_rx);
                 // Response interceptor for combining over documents.
-                let response_rx = combine_back.adapt_responses(response_rx);
+                let response_rx = combine::adapt_responses(combine_back, response_rx);
 
                 response_rx.boxed()
             }
@@ -129,7 +138,7 @@ where
                 let response_rx = ::derive_sqlite::connector(&peek_request, request_rx)?;
 
                 // Response interceptor for combining over documents.
-                let response_rx = combine_back.adapt_responses(response_rx);
+                let response_rx = combine::adapt_responses(combine_back, response_rx);
 
                 response_rx.boxed()
             }
@@ -143,12 +152,18 @@ where
 fn adjust_log_level<R>(
     request_rx: R,
     set_log_level: Option<Arc<dyn Fn(ops::log::Level) + Send + Sync>>,
-) -> impl Stream<Item = tonic::Result<Request>>
+) -> impl Stream<Item = anyhow::Result<Request>>
 where
-    R: Stream<Item = tonic::Result<Request>> + Send + 'static,
+    R: Stream<Item = anyhow::Result<Request>> + Send + 'static,
 {
     request_rx.inspect_ok(move |request| {
-        let Ok(DeriveRequestExt{labels: Some(ops::ShardLabeling { log_level, .. }), ..}) = request.get_internal() else { return };
+        let Ok(DeriveRequestExt {
+            labels: Some(ops::ShardLabeling { log_level, .. }),
+            ..
+        }) = request.get_internal()
+        else {
+            return;
+        };
 
         if let (Some(log_level), Some(set_log_level)) =
             (ops::log::Level::from_i32(log_level), &set_log_level)

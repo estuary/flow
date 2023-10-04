@@ -13,9 +13,9 @@ use proto_flow::{
 pub fn connector<R>(
     _peek_request: &Request,
     request_rx: R,
-) -> tonic::Result<impl Stream<Item = tonic::Result<Response>>>
+) -> anyhow::Result<impl Stream<Item = anyhow::Result<Response>>>
 where
-    R: futures::stream::Stream<Item = tonic::Result<Request>> + Send + Unpin + 'static,
+    R: futures::stream::Stream<Item = anyhow::Result<Request>> + Send + 'static,
 {
     let (mut response_tx, response_rx) = mpsc::channel(16);
 
@@ -32,11 +32,12 @@ where
 
 async fn serve<R>(
     mut request_rx: R,
-    response_tx: &mut mpsc::Sender<tonic::Result<Response>>,
-) -> tonic::Result<()>
+    response_tx: &mut mpsc::Sender<anyhow::Result<Response>>,
+) -> anyhow::Result<()>
 where
-    R: futures::stream::Stream<Item = tonic::Result<Request>> + Send + Unpin + 'static,
+    R: futures::stream::Stream<Item = anyhow::Result<Request>>,
 {
+    let mut request_rx = std::pin::pin!(request_rx);
     let tokio_handle = tokio::runtime::Handle::current();
     // Configured migration blocks of the last Request.Open.
     let mut migrations: Vec<String> = Vec::new();
@@ -144,11 +145,9 @@ where
                     Handle::new(":memory:", &migrations, &transforms).map_err(anyhow_to_status)?;
                 maybe_handle = Some(db);
             }
-            Some(malformed) => {
-                return Err(tonic::Status::invalid_argument(format!(
-                    "invalid request {malformed:?}"
-                )))
-            }
+            Some(malformed) => Err(tonic::Status::invalid_argument(format!(
+                "invalid request {malformed:?}"
+            )))?,
         }
     }
 }
@@ -228,7 +227,7 @@ fn parse_open(
 fn do_read<'db>(
     transforms: &mut [(String, Vec<Lambda<'db>>)],
     read: request::Read,
-    response_tx: &mut mpsc::Sender<tonic::Result<Response>>,
+    response_tx: &mut mpsc::Sender<anyhow::Result<Response>>,
     tokio_handle: &tokio::runtime::Handle,
 ) -> anyhow::Result<()> {
     let request::Read {
@@ -257,10 +256,10 @@ fn do_read<'db>(
                 }),
                 ..Default::default()
             })),
-            Err(err) => Ok(Err(tonic::Status::internal(format!(
+            Err(err) => Ok(Err(anyhow::anyhow!(
                 "failed to invoke transform {transform:?} lambda statement at offset {index}: {err}\nDocument was {}",
                 serde_json::to_string_pretty(&doc).unwrap()
-            )))),
+            ))),
         });
 
         _ = tokio_handle.block_on(response_tx.send_all(&mut futures::stream::iter(it)));
@@ -312,7 +311,7 @@ impl Drop for Handle {
         // Take ownership of the boxed Connection to drop it.
         let db: *const _ = self.conn as *const _;
         let db: *mut _ = db as *mut rusqlite::Connection;
-        unsafe { Box::from_raw(db) };
+        _ = unsafe { Box::from_raw(db) };
     }
 }
 

@@ -1,3 +1,4 @@
+use futures::TryStreamExt;
 use std::sync::Arc;
 
 mod capture;
@@ -27,6 +28,21 @@ pub const CHANNEL_BUFFER: usize = 8;
 
 fn anyhow_to_status(err: anyhow::Error) -> tonic::Status {
     tonic::Status::internal(format!("{err:?}"))
+}
+
+fn stream_error_to_status<T, S: futures::Stream<Item = anyhow::Result<T>>>(
+    s: S,
+) -> impl futures::Stream<Item = tonic::Result<T>> {
+    s.map_err(|err: anyhow::Error| match err.downcast::<tonic::Status>() {
+        Ok(status) => status,
+        Err(err) => anyhow_to_status(err),
+    })
+}
+
+fn stream_status_to_error<T, S: futures::Stream<Item = tonic::Result<T>>>(
+    s: S,
+) -> impl futures::Stream<Item = anyhow::Result<T>> {
+    s.map_err(anyhow::Error::new)
 }
 
 /// Runtime implements the various services that constitute the Flow Runtime.
