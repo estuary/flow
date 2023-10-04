@@ -1,193 +1,148 @@
-use crate::anyhow_to_status;
 use anyhow::Context;
-use futures::{channel::mpsc, Stream, StreamExt};
+use futures::SinkExt;
+use futures::{channel::mpsc, Stream, StreamExt, TryStreamExt};
 use prost::Message;
 use proto_flow::derive::{request, Request, Response};
 use proto_flow::flow;
-use proto_flow::runtime::{derive_response_ext, DeriveRequestExt, RocksDbDescriptor};
+use proto_flow::runtime::{derive_response_ext, RocksDbDescriptor};
 use proto_gazette::consumer::Checkpoint;
 use std::sync::Arc;
 
 pub fn adapt_requests<R>(
     peek_request: &Request,
     request_rx: R,
-) -> anyhow::Result<(impl Stream<Item = tonic::Result<Request>>, Backward)>
+) -> anyhow::Result<(impl Stream<Item = anyhow::Result<Request>>, ResponseArgs)>
 where
-    R: Stream<Item = tonic::Result<Request>> + Send + 'static,
+    R: Stream<Item = anyhow::Result<Request>>,
 {
-    let db: Arc<RocksDB> = match peek_request {
-        Request {
-            open: Some(_open),
-            internal,
-            ..
-        } if !internal.is_empty() => {
-            let DeriveRequestExt { open, .. } =
-                Message::decode(internal.clone()).context("internal is a DeriveRequestExt")?;
+    // Open RocksDB based on the request::Open internal descriptor.
+    let db = Arc::new(RocksDB::open(
+        peek_request
+            .get_internal()?
+            .open
+            .and_then(|o| o.rocksdb_descriptor),
+    )?);
+    let response_db = db.clone();
 
-            RocksDB::open(open.and_then(|open| open.rocksdb_descriptor))?
+    // Channel for passing a StartCommit checkpoint to the response stream.
+    let (mut start_commit_tx, start_commit_rx) = mpsc::channel(1);
+
+    let request_rx = coroutines::try_coroutine(move |mut co| async move {
+        let mut request_rx = std::pin::pin!(request_rx);
+
+        while let Some(mut request) = request_rx.try_next().await? {
+            if let Some(open) = &mut request.open {
+                // If found, decode and attach to `open`.
+                if let Some(state) = db.load_connector_state()? {
+                    open.state_json = state.to_string();
+                    tracing::debug!(state=%open.state_json, "loaded and attached a persisted connector Open.state_json");
+                } else {
+                    tracing::debug!("no previously-persisted connector state was found");
+                }
+            } else if let Some(start_commit) = &request.start_commit {
+                // Notify response loop of a pending StartCommit checkpoint.
+                start_commit_tx
+                    .feed(start_commit.clone())
+                    .await
+                    .context("failed to send request::StartCommit to response stream")?;
+            }
+
+            co.yield_(request).await;
         }
-        _ => RocksDB::open(None)?,
-    }
-    .into();
+        Ok(())
+    });
 
-    let (start_commit_tx, start_commit_rx) = mpsc::channel(1);
-
-    let mut fwd = Forward {
-        start_commit_tx,
-        db: db.clone(),
-    };
-    let back = Backward {
-        start_commit_rx,
-        db,
-    };
-
-    Ok((request_rx.map(move |request| fwd.on_request(request)), back))
+    Ok((
+        request_rx,
+        ResponseArgs {
+            start_commit_rx,
+            db: response_db,
+        },
+    ))
 }
 
-struct Forward {
-    start_commit_tx: mpsc::Sender<request::StartCommit>,
-    db: Arc<RocksDB>,
-}
-pub struct Backward {
+pub struct ResponseArgs {
     start_commit_rx: mpsc::Receiver<request::StartCommit>,
     db: Arc<RocksDB>,
 }
 
-impl Forward {
-    fn on_request(&mut self, request: tonic::Result<Request>) -> tonic::Result<Request> {
-        let request = request?;
+pub fn adapt_responses<R>(
+    args: ResponseArgs,
+    response_rx: R,
+) -> impl Stream<Item = anyhow::Result<Response>>
+where
+    R: Stream<Item = anyhow::Result<Response>>,
+{
+    let ResponseArgs {
+        mut start_commit_rx,
+        db,
+    } = args;
 
-        if let Request {
-            open: Some(mut open),
-            internal,
-            ..
-        } = request
-        {
-            // If found, decode and attach to `open`.
-            if let Some(state) = self.db.load_connector_state().map_err(anyhow_to_status)? {
-                open.state_json = state.to_string();
-                tracing::debug!(state=%open.state_json, "loaded and attached a persisted connector Open.state_json");
-            } else {
-                tracing::debug!("no previously-persisted connector state was found");
-            }
+    coroutines::try_coroutine(move |mut co| async move {
+        let mut response_rx = std::pin::pin!(response_rx);
 
-            return Ok(Request {
-                open: Some(open),
-                internal,
-                ..Default::default()
-            });
-        }
+        while let Some(mut response) = response_rx.try_next().await? {
+            if let Some(_opened) = &response.opened {
+                // Load and attach the last consumer checkpoint.
+                let runtime_checkpoint = db
+                    .load_checkpoint()
+                    .context("failed to load runtime checkpoint from RocksDB")?;
 
-        if let Request {
-            start_commit: Some(start_commit),
-            ..
-        } = &request
-        {
-            // Notify backwards loop of a pending StartCommit checkpoint.
-            let () = self
-                .start_commit_tx
-                .try_send(start_commit.clone())
-                .context("saw second StartCommit request before prior StartedCommit has been read")
-                .map_err(anyhow_to_status)?;
-        }
+                tracing::debug!(
+                    ?runtime_checkpoint,
+                    "loaded and attached a persisted OpenedExt.runtime_checkpoint",
+                );
 
-        Ok(request)
-    }
-}
-
-impl Backward {
-    pub fn adapt_responses<R>(
-        mut self,
-        inner_response_rx: R,
-    ) -> impl Stream<Item = tonic::Result<Response>>
-    where
-        R: Stream<Item = tonic::Result<Response>> + Send + 'static,
-    {
-        inner_response_rx.map(move |response| self.on_response(response))
-    }
-
-    fn on_response(&mut self, response: tonic::Result<Response>) -> tonic::Result<Response> {
-        let mut response = response?;
-
-        if let Response {
-            opened: Some(_), ..
-        } = &response
-        {
-            // Load and attach the last consumer checkpoint.
-            let runtime_checkpoint = self
-                .db
-                .load_checkpoint()
-                .context("failed to load runtime checkpoint from RocksDB")
-                .map_err(anyhow_to_status)?;
-
-            tracing::debug!(
-                ?runtime_checkpoint,
-                "loaded and attached a persisted OpenedExt.runtime_checkpoint",
-            );
-
-            response.set_internal(|internal| {
-                internal.opened = Some(derive_response_ext::Opened {
-                    runtime_checkpoint: Some(runtime_checkpoint),
+                response.set_internal(|internal| {
+                    internal.opened = Some(derive_response_ext::Opened {
+                        runtime_checkpoint: Some(runtime_checkpoint),
+                    });
                 });
-            });
-        }
+            } else if let Some(started_commit) = &response.started_commit {
+                let mut batch = rocksdb::WriteBatch::default();
 
-        if let Response {
-            started_commit: Some(started_commit),
-            ..
-        } = &response
-        {
-            let mut batch = rocksdb::WriteBatch::default();
+                let start_commit = start_commit_rx
+                    .next()
+                    .await
+                    .context("failed to receive request::StartCommit from request loop")?;
 
-            let start_commit = self
-                .start_commit_rx
-                .try_next()
-                .context("saw StartedCommit without a preceding StartCommit")
-                .map_err(anyhow_to_status)?
-                .ok_or_else(|| tonic::Status::cancelled("start_commit_rx dropped"))?;
+                let runtime_checkpoint = start_commit
+                    .runtime_checkpoint
+                    .context("StartCommit without runtime checkpoint")?;
 
-            let runtime_checkpoint = start_commit
-                .runtime_checkpoint
-                .context("StartCommit without runtime checkpoint")
-                .map_err(anyhow_to_status)?;
+                tracing::debug!(
+                    ?runtime_checkpoint,
+                    "persisting StartCommit.runtime_checkpoint",
+                );
+                batch.put(RocksDB::CHECKPOINT_KEY, &runtime_checkpoint.encode_to_vec());
 
-            tracing::debug!(
-                ?runtime_checkpoint,
-                "persisting StartCommit.runtime_checkpoint",
-            );
-            batch.put(RocksDB::CHECKPOINT_KEY, &runtime_checkpoint.encode_to_vec());
+                // And add the connector checkpoint.
+                if let Some(flow::ConnectorState {
+                    merge_patch,
+                    updated_json,
+                }) = &started_commit.state
+                {
+                    let mut updated: serde_json::Value = serde_json::from_str(updated_json)
+                        .context("failed to decode connector state as JSON")?;
 
-            // And add the connector checkpoint.
-            if let Some(flow::ConnectorState {
-                merge_patch,
-                updated_json,
-            }) = &started_commit.state
-            {
-                let mut updated: serde_json::Value = serde_json::from_str(updated_json)
-                    .context("failed to decode connector state as JSON")
-                    .map_err(anyhow_to_status)?;
-
-                if *merge_patch {
-                    if let Some(mut previous) =
-                        self.db.load_connector_state().map_err(anyhow_to_status)?
-                    {
-                        json_patch::merge(&mut previous, &updated);
-                        updated = previous;
+                    if *merge_patch {
+                        if let Some(mut previous) = db.load_connector_state()? {
+                            json_patch::merge(&mut previous, &updated);
+                            updated = previous;
+                        }
                     }
+
+                    tracing::debug!(%updated, %merge_patch, "persisting an updated StartedCommit.state");
+                    batch.put(RocksDB::CONNECTOR_STATE_KEY, &updated.to_string());
                 }
 
-                tracing::debug!(%updated, %merge_patch, "persisting an updated StartedCommit.state");
-                batch.put(RocksDB::CONNECTOR_STATE_KEY, &updated.to_string());
+                db.write(batch)
+                    .context("failed to write atomic RocksDB commit")?;
             }
-
-            self.db
-                .write(batch)
-                .context("failed to write atomic RocksDB commit")
-                .map_err(anyhow_to_status)?;
+            co.yield_(response).await;
         }
-
-        Ok(response)
-    }
+        Ok(())
+    })
 }
 
 struct RocksDB {
