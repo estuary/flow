@@ -40,9 +40,9 @@ expression: schema
         }
       ]
     },
-    "defaultTimezone": {
-      "description": "The default timezone to use when parsing timestamps that do not have a timezone. Timezones must be specified as a valid IANA name. Defaults to UTC.",
-      "default": "UTC",
+    "defaultOffset": {
+      "description": "The default timezone to use when parsing timestamps that do not have a timezone. Timezones must be specified as an +/-HH:MM offset, defaults to +00:00.",
+      "default": "+00:00",
       "type": "string"
     },
     "format": {
