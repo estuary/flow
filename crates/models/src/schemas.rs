@@ -117,9 +117,27 @@ impl Schema {
 
         // Add a definition for the inferred schema if it's referenced.
         if read_bundle.references_inferred_schema() {
-            let mut inferred_schema: Skim = inferred_bundle
-                .map(|s| serde_json::from_str(s.get()).unwrap())
-                .unwrap_or(Skim::new()); // Default to the "anything" schema {}.
+            // Prefer the actual inferred schema, or fall back to a sentinel schema
+            // which allows for validations but fails on the first document.
+            let inferred_bundle = inferred_bundle.map(|s| s.get()).unwrap_or(
+                r###"
+            {
+                "properties": {
+                    "_meta": {
+                        "properties": {
+                            "inferredSchemaIsNotAvailable": {
+                                "const": true,
+                                "description": "An inferred schema is not yet available because no documents have been written to this collection.\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready."
+                            }
+                        },
+                        "required": ["inferredSchemaIsNotAvailable"]
+                    }
+                },
+                "required": ["_meta"]
+            }
+            "###,
+            );
+            let mut inferred_schema: Skim = serde_json::from_str(inferred_bundle).unwrap();
 
             // Set $id to "flow://inferred-schema".
             _ = inferred_schema.insert(
@@ -213,48 +231,89 @@ mod test {
             "minProperties": 5,
         })));
 
-        assert_eq!(
-            Schema::extend_read_bundle(&read_schema, &write_schema, Some(&inferred_schema))
-                .to_value(),
-            json!({
-                "$defs": {
-                    "existing://def": {"type": "array"}, // Left alone.
-                    "flow://write-schema": { "$id": "flow://write-schema", "required": ["a_key"] },
-                    "flow://inferred-schema": { "$id": "flow://inferred-schema", "minProperties": 5 },
-                },
-                "maxProperties": 10,
-                "allOf": [
-                    {"$ref": "flow://inferred-schema"},
-                    {"$ref": "flow://write-schema"},
-                ]
-            })
-        );
+        insta::assert_json_snapshot!(Schema::extend_read_bundle(&read_schema, &write_schema, Some(&inferred_schema)).to_value(), @r###"
+        {
+          "$defs": {
+            "existing://def": {
+              "type": "array"
+            },
+            "flow://inferred-schema": {
+              "$id": "flow://inferred-schema",
+              "minProperties": 5
+            },
+            "flow://write-schema": {
+              "$id": "flow://write-schema",
+              "required": [
+                "a_key"
+              ]
+            }
+          },
+          "allOf": [
+            {
+              "$ref": "flow://inferred-schema"
+            },
+            {
+              "$ref": "flow://write-schema"
+            }
+          ],
+          "maxProperties": 10
+        }
+        "###);
 
         // Case: no inferred schema is available.
-        assert_eq!(
-            Schema::extend_read_bundle(&read_schema, &write_schema, None).to_value(),
-            json!({
-                "$defs": {
-                    "existing://def": {"type": "array"}, // Left alone.
-                    "flow://write-schema": { "$id": "flow://write-schema", "required": ["a_key"] },
-                    "flow://inferred-schema": { "$id": "flow://inferred-schema" },
-                },
-                "maxProperties": 10,
-                "allOf": [
-                    {"$ref": "flow://inferred-schema"},
-                    {"$ref": "flow://write-schema"},
-                ]
-            })
-        );
+        insta::assert_json_snapshot!(Schema::extend_read_bundle(&read_schema, &write_schema, None).to_value(), @r###"
+        {
+          "$defs": {
+            "existing://def": {
+              "type": "array"
+            },
+            "flow://inferred-schema": {
+              "$id": "flow://inferred-schema",
+              "properties": {
+                "_meta": {
+                  "properties": {
+                    "inferredSchemaIsNotAvailable": {
+                      "const": true,
+                      "description": "An inferred schema is not yet available because no documents have been written to this collection.\nThis place-holder causes document validations to fail at read time, so that the task can be updated once an inferred schema is ready."
+                    }
+                  },
+                  "required": [
+                    "inferredSchemaIsNotAvailable"
+                  ]
+                }
+              },
+              "required": [
+                "_meta"
+              ]
+            },
+            "flow://write-schema": {
+              "$id": "flow://write-schema",
+              "required": [
+                "a_key"
+              ]
+            }
+          },
+          "allOf": [
+            {
+              "$ref": "flow://inferred-schema"
+            },
+            {
+              "$ref": "flow://write-schema"
+            }
+          ],
+          "maxProperties": 10
+        }
+        "###);
 
         // Case: pass `write_schema` which has no references.
-        assert_eq!(
-            Schema::extend_read_bundle(&write_schema, &write_schema, None).to_value(),
-            json!({
-                "$defs": {},
-                "$id": "old://value",
-                "required": ["a_key"],
-            })
-        );
+        insta::assert_json_snapshot!(Schema::extend_read_bundle(&write_schema, &write_schema, None).to_value(), @r###"
+        {
+          "$defs": {},
+          "$id": "old://value",
+          "required": [
+            "a_key"
+          ]
+        }
+        "###);
     }
 }
