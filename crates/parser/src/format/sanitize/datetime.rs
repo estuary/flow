@@ -1,63 +1,50 @@
 use crate::{ParseConfig, Output, format::ParseResult, ParseError};
-use chrono::{DateTime, FixedOffset, SecondsFormat};
-use chrono_tz::Tz;
+use time::macros::format_description;
 use serde_json::Value;
 
 struct DatetimeSanitizer {
     from: Output,
-    default_timezone: Tz,
+    default_offset: time::UtcOffset,
 }
 
-const NAIVE_FORMATS: [&'static str; 4] = [
-    "%Y-%m-%dT%H:%M:%S",
-    "%Y-%m-%dT%H:%M:%S%.f",
-    "%Y-%m-%d %H:%M:%S%.f",
-    "%Y-%m-%d %H:%M:%S",
-];
-
-const FORMATS: [&'static str; 2] = [
-    "%Y-%m-%d %H:%M:%S%.f%:z",
-    "%Y-%m-%d %H:%M:%S%:z",
-];
-
-fn datetime_to_rfc3339(val: &mut Value, default_timezone: Tz) {
+// Here we are trying to parse non-ambiguous, non-RFC3339 dates and formatting them as RFC3339
+// So we skip any valid RFC3339 in our processing and pass it as-is
+fn datetime_to_rfc3339(val: &mut Value, default_offset: time::UtcOffset) {
     match val {
         Value::String(s) => {
-            let mut parsed: Option<DateTime<FixedOffset>> = None;
+            let offset_format = format_description!(
+                version = 2,
+                "[first
+                [[year]-[month]-[day] [hour]:[minute]:[second][optional [.[subsecond]]]Z]
+                [[year]-[month]-[day] [hour]:[minute]:[second][optional [.[subsecond]]]z]
+                [[year]-[month]-[day] [hour]:[minute]:[second][optional [.[subsecond]]][offset_hour]:[offset_minute]]
+                ]"
+            );
 
-            for f in FORMATS {
-                parsed = parsed.or_else(||
-                    chrono::DateTime::parse_from_str(&s, f).ok()
-                )
-            }
+            let primitive_format = format_description!(
+                version = 2,
+                "[year]-[month]-[day][optional [T]][optional [ ]][hour]:[minute]:[second][optional [.[subsecond]]]"
+            );
 
-            if let Some(ts) = parsed {
-                *s = ts.to_rfc3339_opts(SecondsFormat::AutoSi, true);
-                return
-            }
+            let parsed_with_tz = time::OffsetDateTime::parse(&s, offset_format);
+            let parsed_no_tz = time::PrimitiveDateTime::parse(&s, primitive_format);
 
-            let mut naive_parsed: Option<DateTime<Tz>> = None;
-
-            for f in NAIVE_FORMATS {
-                naive_parsed = naive_parsed.or_else(||
-                    chrono::NaiveDateTime::parse_from_str(&s, f).map(|d| d.and_local_timezone(default_timezone).unwrap()).ok()
-                )
-            }
-
-            if let Some(ts) = naive_parsed {
-                *s = ts.to_rfc3339_opts(SecondsFormat::AutoSi, true);
+            if let Ok(parsed) = parsed_with_tz {
+                *s = parsed.format(&time::format_description::well_known::Rfc3339).unwrap();
+            } else if let Ok(parsed) = parsed_no_tz {
+                *s = parsed.assume_offset(default_offset).format(&time::format_description::well_known::Rfc3339).unwrap();
             }
         }
 
         Value::Array(vec) => {
             vec.iter_mut().for_each(|item| {
-                datetime_to_rfc3339(item, default_timezone)
+                datetime_to_rfc3339(item, default_offset)
             })
         }
 
         Value::Object(map) => {
             map.iter_mut().for_each(|(_k, v)| {
-                datetime_to_rfc3339(v, default_timezone)
+                datetime_to_rfc3339(v, default_offset)
             })
         }
 
@@ -72,7 +59,7 @@ impl Iterator for DatetimeSanitizer {
         let next = self.from.next()?;
         Some(match next {
             Ok(mut val) => {
-                datetime_to_rfc3339(&mut val, self.default_timezone);
+                datetime_to_rfc3339(&mut val, self.default_offset);
                 Ok(val)
             }
             Err(e) => {
@@ -84,15 +71,17 @@ impl Iterator for DatetimeSanitizer {
 
 #[derive(Debug, thiserror::Error)]
 pub enum DatetimeSanitizeError {
-    #[error("could not parse timezone as a valid IANA timezone")]
-    TimezoneParseError(String),
+    #[error("could not parse offset: {0}")]
+    OffsetParseError(#[from] time::error::Parse),
 }
 
 pub fn sanitize_datetime(config: &ParseConfig, output: Output) -> Result<Output, DatetimeSanitizeError> {
-    let tz: Tz = config.default_timezone.parse().map_err(DatetimeSanitizeError::TimezoneParseError)?;
+    eprintln!("sanitize_datetime");
+    let offset = time::UtcOffset::parse(&config.default_offset, format_description!("[offset_hour]:[offset_minute]")).map_err(DatetimeSanitizeError::OffsetParseError)?;
+    eprintln!("offset: {:?}", offset);
     let sanitizer = DatetimeSanitizer {
         from: output,
-        default_timezone: tz,
+        default_offset: offset,
     };
 
     return Ok(Box::new(sanitizer))
