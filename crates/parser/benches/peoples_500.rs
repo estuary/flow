@@ -3,7 +3,7 @@
 use criterion::{criterion_group, criterion_main, Criterion, black_box};
 
 use parser::ParseConfig;
-use testutil::{input_for_file, run_test};
+use testutil::{input_for_file, run_parser};
 
 fn peoples_500(c: &mut Criterion) {
     let path = "benches/data/people-500.csv";
@@ -14,7 +14,7 @@ fn peoples_500(c: &mut Criterion) {
 
     c.bench_function("peoples_500", |b| b.iter(|| {
         let input = input_for_file(path);
-        run_test(&cfg, input);
+        run_parser(&cfg, input, false);
     }));
 }
 
