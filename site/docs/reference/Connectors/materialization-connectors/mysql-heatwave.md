@@ -1,6 +1,6 @@
 # MySQL HeatWave
 
-This connector lets you materialize data from Estuary Flow directly into Oracle MySQL HeatWave instances.
+This connector lets you materialize data from your Flow collections directly into Oracle MySQL HeatWave instances.
 
 [`ghcr.io/estuary/materialize-mysql-heatwave:dev`](https://github.com/estuary/connectors/pkgs/container/materialize-mysql-heatwave) provides the latest connector image. For earlier versions, please follow the link in your browser.
 
