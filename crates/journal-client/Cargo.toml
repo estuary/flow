@@ -26,6 +26,5 @@ serde = { workspace = true }
 async-compression = { workspace = true }
 futures = { workspace = true }
 uuid = { workspace = true }
-pin-project = { workspace = true }
 exponential-backoff = { workspace = true }
 

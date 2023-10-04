@@ -11,6 +11,7 @@ license.workspace = true
 [dependencies]
 async-process = { path = "../async-process" }
 connector-init = { path = "../connector-init"  }
+coroutines = { path = "../coroutines"  }
 derive-sqlite = { path = "../derive-sqlite" }
 doc = { path = "../doc" }
 extractors = { path = "../extractors" }

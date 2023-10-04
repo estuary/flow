@@ -157,14 +157,12 @@ impl Preview {
             "preview".to_string(),
         )
         .serve_derive(request_rx)
-        .await
-        .map_err(crate::status_to_anyhow)?;
+        .await?;
 
         let _opened = responses_rx
             .next()
             .await
-            .context("expected Opened, not EOF")?
-            .map_err(crate::status_to_anyhow)?
+            .context("expected Opened, not EOF")??
             .opened
             .context("expected Opened")?;
 
@@ -238,7 +236,7 @@ async fn read_journal(
     mut cancel_rx: broadcast::Receiver<()>,
     journal: broker::JournalSpec,
     transform: usize,
-    mut request_tx: mpsc::Sender<tonic::Result<derive::Request>>,
+    mut request_tx: mpsc::Sender<anyhow::Result<derive::Request>>,
     client: journal_client::Client,
 ) -> anyhow::Result<()> {
     use futures::AsyncBufReadExt;
@@ -290,7 +288,7 @@ async fn read_journal(
 
 async fn tick_flushes(
     mut cancel_rx: broadcast::Receiver<()>,
-    mut request_tx: mpsc::Sender<tonic::Result<derive::Request>>,
+    mut request_tx: mpsc::Sender<anyhow::Result<derive::Request>>,
     flush_interval: Option<&humantime::Duration>,
 ) -> anyhow::Result<()> {
     let period = flush_interval
@@ -344,13 +342,11 @@ async fn output<R>(
     infer_schema: bool,
 ) -> anyhow::Result<Option<serde_json::Value>>
 where
-    R: futures::Stream<Item = tonic::Result<derive::Response>> + Unpin,
+    R: futures::Stream<Item = anyhow::Result<derive::Response>> + Unpin,
 {
     let mut inferred_shape = doc::Shape::nothing();
 
-    while let Some(response) = responses_rx.next().await {
-        let response = response.map_err(crate::status_to_anyhow)?;
-
+    while let Some(response) = responses_rx.try_next().await? {
         let internal = response
             .get_internal()
             .context("failed to decode internal runtime.DeriveResponseExt")?;

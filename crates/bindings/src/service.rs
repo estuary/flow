@@ -290,9 +290,9 @@ pub fn drop<S: Service>(ch: *mut Channel) {
     });
 
     // Drop svc_impl, arena, out, and tracing subscriber.
-    unsafe { Box::from_raw(svc_impl as *mut S) };
-    unsafe { Vec::<u8>::from_raw_parts(arena_ptr, arena_len, arena_cap) };
-    unsafe { Vec::<Out>::from_raw_parts(out_ptr, out_len, out_cap) };
-    unsafe { String::from_raw_parts(err_ptr, err_len, err_cap) };
-    unsafe { Box::from_raw(tracing_dispatch as *mut tracing::Dispatch) };
+    _ = unsafe { Box::from_raw(svc_impl as *mut S) };
+    _ = unsafe { Vec::<u8>::from_raw_parts(arena_ptr, arena_len, arena_cap) };
+    _ = unsafe { Vec::<Out>::from_raw_parts(out_ptr, out_len, out_cap) };
+    _ = unsafe { String::from_raw_parts(err_ptr, err_len, err_cap) };
+    _ = unsafe { Box::from_raw(tracing_dispatch as *mut tracing::Dispatch) };
 }
