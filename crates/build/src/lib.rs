@@ -238,7 +238,9 @@ pub fn generate_files(
     let mut files = BTreeMap::new();
 
     for row in validations.built_collections.iter() {
-        let Some(validated) = &row.validated else { continue };
+        let Some(validated) = &row.validated else {
+            continue;
+        };
 
         for (url, content) in &validated.generated_files {
             if let Ok(url) = url::Url::parse(&url) {
@@ -408,8 +410,7 @@ where
                     .runtime
                     .clone()
                     .unary_derive(request, CONNECTOR_TIMEOUT)
-                    .await
-                    .map_err(status_to_anyhow)?)
+                    .await?)
             }
         }
         .boxed()
