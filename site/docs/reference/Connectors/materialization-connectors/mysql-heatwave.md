@@ -1,1 +1,54 @@
+# MySQL HeatWave
+
+This connector facilitates the materialization of data from Estuary Flow directly into Oracle MySQL HeatWave instances.
+
+[`ghcr.io/estuary/materialize-mysql-heatwave:dev`](https://github.com/estuary/connectors/pkgs/container/materialize-mysql-heatwave) provides the latest connector image. For earlier versions, please follow the link in your browser.
+
+## Prerequisites
+To use this materialization connector, you’ll need the following:
+
+- A MySQL HeatWave database and the appropriate user credentials.
+- At least one Flow collection.
+
+## Configuration
+Select one or more of your Flow collections to start using this connector. The configuration properties below will help you to materialize your collections into tables in MySQL HeatWave.
+
+## Properties
+
+### Endpoint
+
+| Property                | Title              | Description                                | Type   | Required/Default       |
+|-------------------------|--------------------|--------------------------------------------|--------|------------------------|
+| **`/address`**         | Address           | Host and port of the database. If only the host is specified, the port will default to 3306.    | string | Required               |
+| **`/database`**         | Database           | Name of the logical database to send data to.  | string | Required               |
+| **`/user`**         | User           | Username for authentication.               | string | Required               |
+| **`/password`**         | Password           | Password for authentication.               | string | Required               |
+| `/timezone`                 | Timezone               | Timezone to use when materializing datetime columns. Should normally be left blank to use the database's 'time_zone' system variable. Only required if the 'time_zone' system variable cannot be read.  | string |                  |
+
+### Bindings
+
+| Property                | Title              | Description                                | Type   | Required/Default       |
+|-------------------------|--------------------|--------------------------------------------|--------|------------------------|
+| **`/table`**            | Table              | The name of the table to send data to.     | string | Required               |
+
+
+
+## Sample
+
+```yaml
+materializations:
+  ${PREFIX}/${MAT_NAME}:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/materialize-mysql-heatwave:dev
+        config:
+          database: flow
+          address: localhost:5432
+          password: secret
+          user: flow
+    bindings:
+      - resource:
+          table: ${TABLE_NAME}
+        source: ${PREFIX}/${COLLECTION_NAME}
+```
 
