@@ -61,3 +61,23 @@ materializations:
         source: ${PREFIX}/${COLLECTION_NAME}
 ```
 
+## Oracle MySQL HeatWave on Managed Cloud Platforms
+
+This connector supports cloud-based MySQL HeatWave instances. For secure connections, it's highly recommended to use an SSH tunnel.
+
+Supported platforms include Google Cloud Platform, Amazon Web Service, and Microsoft Azure. Other cloud platforms may also be compatible, but Estuary doesn't guarantee performance.
+
+### Setup
+To allow connections from Estuary, it's recommended that you whitelist Estuary Flow's IP address.
+
+- **Amazon RDS and Amazon Aurora:** Edit the VPC security group associated with your database instance or create a new VPC security group and link it to the database instance. Set the instance to Publicly accessible under Connectivity settings. Create new inbound and outbound rules to allow all traffic from IP address 34.121.207.128 following the steps in [Amazon's documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
+
+- **Google Cloud SQL:** Activate public IP on your database and authorize the IP address 34.121.207.128.
+
+- **Azure Database for MySQL:** Create a new firewall rule granting access to IP address 34.121.207.128.
+
+#### SSH Tunneling
+You can also allow secure connections using SSH tunneling settings:
+
+- **SSH Endpoint**: Enter the endpoint of the remote SSH server that supports tunneling (formatted as `ssh://user@hostname[:port]`).
+- **SSH Private Key**: Input the full RSA Private Key for SSH connection.
