@@ -19,7 +19,7 @@ Select one or more of your Flow collections to start using this connector. The c
 
 | Property                | Title              | Description                                | Type   | Required/Default       |
 |-------------------------|--------------------|--------------------------------------------|--------|------------------------|
-| **`/address`**         | Address           | Host and port of the database. If only the host is specified, the port will default to 3306.    | string | Required               |
+| **`/address`**         | Address           | Host and port of the database. If only the host is specified, the port will default to `3306`.    | string | Required               |
 | **`/database`**         | Database           | Name of the logical database to send data to.  | string | Required               |
 | **`/user`**         | User           | Username for authentication.               | string | Required               |
 | **`/password`**         | Password           | Password for authentication.               | string | Required               |
