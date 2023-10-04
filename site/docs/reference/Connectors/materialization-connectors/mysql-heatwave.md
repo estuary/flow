@@ -25,6 +25,15 @@ Select one or more of your Flow collections to start using this connector. The c
 | **`/password`**         | Password           | Password for authentication.               | string | Required               |
 | `/timezone`                 | Timezone               | Timezone to use when materializing datetime columns. Should normally be left blank to use the database's 'time_zone' system variable. Only required if the 'time_zone' system variable cannot be read.  | string |                  |
 
+### Advanced: SSL Mode
+Configuring the SSL mode strengthens security when transferring data to Oracle MySQL HeatWave. Here are the possible values for SSL mode:
+
+- `disabled`: Establishes an unencrypted connection with the server.
+- `preferred`: Initiates the SSL connection only if prompted by the server.
+- `required`: Establishes an SSL connection but doesn’t verify the server’s certificate.
+- `verify_ca`: Connects via SSL connection and verifies the server’s certificate against the provided SSL Server CA, without validating the server's hostname. SSL Server CA is mandatory for this mode.
+- `verify_identity`: Ensures an SSL connection, and verifies both the server's certificate and hostname. This is the highest level of security. SSL Server CA is required for this mode.
+
 ### Bindings
 
 | Property                | Title              | Description                                | Type   | Required/Default       |
