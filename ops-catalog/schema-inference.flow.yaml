@@ -9,19 +9,17 @@ collections:
         - name: logs
           source:
             name: ops.us-central1.v1/logs
+            notBefore: 2023-10-01T00:00:00Z
             partitions:
               include:
                 kind:
                   - capture
+                  - derivation
               exclude:
                 name:
                   # Don't read our own inferences.
                   - ops.us-central1.v1/inferred-schemas/L1
                   - ops.us-central1.v1/inferred-schemas/L2
-
-                  # NOTE(johnny): In production, I've temporarily held back
-                  # a number of other task logs for $reasons. Do not publish
-                  # directly from ./ops-catalog/ into production quite yet.
 
           shuffle:
             key: [/shard/name] # Use partition-based shuffle.
