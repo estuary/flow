@@ -87,7 +87,10 @@ fn is_spec_changed(
     if let Some(existing_spec_md5) = existing_specs.get(&new_catalog_name.as_ref().to_string()) {
         let buf = serde_json::to_vec(new_catalog_spec).expect("new spec must be serializable");
         let new_spec_md5 = format!("{:x}", md5::compute(&buf));
-        return *existing_spec_md5 != new_spec_md5;
+        let changed = *existing_spec_md5 != new_spec_md5;
+        tracing::debug!(%new_spec_md5, %existing_spec_md5, %changed, catalog_name = %new_catalog_name.as_ref(),
+            "checked spec hash against existing spec");
+        return changed;
     }
     // If there's no existing md5, then the spec is new, which is considered a change.
     true

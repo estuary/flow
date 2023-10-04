@@ -184,6 +184,9 @@ impl DiscoverHandler {
             let existing_spec_hashes =
                 agent_sql::discovers::fetch_spec_md5_hashes(txn, all_names).await?;
             sources::remove_unchanged_specs(&existing_spec_hashes, &mut catalog);
+
+            let remaining_names = catalog.all_spec_names().collect::<Vec<_>>();
+            tracing::debug!(?remaining_names, "remaining names after pruning unchanged");
         }
 
         if catalog.is_empty() {
