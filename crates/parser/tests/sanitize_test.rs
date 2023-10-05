@@ -1,7 +1,5 @@
 mod testutil;
 
-use chrono::DateTime;
-
 use parser::ParseConfig;
 use testutil::{input_for_file, run_test};
 
