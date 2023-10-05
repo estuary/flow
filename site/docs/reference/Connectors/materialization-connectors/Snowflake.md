@@ -92,7 +92,7 @@ Use the below properties to configure a Snowflake materialization, which will di
 | **`/host`** | Host URL | The Snowflake Host used for the connection. Example: orgname-accountname.snowflakecomputing.com (do not include the protocol). | string | Required |
 | **`/password`** | Password | Snowflake user password | string | Required |
 | `/role` | Role | Role assigned to the user | string |  |
-| **`/schema`** | Schema | Snowflake schema within the database to which to materialize | string | Required |
+| **`/schema`** | Schema | Database schema for bound collection tables (unless overridden within the binding resource configuration) as well as associated materialization metadata tables | string | Required |
 | **`/user`** | User | Snowflake username | string | Required |
 | `/warehouse` | Warehouse | Name of the data warehouse that contains the database | string |  |
 | `/advanced`                     | Advanced Options    | Options for advanced users. You should not typically need to modify these.                                                                  | object  |                            |
@@ -102,8 +102,9 @@ Use the below properties to configure a Snowflake materialization, which will di
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| `/delta_updates` | Delta updates | Whether to use standard or [delta updates](#delta-updates) | boolean |  |
 | **`/table`** | Table | Table name | string | Required |
+| `/schema` | Alternative Schema | Alternative schema for this table | string |  |
+| `/delta_updates` | Delta updates | Whether to use standard or [delta updates](#delta-updates) | boolean |  |
 
 ### Sample
 
