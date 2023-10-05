@@ -20,13 +20,13 @@ and values) organized in **collections**. MongoDB documents have a mandatory
 
 You'll need:
 
-* Credentials for connecting to your MongoDB instance and database
+* Credentials for connecting to your MongoDB instance and database.
 
-* Read and write access to your MongoDB database and desired collections, see [Role-Based Access
+* Read and write access to your MongoDB database and desired collections. See [Role-Based Access
   Control](https://www.mongodb.com/docs/manual/core/authorization/) for more information.
 
 * If you are using MongoDB Atlas, or your MongoDB provider requires whitelisting
-  of IPs, you need to whitelist Estuary's IP `34.121.207.128`.
+  of IPs, you need to whitelist Estuary's IP: `34.121.207.128`.
 
 ## Configuration
 
