@@ -70,12 +70,14 @@ For a complete introduction to resource organization in Bigquery, see the [BigQu
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
 | **`/project_id`**| Project ID | The project ID for the Google Cloud Storage bucket and BigQuery dataset.| String | Required |
-| `/billing_project_id` | Billing project ID | The project ID to which these operations are billed in BigQuery. Typically, you want this to be the same as `project_id` (the default). | String | Same as `project_id` |
-| **`/dataset`** | Dataset | Name of the target BigQuery dataset. | String | Required |
+| **`/credentials_json`** | Service Account JSON | The JSON credentials of the service account to use for authorization. | String | Required |
 | **`/region`** | Region | The GCS region. | String | Required |
+| **`/dataset`** | Dataset | BigQuery dataset for bound collection tables (unless overridden within the binding resource configuration) as well as associated materialization metadata tables. | String | Required |
 | **`/bucket`** | Bucket | Name of the GCS bucket. | String | Required |
 | `/bucket_path` | Bucket path | Base path within the GCS bucket. Also called "Folder" in the GCS console. | String | |
-| **`/credentials_json`** | Service Account JSON | The JSON credentials of the service account to use for authorization. | String | Required |
+| `/billing_project_id` | Billing project ID | The project ID to which these operations are billed in BigQuery. Typically, you want this to be the same as `project_id` (the default). | String | Same as `project_id` |
+| `/advanced`                     | Advanced Options    | Options for advanced users. You should not typically need to modify these.                                                                  | object  |                            |
+| `/advanced/updateDelay`     | Update Delay    | Potentially reduce compute time by increasing the delay between updates. Defaults to 30 minutes if unset. | string  |  |
 
 To learn more about project billing, [see the BigQuery docs](https://cloud.google.com/billing/docs/how-to/verify-billing-enabled).
 
@@ -83,7 +85,8 @@ To learn more about project billing, [see the BigQuery docs](https://cloud.googl
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/table`** | Table | Table name. | string | Required |
+| **`/table`** | Table | Table in the BigQuery dataset to store materialized result in. | string | Required |
+| `/dataset` | Table | Alternative dataset for this table. Must be located in the region set in the endpoint configuration. | string |  |
 | `/delta_updates` | Delta updates. | Whether to use standard or [delta updates](#delta-updates) | boolean | false |
 
 ### Sample
