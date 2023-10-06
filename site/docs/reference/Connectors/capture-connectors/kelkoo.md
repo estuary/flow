@@ -8,7 +8,7 @@ This connector allows you to capture data from your Kelkoo account into Flow col
 
 The following data resources are supported through the Kelkoo APIs:
 
-- [Campaigns](https://developers.kelkoogroup.com/app/documentation/navigate/_merchant/merchantStatistics/_/_/Resources#my-campaigns): Detailed information about your campaigns including internal identifiers, names, countries, and website URLs.
+- [Campaigns](https://developers.kelkoogroup.com/app/documentation/navigate/_merchant/merchantStatistics/_/_/Resources#my-campaigns): Detailed information about your campaigns including internal identifiers, names, countries, and a website URL.
 - [Clicks by Category](https://developers.kelkoogroup.com/app/documentation/navigate/_merchant/merchantStatistics/_/_/Resources#categorycampaignidstartdatestartenddateend): Click data grouped by categories for a specific campaign within a specified date range.
 - [Clicks by Product](https://developers.kelkoogroup.com/app/documentation/navigate/_merchant/merchantStatistics/_/_/Resources#productcampaignidstartdatestartenddateend): Click data grouped by products for a specific campaign within a specified date range.
 - [Sales](https://developers.kelkoogroup.com/app/documentation/navigate/_merchant/merchantStatistics/_/_/Resources#salescampaignidstartdatestartenddateend): Sales data for a specific campaign within a specified date range.
@@ -57,7 +57,7 @@ captures:
           merchant_id: <id>
     bindings:
       - resource:
-          stream: products
+          stream: campaigns
           syncMode: full_refresh
-        target: ${PREFIX}/products
+        target: ${PREFIX}/campaigns
 ```
