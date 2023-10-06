@@ -49,6 +49,7 @@ impl Generate {
         Ok(())
     }
 }
+
 // Generates stubs for all missing connector configuration files,
 // returning tuples of:
 // * The missing config file URL.
@@ -188,7 +189,10 @@ async fn generate_missing_collection_configs(
         spec: models::CollectionDef { derive, .. },
     } = collection;
 
-    let Some(models::Derivation { using, transforms, ..  }) = derive else {
+    let Some(models::Derivation {
+        using, transforms, ..
+    }) = derive
+    else {
         return Ok(Vec::new()); // Not a derivation.
     };
 
@@ -244,8 +248,7 @@ async fn generate_missing_collection_configs(
         },
         build::CONNECTOR_TIMEOUT,
     )
-    .await
-    .map_err(crate::status_to_anyhow)?
+    .await?
     .spec
     .context("connector didn't send expected Spec response")?;
 

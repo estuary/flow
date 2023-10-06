@@ -428,7 +428,18 @@ fn indirect_materialization(
                 threshold,
             )
         }
-        _ => {}
+        models::MaterializationEndpoint::Local(models::LocalConfig { config, .. }) => indirect_dom(
+            Scope::new(scope)
+                .push_prop("endpoint")
+                .push_prop("local")
+                .push_prop("config"),
+            config,
+            ContentType::Config,
+            format!("{base}.config"),
+            imports,
+            resources,
+            threshold,
+        ),
     }
 
     for (index, models::MaterializationBinding { resource, .. }) in bindings.iter_mut().enumerate()

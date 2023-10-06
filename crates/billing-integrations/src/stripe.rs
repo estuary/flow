@@ -1,5 +1,5 @@
 use anyhow::{bail, Context};
-use chrono::{ParseError, Utc};
+use chrono::{Duration, ParseError, Utc};
 use futures::{FutureExt, StreamExt, TryStreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{postgres::PgPoolOptions, types::chrono::NaiveDate, Pool};
@@ -76,11 +76,11 @@ async fn stripe_search<R: DeserializeOwned + 'static + Send>(
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Extra {
-    trial_start: Option<DateTime<Utc>>,
-    trial_credit: i64,
-    recurring_fee: i64,
-    task_usage_hours: f64,
-    processed_data_gb: f64,
+    trial_start: Option<NaiveDate>,
+    trial_credit: Option<i64>,
+    recurring_fee: Option<i64>,
+    task_usage_hours: Option<f64>,
+    processed_data_gb: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -118,9 +118,9 @@ impl Invoice {
                 let unwrapped_extra = extra.clone().0.expect(
                     "This is just a sqlx quirk, if the outer Option is Some then this will be Some",
                 );
-                if !(unwrapped_extra.recurring_fee > 0
-                    || unwrapped_extra.processed_data_gb > 0.0
-                    || unwrapped_extra.task_usage_hours > 0.0
+                if !(unwrapped_extra.recurring_fee.unwrap_or(0) > 0
+                    || unwrapped_extra.processed_data_gb.unwrap_or(0.0) > 0.0
+                    || unwrapped_extra.task_usage_hours.unwrap_or(0.0) > 0.0
                     || self.subtotal > 0)
                 {
                     tracing::debug!("Skipping invoice with no usage");
@@ -135,11 +135,26 @@ impl Invoice {
 
         // An invoice should be generated in Stripe if the tenant is on a paid plan, which means:
         // * The tenant has a free trial start date
+        // * The tenant's free trial start date is before the invoice period's end date
         if let InvoiceType::Final = self.invoice_type {
-            if let None = get_tenant_trial_date(&db_client, self.billed_prefix.to_owned()).await? {
-                tracing::info!("Skipping usage invoice for tenant in free tier");
-                return Ok(());
+            match get_tenant_trial_date(&db_client, self.billed_prefix.to_owned()).await? {
+                Some(trial_start) if self.date_end < trial_start => {
+                    tracing::info!("Skipping invoice ending before free trial start date");
+                    return Ok(());
+                }
+                None => {
+                    tracing::info!("Skipping usage invoice for tenant in free tier");
+                    return Ok(());
+                }
+                _ => {}
             }
+        }
+
+        // The minimum chargable amount of USD in Stripe is $0.50.
+        // https://stripe.com/docs/currencies#minimum-and-maximum-charge-amounts
+        if self.subtotal < 50 {
+            tracing::info!("Skipping invoice for less than the minimum chargable amount ($0.50)");
+            return Ok(());
         }
 
         // Anything before 12:00:00 renders as the previous day in Stripe
@@ -159,8 +174,6 @@ impl Invoice {
             .single()
             .expect("Error manipulating date")
             .timestamp();
-
-        let timestamp_now = Utc::now().timestamp();
 
         let date_start_human = self.date_start.format("%B %d %Y").to_string();
         let date_end_human = self.date_end.format("%B %d %Y").to_string();
@@ -219,7 +232,7 @@ impl Invoice {
                     Some(invoice)
                 }
                 Some(stripe::InvoiceStatus::Open) => {
-                    bail!("Found finalized invoice {id}. Pass --recreate-finalized to delete and recreate this invoice.", id = invoice.id.to_string())
+                    bail!("Found open invoice {id}. Pass --recreate-finalized to delete and recreate this invoice.", id = invoice.id.to_string())
                 }
                 Some(status) => {
                     bail!(
@@ -243,47 +256,42 @@ impl Invoice {
             Some(inv) => inv,
             None => {
                 let invoice = stripe::Invoice::create(
-            client,
-            stripe::CreateInvoice {
-                customer: Some(customer.id.to_owned()),
-                // Stripe timestamps are measured in _seconds_ since epoch
-                // Due date must be in the future
-                due_date: if date_end_secs > timestamp_now { Some(date_end_secs) } else {Some(timestamp_now + 10)},
-                description: Some(
-                    format!(
-                        "Your Flow bill for the billing preiod between {date_start_human} - {date_end_human}"
-                    )
-                    .as_str(),
-                ),
-                collection_method: Some(stripe::CollectionMethod::SendInvoice),
-                auto_advance: Some(false),
-                custom_fields: Some(vec![
-                    stripe::CreateInvoiceCustomFields {
-                        name: "Billing Period Start".to_string(),
-                        value: date_start_human.to_owned(),
+                    client,
+                    stripe::CreateInvoice {
+                        customer: Some(customer.id.to_owned()),
+                        // Stripe timestamps are measured in _seconds_ since epoch
+                        // Due date must be in the future. Bill net-30, so 30 days from today
+                        due_date: Some((Utc::now() + Duration::days(30)).timestamp()),
+                        description: Some(
+                            format!(
+                                "Your Flow bill for the billing period between {date_start_human} - {date_end_human}. Tenant: {tenant}",
+                                tenant=self.billed_prefix.to_owned()
+                            )
+                            .as_str(),
+                        ),
+                        collection_method: Some(stripe::CollectionMethod::SendInvoice),
+                        auto_advance: Some(false),
+                        custom_fields: Some(vec![
+                            stripe::CreateInvoiceCustomFields {
+                                name: "Billing Period Start".to_string(),
+                                value: date_start_human.to_owned(),
+                            },
+                            stripe::CreateInvoiceCustomFields {
+                                name: "Billing Period End".to_string(),
+                                value: date_end_human.to_owned(),
+                            },
+                        ]),
+                        metadata: Some(HashMap::from([
+                            (TENANT_METADATA_KEY.to_string(), self.billed_prefix.to_owned()),
+                            (INVOICE_TYPE_KEY.to_string(), invoice_type_str.to_owned()),
+                            (BILLING_PERIOD_START_KEY.to_string(), date_start_repr),
+                            (BILLING_PERIOD_END_KEY.to_string(), date_end_repr)
+                        ])),
+                        ..Default::default()
                     },
-                    stripe::CreateInvoiceCustomFields {
-                        name: "Billing Period End".to_string(),
-                        value: date_end_human.to_owned(),
-                    },
-                    stripe::CreateInvoiceCustomFields {
-                        name: "Tenant".to_string(),
-                        value: self.billed_prefix.to_owned(),
-                    },
-                ]),
-                metadata: Some(HashMap::from([
-                    (TENANT_METADATA_KEY.to_string(), self.billed_prefix.to_owned()),
-                    (INVOICE_TYPE_KEY.to_string(), invoice_type_str.to_owned()),
-                    (BILLING_PERIOD_START_KEY.to_string(), date_start_repr),
-                    (BILLING_PERIOD_END_KEY.to_string(), date_end_repr)
-                ])),
-                ..Default::default()
-            },
-        )
-        .await.context("Creating a new invoice")?;
-
+                )
+                .await.context("Creating a new invoice")?;
                 tracing::debug!("Created a new invoice {id}", id = invoice.id);
-
                 invoice
             }
         };

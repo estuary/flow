@@ -28,11 +28,14 @@ mod test {
             tables.fetches = tables::Fetches::new();
             tables.resources = tables::Resources::new();
 
-            // Clear implicit imports, leaving only explicit catalog imports.
-            tables.imports.retain(|import| import.scope.fragment().unwrap().starts_with("/import"));
-
             // Verify shape of inline specs.
 			insta::assert_debug_snapshot!(tables);
+
+            // Most implicit imports were removed. Some remain:
+            // * References between JSON schemas (but not from a collection to a schema).
+            // * Imports which were not found and thus could not be inlined.
+            // Clear remaining implicit imports, leaving only explicit catalog imports.
+            tables.imports.retain(|import| import.scope.fragment().unwrap().starts_with("/import"));
 
             // Now indirect specs again, and verify the updated specs and indirect'd resources.
             crate::indirect_large_files(&mut tables, 32);

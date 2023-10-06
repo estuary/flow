@@ -3,7 +3,7 @@ use crate::{
     image_connector::{Connector, Container, StartRpcFuture, UnsealFuture, Unsealed},
     unseal,
 };
-use futures::{channel::mpsc, FutureExt, Stream};
+use futures::{channel::mpsc, FutureExt, Stream, StreamExt};
 use proto_flow::{
     derive::{Request, Response},
     runtime::DeriveRequestExt,
@@ -28,7 +28,8 @@ fn unseal(mut request: Request) -> Result<UnsealFuture<Request>, Request> {
         let models::DeriveUsing::Connector(models::ConnectorConfig {
             image,
             config: sealed_config,
-        }) = endpoint else {
+        }) = endpoint
+        else {
             anyhow::bail!("task connector type has changed and is no longer an image")
         };
         *config_json = unseal::decrypt_sops(&sealed_config).await?.to_string();
@@ -73,11 +74,12 @@ pub fn connector<L, R>(
     network: &str,
     request_rx: R,
     task_name: &str,
-) -> mpsc::Receiver<tonic::Result<Response>>
+) -> impl Stream<Item = anyhow::Result<Response>>
 where
     L: Fn(&ops::Log) + Clone + Send + Sync + 'static,
-    R: Stream<Item = tonic::Result<Request>> + Send + Unpin + 'static,
+    R: Stream<Item = anyhow::Result<Request>> + Send + 'static,
 {
+    let request_rx = crate::stream_error_to_status(request_rx).boxed();
     let (connector, response_rx) = Connector::new(
         attach_container,
         log_handler,
@@ -90,5 +92,5 @@ where
     );
     tokio::spawn(async move { connector.run().await });
 
-    response_rx
+    crate::stream_status_to_error(response_rx)
 }

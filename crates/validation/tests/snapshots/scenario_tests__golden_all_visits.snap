@@ -6246,10 +6246,6 @@ All {
     ],
     imports: [
         Import {
-            scope: test://example/array-key#/collections/testing~1array-key/schema,
-            to_resource: test://example/array-key.schema,
-        },
-        Import {
             scope: test://example/catalog.yaml#/import/0,
             to_resource: test://example/int-string,
         },
@@ -6298,56 +6294,16 @@ All {
             to_resource: test://example/array-key,
         },
         Import {
-            scope: test://example/int-halve#/collections/testing~1int-halve/derive/using/typescript/module,
-            to_resource: test://example/int-halve.ts,
-        },
-        Import {
-            scope: test://example/int-halve#/collections/testing~1int-halve/schema,
-            to_resource: test://example/int-string-len.schema,
-        },
-        Import {
-            scope: test://example/int-reverse#/collections/testing~1int-reverse/derive/using/typescript/module,
-            to_resource: test://example/int-reverse.ts,
-        },
-        Import {
-            scope: test://example/int-reverse#/collections/testing~1int-reverse/schema,
-            to_resource: test://example/int-string.schema,
-        },
-        Import {
             scope: test://example/int-reverse#/import/0,
             to_resource: test://example/int-string,
-        },
-        Import {
-            scope: test://example/int-string#/collections/testing~1int-string-inferred-not-found/writeSchema,
-            to_resource: test://example/int-string.schema,
-        },
-        Import {
-            scope: test://example/int-string#/collections/testing~1int-string-inferred/writeSchema,
-            to_resource: test://example/int-string.schema,
-        },
-        Import {
-            scope: test://example/int-string#/collections/testing~1int-string-rw/readSchema,
-            to_resource: test://example/int-string-len.schema,
-        },
-        Import {
-            scope: test://example/int-string#/collections/testing~1int-string-rw/writeSchema,
-            to_resource: test://example/int-string.schema,
         },
         Import {
             scope: test://example/int-string#/collections/testing~1int-string.v2/schema/$ref,
             to_resource: test://example/int-string.schema,
         },
         Import {
-            scope: test://example/int-string#/collections/testing~1int-string/schema,
-            to_resource: test://example/int-string.schema,
-        },
-        Import {
             scope: test://example/int-string#/import/0,
             to_resource: test://example/int-halve,
-        },
-        Import {
-            scope: test://example/int-string-captures#/captures/testing~1db-cdc/endpoint/connector/config,
-            to_resource: test://example/cdc-config.yaml,
         },
         Import {
             scope: test://example/int-string-captures#/import/0,
@@ -6372,10 +6328,6 @@ All {
         Import {
             scope: test://example/webhook-deliveries#/import/1,
             to_resource: test://example/int-halve,
-        },
-        Import {
-            scope: test://example/webhook-deliveries#/materializations/testing~1webhook~1deliveries/endpoint/connector/config,
-            to_resource: test://example/webhook-config.yaml,
         },
     ],
     materializations: [
