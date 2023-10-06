@@ -168,39 +168,40 @@ impl DiscoverHandler {
         )
         .await?;
 
-        let mut catalog = match result {
+        let catalog = match result {
             Ok(cat) => cat,
             Err(errors) => {
                 draft::insert_errors(row.draft_id, errors, txn).await?;
                 return Ok((row.id, JobStatus::MergeFailed));
             }
         };
-
-        // Prune out any unchanged specs, but only if we're automatically publishing.
-        // If a user is interactively discovering, then the UI will need all the specs,
-        // even if they haven't changed.
-        if row.auto_publish {
-            let all_names = catalog.all_spec_names().collect();
-            let existing_spec_hashes =
-                agent_sql::discovers::fetch_spec_md5_hashes(txn, all_names).await?;
-            sources::remove_unchanged_specs(&existing_spec_hashes, &mut catalog);
-        }
-
-        if catalog.is_empty() {
-            return Ok((
-                row.id,
-                JobStatus::Success {
-                    publication_id: None,
-                    specs_unchanged: true,
-                },
-            ));
-        }
+        let spec_count = catalog.spec_count();
+        tracing::debug!(%spec_count, "built merged catalog");
 
         draft::upsert_specs(row.draft_id, catalog, txn)
             .await
             .context("inserting draft specs")?;
 
         let publication_id = if row.auto_publish {
+            // Prune out any unchanged specs, but only if we're automatically publishing.
+            // If a user is interactively discovering, then the UI will need all the specs,
+            // even if they haven't changed.
+            let removed_names =
+                agent_sql::drafts::remove_unchanged_specs(row.draft_id, txn).await?;
+            tracing::debug!(?removed_names, removed_count = %removed_names.len(),
+                "removed unchanged specs from draft");
+
+            // If none of the specs have changed, then don't bother creating a publication.
+            if removed_names.len() == spec_count {
+                return Ok((
+                    row.id,
+                    JobStatus::Success {
+                        publication_id: None,
+                        specs_unchanged: true,
+                    },
+                ));
+            }
+
             let detail = format!(
                 "system created publication in response to discover: {}",
                 row.id

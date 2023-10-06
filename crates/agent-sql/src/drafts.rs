@@ -136,6 +136,28 @@ pub async fn insert_error(
     Ok(())
 }
 
+/// Deletes all draft specs that are bytewise identical to their corresponding live specs.
+pub async fn remove_unchanged_specs(
+    draft_id: Id,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<Vec<String>> {
+    let results = sqlx::query!(
+        r#"
+        delete from draft_specs ds
+        where ds.draft_id = $1
+            and md5(trim(ds.spec::text)) in (
+                select ls.md5 from live_specs ls where ls.catalog_name = ds.catalog_name
+            )
+        returning ds.catalog_name
+        "#,
+        draft_id as Id
+    )
+    .fetch_all(txn)
+    .await?;
+
+    Ok(results.into_iter().map(|r| r.catalog_name).collect())
+}
+
 pub async fn delete_spec(
     draft_spec_id: Id,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
