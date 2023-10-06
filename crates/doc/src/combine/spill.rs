@@ -119,11 +119,11 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
             self.spill.write_all(&lz4_buf)?;
 
             tracing::trace!(
-                chunk_docs = %(index - last_chunk_index),
-                bytes_per_doc = (raw_buf.len() / (index - last_chunk_index)),
+                chunk_docs = %(1 + index - last_chunk_index),
+                bytes_per_doc = (raw_buf.len() / (1 + index - last_chunk_index)),
                 raw_len = %raw_buf.len(),
                 lz4_len = %lz4_buf.len(),
-                remaining = %(entries.len() - index),
+                remaining = %(entries.len() - (1 + index)),
                 "wrote chunk",
             );
 
@@ -353,7 +353,9 @@ impl<F: io::Read + io::Seek> Iterator for SpillDrainer<F> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut inner = || {
-            let Some(cmp::Reverse(cur_segment)) = self.heap.pop() else { return Ok(None) };
+            let Some(cmp::Reverse(cur_segment)) = self.heap.pop() else {
+                return Ok(None);
+            };
 
             let (
                 Entry {
