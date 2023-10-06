@@ -206,10 +206,9 @@ where
     let status = resp.status();
 
     if status.is_success() {
-        let v: serde_json::Value = resp.json().await?;
-
-        tracing::trace!(response_body = %v, status = %status, "got successful response");
-        let t: T = serde_json::from_value(v).context("deserializing response body")?;
+        let body: models::RawValue = resp.json().await?;
+        tracing::trace!(body = ?::ops::DebugJson(&body), status = %status, "got successful response");
+        let t: T = serde_json::from_str(body.get()).context("deserializing response body")?;
         Ok(t)
     } else {
         let body = resp.text().await?;
