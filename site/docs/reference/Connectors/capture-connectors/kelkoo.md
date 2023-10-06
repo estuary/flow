@@ -31,9 +31,9 @@ The Kelkoo source connector configuration can be done through the Flow web app o
 | Property        | Title      | Description                                              | Type   | Required/Default       |
 |-----------------|------------|----------------------------------------------------------|--------|------------------------|
 | **`/api_token`**| API Token  | Kelkoo API token.                             | string | Required               |
-| **`/start_date`**| Start Date | Date time filter for incremental filter, specify which date to extract from. | string |               |
-| **`/end_date`** | End Date   | Specify the end date of the data to be extracted. | string |    Note: Only two years of data can be retrieved.           |
 | **`/merchant_id`** | Merchant ID | Kelkoo Merchant ID. | string | Required |
+| **`/start_date`**| Start Date | Date time filter for incremental filter, specify which date to extract from. | string |               |
+| **`/end_date`** | End Date   | Specify the end date of the data to be extracted. | string |              |
 
 #### Bindings
 
