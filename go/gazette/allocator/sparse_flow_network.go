@@ -12,41 +12,41 @@ import (
 // Items, "Zone Items" (which is an Item within the context of a single zone),
 // and Members. Pictorially, the network resembles:
 //
-//               Items        Zone-Items         Members
-//               -----        ----------         -------
+//	              Items        Zone-Items         Members
+//	              -----        ----------         -------
 //
-//                            +-------+
-//                            |       |---\    +---------+
-//                           >|item1/A|    --->|         |
-//                         -/ |       |\       |A/memberX|\
-//                        /   +-------+ -\    ^|         | -\
-//              +-----+ -/    +-------+   -\ / +---------+   \
-//              |     |/      |       |     /\ +---------+    \
-//             >|item1|------>|item1/B|    /  >|         |     -\
-// +------+  -/ |     |       |       |\  /    |A/memberY|--\    \ +--------+
-// |      |-/   +-----+       +-------+ \/    >|         |   ---\ >|        |
-// |source|                             /\  -/ +---------+       ->| target |
-// |      |-\   +-----+       +-------+/  \/                      >|        |
-// +------+  -\ |     |       |       |  -/\                    -/ +--------+
-//             >|item2|------>|item2/A|-/   \                  /
-//              |     |\      |       |      \ +---------+   -/
-//              +-----+ -\    +-------+       v|         | -/
-//                        \   +-------+        |B/memberZ|/
-//                         -\ |       |    --->|         |
-//                           >|item2/B|---/    +---------+
-//                            |       |
-//                            +-------+
+//	                           +-------+
+//	                           |       |---\    +---------+
+//	                          >|item1/A|    --->|         |
+//	                        -/ |       |\       |A/memberX|\
+//	                       /   +-------+ -\    ^|         | -\
+//	             +-----+ -/    +-------+   -\ / +---------+   \
+//	             |     |/      |       |     /\ +---------+    \
+//	            >|item1|------>|item1/B|    /  >|         |     -\
+//	+------+  -/ |     |       |       |\  /    |A/memberY|--\    \ +--------+
+//	|      |-/   +-----+       +-------+ \/    >|         |   ---\ >|        |
+//	|source|                             /\  -/ +---------+       ->| target |
+//	|      |-\   +-----+       +-------+/  \/                      >|        |
+//	+------+  -\ |     |       |       |  -/\                    -/ +--------+
+//	            >|item2|------>|item2/A|-/   \                  /
+//	             |     |\      |       |      \ +---------+   -/
+//	             +-----+ -\    +-------+       v|         | -/
+//	                       \   +-------+        |B/memberZ|/
+//	                        -\ |       |    --->|         |
+//	                          >|item2/B|---/    +---------+
+//	                           |       |
+//	                           +-------+
 //
 // The network also represents a number of constraints and goals:
 //
-// - Desired Item replication is captured by the capacity from source to Item.
-// - Zone replication constraints (distribution of each Item across 2+ zones) are
-//   captured in arcs from Items to Zone Items. Goals for maintaining current
-//   assignments and balancing evenly across zones are also expressed.
-// - A preference for current assignments is reflected in arcs from Zone Items
-//   to Members.
-// - Desired "fair share" scaled capacity and upper-bound capacity is reflected
-//   by arcs from Members to the Sink.
+//   - Desired Item replication is captured by the capacity from source to Item.
+//   - Zone replication constraints (distribution of each Item across 2+ zones) are
+//     captured in arcs from Items to Zone Items. Goals for maintaining current
+//     assignments and balancing evenly across zones are also expressed.
+//   - A preference for current assignments is reflected in arcs from Zone Items
+//     to Members.
+//   - Desired "fair share" scaled capacity and upper-bound capacity is reflected
+//     by arcs from Members to the Sink.
 //
 // The basic strategy used is to greedily coerce the push/relabel solver towards
 // a solution which achieves optimization goals (minimal updates & even balancing)
@@ -59,9 +59,9 @@ import (
 // excess can be allocated), and as back-tracking builds "pressure" in the network
 // (expressed via node heights), the relevant Arc capacities at each step are
 // relaxed until a maximal assignment is achieved.
-//
 type sparseFlowNetwork struct {
 	*State
+	myItems keyspace.KeyValues // Slice of State.Items included in this network.
 
 	firstItemNodeID     pr.NodeID // First Item NodeID in the graph.
 	firstZoneItemNodeID pr.NodeID // First Zone-Item NodeID in the graph.
@@ -91,7 +91,7 @@ const (
 	// replicas (as the alternative is not fully replicating the Item at all).
 	itemOverflowThreshold = 1
 	// Also by network construction, if a Member node is allowed to reach a
-	// RelativeHeight() of 1, then we may also cause |itemOverflowThreshold| to
+	// RelativeHeight() of 1, then we may also cause `itemOverflowThreshold` to
 	// be breached. Eg:
 	// - Member height S+1 pushes along residual to ZoneItem height S.
 	// - ZoneItem height S pushes to Item having height S-1.
@@ -106,6 +106,11 @@ const (
 	// *However*, note that a relabeling may take us from height S-1 => S+1,
 	// skipping S, so we must bound to RelativeHeight() of -1 to ensure this
 	// never happens.
+	//
+	// Note that our push/relabel solver implements the label gap heuristic,
+	// which instantly re-sets a subset of nodes to a new height. Usually
+	// that height is len(nodes) + 1, but we use len(nodes) - 1 to give the
+	// solver time to fully explore these overflow heuristics.
 	memberOverflowThreshold = -1
 
 	pageItemArcsUniform    = pr.PageInitial + 1
@@ -113,8 +118,9 @@ const (
 	pageZoneItemAllMembers = pageItemArcsRMinusOne + 1
 )
 
-func newSparseFlowNetwork(s *State) *sparseFlowNetwork {
-	var fs = &sparseFlowNetwork{State: s}
+// newSparseFlowNetwork builds a *sparseFlowNetwork around the given State
+// and partitioned sub-slice of State.Items.
+func newSparseFlowNetwork(s *State, myItems keyspace.KeyValues) *sparseFlowNetwork {
 
 	// Nodes are ordered as:
 	//  - Source node, then
@@ -122,26 +128,30 @@ func newSparseFlowNetwork(s *State) *sparseFlowNetwork {
 	//  - Item Nodes, then
 	//  - Zone-Item Nodes, then
 	//  - Member Nodes.
-	fs.firstItemNodeID = pr.SinkID + 1 // == 2.
-	fs.firstZoneItemNodeID = fs.firstItemNodeID + pr.NodeID(len(s.Items))
-	fs.firstMemberNodeID = fs.firstZoneItemNodeID + pr.NodeID(len(s.Items)*len(s.Zones))
+	var firstItemNodeID = pr.SinkID + 1 // == 2.
+	var firstZoneItemNodeID = firstItemNodeID + pr.NodeID(len(myItems))
+	var firstMemberNodeID = firstZoneItemNodeID + pr.NodeID(len(myItems)*len(s.Zones))
 
 	// Left-join |Items| with |Assignments| (which is ordered on Item ID,
 	// Member zone, Member suffix) to build an index of zone-item to the
 	// offset of its first Assignment (or, the offset to where its Assignment
 	// would place if it had one).
-	fs.zoneItemAssignments = make([]keyspace.KeyValues, len(s.Items)*len(s.Zones))
+	var zoneItemAssignments = make([]keyspace.KeyValues, len(myItems)*len(s.Zones))
+
+	// Accelerate our left-join by skipping to the first assignment of `myItems` via binary search.
+	var pivot, _ = s.Assignments.Search(ItemAssignmentsPrefix(s.KS, itemAt(myItems, 0).ID))
+	var myAssignments = s.Assignments[pivot:]
 
 	var it = LeftJoin{
-		LenL: len(s.Items),
-		LenR: len(s.Assignments),
+		LenL: len(myItems),
+		LenR: len(myAssignments),
 		Compare: func(l, r int) int {
-			return strings.Compare(itemAt(s.Items, l).ID, assignmentAt(s.Assignments, r).ItemID)
+			return strings.Compare(itemAt(myItems, l).ID, assignmentAt(myAssignments, r).ItemID)
 		},
 	}
 	for cur, ok := it.Next(); ok; cur, ok = it.Next() {
 		var item = cur.Left
-		var assignments = s.Assignments[cur.RightBegin:cur.RightEnd]
+		var assignments = myAssignments[cur.RightBegin:cur.RightEnd]
 
 		// Left-join zones with |assignments| of this |item|.
 		var it2 = LeftJoin{
@@ -153,12 +163,12 @@ func newSparseFlowNetwork(s *State) *sparseFlowNetwork {
 		}
 		for cur2, ok2 := it2.Next(); ok2; cur2, ok2 = it2.Next() {
 			var zoneItem = item*len(s.Zones) + cur2.Left
-			fs.zoneItemAssignments[zoneItem] = assignments[cur2.RightBegin:cur2.RightEnd]
+			zoneItemAssignments[zoneItem] = assignments[cur2.RightBegin:cur2.RightEnd]
 		}
 	}
 
-	fs.memberSuffixIdxByZone = make([]map[string]pr.NodeID, len(s.Zones))
-	fs.allZoneItemArcsByZone = make([][]pr.Arc, len(s.Zones))
+	var memberSuffixIdxByZone = make([]map[string]pr.NodeID, len(s.Zones))
+	var allZoneItemArcsByZone = make([][]pr.Arc, len(s.Zones))
 
 	// Left-join |Zones| with |Members| (which is ordered on Member zone, Member suffix).
 	it = LeftJoin{
@@ -171,16 +181,27 @@ func newSparseFlowNetwork(s *State) *sparseFlowNetwork {
 	for cur, ok := it.Next(); ok; cur, ok = it.Next() {
 		var zone = cur.Left
 
-		fs.memberSuffixIdxByZone[zone] = make(map[string]pr.NodeID)
-		fs.allZoneItemArcsByZone[zone] = make([]pr.Arc, 0, cur.RightEnd-cur.RightBegin)
+		memberSuffixIdxByZone[zone] = make(map[string]pr.NodeID)
+		allZoneItemArcsByZone[zone] = make([]pr.Arc, 0, cur.RightEnd-cur.RightBegin)
 
 		for m := cur.RightBegin; m != cur.RightEnd; m++ {
-			var id = fs.firstMemberNodeID + pr.NodeID(m)
-			fs.memberSuffixIdxByZone[zone][memberAt(s.Members, m).Suffix] = id
+			var id = firstMemberNodeID + pr.NodeID(m)
+			memberSuffixIdxByZone[zone][memberAt(s.Members, m).Suffix] = id
 
-			fs.allZoneItemArcsByZone[zone] = append(fs.allZoneItemArcsByZone[zone],
+			allZoneItemArcsByZone[zone] = append(allZoneItemArcsByZone[zone],
 				pr.Arc{To: id, Capacity: 1})
 		}
+	}
+
+	var fs = &sparseFlowNetwork{
+		State:                 s,
+		myItems:               myItems,
+		firstItemNodeID:       firstItemNodeID,
+		firstZoneItemNodeID:   firstZoneItemNodeID,
+		firstMemberNodeID:     firstMemberNodeID,
+		zoneItemAssignments:   zoneItemAssignments,
+		memberSuffixIdxByZone: memberSuffixIdxByZone,
+		allZoneItemArcsByZone: allZoneItemArcsByZone,
 	}
 	return fs
 }
@@ -210,7 +231,7 @@ func (fs *sparseFlowNetwork) Arcs(mf *pr.MaxFlow, id pr.NodeID, page pr.PageToke
 
 	} else if id < fs.firstZoneItemNodeID {
 		var item = int(id - fs.firstItemNodeID)
-		var r = itemAt(fs.Items, item).DesiredReplication()
+		var r = itemAt(fs.myItems, item).DesiredReplication()
 
 		// Enumerate Arcs from the Item to each of its Zone-Item Nodes.
 		// If there is only one zone, or we will next push back to the Source,
@@ -264,11 +285,11 @@ func (fs *sparseFlowNetwork) Arcs(mf *pr.MaxFlow, id pr.NodeID, page pr.PageToke
 // relabel solver; we therefore globally bound Item capacities to the number of
 // available Member slots.
 func (fs *sparseFlowNetwork) buildSourceArcs() []pr.Arc {
-	var arcs = make([]pr.Arc, len(fs.Items))
+	var arcs = make([]pr.Arc, len(fs.myItems))
 	var remaining = fs.MemberSlots
 
-	for item := range fs.Items {
-		var c = itemAt(fs.Items, item).DesiredReplication()
+	for item := range fs.myItems {
+		var c = itemAt(fs.myItems, item).DesiredReplication()
 
 		if c > remaining {
 			c = remaining
@@ -324,19 +345,18 @@ func (fs *sparseFlowNetwork) buildCurrentItemArcs(item int, bound int) []pr.Arc 
 	return arcs
 }
 
-// buildMemberArc from member |member| to the sink. Its capacity is:
-// - The scaled proportion of the member's slots relative to item slots
-//   (rounded up), or:
-// - If the node height is over-threshold, the capacity is the full number of
-//   member slots.
-// Intuitively, the Member node will resist having more than its fair share of
-// assignments until sufficient pressure builds within the network to indicate
-// that not all assignments can otherwise be made. At this point the member will
-// allow assignments up to its full capacity.
+// buildMemberArc from member `member` to the sink.
 func (fs *sparseFlowNetwork) buildMemberArc(mf *pr.MaxFlow, id pr.NodeID, member int) []pr.Arc {
 	var c = memberAt(fs.Members, member).ItemLimit()
+	// Constrain to the scaled ItemLimit for our portion of the global assignment problem.
+	c = scaleAndRound(c, len(fs.myItems), len(fs.Items))
 
 	if mf.RelativeHeight(id) < memberOverflowThreshold {
+		// Further scale to our relative "fair share" items.
+		// Intuitively, the Member node will resist having more than its fair share of
+		// assignments until sufficient pressure builds within the network to indicate
+		// that not all assignments can otherwise be made, at which point we'll
+		// allow assignments up to our (scaled) full capacity.
 		c = scaleAndRound(c, fs.ItemSlots, fs.MemberSlots)
 	}
 	fs.scratch[0] = pr.Arc{
@@ -370,8 +390,8 @@ func (fs *sparseFlowNetwork) buildCurrentZoneItemArcs(zoneItem int) []pr.Arc {
 func (fs *sparseFlowNetwork) extractAssignments(g *pr.MaxFlow, out []Assignment) []Assignment {
 	var lz = len(fs.Zones)
 
-	for item := range fs.Items {
-		var itemID = itemAt(fs.Items, item).ID
+	for item := range fs.myItems {
+		var itemID = itemAt(fs.myItems, item).ID
 		var sortFrom = len(out)
 
 		for zone := 0; zone != lz; zone++ {
@@ -404,4 +424,11 @@ func scaleAndRound(c, num, denom int) int {
 		c += denom
 	}
 	return c / denom
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

@@ -31,7 +31,7 @@ func (s *SparseSuite) TestOverKeySpaceFixture(c *gc.C) {
 		MFoo
 		MBaz
 	)
-	var fn = newSparseFlowNetwork(state)
+	var fn = newSparseFlowNetwork(state, state.Items)
 
 	c.Check(fn.firstItemNodeID, gc.Equals, I1)
 	c.Check(fn.firstZoneItemNodeID, gc.Equals, I1E)
@@ -160,7 +160,7 @@ func (s *SparseSuite) TestMemberScalingOverflow(c *gc.C) {
 		MTwo
 	)
 	// Use noopNetwork to inspect arcs prior to overflow being reached.
-	var fn = newSparseFlowNetwork(state)
+	var fn = newSparseFlowNetwork(state, state.Items)
 	var mf = pr.FindMaxFlow(noopNetwork{fn})
 
 	// Verify expected Source => Item Arcs.
@@ -244,7 +244,7 @@ func (s *SparseSuite) TestZonePlacementOverflow(c *gc.C) {
 		I1A
 		I1B
 	)
-	var fn = newSparseFlowNetwork(state)
+	var fn = newSparseFlowNetwork(state, state.Items)
 	var mf = pr.FindMaxFlow(noopNetwork{fn})
 
 	// Expect that initially, we constrain Item => ZoneItem arcs such that
@@ -314,7 +314,7 @@ func (s *SparseSuite) TestZoneBalancing(c *gc.C) {
 		I1B
 		I1C
 	)
-	var fn = newSparseFlowNetwork(state)
+	var fn = newSparseFlowNetwork(state, state.Items)
 	var mf = pr.FindMaxFlow(noopNetwork{fn})
 
 	verifyArcs(c, fn, mf, I1, [][]pr.Arc{

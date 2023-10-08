@@ -100,15 +100,18 @@ func (s *State) observe() {
 		var slots = m.ItemLimit()
 		var zone = len(s.Zones) - 1
 
-		if len(s.Zones) == 0 || s.Zones[zone] < m.Zone {
+		if slots == 0 {
+			// Don't collect zones of members having no slots.
+		} else if len(s.Zones) == 0 || s.Zones[zone] < m.Zone {
 			s.Zones = append(s.Zones, m.Zone)
-			s.ZoneSlots = append(s.ZoneSlots, 0)
+			s.ZoneSlots = append(s.ZoneSlots, slots)
 			zone++
 		} else if s.Zones[zone] > m.Zone {
 			panic("invalid Member order")
+		} else {
+			s.ZoneSlots[zone] += slots
 		}
 
-		s.ZoneSlots[zone] += slots
 		s.MemberSlots += slots
 		s.NetworkHash = foldCRC(s.NetworkHash, s.Members[i].Raw.Key, slots)
 	}

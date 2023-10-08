@@ -45,6 +45,7 @@ func TestSimpleFixtureOne(t *testing.T) {
 		{From: SourceID, To: A}: 10,
 		{From: SourceID, To: C}: 4,
 	})
+	require.Equal(t, mf.heightCounts, []int32{1, 2, 0, 0, 0, 0})
 }
 
 func TestSimpleFixtureTwo(t *testing.T) {
@@ -220,6 +221,7 @@ func TestNodeDischarge(t *testing.T) {
 	mf.nodes[3].height = 3
 	mf.nodes[4].height = 4
 	mf.nodes[5].height = mf.nodes[SourceID].height
+	mf.heightCounts = []int32{10, 10, 10, 10, 10, 10}
 
 	// Add a residual from 5 => 2.
 	var fid = mf.addFlow(Adjacency{From: 5, To: 2}, false)
@@ -261,7 +263,9 @@ func TestNodeDischarge(t *testing.T) {
 
 	// Arc to Sink is saturated. We re-label to push to node 3.
 	mf.nodes[2].excess = 2
+	require.Equal(t, mf.heightCounts, []int32{10, 10, 10, 10, 10, 10}) // Unchanged.
 	mf.discharge(2, s)
+	require.Equal(t, mf.heightCounts, []int32{10, 10, 9, 10, 11, 10}) // Updated.
 
 	verifyFlows(t, mf, 2, []expectedFlow{
 		{to: SinkID, rate: 2},
@@ -274,6 +278,7 @@ func TestNodeDischarge(t *testing.T) {
 	// We're able to push once more to 3, then relabel before pushing to 4.
 	mf.nodes[2].excess = 2
 	mf.discharge(2, s)
+	require.Equal(t, mf.heightCounts, []int32{10, 10, 9, 10, 10, 11})
 
 	verifyFlows(t, mf, 2, []expectedFlow{
 		{to: 4, rate: 1}, // Added at list front.
@@ -291,6 +296,7 @@ func TestNodeDischarge(t *testing.T) {
 	// residuals are walked in reverse order.
 	mf.nodes[2].excess = 3
 	mf.discharge(2, s)
+	require.Equal(t, mf.heightCounts, []int32{10, 10, 9, 10, 10, 10})
 
 	verifyFlows(t, mf, 5, []expectedFlow{{to: 2, rate: 2}}) // Was 5.
 	require.Equal(t, mf.nodes[2].height, Height(7))
@@ -307,6 +313,7 @@ func TestNodeDischarge(t *testing.T) {
 
 	mf.nodes[2].excess = 9
 	mf.discharge(2, s)
+	require.Equal(t, mf.heightCounts, []int32{10, 10, 9, 10, 10, 10}) // Unchanged.
 
 	verifyFlows(t, mf, SourceID, []expectedFlow{}) // Removed.
 }

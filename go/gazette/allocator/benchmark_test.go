@@ -3,6 +3,7 @@ package allocator
 import (
 	"context"
 	"fmt"
+	"io"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -35,15 +36,15 @@ func benchmarkSimulatedDeploy(b *testing.B) {
 	var client = etcdtest.TestClient()
 	defer etcdtest.Cleanup()
 
-	var ctx, _ = context.WithCancel(context.Background())
+	var ctx = context.Background()
 	var ks = NewAllocatorKeySpace("/root", testAllocDecoder{})
-	var state = NewObservedState(ks, MemberKey(ks, "zone-b", "leader"), isConsistent)
+	var state = NewObservedState(ks, MemberKey(ks, "zone-a", "leader"), isConsistent)
 
 	// Each stage of the deployment will cycle |NMembers10| Members.
 	var NMembers10 = b.N
 	var NMembersHalf = b.N * 5
 	var NMembers = b.N * 10
-	var NItems = NMembers * 100
+	var NItems = NMembers * 200
 
 	b.Logf("Benchmarking with %d items, %d members (%d /2, %d /10)", NItems, NMembers, NMembersHalf, NMembers10)
 
@@ -68,7 +69,7 @@ func benchmarkSimulatedDeploy(b *testing.B) {
 
 	// Announce half of Members...
 	fill(0, NMembersHalf, true, func(i int) (string, string) {
-		return benchMemberKey(ks, i), `{"R": 1000}`
+		return benchMemberKey(ks, i), `{"R": 1500}`
 	})
 	// And all Items.
 	fill(0, NItems, true, func(i int) (string, string) {
@@ -76,8 +77,8 @@ func benchmarkSimulatedDeploy(b *testing.B) {
 	})
 
 	var testState = struct {
-		nextBlock  int  // Next block of Members to cycle down & up.
-		consistent bool // Whether we've marked Assignments as consistent.
+		nextBlock int  // Next block of Members to cycle down & up.
+		nextDown  bool // Are we next scaling down, or up?
 	}{}
 
 	var testHook = func(round int, idle bool) {
@@ -85,42 +86,50 @@ func benchmarkSimulatedDeploy(b *testing.B) {
 		var end = NMembers10 * (testState.nextBlock + 1)
 
 		log.WithFields(log.Fields{
-			"round":            round,
-			"idle":             idle,
-			"state.nextBlock":  testState.nextBlock,
-			"state.consistent": testState.consistent,
-			"begin":            begin,
-			"end":              end,
+			"round": round,
+			"idle":  idle,
+			"begin": begin,
+			"end":   end,
 		}).Info("ScheduleCallback")
 
 		if !idle {
 			return
-		} else if !testState.consistent {
-			// Mark any new Assignments as "consistent", which will typically
-			// unblock further convergence operations.
-			require.NoError(b, markAllConsistent(ctx, client, ks))
-			testState.consistent = true
+		} else if err := markAllConsistent(ctx, client, ks, ""); err == nil {
+			log.Info("marked some items as consistent")
+			return // We marked some items as consistent. Keep going.
+		} else if err == io.ErrNoProgress {
+			// Continue the next test step below.
+		} else {
+			log.WithField("err", err).Warn("failed to mark all consistent (will retry)")
 			return
 		}
+
+		log.WithFields(log.Fields{
+			"state.nextBlock": testState.nextBlock,
+			"state.nextDown":  testState.nextDown,
+		}).Info("next test step")
 
 		if begin == NMembersHalf {
 			// We've cycled all Members. Gracefully exit by setting our ItemLimit to zero,
 			// and waiting for Serve to complete.
 			update(ctx, client, state.LocalKey, `{"R": 0}`)
-			testState.consistent = false
 			return
 		}
 
-		// Mark a block of Members as starting up, and shutting down.
-		fill(NMembersHalf+begin, NMembersHalf+end, true, func(i int) (string, string) {
-			return benchMemberKey(ks, i), `{"R": 1000}`
-		})
-		fill(begin, end, false, func(i int) (string, string) {
-			return benchMemberKey(ks, i), `{"R": 0}`
-		})
-
-		testState.nextBlock++
-		testState.consistent = false
+		if !testState.nextDown {
+			// Mark a block of Members as starting up.
+			fill(NMembersHalf+begin, NMembersHalf+end, true, func(i int) (string, string) {
+				return benchMemberKey(ks, i), `{"R": 1205}` // Less than before, but _just_ enough.
+			})
+			testState.nextDown = true
+		} else {
+			// Mark a block of Members as shutting down.
+			fill(begin, end, false, func(i int) (string, string) {
+				return benchMemberKey(ks, i), `{"R": 0}`
+			})
+			testState.nextBlock += 1
+			testState.nextDown = false
+		}
 	}
 
 	require.NoError(b, ks.Load(ctx, client, 0))
@@ -145,7 +154,7 @@ func benchMemberKey(ks *keyspace.KeySpace, i int) string {
 
 	switch i % 5 {
 	case 0, 2, 4:
-		zone = "zone-a"
+		zone = "zone-a" // Larger than zone-b.
 	case 1, 3:
 		zone = "zone-b"
 	}

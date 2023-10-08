@@ -1,3 +1,23 @@
+// Package sparse_push_relabel implements a greedy variant of the push/relabel algorithm.
+// Specifically, it is a standard variant of the algorithm using node "discharge"
+// operations with height-based node prioritization (see [1]), but additionally
+// introduces a virtual graph model which allows for dynamically controlling the
+// possible Arcs and capacities which are exposed to the solver.
+//
+// As the solver is greedy at each individual step, and push/relabel specifies
+// no particular order over admissible arcs, networks can leverage arc
+// presentation order to coerce the maximum flow solution towards a previous
+// solution without breaking the fundamental properties of the algorithm.
+//
+// Tuning the presentation of certain arcs over others provide no formal
+// guarantees (as min-cost/max-flow would, for example). However in practice,
+// where priorities encode a previous max-flow solution of a closely related,
+// incrementally updated flow network, push/relabel does a good
+// job of minimizing departures from the prior solution at low computational
+// cost. The solver will depart from that desired solution only where necessary
+// to establish a maximum flow.
+//
+//	[1] https://en.wikipedia.org/wiki/Push%E2%80%93relabel_maximum_flow_algorithm#%22Current-arc%22_data_structure_and_discharge_operation )
 package sparse_push_relabel
 
 import (
@@ -92,10 +112,11 @@ type node struct {
 
 // MaxFlow represents a maximum flow achieved over a Network.
 type MaxFlow struct {
-	nodes     []node
-	active    []NodeID // Nodes having non-zero excess, heaped on node height.
-	flows     []Flow   // All network Flows. flowIDs are indexes into this slice.
-	freeFlows []flowID // Free-list of |flows| for re-use.
+	nodes        []node
+	active       []NodeID // Nodes having non-zero excess, heaped on node height.
+	flows        []Flow   // All network Flows. flowIDs are indexes into this slice.
+	freeFlows    []flowID // Free-list of |flows| for re-use.
+	heightCounts []int32  // For heights in [0, N), the number of nodes having that height.
 
 	// For the current node being discharge()'d, dischargeIdx is a dense index
 	// of a destination NodeID to the flowID which corresponds to the Flow from
@@ -113,6 +134,8 @@ func newMaxFlow(network Network) *MaxFlow {
 		nodes:        make([]node, size),
 		active:       []NodeID{SourceID},
 		flows:        []Flow{{}}, // Sentinel.
+		freeFlows:    nil,
+		heightCounts: make([]int32, size),
 		dischargeIdx: make([]flowID, size),
 	}
 
@@ -122,8 +145,11 @@ func newMaxFlow(network Network) *MaxFlow {
 	mf.nodes[SourceID].excess = math.MaxInt32
 	mf.nodes[SourceID].height = Height(size)
 
+	mf.heightCounts[0] = 1 // Sink. Source height is out of bounds & not tracked.
+
 	for id := SinkID + 1; id != NodeID(size); id++ {
 		mf.nodes[id].height = network.InitialHeight(id)
+		mf.heightCounts[mf.nodes[id].height] += 1
 	}
 	return mf
 }
@@ -302,6 +328,64 @@ func (mf *MaxFlow) discharge(nid NodeID, structure Network) {
 
 		if nid == SourceID {
 			return // All done (we never relabel the source node).
+		}
+		var nNodes = Height(len(mf.nodes))
+
+		// We are re-labeling `node`, intending to remove its current labeling
+		// of `node.height` and re-labeling it to `node.nextHeight`.
+		//
+		// Before we do so, check to see if this re-labeling will introduce a "gap"
+		// in the set of heights (equivalently: labels) between 0 < G < len(nodes),
+		// such that no nodes remain having height G.
+		//
+		// If there is a gap, then we immediately know that graph nodes having
+		// G < node.height < len(nodes) are effectively "cut off" from the sink node.
+		// Intuitively, height is a lower-bound on the distance to the sink,
+		// and the node's path to the sink has been disconnected by the removal
+		// of all nodes having the lower height G.
+		//
+		// We can skip a bunch of work by immediately re-labeling all such nodes
+		// to a height of len(nodes) - 1. This includes the current `node`, as it's
+		// in the process of being relabeled to a larger value from `node.height`.
+		//
+		// Note that conventional push/relabel would re-label to len(nodes) + 1.
+		// We use len(nodes) - 1 instead, to explore relative-height heuristics
+		// that may open up more capacity and are somewhat specific to the
+		// network for solving assignments. If we instead used len(nodes) + 1,
+		// then excess can push to the source immediately (terminating the
+		// algorithm) before those heuristic capacity changes are fully explored.
+		//
+		// Additional intuition:
+		//  * The sink always has height zero and is never relabeled (it never has excess),
+		//    so there's always one node with height zero.
+		//  * `node.nextHeight` is larger than `g`, so there's a least one larger height in use.
+		//  * Thus, if no nodes remain having height `g` then `g` must be a gap.
+		//    (We compare to one and not zero because we're about to decrement but haven't actually done so.)
+		if g := node.height; 0 < g && g < nNodes-1 && node.nextHeight < nNodes-1 && mf.heightCounts[g] == 1 {
+			// Are there *other* nodes that we can immediately relabel?
+			// Test only nodes also having height `nextHeight`, which is not
+			// exhaustive but is very fast and works quite well in practice.
+			if mf.heightCounts[node.nextHeight] != 0 {
+				for n := range mf.nodes {
+					if h := mf.nodes[n].height; g < h && h < nNodes { // Does not match `node`.
+						mf.heightCounts[h] -= 1
+						mf.nodes[n].height = nNodes - 1
+						mf.nodes[n].nextHeight = maxHeight
+						mf.nodes[n].dischargePage = PageInitial
+						mf.nodes[n].dischargeInd = 0
+					}
+				}
+				heap.Init((*heightHeap)(mf)) // Re-heap as we may have changed active node heights.
+			}
+
+			node.nextHeight = nNodes - 1
+		}
+
+		if node.height < nNodes {
+			mf.heightCounts[node.height] -= 1
+		}
+		if node.nextHeight < nNodes {
+			mf.heightCounts[node.nextHeight] += 1
 		}
 		node.height, node.nextHeight = node.nextHeight, maxHeight
 

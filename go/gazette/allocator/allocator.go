@@ -10,7 +10,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.gazette.dev/core/allocator/push_relabel"
 	"go.gazette.dev/core/allocator/sparse_push_relabel"
 	"go.gazette.dev/core/keyspace"
 )
@@ -30,17 +29,14 @@ type AllocateArgs struct {
 // allocation of all Items to Members. Allocate exits on an unrecoverable
 // error, or if:
 //
-//   * The local Member has an ItemLimit of Zero, AND
-//   * No Assignments to the current Member remain.
+//   - The local Member has an ItemLimit of Zero, AND
+//   - No Assignments to the current Member remain.
 //
 // Eg, Allocate should be gracefully stopped by updating the ItemLimit of the
 // Member identified by Allocator.LocalKey() to zero (perhaps as part of a
 // SIGTERM signal handler) and then waiting for Allocate to return, which it
 // will once all instance Assignments have been re-assigned to other Members.
 func Allocate(args AllocateArgs) error {
-	// flowNetwork is local to a single pass of the scheduler, but we retain a
-	// single instance and re-use it each iteration to reduce allocation.
-	var fn = new(flowNetwork)
 	// The leader runs push/relabel to re-compute a |desired| network only when
 	// the State |NetworkHash| changes. Otherwise, it incrementally converges
 	// towards the previous solution, which is still a valid maximum assignment.
@@ -73,37 +69,22 @@ func Allocate(args AllocateArgs) error {
 			// Do we need to re-solve for a maximum assignment?
 			if state.NetworkHash != lastNetworkHash {
 				var startTime = time.Now()
-
-				// Build a prioritized flowNetwork and solve for maximum flow.
-				if useSparseSolver {
-					var fs = newSparseFlowNetwork(state)
-					var mf = sparse_push_relabel.FindMaxFlow(fs)
-
-					desired = fs.extractAssignments(mf, desired[:0])
-				} else {
-					fn.init(state)
-					push_relabel.FindMaxFlow(&fn.source, &fn.sink)
-
-					// Extract desired max-flow Assignments for each Item.
-					desired = desired[:0]
-					for item := range state.Items {
-						desired = extractItemFlow(state, fn, item, desired)
-					}
-				}
-
+				desired = solveDesiredAssignments(state, desired[:0])
 				var dur = time.Since(startTime)
 				allocatorMaxFlowRuntimeSeconds.Observe(dur.Seconds())
 
 				log.WithFields(log.Fields{
-					"root":        state.KS.Root,
-					"rev":         state.KS.Header.Revision,
-					"hash":        state.NetworkHash,
-					"lastHash":    lastNetworkHash,
-					"items":       len(state.Items),
-					"members":     len(state.Members),
-					"assignments": len(state.Assignments),
-					"desired":     len(desired),
-					"dur":         dur,
+					"dur":             dur,
+					"hash":            state.NetworkHash,
+					"itemSlots":       state.ItemSlots,
+					"items":           len(state.Items),
+					"lastHash":        lastNetworkHash,
+					"memberSlots":     state.MemberSlots,
+					"members":         len(state.Members),
+					"nextAssignments": len(desired),
+					"prevAssignments": len(state.Assignments),
+					"rev":             state.KS.Header.Revision,
+					"root":            state.KS.Root,
 				}).Info("solved for maximum assignment")
 
 				if len(desired) < state.ItemSlots {
@@ -225,6 +206,31 @@ func removeDeadAssignments(txn checkpointTxn, ks *keyspace.KeySpace, asn keyspac
 	return nil
 }
 
+func solveDesiredAssignments(s *State, desired []Assignment) []Assignment {
+	// Number of items to lump into each invocation of push/relabel.
+	// This is an arbitrary number which is empirically fast to solve,
+	// but is large enough that we're unlikely to see further improvements
+	// from finding a global maximum flow.
+	// Splitting the problem in this way makes it big-O linear on items,
+	// instead of combinatorial over members and items.
+	const itemsPerNetwork = 10000
+
+	// NOTE(johnny): this could trivially be parallelized if needed.
+	for i := 0; i*itemsPerNetwork < len(s.Items); i++ {
+		var end = (i + 1) * itemsPerNetwork
+		if end > len(s.Items) {
+			end = len(s.Items)
+		}
+		var items = s.Items[i*itemsPerNetwork : end]
+
+		// Build a prioritized flow network and solve for maximum flow.
+		var network = newSparseFlowNetwork(s, items)
+		var maxFlow = sparse_push_relabel.FindMaxFlow(network)
+		desired = network.extractAssignments(maxFlow, desired)
+	}
+	return desired
+}
+
 // modRevisionUnchanged returns a Cmp which verifies the key has not changed
 // from the current KeyValue.
 func modRevisionUnchanged(kv keyspace.KeyValue) clientv3.Cmp {
@@ -232,12 +238,12 @@ func modRevisionUnchanged(kv keyspace.KeyValue) clientv3.Cmp {
 }
 
 // checkpointTxn runs transactions. It's modeled on clientv3.Txn, but:
-//  * It introduces "checkpoints", whereby many checkpoints may be grouped into
-//    a smaller number of underlying Txns, while still providing a guarantee
-//    that If/Thens of a checkpoint will be issued together in one Txn.
-//  * It allows If and Then to be called multiple times.
-//  * It removes Else, as incompatible with the checkpoint model. As such,
-//    a Txn which does not succeed becomes an error.
+//   - It introduces "checkpoints", whereby many checkpoints may be grouped into
+//     a smaller number of underlying Txns, while still providing a guarantee
+//     that If/Thens of a checkpoint will be issued together in one Txn.
+//   - It allows If and Then to be called multiple times.
+//   - It removes Else, as incompatible with the checkpoint model. As such,
+//     a Txn which does not succeed becomes an error.
 type checkpointTxn interface {
 	If(...clientv3.Cmp) checkpointTxn
 	Then(...clientv3.Op) checkpointTxn
@@ -381,8 +387,3 @@ func (b *batchedTxn) debugLogTxn(response *clientv3.TxnResponse, err error) {
 // configuration at runtime with --max-txn-ops. We assume the default and will
 // error if a smaller value is used.
 var maxTxnOps = 128
-
-// useSparseSolver is a developer toggle for comparative testing of the sparse
-// vs dense push/relabel solvers & associated flow networks.
-// Deprecated: to removed with the dense flow network implementation.
-const useSparseSolver = true
