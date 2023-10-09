@@ -176,7 +176,7 @@ ${RUSTBIN}/agent:
 	cargo build --release --locked -p agent
 
 .PHONY: ${RUSTBIN}/flowctl
-${RUSTBIN}/flowctl:
+flow-cli: ${RUSTBIN}/flowctl
 	cargo build --release --locked -p flowctl
 
 # Statically linked binaries using MUSL:
