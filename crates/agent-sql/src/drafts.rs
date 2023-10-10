@@ -149,3 +149,17 @@ pub async fn delete_spec(
 
     Ok(())
 }
+
+pub async fn prune_unchanged_draft_specs(
+    draft_id: Id,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<Vec<String>> {
+    let rows = sqlx::query!(
+        r#"select t.n from prune_unchanged_draft_specs($1) as t(n)"#,
+        draft_id as Id,
+    )
+    .fetch_all(txn)
+    .await?;
+
+    Ok(rows.into_iter().map(|r| r.n.unwrap()).collect())
+}
