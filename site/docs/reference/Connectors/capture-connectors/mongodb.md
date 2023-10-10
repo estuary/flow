@@ -44,6 +44,10 @@ You'll need:
    })
     ```
     
+    If you are using a userw ith access to all databases, then in your mongodb
+    address, you must specify `?authSource=admin` parameter so that
+    authentication is done through your admin database.
+
     In order to create a user with access to a specific database and the `local` database,
     use a command like so:
     
