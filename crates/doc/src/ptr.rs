@@ -215,8 +215,7 @@ impl Pointer {
                         arr.last_mut().unwrap()
                     }
                     // Cannot match (attempt to query property of an array).
-                    Token::Property(_) => return None,
-                    Token::NextProperty => return None,
+                    Token::Property(_) | Token::NextProperty => return None,
                 },
                 Value::Number(_) | Value::Bool(_) | Value::String(_) => {
                     return None; // Cannot match (attempt to take child of scalar).
@@ -275,8 +274,7 @@ impl Pointer {
                         arr.last_mut().unwrap()
                     }
                     // Cannot match (attempt to query property of an array).
-                    Token::Property(_) => return None,
-                    Token::NextProperty => return None,
+                    Token::Property(_) | Token::NextProperty => return None,
                 },
                 HeapNode::Bool(_)
                 | HeapNode::Bytes(_)
@@ -517,6 +515,7 @@ mod test {
         for case in [
             "/foo/2/a/3", // Attempt to index string scalar.
             "/foo/bar",   // Attempt to take property of array.
+            "/foo/-",     // Attempt to take property of array
         ]
         .iter()
         {
