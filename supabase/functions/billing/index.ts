@@ -39,7 +39,7 @@ serve(async (req) => {
                 throw new Error("User not found");
             }
 
-            const grants = await supabaseClient.from("combined_grants_ext").select("*").eq("capability", "admin").eq("user_id", user.id);
+            const grants = await supabaseClient.from("combined_grants_ext").select("*").eq("capability", "admin");
 
             if (!(grants.data ?? []).find((grant) => grant.object_role === requested_tenant)) {
                 res = [JSON.stringify({ error: `Not authorized to requested grant` }), {
