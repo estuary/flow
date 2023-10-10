@@ -27,9 +27,7 @@ fn squash_location_inner(shape: &mut Shape, name: &Token) {
     match name {
         // Squashing of `additional*` fields is not possible here because we don't
         // have access to the parent shape
-        Token::NextIndex => unreachable!(),
-        Token::NextProperty => unreachable!(),
-
+        Token::NextIndex | Token::NextProperty => unreachable!(),
         Token::Index(_) => {
             // Pop the last element from the array tuple shape to avoid
             // shifting the indexes of any other tuple shapes
