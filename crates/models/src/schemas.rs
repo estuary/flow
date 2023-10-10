@@ -137,12 +137,17 @@ impl Schema {
             }
             "###,
             );
-            let mut inferred_schema: Skim = serde_json::from_str(inferred_bundle).unwrap();
+            // We don't use `Skim` here because we want the serde round trip to
+            // transform the sentinel schema from pretty-printed to dense. This
+            // is important because newlines in the schema could otherwise break
+            // connectors using the airbyte protocol.
+            let mut inferred_schema: BTreeMap<String, serde_json::Value> =
+                serde_json::from_str(inferred_bundle).unwrap();
 
             // Set $id to "flow://inferred-schema".
             _ = inferred_schema.insert(
                 KEYWORD_ID.to_string(),
-                RawValue::from_value(&Value::String(Self::REF_INFERRED_SCHEMA_URL.to_string())),
+                Value::String(Self::REF_INFERRED_SCHEMA_URL.to_string()),
             );
             // Add as a definition within the read schema.
             read_defs.insert(
