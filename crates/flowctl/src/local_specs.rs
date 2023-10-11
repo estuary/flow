@@ -256,12 +256,15 @@ impl validation::ControlPlane for Resolver {
     fn get_inferred_schemas<'a>(
         &'a self,
         collections: Vec<models::Collection>,
-    ) -> BoxFuture<'a, anyhow::Result<std::collections::BTreeMap<models::Collection, models::Schema>>>
-    {
+    ) -> BoxFuture<
+        'a,
+        anyhow::Result<std::collections::BTreeMap<models::Collection, validation::InferredSchema>>,
+    > {
         #[derive(serde::Deserialize, Clone)]
         struct Row {
             pub collection_name: models::Collection,
             pub schema: models::Schema,
+            pub md5: String,
         }
 
         let rows = collections
@@ -272,7 +275,7 @@ impl validation::ControlPlane for Resolver {
                 let builder = self
                     .client
                     .from("inferred_schemas")
-                    .select("collection_name,schema")
+                    .select("collection_name,schema,md5")
                     .in_("collection_name", names);
 
                 async move { crate::api_exec::<Vec<Row>>(builder).await }
@@ -290,7 +293,10 @@ impl validation::ControlPlane for Resolver {
                         |Row {
                              collection_name,
                              schema,
-                         }| (collection_name, schema),
+                             md5,
+                         }| {
+                            (collection_name, validation::InferredSchema { schema, md5 })
+                        },
                     )
                 })
                 .flatten()

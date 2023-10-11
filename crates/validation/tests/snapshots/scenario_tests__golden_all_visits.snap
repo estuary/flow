@@ -1098,6 +1098,7 @@ All {
                 ),
                 derivation: None,
             },
+            inferred_schema_md5: NULL,
         },
         BuiltCollection {
             scope: test://example/from-array-key#/collections/testing~1from-array-key,
@@ -1767,6 +1768,7 @@ All {
                     },
                 ),
             },
+            inferred_schema_md5: NULL,
         },
         BuiltCollection {
             scope: test://example/int-halve#/collections/testing~1int-halve,
@@ -2932,6 +2934,7 @@ All {
                     },
                 ),
             },
+            inferred_schema_md5: NULL,
         },
         BuiltCollection {
             scope: test://example/int-reverse#/collections/testing~1int-reverse,
@@ -3464,6 +3467,7 @@ All {
                     },
                 ),
             },
+            inferred_schema_md5: NULL,
         },
         BuiltCollection {
             scope: test://example/int-string#/collections/testing~1int-string,
@@ -3667,6 +3671,7 @@ All {
                 ),
                 derivation: None,
             },
+            inferred_schema_md5: NULL,
         },
         BuiltCollection {
             scope: test://example/int-string#/collections/testing~1int-string-inferred,
@@ -3868,6 +3873,7 @@ All {
                 ),
                 derivation: None,
             },
+            inferred_schema_md5: mock md5,
         },
         BuiltCollection {
             scope: test://example/int-string#/collections/testing~1int-string-inferred-not-found,
@@ -4101,6 +4107,7 @@ All {
                 ),
                 derivation: None,
             },
+            inferred_schema_md5: NULL,
         },
         BuiltCollection {
             scope: test://example/int-string#/collections/testing~1int-string-rw,
@@ -4418,6 +4425,7 @@ All {
                 ),
                 derivation: None,
             },
+            inferred_schema_md5: NULL,
         },
         BuiltCollection {
             scope: test://example/int-string#/collections/testing~1int-string.v2,
@@ -4599,6 +4607,7 @@ All {
                 ),
                 derivation: None,
             },
+            inferred_schema_md5: NULL,
         },
     ],
     built_materializations: [

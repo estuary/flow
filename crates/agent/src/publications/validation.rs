@@ -38,7 +38,7 @@ impl validation::ControlPlane for ControlPlane {
         collections: Vec<models::Collection>,
     ) -> futures::future::BoxFuture<
         'a,
-        anyhow::Result<std::collections::BTreeMap<models::Collection, models::Schema>>,
+        anyhow::Result<std::collections::BTreeMap<models::Collection, validation::InferredSchema>>,
     > {
         let Some(pool) = self.pool.clone() else {
             return validation::NoOpControlPlane.get_inferred_schemas(collections)
@@ -52,7 +52,10 @@ impl validation::ControlPlane for ControlPlane {
                     .map(|row| {
                         (
                             models::Collection::new(row.collection_name),
-                            models::Schema::new(row.schema.0.into()),
+                            validation::InferredSchema {
+                                schema: models::Schema::new(row.schema.0.into()),
+                                md5: row.md5,
+                            },
                         )
                     })
                     .collect()
