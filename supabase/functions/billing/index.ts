@@ -73,7 +73,7 @@ serve(async (req) => {
         }];
     }
 
-    res[1] = { ...res[1], headers: { ...res[1]?.headers || {} } };
+    res[1] = { ...res[1], headers: { ...res[1]?.headers || billingResponseHeaders } };
 
     return new Response(...res);
 });
