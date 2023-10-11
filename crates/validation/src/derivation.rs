@@ -92,6 +92,7 @@ pub async fn walk_all_derivations(
             collection: this_collection,
             validated: _,
             spec: flow::CollectionSpec { name, .. },
+            inferred_schema_md5: _,
         } = &built_collections[built_index];
         let scope = Scope::new(scope);
 
@@ -277,6 +278,7 @@ fn walk_derive_request<'a>(
         collection: _,
         validated: _,
         spec,
+        inferred_schema_md5: _,
     } = &built_collections[built_index];
 
     let scope = Scope::new(scope);

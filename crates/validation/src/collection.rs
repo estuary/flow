@@ -1,4 +1,4 @@
-use super::{indexed, schema, storage_mapping, Error, Scope};
+use super::{indexed, schema, storage_mapping, Error, InferredSchema, Scope};
 use json::schema::types;
 use proto_flow::flow;
 use std::collections::BTreeMap;
@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 pub fn walk_all_collections(
     build_id: &str,
     collections: &[tables::Collection],
-    inferred_schemas: &BTreeMap<models::Collection, models::Schema>,
+    inferred_schemas: &BTreeMap<models::Collection, InferredSchema>,
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
 ) -> tables::BuiltCollections {
@@ -20,7 +20,16 @@ pub fn walk_all_collections(
             storage_mappings,
             errors,
         ) {
-            built_collections.insert_row(&collection.scope, &collection.collection, None, spec);
+            let inferred_schema_md5 = inferred_schemas
+                .get(&collection.collection)
+                .map(|s| s.md5.clone());
+            built_collections.insert_row(
+                &collection.scope,
+                &collection.collection,
+                None,
+                spec,
+                inferred_schema_md5,
+            );
         }
     }
     built_collections
@@ -29,7 +38,7 @@ pub fn walk_all_collections(
 fn walk_collection(
     build_id: &str,
     collection: &tables::Collection,
-    inferred_schemas: &BTreeMap<models::Collection, models::Schema>,
+    inferred_schemas: &BTreeMap<models::Collection, InferredSchema>,
     storage_mappings: &[tables::StorageMapping],
     errors: &mut tables::Errors,
 ) -> Option<flow::CollectionSpec> {
@@ -64,6 +73,9 @@ fn walk_collection(
         .push(scope.push_prop("key"), errors);
     }
 
+    let inferred_schema = inferred_schemas.get(&collection.collection);
+    tracing::debug!(collection = %collection.collection, inferred_schema_md5 = ?inferred_schema.map(|s| s.md5.as_str()), "does collection have an inferred schema");
+
     let (write_schema, write_bundle, read_schema_bundle) = match (schema, write_schema, read_schema)
     {
         // One schema used for both writes and reads.
@@ -82,7 +94,9 @@ fn walk_collection(
             let read_bundle = models::Schema::extend_read_bundle(
                 read_bundle,
                 write_bundle,
-                inferred_schemas.get(&collection.collection),
+                inferred_schemas
+                    .get(&collection.collection)
+                    .map(|v| &v.schema),
             );
 
             let read_schema =

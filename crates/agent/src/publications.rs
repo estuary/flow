@@ -397,7 +397,7 @@ impl PublishHandler {
         }
 
         // Add built specs to the live spec when publishing a build.
-        specs::add_built_specs_to_live_specs(&spec_rows, &pruned_collections, &build_output, txn)
+        specs::add_build_output_to_live_specs(&spec_rows, &pruned_collections, &build_output, txn)
             .await
             .context("adding built specs to live specs")?;
 
