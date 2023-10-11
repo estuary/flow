@@ -1,8 +1,11 @@
+use std::collections::BTreeSet;
+
 use crate::{
     api_exec, api_exec_paginated,
     controlplane::Client,
     output::{to_table_row, CliOutput, JsonCell},
 };
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 mod author;
@@ -276,6 +279,16 @@ async fn do_list(ctx: &mut crate::CliContext) -> anyhow::Result<()> {
     });
 
     ctx.write_all(rows, ())
+}
+
+/// Invokes the `prune_unchanged_draft_specs` RPC (SQL function), which removes any draft specs
+/// that are identical to their live specs, accounting for changes to inferred schemas.
+/// Returns the set of specs that were removed from the draft (as a `BTreeSet` so they're ordered).
+pub async fn remove_unchanged(client: &Client, draft_id: &str) -> anyhow::Result<BTreeSet<String>> {
+    let params = serde_json::to_string(&serde_json::json!({ "draft_id": draft_id })).unwrap();
+    api_exec(client.rpc("prune_unchanged_draft_specs", params))
+        .await
+        .context("pruning unchanged specs")
 }
 
 async fn do_select(
