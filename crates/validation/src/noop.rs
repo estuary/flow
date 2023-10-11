@@ -1,4 +1,4 @@
-use super::{Connectors, ControlPlane};
+use super::{Connectors, ControlPlane, InferredSchema};
 use futures::future::{BoxFuture, FutureExt};
 use proto_flow::{capture, derive, flow, materialize};
 use std::collections::BTreeMap;
@@ -113,7 +113,7 @@ impl ControlPlane for NoOpControlPlane {
     fn get_inferred_schemas<'a>(
         &'a self,
         _collections: Vec<models::Collection>,
-    ) -> BoxFuture<'a, anyhow::Result<BTreeMap<models::Collection, models::Schema>>> {
+    ) -> BoxFuture<'a, anyhow::Result<BTreeMap<models::Collection, InferredSchema>>> {
         async move { Ok(BTreeMap::new()) }.boxed()
     }
 }

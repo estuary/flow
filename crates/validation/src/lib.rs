@@ -38,6 +38,15 @@ pub trait Connectors: Send + Sync {
     ) -> BoxFuture<'a, anyhow::Result<proto_flow::materialize::Response>>;
 }
 
+pub struct InferredSchema {
+    /// The md5 sum of the inferred schema that was calculated by the control
+    /// plane database. We always use the value that was calculated by the
+    /// database in order to avoid spurious hash changes due to inconsequential
+    /// differences in JSON encoding.
+    pub md5: String,
+    pub schema: models::Schema,
+}
+
 pub trait ControlPlane: Send + Sync {
     // Resolve a set of collection names into pre-built CollectionSpecs from
     // the control plane. Resolution may be fuzzy: if there is a spec that's
@@ -54,7 +63,7 @@ pub trait ControlPlane: Send + Sync {
     fn get_inferred_schemas<'a>(
         &'a self,
         collections: Vec<models::Collection>,
-    ) -> BoxFuture<'a, anyhow::Result<BTreeMap<models::Collection, models::Schema>>>;
+    ) -> BoxFuture<'a, anyhow::Result<BTreeMap<models::Collection, InferredSchema>>>;
 }
 
 pub async fn validate(
@@ -123,6 +132,9 @@ pub async fn validate(
                 scope: url::Url::parse("flow://control-plane").unwrap(),
                 spec,
                 validated: None,
+                // Note that we don't currently fetch the infeered schema md5 for remote collections,
+                // so they won't appear in the build ouptut for these collections.
+                inferred_schema_md5: None,
             }
         })
         .collect::<tables::BuiltCollections>();

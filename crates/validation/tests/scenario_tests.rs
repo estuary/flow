@@ -1759,13 +1759,20 @@ impl validation::ControlPlane for MockDriverCalls {
     fn get_inferred_schemas<'a>(
         &'a self,
         collections: Vec<models::Collection>,
-    ) -> BoxFuture<'a, anyhow::Result<BTreeMap<models::Collection, models::Schema>>> {
+    ) -> BoxFuture<'a, anyhow::Result<BTreeMap<models::Collection, validation::InferredSchema>>>
+    {
         let out = collections
             .iter()
             .filter_map(|collection| {
-                self.inferred_schemas
-                    .get(collection)
-                    .map(|schema| (collection.clone(), schema.clone()))
+                self.inferred_schemas.get(collection).map(|schema| {
+                    (
+                        collection.clone(),
+                        validation::InferredSchema {
+                            schema: schema.clone(),
+                            md5: String::from("mock md5"),
+                        },
+                    )
+                })
             })
             .collect();
 

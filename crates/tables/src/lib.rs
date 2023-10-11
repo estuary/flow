@@ -93,6 +93,12 @@ tables!(
         validated: Option<proto_flow::derive::response::Validated>,
         // Built specification for this collection.
         spec: proto_flow::flow::CollectionSpec,
+        // The md5 sum of the inferred schema at the time that this collection
+        // was built. Note that this may be present even if the collection does
+        // not actually use the inferred schema. And it may also be missing,
+        // even if the collection _does_ use schema inference, for "remote"
+        // collections that were resolve dynamically during the build.
+        inferred_schema_md5: Option<String>,
     }
 
     table BuiltMaterializations (row BuiltMaterialization, order_by [materialization], sql "built_materializations") {
