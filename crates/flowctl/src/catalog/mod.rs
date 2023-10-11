@@ -654,6 +654,39 @@ pub struct SpecSummaryItem {
     pub catalog_name: String,
     pub spec_type: Option<String>,
 }
+
+impl SpecSummaryItem {
+    fn summarize_catalog(catalog: models::Catalog) -> Vec<SpecSummaryItem> {
+        let mut summary = Vec::with_capacity(catalog.spec_count());
+        let models::Catalog {
+            captures,
+            collections,
+            materializations,
+            tests,
+            ..
+        } = catalog;
+
+        summary.extend(captures.into_keys().map(|k| SpecSummaryItem {
+            catalog_name: k.into(),
+            spec_type: Some(String::from("capture")),
+        }));
+        summary.extend(collections.into_keys().map(|k| SpecSummaryItem {
+            catalog_name: k.into(),
+            spec_type: Some(String::from("collection")),
+        }));
+        summary.extend(materializations.into_keys().map(|k| SpecSummaryItem {
+            catalog_name: k.into(),
+            spec_type: Some(String::from("materialization")),
+        }));
+        summary.extend(tests.into_keys().map(|k| SpecSummaryItem {
+            catalog_name: k.into(),
+            spec_type: Some(String::from("test")),
+        }));
+
+        summary
+    }
+}
+
 impl CliOutput for SpecSummaryItem {
     type TableAlt = ();
     type CellValue = JsonCell;
