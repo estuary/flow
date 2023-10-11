@@ -1,4 +1,4 @@
-import { customerQuery, StripeClient } from "./shared.ts";
+import { billingResponseHeaders, customerQuery, StripeClient } from "./shared.ts";
 
 export interface SetTenantPrimaryPaymentMethodParams {
     tenant: string;
@@ -14,12 +14,12 @@ export async function setTenantPrimaryPaymentMethod(
         await StripeClient.customers.update(customer.id, { invoice_settings: { default_payment_method: req_body.id } });
 
         return [JSON.stringify({ status: "ok" }), {
-            headers: { "Content-Type": "application/json" },
+            headers: billingResponseHeaders,
             status: 200,
         }];
     } else {
         return [JSON.stringify({ payment_methods: [], primary: null }), {
-            headers: { "Content-Type": "application/json" },
+            headers: billingResponseHeaders,
             status: 200,
         }];
     }

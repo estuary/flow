@@ -1,4 +1,4 @@
-import { customerQuery, StripeClient } from "./shared.ts";
+import { billingResponseHeaders, customerQuery, StripeClient } from "./shared.ts";
 
 export interface DeleteTenantPaymentMethodsParams {
     tenant: string;
@@ -20,7 +20,7 @@ export async function deleteTenantPaymentMethod(
         }
     }
     return [JSON.stringify({ status: "ok" }), {
-        headers: { "Content-Type": "application/json" },
+        headers: billingResponseHeaders,
         status: 200,
     }];
 }
