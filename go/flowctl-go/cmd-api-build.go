@@ -132,4 +132,4 @@ var green = color.New(color.FgGreen).SprintFunc()
 var yellow = color.New(color.FgYellow).SprintFunc()
 var red = color.New(color.FgRed).SprintFunc()
 
-const executeTimeout = time.Minute * 5
+const executeTimeout = time.Minute * 30
