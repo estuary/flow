@@ -17,17 +17,17 @@ fn sanitize_datetime_to_rfc3339() {
     let output = run_test(&cfg, input);
     output.assert_success(1);
 
-    let expected_first_row = "2020-01-01T00:00:00Z";
+    let expected_first_row = "2020-01-01T00:00:00+00:00";
     for value in output.parsed[0].as_object().unwrap().values() {
-        assert_eq!(expected_first_row, value.as_str().unwrap())
+        assert_eq!(expected_first_row, DateTime::parse_from_rfc3339(value.as_str().unwrap()).unwrap().to_rfc3339())
     }
 }
 
 #[test]
-fn sanitize_datetime_to_rfc3339_offset() {
+fn sanitize_datetime_to_rfc3339_iana_timezone() {
     let path = "tests/examples/datetimes-naive.csv";
     let cfg = ParseConfig {
-        default_offset: "-05:00".to_string(),
+        default_timezone: "America/New_York".to_string(),
         filename: Some(path.to_string()),
         ..Default::default()
     };
@@ -38,7 +38,7 @@ fn sanitize_datetime_to_rfc3339_offset() {
 
     let expected_first_row = "2020-01-01T00:00:00-05:00";
     for value in output.parsed[0].as_object().unwrap().values() {
-        assert_eq!(expected_first_row, value.as_str().unwrap())
+        assert_eq!(expected_first_row, DateTime::parse_from_rfc3339(value.as_str().unwrap()).unwrap().to_rfc3339())
     }
 }
 

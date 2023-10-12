@@ -528,8 +528,8 @@ impl schemars::JsonSchema for ErrorThreshold {
     }
 }
 
-fn default_offset_string() -> String {
-    "+00:00".to_string()
+fn default_timezone_string() -> String {
+    "UTC".to_string()
 }
 
 // Fields annotated with `schemars(skip)` will not appear in the JSON schema, and thus won't be
@@ -555,9 +555,9 @@ pub struct ParseConfig {
     pub compression: DefaultNullIsAutomatic<Compression>,
 
     /// The default timezone to use when parsing timestamps that do not have a timezone. Timezones
-    /// must be specified as an +/-HH:MM offset, defaults to +00:00.
-    #[serde(default="default_offset_string")]
-    pub default_offset: String,
+    /// must be specified as a valid IANA name. Defaults to UTC.
+    #[serde(default="default_timezone_string")]
+    pub default_timezone: String,
 
     /// filename is used for format inference. It will be ignored if `format` is specified.
     #[serde(default)]
@@ -596,7 +596,7 @@ impl Default for ParseConfig {
         ParseConfig {
             format: Default::default(),
             compression: Default::default(),
-            default_offset: default_offset_string(),
+            default_timezone: default_timezone_string(),
             filename: Default::default(),
             add_record_offset: Default::default(),
             add_values: Default::default(),
