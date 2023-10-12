@@ -21,10 +21,44 @@ You'll need:
 
 * Credentials for connecting to your MongoDB instance and database
 
-    * Read access to your MongoDB database and desired collections, see
+    * Read access to your MongoDB database(s), see
       [Role-Based Access
       Control](https://www.mongodb.com/docs/manual/core/authorization/) for more
       information.
+    * Read access to the `local` database and `oplog.rs` collection in that
+      database.
+    * We recommend giving access to read all databases, as this allows us to
+      watch an instance-level change stream, allowing for better guarantees of
+      reliability, and possibility of capturing multiple databases in the same
+      task. However, if access to all databases is not possible, you can
+      give us access to a single database and we will watch a change stream on
+      that specific database.
+    
+    In order to create a user with access to all databases, use a command like so:
+    ```
+    use admin;
+    db.createUser({
+     user: "<username>",
+     pwd: "<password>",
+     roles: [ "readAnyDatabase" ]
+   })
+    ```
+    
+    If you are using a userw ith access to all databases, then in your mongodb
+    address, you must specify `?authSource=admin` parameter so that
+    authentication is done through your admin database.
+
+    In order to create a user with access to a specific database and the `local` database,
+    use a command like so:
+    
+    ```
+    use <your-db>;
+    db.createUser({
+      user: "<username>",
+      pwd: "<password>",
+      roles: ["read", { role: "read", db: "local" }]
+    })
+    ```
 
 * ReplicaSet enabled on your database, see [Deploy a Replica
   Set](https://www.mongodb.com/docs/manual/tutorial/deploy-replica-set/).
@@ -81,7 +115,7 @@ The connector starts by backfilling data from the specified collections until it
 reaches the current time. Once all the data up to the current time has been
 backfilled, the connector then uses [**change
 streams**](https://www.mongodb.com/docs/manual/changeStreams/) to capture
-change events from the database and emit those updates to the flow collection.
+change events and emit those updates to their respective flow collections.
 
 If the connector's process is paused for a while, it will attempt to resume
 capturing change events since the last received change event, however the
@@ -89,8 +123,10 @@ connector's ability to do this depends on the size of the [replica set
 oplog](https://www.mongodb.com/docs/manual/core/replica-set-oplog/), and in
 certain circumstances, when the pause has been long enough for the oplog to have
 evicted old change events, the connector will need to re-do the backfill to
-ensure data consistency. In such cases, the connector will error out the first
-time it is run with a message indicating that it is going to re-do a backfill on
-the next run, and it will be restarted by Flow runtime. This new run of the
-connector will do a backfill and once fully caught up, will start capturing
-change events.
+ensure data consistency. In these cases it is necessary to [resize your
+oplog](https://www.mongodb.com/docs/manual/tutorial/change-oplog-size/#c.-change-the-oplog-size-of-the-replica-set-member) or
+[set a minimum retention
+period](https://www.mongodb.com/docs/manual/reference/command/replSetResizeOplog/#minimum-oplog-retention-period)
+for your oplog to be able to reliably capture data.
+The recommended minimum retention period is at least 24 hours, but we recommend
+higher values to improve reliability.

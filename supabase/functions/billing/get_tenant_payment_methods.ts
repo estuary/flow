@@ -12,12 +12,20 @@ export async function getTenantPaymentMethods(
     if (customer) {
         const methods = (await StripeClient.customers.listPaymentMethods(customer.id)).data;
 
-        return [JSON.stringify({ payment_methods: methods, primary: customer.invoice_settings.default_payment_method }), {
+        return [JSON.stringify({ 
+            payment_methods: methods,
+            primary: customer.invoice_settings.default_payment_method,
+            tenant: req_body.tenant
+        }), {
             headers: { "Content-Type": "application/json" },
             status: 200,
         }];
     } else {
-        return [JSON.stringify({ payment_methods: [], primary: null }), {
+        return [JSON.stringify({ 
+            payment_methods: [],
+            primary: null,
+            tenant: req_body.tenant
+        }), {
             headers: { "Content-Type": "application/json" },
             status: 200,
         }];

@@ -40,6 +40,11 @@ expression: schema
         }
       ]
     },
+    "defaultOffset": {
+      "description": "The default timezone to use when parsing timestamps that do not have a timezone. Timezones must be specified as an +/-HH:MM offset, defaults to +00:00.",
+      "default": "+00:00",
+      "type": "string"
+    },
     "format": {
       "description": "Determines how to parse the contents. The default, 'Auto', will try to determine the format automatically based on the file extension or MIME type, if available.",
       "default": {
