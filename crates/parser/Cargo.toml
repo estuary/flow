@@ -23,7 +23,6 @@ bytes = { workspace = true }
 caseless = { workspace = true }
 chardetng = { workspace = true }
 chrono = { workspace = true }
-chrono-tz = { workspace = true }
 csv = { workspace = true }
 encoding_rs = { workspace = true }
 flate2 = { workspace = true }

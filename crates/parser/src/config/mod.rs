@@ -528,15 +528,11 @@ impl schemars::JsonSchema for ErrorThreshold {
     }
 }
 
-fn default_timezone_string() -> String {
-    "UTC".to_string()
-}
-
 // Fields annotated with `schemars(skip)` will not appear in the JSON schema, and thus won't be
 // shown in the UI. These are things that connectors set programatically when it generates the
 // config. We could consider moving these fields to be CLI arguments if we want a clearer
 // separation.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[schemars(
     title = "Parser Configuration",
     description = "Configures how files are parsed"
@@ -553,11 +549,6 @@ pub struct ParseConfig {
     /// compression automatically.
     #[serde(default)]
     pub compression: DefaultNullIsAutomatic<Compression>,
-
-    /// The default timezone to use when parsing timestamps that do not have a timezone. Timezones
-    /// must be specified as a valid IANA name. Defaults to UTC.
-    #[serde(default="default_timezone_string")]
-    pub default_timezone: String,
 
     /// filename is used for format inference. It will be ignored if `format` is specified.
     #[serde(default)]
@@ -589,21 +580,6 @@ pub struct ParseConfig {
     #[serde(default)]
     #[schemars(skip)]
     pub content_encoding: Option<String>,
-}
-
-impl Default for ParseConfig {
-    fn default() -> Self {
-        ParseConfig {
-            format: Default::default(),
-            compression: Default::default(),
-            default_timezone: default_timezone_string(),
-            filename: Default::default(),
-            add_record_offset: Default::default(),
-            add_values: Default::default(),
-            content_type: Default::default(),
-            content_encoding: Default::default(),
-        }
-    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -769,7 +745,7 @@ mod test {
                 }
             },
             "filename": "tha-file",
-            "compression": "zip"
+            "compression": "zip",
         });
 
         let r1: ParseConfig = serde_json::from_value(c1).expect("deserialize config");
