@@ -40,11 +40,6 @@ expression: schema
         }
       ]
     },
-    "defaultTimezone": {
-      "description": "The default timezone to use when parsing timestamps that do not have a timezone. Timezones must be specified as a valid IANA name. Defaults to UTC.",
-      "default": "UTC",
-      "type": "string"
-    },
     "format": {
       "description": "Determines how to parse the contents. The default, 'Auto', will try to determine the format automatically based on the file extension or MIME type, if available.",
       "default": {
