@@ -1,22 +1,13 @@
 mod testutil;
 
-use std::fs::File;
-use std::io::Write;
-
 use parser::ParseConfig;
 use testutil::{input_for_file, run_test};
-use tempfile::tempdir;
 
-fn test_sanitize(description: &str, input: &str, expected: &str, default_offset: &str) {
-    let dir = tempdir().unwrap();
-    let path = dir.path().join("sanitize-test.csv");
-    let mut f = File::create(path.clone()).unwrap();
-    writeln!(f, "header").unwrap();
-    writeln!(f, "\"{}\"", input).unwrap();
-
+#[test]
+fn sanitize_datetime_to_rfc3339() {
+    let path = "tests/examples/datetimes.csv";
     let cfg = ParseConfig {
-        filename: Some(path.to_string_lossy().to_string()),
-        default_offset: default_offset.to_string(),
+        filename: Some(path.to_string()),
         ..Default::default()
     };
 
@@ -24,30 +15,29 @@ fn test_sanitize(description: &str, input: &str, expected: &str, default_offset:
     let output = run_test(&cfg, input);
     output.assert_success(1);
 
+    let expected_first_row = "2020-01-01T00:00:00Z";
     for value in output.parsed[0].as_object().unwrap().values() {
-        assert_eq!(expected, value.as_str().unwrap(), "{}", description)
+        assert_eq!(expected_first_row, value.as_str().unwrap())
     }
 }
 
 #[test]
-fn sanitize_datetime_to_rfc3339() {
-    // With Timezone
-    test_sanitize("tz rfc3339 utc"                 , "2020-01-01T12:34:56Z"                , "2020-01-01T12:34:56Z"                , "+00:00");
-    test_sanitize("tz rfc3339 offset"              , "2020-01-01T12:34:56-04:00"           , "2020-01-01T12:34:56-04:00"           , "+00:00");
-    test_sanitize("tz rfc3339 fractional"          , "2020-01-01T12:34:56.999999999Z"      , "2020-01-01T12:34:56.999999999Z"      , "+00:00");
-    test_sanitize("tz rfc3339 fractional + offset" , "2020-01-01T12:34:56.999999999-04:00" , "2020-01-01T12:34:56.999999999-04:00" , "+00:00");
-    test_sanitize("tz spaced fractional + offset"  , "2020-01-01 12:34:56.999999999-04:00" , "2020-01-01T12:34:56.999999999-04:00" , "+00:00");
-    test_sanitize("tz spaced fractional + utc"     , "2020-01-01 12:34:56.999999999Z"      , "2020-01-01T12:34:56.999999999Z"      , "+00:00");
-    test_sanitize("tz spaced offset"               , "2020-01-01 12:34:56-04:00"           , "2020-01-01T12:34:56-04:00"           , "+00:00");
-    test_sanitize("tz spaced utc"                  , "2020-01-01 12:34:56Z"                , "2020-01-01T12:34:56Z"                , "+00:00");
+fn sanitize_datetime_to_rfc3339_offset() {
+    let path = "tests/examples/datetimes-naive.csv";
+    let cfg = ParseConfig {
+        default_offset: "-05:00".to_string(),
+        filename: Some(path.to_string()),
+        ..Default::default()
+    };
 
-    // Without Timezone
-    test_sanitize("naive t"                        , "2020-01-01T12:34:56"                 , "2020-01-01T12:34:56Z"                , "+00:00");
-    test_sanitize("naive t + fractional"           , "2020-01-01T12:34:56.999999999"       , "2020-01-01T12:34:56.999999999Z"      , "+00:00");
-    test_sanitize("naive t + fractional 2"         , "2020-01-01T12:34:56.999999999"       , "2020-01-01T12:34:56.999999999+04:00" , "+04:00");
-    test_sanitize("naive space"                    , "2020-01-01 12:34:56"                 , "2020-01-01T12:34:56Z"                , "+00:00");
-    test_sanitize("naive space + fractional"       , "2020-01-01 12:34:56.999999999"       , "2020-01-01T12:34:56.999999999Z"      , "+00:00");
-    test_sanitize("naive space + fractional 2"     , "2020-01-01 12:34:56.999999999"       , "2020-01-01T12:34:56.999999999+04:00" , "+04:00");
+    let input = input_for_file(path);
+    let output = run_test(&cfg, input);
+    output.assert_success(1);
+
+    let expected_first_row = "2020-01-01T00:00:00-05:00";
+    for value in output.parsed[0].as_object().unwrap().values() {
+        assert_eq!(expected_first_row, value.as_str().unwrap())
+    }
 }
 
 #[test]

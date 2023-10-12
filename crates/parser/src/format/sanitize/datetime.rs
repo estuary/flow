@@ -1,4 +1,4 @@
-use crate::{ParseConfig, Output, format::ParseResult};
+use crate::{ParseConfig, Output, format::ParseResult, ParseError};
 use time::macros::format_description;
 use serde_json::Value;
 
@@ -11,11 +11,6 @@ struct DatetimeSanitizer {
 fn datetime_to_rfc3339(val: &mut Value, default_offset: time::UtcOffset) {
     match val {
         Value::String(s) => {
-            // We first try to parse a more relaxed format that allows all the different formats we
-            // support. At this stage we are trying to see if the value we see is a timestamp that
-            // we can parse at all. If we are successful at parsing this value, then we try to
-            // parse a more specific format for timestamps *with timezone*. If we are successful,
-            // we use the parsed timezone, otherwise we use the default offset provided.
             let primitive_format = format_description!(
                 version = 2,
                 "[year]-[month]-[day][optional [T]][optional [ ]][hour]:[minute]:[second][optional [.[subsecond]]][optional [Z]][optional [z]][optional [[offset_hour]:[offset_minute]]]"
@@ -27,9 +22,9 @@ fn datetime_to_rfc3339(val: &mut Value, default_offset: time::UtcOffset) {
                 let offset_format = format_description!(
                     version = 2,
                     "[first
-                    [[year]-[month]-[day][optional [T]][optional [ ]][hour]:[minute]:[second][optional [.[subsecond]]]Z]
-                    [[year]-[month]-[day][optional [T]][optional [ ]][hour]:[minute]:[second][optional [.[subsecond]]]z]
-                    [[year]-[month]-[day][optional [T]][optional [ ]][hour]:[minute]:[second][optional [.[subsecond]]][offset_hour]:[offset_minute]]
+                    [[year]-[month]-[day] [hour]:[minute]:[second][optional [.[subsecond]]]Z]
+                    [[year]-[month]-[day] [hour]:[minute]:[second][optional [.[subsecond]]]z]
+                    [[year]-[month]-[day] [hour]:[minute]:[second][optional [.[subsecond]]][offset_hour]:[offset_minute]]
                     ]"
                 );
 
@@ -69,7 +64,9 @@ impl Iterator for DatetimeSanitizer {
                 datetime_to_rfc3339(&mut val, self.default_offset);
                 Ok(val)
             }
-            e => e
+            Err(e) => {
+                Err(ParseError::Parse(Box::new(e)))
+            }
         })
     }
 }
