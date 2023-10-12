@@ -17,9 +17,9 @@ fn sanitize_datetime_to_rfc3339() {
     let output = run_test(&cfg, input);
     output.assert_success(1);
 
-    let expected_first_row = "2020-01-01T00:00:00+00:00";
+    let expected_first_row = DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z").unwrap();
     for value in output.parsed[0].as_object().unwrap().values() {
-        assert_eq!(expected_first_row, DateTime::parse_from_rfc3339(value.as_str().unwrap()).unwrap().to_rfc3339())
+        assert_eq!(expected_first_row, DateTime::parse_from_rfc3339(value.as_str().unwrap()).unwrap())
     }
 }
 
@@ -36,9 +36,9 @@ fn sanitize_datetime_to_rfc3339_iana_timezone() {
     let output = run_test(&cfg, input);
     output.assert_success(1);
 
-    let expected_first_row = "2020-01-01T00:00:00-05:00";
+    let expected_first_row = DateTime::parse_from_rfc3339("2020-01-01T00:00:00-05:00").unwrap();
     for value in output.parsed[0].as_object().unwrap().values() {
-        assert_eq!(expected_first_row, DateTime::parse_from_rfc3339(value.as_str().unwrap()).unwrap().to_rfc3339())
+        assert_eq!(expected_first_row, DateTime::parse_from_rfc3339(value.as_str().unwrap()).unwrap())
     }
 }
 

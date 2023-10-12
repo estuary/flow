@@ -10,13 +10,13 @@ struct DatetimeSanitizer {
 
 const NAIVE_FORMATS: [&'static str; 4] = [
     "%Y-%m-%dT%H:%M:%S",
-    "%Y-%m-%dT%H:%M:%S%.f",
-    "%Y-%m-%d %H:%M:%S%.f",
+    "%Y-%m-%dT%H:%M:%S%.3f",
+    "%Y-%m-%d %H:%M:%S%.3f",
     "%Y-%m-%d %H:%M:%S",
 ];
 
 const FORMATS: [&'static str; 2] = [
-    "%Y-%m-%d %H:%M:%S%.f%:z",
+    "%Y-%m-%d %H:%M:%S%.3f%:z",
     "%Y-%m-%d %H:%M:%S%:z",
 ];
 
