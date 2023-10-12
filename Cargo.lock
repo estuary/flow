@@ -3023,7 +3023,6 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "clap 3.2.24",
- "criterion",
  "csv",
  "doc",
  "encoding_rs",
