@@ -84,7 +84,7 @@ You're able to apply the connector directly to the primary instance if you'd lik
 
 1. Allow connections to the database from the Estuary Flow IP address.
 
-   1. [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
+   1. [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.  See the directions below to use a SSH Tunnel instead of enabling public access.
 
    1. Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
       Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
@@ -157,7 +157,7 @@ For each step, take note of which entity you're working with.
 
 1. Allow connections to the database from the Estuary Flow IP address.
 
-   1. [Modify the instance](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Modifying.html#Aurora.Modifying.Instance), choosing **Publicly accessible** in the **Connectivity** settings.
+   1. [Modify the instance](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Modifying.html#Aurora.Modifying.Instance), choosing **Publicly accessible** in the **Connectivity** settings.  See the directions below to use a SSH Tunnel instead of enabling public access.
 
    2. Edit the VPC security group associated with your instance, or create a new VPC security group and associate it with the instance.
       Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
@@ -216,7 +216,7 @@ CALL mysql.rds_set_configuration('binlog retention hours', 168);
 1. Allow connections to the DB instance from the Estuary Flow IP address.
 
    1. [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add
-      `34.121.207.128` as an authorized IP address.
+      `34.121.207.128` as an authorized IP address.  See the directions below to use a SSH Tunnel instead of enabling public access.
 
    :::info
    Alternatively, you can allow secure connections via SSH tunneling. To do so:
