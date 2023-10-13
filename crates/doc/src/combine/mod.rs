@@ -96,7 +96,11 @@ impl Accumulator {
     /// If the held MemTable is already over-capacity, it is first spilled and
     /// then replaced with a new instance, which is then returned.
     pub fn memtable(&mut self) -> Result<&MemTable, Error> {
-        let Self { memtable: Some(memtable), spill } = self else {
+        let Self {
+            memtable: Some(memtable),
+            spill,
+        } = self
+        else {
             unreachable!("memtable is always Some");
         };
 
@@ -105,7 +109,7 @@ impl Accumulator {
                 .memtable
                 .take()
                 .unwrap()
-                .spill(spill, CHUNK_TARGET_LEN..CHUNK_MAX_LEN)?;
+                .spill(spill, CHUNK_TARGET_SIZE)?;
             self.memtable = Some(MemTable::new(spec));
         }
 
@@ -118,7 +122,8 @@ impl Accumulator {
         let Self {
             memtable: Some(memtable),
             mut spill,
-        } = self else {
+        } = self
+        else {
             unreachable!("memtable must be Some");
         };
 
@@ -131,7 +136,7 @@ impl Accumulator {
             })
         } else {
             // Spill the final MemTable segment.
-            let spec = memtable.spill(&mut spill, CHUNK_TARGET_LEN..CHUNK_MAX_LEN)?;
+            let spec = memtable.spill(&mut spill, CHUNK_TARGET_SIZE)?;
             let (spill, ranges) = spill.into_parts();
 
             Ok(Drainer::Spill {
@@ -275,10 +280,7 @@ const BUMP_THRESHOLD: usize = 1 << 28; // 256MB.
 //  - Larger, so that filesystem reads and writes are amortized for the
 //    LZ4-compressed.
 //
-// We also want a maximum bound so that SpillDrainer isn't required to
-// hold many large chunks in memory, which could push us over our allocation.
-const CHUNK_TARGET_LEN: usize = 1 << 18; // 256KB.
-const CHUNK_MAX_LEN: usize = 1 << 20; // 1MB.
+const CHUNK_TARGET_SIZE: usize = 1 << 18; // 256KB.
 
 // These are compile-time assertions that document and enforce that Combiner
 // and friends implement Send.
