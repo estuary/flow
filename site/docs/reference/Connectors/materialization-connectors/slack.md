@@ -1,4 +1,4 @@
-## Slack
+# Slack
 
 This connector lets you materialize data from Estuary Flow directly into Slack channels.
 
