@@ -55,7 +55,7 @@ fn run_sequence(seq: Vec<(u8, u8, bool)>) -> Result<(), FuzzError> {
     );
 
     let mut spill = combine::SpillWriter::new(std::io::Cursor::new(Vec::new())).unwrap();
-    let chunk_target = (1 << 20)..(1 << 21);
+    let chunk_target = 1 << 20;
     let mut memtable = combine::MemTable::new(spec);
     let mut expect = BTreeMap::new();
 
@@ -63,7 +63,7 @@ fn run_sequence(seq: Vec<(u8, u8, bool)>) -> Result<(), FuzzError> {
     for (i, (seq_key, seq_value, mut is_reduce)) in seq.into_iter().enumerate() {
         // Produce an empirically reasonable number of spills, given quickcheck's defaults.
         if i % 15 == 0 {
-            let spec = memtable.spill(&mut spill, chunk_target.clone()).unwrap();
+            let spec = memtable.spill(&mut spill, chunk_target).unwrap();
             memtable = combine::MemTable::new(spec);
         }
 
@@ -96,7 +96,7 @@ fn run_sequence(seq: Vec<(u8, u8, bool)>) -> Result<(), FuzzError> {
     }
 
     // Spill final MemTable and begin to drain.
-    let spec = memtable.spill(&mut spill, chunk_target.clone()).unwrap();
+    let spec = memtable.spill(&mut spill, chunk_target).unwrap();
     let (spill, ranges) = spill.into_parts();
     let drainer = combine::SpillDrainer::new(spec, spill, &ranges).unwrap();
 
