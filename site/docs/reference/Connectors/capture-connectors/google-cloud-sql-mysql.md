@@ -1,7 +1,7 @@
 ---
 sidebar_position: 5
 ---
-# MySQL
+# Google Cloud SQL for MySQL
 
 This is a change data capture (CDC) connector that captures change events from a MySQL database via the [Binary Log](https://dev.mysql.com/doc/refman/8.0/en/binary-log.html).
 
