@@ -103,7 +103,7 @@ begin
     }');
     
   return query select set_eq(
-    $i$ select * from prune_unchanged_draft_specs('$i$ || draft_id || $i$') $i$,
+    $i$ select catalog_name from prune_unchanged_draft_specs('$i$ || draft_id || $i$') $i$,
 	'{aliceCo/capA, aliceCo/collA, aliceCo/collB, aliceCo/collC}'::text[]
   );
 
