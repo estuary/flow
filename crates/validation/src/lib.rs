@@ -132,7 +132,7 @@ pub async fn validate(
                 scope: url::Url::parse("flow://control-plane").unwrap(),
                 spec,
                 validated: None,
-                // Note that we don't currently fetch the infeered schema md5 for remote collections,
+                // Note that we don't currently fetch the infered schema md5 for remote collections,
                 // so they won't appear in the build ouptut for these collections.
                 inferred_schema_md5: None,
             }
