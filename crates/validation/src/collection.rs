@@ -94,9 +94,7 @@ fn walk_collection(
             let read_bundle = models::Schema::extend_read_bundle(
                 read_bundle,
                 write_bundle,
-                inferred_schemas
-                    .get(&collection.collection)
-                    .map(|v| &v.schema),
+                inferred_schema.map(|v| &v.schema),
             );
 
             let read_schema =
