@@ -18,7 +18,6 @@ type Config struct {
 	Compression     string                      `json:"compression,omitempty"`
 	ContentType     string                      `json:"contentType,omitempty"`
 	ContentEncoding string                      `json:"contentEncoding,omitempty"`
-	DefaultOffset   string                      `json:"defaultOffset,omitempty"`
 }
 
 func (c *Config) Copy() Config {
@@ -40,7 +39,6 @@ func (c *Config) Copy() Config {
 		Compression:     c.Compression,
 		ContentType:     c.ContentType,
 		ContentEncoding: c.ContentEncoding,
-		DefaultOffset:   c.DefaultOffset,
 	}
 }
 
