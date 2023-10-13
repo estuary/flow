@@ -3,7 +3,7 @@ use crate::{Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
 use bumpalo::Bump;
 use std::cell::UnsafeCell;
 use std::sync::Arc;
-use std::{cmp, io, ops};
+use std::{cmp, io};
 
 /// MemTable is an in-memory combiner of HeapDocs.
 /// It requires heap memory for storing and reducing documents.
@@ -218,13 +218,12 @@ impl MemTable {
 
     /// Spill this MemTable into a SpillWriter.
     /// If the MemTable is empty this is a no-op.
-    /// The `chunk_target_size` range is the target (begin) and maximum
-    /// (end) size of a serialized chunk of the spilled segment.
-    /// In practice, values like 256KB..1MB are reasonable.
+    /// `chunk_target_size` is the target size of a serialized chunk of the spilled segment.
+    /// In practice, values like 256KB are reasonable.
     pub fn spill<F: io::Read + io::Write + io::Seek>(
         self,
         writer: &mut SpillWriter<F>,
-        chunk_target_size: ops::Range<usize>,
+        chunk_target_size: usize,
     ) -> Result<Spec, Error> {
         let (sorted, mut spec, alloc) = self.try_into_parts()?;
 
@@ -232,7 +231,7 @@ impl MemTable {
         let pivot = sorted.partition_point(|doc| !doc.reduced);
         let mem_used = alloc.allocated_bytes() - alloc.chunk_capacity();
 
-        // Validate all documents of the spilled segment.
+        // Validate all documents of the spilled segment which are not already reduced.
         //
         // Technically, it's more efficient to defer all validation until we're
         // draining the combiner, and validating now does very slightly slow the
@@ -246,12 +245,20 @@ impl MemTable {
         // cache hierarchy and branch prediction as well as memory layout (we read
         // and write transactions in key order so `sorted` is often layed out in
         // ascending order within `alloc`).
+        //
+        // We do not validate reduced documents now because in the common case
+        // they'll be reduced with another document on drain, after which we'll
+        // need to validate that reduced output anyway, so validation now is
+        // wasted work. If it happens that there is no further reduction then
+        // we'll validate the document upon drain.
         for doc in sorted.iter() {
-            let (validator, ref schema) = &mut spec.validators[doc.binding as usize];
-            validator
-                .validate(schema.as_ref(), &doc.root)?
-                .ok()
-                .map_err(Error::FailedValidation)?;
+            if !doc.reduced {
+                let (validator, ref schema) = &mut spec.validators[doc.binding as usize];
+                validator
+                    .validate(schema.as_ref(), &doc.root)?
+                    .ok()
+                    .map_err(Error::FailedValidation)?;
+            }
         }
 
         // We write combined and reduced documents into separate segments,
@@ -393,7 +400,7 @@ mod test {
     use super::*;
     use serde_json::{json, Value};
 
-    use crate::Validator;
+    use crate::{combine::CHUNK_TARGET_SIZE, Validator};
     use itertools::Itertools;
     use json::schema::build::build_schema;
 
@@ -657,5 +664,79 @@ mod test {
           ]
         ]
         "###);
+    }
+
+    #[test]
+    fn test_spill_and_validate() {
+        let spec = Spec::with_bindings(
+            std::iter::repeat_with(|| {
+                let schema = build_schema(
+                    url::Url::parse("http://example/schema").unwrap(),
+                    &json!({
+                        "properties": {
+                            "key": { "type": "string" },
+                            "v": { "const": "good" },
+                        }
+                    }),
+                )
+                .unwrap();
+
+                (
+                    vec![Extractor::new("/key")],
+                    None,
+                    Validator::new(schema).unwrap(),
+                )
+            })
+            .take(1),
+        );
+        let memtable = MemTable::new(spec);
+
+        let add = |memtable: &MemTable, reduced: bool, doc: Value| {
+            let doc = HeapNode::from_node(&doc, memtable.alloc());
+            memtable.add(0, doc, reduced).unwrap();
+        };
+
+        // While we validate the !reduced documents, expect we don't validate the reduced ones,
+        // and will go on to spill a reduced document that doesn't match its schema.
+        add(&memtable, false, json!({"key": "aaa", "v": "good"}));
+        add(&memtable, true, json!({"key": "bbb", "v": "good"}));
+        add(&memtable, true, json!({"key": "ccc", "v": "bad"}));
+
+        let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
+        let spec = memtable.spill(&mut spill, CHUNK_TARGET_SIZE).unwrap();
+
+        // Expect we spilled into two segments: one for reduced documents, the other for combined.
+        let (spill, ranges) = spill.into_parts();
+        assert_eq!(ranges, vec![0..75, 75..182]);
+        insta::assert_snapshot!(to_hex(spill.get_ref()), @r###"
+        |43000000 48000000 b0000000 00400000| C...H........@.. 00000000
+        |006b6579 0b008103 08000000 6161610c| .key........aaa. 00000010
+        |00000500 10760500 30000001 18008067| .....v..0......g 00000020
+        |6f6f6400 00000411 00f00106 000000cc| ood............. 00000030
+        |ffffff02 00000000 00000063 00000090| ...........c.... 00000040
+        |000000f1 08000000 80400000 006b6579| .........@...key 00000050
+        |00000000 03080000 00626262 0c000005| .........bbb.... 00000060
+        |00107605 00300000 01180080 676f6f64| ..v..0......good 00000070
+        |00000004 11009006 000000cc ffffff02| ................ 00000080
+        |0d000202 000d4800 30636363 1a001003| ......H.0ccc.... 00000090
+        |05000848 00206261 47000260 00074800| ...H. baG..`..H. 000000a0
+        |50000000 0000|                       P.....           000000b0
+                                                               000000b6
+        "###);
+
+        // New MemTable. This time we attempt to spill an invalid, non-reduced document.
+        let memtable = MemTable::new(spec);
+        add(&memtable, false, json!({"key": "ddd", "v": "bad"}));
+
+        let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
+        let out = memtable.spill(&mut spill, CHUNK_TARGET_SIZE);
+        assert!(matches!(out, Err(Error::FailedValidation(_))));
+    }
+
+    fn to_hex(b: &[u8]) -> String {
+        hexdump::hexdump_iter(b)
+            .map(|line| format!("{line}"))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }
