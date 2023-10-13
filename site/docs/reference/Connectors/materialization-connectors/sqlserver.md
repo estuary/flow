@@ -89,7 +89,7 @@ GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
 1. Allow connections to the server from the Estuary Flow IP address.
 
    1. Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/azure-sql/database/firewall-configure?view=azuresql#use-the-azure-portal-to-manage-server-level-ip-firewall-rules)
-   that grants access to the IP address `34.121.207.128`.
+   that grants access to the IP address `34.121.207.128`.  See the instructions below to use SSH Tunneling instead of enabling public access.
 
    :::info
    Alternatively, you can allow secure connections via SSH tunneling as described in the setup steps for
@@ -116,7 +116,7 @@ GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
 
 1. Allow connections to the database from the Estuary Flow IP address.
 
-   1. [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
+   1. [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.  See the instructions below to use SSH Tunneling instead of enabling public access.
 
    2. Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
       Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
@@ -144,11 +144,11 @@ GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
 1. Allow connections to the database from the Estuary Flow IP address.
 
    1. [Enable public IP on your database](https://cloud.google.com/sql/docs/sqlserver/configure-ip#add) and add
-      `34.121.207.128` as an authorized IP address.
+      `34.121.207.128` as an authorized IP address.  See the instructions below to use SSH Tunneling instead of enabling public access.
 
    :::info
    Alternatively, you can allow secure connections via SSH tunneling as described in the setup steps for
-   [self-hosted databases](#setup-self-hosted-sql-server).
+   [self-hosted databases](#setup-self-hosted-sql-server).  
    :::
 
 2. In your SQL client, connect to your instance as the default `sqlserver` user and issue the following commands.
