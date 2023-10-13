@@ -32,7 +32,7 @@ You'll need a PostgreSQL database setup with the following:
 1. Allow connections to the database from the Estuary Flow IP address.
 
    1. [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add
-      `34.121.207.128` as an authorized IP address.  See directions below to use a SSH Tunnel.
+      `34.121.207.128` as an authorized IP address.  See directions below to use a SSH Tunnel instead of enabling public access.
 
    :::info
    Alternatively, you can allow secure connections via SSH tunneling. To do so:
