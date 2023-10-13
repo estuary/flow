@@ -189,6 +189,12 @@ impl DiscoverHandler {
             // these specs after doing some additional UI work.
             let pruned_specs =
                 agent_sql::drafts::prune_unchanged_draft_specs(row.draft_id, txn).await?;
+
+            tracing::info!(
+                drafted_spec_count,
+                n_pruned = pruned_specs.len(),
+                "pruned draft"
+            );
             tracing::debug!(?pruned_specs, "pruned unchanged draft specs");
 
             if pruned_specs.len() == drafted_spec_count {
