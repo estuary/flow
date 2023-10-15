@@ -278,11 +278,18 @@ begin
         "count": 1,
         "subtotal": 350,
         "description": "An extra charge for some reason"
+      },
+      {
+        "count": 1,
+        "description": "Free tier credit",
+        "rate": -11966,
+        "subtotal": -11966
       }
     ],
+    "free_tier_credit": 11966,
     "processed_data_gb": 43.125,
     "recurring_fee": 10000,
-    "subtotal": 22066,
+    "subtotal": 10100,
     "task_usage_hours": 738.375,
     "trial_credit": 0,
     "trial_start": null
@@ -361,11 +368,18 @@ begin
             "description": "Free trial credit (2022-08-15 - 2022-09-14)",
             "rate": -60,
             "subtotal": -60
+        },
+        {
+            "count": 1,
+            "description": "Free tier credit ending 2022-08-14",
+            "rate": -11330,
+            "subtotal": -11330
         }
     ],
+    "free_tier_credit": 11330,
     "processed_data_gb": 21.125,
     "recurring_fee": 0,
-    "subtotal": 11330,
+    "subtotal": 0,
     "task_usage_hours": 720,
     "trial_credit": 60,
     "trial_start": "2022-08-15"
@@ -415,11 +429,18 @@ begin
             "description": "Free trial credit (2022-08-15 - 2022-09-14)",
             "rate": 0,
             "subtotal": 0
+        },
+        {
+            "count": 1,
+            "description": "Free tier credit ending 2022-08-14",
+            "rate": -875,
+            "subtotal": -875
         }
     ],
     "processed_data_gb": 22,
     "recurring_fee": 0,
-    "subtotal": 875,
+    "free_tier_credit": 875,
+    "subtotal": 0,
     "task_usage_hours": 18.375,
     "trial_start": "2022-08-15",
     "trial_credit": 0
@@ -438,7 +459,6 @@ begin
     and billed_prefix = 'aliceCo_cc/'
   ) as invoices),
   jsonb_build_array('{
-   "subtotal":100,
    "line_items":[
       {
          "rate":50,
@@ -457,6 +477,12 @@ begin
          "count":0,
          "subtotal":0,
          "description":"Task usage (at $0.15/hour)"
+      },
+      {
+          "count": 1,
+          "description": "Free tier credit ending 2022-08-14",
+          "rate": -100,
+          "subtotal": -100
       }
    ],
    "daily_usage":[
@@ -587,6 +613,8 @@ begin
          "task_subtotal":0
       }
    ],
+   "free_tier_credit": 100,
+   "subtotal":0,
    "trial_start":"2022-08-15",
    "billed_month":"2022-07-01T00:00:00+00:00",
    "trial_credit":0,
@@ -705,9 +733,15 @@ begin
                 "description": "An extra charge for some reason",
                 "rate": 350,
                 "subtotal": 350
+            },
+            {
+                "count": 1,
+                "description": "Free tier credit",
+                "rate": -11966,
+                "subtotal": -11966
             }
         ],
-        "subtotal": 22066
+        "subtotal": 10100
     }'::jsonb
   ));
 
