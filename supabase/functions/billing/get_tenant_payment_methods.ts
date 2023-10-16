@@ -1,4 +1,4 @@
-import { customerQuery, StripeClient } from "./shared.ts";
+import { billingResponseHeaders, customerQuery, StripeClient } from "./shared.ts";
 
 export interface getTenantPaymentMethodsParams {
     tenant: string;
@@ -17,7 +17,7 @@ export async function getTenantPaymentMethods(
             primary: customer.invoice_settings.default_payment_method,
             tenant: req_body.tenant
         }), {
-            headers: { "Content-Type": "application/json" },
+            headers: billingResponseHeaders,
             status: 200,
         }];
     } else {
@@ -26,7 +26,7 @@ export async function getTenantPaymentMethods(
             primary: null,
             tenant: req_body.tenant
         }), {
-            headers: { "Content-Type": "application/json" },
+            headers: billingResponseHeaders,
             status: 200,
         }];
     }

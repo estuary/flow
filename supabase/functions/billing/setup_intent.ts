@@ -1,5 +1,5 @@
 import { SupabaseClient, User } from "https://esm.sh/@supabase/supabase-js@2.0.5";
-import { customerQuery, StripeClient, TENANT_METADATA_KEY } from "./shared.ts";
+import { billingResponseHeaders, customerQuery, StripeClient, TENANT_METADATA_KEY } from "./shared.ts";
 
 async function findOrCreateCustomer(tenant: string, user: User) {
     if (!user.email) {
@@ -50,7 +50,7 @@ export async function setupIntent(
 
     if (!user) {
         return [JSON.stringify({ error: "User not found" }), {
-            headers: { "Content-Type": "application/json" },
+            headers: billingResponseHeaders,
             status: 400,
         }];
     }
@@ -65,7 +65,7 @@ export async function setupIntent(
     });
 
     return [JSON.stringify({ intent_secret: intent.client_secret }), {
-        headers: { "Content-Type": "application/json" },
+        headers: billingResponseHeaders,
         status: 200,
     }];
 }
