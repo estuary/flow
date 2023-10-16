@@ -106,7 +106,7 @@ comment on view unchanged_draft_specs is
  current `live_specs`. For collection specs that use schema inference, this will only include
  them if the `inferred_schema_md5` matches the `effective_inferred_schema_md5`';
 
-create function prune_unchanged_draft_specs(draft_id flowid)
+create function prune_unchanged_draft_specs(prune_draft_id flowid)
 returns table(
   catalog_name catalog_name,
   spec_type catalog_spec_type,
@@ -116,11 +116,11 @@ returns table(
   effective_inferred_schema_md5 text
 ) as $$
   with to_prune as (
-    select * from unchanged_draft_specs u where u.draft_id = draft_id
+    select * from unchanged_draft_specs u where u.draft_id = prune_draft_id
   ),
   del as (
     delete from draft_specs ds
-      where ds.draft_id = draft_id
+      where ds.draft_id = prune_draft_id
         and ds.catalog_name in (select catalog_name from to_prune)
   )
   select
