@@ -67,7 +67,7 @@ select
   l.spec_type as live_spec_type,
   -- new columns below
   s.md5 as inferred_schema_md5,
-  l.inferred_schema_md5 as effective_inferred_schema_md5,
+  l.inferred_schema_md5 as live_inferred_schema_md5,
   l.md5 as live_spec_md5,
   md5(trim(d.spec::text)) as draft_spec_md5
 from draft_specs d
@@ -91,20 +91,20 @@ create view unchanged_draft_specs as
     live_spec_md5,
     draft_spec_md5,
     inferred_schema_md5,
-    effective_inferred_schema_md5
+    live_inferred_schema_md5
   from draft_specs_ext d
     where draft_spec_md5 = live_spec_md5
     and (
       -- either it's not a collection or it doesn't use the inferred schema
       (spec_type != 'collection' or spec::text not like '%flow://inferred-schema%')
       -- or the inferred schema hasn't changed since the last publication
-      or inferred_schema_md5 is not distinct from effective_inferred_schema_md5
+      or inferred_schema_md5 is not distinct from live_inferred_schema_md5
     );
 alter view unchanged_draft_specs owner to authenticated;
 comment on view unchanged_draft_specs is
   'View of `draft_specs_ext` that is filtered to only include specs that are identical to the
  current `live_specs`. For collection specs that use schema inference, this will only include
- them if the `inferred_schema_md5` matches the `effective_inferred_schema_md5`';
+ them if the `inferred_schema_md5` matches the `live_inferred_schema_md5`';
 
 create function prune_unchanged_draft_specs(prune_draft_id flowid)
 returns table(
@@ -113,7 +113,7 @@ returns table(
   live_spec_md5 text,
   draft_spec_md5 text,
   inferred_schema_md5 text,
-  effective_inferred_schema_md5 text
+  live_inferred_schema_md5 text
 ) as $$
   with to_prune as (
     select * from unchanged_draft_specs u where u.draft_id = prune_draft_id
@@ -129,7 +129,7 @@ returns table(
     live_spec_md5,
     draft_spec_md5,
     inferred_schema_md5,
-    effective_inferred_schema_md5
+    live_inferred_schema_md5
   from to_prune
 $$ language sql security invoker;
 
