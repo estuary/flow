@@ -1,4 +1,4 @@
-import { customerQuery, StripeClient } from "./shared.ts";
+import { billingResponseHeaders, customerQuery, StripeClient } from "./shared.ts";
 
 export interface getTenantPaymentMethodsParams {
     tenant: string;
@@ -46,14 +46,14 @@ export async function getTenantInvoice(
             };
 
             return [JSON.stringify({ invoice: limited_invoice }), {
-                headers: { "Content-Type": "application/json" },
+                headers: billingResponseHeaders,
                 status: 200,
             }];
         }
     }
 
     return [JSON.stringify({ invoice: null }), {
-        headers: { "Content-Type": "application/json" },
+        headers: billingResponseHeaders,
         status: 200,
     }];
 }
