@@ -14,7 +14,7 @@ serve(async (req) => {
     let res: ConstructorParameters<typeof Response> = [null, {}];
     try {
         if (req.method === "OPTIONS") {
-            res = ["ok", { status: 200 }];
+            res = ["ok", { headers: billingResponseHeaders, status: 200 }];
         } else {
             const request = await req.json();
 
