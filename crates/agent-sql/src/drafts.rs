@@ -157,7 +157,7 @@ pub struct PrunedDraftSpec {
     pub live_spec_md5: String,
     pub draft_spec_md5: String,
     pub inferred_schema_md5: Option<String>,
-    pub effective_inferred_schema_md5: Option<String>,
+    pub live_inferred_schema_md5: Option<String>,
 }
 
 pub async fn prune_unchanged_draft_specs(
@@ -172,7 +172,7 @@ pub async fn prune_unchanged_draft_specs(
         live_spec_md5 as "live_spec_md5!: String",
         draft_spec_md5 as "draft_spec_md5!: String",
         inferred_schema_md5,
-        effective_inferred_schema_md5
+        live_inferred_schema_md5
         from prune_unchanged_draft_specs($1)"#,
         draft_id as Id,
     )
