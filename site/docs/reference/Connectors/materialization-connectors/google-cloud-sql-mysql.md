@@ -58,10 +58,6 @@ You can:
 
 * Specify a named timezone in [IANA timezone format](https://www.iana.org/time-zones).
 
-* If you're using Amazon Aurora, create or modify the [DB cluster parameter group](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html)
-associated with your MySQL database.
-[Set](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/USER_WorkingWithDBClusterParamGroups.html#USER_WorkingWithParamGroups.ModifyingCluster) the `time_zone` parameter to the correct value.
-
 For example, if you're located in New Jersey, USA, you could set `time_zone` to `-05:00` or `-04:00`, depending on the time of year.
 Because this region observes daylight savings time, you'd be responsible for changing the offset.
 Alternatively, you could set `time_zone` to `America/New_York`, and time changes would occur automatically.
@@ -122,8 +118,7 @@ materializations:
 
 ### Setup
 
-You must configure your database to allow connections from Estuary.
-The recommended method is to whitelist Estuary Flow's IP address.
+You must configure your database to allow connections from Estuary.  The recommended method is to whitelist Estuary Flow's IP address.
 
 * **Google Cloud SQL**: [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.  See the instructions below to use SSH Tunneling instead of enabling public access.
 
@@ -139,8 +134,7 @@ for additional details and a sample.
 :::tip Configuration Tip
 To configure the connector, you must specify the database address in the format
 `host:port`. (You can also supply `host` only; the connector will use the port `3306` by default, which is correct in many cases.)
-You can find the host and port in the following locations in GCPs console:
-* Google Cloud SQL: host as Private IP Address; port is always `3306`. You may need to [configure private IP](https://cloud.google.com/sql/docs/mysql/configure-private-ip) on your database.
+You can find the host host in the GCP console as "Private IP Address".  The pport is always `3306`. You may need to [configure private IP](https://cloud.google.com/sql/docs/mysql/configure-private-ip) on your database.
 :::
 
 ## Delta updates
