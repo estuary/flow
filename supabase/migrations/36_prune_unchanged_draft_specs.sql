@@ -100,7 +100,7 @@ create view unchanged_draft_specs as
       -- or the inferred schema hasn't changed since the last publication
       or inferred_schema_md5 is not distinct from live_inferred_schema_md5
     );
-alter view unchanged_draft_specs owner to authenticated;
+grant select on unchanged_draft_specs to authenticated;
 comment on view unchanged_draft_specs is
   'View of `draft_specs_ext` that is filtered to only include specs that are identical to the
  current `live_specs`. For collection specs that use schema inference, this will only include
