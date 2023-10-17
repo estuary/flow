@@ -7,31 +7,33 @@ struct DatetimeSanitizer {
     default_offset: time::UtcOffset,
 }
 
-// Here we are trying to parse non-ambiguous, non-RFC3339 dates and formatting them as RFC3339
-// So we skip any valid RFC3339 in our processing and pass it as-is
+// Here we are trying to parse non-RFC3339 dates
 fn datetime_to_rfc3339(val: &mut Value, default_offset: time::UtcOffset) {
     match val {
         Value::String(s) => {
-            let offset_format = format_description!(
-                version = 2,
-                "[first
-                [[year]-[month]-[day] [hour]:[minute]:[second][optional [.[subsecond]]]Z]
-                [[year]-[month]-[day] [hour]:[minute]:[second][optional [.[subsecond]]]z]
-                [[year]-[month]-[day] [hour]:[minute]:[second][optional [.[subsecond]]][offset_hour]:[offset_minute]]
-                ]"
-            );
-
             let primitive_format = format_description!(
                 version = 2,
-                "[year]-[month]-[day][optional [T]][optional [ ]][hour]:[minute]:[second][optional [.[subsecond]]]"
+                "[year]-[month]-[day][optional [T]][optional [ ]][hour]:[minute]:[second][optional [.[subsecond]]][optional [Z]][optional [z]][optional [[offset_hour]:[offset_minute]]]"
             );
 
-            let parsed_with_tz = time::OffsetDateTime::parse(&s, offset_format);
-            let parsed_no_tz = time::PrimitiveDateTime::parse(&s, primitive_format);
+            let parsed_no_tz = time::PrimitiveDateTime::parse(&s, primitive_format).ok();
 
-            if let Ok(parsed) = parsed_with_tz {
+            let parsed_with_tz = if parsed_no_tz.is_some() {
+                let offset_format = format_description!(
+                    version = 2,
+                    "[first
+                    [[year]-[month]-[day] [hour]:[minute]:[second][optional [.[subsecond]]]Z]
+                    [[year]-[month]-[day] [hour]:[minute]:[second][optional [.[subsecond]]]z]
+                    [[year]-[month]-[day] [hour]:[minute]:[second][optional [.[subsecond]]][offset_hour]:[offset_minute]]
+                    ]"
+                );
+
+                time::OffsetDateTime::parse(&s, offset_format).ok()
+            } else { None };
+
+            if let Some(parsed) = parsed_with_tz {
                 *s = parsed.format(&time::format_description::well_known::Rfc3339).unwrap();
-            } else if let Ok(parsed) = parsed_no_tz {
+            } else if let Some(parsed) = parsed_no_tz {
                 *s = parsed.assume_offset(default_offset).format(&time::format_description::well_known::Rfc3339).unwrap();
             }
         }
@@ -76,9 +78,7 @@ pub enum DatetimeSanitizeError {
 }
 
 pub fn sanitize_datetime(config: &ParseConfig, output: Output) -> Result<Output, DatetimeSanitizeError> {
-    eprintln!("sanitize_datetime");
     let offset = time::UtcOffset::parse(&config.default_offset, format_description!("[offset_hour]:[offset_minute]")).map_err(DatetimeSanitizeError::OffsetParseError)?;
-    eprintln!("offset: {:?}", offset);
     let sanitizer = DatetimeSanitizer {
         from: output,
         default_offset: offset,
