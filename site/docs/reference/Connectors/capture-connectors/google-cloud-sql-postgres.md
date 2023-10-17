@@ -105,10 +105,6 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 | **`/stream`**    | Stream    | Table name.                                                                                | string | Required         |
 | **`/syncMode`**  | Sync mode | Connection method. Always set to `incremental`.                                            | string | Required         |
 
-#### SSL Mode
-
-Certain managed PostgreSQL implementations may require you to explicitly set the [SSL Mode](https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-PROTECTION) to connect with Flow. One example is [Neon](https://neon.tech/docs/connect/connect-securely), which requires the setting `verify-full`. Check your managed PostgreSQL's documentation for details if you encounter errors related to the SSL mode configuration.
-
 ### Sample
 
 A minimal capture definition will look like the following:
