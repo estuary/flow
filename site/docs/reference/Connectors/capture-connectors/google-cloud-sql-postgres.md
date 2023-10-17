@@ -9,9 +9,7 @@ It is available for use in the Flow web application. For local development or op
 
 ## Supported versions and platforms
 
-This connector supports PostgreSQL versions 10.0 and later on major cloud platforms, as well as self-hosted instances.
-
-Setup instructions are provided for the following platforms:
+This connector supports PostgreSQL versions 10.0 and later.
 
 ## Prerequisites
 
