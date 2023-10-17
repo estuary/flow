@@ -9,14 +9,7 @@ It’s available for use in the Flow web application. For local development or o
 
 ## Supported versions and platforms
 
-This connector supports SQL Server 2017 and later on major cloud providers,
-as well as self-hosted instances.
-Setup instructions are provided for the following platforms:
-
-* [Self-hosted SQL Server](#setup-self-hosted-sql-server)
-* [Azure SQL Database](#setup-azure-sql-database)
-* [Amazon RDS for SQL Server](#setup-amazon-rds-for-sql-server)
-* [Google Cloud SQL for SQL Server](#setup-google-cloud-sql-for-sql-server)
+This connector supports SQL Server 2017 and later.
 
 ## Prerequisites
 
@@ -37,7 +30,7 @@ on the database and the individual tables to be captured.
   * Access to the change tables created as part of the SQL Server CDC process.
   * `SELECT`, `INSERT`, and `UPDATE` permissions on the watermarks table
 
-### Setup: Google Cloud SQL for SQL Server
+### Setup
 
 1. Allow connections to the database from the Estuary Flow IP address.
 
