@@ -87,6 +87,140 @@ from notifications
   left join notification_messages on notifications.message_id = notification_messages.id;
 grant select on notifications_ext to authenticated;
 
+create type notification_query as (
+  notification_id text,
+  evaluation_interval interval,
+  acknowledged boolean,
+  notification_title text,
+  notification_message text,
+  verified_email text,
+  catalog_name text,
+  spec_type text
+);
+
+create type catalog_stat_query as (
+  ts timestamptz,
+  bytes_written_by_me bigint,
+  bytes_written_to_me bigint,
+  bytes_read_by_me bigint,
+  bytes_read_from_me bigint
+);
+
+create or replace function internal.evaluate_data_processing_notifications()
+returns void as $$
+declare
+  query notification_query;
+  confirmation_pending notification_query[];
+  alert_pending notification_query[];
+  start_stat catalog_stat_query := null;
+  end_stat catalog_stat_query := null;
+  bytes_written_by bigint;
+  bytes_written_to bigint;
+  bytes_read_by bigint;
+  bytes_read_from bigint;
+begin
+
+  for query in
+    select
+      notifications_ext.notification_id,
+      notifications_ext.evaluation_interval,
+      notifications_ext.acknowledged,
+      notifications_ext.notification_title,
+      notifications_ext.notification_message,
+      notifications_ext.verified_email,
+      live_specs.catalog_name,
+      live_specs.spec_type
+    from notifications_ext
+      left join live_specs on notifications_ext.live_spec_id = live_specs.id
+    where
+      notifications_ext.classification = 'data-not-processed-in-interval'
+      and live_specs.created_at <= date_trunc('hour', now() - notifications_ext.evaluation_interval)
+  loop
+
+  start_stat := (
+    select
+      catalog_stats_hourly.ts,
+      catalog_stats_hourly.bytes_written_by_me,
+      catalog_stats_hourly.bytes_written_to_me,
+      catalog_stats_hourly.bytes_read_by_me,
+      catalog_stats_hourly.bytes_read_from_me
+    from catalog_stats_hourly
+    where
+      catalog_stats_hourly.catalog_name = query.catalog_name
+      and catalog_stats_hourly.ts = date_trunc('hour', now() - notifications_ext.evaluation_interval)
+  );
+
+  end_stat := (
+    select
+      catalog_stats_hourly.ts,
+      catalog_stats_hourly.bytes_written_by_me,
+      catalog_stats_hourly.bytes_written_to_me,
+      catalog_stats_hourly.bytes_read_by_me,
+      catalog_stats_hourly.bytes_read_from_me
+    from catalog_stats_hourly
+    where
+      catalog_stats_hourly.catalog_name = query.catalog_name
+      and catalog_stats_hourly.ts = date_trunc('hour', now())
+  );
+
+  continue when start_stat is null or end_stat is null;
+
+  bytes_written_by := end_stat.bytes_written_by_me - start_stat.bytes_written_by_me;
+  bytes_written_to := end_stat.bytes_written_to_me - start_stat.bytes_written_to_me;
+
+  bytes_read_by := end_stat.bytes_read_by_me - start_stat.bytes_read_by_me;
+  bytes_read_from := end_stat.bytes_read_from_me - start_stat.bytes_read_from_me;
+
+  if query.spec_type = 'capture' then
+    if bytes_written_by > 0 then
+      if query.acknowledged then
+        -- Send confirmation email
+        confirmation_pending := array_append(confirmation_pending, query);
+      end if;
+    else
+      if not query.acknowledged then
+        -- Send alert email
+        alert_pending := array_append(alert_pending, query);
+      end if;
+    end if;
+  end if;
+
+  if query.spec_type = 'materialization' then
+    if bytes_read_by > 0 then
+      if query.acknowledged then
+        -- Send confirmation email
+        confirmation_pending := array_append(confirmation_pending, query);
+      end if;
+    else
+      if not query.acknowledged then
+        -- Send alert email
+        alert_pending := array_append(alert_pending, query);
+      end if;
+    end if;
+  end if;
+
+  if query.spec_type = 'collection' then
+    if bytes_written_by > 0 or bytes_written_to > 0 then
+      if query.acknowledged then
+        -- Send confirmation email
+        confirmation_pending := array_append(confirmation_pending, query);
+      end if;
+    else
+      if not query.acknowledged then
+        -- Send alert email
+        alert_pending := array_append(alert_pending, query);
+      end if;
+    end if;
+  end if;
+
+  start_stat := null;
+  end_stat := null;
+  end loop;
+
+  -- Insert pending notification queries into request body
+end;
+$$ language plpgsql security definer;
+
 create extension pg_cron with schema extensions;
 select
   cron.schedule (
