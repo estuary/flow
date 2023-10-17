@@ -12,6 +12,9 @@ license.workspace = true
 name = "flow-parser"
 path = "src/main.rs"
 
+[[bench]]
+name = "peoples_500"
+harness = false
 
 [dependencies]
 json = { path = "../json" }
@@ -24,6 +27,7 @@ caseless = { workspace = true }
 chardetng = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
+criterion = { workspace = true }
 csv = { workspace = true }
 encoding_rs = { workspace = true }
 flate2 = { workspace = true }
