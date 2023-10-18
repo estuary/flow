@@ -11,6 +11,8 @@ interface NotificationQuery {
     acknowledged: boolean;
     notification_title: string;
     notification_message: string;
+    confirmation_title: string;
+    confirmation_message: string;
     classification: string | null;
     preference_id: string;
     verified_email: string;
@@ -50,6 +52,7 @@ const emailNotifications = async (
 ): Promise<string[]> => {
     const notificationsDelivered: string[] = [];
 
+    // TODO: Replace hardcoded sender and recipient address with the destructured `emails` property.
     const notificationPromises = pendingNotifications.map(
         ({ notification_id, emails, subject, html }) =>
             fetch("https://api.resend.com/emails", {
@@ -60,7 +63,7 @@ const emailNotifications = async (
                     "Authorization": `Bearer ${RESEND_API_KEY}`,
                 },
                 body: JSON.stringify({
-                    from: "Resend Test <onboarding@resend.dev>",
+                    from: "Estuary <onboarding@resend.dev>",
                     to: ["tucker.kiahna@gmail.com"],
                     subject,
                     html,
@@ -108,7 +111,7 @@ const RESEND_API_KEY = "re_Qu4ZevKs_DmDfQxdNmMvoyuSeGtfYz2VS";
 
 serve(async (_request: Request): Promise<Response> => {
     const { data: notifications, error: notificationError } = await supabaseClient
-        .from<NotificationQuery>("notifications_ext")
+        .from<NotificationQuery>("notification_subscriptions_ext")
         .select("*")
         .eq("classification", "data-not-processed-in-interval");
 
@@ -149,7 +152,7 @@ serve(async (_request: Request): Promise<Response> => {
                     .replaceAll("{spec_type}", spec_type)
                     .replaceAll("{catalog_name}", catalog_name)
                     .replaceAll(
-                        "{notification_interval}",
+                        "{evaluation_interval}",
                         isFinite(hours) ? hours.toString() : timeOffset[0],
                     );
 
@@ -168,18 +171,18 @@ serve(async (_request: Request): Promise<Response> => {
         )
         .map(
             ({
-                notification_title,
-                notification_message,
+                confirmation_title,
+                confirmation_message,
                 catalog_name,
                 notification_id,
                 spec_type,
                 verified_email,
             }) => {
-                const subject = notification_title
+                const subject = confirmation_title
                     .replaceAll("{spec_type}", spec_type)
                     .replaceAll("{catalog_name}", catalog_name);
 
-                const html = notification_message
+                const html = confirmation_message
                     .replaceAll("{spec_type}", spec_type)
                     .replaceAll("{catalog_name}", catalog_name);
 
