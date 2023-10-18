@@ -54,6 +54,7 @@ You configure connectors either in the Flow web app, or by directly editing the 
 | ---------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ---------------- |
 | **`/table`**     | Table Name     | The name of the table to be captured.                                                                                                                                     | string  | Required         |
 | `/rcuAllocation` | RCU Allocation | Read capacity units the capture will attempt to consume during the table backfill. Leave blank to automatically determine based on the provisioned capacity of the table. | integer |                  |
+| **`/meta/op`**    | Operation  | Types of operations on records for Change Data Capture. | string |              |
 
 ### Sample
 
@@ -73,7 +74,22 @@ captures:
       - resource:
           table: ${TABLE_NAME}
         target: ${PREFIX}/${COLLECTION_NAME}
+        fields:
+          - field:
+              source: /operation_type
+              target: /_meta/op
 ```
+## Flow CDC and the "/_meta/op" Field
+
+Estuary Flow uses a special field called "/_meta/op" for the purposes of Change Data Capture (CDC). The "/_meta/op" field takes specific values based on the type of operation that has occurred on a record. It provides valuable information about whether a record has been inserted, updated, or deleted within your source database.
+
+The "/_meta/op" field can take the following values:
+
+Change operation type: 'c' Create/Insert, 'u' Update, 'd' Delete.
+
+- `insert`: Indicates that a new record has been added to the source database.
+- `update`: An existing record in the source database has been modified.
+- `delete`: A record has been removed from the source database.
 
 Your capture definition may be more complex, with additional bindings for each DynamoDB table.
 
