@@ -45,6 +45,65 @@ export const handleFailure = (error: any) => {
     };
 };
 
+const emailNotifications = async (
+    pendingNotifications: EmailConfig[],
+): Promise<string[]> => {
+    const notificationsDelivered: string[] = [];
+
+    const notificationPromises = pendingNotifications.map(
+        ({ notification_id, emails, subject, html }) =>
+            fetch("https://api.resend.com/emails", {
+                method: "POST",
+                headers: {
+                    ...corsHeaders,
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${RESEND_API_KEY}`,
+                },
+                body: JSON.stringify({
+                    from: "Resend Test <onboarding@resend.dev>",
+                    to: ["tucker.kiahna@gmail.com"],
+                    subject,
+                    html,
+                }),
+            }).then(
+                (response) => {
+                    if (response.ok) {
+                        notificationsDelivered.push(notification_id);
+                    }
+                },
+                () => {},
+            ),
+    );
+
+    await Promise.all(notificationPromises);
+
+    return notificationsDelivered;
+};
+
+const updateAcknowledgementFlag = async (
+    alertEmailsDelivered: string[],
+    confirmationEmailsDelivered: string[],
+) => {
+    const alertUpdates = alertEmailsDelivered.map((notificationId) =>
+        supabaseClient
+            .from("notifications")
+            .update({ acknowledged: true })
+            .match({ id: notificationId })
+            .then(handleSuccess, handleFailure)
+    );
+
+    const confirmationUpdates = confirmationEmailsDelivered.map(
+        (notificationId) =>
+            supabaseClient
+                .from("notifications")
+                .update({ acknowledged: false })
+                .match({ id: notificationId })
+                .then(handleSuccess, handleFailure),
+    );
+
+    await Promise.all([...alertUpdates, ...confirmationUpdates]);
+};
+
 const RESEND_API_KEY = "re_Qu4ZevKs_DmDfQxdNmMvoyuSeGtfYz2VS";
 
 serve(async (_request: Request): Promise<Response> => {
@@ -65,7 +124,7 @@ serve(async (_request: Request): Promise<Response> => {
         });
     }
 
-    const alertEmailConfigs: EmailConfig[] = notifications
+    const pendingAlertEmails: EmailConfig[] = notifications
         .filter(
             ({ bytes_processed, acknowledged }) => !acknowledged && bytes_processed === 0,
         )
@@ -103,58 +162,55 @@ serve(async (_request: Request): Promise<Response> => {
             },
         );
 
-    if (alertEmailConfigs.length === 0) {
-        return new Response(null, {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-            status: 200,
-        });
-    }
+    const pendingConfirmationEmails: EmailConfig[] = notifications
+        .filter(
+            ({ bytes_processed, acknowledged }) => acknowledged && bytes_processed > 0,
+        )
+        .map(
+            ({
+                notification_title,
+                notification_message,
+                catalog_name,
+                notification_id,
+                spec_type,
+                verified_email,
+            }) => {
+                const subject = notification_title
+                    .replaceAll("{spec_type}", spec_type)
+                    .replaceAll("{catalog_name}", catalog_name);
 
-    const alertEmailSent: string[] = [];
+                const html = notification_message
+                    .replaceAll("{spec_type}", spec_type)
+                    .replaceAll("{catalog_name}", catalog_name);
 
-    const alertPromises = alertEmailConfigs.map(
-        ({ notification_id, emails, subject, html }) =>
-            fetch("https://api.resend.com/emails", {
-                method: "POST",
-                headers: {
-                    ...corsHeaders,
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${RESEND_API_KEY}`,
-                },
-                body: JSON.stringify({
-                    from: "Resend Test <onboarding@resend.dev>",
-                    to: ["tucker.kiahna@gmail.com"],
+                return {
+                    notification_id,
+                    emails: [verified_email],
                     subject,
                     html,
-                }),
-            }).then(
-                (response) => {
-                    if (response.ok) {
-                        alertEmailSent.push(notification_id);
-                    }
-                },
-                () => {},
-            ),
-    );
+                };
+            },
+        );
 
-    await Promise.all(alertPromises);
-
-    if (alertEmailSent.length === 0) {
+    if (
+        pendingAlertEmails.length === 0 &&
+        pendingConfirmationEmails.length === 0
+    ) {
         return new Response(null, {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
             status: 200,
         });
     }
 
-    const acknowledgementPromises = alertEmailSent.map((notificationId) =>
-        supabaseClient
-            .from("notifications")
-            .update({ acknowledged: true })
-            .match({ id: notificationId })
-            .then(handleSuccess, handleFailure)
+    const alertEmailsDelivered = await emailNotifications(pendingAlertEmails);
+    const confirmationEmailsDelivered = await emailNotifications(
+        pendingConfirmationEmails,
     );
 
-    await Promise.all(acknowledgementPromises);
+    await updateAcknowledgementFlag(
+        alertEmailsDelivered,
+        confirmationEmailsDelivered,
+    );
 
     return new Response(null, {
         status: 200,
