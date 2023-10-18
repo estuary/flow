@@ -17,16 +17,7 @@ interface NotificationQuery {
     live_spec_id: string;
     catalog_name: string;
     spec_type: string;
-}
-
-interface CatalogStatsQuery {
-    catalog_name: string;
-    grain: string;
-    ts: string;
-    bytes_written_by_me: number;
-    bytes_written_to_me: number;
-    bytes_read_by_me: number;
-    bytes_read_from_me: number;
+    bytes_processed: number;
 }
 
 interface EmailConfig {
@@ -54,98 +45,6 @@ export const handleFailure = (error: any) => {
     };
 };
 
-const getDataProcessedInInterval = (
-    startStat: CatalogStatsQuery,
-    endStat: CatalogStatsQuery,
-    specType: string,
-): boolean => {
-    if (specType === "capture") {
-        const dataProcessed = endStat.bytes_written_by_me - startStat.bytes_written_by_me;
-
-        return dataProcessed > 0;
-    } else if (specType === "materialization") {
-        const dataProcessed = endStat.bytes_read_by_me - startStat.bytes_read_by_me;
-
-        return dataProcessed > 0;
-    } else {
-        const dataWritten = endStat.bytes_written_to_me - startStat.bytes_written_to_me;
-        const dataRead = endStat.bytes_read_from_me - startStat.bytes_read_from_me;
-
-        return dataWritten > 0 || dataRead > 0;
-    }
-};
-
-const getAlertEmailConfigurations = (
-    notifications: NotificationQuery[],
-    catalogStats: CatalogStatsQuery[],
-): EmailConfig[] => {
-    return notifications
-        .filter(({ evaluation_interval, catalog_name, spec_type }) => {
-            const taskStats = catalogStats.filter(
-                (stat) => stat.catalog_name === catalog_name,
-            );
-
-            const timeOffset = evaluation_interval.split(":");
-            const hourOffset = Number(timeOffset[0]);
-
-            if (isFinite(hourOffset)) {
-                const endStat = taskStats[0];
-
-                const intervalStart = new Date(endStat.ts);
-                const intervalHours = intervalStart.getUTCHours() - hourOffset;
-
-                intervalStart.setUTCHours(intervalHours);
-
-                const startStat = taskStats.find((stat) => {
-                    const statDate = new Date(stat.ts);
-
-                    return (
-                        statDate.toUTCString() === intervalStart.toUTCString()
-                    );
-                });
-
-                if (startStat && endStat) {
-                    const dataProcessed = getDataProcessedInInterval(
-                        startStat,
-                        endStat,
-                        spec_type,
-                    );
-
-                    return !Boolean(dataProcessed);
-                }
-            }
-
-            return false;
-        })
-        .map(
-            ({
-                notification_title,
-                notification_message,
-                catalog_name,
-                notification_id,
-                evaluation_interval,
-                spec_type,
-                verified_email,
-            }) => {
-                const subject = notification_title
-                    .replaceAll("{spec_type}", spec_type)
-                    .replaceAll("{catalog_name}", catalog_name);
-
-                const html = notification_message
-                    .replaceAll("{spec_type}", spec_type)
-                    .replaceAll("{catalog_name}", catalog_name)
-                    .replaceAll("{notification_interval}", evaluation_interval);
-
-                return {
-                    notification_id,
-                    emails: [verified_email],
-                    subject,
-                    html,
-                };
-            },
-        );
-};
-
 const RESEND_API_KEY = "re_Qu4ZevKs_DmDfQxdNmMvoyuSeGtfYz2VS";
 
 serve(async (_request: Request): Promise<Response> => {
@@ -166,61 +65,43 @@ serve(async (_request: Request): Promise<Response> => {
         });
     }
 
-    // Determine a date to use to narrow the catalog stats query results. The largest notification interval
-    // supported at this time is 24 hours.
-    const startDate = new Date();
-    const yesterday = startDate.getUTCDate() - 1;
-
-    startDate.setUTCMilliseconds(0);
-    startDate.setUTCSeconds(0);
-    startDate.setUTCMinutes(0);
-    startDate.setUTCHours(0);
-    startDate.setUTCDate(yesterday);
-
-    const catalogNames = notifications
-        .filter(({ acknowledged }) => !acknowledged)
-        .map(({ catalog_name }) => catalog_name);
-
-    const { data: catalogStats, error: catalogStatsError } = await supabaseClient
-        .from<CatalogStatsQuery>("catalog_stats")
-        .select(
-            `catalog_name,
-             grain,
-             ts,
-             bytes_written_by_me,
-             bytes_written_to_me,
-             bytes_read_by_me,
-             bytes_read_from_me`,
+    const alertEmailConfigs: EmailConfig[] = notifications
+        .filter(
+            ({ bytes_processed, acknowledged }) => !acknowledged && bytes_processed === 0,
         )
-        .in("catalog_name", catalogNames)
-        .eq("grain", "hourly")
-        .gte("ts", startDate.toUTCString())
-        .order("ts", { ascending: false });
+        .map(
+            ({
+                notification_title,
+                notification_message,
+                catalog_name,
+                notification_id,
+                evaluation_interval,
+                spec_type,
+                verified_email,
+            }) => {
+                const timeOffset = evaluation_interval.split(":");
+                const hours = Number(timeOffset[0]);
 
-    if (catalogStatsError !== null) {
-        returnPostgresError(catalogStatsError);
-    }
+                const subject = notification_title
+                    .replaceAll("{spec_type}", spec_type)
+                    .replaceAll("{catalog_name}", catalog_name);
 
-    if (!catalogStats || catalogStats.length === 0) {
-        return new Response(
-            JSON.stringify({
-                error: {
-                    code: "catalog_stats_missing",
-                    message: `Catalog stats not found.`,
-                    description: `Failed to fetch the catalog stats of the requested entities.`,
-                },
-            }),
-            {
-                headers: { ...corsHeaders, "Content-Type": "application/json" },
-                status: 500,
+                const html = notification_message
+                    .replaceAll("{spec_type}", spec_type)
+                    .replaceAll("{catalog_name}", catalog_name)
+                    .replaceAll(
+                        "{notification_interval}",
+                        isFinite(hours) ? hours.toString() : timeOffset[0],
+                    );
+
+                return {
+                    notification_id,
+                    emails: [verified_email],
+                    subject,
+                    html,
+                };
             },
         );
-    }
-
-    const alertEmailConfigs: EmailConfig[] = getAlertEmailConfigurations(
-        notifications,
-        catalogStats,
-    );
 
     if (alertEmailConfigs.length === 0) {
         return new Response(null, {
