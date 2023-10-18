@@ -33,8 +33,8 @@ grant select, insert, update, delete on notification_preferences to authenticate
 create table notification_messages (
   like internal._model including all,
 
-  title     text,
-  message   text
+  title      text,
+  message    text
 );
 grant select on notification_messages to authenticated;
 
@@ -46,16 +46,17 @@ insert into notification_messages (detail, title, message)
       '<p>You are receiving this alert because your task, {spec_type} {catalog_name} hasn''t seen new data in {notification_interval}.  You can locate your task here to make changes or update its alerting settings.</p>'
     );
 
+-- TODO: Rename this table to either notification_subscriptions or task_notification_subscriptions.
 create table notifications (
   like internal._model including all,
 
-  method_id                  flowid            not null,
-  message_id                 flowid            not null,
-  acknowledged               boolean           not null default false,
-  evaluation_interval        interval,
-  live_spec_id               flowid
+  preference_id          flowid    not null,
+  message_id             flowid    not null,
+  acknowledged           boolean   not null default false,
+  evaluation_interval    interval,
+  live_spec_id           flowid
 );
-grant insert (detail, live_spec_id, method_id, message_id, evaluation_interval) on notifications to authenticated;
+grant insert (detail, live_spec_id, preference_id, message_id, evaluation_interval) on notifications to authenticated;
 grant update (evaluation_interval, acknowledged) on notifications to authenticated;
 grant select, delete on notifications to authenticated;
 
@@ -71,155 +72,38 @@ grant select on notification_preferences_ext to authenticated;
 create view notifications_ext as
 select
   notifications.id as notification_id,
-  notifications.evaluation_interval as evaluation_interval,
   notifications.acknowledged as acknowledged,
+  notifications.evaluation_interval as evaluation_interval,
   notification_messages.title as notification_title,
   notification_messages.message as notification_message,
   notification_messages.detail as classification,
-  notification_preferences_ext.id as preference_id,
   notification_preferences_ext.verified_email as verified_email,
-  live_specs.id as live_spec_id,
   live_specs.catalog_name as catalog_name,
-  live_specs.spec_type as spec_type
+  live_specs.spec_type as spec_type,
+  coalesce(sum(catalog_stats_hourly.bytes_written_by_me + catalog_stats_hourly.bytes_written_to_me + catalog_stats_hourly.bytes_read_by_me), 0) as bytes_processed
 from notifications
-  left join live_specs on notifications.live_spec_id = live_specs.id and (live_specs.spec->'shards'->>'disable')::boolean is not true
-  left join notification_preferences_ext on notifications.method_id = notification_preferences_ext.id
-  left join notification_messages on notifications.message_id = notification_messages.id;
+  left join live_specs on notifications.live_spec_id = live_specs.id and live_specs.spec is not null and (live_specs.spec->'shards'->>'disable')::boolean is not true
+  left join catalog_stats_hourly on live_specs.catalog_name = catalog_stats_hourly.catalog_name
+  left join notification_preferences_ext on notifications.preference_id = notification_preferences_ext.id
+  left join notification_messages on notifications.message_id = notification_messages.id
+where (
+  case
+    when notification_messages.detail = 'data-not-processed-in-interval' and notifications.evaluation_interval is not null then
+      live_specs.created_at <= date_trunc('hour', now() - notifications.evaluation_interval)
+      and catalog_stats_hourly.ts >= date_trunc('hour', now() - notifications.evaluation_interval)
+  end
+)
+group by
+  notifications.id,
+  notifications.acknowledged,
+  notifications.evaluation_interval,
+  notification_messages.title,
+  notification_messages.message,
+  notification_messages.detail,
+  notification_preferences_ext.verified_email,
+  live_specs.catalog_name,
+  live_specs.spec_type;
 grant select on notifications_ext to authenticated;
-
-create type notification_query as (
-  notification_id text,
-  evaluation_interval interval,
-  acknowledged boolean,
-  notification_title text,
-  notification_message text,
-  verified_email text,
-  catalog_name text,
-  spec_type text
-);
-
-create type catalog_stat_query as (
-  ts timestamptz,
-  bytes_written_by_me bigint,
-  bytes_written_to_me bigint,
-  bytes_read_by_me bigint,
-  bytes_read_from_me bigint
-);
-
-create or replace function internal.evaluate_data_processing_notifications()
-returns void as $$
-declare
-  query notification_query;
-  confirmation_pending notification_query[];
-  alert_pending notification_query[];
-  start_stat catalog_stat_query := null;
-  end_stat catalog_stat_query := null;
-  bytes_written_by bigint;
-  bytes_written_to bigint;
-  bytes_read_by bigint;
-  bytes_read_from bigint;
-begin
-
-  for query in
-    select
-      notifications_ext.notification_id,
-      notifications_ext.evaluation_interval,
-      notifications_ext.acknowledged,
-      notifications_ext.notification_title,
-      notifications_ext.notification_message,
-      notifications_ext.verified_email,
-      live_specs.catalog_name,
-      live_specs.spec_type
-    from notifications_ext
-      left join live_specs on notifications_ext.live_spec_id = live_specs.id
-    where
-      notifications_ext.classification = 'data-not-processed-in-interval'
-      and live_specs.created_at <= date_trunc('hour', now() - notifications_ext.evaluation_interval)
-  loop
-
-  start_stat := (
-    select
-      catalog_stats_hourly.ts,
-      catalog_stats_hourly.bytes_written_by_me,
-      catalog_stats_hourly.bytes_written_to_me,
-      catalog_stats_hourly.bytes_read_by_me,
-      catalog_stats_hourly.bytes_read_from_me
-    from catalog_stats_hourly
-    where
-      catalog_stats_hourly.catalog_name = query.catalog_name
-      and catalog_stats_hourly.ts = date_trunc('hour', now() - notifications_ext.evaluation_interval)
-  );
-
-  end_stat := (
-    select
-      catalog_stats_hourly.ts,
-      catalog_stats_hourly.bytes_written_by_me,
-      catalog_stats_hourly.bytes_written_to_me,
-      catalog_stats_hourly.bytes_read_by_me,
-      catalog_stats_hourly.bytes_read_from_me
-    from catalog_stats_hourly
-    where
-      catalog_stats_hourly.catalog_name = query.catalog_name
-      and catalog_stats_hourly.ts = date_trunc('hour', now())
-  );
-
-  continue when start_stat is null or end_stat is null;
-
-  bytes_written_by := end_stat.bytes_written_by_me - start_stat.bytes_written_by_me;
-  bytes_written_to := end_stat.bytes_written_to_me - start_stat.bytes_written_to_me;
-
-  bytes_read_by := end_stat.bytes_read_by_me - start_stat.bytes_read_by_me;
-  bytes_read_from := end_stat.bytes_read_from_me - start_stat.bytes_read_from_me;
-
-  if query.spec_type = 'capture' then
-    if bytes_written_by > 0 then
-      if query.acknowledged then
-        -- Send confirmation email
-        confirmation_pending := array_append(confirmation_pending, query);
-      end if;
-    else
-      if not query.acknowledged then
-        -- Send alert email
-        alert_pending := array_append(alert_pending, query);
-      end if;
-    end if;
-  end if;
-
-  if query.spec_type = 'materialization' then
-    if bytes_read_by > 0 then
-      if query.acknowledged then
-        -- Send confirmation email
-        confirmation_pending := array_append(confirmation_pending, query);
-      end if;
-    else
-      if not query.acknowledged then
-        -- Send alert email
-        alert_pending := array_append(alert_pending, query);
-      end if;
-    end if;
-  end if;
-
-  if query.spec_type = 'collection' then
-    if bytes_written_by > 0 or bytes_written_to > 0 then
-      if query.acknowledged then
-        -- Send confirmation email
-        confirmation_pending := array_append(confirmation_pending, query);
-      end if;
-    else
-      if not query.acknowledged then
-        -- Send alert email
-        alert_pending := array_append(alert_pending, query);
-      end if;
-    end if;
-  end if;
-
-  start_stat := null;
-  end_stat := null;
-  end loop;
-
-  -- Insert pending notification queries into request body
-end;
-$$ language plpgsql security definer;
 
 create extension pg_cron with schema extensions;
 select
