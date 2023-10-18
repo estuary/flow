@@ -1,6 +1,6 @@
 use super::{bump_mem_used, DrainedDoc, Error, HeapEntry, Spec, BUMP_THRESHOLD};
 use crate::owned::OwnedArchivedNode;
-use crate::{Extractor, LazyNode, OwnedHeapNode, OwnedNode};
+use crate::{Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
 use bumpalo::Bump;
 use bytes::Buf;
 use rkyv::ser::Serializer;
@@ -369,18 +369,18 @@ impl<F: io::Read + io::Seek> Iterator for SpillDrainer<F> {
             let key = &self.spec.keys[binding as usize];
             let (validator, ref schema) = &mut self.spec.validators[binding as usize];
 
-            // LazyNode root which is updated as reductions occur.
-            let mut root = LazyNode::Node(owned_root.get());
+            // Reduced HeapNode which is updated as reductions occur.
+            let mut root: Option<HeapNode<'_>> = None;
 
             // Poll the heap to find additional documents in other segments which share root's key.
             // Note that there can be at-most one instance of a key within a single segment,
             // so we don't need to re-heap `cur_segment` just yet.
             while matches!(self.heap.peek(), Some(cmp::Reverse(peek))
                 if binding == peek.head.binding
-                    && Extractor::compare_key_lazy(
+                    && Extractor::compare_key(
                         key,
-                        &root,
-                        &LazyNode::Node(peek.head.root.get())
+                        owned_root.get(),
+                        peek.head.root.get()
                     ).is_eq())
             {
                 let other_segment = self.heap.pop().unwrap().0;
@@ -396,14 +396,17 @@ impl<F: io::Read + io::Seek> Iterator for SpillDrainer<F> {
 
                 let smashed = super::smash(
                     &self.alloc,
-                    root,
+                    match &root {
+                        Some(root) => LazyNode::Heap(root),
+                        None => LazyNode::Node(owned_root.get()),
+                    },
                     reduced,
                     LazyNode::Node(rhs_root.get()),
                     rhs_reduced,
                     schema.as_ref(),
                     validator,
                 )?;
-                (root, reduced) = (LazyNode::Heap(smashed.0), smashed.1);
+                (root, reduced) = (Some(smashed.0), smashed.1);
 
                 // Re-heap `other_segment`.
                 if let Some(other) = other_segment {
@@ -418,13 +421,13 @@ impl<F: io::Read + io::Seek> Iterator for SpillDrainer<F> {
 
             // Map `root` into an owned variant.
             let root = match root {
-                LazyNode::Node(root) => {
-                    // This document was spilled to disk and was not reduced again.
+                None => {
+                    // `owned_root` was spilled to disk and was not reduced again.
                     // We validate !reduced documents when spilling to disk and
                     // can skip doing so now (this is the common case).
                     if reduced {
                         validator
-                            .validate(schema.as_ref(), root)
+                            .validate(schema.as_ref(), owned_root.get())
                             .map_err(Error::SchemaError)?
                             .ok()
                             .map_err(Error::FailedValidation)?;
@@ -432,8 +435,8 @@ impl<F: io::Read + io::Seek> Iterator for SpillDrainer<F> {
 
                     OwnedNode::Archived(owned_root)
                 }
-                LazyNode::Heap(root) => {
-                    // We built `doc` via reduction and must re-validate it.
+                Some(root) => {
+                    // We built `root` via reduction and must re-validate it.
                     validator
                         .validate(schema.as_ref(), &root)
                         .map_err(Error::SchemaError)?
