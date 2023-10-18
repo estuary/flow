@@ -1,5 +1,5 @@
 use super::{
-    lazy::{LazyDestructured, LazyField, LazyNode},
+    lazy::{LazyField, LazyNode},
     AsNode, BumpStr, Field, Fields, HeapField, HeapNode, Node, Pointer, Valid,
 };
 use itertools::EitherOrBoth;
@@ -55,21 +55,12 @@ impl Error {
 
     fn with_values<L: AsNode, R: AsNode>(
         self,
-        lhs: LazyDestructured<'_, '_, L>,
-        rhs: LazyDestructured<'_, '_, R>,
+        lhs: LazyNode<'_, '_, L>,
+        rhs: LazyNode<'_, '_, R>,
     ) -> Self {
-        let lhs = match lhs.restructure() {
-            Ok(d) => serde_json::to_value(d.as_node()).unwrap(),
-            Err(d) => serde_json::to_value(&d).unwrap(),
-        };
-        let rhs = match rhs.restructure() {
-            Ok(d) => serde_json::to_value(d.as_node()).unwrap(),
-            Err(d) => serde_json::to_value(&d).unwrap(),
-        };
-
         Error::WithValues {
-            lhs,
-            rhs,
+            lhs: serde_json::to_value(&lhs).unwrap(),
+            rhs: serde_json::to_value(&rhs).unwrap(),
             detail: Box::new(self),
         }
     }
@@ -77,8 +68,8 @@ impl Error {
     fn with_details<L: AsNode, R: AsNode>(
         self,
         loc: json::Location,
-        lhs: LazyDestructured<'_, '_, L>,
-        rhs: LazyDestructured<'_, '_, R>,
+        lhs: LazyNode<'_, '_, L>,
+        rhs: LazyNode<'_, '_, R>,
     ) -> Self {
         self.with_location(loc).with_values(lhs, rhs)
     }
@@ -138,7 +129,7 @@ impl<'alloc, L: AsNode, R: AsNode> Cursor<'alloc, '_, '_, '_, '_, L, R> {
 fn count_nodes_lazy<N: AsNode>(v: &LazyNode<'_, '_, N>) -> usize {
     match v {
         LazyNode::Node(doc) => count_nodes(*doc),
-        LazyNode::Heap(doc) => count_nodes(doc),
+        LazyNode::Heap(doc) => count_nodes(*doc),
     }
 }
 
@@ -185,18 +176,18 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
             let (property, lhs, rhs) = match (lhs, rhs) {
                 (LazyField::Heap(lhs), LazyField::Heap(rhs)) => (
                     lhs.property,
-                    LazyNode::Heap(lhs.value),
-                    LazyNode::Heap(rhs.value),
+                    LazyNode::Heap(&lhs.value),
+                    LazyNode::Heap(&rhs.value),
                 ),
                 (LazyField::Heap(lhs), LazyField::Node(rhs)) => (
                     lhs.property,
-                    LazyNode::Heap(lhs.value),
+                    LazyNode::Heap(&lhs.value),
                     LazyNode::Node(rhs.value()),
                 ),
                 (LazyField::Node(lhs), LazyField::Heap(rhs)) => (
                     rhs.property,
                     LazyNode::Node(lhs.value()),
-                    LazyNode::Heap(rhs.value),
+                    LazyNode::Heap(&rhs.value),
                 ),
                 (LazyField::Node(lhs), LazyField::Node(rhs)) => (
                     BumpStr::from_str(lhs.property(), alloc),
@@ -253,11 +244,7 @@ fn reduce_item<'alloc, L: AsNode, R: AsNode>(
 // WARNING: This routine should *only* be used in the context of schema reductions.
 // When comparing document keys, use an Extractor which also considers default value annotations.
 //
-fn compare_key<'s, 'l, 'r, L: AsNode, R: AsNode>(
-    key: &'s [Pointer],
-    lhs: &'l L,
-    rhs: &'r R,
-) -> Ordering {
+fn compare_key<L: AsNode, R: AsNode>(key: &[Pointer], lhs: &L, rhs: &R) -> Ordering {
     key.iter()
         .map(|ptr| match (ptr.query(lhs), ptr.query(rhs)) {
             (Some(lhs), Some(rhs)) => crate::compare(lhs, rhs),
@@ -268,15 +255,16 @@ fn compare_key<'s, 'l, 'r, L: AsNode, R: AsNode>(
         .find(|o| *o != Ordering::Equal)
         .unwrap_or(Ordering::Equal)
 }
-fn compare_key_lazy<'alloc, 'l, 'r, L: AsNode, R: AsNode>(
+
+fn compare_key_lazy<L: AsNode, R: AsNode>(
     key: &[Pointer],
-    lhs: &LazyNode<'alloc, 'l, L>,
-    rhs: &LazyNode<'alloc, 'r, R>,
+    lhs: &LazyNode<'_, '_, L>,
+    rhs: &LazyNode<'_, '_, R>,
 ) -> Ordering {
     match (lhs, rhs) {
-        (LazyNode::Heap(lhs), LazyNode::Heap(rhs)) => compare_key(key, lhs, rhs),
-        (LazyNode::Heap(lhs), LazyNode::Node(rhs)) => compare_key(key, lhs, *rhs),
-        (LazyNode::Node(lhs), LazyNode::Heap(rhs)) => compare_key(key, *lhs, rhs),
+        (LazyNode::Heap(lhs), LazyNode::Heap(rhs)) => compare_key(key, *lhs, *rhs),
+        (LazyNode::Heap(lhs), LazyNode::Node(rhs)) => compare_key(key, *lhs, *rhs),
+        (LazyNode::Node(lhs), LazyNode::Heap(rhs)) => compare_key(key, *lhs, *rhs),
         (LazyNode::Node(lhs), LazyNode::Node(rhs)) => compare_key(key, *lhs, *rhs),
     }
 }
@@ -342,9 +330,7 @@ pub mod test {
             };
             let rhs_valid = validator.validate(None, &rhs).unwrap().ok().unwrap();
 
-            let lhs_cloned = lhs.as_ref().map(|doc| HeapNode::from_node(doc, &alloc));
-
-            let reduced = match lhs_cloned {
+            let reduced = match &lhs {
                 Some(lhs) => reduce(
                     LazyNode::Heap(lhs),
                     LazyNode::Node(&rhs),

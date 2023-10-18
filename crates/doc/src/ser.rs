@@ -9,7 +9,7 @@ impl<'n, N: AsNode> serde::Serialize for Node<'n, N> {
         S: ::serde::Serializer,
     {
         match self {
-            Node::Array(arr) => serializer.collect_seq(arr.into_iter().map(|d| d.as_node())),
+            Node::Array(arr) => serializer.collect_seq(arr.iter().map(AsNode::as_node)),
             Node::Bool(b) => serializer.serialize_bool(*b),
             Node::Bytes(b) => {
                 if serializer.is_human_readable() {
@@ -35,7 +35,7 @@ impl<'n, N: AsNode> serde::Serialize for Node<'n, N> {
     }
 }
 
-impl<'alloc, 'n, N: AsNode> serde::Serialize for LazyNode<'alloc, 'n, N> {
+impl<N: AsNode> serde::Serialize for LazyNode<'_, '_, N> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ::serde::Serializer,

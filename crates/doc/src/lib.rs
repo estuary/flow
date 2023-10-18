@@ -26,7 +26,7 @@ pub trait Fields<N: AsNode> {
     where
         Self: 'a;
 
-    type Iter<'a>: Iterator<Item = Self::Field<'a>>
+    type Iter<'a>: ExactSizeIterator<Item = Self::Field<'a>>
     where
         Self: 'a;
 
