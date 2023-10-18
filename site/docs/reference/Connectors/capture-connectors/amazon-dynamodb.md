@@ -79,6 +79,11 @@ captures:
               source: /operation_type
               target: /_meta/op
 ```
+
+Your capture definition may be more complex, with additional bindings for each DynamoDB table.
+
+[Learn more about capture definitions.](../../../concepts/captures.md#specification)
+
 ## Flow CDC and the "/_meta/op" Field
 
 Estuary Flow uses a special field called "/_meta/op" for the purposes of Change Data Capture (CDC). The "/_meta/op" field takes specific values based on the type of operation that has occurred on a record. It provides valuable information about whether a record has been inserted, updated, or deleted within your source database.
@@ -90,7 +95,3 @@ Change operation type: 'c' Create/Insert, 'u' Update, 'd' Delete.
 - `insert`: Indicates that a new record has been added to the source database.
 - `update`: An existing record in the source database has been modified.
 - `delete`: A record has been removed from the source database.
-
-Your capture definition may be more complex, with additional bindings for each DynamoDB table.
-
-[Learn more about capture definitions.](../../../concepts/captures.md#specification)
