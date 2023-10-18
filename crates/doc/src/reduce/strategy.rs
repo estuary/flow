@@ -175,7 +175,7 @@ impl Strategy {
                 Ok(HeapNode::Null)
             }
 
-            (lhs, rhs) => Err(Error::with_details(Error::AppendWrongType, loc, lhs, rhs)),
+            _ => Err(Error::with_details(Error::AppendWrongType, loc, lhs, rhs)),
         }
     }
 
@@ -273,21 +273,19 @@ impl Strategy {
             alloc: _,
         } = cur;
 
-        let (lhs, rhs) = (lhs.destructure(), rhs.destructure());
-
-        let ln = match &lhs {
-            LazyDestructured::ScalarNode(Node::PosInt(n)) => json::Number::Unsigned(*n),
-            LazyDestructured::ScalarNode(Node::NegInt(n)) => json::Number::Signed(*n),
-            LazyDestructured::ScalarNode(Node::Float(n)) => json::Number::Float(*n),
+        let ln = match lhs.destructure() {
+            LazyDestructured::ScalarNode(Node::PosInt(n)) => json::Number::Unsigned(n),
+            LazyDestructured::ScalarNode(Node::NegInt(n)) => json::Number::Signed(n),
+            LazyDestructured::ScalarNode(Node::Float(n)) => json::Number::Float(n),
             LazyDestructured::ScalarHeap(HeapNode::PosInt(n)) => json::Number::Unsigned(*n),
             LazyDestructured::ScalarHeap(HeapNode::NegInt(n)) => json::Number::Signed(*n),
             LazyDestructured::ScalarHeap(HeapNode::Float(n)) => json::Number::Float(*n),
             _ => return Err(Error::with_details(Error::SumWrongType, loc, lhs, rhs)),
         };
-        let rn = match &rhs {
-            LazyDestructured::ScalarNode(Node::PosInt(n)) => json::Number::Unsigned(*n),
-            LazyDestructured::ScalarNode(Node::NegInt(n)) => json::Number::Signed(*n),
-            LazyDestructured::ScalarNode(Node::Float(n)) => json::Number::Float(*n),
+        let rn = match rhs.destructure() {
+            LazyDestructured::ScalarNode(Node::PosInt(n)) => json::Number::Unsigned(n),
+            LazyDestructured::ScalarNode(Node::NegInt(n)) => json::Number::Signed(n),
+            LazyDestructured::ScalarNode(Node::Float(n)) => json::Number::Float(n),
             LazyDestructured::ScalarHeap(HeapNode::PosInt(n)) => json::Number::Unsigned(*n),
             LazyDestructured::ScalarHeap(HeapNode::NegInt(n)) => json::Number::Signed(*n),
             LazyDestructured::ScalarHeap(HeapNode::Float(n)) => json::Number::Float(*n),
@@ -403,7 +401,7 @@ impl Strategy {
                 Ok(HeapNode::Null)
             }
 
-            (lhs, rhs) => Err(Error::with_details(Error::MergeWrongType, loc, lhs, rhs)),
+            _ => Err(Error::with_details(Error::MergeWrongType, loc, lhs, rhs)),
         }
     }
 }

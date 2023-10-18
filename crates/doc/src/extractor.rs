@@ -1,4 +1,4 @@
-use crate::{compare::compare, AsNode, LazyNode, Node, OwnedNode, Pointer};
+use crate::{compare::compare, AsNode, Node, OwnedNode, Pointer};
 use bytes::BufMut;
 use std::borrow::Cow;
 use tuple::TuplePack;
@@ -133,20 +133,6 @@ impl Extractor {
             })
             .find(|o| *o != Ordering::Equal)
             .unwrap_or(Ordering::Equal)
-    }
-
-    /// Compare the deep ordering of `lhs` and `rhs` with respect to a composite key.
-    pub fn compare_key_lazy<'alloc, 'l, 'r, L: AsNode, R: AsNode>(
-        key: &[Self],
-        lhs: &LazyNode<'alloc, 'l, L>,
-        rhs: &LazyNode<'alloc, 'r, R>,
-    ) -> std::cmp::Ordering {
-        match (lhs, rhs) {
-            (LazyNode::Heap(lhs), LazyNode::Heap(rhs)) => Self::compare_key(key, lhs, rhs),
-            (LazyNode::Heap(lhs), LazyNode::Node(rhs)) => Self::compare_key(key, lhs, *rhs),
-            (LazyNode::Node(lhs), LazyNode::Heap(rhs)) => Self::compare_key(key, *lhs, rhs),
-            (LazyNode::Node(lhs), LazyNode::Node(rhs)) => Self::compare_key(key, *lhs, *rhs),
-        }
     }
 }
 

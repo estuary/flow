@@ -5,6 +5,9 @@ use std::{fmt, mem, ops, ptr::NonNull};
 /// as a leading u32 of a pointed-to allocated memory region.
 /// This is unlike Rust's "fat" &str reference which includes the
 /// length within the reference handle (see test_sizes()).
+// BumpStr doesn't provide mutable access to its backing memory,
+// and is trivially copy-safe.
+#[derive(Copy, Clone)]
 pub struct BumpStr<'alloc> {
     ptr: NonNull<u8>,
     marker: std::marker::PhantomData<&'alloc str>,

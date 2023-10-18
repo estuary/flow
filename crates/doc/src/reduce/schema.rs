@@ -25,11 +25,11 @@ pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
     // Ensure that we're working with objects on both sides
     // Question: Should we actually relax this to support
     // reducing valid schemas like "true" and "false"?
-    let (
-        lhs @ HeapNode::Object(_),
-        rhs @ HeapNode::Object(_)
-    ) = (lhs, rhs) else {
-        return Err(Error::with_location(Error::JsonSchemaMergeWrongType { detail: None }, loc) )
+    let (lhs @ HeapNode::Object(_), rhs @ HeapNode::Object(_)) = (lhs, rhs) else {
+        return Err(Error::with_location(
+            Error::JsonSchemaMergeWrongType { detail: None },
+            loc,
+        ));
     };
 
     let left = shape_from_node(lhs).map_err(|e| Error::with_location(e, loc))?;
