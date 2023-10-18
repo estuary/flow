@@ -1,4 +1,4 @@
-# Microsoft SQLServer
+# Google Cloud SQL for SQLServer
 
 This connector materializes Flow collections into tables in a Microsoft SQLServer database.
 
@@ -60,86 +60,6 @@ materializations:
 ```
 
 ## Connecting to SQLServer
-
-### Setup: Self-hosted SQL Server
-
-1. Connect to the server and issue the following commands:
-
-```sql
-USE <database>;
--- Create user and password for use with the connector.
-CREATE LOGIN flow_materialize WITH PASSWORD = 'secret';
-CREATE USER flow_materialize FOR LOGIN flow_materialize;
--- Grant control on the database to flow_materialize
-GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
-```
-
-2. Allow secure connection to Estuary Flow from your hosting environment. Either:
-   * Set up an [SSH server for tunneling](../../../../guides/connect-network/).
-
-     When you fill out the [endpoint configuration](#endpoint),
-     include the additional `networkTunnel` configuration to enable the SSH tunnel.
-     See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-     for additional details and a sample.
-
-   * Whitelist the Estuary IP address, `34.121.207.128` in your firewall rules.
-
-### Setup: Azure SQL Database
-
-1. Allow connections to the server from the Estuary Flow IP address.
-
-   1. Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/azure-sql/database/firewall-configure?view=azuresql#use-the-azure-portal-to-manage-server-level-ip-firewall-rules)
-   that grants access to the IP address `34.121.207.128`.  See the instructions below to use SSH Tunneling instead of enabling public access.
-
-   :::info
-   Alternatively, you can allow secure connections via SSH tunneling as described in the setup steps for
-   [self-hosted databases](#setup-self-hosted-sql-server).
-   :::
-
-2. In your SQL client, connect to your instance as the default `sqlserver` user and issue the following commands.
-
-```sql
-USE <database>;
--- Create user and password for use with the connector.
-CREATE LOGIN flow_materialize WITH PASSWORD = 'secret';
-CREATE USER flow_materialize FOR LOGIN flow_materialize;
--- Grant control on the database to flow_materialize
-GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
-```
-
-3. Note the following important items for configuration:
-
-   * Find the instance's host under Server Name. The port is always `1433`. Together, you'll use the host:port as the `address` property when you configure the connector.
-   * Format `user` as `username@databasename`; for example, `flow_materialize@myazuredb`.
-
-### Setup: Amazon RDS for SQL Server
-
-1. Allow connections to the database from the Estuary Flow IP address.
-
-   1. [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.  See the instructions below to use SSH Tunneling instead of enabling public access.
-
-   2. Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
-      Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
-      Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
-
-   :::info
-   Alternatively, you can allow secure connections via SSH tunneling as described in the setup steps for
-   [self-hosted databases](#setup-self-hosted-sql-server).
-   :::
-
-2.  In your SQL client, connect to your instance as the default `sqlserver` user and issue the following commands.
-
-```sql
-USE <database>;
--- Create user and password for use with the connector.
-CREATE LOGIN flow_materialize WITH PASSWORD = 'secret';
-CREATE USER flow_materialize FOR LOGIN flow_materialize;
--- Grant control on the database to flow_materialize
-GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
-```
-3. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
-
-### Setup: Google Cloud SQL for SQL Server
 
 1. Allow connections to the database from the Estuary Flow IP address.
 

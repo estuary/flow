@@ -1,8 +1,5 @@
-use crate::{api_exec, controlplane, draft, local_specs, CliContext};
+use crate::{catalog::SpecSummaryItem, controlplane, draft, local_specs, CliContext};
 use anyhow::Context;
-use itertools::Itertools;
-use serde::Deserialize;
-use std::collections::HashMap;
 
 #[derive(Debug, clap::Args)]
 pub struct Publish {
@@ -15,46 +12,6 @@ pub struct Publish {
     /// This flag is required if running flowctl non-interactively, such as in a shell script.
     #[clap(long)]
     auto_approve: bool,
-}
-
-// TODO(whb): This page size is pretty arbitrary, but seemed to work fine during my tests. It needs
-// to be large enough to be reasonably efficient for large numbers of specs, but small enough to not
-// exceed query length limitations.
-const MD5_PAGE_SIZE: usize = 100;
-
-pub async fn remove_unchanged(
-    client: &controlplane::Client,
-    mut input_catalog: models::Catalog,
-) -> anyhow::Result<models::Catalog> {
-    let mut spec_checksums: HashMap<String, String> = HashMap::new();
-
-    #[derive(Deserialize, Debug)]
-    struct SpecChecksumRow {
-        catalog_name: String,
-        md5: Option<String>,
-    }
-
-    let spec_names = input_catalog.all_spec_names();
-    for names in &spec_names.into_iter().chunks(MD5_PAGE_SIZE) {
-        let builder = client
-            .from("live_specs_ext")
-            .select("catalog_name,md5")
-            .in_("catalog_name", names);
-
-        let rows: Vec<SpecChecksumRow> = api_exec(builder).await?;
-        let chunk_checksums = rows.iter().filter_map(|row| {
-            if let Some(md5) = row.md5.as_ref() {
-                Some((row.catalog_name.clone(), md5.clone()))
-            } else {
-                None
-            }
-        });
-        spec_checksums.extend(chunk_checksums);
-    }
-
-    sources::remove_unchanged_specs(&spec_checksums, &mut input_catalog);
-
-    Ok(input_catalog)
 }
 
 pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<()> {
@@ -70,24 +27,33 @@ pub async fn do_publish(ctx: &mut CliContext, args: &Publish) -> anyhow::Result<
 
     let (sources, _validations) =
         local_specs::load_and_validate(client.clone(), &args.source).await?;
-    let mut catalog = remove_unchanged(&client, local_specs::into_catalog(sources)).await?;
-
-    // `remove_unchanged` used to sneakily remove any storage mappings from the
-    // catalog by copying everything except storage mappings into a new catalog.
-    // This retains that behavior while making it a bit more explicit.
-    catalog.storage_mappings.clear();
-
-    if catalog.is_empty() {
-        println!("No specs would be changed by this publication, nothing to publish.");
-        return Ok(());
-    }
+    let catalog = local_specs::into_catalog(sources);
 
     let draft = draft::create_draft(client.clone()).await?;
     println!("Created draft: {}", &draft.id);
     tracing::info!(draft_id = %draft.id, "created draft");
-    let spec_rows = draft::upsert_draft_specs(client.clone(), &draft.id, &catalog).await?;
-    println!("Will publish the following {} specs", spec_rows.len());
-    ctx.write_all(spec_rows, ())?;
+    draft::upsert_draft_specs(client.clone(), &draft.id, &catalog).await?;
+
+    let removed = draft::remove_unchanged(&client, &draft.id).await?;
+    if !removed.is_empty() {
+        println!("The following specs are identical to the currently published specs, and have been pruned from the draft:");
+        for name in removed.iter() {
+            println!("{name}");
+        }
+        println!(""); // blank line to give a bit of spacing
+    }
+
+    let mut summary = SpecSummaryItem::summarize_catalog(catalog);
+    summary.retain(|s| !removed.contains(&s.catalog_name));
+
+    if summary.is_empty() {
+        println!("No specs would be changed by this publication, nothing to publish.");
+        try_delete_draft(client, &draft.id).await;
+        return Ok(());
+    }
+
+    println!("Will publish the following {} specs", summary.len());
+    ctx.write_all(summary, ())?;
 
     if !(args.auto_approve || prompt_to_continue().await) {
         println!("\nCancelling");

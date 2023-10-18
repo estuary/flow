@@ -1,4 +1,5 @@
 import Stripe from "stripe";
+import { corsHeaders } from '../_shared/cors.ts';
 
 const STRIPE_API = Deno.env.get("STRIPE_API_KEY");
 if (!STRIPE_API) {
@@ -9,3 +10,5 @@ export const StripeClient = new Stripe(STRIPE_API, { apiVersion: "2022-11-15" })
 
 export const TENANT_METADATA_KEY = "estuary.dev/tenant_name";
 export const customerQuery = (tenant: string) => `metadata["${TENANT_METADATA_KEY}"]:"${tenant}"`;
+
+export const billingResponseHeaders = { "Content-Type": "application/json", ...corsHeaders };

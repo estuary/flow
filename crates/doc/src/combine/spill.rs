@@ -39,7 +39,7 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
     pub fn write_segment(
         &mut self,
         entries: &[HeapEntry<'_>],
-        chunk_target_size: Range<usize>,
+        chunk_target_size: usize,
     ) -> Result<u64, io::Error> {
         if entries.is_empty() {
             return Ok(0);
@@ -49,7 +49,7 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
 
         let mut last_chunk_index = 0;
         let mut lz4_buf = Vec::new();
-        let mut raw_buf = rkyv::AlignedVec::with_capacity(11 * chunk_target_size.start / 10);
+        let mut raw_buf = rkyv::AlignedVec::with_capacity(2 * chunk_target_size);
         let mut rkyv_scratch = Default::default();
 
         for (
@@ -91,7 +91,7 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
             raw_buf[offset + 4..offset + 8].copy_from_slice(&u32::to_le_bytes(doc_len as u32));
 
             // If this isn't the last element and our chunk is under threshold then continue accruing documents.
-            if index != entries.len() - 1 && raw_buf.len() < chunk_target_size.start {
+            if index != entries.len() - 1 && raw_buf.len() < chunk_target_size {
                 continue;
             }
             // We have a complete chunk. Next we compress and write it to the spill file.
@@ -418,8 +418,18 @@ impl<F: io::Read + io::Seek> Iterator for SpillDrainer<F> {
 
             // Map `root` into an owned variant.
             let root = match root {
-                LazyNode::Node(_) => {
-                    // Already validated (no reduction occurred).
+                LazyNode::Node(root) => {
+                    // This document was spilled to disk and was not reduced again.
+                    // We validate !reduced documents when spilling to disk and
+                    // can skip doing so now (this is the common case).
+                    if reduced {
+                        validator
+                            .validate(schema.as_ref(), root)
+                            .map_err(Error::SchemaError)?
+                            .ok()
+                            .map_err(Error::FailedValidation)?;
+                    }
+
                     OwnedNode::Archived(owned_root)
                 }
                 LazyNode::Heap(root) => {
@@ -485,7 +495,7 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{combine::CHUNK_MAX_LEN, validation::build_schema, HeapNode, Validator};
+    use crate::{combine::CHUNK_TARGET_SIZE, validation::build_schema, HeapNode, Validator};
     use itertools::Itertools;
     use serde_json::{json, Value};
 
@@ -505,7 +515,7 @@ mod test {
         let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
 
         // 130 is calibrated to include two, but not three documents in a chunk.
-        spill.write_segment(&segment, 130..CHUNK_MAX_LEN).unwrap();
+        spill.write_segment(&segment, 130).unwrap();
         let (mut spill, ranges) = spill.into_parts();
 
         // Assert we wrote the expected range and regression fixture.
@@ -620,7 +630,7 @@ mod test {
 
         let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
         for segment in fixtures {
-            spill.write_segment(&segment, 2..4).unwrap();
+            spill.write_segment(&segment, 2).unwrap();
         }
 
         // Map from SpillWriter => SpillDrainer.
@@ -706,6 +716,89 @@ mod test {
           ]
         ]
         "###);
+    }
+
+    #[test]
+    fn test_drain_validation() {
+        let spec = Spec::with_bindings(
+            std::iter::repeat_with(|| {
+                let schema = build_schema(
+                    url::Url::parse("http://example/schema").unwrap(),
+                    &json!({
+                        "properties": {
+                            "key": { "type": "string" },
+                            "v": { "const": "good" },
+                        }
+                    }),
+                )
+                .unwrap();
+
+                (
+                    vec![Extractor::new("/key")],
+                    None,
+                    Validator::new(schema).unwrap(),
+                )
+            })
+            .take(1),
+        );
+
+        let alloc = Bump::new();
+
+        let fixtures = vec![
+            segment_fixture(
+                &[
+                    (0, json!({"key": "aaa", "v": "good"}), true),
+                    (0, json!({"key": "bbb", "v": "bad"}), false),
+                    (0, json!({"key": "ccc", "v": "bad"}), true),
+                    (0, json!({"key": "ddd", "v": "bad"}), true),
+                    (0, json!({"key": "eee", "v": "good"}), true),
+                ],
+                &alloc,
+            ),
+            segment_fixture(
+                &[
+                    (0, json!({"key": "ddd", "v": "good"}), false),
+                    (0, json!({"key": "eee", "v": "bad"}), false),
+                ],
+                &alloc,
+            ),
+        ];
+
+        let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
+        for segment in fixtures {
+            spill.write_segment(&segment, CHUNK_TARGET_SIZE).unwrap();
+        }
+        let (spill, ranges) = spill.into_parts();
+        let mut drainer = SpillDrainer::new(spec, spill, &ranges).unwrap();
+
+        // "aaa" is reduced & validated, and matches the schema.
+        assert!(matches!(
+            drainer.next().unwrap(),
+            Ok(DrainedDoc { reduced: true, .. })
+        ));
+        // "bbb" doesn't match the schema but is marked as !reduced (we assume it was validated on spill).
+        assert!(matches!(
+            drainer.next().unwrap(),
+            Ok(DrainedDoc { reduced: false, .. })
+        ));
+        // "ccc" doesn't match the schema, is marked reduced, and fails validation.
+        assert!(matches!(
+            drainer.next().unwrap(),
+            Err(Error::FailedValidation(_))
+        ));
+        // "ddd" has an invalid reduced document, but is further reduced upon drain,
+        // and the reduction output is itself valid.
+        assert!(matches!(
+            drainer.next().unwrap(),
+            Ok(DrainedDoc { reduced: true, .. })
+        ));
+        // "eee" is reduced on drain, and its output doesn't match the schema.
+        assert!(matches!(
+            drainer.next().unwrap(),
+            Err(Error::FailedValidation(_))
+        ));
+
+        assert!(drainer.next().is_none());
     }
 
     #[test]

@@ -467,10 +467,12 @@ pub async fn apply_updates_for_row(
     Ok(())
 }
 
-// add_built_specs_to_live_specs adds the built spec to the live_specs row for all tasks included in
-// build_output if they are in the list of specifications which are changing in this publication per
-// the list of spec_rows.
-pub async fn add_built_specs_to_live_specs(
+/// adds the built spec to the live_specs row for all tasks included
+/// in build_output if they are in the list of specifications which are
+/// changing in this publication per the list of spec_rows. Also sets the
+/// `inferred_schema_md5` for collections, which tracks the hash that was used
+/// during the build.
+pub async fn add_build_output_to_live_specs(
     spec_rows: &[SpecRow],
     pruned_collections: &HashSet<String>,
     build_output: &builds::BuildOutput,
@@ -486,6 +488,12 @@ pub async fn add_built_specs_to_live_specs(
         {
             agent_sql::publications::add_built_specs(row.live_spec_id, &collection.spec, txn)
                 .await?;
+            agent_sql::publications::add_inferred_schema_md5(
+                row.live_spec_id,
+                collection.inferred_schema_md5.clone(),
+                txn,
+            )
+            .await?;
         }
     }
 

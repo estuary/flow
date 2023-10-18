@@ -9,6 +9,7 @@ use std::{
 mod capture;
 mod discover;
 mod materialize_fixture;
+mod spec;
 mod suggest_schema;
 
 #[derive(Debug, clap::Args)]
@@ -52,6 +53,8 @@ pub enum Command {
     Discover(discover::Discover),
     /// Run a capture connector and combine its documents
     Capture(capture::Capture),
+    /// Get the spec output of a connector
+    Spec(spec::Spec),
     /// Suggest a schema that would alleviate document schema violations of a specific collection
     SuggestSchema(suggest_schema::SuggestSchema),
     /// Emit the Flow specification JSON-Schema.
@@ -145,6 +148,7 @@ impl Advanced {
             }
             Command::Discover(args) => discover::do_discover(ctx, args).await,
             Command::Capture(args) => capture::do_capture(ctx, args).await,
+            Command::Spec(args) => spec::do_spec(ctx, args).await,
             Command::SuggestSchema(args) => suggest_schema::do_suggest_schema(ctx, args).await,
             Command::JsonSchema => {
                 let schema = models::Catalog::root_json_schema();
