@@ -43,6 +43,30 @@ impl<'alloc> HeapNode<'alloc> {
     pub fn new_allocator() -> bumpalo::Bump {
         bumpalo::Bump::new()
     }
+
+    // from_node builds a HeapNode from another AsNode implementation.
+    pub fn from_node<N: AsNode>(node: &N, alloc: &'alloc bumpalo::Bump) -> Self {
+        match node.as_node() {
+            Node::Array(arr) => HeapNode::Array(BumpVec::with_contents(
+                alloc,
+                arr.iter().map(|item| Self::from_node(item, alloc)),
+            )),
+            Node::Bool(b) => HeapNode::Bool(b),
+            Node::Bytes(b) => HeapNode::Bytes(BumpVec::from_slice(b, alloc)),
+            Node::Null => HeapNode::Null,
+            Node::Float(n) => HeapNode::Float(n),
+            Node::PosInt(n) => HeapNode::PosInt(n),
+            Node::NegInt(n) => HeapNode::NegInt(n),
+            Node::Object(fields) => HeapNode::Object(BumpVec::with_contents(
+                alloc,
+                fields.iter().map(|field| HeapField {
+                    property: BumpStr::from_str(field.property(), alloc),
+                    value: Self::from_node(field.value(), alloc),
+                }),
+            )),
+            Node::String(s) => HeapNode::String(BumpStr::from_str(s, alloc)),
+        }
+    }
 }
 
 impl<'alloc> AsNode for HeapNode<'alloc> {

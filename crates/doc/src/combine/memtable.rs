@@ -101,9 +101,9 @@ impl Entries {
                 let next = queued.next().unwrap();
                 (cur.root, cur.reduced) = super::smash(
                     alloc,
-                    LazyNode::Heap(cur.root),
+                    LazyNode::Heap(&cur.root),
                     cur.reduced,
-                    LazyNode::Heap(next.root),
+                    LazyNode::Heap(&next.root),
                     next.reduced,
                     schema.as_ref(),
                     validator,
@@ -116,9 +116,9 @@ impl Entries {
                 let prev = sorted.next().unwrap();
                 (cur.root, cur.reduced) = super::smash(
                     alloc,
-                    LazyNode::Heap(prev.root),
+                    LazyNode::Heap(&prev.root),
                     prev.reduced,
-                    LazyNode::Heap(cur.root),
+                    LazyNode::Heap(&cur.root),
                     cur.reduced,
                     schema.as_ref(),
                     validator,
@@ -337,9 +337,9 @@ impl Iterator for MemDrainer {
 
                             let (root, reduced) = super::smash(
                                 &self.zz_alloc,
-                                LazyNode::Heap(lhs_root),
+                                LazyNode::Heap(&lhs_root),
                                 lhs_reduced,
-                                LazyNode::Heap(rhs_root),
+                                LazyNode::Heap(&rhs_root),
                                 rhs_reduced,
                                 schema.as_ref(),
                                 validator,

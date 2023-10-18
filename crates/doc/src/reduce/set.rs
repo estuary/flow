@@ -41,7 +41,7 @@ impl<'alloc, 'l, 'r, L: AsNode, R: AsNode> Destructured<'alloc, 'l, 'r, L, R> {
         // Unwrap required Objects on each side.
         let (lhs, rhs) = match (lhs.destructure(), rhs.destructure()) {
             (LazyDestructured::Object(lhs), LazyDestructured::Object(rhs)) => (lhs, rhs),
-            (lhs, rhs) => return Err(Error::with_details(Error::SetWrongType, loc, lhs, rhs)),
+            _ => return Err(Error::with_details(Error::SetWrongType, loc, lhs, rhs)),
         };
 
         // Extract "add", "intersect", and "remove" properties & values
@@ -190,7 +190,7 @@ impl<'alloc> Builder<'alloc, '_, '_> {
             Box::new(
                 itertools::merge_join_by(left, right, |l, r| match l {
                     LazyNode::Node(l) => compare_key(key, *l, *r),
-                    LazyNode::Heap(l) => compare_key(key, l, *r),
+                    LazyNode::Heap(l) => compare_key(key, *l, *r),
                 })
                 .filter_map(move |eob| match eob {
                     EitherOrBoth::Left(l) if !naught => Some(l),

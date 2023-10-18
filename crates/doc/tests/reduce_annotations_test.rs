@@ -138,7 +138,7 @@ fn test_validate_then_reduce() {
 
         let reduced = match lhs {
             Some(lhs) => reduce::reduce(
-                LazyNode::Heap(lhs),
+                LazyNode::Heap(&lhs),
                 LazyNode::Node(&rhs),
                 rhs_valid,
                 &alloc,
@@ -349,7 +349,10 @@ fn reduce_tree(schema: Schema, docs: Vec<Value>) -> Value {
     let mut validator = Validator::new(schema).unwrap();
     let alloc = HeapNode::new_allocator();
 
-    let mut docs = docs.iter().map(LazyNode::Node).collect::<Vec<_>>();
+    let mut docs = docs
+        .iter()
+        .map(|n| HeapNode::from_node(n, &alloc))
+        .collect::<Vec<_>>();
 
     // Iteratively reduce |docs| by walking it in chunked windows, producing
     // a new Value for each chunk. Intuitively, we're reducing |docs| by
@@ -364,24 +367,29 @@ fn reduce_tree(schema: Schema, docs: Vec<Value>) -> Value {
             .into_iter()
             .enumerate()
             .map(|(n, chunk)| {
-                let mut lhs: Option<LazyNode<Value>> = None;
+                let mut cur: Option<HeapNode> = None;
 
                 for rhs in chunk {
-                    let rhs_valid = rhs.validate_ok(&mut validator, None).unwrap().unwrap();
+                    let rhs_valid = validator.validate(None, &rhs).unwrap().ok().unwrap();
 
-                    lhs = Some(match lhs {
-                        Some(lhs) => LazyNode::Heap(
-                            reduce::reduce(lhs, rhs, rhs_valid, &alloc, n == 0).unwrap(),
-                        ),
-                        None => rhs,
+                    cur = Some(match cur {
+                        Some(lhs) => reduce::reduce(
+                            LazyNode::<Value>::Heap(&lhs),
+                            LazyNode::Heap(&rhs),
+                            rhs_valid,
+                            &alloc,
+                            n == 0,
+                        )
+                        .unwrap(),
+                        None => HeapNode::from_node(&rhs, &alloc),
                     });
                 }
-                lhs.unwrap()
+                cur.unwrap()
             })
             .collect();
     }
 
-    let root = docs.into_iter().next().unwrap().into_heap_node(&alloc);
+    let root = docs.into_iter().next().unwrap();
 
     serde_json::to_value(&root.as_node()).unwrap()
 }

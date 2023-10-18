@@ -28,11 +28,6 @@ struct RawVec<T> {
     data: [T],
 }
 
-pub struct IntoIter<'alloc, T> {
-    inner: BumpVec<'alloc, T>,
-    next: u32,
-}
-
 impl<'alloc, T> BumpVec<'alloc, T> {
     pub fn new() -> Self {
         Self {
@@ -45,20 +40,28 @@ impl<'alloc, T> BumpVec<'alloc, T> {
         if capacity == 0 {
             return Self::new(); // Don't allocate an empty array.
         }
+        Self {
+            ptr: Some(Self::allocate_inline(capacity, alloc).0),
+            marker: Default::default(),
+        }
+    }
 
-        // Allocate space for a RawVec with the correct size and alignment.
-        let (size_of_elem, size_of_header, align) = Self::sizes();
-        let size = size_of_header + capacity.checked_mul(size_of_elem).expect("too large");
-        let layout = unsafe { std::alloc::Layout::from_size_align_unchecked(size, align) };
-        let ptr = alloc.alloc_layout(layout);
+    pub fn with_contents<I>(alloc: &'alloc bumpalo::Bump, iter: I) -> Self
+    where
+        I: ExactSizeIterator<Item = T>,
+    {
+        if iter.len() == 0 {
+            return Self::new();
+        }
+        let (ptr, raw) = Self::allocate_inline(iter.len(), alloc);
 
-        // Initialize the allocated RawVec.
-        let raw =
-            unsafe { std::mem::transmute::<(NonNull<u8>, usize), &mut RawVec<T>>((ptr, capacity)) };
-
-        raw.cap = u32::try_from(capacity).expect("capacity is too large");
-        raw.len = 0;
-        // raw.data is left uninitialized.
+        for value in iter {
+            unsafe {
+                let end = raw.data.as_mut_ptr().add(raw.len as usize);
+                ptr::write(end, value);
+                raw.len += 1;
+            }
+        }
 
         Self {
             ptr: Some(ptr),
@@ -66,15 +69,27 @@ impl<'alloc, T> BumpVec<'alloc, T> {
         }
     }
 
-    #[inline]
-    pub fn as_slice(&self) -> &[T] {
+    pub fn len(&self) -> usize {
+        match self.raw() {
+            Some(raw) => raw.len as usize,
+            None => 0,
+        }
+    }
+
+    pub fn cap(&self) -> usize {
+        match self.raw() {
+            Some(raw) => raw.cap as usize,
+            None => 0,
+        }
+    }
+
+    pub fn as_slice(&self) -> &'alloc [T] {
         match self.raw() {
             Some(raw) => &raw.data[..raw.len as usize],
             None => &[],
         }
     }
 
-    #[inline]
     pub fn push(&mut self, value: T, alloc: &'alloc bumpalo::Bump) {
         let raw = match self.raw() {
             Some(raw) if raw.len != raw.cap => raw,
@@ -144,47 +159,49 @@ impl<'alloc, T> BumpVec<'alloc, T> {
         ret
     }
 
-    #[inline]
-    pub fn len(&self) -> usize {
-        match self.raw() {
-            Some(raw) => raw.len as usize,
-            None => 0,
-        }
-    }
-
-    #[inline]
-    pub fn cap(&self) -> usize {
-        match self.raw() {
-            Some(raw) => raw.cap as usize,
-            None => 0,
-        }
-    }
-
     pub fn extend<I: Iterator<Item = T>>(&mut self, it: I, alloc: &'alloc bumpalo::Bump) {
         for value in it {
             self.push(value, alloc)
         }
     }
 
-    pub fn into_iter(self) -> IntoIter<'alloc, T> {
-        IntoIter {
-            inner: self,
-            next: 0,
-        }
+    // Allocate space for a RawVec with the correct size and alignment.
+    fn allocate(capacity: usize, alloc: &'alloc bumpalo::Bump) -> (NonNull<u8>, &mut RawVec<T>) {
+        Self::allocate_inline(capacity, alloc)
     }
 
-    #[inline]
+    #[inline(always)]
+    fn allocate_inline(
+        capacity: usize,
+        alloc: &'alloc bumpalo::Bump,
+    ) -> (NonNull<u8>, &mut RawVec<T>) {
+        let (size_of_elem, size_of_header, align) = Self::sizes();
+        let size = size_of_header + capacity.checked_mul(size_of_elem).expect("too large");
+        let layout = unsafe { std::alloc::Layout::from_size_align_unchecked(size, align) };
+        let ptr = alloc.alloc_layout(layout);
+
+        // Initialize the allocated RawVec.
+        let raw =
+            unsafe { std::mem::transmute::<(NonNull<u8>, usize), &mut RawVec<T>>((ptr, capacity)) };
+
+        raw.cap = u32::try_from(capacity).expect("capacity is too large");
+        raw.len = 0;
+        // raw.data is left uninitialized.
+
+        (ptr, raw)
+    }
+
     fn raw(&self) -> Option<&'alloc mut RawVec<T>> {
         let Some(ptr) = self.ptr else {
             return None;
         };
         unsafe {
             // We know that the allocated slice capacity is a leading u32.
-            let len = std::mem::transmute::<NonNull<u8>, &u32>(ptr);
-            // Construct a "fat" pointer using the "thin" pointer and length.
+            let cap = std::mem::transmute::<NonNull<u8>, &u32>(ptr);
+            // Construct a "fat" pointer using the "thin" pointer and capacity.
             let raw = std::mem::transmute::<(NonNull<u8>, usize), &'alloc mut RawVec<T>>((
                 ptr,
-                *len as usize,
+                *cap as usize,
             ));
             Some(raw)
         }
@@ -192,12 +209,13 @@ impl<'alloc, T> BumpVec<'alloc, T> {
 
     fn grow(&mut self, additional: u32, alloc: &'alloc bumpalo::Bump) -> &mut RawVec<T> {
         let Some(src) = self.raw() else {
-            *self = Self::with_capacity_in(cmp::max(additional, 4) as usize, alloc);
-            return self.raw().unwrap();
+            let (ptr, raw) = Self::allocate(cmp::max(additional, 4) as usize, alloc);
+            self.ptr = Some(ptr);
+            return raw;
         };
 
-        *self = Self::with_capacity_in(cmp::max(additional, 2 * src.cap) as usize, alloc);
-        let dst = self.raw().unwrap();
+        let (ptr, dst) = Self::allocate(cmp::max(additional, 2 * src.cap) as usize, alloc);
+        self.ptr = Some(ptr);
 
         unsafe {
             ptr::copy(
@@ -237,14 +255,12 @@ impl<'alloc, T> BumpVec<'alloc, T> {
 impl<'alloc, T> ops::Deref for BumpVec<'alloc, T> {
     type Target = [T];
 
-    #[inline]
     fn deref(&self) -> &[T] {
         self.as_slice()
     }
 }
 
 impl<'alloc, T> ops::DerefMut for BumpVec<'alloc, T> {
-    #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
         match self.raw() {
             Some(raw) => &mut raw.data[..raw.len as usize],
@@ -255,45 +271,20 @@ impl<'alloc, T> ops::DerefMut for BumpVec<'alloc, T> {
 
 impl<'alloc, T: Copy> BumpVec<'alloc, T> {
     pub fn from_slice(slice: &[T], alloc: &'alloc bumpalo::Bump) -> Self {
-        let v = Self::with_capacity_in(slice.len(), alloc);
-
-        let raw = v.raw().unwrap();
+        let (ptr, raw) = Self::allocate_inline(slice.len(), alloc);
         raw.data.copy_from_slice(slice);
         raw.len = raw.cap;
 
-        v
+        Self {
+            ptr: Some(ptr),
+            marker: Default::default(),
+        }
     }
 }
 
 impl<'alloc, T: fmt::Debug> fmt::Debug for BumpVec<'alloc, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.as_slice().fmt(f)
-    }
-}
-
-impl<'alloc, T> Iterator for IntoIter<'alloc, T> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let Some(raw) = self.inner.raw() else {
-            return None;
-        };
-
-        if raw.len == self.next {
-            return None;
-        }
-
-        let ret;
-        unsafe {
-            // The place we are taking from.
-            let ptr = raw.data.as_mut_ptr().add(self.next as usize);
-            // Copy it out, unsafely having a copy of the value on
-            // the stack and in the vector at the same time.
-            ret = ptr::read(ptr);
-        }
-        self.next += 1;
-
-        Some(ret)
     }
 }
 
@@ -349,7 +340,7 @@ mod test {
         assert_eq!(b.as_slice(), &[9, 0, 3, 5, 7, 6, 8]);
 
         // We can convert BumpVec into an Iterator.
-        let v = b.into_iter().collect::<Vec<_>>();
+        let v = b.iter().copied().collect::<Vec<_>>();
         assert_eq!(v.as_slice(), &[9, 0, 3, 5, 7, 6, 8]);
     }
 
