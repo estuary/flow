@@ -160,7 +160,7 @@ pub async fn add_inferred_schema_md5(
     sqlx::query!(
         r#"
         update live_specs set inferred_schema_md5 = $1
-        where id = $2 and spec_type = 'collection'
+        where id = $2
         returning 1 as "must_exist"
         "#,
         inferred_schema_md5 as Option<String>,
