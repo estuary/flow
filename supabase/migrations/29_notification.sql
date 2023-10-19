@@ -1,18 +1,18 @@
-create table notification_preferences (
+create table notification_subscriptions (
   like internal._model including all,
 
   catalog_prefix    catalog_prefix                 not null,
   user_id           uuid references auth.users(id)
 );
-alter table notification_preferences enable row level security;
+alter table notification_subscriptions enable row level security;
 
-create policy "Users access preferences for the prefixes they admin"
-  on notification_preferences as permissive
+create policy "Users access subscriptions for the prefixes they admin"
+  on notification_subscriptions as permissive
   using (exists(
     select 1 from auth_roles('admin') r where catalog_prefix ^@ r.role_prefix
   ));
 
-grant select, insert, update, delete on notification_preferences to authenticated;
+grant select, insert, update, delete on notification_subscriptions to authenticated;
 
 create table internal.notification_templates (
   classification          text,
@@ -55,14 +55,14 @@ grant insert (catalog_prefix, classification, acknowledged, evaluation_interval,
 grant update (acknowledged, evaluation_interval) on notification_configurations to authenticated;
 grant select, delete on notification_configurations to authenticated;
 
-create view notification_preferences_ext as
+create view notification_subscriptions_ext as
 select
-  notification_preferences.*,
+  notification_subscriptions.*,
   auth.users.email as verified_email
-from notification_preferences
-  left join auth.users on notification_preferences.user_id = auth.users.id
-order by notification_preferences.catalog_prefix asc;
-grant select on notification_preferences_ext to authenticated;
+from notification_subscriptions
+  left join auth.users on notification_subscriptions.user_id = auth.users.id
+order by notification_subscriptions.catalog_prefix asc;
+grant select on notification_subscriptions_ext to authenticated;
 
 create view notification_configurations_ext as
 select
@@ -74,14 +74,14 @@ select
   internal.notification_templates.confirmation_title,
   internal.notification_templates.confirmation_message,
   internal.notification_templates.classification,
-  notification_preferences_ext.verified_email,
+  notification_subscriptions_ext.verified_email,
   live_specs.catalog_name,
   live_specs.spec_type,
   coalesce(sum(catalog_stats_hourly.bytes_written_by_me + catalog_stats_hourly.bytes_written_to_me + catalog_stats_hourly.bytes_read_by_me), 0)::bigint as bytes_processed
 from notification_configurations
   left join live_specs on notification_configurations.live_spec_id = live_specs.id and live_specs.spec is not null and (live_specs.spec->'shards'->>'disable')::boolean is not true
   left join catalog_stats_hourly on live_specs.catalog_name = catalog_stats_hourly.catalog_name
-  left join notification_preferences_ext on notification_configurations.catalog_prefix = notification_preferences_ext.catalog_prefix
+  left join notification_subscriptions_ext on notification_configurations.catalog_prefix = notification_subscriptions_ext.catalog_prefix
   left join internal.notification_templates on notification_configurations.classification = internal.notification_templates.classification
 where (
   case
@@ -99,7 +99,7 @@ group by
   internal.notification_templates.confirmation_title,
   internal.notification_templates.confirmation_message,
   internal.notification_templates.classification,
-  notification_preferences_ext.verified_email,
+  notification_subscriptions_ext.verified_email,
   live_specs.catalog_name,
   live_specs.spec_type;
 grant select on notification_configurations_ext to authenticated;
