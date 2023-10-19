@@ -247,9 +247,9 @@ mod test {
             select json_build_object('prefix', m.catalog_prefix, 'storageMapping', m.spec)
                 from storage_mappings m where m.catalog_prefix like '%AcmeTenant%'
             union all
-            -- Expect a notification preference was created.
-            select json_build_object('catalog_prefix', p.catalog_prefix, 'user_id', p.user_id)
-                from notification_preferences p where user_id = p.user_id
+            -- Expect a notification subscription was created.
+            select json_build_object('catalog_prefix', s.catalog_prefix, 'user_id', s.user_id)
+                from notification_subscriptions s where user_id = s.user_id
             "#,
         )
         .fetch_all(&mut txn)
