@@ -62,8 +62,7 @@ grant select on notification_subscriptions_ext to authenticated;
 
 create view data_processing_notifications_ext as
 select
-  data_processing_notifications.acknowledged,
-  data_processing_notifications.evaluation_interval,
+  data_processing_notifications.*,
   internal.notification_templates.title as notification_title,
   internal.notification_templates.message as notification_message,
   internal.notification_templates.confirmation_title,
@@ -86,6 +85,7 @@ where (
   end
 )
 group by
+  data_processing_notifications.live_spec_id,
   data_processing_notifications.acknowledged,
   data_processing_notifications.evaluation_interval,
   internal.notification_templates.title,
