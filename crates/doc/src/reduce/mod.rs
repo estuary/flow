@@ -1,6 +1,6 @@
 use super::{
     lazy::{LazyField, LazyNode},
-    AsNode, BumpStr, Field, Fields, HeapField, HeapNode, Node, Pointer, Valid,
+    AsNode, BumpStr, Field, Fields, HeapField, HeapNode, Node, Pointer, SerPolicy, Valid,
 };
 use itertools::EitherOrBoth;
 use std::cmp::Ordering;
@@ -59,8 +59,8 @@ impl Error {
         rhs: LazyNode<'_, '_, R>,
     ) -> Self {
         Error::WithValues {
-            lhs: serde_json::to_value(&lhs).unwrap(),
-            rhs: serde_json::to_value(&rhs).unwrap(),
+            lhs: serde_json::to_value(SerPolicy::debug().on_lazy(&lhs)).unwrap(),
+            rhs: serde_json::to_value(SerPolicy::debug().on_lazy(&rhs)).unwrap(),
             detail: Box::new(self),
         }
     }

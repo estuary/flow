@@ -106,13 +106,13 @@ where
         let mut response_rx = std::pin::pin!(response_rx);
 
         while let Some(response) = response_rx.try_next().await? {
-            if let Some(_opened) = &response.opened {
+            if let Some(opened) = &response.opened {
                 let open = open_rx
                     .next()
                     .await
                     .context("failed to receive request::Open from request loop")?;
 
-                maybe_opened = Some(Opened::build(open)?);
+                maybe_opened = Some(Opened::build(open, opened)?);
                 co.yield_(response).await; // Forward.
             } else if let Some(published) = &response.published {
                 let opened = maybe_opened
@@ -166,8 +166,8 @@ where
                         &mut buf,
                     );
 
-                    let doc_json =
-                        serde_json::to_string(&root).expect("document serialization cannot fail");
+                    let doc_json = serde_json::to_string(&opened.ser_policy.on_owned(&root))
+                        .expect("document serialization cannot fail");
                     drain_stats.docs_total += 1;
                     drain_stats.bytes_total += doc_json.len() as u64;
 
@@ -268,6 +268,8 @@ pub struct Opened {
     key_extractors: Vec<doc::Extractor>,
     // Partitions to extract when draining the Combiner.
     partition_extractors: Vec<doc::Extractor>,
+    // Document serialization policy.
+    ser_policy: doc::SerPolicy,
     // Shard of this derivation.
     shard: ops::ShardRef,
     // Ordered transform (transform-name, source-collection).
@@ -275,7 +277,7 @@ pub struct Opened {
 }
 
 impl Opened {
-    pub fn build(open: request::Open) -> anyhow::Result<Opened> {
+    pub fn build(open: request::Open, _opened: &response::Opened) -> anyhow::Result<Opened> {
         let request::Open {
             collection,
             range,
@@ -303,12 +305,15 @@ impl Opened {
             ..
         } = derivation.as_ref().context("missing derivation")?;
 
+        // TODO(johnny): Expose to connector protocol and extract from Open/Opened.
+        let ser_policy = doc::SerPolicy::default();
+
         let range = range.as_ref().context("missing range")?;
 
         if key.is_empty() {
             return Err(anyhow::anyhow!("derived collection key cannot be empty").into());
         }
-        let key_extractors = extractors::for_key(&key, &projections)?;
+        let key_extractors = extractors::for_key(&key, &projections, &ser_policy)?;
 
         let document_uuid_ptr = if document_uuid_ptr.is_empty() {
             None
@@ -327,7 +332,8 @@ impl Opened {
         )?;
 
         // Identify ordered, partitioned projections to extract on combiner drain.
-        let partition_extractors = extractors::for_fields(partition_fields, projections)?;
+        let partition_extractors =
+            extractors::for_fields(partition_fields, projections, &ser_policy)?;
 
         let transforms = transforms
             .iter()
@@ -351,7 +357,8 @@ impl Opened {
             document_uuid_ptr,
             key_extractors,
             partition_extractors,
-            shard: shard,
+            ser_policy,
+            shard,
             transforms,
         })
     }

@@ -1,7 +1,7 @@
 use crate::{
     reduce,
     validation::{FailedValidation, Validator},
-    ArchivedNode, Extractor, HeapNode, LazyNode, OwnedNode,
+    ArchivedNode, Extractor, HeapNode, LazyNode, OwnedNode, SerPolicy,
 };
 use std::io::{self, Seek};
 use std::sync::Arc;
@@ -247,7 +247,10 @@ fn smash<'alloc>(
             ))
         }
         (_lhs, true, rhs, true) => {
-            return Err(Error::AlreadyFullyReduced(serde_json::to_value(&rhs).unwrap()).into())
+            return Err(Error::AlreadyFullyReduced(
+                serde_json::to_value(SerPolicy::debug().on_lazy(&rhs)).unwrap(),
+            )
+            .into())
         }
     }
 }

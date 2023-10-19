@@ -1,4 +1,4 @@
-use crate::{compare::compare, AsNode, Node, OwnedNode, Pointer};
+use crate::{compare::compare, AsNode, Node, OwnedNode, Pointer, SerPolicy};
 use bytes::BufMut;
 use std::borrow::Cow;
 use tuple::TuplePack;
@@ -8,6 +8,7 @@ use tuple::TuplePack;
 #[derive(Debug, Clone)]
 pub struct Extractor {
     ptr: Pointer,
+    policy: SerPolicy,
     default: serde_json::Value,
     is_uuid_v1_date_time: bool,
 }
@@ -15,9 +16,10 @@ pub struct Extractor {
 impl Extractor {
     /// Build an Extractor for the JSON pointer.
     /// If the location doesn't exist, then `null` is extracted.
-    pub fn new(ptr: &str) -> Self {
+    pub fn new(ptr: &str, policy: &SerPolicy) -> Self {
         Self {
             ptr: Pointer::from(ptr),
+            policy: policy.clone(),
             default: serde_json::Value::Null,
             is_uuid_v1_date_time: false,
         }
@@ -25,9 +27,10 @@ impl Extractor {
 
     /// Build an extractor for the JSON pointer.
     /// If the location doesn't exist, the provided value is extracted instead.
-    pub fn with_default(ptr: &str, default: serde_json::Value) -> Self {
+    pub fn with_default(ptr: &str, policy: &SerPolicy, default: serde_json::Value) -> Self {
         Self {
             ptr: Pointer::from(ptr),
+            policy: policy.clone(),
             default,
             is_uuid_v1_date_time: false,
         }
@@ -37,6 +40,7 @@ impl Extractor {
     pub fn for_uuid_v1_date_time(ptr: &str) -> Self {
         Self {
             ptr: Pointer::from(ptr),
+            policy: SerPolicy::default(),
             default: serde_json::Value::Null,
             is_uuid_v1_date_time: true,
         }
@@ -114,8 +118,14 @@ impl Extractor {
     /// Extract from an instance of doc::AsNode, writing a packed encoding into the writer.
     pub fn extract<N: AsNode, W: std::io::Write>(&self, doc: &N, w: &mut W) -> std::io::Result<()> {
         match self.query(doc) {
-            Ok(v) => v.as_node().pack(w, tuple::TupleDepth::new().increment())?,
-            Err(v) => v.pack(w, tuple::TupleDepth::new().increment())?,
+            Ok(v) => self
+                .policy
+                .on(v)
+                .pack(w, tuple::TupleDepth::new().increment())?,
+            Err(v) => self
+                .policy
+                .on(v.as_ref())
+                .pack(w, tuple::TupleDepth::new().increment())?,
         };
         Ok(())
     }
@@ -156,25 +166,28 @@ mod test {
                 "85bad119-15f2-11ee-8401-43f05f562888",
                 "1878923d-162a-11ee-8401-43f05f562888",
                 "6d304974-1631-11ee-8401-whoops"
-            ]
+            ],
+            "long-str": "very very very very very very very very very very very very long",
         });
+        let policy = SerPolicy::new(32);
 
         let extractors = vec![
-            Extractor::new("/missing"),
-            Extractor::with_default("/missing-default", json!("default")),
-            Extractor::new("/obj/true"),
-            Extractor::new("/fals"),
-            Extractor::new("/arr/0"),
-            Extractor::new("/unsi"),
-            Extractor::new("/doub"),
-            Extractor::new("/sign"),
-            Extractor::new("/obj"),
-            Extractor::new("/arr"),
+            Extractor::new("/missing", &policy),
+            Extractor::with_default("/missing-default", &policy, json!("default")),
+            Extractor::new("/obj/true", &policy),
+            Extractor::new("/fals", &policy),
+            Extractor::new("/arr/0", &policy),
+            Extractor::new("/unsi", &policy),
+            Extractor::new("/doub", &policy),
+            Extractor::new("/sign", &policy),
+            Extractor::new("/obj", &policy),
+            Extractor::new("/arr", &policy),
             Extractor::for_uuid_v1_date_time("/uuid-ts/0"),
             Extractor::for_uuid_v1_date_time("/uuid-ts/1"),
             Extractor::for_uuid_v1_date_time("/uuid-ts/2"),
             Extractor::for_uuid_v1_date_time("/missing"),
             Extractor::for_uuid_v1_date_time("/fals"),
+            Extractor::new("/long-str", &policy),
         ];
 
         let mut buffer = bytes::BytesMut::new();
@@ -222,6 +235,9 @@ mod test {
             Bool(
                 false,
             ),
+            String(
+                "very very very very very very ve",
+            ),
         ]
         "###);
     }
@@ -231,10 +247,11 @@ mod test {
         let d1 = &json!({"a": 1, "b": 2, "c": 3});
         let d2 = &json!({"a": 2, "b": 1});
 
-        let empty = || Extractor::new("");
-        let a = || Extractor::new("/a");
-        let b = || Extractor::new("/b");
-        let c = || Extractor::with_default("/c", json!(3));
+        let policy = SerPolicy::default();
+        let empty = || Extractor::new("", &policy);
+        let a = || Extractor::new("/a", &policy);
+        let b = || Extractor::new("/b", &policy);
+        let c = || Extractor::with_default("/c", &policy, json!(3));
 
         // No pointers => always equal.
         assert_eq!(
@@ -265,10 +282,11 @@ mod test {
         let d1 = &json!([1, 2, 3]);
         let d2 = &json!([2, 1]);
 
-        let empty = || Extractor::new("");
-        let zero = || Extractor::new("/0");
-        let one = || Extractor::new("/1");
-        let two = || Extractor::with_default("/2", json!(3));
+        let policy = SerPolicy::default();
+        let empty = || Extractor::new("", &policy);
+        let zero = || Extractor::new("/0", &policy);
+        let one = || Extractor::new("/1", &policy);
+        let two = || Extractor::with_default("/2", &policy, json!(3));
 
         // No pointers => always equal.
         assert_eq!(
@@ -301,10 +319,11 @@ mod test {
         let d1 = &json!({"a": null, "c": 3});
         let d2 = &json!({"b": 2});
 
-        let missing = || Extractor::new("/does/not/exist");
-        let a = || Extractor::new("/a");
-        let b = || Extractor::new("/b");
-        let c = || Extractor::new("/c");
+        let policy = SerPolicy::default();
+        let missing = || Extractor::new("/does/not/exist", &policy);
+        let a = || Extractor::new("/a", &policy);
+        let b = || Extractor::new("/b", &policy);
+        let c = || Extractor::new("/c", &policy);
 
         assert_eq!(
             Extractor::compare_key(&[missing()], d1, d2),

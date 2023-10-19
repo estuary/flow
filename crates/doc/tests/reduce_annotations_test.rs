@@ -4,7 +4,7 @@ extern crate quickcheck;
 #[macro_use(quickcheck)]
 extern crate quickcheck_macros;
 
-use doc::{compare, reduce, AsNode, HeapNode, LazyNode, Schema, Validator};
+use doc::{compare, reduce, HeapNode, LazyNode, Schema, Validator};
 use itertools::{EitherOrBoth, Itertools};
 use json::schema::build::build_schema;
 use serde::Deserialize;
@@ -391,5 +391,5 @@ fn reduce_tree(schema: Schema, docs: Vec<Value>) -> Value {
 
     let root = docs.into_iter().next().unwrap();
 
-    serde_json::to_value(&root.as_node()).unwrap()
+    serde_json::to_value(doc::SerPolicy::default().on(&root)).unwrap()
 }

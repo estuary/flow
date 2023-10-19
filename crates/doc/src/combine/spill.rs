@@ -498,7 +498,9 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{combine::CHUNK_TARGET_SIZE, validation::build_schema, HeapNode, Validator};
+    use crate::{
+        combine::CHUNK_TARGET_SIZE, validation::build_schema, HeapNode, SerPolicy, Validator,
+    };
     use itertools::Itertools;
     use serde_json::{json, Value};
 
@@ -594,7 +596,11 @@ mod test {
                 .unwrap();
 
                 (
-                    vec![Extractor::with_default("/key", json!("def"))],
+                    vec![Extractor::with_default(
+                        "/key",
+                        &SerPolicy::default(),
+                        json!("def"),
+                    )],
                     None,
                     Validator::new(schema).unwrap(),
                 )
@@ -644,7 +650,7 @@ mod test {
             .map_ok(|doc| {
                 (
                     doc.binding,
-                    serde_json::to_value(&doc.root).unwrap(),
+                    serde_json::to_value(SerPolicy::default().on_owned(&doc.root)).unwrap(),
                     doc.reduced,
                 )
             })
@@ -737,7 +743,7 @@ mod test {
                 .unwrap();
 
                 (
-                    vec![Extractor::new("/key")],
+                    vec![Extractor::new("/key", &SerPolicy::default())],
                     None,
                     Validator::new(schema).unwrap(),
                 )

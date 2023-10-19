@@ -63,6 +63,7 @@ mod heap_de;
 
 // We provide serde::Serialize covering all Doc implementations.
 mod ser;
+pub use ser::SerPolicy;
 
 // All implementations of AsNode may be compared with one another.
 mod compare;
@@ -111,9 +112,6 @@ pub mod combine;
 #[cfg(feature = "combine")]
 pub use combine::Combiner;
 
-// Nodes may be packed as FoundationDB tuples.
-pub mod tuple_pack;
-
 // Shape is a description of the valid shapes that a document may take.
 // It's similar to (and built from) a JSON Schema, but includes only
 // those inferences which can be statically proven for all documents.
@@ -127,7 +125,7 @@ pub use diff::diff;
 #[cfg(test)]
 mod test {
 
-    use super::{ArchivedNode, AsNode, BumpStr, BumpVec, HeapNode, Node};
+    use super::{ArchivedNode, BumpStr, BumpVec, HeapNode, Node, SerPolicy};
     use serde_json::json;
 
     #[test]
@@ -171,15 +169,15 @@ mod test {
         // We can directly serialize an ArchivedNode into a serde_json::Value,
         // which exactly matches our original fixture.
         let archived_doc = ArchivedNode::from_archive(&archive_buf);
-        let recovered = serde_json::to_value(archived_doc.as_node()).unwrap();
+        let recovered = serde_json::to_value(SerPolicy::default().on(archived_doc)).unwrap();
         assert_eq!(fixture, recovered);
 
         // The live document also serializes to an identical Value.
-        let recovered = serde_json::to_value(doc.as_node()).unwrap();
+        let recovered = serde_json::to_value(SerPolicy::default().on(&doc)).unwrap();
         assert_eq!(fixture, recovered);
 
         // A serde_json::Value can also be serialized as an AsNode.
-        let recovered = serde_json::to_value(fixture.as_node()).unwrap();
+        let recovered = serde_json::to_value(SerPolicy::default().on(&fixture)).unwrap();
         assert_eq!(fixture, recovered);
 
         // Confirm number of bump-allocated bytes doesn't regress.
@@ -190,7 +188,7 @@ mod test {
     fn test_data_serialization() {
         let alloc = bumpalo::Bump::new();
         let doc = HeapNode::Bytes(super::BumpVec::from_slice(&[8, 6, 7, 5, 3, 0, 9], &alloc));
-        let human_doc = serde_json::to_value(doc.as_node()).unwrap();
+        let human_doc = serde_json::to_value(SerPolicy::default().on(&doc)).unwrap();
 
         insta::assert_debug_snapshot!(human_doc, @r###"String("CAYHBQMACQ==")"###);
     }

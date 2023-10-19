@@ -13,10 +13,22 @@ pub enum Error {
 }
 type Result<T> = std::result::Result<T, Error>;
 
+/// Map a protobuf flow::SerPolicy into an equivalent doc::SerPolicy.
+pub fn map_policy(policy: &flow::SerPolicy) -> doc::SerPolicy {
+    let proto_flow::flow::SerPolicy { str_truncate_after } = policy;
+
+    doc::SerPolicy::new(if *str_truncate_after == 0 {
+        usize::MAX
+    } else {
+        *str_truncate_after as usize
+    })
+}
+
 /// for_key returns Extractors initialized for the composite key of JSON pointers.
 pub fn for_key<S: AsRef<str>>(
     key: &[S],
     projections: &[flow::Projection],
+    policy: &doc::SerPolicy,
 ) -> Result<Vec<doc::Extractor>> {
     // Order projections so that explicit (user-defined) projections are walked first.
     let mut projections: Vec<_> = projections.iter().collect();
@@ -25,7 +37,7 @@ pub fn for_key<S: AsRef<str>>(
     key.iter()
         .map(AsRef::as_ref)
         .map(|key| match projections.iter().find(|p| key == p.ptr) {
-            Some(p) => for_projection(p),
+            Some(p) => for_projection(p, policy),
             None => Err(Error::KeyNotFound {
                 key: key.to_string(),
             }),
@@ -37,13 +49,14 @@ pub fn for_key<S: AsRef<str>>(
 pub fn for_fields<S: AsRef<str>>(
     fields: &[S],
     projections: &[flow::Projection],
+    policy: &doc::SerPolicy,
 ) -> Result<Vec<doc::Extractor>> {
     fields
         .iter()
         .map(AsRef::as_ref)
         .map(
             |field| match projections.binary_search_by_key(&field, |p| &p.field) {
-                Ok(index) => for_projection(&projections[index]),
+                Ok(index) => for_projection(&projections[index], policy),
                 Err(_) => Err(Error::FieldNotFound {
                     field: field.to_string(),
                 }),
@@ -53,7 +66,10 @@ pub fn for_fields<S: AsRef<str>>(
 }
 
 /// for_projection returns an Extractor for the given Projection.
-pub fn for_projection(projection: &flow::Projection) -> Result<doc::Extractor> {
+pub fn for_projection(
+    projection: &flow::Projection,
+    policy: &doc::SerPolicy,
+) -> Result<doc::Extractor> {
     let Some(inf) = projection.inference.as_ref() else {
         return Err(Error::InferenceNotFound);
     };
@@ -80,7 +96,11 @@ pub fn for_projection(projection: &flow::Projection) -> Result<doc::Extractor> {
         serde_json::Value::Null
     };
 
-    Ok(doc::Extractor::with_default(&projection.ptr, default))
+    Ok(doc::Extractor::with_default(
+        &projection.ptr,
+        policy,
+        default,
+    ))
 }
 
 #[cfg(test)]
@@ -90,6 +110,8 @@ mod test {
 
     #[test]
     fn test_projection_mapping() {
+        let policy = doc::SerPolicy::new(1234);
+
         let mut projections: Vec<flow::Projection> = serde_json::from_value(json!([
             {"field": "the/key", "ptr": "/the/key", "inference": {"default": "the/key"}},
             {"field": "user_key", "ptr": "/the/key", "explicit": true, "inference": {"default": "user_key"}},
@@ -100,7 +122,7 @@ mod test {
         .unwrap();
         projections.sort_by(|l, r| l.field.cmp(&r.field));
 
-        insta::assert_debug_snapshot!(for_key(&["/the/key", "/bar/baz"], &projections).unwrap(), @r###"
+        insta::assert_debug_snapshot!(for_key(&["/the/key", "/bar/baz"], &projections, &policy).unwrap(), @r###"
         [
             Extractor {
                 ptr: Pointer(
@@ -113,6 +135,9 @@ mod test {
                         ),
                     ],
                 ),
+                policy: SerPolicy {
+                    str_truncate_after: 1234,
+                },
                 default: String("user_key"),
                 is_uuid_v1_date_time: false,
             },
@@ -127,13 +152,16 @@ mod test {
                         ),
                     ],
                 ),
+                policy: SerPolicy {
+                    str_truncate_after: 1234,
+                },
                 default: Null,
                 is_uuid_v1_date_time: false,
             },
         ]
         "###);
 
-        insta::assert_debug_snapshot!(for_fields(&["user_bar", "foo", "flow_published_at"], &projections).unwrap(), @r###"
+        insta::assert_debug_snapshot!(for_fields(&["user_bar", "foo", "flow_published_at"], &projections, &policy).unwrap(), @r###"
         [
             Extractor {
                 ptr: Pointer(
@@ -146,6 +174,9 @@ mod test {
                         ),
                     ],
                 ),
+                policy: SerPolicy {
+                    str_truncate_after: 1234,
+                },
                 default: Null,
                 is_uuid_v1_date_time: false,
             },
@@ -157,6 +188,9 @@ mod test {
                         ),
                     ],
                 ),
+                policy: SerPolicy {
+                    str_truncate_after: 1234,
+                },
                 default: Number(32),
                 is_uuid_v1_date_time: false,
             },
@@ -171,6 +205,9 @@ mod test {
                         ),
                     ],
                 ),
+                policy: SerPolicy {
+                    str_truncate_after: 18446744073709551615,
+                },
                 default: Null,
                 is_uuid_v1_date_time: true,
             },
