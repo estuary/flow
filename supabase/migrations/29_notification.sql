@@ -1,17 +1,16 @@
--- TODO: Rename the prefix column and type to catalog_prefix
 create table notification_preferences (
   like internal._model including all,
 
-  prefix           text                           not null,
-  subscribed_by    uuid references auth.users(id) not null,
-  user_id          uuid references auth.users(id)
+  catalog_prefix    catalog_prefix                 not null,
+  subscribed_by     uuid references auth.users(id) not null,
+  user_id           uuid references auth.users(id)
 );
 alter table notification_preferences enable row level security;
 
 create policy "Users access preferences for the prefixes they admin"
   on notification_preferences as permissive
   using (exists(
-    select 1 from auth_roles('admin') r where prefix ^@ r.role_prefix
+    select 1 from auth_roles('admin') r where catalog_prefix ^@ r.role_prefix
   ));
 grant select, insert, update, delete on notification_preferences to authenticated;
 
@@ -56,7 +55,7 @@ select
   auth.users.email as verified_email
 from notification_preferences
   left join auth.users on notification_preferences.user_id = auth.users.id
-order by notification_preferences.prefix asc;
+order by notification_preferences.catalog_prefix asc;
 grant select on notification_preferences_ext to authenticated;
 
 create view notification_subscriptions_ext as
