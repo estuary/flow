@@ -5,25 +5,29 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { returnPostgresError } from "../_shared/helpers.ts";
 import { supabaseClient } from "../_shared/supabaseClient.ts";
 
-interface NotificationQuery {
-    notification_id: string;
-    evaluation_interval: string;
+interface DataProcessingNotification {
+    live_spec_id: string;
     acknowledged: boolean;
+    evaluation_interval: string;
+}
+
+interface DataProcessingNotificationExt {
+    live_spec_id: string;
+    acknowledged: boolean;
+    evaluation_interval: string;
     notification_title: string;
     notification_message: string;
     confirmation_title: string;
     confirmation_message: string;
     classification: string | null;
-    preference_id: string;
     verified_email: string;
-    live_spec_id: string;
     catalog_name: string;
     spec_type: string;
     bytes_processed: number;
 }
 
 interface EmailConfig {
-    notification_id: string;
+    live_spec_id: string;
     emails: string[];
     subject: string;
     html: string;
@@ -47,6 +51,13 @@ export const handleFailure = (error: any) => {
     };
 };
 
+const TABLES = {
+    DATA_PROCESSING_NOTIFICATIONS: "data_processing_notifications",
+    DATA_PROCESSING_NOTIFICATIONS_EXT: "data_processing_notifications_ext",
+};
+
+const RESEND_API_KEY = "re_Qu4ZevKs_DmDfQxdNmMvoyuSeGtfYz2VS";
+
 const emailNotifications = async (
     pendingNotifications: EmailConfig[],
 ): Promise<string[]> => {
@@ -54,7 +65,7 @@ const emailNotifications = async (
 
     // TODO: Replace hardcoded sender and recipient address with the destructured `emails` property.
     const notificationPromises = pendingNotifications.map(
-        ({ notification_id, emails, subject, html }) =>
+        ({ live_spec_id, emails, subject, html }) =>
             fetch("https://api.resend.com/emails", {
                 method: "POST",
                 headers: {
@@ -71,7 +82,7 @@ const emailNotifications = async (
             }).then(
                 (response) => {
                     if (response.ok) {
-                        notificationsDelivered.push(notification_id);
+                        notificationsDelivered.push(live_spec_id);
                     }
                 },
                 () => {},
@@ -87,33 +98,35 @@ const updateAcknowledgementFlag = async (
     alertEmailsDelivered: string[],
     confirmationEmailsDelivered: string[],
 ) => {
-    const alertUpdates = alertEmailsDelivered.map((notificationId) =>
+    const alertUpdates = alertEmailsDelivered.map((liveSpecId) =>
         supabaseClient
-            .from("notifications")
+            .from<DataProcessingNotification>(
+                TABLES.DATA_PROCESSING_NOTIFICATIONS,
+            )
             .update({ acknowledged: true })
-            .match({ id: notificationId })
+            .match({ live_spec_id: liveSpecId })
             .then(handleSuccess, handleFailure)
     );
 
-    const confirmationUpdates = confirmationEmailsDelivered.map(
-        (notificationId) =>
-            supabaseClient
-                .from("notifications")
-                .update({ acknowledged: false })
-                .match({ id: notificationId })
-                .then(handleSuccess, handleFailure),
+    const confirmationUpdates = confirmationEmailsDelivered.map((liveSpecId) =>
+        supabaseClient
+            .from<DataProcessingNotification>(
+                TABLES.DATA_PROCESSING_NOTIFICATIONS,
+            )
+            .update({ acknowledged: false })
+            .match({ live_spec_id: liveSpecId })
+            .then(handleSuccess, handleFailure)
     );
 
     await Promise.all([...alertUpdates, ...confirmationUpdates]);
 };
 
-const RESEND_API_KEY = "re_Qu4ZevKs_DmDfQxdNmMvoyuSeGtfYz2VS";
-
 serve(async (_request: Request): Promise<Response> => {
     const { data: notifications, error: notificationError } = await supabaseClient
-        .from<NotificationQuery>("notification_subscriptions_ext")
-        .select("*")
-        .eq("classification", "data-not-processed-in-interval");
+        .from<DataProcessingNotificationExt>(
+            TABLES.DATA_PROCESSING_NOTIFICATIONS_EXT,
+        )
+        .select("*");
 
     if (notificationError !== null) {
         returnPostgresError(notificationError);
@@ -133,11 +146,11 @@ serve(async (_request: Request): Promise<Response> => {
         )
         .map(
             ({
-                notification_title,
-                notification_message,
                 catalog_name,
-                notification_id,
                 evaluation_interval,
+                live_spec_id,
+                notification_message,
+                notification_title,
                 spec_type,
                 verified_email,
             }) => {
@@ -157,7 +170,7 @@ serve(async (_request: Request): Promise<Response> => {
                     );
 
                 return {
-                    notification_id,
+                    live_spec_id,
                     emails: [verified_email],
                     subject,
                     html,
@@ -171,10 +184,10 @@ serve(async (_request: Request): Promise<Response> => {
         )
         .map(
             ({
-                confirmation_title,
-                confirmation_message,
                 catalog_name,
-                notification_id,
+                confirmation_message,
+                confirmation_title,
+                live_spec_id,
                 spec_type,
                 verified_email,
             }) => {
@@ -187,7 +200,7 @@ serve(async (_request: Request): Promise<Response> => {
                     .replaceAll("{catalog_name}", catalog_name);
 
                 return {
-                    notification_id,
+                    live_spec_id,
                     emails: [verified_email],
                     subject,
                     html,
