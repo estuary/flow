@@ -8,27 +8,11 @@ create table notification_preferences (
 );
 alter table notification_preferences enable row level security;
 
-create policy "Users select preferences for the prefixes they admin"
-  on notification_preferences as permissive for select
+create policy "Users access preferences for the prefixes they admin"
+  on notification_preferences as permissive
   using (exists(
     select 1 from auth_roles('admin') r where prefix ^@ r.role_prefix
   ));
-create policy "Users insert preferences for the prefixes they admin"
-  on notification_preferences as permissive for insert
-  with check (exists(
-    select 1 from auth_roles('admin') r where prefix ^@ r.role_prefix
-  ));
-create policy "Users update preferences for the prefixes they admin"
-  on notification_preferences as permissive for update
-  using (exists(
-    select 1 from auth_roles('admin') r where prefix ^@ r.role_prefix
-  ));
-create policy "Users delete preferences for the prefixes they admin"
-  on notification_preferences as permissive for delete
-  using (exists(
-    select 1 from auth_roles('admin') r where prefix ^@ r.role_prefix
-  ));
-
 grant select, insert, update, delete on notification_preferences to authenticated;
 
 -- TODO: Move the notification_messages into the internal namespace
