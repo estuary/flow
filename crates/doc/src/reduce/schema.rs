@@ -2,7 +2,7 @@ use super::{count_nodes, Cursor, Error, Result};
 use crate::{
     shape::limits,
     shape::{limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT, schema::to_schema},
-    AsNode, HeapNode, Shape,
+    AsNode, HeapNode, SerPolicy, Shape,
 };
 use json::schema::index::IndexBuilder;
 
@@ -32,8 +32,8 @@ pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
         ));
     };
 
-    let left = shape_from_node(lhs).map_err(|e| Error::with_location(e, loc))?;
-    let right = shape_from_node(rhs).map_err(|e| Error::with_location(e, loc))?;
+    let left = shape_from_node(&lhs).map_err(|e| Error::with_location(e, loc))?;
+    let right = shape_from_node(&rhs).map_err(|e| Error::with_location(e, loc))?;
 
     let mut merged_shape = Shape::union(left, right);
     limits::enforce_shape_complexity_limit(&mut merged_shape, DEFAULT_SCHEMA_COMPLEXITY_LIMIT);
@@ -53,14 +53,15 @@ pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
     Ok(merged_doc)
 }
 
-fn shape_from_node<'a, N: AsNode>(node: N) -> Result<Shape> {
+fn shape_from_node<'a, N: AsNode>(node: &N) -> Result<Shape> {
     // Should this be something more specific/useful?
     let url = url::Url::parse("json-schema-reduction:///").unwrap();
 
-    let serialized =
-        serde_json::to_value(node.as_node()).map_err(|e| Error::JsonSchemaMergeWrongType {
+    let serialized = serde_json::to_value(SerPolicy::default().on(node)).map_err(|e| {
+        Error::JsonSchemaMergeWrongType {
             detail: Some(e.to_string()),
-        })?;
+        }
+    })?;
 
     let schema = json::schema::build::build_schema::<crate::Annotation>(url.clone(), &serialized)
         .map_err(|e| Error::JsonSchemaMergeWrongType {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/estuary/flow/go/bindings"
@@ -130,6 +131,16 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		if err != nil {
 			return nil, err
 		}
+
+		// TODO(johnny): Hack to address string truncation for these common materialization connectors
+		// that don't handle large strings very well. This should be negotiated via connector protocol.
+		var serPolicy = &pf.SerPolicy{}
+		for _, suffix := range []string{"/materialize-snowflake", "/materialize-redshift", "/materialize-sqlite"} {
+			if strings.HasSuffix(m.materialization.Name.String(), suffix) {
+				serPolicy.StrTruncateAfter = 1 << 16 // Truncate at 64KB.
+			}
+		}
+
 		return combiner, combiner.Configure(
 			shard.FQN(),
 			binding.Collection.Name,
@@ -140,6 +151,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 			binding.Collection.Projections,
 			// Disable schema inference for materializations
 			false,
+			serPolicy,
 		)
 	}
 

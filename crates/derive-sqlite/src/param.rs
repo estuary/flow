@@ -24,7 +24,7 @@ impl Param {
         Ok(Self {
             projection: p.clone(),
             canonical_encoding: canonical_param_encoding(&p.field),
-            extractor: extractors::for_projection(&p)?,
+            extractor: extractors::for_projection(&p, &doc::SerPolicy::default())?,
             is_format_integer: matches!(&p.inference, Some(flow::Inference{string: Some(str), ..}) if str.format == "integer"),
             is_format_number: matches!(&p.inference, Some(flow::Inference{string: Some(str), ..}) if str.format == "number"),
             is_content_encoding_base64: matches!(&p.inference, Some(flow::Inference{string: Some(str), ..}) if str.content_encoding == "base64"),

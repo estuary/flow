@@ -1,23 +1,10 @@
 use super::{ArchivedNode, HeapNode};
-use crate::AsNode;
 use std::sync::Arc;
 
 /// OwnedNode is an enum over OwnedArchivedNode and OwnedHeapNode.
 pub enum OwnedNode {
     Archived(OwnedArchivedNode),
     Heap(OwnedHeapNode),
-}
-
-impl serde::Serialize for OwnedNode {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            Self::Archived(archived) => archived.get().as_node().serialize(serializer),
-            Self::Heap(heap) => heap.get().as_node().serialize(serializer),
-        }
-    }
 }
 
 /// OwnedArchivedNode is an owned, aligned Bytes buffer holding an ArchivedNode.
