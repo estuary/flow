@@ -1,4 +1,4 @@
-use super::{reduce, walker::walk_document, Annotation, AsNode};
+use super::{reduce, walker::walk_document, Annotation, AsNode, SerPolicy};
 use json::validator::Context;
 use std::pin::Pin;
 
@@ -194,7 +194,7 @@ impl<'schema, 'doc, 'tmp, N: AsNode> Validation<'schema, 'doc, 'tmp, N> {
         assert_eq!(span, full_span);
 
         Err(FailedValidation {
-            document: serde_json::to_value(document.as_node()).unwrap(),
+            document: serde_json::to_value(SerPolicy::debug().on(document)).unwrap(),
             basic_output: json::validator::build_basic_output(full_validator.outcomes()),
         })
     }

@@ -3,7 +3,7 @@ source: crates/derive/src/combine_api.rs
 expression: "(String::from_utf8_lossy(&arena[..stats_out.begin as usize]), out)"
 ---
 (
-    "{\"foo\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\",\"key\":\"one\",\"max\":5.5,\"min\":3}\u{2}one\0\u{15}\u{3}!�\u{16}\0\0\0\0\0\0{\"foo\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\",\"key\":\"three\",\"max\":6.6,\"min\":6}\u{2}three\0\u{15}\u{6}!�\u{1a}ffffff{\"foo\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\",\"key\":\"two\",\"max\":4.4,\"min\":2}\u{2}two\0\u{15}\u{2}!�\u{11}������",
+    "{\"foo\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\",\"key\":\"one\",\"max\":5.5,\"min\":3}\u{2}one\0\u{15}\u{3}!�\u{16}\0\0\0\0\0\0{\"foo\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\",\"key\":\"really really really really really r\",\"max\":10,\"min\":10}\u{2}really really really really really r\0\u{15}\n\u{15}\n{\"foo\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\",\"key\":\"three\",\"max\":6.6,\"min\":6}\u{2}three\0\u{15}\u{6}!�\u{1a}ffffff{\"foo\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\",\"key\":\"two\",\"max\":4.4,\"min\":2}\u{2}two\0\u{15}\u{2}!�\u{11}������",
     [
         Out {
             code: 202,
@@ -23,32 +23,47 @@ expression: "(String::from_utf8_lossy(&arena[..stats_out.begin as usize]), out)"
         Out {
             code: 201,
             begin: 92,
-            end: 170,
+            end: 201,
         },
         Out {
             code: 203,
-            begin: 170,
-            end: 177,
+            begin: 201,
+            end: 239,
         },
         Out {
             code: 204,
-            begin: 177,
-            end: 188,
+            begin: 239,
+            end: 243,
+        },
+        Out {
+            code: 201,
+            begin: 243,
+            end: 321,
+        },
+        Out {
+            code: 203,
+            begin: 321,
+            end: 328,
+        },
+        Out {
+            code: 204,
+            begin: 328,
+            end: 339,
         },
         Out {
             code: 202,
-            begin: 188,
-            end: 264,
+            begin: 339,
+            end: 415,
         },
         Out {
             code: 203,
-            begin: 264,
-            end: 269,
+            begin: 415,
+            end: 420,
         },
         Out {
             code: 204,
-            begin: 269,
-            end: 280,
+            begin: 420,
+            end: 431,
         },
     ],
 )

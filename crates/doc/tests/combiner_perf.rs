@@ -101,7 +101,7 @@ pub fn combiner_perf() {
 
     // Initialize the combiner itself.
     let spec = doc::combine::Spec::with_one_binding(
-        vec![Extractor::new("/key")],
+        vec![Extractor::new("/key", &doc::SerPolicy::default())],
         None,
         Validator::new(schema).unwrap(),
     );

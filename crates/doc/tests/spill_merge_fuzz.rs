@@ -24,6 +24,7 @@ pub enum FuzzError {
 }
 
 fn run_sequence(seq: Vec<(u8, u8, bool)>) -> Result<(), FuzzError> {
+    let ser_policy = doc::SerPolicy::default();
     let spec = combine::Spec::with_bindings(
         std::iter::repeat_with(|| {
             let schema = build_schema(
@@ -46,7 +47,7 @@ fn run_sequence(seq: Vec<(u8, u8, bool)>) -> Result<(), FuzzError> {
             .unwrap();
 
             (
-                vec![Extractor::new("/key")],
+                vec![Extractor::new("/key", &ser_policy)],
                 None,
                 Validator::new(schema).unwrap(),
             )
@@ -104,7 +105,7 @@ fn run_sequence(seq: Vec<(u8, u8, bool)>) -> Result<(), FuzzError> {
 
     for drained_doc in drainer {
         let drained_doc = drained_doc?;
-        let actual = json!([drained_doc.root, drained_doc.reduced]);
+        let actual = json!([ser_policy.on_owned(&drained_doc.root), drained_doc.reduced]);
 
         match expect_it.next() {
             Some((key, (values, reduced))) => {

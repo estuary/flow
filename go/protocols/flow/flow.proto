@@ -536,6 +536,13 @@ message ConnectorState {
   bool merge_patch = 2;
 }
 
+// SerPolicy describes a serialization policy for Flow documents and portions thereof.
+message SerPolicy {
+  // Length limit after which string values are truncated.
+  // When zero, there is no limit.
+  uint32 str_truncate_after = 1;
+}
+
 message ExtractAPI {
   // Code labels message codes passed over the CGO bridge.
   enum Code {
@@ -618,6 +625,8 @@ message CombineAPI {
     // JSON-encoded string representing the JSON schema to start inference
     // from. If empty, do not emit inferred schemas.
     string infer_schema_json = 7;
+    // Serialization policy.
+    SerPolicy ser_policy = 8;
   };
 
   // Stats holds statistics relating to one or more combiner transactions.

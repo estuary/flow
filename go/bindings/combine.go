@@ -61,6 +61,7 @@ func (c *Combine) Configure(
 	fields []string,
 	projections []pf.Projection,
 	enableSchemaInference bool,
+	serPolicy *pf.SerPolicy,
 ) error {
 	combineConfigureCounter.WithLabelValues(fqn, collection.String()).Inc()
 	c.metrics = newCombineMetrics(fqn, collection)
@@ -84,6 +85,7 @@ func (c *Combine) Configure(
 			Projections:        projections,
 			CollectionName:     collection.String(),
 			InferSchemaJson:    schemaInferenceJson,
+			SerPolicy:          serPolicy,
 		})
 
 	return pollExpectNoOutput(c.svc)

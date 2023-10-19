@@ -274,6 +274,7 @@ func (c *Capture) startReadingMessages(
 			binding.Collection.PartitionFields,
 			binding.Collection.Projections,
 			enableSchemaInference,
+			&pf.SerPolicy{},
 		)
 	}
 
