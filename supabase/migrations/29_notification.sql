@@ -2,7 +2,6 @@ create table notification_preferences (
   like internal._model including all,
 
   catalog_prefix    catalog_prefix                 not null,
-  subscribed_by     uuid references auth.users(id) not null,
   user_id           uuid references auth.users(id)
 );
 alter table notification_preferences enable row level security;

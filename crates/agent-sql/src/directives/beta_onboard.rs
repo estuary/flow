@@ -84,7 +84,7 @@ pub async fn provision_tenant(
             on conflict do nothing
         ),
         create_notification_preference as (
-            insert into notification_preferences (prefix, subscribed_by, user_id) values ($2, $1, $1)
+            insert into notification_preferences (catalog_prefix, user_id) values ($2, $1)
         )
         insert into tenants (tenant, detail) values ($2, $3);
         "#,
