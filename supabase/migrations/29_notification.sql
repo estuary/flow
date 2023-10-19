@@ -33,27 +33,24 @@ insert into internal.notification_templates (classification, title, message, con
       '<p>You are receiving this alert because your task, {spec_type} {catalog_name} has resumed processing data.  You can locate your task here to make changes or update its alerting settings.</p>'
     );
 
--- TODO: Scope this table so that it only reflects the data processing notification.
 -- TODO: Consider renaming the `acknowledged` column. Potential name alternatives include, but are not limited to, the following: alerting, firing, active.
-create table notification_configurations (
-  catalog_prefix         catalog_prefix not null,
-  classification         text           not null,
+create table data_processing_notifications (
+  live_spec_id           flowid         not null,
   acknowledged           boolean        not null default false,
   evaluation_interval    interval,
-  live_spec_id           flowid,
-  primary key (catalog_prefix, classification)
+  primary key (live_spec_id)
 );
-alter table notification_configurations enable row level security;
+alter table data_processing_notifications enable row level security;
 
-create policy "Users access subscriptions for the prefixes they admin"
-  on notification_configurations as permissive
+create policy "Users access notifications for the prefixes they admin"
+  on data_processing_notifications as permissive
   using (exists(
     select 1 from auth_roles('admin') r where catalog_prefix ^@ r.role_prefix
   ));
 
-grant insert (catalog_prefix, classification, acknowledged, evaluation_interval, live_spec_id) on notification_configurations to authenticated;
-grant update (acknowledged, evaluation_interval) on notification_configurations to authenticated;
-grant select, delete on notification_configurations to authenticated;
+grant insert (live_spec_id, acknowledged, evaluation_interval) on data_processing_notifications to authenticated;
+grant update (acknowledged, evaluation_interval) on data_processing_notifications to authenticated;
+grant select, delete on data_processing_notifications to authenticated;
 
 create view notification_subscriptions_ext as
 select
@@ -64,11 +61,10 @@ from notification_subscriptions
 order by notification_subscriptions.catalog_prefix asc;
 grant select on notification_subscriptions_ext to authenticated;
 
-create view notification_configurations_ext as
+create view data_processing_notifications_ext as
 select
-  notification_configurations.catalog_prefix,
-  notification_configurations.acknowledged,
-  notification_configurations.evaluation_interval,
+  data_processing_notifications.acknowledged,
+  data_processing_notifications.evaluation_interval,
   internal.notification_templates.title as notification_title,
   internal.notification_templates.message as notification_message,
   internal.notification_templates.confirmation_title,
@@ -78,22 +74,21 @@ select
   live_specs.catalog_name,
   live_specs.spec_type,
   coalesce(sum(catalog_stats_hourly.bytes_written_by_me + catalog_stats_hourly.bytes_written_to_me + catalog_stats_hourly.bytes_read_by_me), 0)::bigint as bytes_processed
-from notification_configurations
-  left join live_specs on notification_configurations.live_spec_id = live_specs.id and live_specs.spec is not null and (live_specs.spec->'shards'->>'disable')::boolean is not true
+from data_processing_notifications
+  left join live_specs on data_processing_notifications.live_spec_id = live_specs.id and live_specs.spec is not null and (live_specs.spec->'shards'->>'disable')::boolean is not true
   left join catalog_stats_hourly on live_specs.catalog_name = catalog_stats_hourly.catalog_name
-  left join notification_subscriptions_ext on notification_configurations.catalog_prefix = notification_subscriptions_ext.catalog_prefix
-  left join internal.notification_templates on notification_configurations.classification = internal.notification_templates.classification
+  left join notification_subscriptions_ext on live_specs.catalog_name ^@ notification_subscriptions_ext.catalog_prefix
+  left join internal.notification_templates on internal.notification_templates.classification = 'data-not-processed-in-interval'
 where (
   case
-    when internal.notification_templates.classification = 'data-not-processed-in-interval' and notification_configurations.evaluation_interval is not null then
-      live_specs.created_at <= date_trunc('hour', now() - notification_configurations.evaluation_interval)
-      and catalog_stats_hourly.ts >= date_trunc('hour', now() - notification_configurations.evaluation_interval)
+    when data_processing_notifications.evaluation_interval is not null then
+      live_specs.created_at <= date_trunc('hour', now() - data_processing_notifications.evaluation_interval)
+      and catalog_stats_hourly.ts >= date_trunc('hour', now() - data_processing_notifications.evaluation_interval)
   end
 )
 group by
-  notification_configurations.catalog_prefix,
-  notification_configurations.acknowledged,
-  notification_configurations.evaluation_interval,
+  data_processing_notifications.acknowledged,
+  data_processing_notifications.evaluation_interval,
   internal.notification_templates.title,
   internal.notification_templates.message,
   internal.notification_templates.confirmation_title,
@@ -102,7 +97,7 @@ group by
   notification_subscriptions_ext.verified_email,
   live_specs.catalog_name,
   live_specs.spec_type;
-grant select on notification_configurations_ext to authenticated;
+grant select on data_processing_notifications_ext to authenticated;
 
 create extension pg_cron with schema extensions;
 select
