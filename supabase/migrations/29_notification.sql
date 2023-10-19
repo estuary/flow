@@ -12,6 +12,7 @@ create policy "Users access preferences for the prefixes they admin"
   using (exists(
     select 1 from auth_roles('admin') r where catalog_prefix ^@ r.role_prefix
   ));
+
 grant select, insert, update, delete on notification_preferences to authenticated;
 
 -- TODO: Move the notification_messages into the internal namespace
@@ -37,16 +38,23 @@ insert into notification_messages (detail, title, message, confirmation_title, c
 
 -- TODO: Consider renaming the `acknowledged` column. Potential name alternatives include, but are not limited to, the following: alerting, firing, active.
 create table notification_subscriptions (
-  like internal._model including all,
-
-  preference_id          flowid    not null,
-  message_id             flowid    not null,
-  acknowledged           boolean   not null default false,
+  catalog_prefix         catalog_prefix not null,
+  message_id             flowid         not null,
+  acknowledged           boolean        not null default false,
   evaluation_interval    interval,
-  live_spec_id           flowid
+  live_spec_id           flowid,
+  primary key (catalog_prefix, message_id)
 );
-grant insert (detail, live_spec_id, preference_id, message_id, evaluation_interval) on notification_subscriptions to authenticated;
-grant update (evaluation_interval, acknowledged) on notification_subscriptions to authenticated;
+alter table notification_subscriptions enable row level security;
+
+create policy "Users access subscriptions for the prefixes they admin"
+  on notification_subscriptions as permissive
+  using (exists(
+    select 1 from auth_roles('admin') r where catalog_prefix ^@ r.role_prefix
+  ));
+
+grant insert (catalog_prefix, message_id, acknowledged, evaluation_interval, live_spec_id) on notification_subscriptions to authenticated;
+grant update (acknowledged, evaluation_interval) on notification_subscriptions to authenticated;
 grant select, delete on notification_subscriptions to authenticated;
 
 create view notification_preferences_ext as
@@ -60,7 +68,7 @@ grant select on notification_preferences_ext to authenticated;
 
 create view notification_subscriptions_ext as
 select
-  notification_subscriptions.id as notification_id,
+  notification_subscriptions.catalog_prefix,
   notification_subscriptions.acknowledged,
   notification_subscriptions.evaluation_interval,
   notification_messages.title as notification_title,
@@ -75,7 +83,7 @@ select
 from notification_subscriptions
   left join live_specs on notification_subscriptions.live_spec_id = live_specs.id and live_specs.spec is not null and (live_specs.spec->'shards'->>'disable')::boolean is not true
   left join catalog_stats_hourly on live_specs.catalog_name = catalog_stats_hourly.catalog_name
-  left join notification_preferences_ext on notification_subscriptions.preference_id = notification_preferences_ext.id
+  left join notification_preferences_ext on notification_subscriptions.catalog_prefix = notification_preferences_ext.catalog_prefix
   left join notification_messages on notification_subscriptions.message_id = notification_messages.id
 where (
   case
@@ -85,7 +93,7 @@ where (
   end
 )
 group by
-  notification_subscriptions.id,
+  notification_subscriptions.catalog_prefix,
   notification_subscriptions.acknowledged,
   notification_subscriptions.evaluation_interval,
   notification_messages.title,
