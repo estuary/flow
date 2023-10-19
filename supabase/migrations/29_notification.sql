@@ -35,18 +35,17 @@ insert into internal.notification_templates (classification, title, message, con
 
 -- TODO: Consider renaming the `acknowledged` column. Potential name alternatives include, but are not limited to, the following: alerting, firing, active.
 create table data_processing_notifications (
-  live_spec_id           flowid         not null,
-  acknowledged           boolean        not null default false,
+  live_spec_id           flowid references live_specs(id) not null,
+  acknowledged           boolean                          not null default false,
   evaluation_interval    interval,
   primary key (live_spec_id)
 );
 alter table data_processing_notifications enable row level security;
 
-create policy "Users access notifications for the prefixes they admin"
+-- TODO: Tighten policy to allow access to admin-authorized tasks only.
+create policy "Users access notifications for the read-authorized tasks"
   on data_processing_notifications as permissive
-  using (exists(
-    select 1 from auth_roles('admin') r where catalog_prefix ^@ r.role_prefix
-  ));
+  using (live_spec_id in (select id from live_specs));
 
 grant insert (live_spec_id, acknowledged, evaluation_interval) on data_processing_notifications to authenticated;
 grant update (acknowledged, evaluation_interval) on data_processing_notifications to authenticated;
