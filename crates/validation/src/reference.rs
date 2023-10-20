@@ -10,19 +10,19 @@ pub fn gather_referenced_collections<'a>(
     let mut out = BTreeSet::new();
 
     for capture in captures {
-        for binding in &capture.spec.bindings {
+        for binding in capture.spec.bindings.iter().filter(|b| !b.disable) {
             out.insert(&binding.target);
         }
     }
     for collection in collections {
         let Some(derive) = &collection.spec.derive else { continue };
 
-        for transform in &derive.transforms {
+        for transform in derive.transforms.iter().filter(|b| !b.disable) {
             out.insert(&transform.source.collection());
         }
     }
     for materialization in materializations {
-        for binding in &materialization.spec.bindings {
+        for binding in materialization.spec.bindings.iter().filter(|b| !b.disable) {
             out.insert(&binding.source.collection());
         }
     }
