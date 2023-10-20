@@ -85,6 +85,17 @@ test://example/catalog.yaml:
               lambda: sql/shuffle_lambda.sql
         shuffleKeyTypes: [string, integer]
 
+    d4/local:
+      schema: a-schema.json
+      key: [/key]
+      derive:
+        using:
+          local:
+            command: [some-command, --with-args]
+            config:
+              some-local: config
+        transforms: []
+
 test://example/catalog.ts: |
   a typescript module placeholder that's fairly "long", at least long enough to not be inline
 

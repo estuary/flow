@@ -34,7 +34,7 @@ bitvec = "0.19"
 bytecount = { version = "0.6.3", features = ["runtime-dispatch-simd"] }
 bytes = "1.2"
 bytesize = "1.1.0"
-bumpalo = { version = "3.11", features = ["collections"] }
+bumpalo = { version = "3.14", features = ["collections"] }
 bytelines = "2.4"
 byteorder = "1.4"
 caseless = "0.2"
@@ -88,7 +88,7 @@ pathfinding = "3.0"
 pbjson = "0.5.1"
 pbjson-types = "0.5.1"
 percent-encoding = "2.1"
-pin-project = "1.0.12"
+pin-project-lite = "0.2"
 postgrest = { git = "https://github.com/jshearer/postgrest-rs", branch = "joseph/combined_changes_rebased" }
 page-turner = "0.8.2"
 prost = "0.11"

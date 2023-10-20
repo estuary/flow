@@ -26,6 +26,7 @@ use std::sync::Arc;
 //          Forward Checkpoint enriched with stats.
 
 mod image;
+mod local;
 
 pub type BoxStream = futures::stream::BoxStream<'static, tonic::Result<Response>>;
 
@@ -81,13 +82,21 @@ where
         let request_rx = adjust_log_level(request_rx, self.set_log_level);
 
         let response_rx = match endpoint {
-            models::CaptureEndpoint::Connector(models::ConnectorConfig { .. }) => image::connector(
+            models::CaptureEndpoint::Connector(_) => image::connector(
                 self.log_handler,
                 &self.container_network,
                 request_rx,
                 &self.task_name,
             )
             .boxed(),
+            models::CaptureEndpoint::Local(_) if !self.allow_local => {
+                return Err(tonic::Status::failed_precondition(
+                    "Local connectors are not permitted in this context",
+                ))
+            }
+            models::CaptureEndpoint::Local(_) => {
+                local::connector(self.log_handler, request_rx).boxed()
+            }
         };
 
         Ok(response_rx)
@@ -156,6 +165,13 @@ fn extract_endpoint<'r>(
         Ok((
             models::CaptureEndpoint::Connector(
                 serde_json::from_str(config_json).context("parsing connector config")?,
+            ),
+            config_json,
+        ))
+    } else if connector_type == ConnectorType::Local as i32 {
+        Ok((
+            models::CaptureEndpoint::Local(
+                serde_json::from_str(config_json).context("parsing local config")?,
             ),
             config_json,
         ))

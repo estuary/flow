@@ -467,10 +467,12 @@ pub async fn apply_updates_for_row(
     Ok(())
 }
 
-// add_built_specs_to_live_specs adds the built spec to the live_specs row for all tasks included in
-// build_output if they are in the list of specifications which are changing in this publication per
-// the list of spec_rows.
-pub async fn add_built_specs_to_live_specs(
+/// adds the built spec to the live_specs row for all tasks included
+/// in build_output if they are in the list of specifications which are
+/// changing in this publication per the list of spec_rows. Also sets the
+/// `inferred_schema_md5` for collections, which tracks the hash that was used
+/// during the build.
+pub async fn add_build_output_to_live_specs(
     spec_rows: &[SpecRow],
     pruned_collections: &HashSet<String>,
     build_output: &builds::BuildOutput,
@@ -486,6 +488,12 @@ pub async fn add_built_specs_to_live_specs(
         {
             agent_sql::publications::add_built_specs(row.live_spec_id, &collection.spec, txn)
                 .await?;
+            agent_sql::publications::add_inferred_schema_md5(
+                row.live_spec_id,
+                collection.inferred_schema_md5.clone(),
+                txn,
+            )
+            .await?;
         }
     }
 
@@ -622,9 +630,9 @@ fn extract_spec_metadata<'a>(
             let key = models::Capture::new(catalog_name);
             let capture = catalog.captures.get(&key).unwrap();
 
-            let models::CaptureEndpoint::Connector(config) = &capture.endpoint;
-            image_parts = Some(split_tag(&config.image));
-
+            if let models::CaptureEndpoint::Connector(config) = &capture.endpoint {
+                image_parts = Some(split_tag(&config.image));
+            }
             for binding in &capture.bindings {
                 if !binding.disable {
                     writes_to.push(binding.target.as_ref());
@@ -636,10 +644,13 @@ fn extract_spec_metadata<'a>(
             let key = models::Collection::new(catalog_name);
             let collection = catalog.collections.get(&key).unwrap();
 
-            if let Some(derivation) = &collection.derive {
-                for tdef in &derivation.transforms {
-                    if !tdef.disable {
-                        reads_from.push(tdef.source.collection().as_ref());
+            if let Some(derive) = &collection.derive {
+                if let models::DeriveUsing::Connector(config) = &derive.using {
+                    image_parts = Some(split_tag(&config.image));
+                }
+                for transform in &derive.transforms {
+                    if !transform.disable {
+                        reads_from.push(transform.source.collection().as_ref());
                     }
                 }
                 reads_from.reserve(1);
@@ -649,7 +660,6 @@ fn extract_spec_metadata<'a>(
             let key = models::Materialization::new(catalog_name);
             let materialization = catalog.materializations.get(&key).unwrap();
 
-            // TODO(johnny): should we disallow sqlite? or remove sqlite altogether as an endpoint?
             if let models::MaterializationEndpoint::Connector(config) = &materialization.endpoint {
                 image_parts = Some(split_tag(&config.image));
             }
@@ -752,6 +762,7 @@ mod test {
 
         let mut handler = PublishHandler::new(
             "support@estuary.dev",
+            false,
             "",
             &bs_url,
             &bs_url,

@@ -281,9 +281,9 @@ fn walk_materialization_request<'a>(
             flow::materialization_spec::ConnectorType::Image as i32,
             serde_json::to_string(config).unwrap(),
         ),
-        models::MaterializationEndpoint::Sqlite(sqlite) => (
-            flow::materialization_spec::ConnectorType::Sqlite as i32,
-            serde_json::to_string(sqlite).unwrap(),
+        models::MaterializationEndpoint::Local(config) => (
+            flow::materialization_spec::ConnectorType::Local as i32,
+            serde_json::to_string(config).unwrap(),
         ),
     };
 

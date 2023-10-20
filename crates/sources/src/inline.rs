@@ -1,3 +1,6 @@
+use crate::Scope;
+use superslice::Ext;
+
 pub fn inline_sources(sources: &mut tables::Sources) {
     let tables::Sources {
         captures,
@@ -12,90 +15,119 @@ pub fn inline_sources(sources: &mut tables::Sources) {
     } = sources;
 
     for capture in captures.iter_mut() {
-        inline_capture(capture, resources);
+        inline_capture(&capture.scope, &mut capture.spec, imports, resources);
     }
     for collection in collections.iter_mut() {
-        inline_collection(collection, imports, resources);
+        inline_collection(&collection.scope, &mut collection.spec, imports, resources);
     }
     for materialization in materializations.iter_mut() {
-        inline_materialization(materialization, resources);
+        inline_materialization(
+            &materialization.scope,
+            &mut materialization.spec,
+            imports,
+            resources,
+        );
     }
     for test in tests.iter_mut() {
-        inline_test(test, resources);
+        inline_test(&test.scope, &mut test.spec, imports, resources);
     }
 }
 
-fn inline_capture(capture: &mut tables::Capture, resources: &[tables::Resource]) {
-    let tables::Capture {
-        scope,
-        capture: _,
-        spec: models::CaptureDef {
-            endpoint, bindings, ..
-        },
-    } = capture;
+pub fn inline_capture(
+    scope: &url::Url,
+    spec: &mut models::CaptureDef,
+    imports: &mut tables::Imports,
+    resources: &[tables::Resource],
+) {
+    let models::CaptureDef {
+        endpoint, bindings, ..
+    } = spec;
 
     match endpoint {
         models::CaptureEndpoint::Connector(models::ConnectorConfig { config, .. }) => {
-            inline_config(config, scope, resources)
+            inline_config(
+                Scope::new(scope)
+                    .push_prop("endpoint")
+                    .push_prop("connector")
+                    .push_prop("config"),
+                config,
+                imports,
+                resources,
+            )
         }
+        models::CaptureEndpoint::Local(models::LocalConfig { config, .. }) => inline_config(
+            Scope::new(scope)
+                .push_prop("endpoint")
+                .push_prop("local")
+                .push_prop("config"),
+            config,
+            imports,
+            resources,
+        ),
     }
 
-    for models::CaptureBinding { resource, .. } in bindings {
-        inline_config(resource, scope, resources)
+    for (index, models::CaptureBinding { resource, .. }) in bindings.iter_mut().enumerate() {
+        inline_config(
+            Scope::new(scope)
+                .push_prop("bindings")
+                .push_item(index)
+                .push_prop("resource"),
+            resource,
+            imports,
+            resources,
+        )
     }
 }
 
 fn inline_collection(
-    collection: &mut tables::Collection,
-    imports: &[tables::Import],
+    scope: &url::Url,
+    spec: &mut models::CollectionDef,
+    imports: &mut tables::Imports,
     resources: &[tables::Resource],
 ) {
-    let tables::Collection {
-        scope,
-        collection: _,
-        spec:
-            models::CollectionDef {
-                schema,
-                write_schema,
-                read_schema,
-                key: _,
-                projections: _,
-                journals: _,
-                derive,
-            },
-    } = collection;
-
-    let extend_scope = |location: &str| {
-        let mut scope = scope.clone();
-        scope.set_fragment(Some(&format!(
-            "{}/{location}",
-            scope.fragment().unwrap_or_default()
-        )));
-        scope
-    };
+    let models::CollectionDef {
+        schema,
+        write_schema,
+        read_schema,
+        key: _,
+        projections: _,
+        journals: _,
+        derive,
+    } = spec;
 
     if let Some(schema) = schema {
-        inline_schema(schema, &extend_scope("schema"), imports, resources)
+        inline_schema(
+            Scope::new(scope).push_prop("schema"),
+            schema,
+            imports,
+            resources,
+        )
     }
     if let Some(write_schema) = write_schema {
         inline_schema(
+            Scope::new(scope).push_prop("writeSchema"),
             write_schema,
-            &extend_scope("writeSchema"),
             imports,
             resources,
         )
     }
     if let Some(read_schema) = read_schema {
-        inline_schema(read_schema, &extend_scope("readSchema"), imports, resources)
+        inline_schema(
+            Scope::new(scope).push_prop("readSchema"),
+            read_schema,
+            imports,
+            resources,
+        )
     }
     if let Some(derivation) = derive {
-        inline_derivation(derivation, &extend_scope("derive"), resources)
+        inline_derivation(scope, derivation, imports, resources)
     }
 }
 
 fn inline_derivation(
-    derivation: &mut models::Derivation,
     scope: &url::Url,
+    derivation: &mut models::Derivation,
+    imports: &mut tables::Imports,
     resources: &[tables::Resource],
 ) {
     let models::Derivation {
@@ -107,102 +139,207 @@ fn inline_derivation(
 
     match using {
         models::DeriveUsing::Connector(models::ConnectorConfig { config, .. }) => {
-            inline_config(config, scope, resources);
+            inline_config(
+                Scope::new(scope)
+                    .push_prop("derive")
+                    .push_prop("using")
+                    .push_prop("connector")
+                    .push_prop("config"),
+                config,
+                imports,
+                resources,
+            );
         }
+        models::DeriveUsing::Local(models::LocalConfig { config, .. }) => inline_config(
+            Scope::new(scope)
+                .push_prop("derive")
+                .push_prop("using")
+                .push_prop("local")
+                .push_prop("config"),
+            config,
+            imports,
+            resources,
+        ),
         models::DeriveUsing::Sqlite(models::DeriveUsingSqlite { migrations }) => {
-            for foo in migrations {
-                inline_config(foo, scope, resources);
+            for (index, migration) in migrations.iter_mut().enumerate() {
+                inline_config(
+                    Scope::new(scope)
+                        .push_prop("derive")
+                        .push_prop("using")
+                        .push_prop("sqlite")
+                        .push_prop("migrations")
+                        .push_item(index),
+                    migration,
+                    imports,
+                    resources,
+                );
             }
         }
         models::DeriveUsing::Typescript(models::DeriveUsingTypescript { module }) => {
-            inline_config(module, scope, resources);
+            inline_config(
+                Scope::new(scope)
+                    .push_prop("derive")
+                    .push_prop("using")
+                    .push_prop("typescript")
+                    .push_prop("module"),
+                module,
+                imports,
+                resources,
+            );
         }
     }
 
-    for models::TransformDef {
-        lambda, shuffle, ..
-    } in transforms
+    for (
+        index,
+        models::TransformDef {
+            lambda, shuffle, ..
+        },
+    ) in transforms.iter_mut().enumerate()
     {
-        inline_config(lambda, scope, resources);
+        inline_config(
+            Scope::new(scope)
+                .push_prop("derive")
+                .push_prop("transforms")
+                .push_item(index)
+                .push_prop("lambda"),
+            lambda,
+            imports,
+            resources,
+        );
 
         if let models::Shuffle::Lambda(lambda) = shuffle {
-            inline_config(lambda, scope, resources);
+            inline_config(
+                Scope::new(scope)
+                    .push_prop("derive")
+                    .push_prop("transforms")
+                    .push_item(index)
+                    .push_prop("shuffle")
+                    .push_prop("lambda"),
+                lambda,
+                imports,
+                resources,
+            );
         }
     }
 }
 
 fn inline_materialization(
-    materialization: &mut tables::Materialization,
+    scope: &url::Url,
+    spec: &mut models::MaterializationDef,
+    imports: &mut tables::Imports,
     resources: &[tables::Resource],
 ) {
-    let tables::Materialization {
-        scope,
-        materialization: _,
-        spec:
-            models::MaterializationDef {
-                source_capture: _,
-                endpoint,
-                bindings,
-                shards: _,
-            },
-    } = materialization;
+    let models::MaterializationDef {
+        source_capture: _,
+        endpoint,
+        bindings,
+        shards: _,
+    } = spec;
 
     match endpoint {
-        models::MaterializationEndpoint::Connector(models::ConnectorConfig {
-            image: _,
-            config,
-        }) => inline_config(config, scope, resources),
-        models::MaterializationEndpoint::Sqlite(models::SqliteConfig { path }) => {
-            if path.starts_with(":memory:") {
-                // Already absolute.
-            } else if let Ok(joined) = scope.join(&path) {
-                // Resolve relative database path relative to current scope.
-                *path = models::RelativeUrl::new(joined.to_string());
-            }
+        models::MaterializationEndpoint::Connector(models::ConnectorConfig { config, .. }) => {
+            inline_config(
+                Scope::new(scope)
+                    .push_prop("endpoint")
+                    .push_prop("connector")
+                    .push_prop("config"),
+                config,
+                imports,
+                resources,
+            )
+        }
+        models::MaterializationEndpoint::Local(models::LocalConfig { config, .. }) => {
+            inline_config(
+                Scope::new(scope)
+                    .push_prop("endpoint")
+                    .push_prop("connector")
+                    .push_prop("config"),
+                config,
+                imports,
+                resources,
+            )
         }
     }
 
-    for models::MaterializationBinding { resource, .. } in bindings {
-        inline_config(resource, scope, resources)
+    for (index, models::MaterializationBinding { resource, .. }) in bindings.iter_mut().enumerate()
+    {
+        inline_config(
+            Scope::new(scope)
+                .push_prop("bindings")
+                .push_item(index)
+                .push_prop("resource"),
+            resource,
+            imports,
+            resources,
+        )
     }
 }
 
-fn inline_test(test: &mut tables::Test, resources: &[tables::Resource]) {
-    let tables::Test {
-        scope,
-        test: _,
-        spec,
-    } = test;
-
-    for step in spec {
+fn inline_test(
+    scope: &url::Url,
+    spec: &mut Vec<models::TestStep>,
+    imports: &mut tables::Imports,
+    resources: &[tables::Resource],
+) {
+    for (index, step) in spec.iter_mut().enumerate() {
         let documents = match step {
             models::TestStep::Ingest(models::TestStepIngest { documents, .. })
             | models::TestStep::Verify(models::TestStepVerify { documents, .. }) => documents,
         };
-        inline_config(documents, scope, resources);
+        inline_config(
+            Scope::new(scope).push_item(index).push_prop("documents"),
+            documents,
+            imports,
+            resources,
+        );
     }
 }
 
 fn inline_schema(
+    scope: Scope,
     schema: &mut models::Schema,
-    scope: &url::Url,
-    imports: &[tables::Import],
+    imports: &mut tables::Imports,
     resources: &[tables::Resource],
 ) {
+    let scope = scope.flatten();
     *schema = models::Schema::new(
-        serde_json::value::to_raw_value(&super::bundle_schema(scope, schema, imports, resources))
+        serde_json::value::to_raw_value(&super::bundle_schema(&scope, schema, imports, resources))
             .unwrap()
             .into(),
     );
+
+    // Remove all imports of the schema, as they've now been inlined into its bundle.
+    let rng = imports.equal_range_by(|import| import.scope.cmp(&scope));
+    imports.drain(rng);
 }
 
-fn inline_config(config: &mut models::RawValue, scope: &url::Url, resources: &[tables::Resource]) {
+fn inline_config(
+    scope: Scope,
+    config: &mut models::RawValue,
+    imports: &mut tables::Imports,
+    resources: &[tables::Resource],
+) {
     match serde_json::from_str::<&str>(config.get()) {
         Ok(import) if !import.chars().any(char::is_whitespace) => {
+            let scope = scope.flatten();
             let resource = scope.join(import).unwrap();
 
             if let Some(resource) = tables::Resource::fetch(resources, &resource) {
                 *config = resource.content_dom.clone();
+
+                // Remove the associated import.
+                let rng = imports.equal_range_by(|import| {
+                    import
+                        .scope
+                        .cmp(&scope)
+                        .then(import.to_resource.cmp(&resource.resource))
+                });
+                assert_eq!(
+                    rng.end - rng.start,
+                    1,
+                    "expected exactly one import from config scope {scope}"
+                );
+                imports.drain(rng);
             } else {
                 // We failed to load the named resource. Replace with the absolute URL
                 // that we *would* have loaded if we could.

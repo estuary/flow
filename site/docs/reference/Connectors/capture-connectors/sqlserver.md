@@ -121,7 +121,7 @@ EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_waterm
 
 1. Allow connections to the database from the Estuary Flow IP address.
 
-   1. [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
+   1. [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.  See the instructions below to use SSH tunneling instead of enabling public access.
 
    2. Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
       Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
@@ -160,7 +160,7 @@ EXEC sys.sp_cdc_enable_table @source_schema = 'dbo', @source_name = 'flow_waterm
 1. Allow connections to the database from the Estuary Flow IP address.
 
    1. [Enable public IP on your database](https://cloud.google.com/sql/docs/sqlserver/configure-ip#add) and add
-      `34.121.207.128` as an authorized IP address.
+      `34.121.207.128` as an authorized IP address.  See the instructions below to use SSH tunneling instead of enabling public access.
 
    :::info
    Alternatively, you can allow secure connections via SSH tunneling as described in the setup steps for

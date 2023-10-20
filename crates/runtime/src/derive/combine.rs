@@ -1,6 +1,5 @@
-use crate::anyhow_to_status;
 use anyhow::Context;
-use futures::{channel::mpsc, Future, SinkExt, Stream, StreamExt, TryStreamExt};
+use futures::{channel::mpsc, SinkExt, Stream, StreamExt, TryStreamExt};
 use proto_flow::derive::{request, response, Request, Response};
 use proto_flow::flow::{self, collection_spec, CollectionSpec};
 use proto_flow::ops;
@@ -10,246 +9,273 @@ use std::time::SystemTime;
 pub fn adapt_requests<R>(
     _peek_request: &Request,
     request_rx: R,
-) -> anyhow::Result<(impl Stream<Item = tonic::Result<Request>> + Unpin, Backward)>
+) -> anyhow::Result<(impl Stream<Item = anyhow::Result<Request>>, ResponseArgs)>
 where
-    R: Stream<Item = tonic::Result<Request>> + Send + Unpin + 'static,
+    R: Stream<Item = anyhow::Result<Request>>,
 {
-    let (open_tx, open_rx) = mpsc::channel(1);
-    let (flush_tx, flush_rx) = mpsc::channel(1);
+    // Maximum UUID Clock value observed in request::Read documents.
+    let mut max_clock = 0;
+    // Statistics for read documents, passed to the response stream on flush.
+    let mut read_stats: Vec<ops::stats::DocsAndBytes> = Vec::new();
+    // Time at which the current transaction was started.
+    let mut started_at: Option<SystemTime> = None;
+    // Channel for passing request::Open to the response stream.
+    let (mut open_tx, open_rx) = mpsc::channel(1);
+    // Channel for passing statistics to the response stream on request::Flush.
+    let (mut flush_tx, flush_rx) = mpsc::channel(1);
 
-    let mut fwd = Forward {
-        max_clock: 0,
-        read_stats: Vec::new(),
-        started_at: None,
-        open_tx,
-        flush_tx,
-    };
+    let request_rx = coroutines::try_coroutine(move |mut co| async move {
+        let mut request_rx = std::pin::pin!(request_rx);
 
-    Ok((
-        Box::pin(request_rx.and_then(move |request| fwd.on_request(request))),
-        Backward {
-            open_rx,
-            flush_rx,
-            maybe_state: None,
-        },
-    ))
+        while let Some(request) = request_rx.try_next().await? {
+            if let Some(open) = &request.open {
+                // Tell the response loop about the request::Open.
+                // It will inspect it upon a future response::Opened message.
+                open_tx
+                    .feed(open.clone())
+                    .await
+                    .context("failed to send request::Open to response stream")?;
+            } else if let Some(_flush) = &request.flush {
+                // Tell the response loop about our flush statistics.
+                // It will inspect it upon a future response::Flushed message.
+                let flush = (
+                    max_clock,
+                    std::mem::take(&mut read_stats),
+                    started_at.take().unwrap_or_else(|| SystemTime::now()),
+                );
+                flush_tx
+                    .feed(flush)
+                    .await
+                    .context("failed to send request::Flush to response stream")?;
+            } else if let Some(read) = &request.read {
+                // Track start time of the transaction as time of first Read.
+                if started_at.is_none() {
+                    started_at = Some(SystemTime::now());
+                }
+                // Track the largest document clock that we've observed.
+                match &read.uuid {
+                    Some(flow::UuidParts { clock, .. }) if *clock > max_clock => max_clock = *clock,
+                    _ => (),
+                }
+                // Accumulate metrics over reads for our transforms.
+                if read.transform as usize >= read_stats.len() {
+                    read_stats.resize(read.transform as usize + 1, Default::default());
+                }
+                let read_stats = &mut read_stats[read.transform as usize];
+                read_stats.docs_total += 1;
+                read_stats.bytes_total += read.doc_json.len() as u64;
+            }
+
+            co.yield_(request).await; // Forward all requests.
+        }
+        Ok(())
+    });
+
+    Ok((request_rx, ResponseArgs { open_rx, flush_rx }))
 }
 
-struct Forward {
-    flush_tx: mpsc::Sender<(u64, Vec<ops::stats::DocsAndBytes>, SystemTime)>,
-    max_clock: u64,
-    open_tx: mpsc::Sender<request::Open>,
-    read_stats: Vec<ops::stats::DocsAndBytes>,
-    started_at: Option<SystemTime>,
-}
-
-pub struct Backward {
+pub struct ResponseArgs {
     open_rx: mpsc::Receiver<request::Open>,
     flush_rx: mpsc::Receiver<(u64, Vec<ops::stats::DocsAndBytes>, SystemTime)>,
-    maybe_state: Option<State>,
 }
 
-impl Forward {
-    fn on_request(&mut self, request: Request) -> impl Future<Output = tonic::Result<Request>> {
-        // Build an intent to tell the response loop about a request::Open.
-        // The response loop will inspect it upon a future Opened message.
-        let open_intent = request
-            .open
-            .clone()
-            .map(|open| (self.open_tx.clone(), open));
+pub fn adapt_responses<R>(
+    args: ResponseArgs,
+    response_rx: R,
+) -> impl Stream<Item = anyhow::Result<Response>>
+where
+    R: Stream<Item = anyhow::Result<Response>>,
+{
+    let ResponseArgs {
+        mut flush_rx,
+        mut open_rx,
+    } = args;
 
-        if let Some(read) = &request.read {
-            // Track start time of the transaction as time of first Read.
-            if self.started_at.is_none() {
-                self.started_at = Some(SystemTime::now());
-            }
-            // Track the largest document clock that we've observed.
-            match &read.uuid {
-                Some(flow::UuidParts { clock, .. }) if *clock > self.max_clock => {
-                    self.max_clock = *clock
-                }
-                _ => (),
-            }
-            // Accumulate metrics over reads for our transforms.
-            if read.transform as usize >= self.read_stats.len() {
-                self.read_stats
-                    .resize(read.transform as usize + 1, Default::default());
-            }
-            let read_stats = &mut self.read_stats[read.transform as usize];
-            read_stats.docs_total += 1;
-            read_stats.bytes_total += read.doc_json.len() as u64;
-        }
+    // Statistics for documents published by us when draining.
+    let mut drain_stats: ops::stats::DocsAndBytes = Default::default();
+    // Inferred shape of published documents.
+    let mut inferred_shape: doc::Shape = doc::Shape::nothing();
+    // Did `inferred_shape` change during the current transaction?
+    let mut inferred_shape_changed: bool = false;
+    // State of an opened derivation.
+    let mut maybe_opened: Option<Opened> = None;
+    // Statistics for documents published by the wrapped delegate.
+    let mut publish_stats: ops::stats::DocsAndBytes = Default::default();
 
-        // Build an intent to tell the response loop about a request::Flush.
-        // The response loop will inspect it upon a future Flushed message.
-        let flush_intent = request.flush.as_ref().map(|_flush| {
-            (
-                self.flush_tx.clone(),
-                (
-                    self.max_clock,
-                    std::mem::take(&mut self.read_stats),
-                    self.started_at.take().unwrap_or_else(|| SystemTime::now()),
-                ),
-            )
-        });
+    coroutines::try_coroutine(move |mut co| async move {
+        let mut response_rx = std::pin::pin!(response_rx);
 
-        // Async block performing possible blocking sends to open_tx and flush_tx.
-        // Note the returned future doesn't close over a reference to `self`.
-        async move {
-            if let Some((mut tx, item)) = open_intent {
-                tx.send(item)
+        while let Some(response) = response_rx.try_next().await? {
+            if let Some(_opened) = &response.opened {
+                let open = open_rx
+                    .next()
                     .await
-                    .context("failed to send Open to response loop")
-                    .map_err(anyhow_to_status)?;
-            }
-            if let Some((mut tx, item)) = flush_intent {
-                tx.send(item)
+                    .context("failed to receive request::Open from request loop")?;
+
+                maybe_opened = Some(Opened::build(open)?);
+                co.yield_(response).await; // Forward.
+            } else if let Some(published) = &response.published {
+                let opened = maybe_opened
+                    .as_mut()
+                    .context("connector sent Published before Opened")?;
+
+                opened.combine_right(&published)?;
+                publish_stats.docs_total += 1;
+                publish_stats.bytes_total += published.doc_json.len() as u64;
+                // Not forwarded.
+            } else if let Some(_flushed) = &response.flushed {
+                let mut opened = maybe_opened
+                    .take()
+                    .context("connector sent Flushed before Opened")?;
+
+                let (max_clock, read_stats, started_at) = flush_rx
+                    .next()
                     .await
-                    .context("failed to send Flush to response loop")
-                    .map_err(anyhow_to_status)?;
-            }
-            Ok(request)
-        }
-    }
-}
+                    .context("failed to receive on request::Flush from request loop")?;
 
-impl Backward {
-    pub fn adapt_responses<R>(
-        self,
-        inner_response_rx: R,
-    ) -> impl Stream<Item = tonic::Result<Response>>
-    where
-        R: Stream<Item = tonic::Result<Response>> + Send + 'static,
-    {
-        let (mut response_tx, response_rx) = mpsc::channel(32);
+                // Drain Combiner into Published responses.
+                let doc::Combiner::Accumulator(accumulator) = opened.combiner else {
+                    unreachable!()
+                };
 
-        // TODO(johnny): We could avoid the spawn by using try_unfold.
-        tokio::spawn(async move {
-            if let Err(err) = self.loop_(inner_response_rx, &mut response_tx).await {
-                _ = response_tx.send(Err(anyhow_to_status(err))).await;
-            }
-        });
+                let mut drainer = accumulator
+                    .into_drainer()
+                    .context("preparing to drain combiner")?;
+                let mut buf = bytes::BytesMut::new();
 
-        response_rx
-    }
+                while let Some(drained) = drainer.next() {
+                    let doc::combine::DrainedDoc {
+                        binding: _, // Always zero.
+                        reduced: _, // Always false.
+                        root,
+                    } = drained?;
 
-    async fn loop_<R>(
-        mut self,
-        inner_response_rx: R,
-        response_tx: &mut mpsc::Sender<tonic::Result<Response>>,
-    ) -> anyhow::Result<()>
-    where
-        R: Stream<Item = tonic::Result<Response>> + Send + 'static,
-    {
-        tokio::pin!(inner_response_rx);
-
-        loop {
-            let mut response = match inner_response_rx.next().await {
-                Some(Ok(response)) => response,
-                None => {
-                    // This may be a clean EOF, or it may be unexpected.
-                    // We don't bother distinguishing here and just forward EOF to our client.
-                    return Ok(());
-                }
-                Some(Err(status)) => {
-                    // Forward terminal error and exit.
-                    let () = response_tx.send(Err(status)).await?;
-                    return Ok(());
-                }
-            };
-
-            let Response {
-                spec: _,
-                validated: _,
-                opened,
-                published,
-                flushed,
-                started_commit: _,
-                internal: _,
-            } = &mut response;
-
-            let forward = match (opened, published, flushed.take()) {
-                (Some(_opened), None, None) => {
-                    let open = self
-                        .open_rx
-                        .next()
-                        .await
-                        .context("connector sent Opened before Open")?;
-
-                    self.maybe_state = Some(State::build(open, self.maybe_state.take())?);
-                    true
-                }
-                (None, Some(published), None) => {
-                    let state = self
-                        .maybe_state
-                        .as_mut()
-                        .context("connector sent Published before Opened")?;
-
-                    state.combine_right(&published)?;
-                    false
-                }
-                (None, None, Some(flushed)) => {
-                    let mut state = self
-                        .maybe_state
-                        .take()
-                        .context("connector sent Flushed before Opened")?;
-
-                    let (max_clock, read_stats, started_at) = self
-                        .flush_rx
-                        .next()
-                        .await
-                        .context("connector sent Flushed before Flush")?;
-
-                    // Drain combiner into Published responses.
-                    let mut more = true;
-                    while more {
-                        let mut chunk = Vec::with_capacity(16);
-                        (state, more) = state.drain_chunk(max_clock, &mut chunk)?;
-
-                        let () = response_tx
-                            .send_all(&mut futures::stream::iter(chunk).map(Ok).map(Ok))
-                            .await?;
+                    if inferred_shape.widen_owned(&root) {
+                        doc::shape::limits::enforce_shape_complexity_limit(
+                            &mut inferred_shape,
+                            doc::shape::limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT,
+                        );
+                        inferred_shape_changed = true;
                     }
-                    // Then send the delegate's Flushed response extended with accumulated stats.
-                    let () = response_tx
-                        .send(Ok(state.flushed(started_at, read_stats, flushed)))
-                        .await?;
 
-                    self.maybe_state = Some(state);
-                    false
+                    let key_packed =
+                        doc::Extractor::extract_all_owned(&root, &opened.key_extractors, &mut buf);
+                    let partitions_packed = doc::Extractor::extract_all_owned(
+                        &root,
+                        &opened.partition_extractors,
+                        &mut buf,
+                    );
+
+                    let doc_json =
+                        serde_json::to_string(&root).expect("document serialization cannot fail");
+                    drain_stats.docs_total += 1;
+                    drain_stats.bytes_total += doc_json.len() as u64;
+
+                    let published = Response {
+                        published: Some(response::Published { doc_json }),
+                        ..Default::default()
+                    }
+                    .with_internal_buf(&mut buf, |internal| {
+                        internal.published = Some(derive_response_ext::Published {
+                            max_clock,
+                            key_packed,
+                            partitions_packed,
+                        });
+                    });
+                    co.yield_(published).await;
                 }
-                // Forward everything else.
-                _ => true,
-            };
+                // Combiner is now drained and is ready to accumulate again.
+                opened.combiner = doc::Combiner::Accumulator(drainer.into_new_accumulator()?);
 
-            if forward {
-                let () = response_tx.send(Ok(response)).await?;
+                // Next we build up statistics to yield with our own response::Flushed.
+                let duration = started_at.elapsed().unwrap_or_default();
+
+                let transforms = opened
+                    .transforms
+                    .iter()
+                    .zip(read_stats.into_iter())
+                    .filter_map(|((name, source), read_stats)| {
+                        if read_stats.docs_total == 0 && read_stats.bytes_total == 0 {
+                            None
+                        } else {
+                            Some((
+                                name.clone(),
+                                ops::stats::derive::Transform {
+                                    input: Some(read_stats),
+                                    source: source.clone(),
+                                },
+                            ))
+                        }
+                    })
+                    .collect();
+
+                let stats = ops::Stats {
+                    capture: Default::default(),
+                    derive: Some(ops::stats::Derive {
+                        transforms,
+                        published: maybe_counts(&mut publish_stats),
+                        out: maybe_counts(&mut drain_stats),
+                    }),
+                    interval: None,
+                    materialize: Default::default(),
+                    meta: Some(ops::Meta {
+                        uuid: crate::UUID_PLACEHOLDER.to_string(),
+                    }),
+                    open_seconds_total: duration.as_secs_f64(),
+                    shard: Some(opened.shard.clone()),
+                    timestamp: Some(proto_flow::as_timestamp(started_at)),
+                    txn_count: 1,
+                };
+
+                // Now send the delegate's Flushed response extended with accumulated stats.
+                co.yield_(response.with_internal(|internal| {
+                    internal.flushed = Some(derive_response_ext::Flushed { stats: Some(stats) });
+                }))
+                .await;
+
+                // If the inferred doc::Shape was updated, log it out for continuous schema inference.
+                if inferred_shape_changed {
+                    inferred_shape_changed = false;
+
+                    let serialized = serde_json::to_value(&doc::shape::schema::to_schema(
+                        inferred_shape.clone(),
+                    ))
+                    .expect("shape serialization should never fail");
+
+                    tracing::info!(
+                        schema = ?::ops::DebugJson(serialized),
+                        collection_name = %opened.shard.name,
+                        "inferred schema updated"
+                    );
+                }
+
+                maybe_opened = Some(opened);
+            } else {
+                // All other request types are forwarded.
+                co.yield_(response).await;
             }
         }
-    }
+        Ok(())
+    })
 }
 
-pub struct State {
+pub struct Opened {
     // Combiner of published documents.
     combiner: doc::Combiner,
-    // Key components of derived documents.
-    key_extractors: Vec<doc::Extractor>,
     // JSON pointer to the derived document UUID.
     document_uuid_ptr: Option<doc::Pointer>,
+    // Key components of derived documents.
+    key_extractors: Vec<doc::Extractor>,
     // Partitions to extract when draining the Combiner.
     partition_extractors: Vec<doc::Extractor>,
-    // Statistics for published documents.
-    publish_stats: ops::stats::DocsAndBytes,
-    // Statistics for published documents.
-    drain_stats: ops::stats::DocsAndBytes,
-    // Ordered transform (transform-name, source-collection).
-    transforms: Vec<(String, String)>,
     // Shard of this derivation.
     shard: ops::ShardRef,
+    // Ordered transform (transform-name, source-collection).
+    transforms: Vec<(String, String)>,
 }
 
-impl State {
-    pub fn build(open: request::Open, _prev: Option<State>) -> anyhow::Result<State> {
+impl Opened {
+    pub fn build(open: request::Open) -> anyhow::Result<Opened> {
         let request::Open {
             collection,
             range,
@@ -296,10 +322,8 @@ impl State {
             doc::Validator::new(write_schema_json).context("could not build a schema validator")?;
 
         let combiner = doc::Combiner::new(
-            key_extractors.clone().into(),
-            None,
+            doc::combine::Spec::with_one_binding(key_extractors.clone(), None, validator),
             tempfile::tempfile().context("opening temporary spill file")?,
-            validator,
         )?;
 
         // Identify ordered, partitioned projections to extract on combiner drain.
@@ -324,13 +348,11 @@ impl State {
 
         Ok(Self {
             combiner,
-            key_extractors,
             document_uuid_ptr,
+            key_extractors,
             partition_extractors,
-            publish_stats: Default::default(),
-            drain_stats: Default::default(),
+            shard: shard,
             transforms,
-            shard: shard.into(),
         })
     }
 
@@ -355,114 +377,9 @@ impl State {
                     doc::HeapNode::String(doc::BumpStr::from_str(crate::UUID_PLACEHOLDER, alloc));
             }
         }
-        memtable.add(doc, false)?;
-
-        self.publish_stats.docs_total += 1;
-        self.publish_stats.bytes_total += published.doc_json.len() as u64;
+        memtable.add(0, doc, false)?;
 
         Ok(())
-    }
-
-    pub fn drain_chunk(
-        mut self,
-        max_clock: u64,
-        out: &mut Vec<Response>,
-    ) -> Result<(Self, bool), doc::combine::Error> {
-        let mut drainer = match self.combiner {
-            doc::Combiner::Accumulator(accumulator) => accumulator.into_drainer()?,
-            doc::Combiner::Drainer(d) => d,
-        };
-        let mut buf = bytes::BytesMut::new();
-
-        let more = drainer.drain_while(|doc, _fully_reduced| {
-            let doc_json = serde_json::to_string(&doc).expect("document serialization cannot fail");
-
-            self.drain_stats.docs_total += 1;
-            self.drain_stats.bytes_total += doc_json.len() as u64;
-
-            let key_packed = doc::Extractor::extract_all_lazy(&doc, &self.key_extractors, &mut buf);
-            let partitions_packed =
-                doc::Extractor::extract_all_lazy(&doc, &self.partition_extractors, &mut buf);
-
-            out.push(
-                Response {
-                    published: Some(response::Published { doc_json }),
-                    ..Default::default()
-                }
-                .with_internal_buf(&mut buf, |internal| {
-                    internal.published = Some(derive_response_ext::Published {
-                        max_clock,
-                        key_packed,
-                        partitions_packed,
-                    });
-                }),
-            );
-
-            Ok::<bool, doc::combine::Error>(out.len() != out.capacity())
-        })?;
-
-        if more {
-            self.combiner = doc::Combiner::Drainer(drainer);
-        } else {
-            self.combiner = doc::Combiner::Accumulator(drainer.into_new_accumulator()?);
-        }
-
-        Ok((self, more))
-    }
-
-    pub fn flushed(
-        &mut self,
-        started_at: std::time::SystemTime,
-        read_stats: Vec<ops::stats::DocsAndBytes>,
-        flushed: response::Flushed,
-    ) -> Response {
-        let duration = started_at.elapsed().unwrap_or_default();
-
-        let transforms = self
-            .transforms
-            .iter()
-            .zip(read_stats.into_iter())
-            .filter_map(|((name, source), read_stats)| {
-                if read_stats.docs_total == 0 && read_stats.bytes_total == 0 {
-                    None
-                } else {
-                    Some((
-                        name.clone(),
-                        ops::stats::derive::Transform {
-                            input: Some(read_stats),
-                            source: source.clone(),
-                        },
-                    ))
-                }
-            })
-            .collect();
-
-        // Extend Flushed response with our output stats.
-        let stats = ops::Stats {
-            meta: Some(ops::Meta {
-                uuid: crate::UUID_PLACEHOLDER.to_string(),
-            }),
-            shard: Some(self.shard.clone()),
-            timestamp: Some(proto_flow::as_timestamp(started_at)),
-            open_seconds_total: duration.as_secs_f64(),
-            txn_count: 1,
-            capture: Default::default(),
-            derive: Some(ops::stats::Derive {
-                transforms,
-                published: maybe_counts(&mut self.publish_stats),
-                out: maybe_counts(&mut self.drain_stats),
-            }),
-            materialize: Default::default(),
-            interval: None,
-        };
-
-        Response {
-            flushed: Some(flushed),
-            ..Default::default()
-        }
-        .with_internal(|internal| {
-            internal.flushed = Some(derive_response_ext::Flushed { stats: Some(stats) });
-        })
     }
 }
 

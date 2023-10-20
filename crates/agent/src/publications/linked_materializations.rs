@@ -232,13 +232,15 @@ pub async fn create_linked_materialization_publications(
         // safe unwrap because we just queried for materializations having sourceCaptures.
         let capture_name = spec.source_capture.as_ref().unwrap().as_str();
         let maybe_capture_spec = captures_by_name.get(capture_name).map(|cs| *cs);
+        let Some(capture_spec) = maybe_capture_spec else {
+            tracing::debug!(%materialization_name, %capture_name, "ignoring linked materialization because sourceCapture is being deleted");
+            continue;
+        };
 
-        // Make the materialization bindings match those of the capture,
-        // and create a publication if there were any changes.
         let was_updated = update_linked_materialization(
             &mut resource_ptr_cache,
             txn,
-            maybe_capture_spec,
+            capture_spec,
             &materialization_name,
             &mut spec,
         )
@@ -265,56 +267,33 @@ pub async fn create_linked_materialization_publications(
 /// Updates the bindings of a materialization spec to reflect those of the given capture.
 /// Bindings are matched based on the `target` of the capture binding and the `source` of the
 /// materialization binding. For each binding in the capture, a corresponding binding will be
-/// created (or enabled, if it already exists) in the materialization. The return value indicates
+/// created in the materialization, if it does not already exist. The return value indicates
 /// whether the materialization spec was actually modified by this process, to allow avoiding
 /// unnecessary publications.
 async fn update_linked_materialization(
     resource_pointer_cache: &mut ResourcePointerCache,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    capture_spec: Option<&proto_flow::flow::CaptureSpec>,
+    capture_spec: &proto_flow::flow::CaptureSpec,
     materialization_name: &str,
     materialization: &mut MaterializationDef,
 ) -> anyhow::Result<bool> {
-    // if the capture spec is missing, it indicates a deletion, and all materialization bindings should be disabled.
-    let Some(capture_spec) = capture_spec else {
-        let mut disabled = 0;
-        for binding in materialization.bindings.iter_mut() {
-            if !binding.disable {
-                binding.disable = true;
-                disabled += 1;
-            }
-        }
-        if disabled > 0 {
-            tracing::info!(n_disabled = %disabled, "disabling all materialization bindings because the sourceCapture was deleted");
-        }
-        return Ok(disabled > 0);
-    };
-
     // The set of collection names of the capture bindings.
     // Note that the built spec never contains disabled bindings, so
-    // inclusion in this set indicates that the corresponding materialization
-    // binding should be enabled.
-    let mut capture_bindings = capture_spec
+    // inclusion in this set indicates that the capture binding is enabled.
+    let mut bindings_to_add = capture_spec
         .bindings
         .iter()
         .map(|b| b.collection.as_ref().unwrap().name.as_str())
         .collect::<std::collections::BTreeSet<_>>();
 
-    let mut changed = false;
-
-    // First enable any materialization bindings that are currently disabled, but exist in the capture.
-    for mat_binding in materialization.bindings.iter_mut() {
-        let desired_enable = capture_bindings.remove(mat_binding.source.collection().as_str());
-        if desired_enable && mat_binding.disable {
-            mat_binding.disable = false;
-            changed = true;
-        }
+    // Remove any that are already present in the materialization, regardless of
+    // whether they are disabled in the materialization.
+    for mat_binding in materialization.bindings.iter() {
+        bindings_to_add.remove(mat_binding.source.collection().as_str());
     }
+    let changed = !bindings_to_add.is_empty();
 
-    // Any remaining capture bindings will need to be added to the materialization.
-    for collection_name in capture_bindings {
-        changed = true; // We're definitely changing it
-
+    for collection_name in bindings_to_add {
         let models::MaterializationEndpoint::Connector(conn) = &materialization.endpoint else {
             panic!("unexpected materialization endpoint type for '{materialization_name}'");
         };

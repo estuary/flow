@@ -134,7 +134,7 @@ where
 
         Log {
             meta: None,
-            timestamp: Some(proto_flow::as_timestamp(ts.into())),
+            timestamp: Some(proto_flow::as_timestamp(ts)),
             level: level as i32,
             message,
             fields_json_map: fields

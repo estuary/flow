@@ -1,4 +1,4 @@
-import { customerQuery, StripeClient } from "./shared.ts";
+import { billingResponseHeaders, customerQuery, StripeClient } from "./shared.ts";
 
 export interface getTenantPaymentMethodsParams {
     tenant: string;
@@ -12,13 +12,21 @@ export async function getTenantPaymentMethods(
     if (customer) {
         const methods = (await StripeClient.customers.listPaymentMethods(customer.id)).data;
 
-        return [JSON.stringify({ payment_methods: methods, primary: customer.invoice_settings.default_payment_method }), {
-            headers: { "Content-Type": "application/json" },
+        return [JSON.stringify({ 
+            payment_methods: methods,
+            primary: customer.invoice_settings.default_payment_method,
+            tenant: req_body.tenant
+        }), {
+            headers: billingResponseHeaders,
             status: 200,
         }];
     } else {
-        return [JSON.stringify({ payment_methods: [], primary: null }), {
-            headers: { "Content-Type": "application/json" },
+        return [JSON.stringify({ 
+            payment_methods: [],
+            primary: null,
+            tenant: req_body.tenant
+        }), {
+            headers: billingResponseHeaders,
             status: 200,
         }];
     }

@@ -1,276 +1,167 @@
-use crate::connector::docker_run;
-use crate::{connector::docker_run_stream, local_specs};
+use crate::local_specs;
 use anyhow::Context;
-use futures::channel::mpsc::Sender;
-use futures::{channel, stream, SinkExt, StreamExt};
-use proto_flow::flow::{CollectionSpec, ConnectorState};
-use proto_flow::{
-    capture::{request, Request},
-    flow::RangeSpec,
-};
-use serde::Deserialize;
-use serde_json::json;
-use serde_json::value::RawValue;
-use std::sync::{Arc, Mutex};
+use futures::{SinkExt, StreamExt};
+use proto_flow::{capture, flow};
+use std::io::Write;
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
 pub struct Capture {
-    /// Source flow catalog to run
+    /// Path or URL to a Flow specification file.
+    #[clap(long)]
     source: String,
-
-    /// Print the reduced checkpoint of the connector as it gets updated
-    #[clap(long, action)]
-    print_checkpoint: bool,
-}
-
-#[derive(Deserialize)]
-struct ConnectorConfig {
-    image: String,
-    config: Box<RawValue>,
-}
-
-#[derive(Debug)]
-enum Command {
-    Drain,
-    Combine(String),
+    /// Name of the capture to preview within the Flow specification file.
+    /// Capture is required if there are multiple captures in --source specifications.
+    #[clap(long)]
+    capture: Option<String>,
+    /// How frequently should we emit combined documents?
+    /// If not specified, the default is one second.
+    #[clap(long)]
+    interval: Option<humantime::Duration>,
+    /// Docker network to run the connector
+    #[clap(long, default_value = "bridge")]
+    network: String,
 }
 
 pub async fn do_capture(
     ctx: &mut crate::CliContext,
     Capture {
         source,
-        print_checkpoint,
+        capture,
+        interval,
+        network,
     }: &Capture,
 ) -> anyhow::Result<()> {
     let client = ctx.controlplane_client().await?;
-    let (_sources, mut validations) = local_specs::load_and_validate_full(client, &source).await?;
+    let (sources, validations) = local_specs::load_and_validate_full(client, &source, &network).await?;
 
-    let capture = validations
-        .built_captures
-        .first_mut()
-        .expect("must have a capture");
+    // Identify the capture to discover.
+    let needle = if let Some(needle) = capture {
+        needle.as_str()
+    } else if sources.captures.len() == 1 {
+        sources.captures.first().unwrap().capture.as_str()
+    } else if sources.captures.is_empty() {
+        anyhow::bail!("sourced specification files do not contain any captures");
+    } else {
+        anyhow::bail!("sourced specification files contain multiple captures. Use --capture to identify a specific one");
+    };
 
-    let cfg: ConnectorConfig = serde_json::from_str(&capture.spec.config_json)?;
-    capture.spec.config_json = cfg.config.to_string();
+    let (capture, built_capture) = match sources
+        .captures
+        .binary_search_by_key(&needle, |c| c.capture.as_str())
+    {
+        Ok(index) => (&sources.captures[index], &validations.built_captures[index]),
+        Err(_) => anyhow::bail!("could not find the capture {needle}"),
+    };
 
-    let apply = Request {
-        apply: Some(request::Apply {
-            capture: Some(capture.spec.clone()),
-            version: "0".to_string(),
+    let runtime = runtime::Runtime::new(
+        true, // All local.
+        network.clone(),
+        ops::tracing_log_handler,
+        None,
+        format!("preview/{}", capture.capture),
+    );
+
+    let mut apply = capture::Request {
+        apply: Some(capture::request::Apply {
+            capture: Some(built_capture.spec.clone()),
             dry_run: false,
+            version: "preview".to_string(),
         }),
         ..Default::default()
     };
-
-    let range = RangeSpec {
-        key_begin: 0,
-        key_end: u32::MAX,
-        r_clock_begin: 0,
-        r_clock_end: u32::MAX,
-    };
-
-    let open = Request {
-        open: Some(request::Open {
-            capture: Some(capture.spec.clone()),
-            version: "0".to_string(),
-            range: Some(range),
+    let mut open = capture::Request {
+        open: Some(capture::request::Open {
+            capture: Some(built_capture.spec.clone()),
+            version: "preview".to_string(),
+            range: Some(flow::RangeSpec {
+                key_begin: 0,
+                key_end: u32::MAX,
+                r_clock_begin: 0,
+                r_clock_end: u32::MAX,
+            }),
             state_json: "{}".to_string(),
         }),
         ..Default::default()
     };
 
-    let apply_output = docker_run(&cfg.image, apply)
+    if let Some(log_level) = capture
+        .spec
+        .shards
+        .log_level
+        .as_ref()
+        .and_then(|s| ops::LogLevel::from_str_name(s))
+    {
+        apply.set_internal_log_level(log_level);
+        open.set_internal_log_level(log_level);
+    }
+
+    let capture::response::Applied { action_description } = runtime
+        .clone()
+        .unary_capture(apply, build::CONNECTOR_TIMEOUT)
         .await
-        .context("connector apply")?;
-
-    let apply_action = apply_output
+        .map_err(crate::status_to_anyhow)?
         .applied
-        .expect("applied rpc")
-        .action_description;
-    eprintln!("Apply RPC Response: {apply_action}");
+        .context("connector didn't send expected Applied response")?;
 
-    let bindings = capture.spec.bindings.clone();
-    let mut channels: Vec<Arc<Mutex<Sender<Command>>>> = Vec::new();
+    tracing::info!(%action_description, "capture was applied");
 
-    for binding in bindings.clone().into_iter() {
-        let (send, mut recv) = channel::mpsc::channel::<Command>(1);
+    let (mut request_tx, request_rx) = futures::channel::mpsc::channel(runtime::CHANNEL_BUFFER);
+    request_tx.send(Ok(open)).await.unwrap();
 
-        channels.push(Arc::new(Mutex::new(send)));
+    let mut response_rx = runtime
+        .serve_capture(request_rx)
+        .await
+        .map_err(crate::status_to_anyhow)?;
 
-        let CollectionSpec {
-            key,
-            name,
-            projections,
-            write_schema_json,
-            ..
-        } = binding.collection.context("missing collection")?;
+    let opened = response_rx
+        .next()
+        .await
+        .context("expected Opened, not EOF")?
+        .map_err(crate::status_to_anyhow)?
+        .opened
+        .context("expected Opened")?;
 
-        let write_schema_json = doc::validation::build_bundle(&write_schema_json)
-            .context("collection write_schema_json is not a JSON schema")?;
-        let validator =
-            doc::Validator::new(write_schema_json).context("could not build a schema validator")?;
+    tracing::info!(opened=?::ops::DebugJson(opened), "received connector Opened");
 
-        let combiner = doc::Combiner::new(
-            extractors::for_key(&key, &projections)?.into(),
-            None,
-            tempfile::tempfile().expect("opening temporary spill file"),
-            validator,
-        )
-        .expect("create combiner");
+    // Read documents from response_rx
+    // On checkpoint, send ACK into request_rx.
 
-        tokio::spawn(async move {
-            let mut state = State {
-                combiner,
-                collection_name: name,
-            };
-            loop {
-                let command = match recv.next().await {
-                    Some(value) => value,
-                    None => return (),
-                };
+    let interval = interval
+        .map(|i| i.clone().into())
+        .unwrap_or(std::time::Duration::from_secs(1));
 
-                match command {
-                    Command::Combine(doc) => {
-                        state.combine_right(&doc).unwrap();
-                    }
-                    Command::Drain => {
-                        let mut out = Vec::with_capacity(32);
-                        state = state.drain_chunk(&mut out).expect("failed to drain chunk");
-                        let collection_name = &state.collection_name;
+    let mut ticker = tokio::time::interval(interval);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    _ = ticker.tick().await; // First tick is immediate.
 
-                        out.iter().for_each(|v| {
-                            println!("{collection_name} {v}");
-                        });
-                    }
-                }
-            }
-        });
-    }
+    let mut output = std::io::stdout();
 
-    let (req_send, req_recv) = channel::mpsc::channel::<Request>(1);
-    let req_send_arc = Arc::new(Mutex::new(req_send));
+    // TODO(johnny): This is currently only partly implemented, but is awaiting
+    // accompanying changes to the `runtime` crate.
+    while let Some(response) = response_rx.next().await {
+        let response = response.map_err(crate::status_to_anyhow)?;
 
-    let in_stream = stream::unfold(req_recv, |mut recv| async move {
-        match recv.next().await {
-            Some(req) => Some((req, recv)),
-            _ => None,
-        }
-    });
-    let mut out_stream = docker_run_stream(
-        &cfg.image,
-        Box::pin(stream::once(async { open }).chain(in_stream)),
-    )
-    .await
-    .context("connector output stream")?;
-    let checkpoint = Arc::new(Mutex::new(json!({})));
-    let explicit_acknowledgements = Arc::new(Mutex::new(false));
-    eprintln!("Documents");
-    loop {
-        let item = match out_stream.next().await {
-            Some(Ok(value)) => value,
-            Some(Err(e)) => return Err(e),
-            None => return Ok(()),
-        };
+        let _internal = response
+            .get_internal()
+            .context("failed to decode internal runtime.CaptureResponseExt")?;
 
-        let mut explicit_ack = explicit_acknowledgements.lock().unwrap();
-        if let Some(opened) = item.opened {
-            *explicit_ack = opened.explicit_acknowledgements;
-        }
+        serde_json::to_writer(&mut output, &response)?;
+        write!(&mut output, "\n")?;
 
-        if let Some(captured) = item.captured {
-            let doc = captured.doc_json;
+        // Upon a checkpoint, wait until the next tick interval has elapsed before acknowledging.
+        if let Some(_checkpoint) = response.checkpoint {
+            _ = ticker.tick().await;
 
-            let sender_mutex = &channels[captured.binding as usize];
-            let mut sender = sender_mutex.lock().unwrap();
-            sender.send(Command::Combine(doc.clone())).await?;
-        }
-
-        if let Some(ConnectorState {
-            updated_json,
-            merge_patch,
-        }) = item.checkpoint.and_then(|c| c.state)
-        {
-            let mut cp = checkpoint.lock().unwrap();
-            let update = serde_json::from_str(&updated_json)?;
-            if merge_patch {
-                if *print_checkpoint {
-                    eprintln!(
-                        "Merge Patch for Checkpoint: {}",
-                        serde_json::to_string_pretty(&update)?
-                    );
-                }
-                json_patch::merge(&mut cp, &update);
-            } else {
-                *cp = update;
-            }
-
-            if *print_checkpoint {
-                eprintln!("Checkpoint: {}", serde_json::to_string_pretty(&*cp)?);
-            }
-
-            for channel in channels.iter() {
-                let mut sender = channel.lock().unwrap();
-                sender.send(Command::Drain).await?;
-            }
-
-            if *explicit_ack {
-                // Send acknowledge to connector
-                let mut ack_channel = req_send_arc.lock().unwrap();
-                ack_channel
-                    .send(Request {
-                        acknowledge: Some(request::Acknowledge { checkpoints: 1 }),
-                        ..Default::default()
-                    })
-                    .await
-                    .context("failed to send ack")?;
-            }
+            request_tx
+                .send(Ok(capture::Request {
+                    acknowledge: Some(capture::request::Acknowledge { checkpoints: 1 }),
+                    ..Default::default()
+                }))
+                .await
+                .unwrap();
         }
     }
-}
 
-pub struct State {
-    // Combiner of published documents.
-    combiner: doc::Combiner,
-
-    collection_name: String,
-}
-
-impl State {
-    pub fn combine_right(&mut self, doc_json: &str) -> anyhow::Result<()> {
-        let memtable = match &mut self.combiner {
-            doc::Combiner::Accumulator(accumulator) => accumulator.memtable()?,
-            _ => panic!("implementation error: combiner is draining, not accumulating"),
-        };
-        let alloc = memtable.alloc();
-
-        let mut deser = serde_json::Deserializer::from_str(doc_json);
-        let doc = doc::HeapNode::from_serde(&mut deser, alloc)
-            .with_context(|| format!("couldn't parse published document as JSON: {}", doc_json))?;
-
-        memtable.add(doc, false)?;
-
-        Ok(())
-    }
-
-    pub fn drain_chunk(mut self, out: &mut Vec<String>) -> Result<Self, doc::combine::Error> {
-        let mut drainer = match self.combiner {
-            doc::Combiner::Accumulator(accumulator) => accumulator.into_drainer()?,
-            doc::Combiner::Drainer(d) => d,
-        };
-        let more = drainer.drain_while(|doc, _fully_reduced| {
-            let doc_json = serde_json::to_string(&doc).expect("document serialization cannot fail");
-            out.push(doc_json);
-
-            Ok::<bool, doc::combine::Error>(true)
-        })?;
-
-        if more {
-            self.combiner = doc::Combiner::Drainer(drainer);
-        } else {
-            self.combiner = doc::Combiner::Accumulator(drainer.into_new_accumulator()?);
-        }
-
-        Ok(self)
-    }
+    Ok(())
 }

@@ -313,6 +313,7 @@ pub mod collection_spec {
             Sqlite = 1,
             Typescript = 2,
             Image = 3,
+            Local = 4,
         }
         impl ConnectorType {
             /// String value of the enum field names used in the ProtoBuf definition.
@@ -325,6 +326,7 @@ pub mod collection_spec {
                     ConnectorType::Sqlite => "SQLITE",
                     ConnectorType::Typescript => "TYPESCRIPT",
                     ConnectorType::Image => "IMAGE",
+                    ConnectorType::Local => "LOCAL",
                 }
             }
             /// Creates an enum from field names used in the ProtoBuf definition.
@@ -334,6 +336,7 @@ pub mod collection_spec {
                     "SQLITE" => Some(Self::Sqlite),
                     "TYPESCRIPT" => Some(Self::Typescript),
                     "IMAGE" => Some(Self::Image),
+                    "LOCAL" => Some(Self::Local),
                     _ => None,
                 }
             }
@@ -471,6 +474,7 @@ pub mod capture_spec {
     pub enum ConnectorType {
         Invalid = 0,
         Image = 7,
+        Local = 8,
     }
     impl ConnectorType {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -481,6 +485,7 @@ pub mod capture_spec {
             match self {
                 ConnectorType::Invalid => "INVALID",
                 ConnectorType::Image => "IMAGE",
+                ConnectorType::Local => "LOCAL",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -488,6 +493,7 @@ pub mod capture_spec {
             match value {
                 "INVALID" => Some(Self::Invalid),
                 "IMAGE" => Some(Self::Image),
+                "LOCAL" => Some(Self::Local),
                 _ => None,
             }
         }
@@ -597,8 +603,8 @@ pub mod materialization_spec {
     #[repr(i32)]
     pub enum ConnectorType {
         Invalid = 0,
-        Sqlite = 2,
         Image = 8,
+        Local = 9,
     }
     impl ConnectorType {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -608,16 +614,16 @@ pub mod materialization_spec {
         pub fn as_str_name(&self) -> &'static str {
             match self {
                 ConnectorType::Invalid => "INVALID",
-                ConnectorType::Sqlite => "SQLITE",
                 ConnectorType::Image => "IMAGE",
+                ConnectorType::Local => "LOCAL",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
         pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
             match value {
                 "INVALID" => Some(Self::Invalid),
-                "SQLITE" => Some(Self::Sqlite),
                 "IMAGE" => Some(Self::Image),
+                "LOCAL" => Some(Self::Local),
                 _ => None,
             }
         }

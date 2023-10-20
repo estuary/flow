@@ -168,7 +168,7 @@ impl DiscoverHandler {
         )
         .await?;
 
-        let mut catalog = match result {
+        let catalog = match result {
             Ok(cat) => cat,
             Err(errors) => {
                 draft::insert_errors(row.draft_id, errors, txn).await?;
@@ -176,31 +176,37 @@ impl DiscoverHandler {
             }
         };
 
-        // Prune out any unchanged specs, but only if we're automatically publishing.
-        // If a user is interactively discovering, then the UI will need all the specs,
-        // even if they haven't changed.
-        if row.auto_publish {
-            let all_names = catalog.all_spec_names().collect();
-            let existing_spec_hashes =
-                agent_sql::discovers::fetch_spec_md5_hashes(txn, all_names).await?;
-            sources::remove_unchanged_specs(&existing_spec_hashes, &mut catalog);
-        }
-
-        if catalog.is_empty() {
-            return Ok((
-                row.id,
-                JobStatus::Success {
-                    publication_id: None,
-                    specs_unchanged: true,
-                },
-            ));
-        }
-
+        let drafted_spec_count = catalog.spec_count();
         draft::upsert_specs(row.draft_id, catalog, txn)
             .await
             .context("inserting draft specs")?;
 
         let publication_id = if row.auto_publish {
+            // Delete any draft specs that are identical to their live specs,
+            // but only if we're going to create a publication automatically.
+            // In the interactive case, these specs are still currently needed
+            // by the UI. In the future, we may be able to unconditionally prune
+            // these specs after doing some additional UI work.
+            let pruned_specs =
+                agent_sql::drafts::prune_unchanged_draft_specs(row.draft_id, txn).await?;
+
+            tracing::info!(
+                drafted_spec_count,
+                n_pruned = pruned_specs.len(),
+                "pruned draft"
+            );
+            tracing::debug!(?pruned_specs, "pruned unchanged draft specs");
+
+            if pruned_specs.len() == drafted_spec_count {
+                return Ok((
+                    row.id,
+                    JobStatus::Success {
+                        publication_id: None,
+                        specs_unchanged: true,
+                    },
+                ));
+            }
+
             let detail = format!(
                 "system created publication in response to discover: {}",
                 row.id

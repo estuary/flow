@@ -34,6 +34,7 @@ use std::sync::Arc;
 //  - Acknowledged: Forward.
 
 mod image;
+mod local;
 
 pub type BoxStream = futures::stream::BoxStream<'static, tonic::Result<Response>>;
 
@@ -89,20 +90,20 @@ where
         let request_rx = adjust_log_level(request_rx, self.set_log_level);
 
         let response_rx = match endpoint {
-            models::MaterializationEndpoint::Connector(models::ConnectorConfig { .. }) => {
-                image::connector(
-                    self.log_handler,
-                    &self.container_network,
-                    request_rx,
-                    &self.task_name,
-                )
-                .boxed()
-            }
-
-            models::MaterializationEndpoint::Sqlite(_) => {
-                return Err(tonic::Status::invalid_argument(
-                    "SQLite materializations are not supported and will be removed",
+            models::MaterializationEndpoint::Connector(_) => image::connector(
+                self.log_handler,
+                &self.container_network,
+                request_rx,
+                &self.task_name,
+            )
+            .boxed(),
+            models::MaterializationEndpoint::Local(_) if !self.allow_local => {
+                return Err(tonic::Status::failed_precondition(
+                    "Local connectors are not permitted in this context",
                 ))
+            }
+            models::MaterializationEndpoint::Local(_) => {
+                local::connector(self.log_handler, request_rx).boxed()
             }
         };
 
@@ -168,6 +169,13 @@ fn extract_endpoint<'r>(
         Ok((
             models::MaterializationEndpoint::Connector(
                 serde_json::from_str(config_json).context("parsing connector config")?,
+            ),
+            config_json,
+        ))
+    } else if connector_type == ConnectorType::Local as i32 {
+        Ok((
+            models::MaterializationEndpoint::Local(
+                serde_json::from_str(config_json).context("parsing local config")?,
             ),
             config_json,
         ))

@@ -92,6 +92,7 @@ pub async fn walk_all_derivations(
             collection: this_collection,
             validated: _,
             spec: flow::CollectionSpec { name, .. },
+            inferred_schema_md5: _,
         } = &built_collections[built_index];
         let scope = Scope::new(scope);
 
@@ -277,6 +278,7 @@ fn walk_derive_request<'a>(
         collection: _,
         validated: _,
         spec,
+        inferred_schema_md5: _,
     } = &built_collections[built_index];
 
     let scope = Scope::new(scope);
@@ -320,6 +322,10 @@ fn walk_derive_request<'a>(
     let (connector_type, config_json) = match using {
         models::DeriveUsing::Connector(config) => (
             ConnectorType::Image as i32,
+            serde_json::to_string(config).unwrap(),
+        ),
+        models::DeriveUsing::Local(config) => (
+            ConnectorType::Local as i32,
             serde_json::to_string(config).unwrap(),
         ),
         models::DeriveUsing::Sqlite(config) => (

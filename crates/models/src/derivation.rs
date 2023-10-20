@@ -1,5 +1,5 @@
 use super::{
-    is_false, CompositeKey, ConnectorConfig, DeriveUsingSqlite, DeriveUsingTypescript, RawValue,
+    CompositeKey, ConnectorConfig, DeriveUsingSqlite, DeriveUsingTypescript, LocalConfig, RawValue,
     ShardTemplate, Source, Transform,
 };
 use schemars::{schema::Schema, JsonSchema};
@@ -36,6 +36,8 @@ pub enum DeriveUsing {
     Sqlite(DeriveUsingSqlite),
     /// # A TypeScript derivation.
     Typescript(DeriveUsingTypescript),
+    /// # A local command (development only).
+    Local(LocalConfig),
 }
 
 /// A Transform reads and shuffles documents of a source collection,
@@ -85,7 +87,7 @@ pub struct TransformDef {
 
     /// # Whether to disable this transform.
     /// Disabled transforms are completely ignored at runtime and are not validated.
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "super::is_false")]
     pub disable: bool,
 }
 

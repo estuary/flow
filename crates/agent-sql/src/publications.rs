@@ -152,6 +152,25 @@ pub async fn insert_new_live_specs(
     Ok(rows.rows_affected())
 }
 
+pub async fn add_inferred_schema_md5(
+    live_spec_id: Id,
+    inferred_schema_md5: Option<String>,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        r#"
+        update live_specs set inferred_schema_md5 = $1
+        where id = $2
+        returning 1 as "must_exist"
+        "#,
+        inferred_schema_md5 as Option<String>,
+        live_spec_id as Id,
+    )
+    .fetch_one(txn)
+    .await?;
+    Ok(())
+}
+
 pub async fn add_built_specs<S>(
     live_spec_id: Id,
     built_spec: S,
@@ -644,6 +663,7 @@ pub async fn resolve_collections(
 pub struct InferredSchemaRow {
     pub collection_name: String,
     pub schema: Json<Box<RawValue>>,
+    pub md5: String,
 }
 
 pub async fn get_inferred_schemas(
@@ -654,7 +674,8 @@ pub async fn get_inferred_schemas(
         InferredSchemaRow,
         r#"select
             collection_name,
-            schema as "schema!: Json<Box<RawValue>>"
+            schema as "schema!: Json<Box<RawValue>>",
+            md5 as "md5!: String"
             from inferred_schemas
             where collection_name = ANY($1::text[])
             "#,

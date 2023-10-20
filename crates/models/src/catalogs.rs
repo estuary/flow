@@ -75,12 +75,18 @@ impl Catalog {
             .chain(self.tests.keys().map(AsRef::<str>::as_ref))
     }
 
+    /// Returns the total number of specifications that are directly included in this catalog.
+    /// This does not include storage mappings or any specs that may be indirectly included via `import`.
+    pub fn spec_count(&self) -> usize {
+        self.collections.len()
+            + self.captures.len()
+            + self.materializations.len()
+            + self.tests.len()
+    }
+
     /// Returns true if this catalog does not contain any specs.
     pub fn is_empty(&self) -> bool {
-        self.collections.is_empty()
-            && self.materializations.is_empty()
-            && self.captures.is_empty()
-            && self.tests.is_empty()
+        self.spec_count() == 0
     }
 }
 

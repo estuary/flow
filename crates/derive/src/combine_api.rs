@@ -1,7 +1,10 @@
 use crate::{new_validator, DebugJson, DocCounter, JsonError, StatsAccumulator};
 use anyhow::Context;
 use bytes::Buf;
-use doc::shape::{limits::{enforce_shape_complexity_limit, DEFAULT_SCHEMA_COMPLEXITY_LIMIT}, schema::to_schema};
+use doc::shape::{
+    limits::{enforce_shape_complexity_limit, DEFAULT_SCHEMA_COMPLEXITY_LIMIT},
+    schema::to_schema,
+};
 use prost::Message;
 use proto_flow::flow::combine_api::{self, Code};
 
@@ -125,13 +128,14 @@ impl cgo::Service for API {
                     s => Some(doc::Pointer::from(s)),
                 };
 
-                let validator = new_validator(&schema_json)?;
-
-                let combiner = doc::Combiner::new(
+                let spec = doc::combine::Spec::with_one_binding(
                     key_ex.clone(),
                     None,
+                    new_validator(&schema_json)?,
+                );
+                let combiner = doc::Combiner::new(
+                    spec,
                     tempfile::tempfile().context("opening temporary spill file")?,
-                    validator,
                 )?;
 
                 // If `infer_schema_json` is non-empty then enable schema inference
@@ -178,7 +182,7 @@ impl cgo::Service for API {
 
                 let memtable = accumulator.memtable()?;
                 let doc = parse_node_with_placeholder(memtable, data, &state.uuid_placeholder_ptr)?;
-                memtable.add(doc, true)?;
+                memtable.add(0, doc, true)?;
 
                 self.state = Some(state);
                 Ok(())
@@ -194,7 +198,7 @@ impl cgo::Service for API {
 
                 let memtable = accumulator.memtable()?;
                 let doc = parse_node_with_placeholder(memtable, data, &state.uuid_placeholder_ptr)?;
-                memtable.add(doc, false)?;
+                memtable.add(0, doc, false)?;
 
                 self.state = Some(state);
                 Ok(())
@@ -284,24 +288,28 @@ pub fn drain_chunk(
     // Convert target from a delta to an absolute target length of the arena.
     let target_length = target_length + arena.len();
 
-    drainer.drain_while(|doc, fully_reduced| {
+    while let Some(drained) = drainer.next() {
+        let doc::combine::DrainedDoc {
+            binding: _, // Always zero.
+            reduced,
+            root,
+        } = drained?;
+
         if let Some(ref mut shape) = shape {
-            let changed = match &doc {
-                doc::LazyNode::Node(n) => shape.widen(*n),
-                doc::LazyNode::Heap(h) => shape.widen(h),
-            };
-            if changed {
+            if shape.widen_owned(&root) {
                 enforce_shape_complexity_limit(shape, DEFAULT_SCHEMA_COMPLEXITY_LIMIT);
                 *did_change = true;
             }
         }
+
         // Send serialized document.
         let begin = arena.len();
         let w: &mut Vec<u8> = &mut *arena;
-        serde_json::to_writer(w, &doc).expect("encoding cannot fail");
-        // Only here do we know the actual length of the document in its serialized form.
+        serde_json::to_writer(w, &root).expect("encoding cannot fail");
+
+        // Only now do we know the actual length of the document in its serialized form.
         stats.increment(arena.len() - begin);
-        if fully_reduced {
+        if reduced {
             cgo::send_bytes(Code::DrainedReducedDocument as u32, begin, arena, out);
         } else {
             cgo::send_bytes(Code::DrainedCombinedDocument as u32, begin, arena, out);
@@ -310,24 +318,26 @@ pub fn drain_chunk(
         // Send packed key followed by packed additional fields.
         for (code, extractors) in [(Code::DrainedKey, key_ex), (Code::DrainedFields, fields_ex)] {
             let begin = arena.len();
-            match &doc {
-                doc::LazyNode::Heap(n) => {
+            match &root {
+                doc::OwnedNode::Heap(n) => {
                     for ex in extractors {
-                        ex.extract(n, arena).unwrap();
+                        ex.extract(n.get(), arena).unwrap();
                     }
                 }
-                doc::LazyNode::Node(n) => {
+                doc::OwnedNode::Archived(n) => {
                     for ex in extractors {
-                        ex.extract(*n, arena).unwrap();
+                        ex.extract(n.get(), arena).unwrap();
                     }
                 }
             }
             cgo::send_bytes(code as u32, begin, arena, out);
         }
 
-        // Keep going if we have remaining arena length.
-        Ok::<_, doc::combine::Error>(arena.len() < target_length)
-    })
+        if arena.len() > target_length {
+            return Ok(true); // There's more but yield now.
+        }
+    }
+    return Ok(false); // All done.
 }
 
 #[cfg(test)]

@@ -60,6 +60,7 @@ impl JobStatus {
 /// A PublishHandler is a Handler which publishes catalog specifications.
 pub struct PublishHandler {
     agent_user_email: String,
+    allow_local: bool,
     bindir: String,
     broker_address: url::Url,
     builds_root: url::Url,
@@ -72,6 +73,7 @@ pub struct PublishHandler {
 impl PublishHandler {
     pub fn new(
         agent_user_email: impl Into<String>,
+        allow_local: bool,
         bindir: &str,
         broker_address: &url::Url,
         builds_root: &url::Url,
@@ -82,6 +84,7 @@ impl PublishHandler {
     ) -> Self {
         Self {
             agent_user_email: agent_user_email.into(),
+            allow_local,
             bindir: bindir.to_string(),
             broker_address: broker_address.clone(),
             builds_root: builds_root.clone(),
@@ -321,6 +324,7 @@ impl PublishHandler {
         let tmpdir = tmpdir_handle.path();
 
         let build_output = builds::build_catalog(
+            self.allow_local,
             &self.builds_root,
             &draft_catalog,
             &self.connector_network,
@@ -393,7 +397,7 @@ impl PublishHandler {
         }
 
         // Add built specs to the live spec when publishing a build.
-        specs::add_built_specs_to_live_specs(&spec_rows, &pruned_collections, &build_output, txn)
+        specs::add_build_output_to_live_specs(&spec_rows, &pruned_collections, &build_output, txn)
             .await
             .context("adding built specs to live specs")?;
 

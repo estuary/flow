@@ -81,10 +81,13 @@ CREATE USER flow_capture WITH PASSWORD 'secret' REPLICATION;
 CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
 GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
 CREATE PUBLICATION flow_publication;
+ALTER PUBLICATION flow_publication SET (publish_via_partition_root = true);
 ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
 ```
 
-where `<other_tables>` lists all tables that will be captured from.
+where `<other_tables>` lists all tables that will be captured from. The `publish_via_partition_root`
+setting is recommended (because most users will want changes to a partitioned table to be captured
+under the name of the root table) but is not required.
 
 4. Set WAL level to logical:
 ```sql
@@ -98,8 +101,9 @@ ALTER SYSTEM SET wal_level = logical;
 1. Allow connections to the database from the Estuary Flow IP address.
 
    1. [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
+      See directions below to use a SSH Tunnel instead of enabling public access.
 
-   2. Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
+   3. Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
       Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
       Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
 
@@ -135,10 +139,13 @@ and set up the watermarks table and publication.
   CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
   GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
   CREATE PUBLICATION flow_publication;
+  ALTER PUBLICATION flow_publication SET (publish_via_partition_root = true);
   ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
   ```
 
-  where `<other_tables>` lists all tables that will be captured from.
+  where `<other_tables>` lists all tables that will be captured from. The `publish_via_partition_root`
+  setting is recommended (because most users will want changes to a partitioned table to be captured
+  under the name of the root table) but is not required.
 
 6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
 
@@ -151,8 +158,9 @@ For each step, take note of which entity you're working with.
 1. Allow connections to the DB instance from the Estuary Flow IP address.
 
    1. [Modify the instance](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Modifying.html#Aurora.Modifying.Instance), choosing **Publicly accessible** in the **Connectivity** settings.
+      See directions below to use a SSH Tunnel instead of enabling public access.
 
-   2. Edit the VPC security group associated with your instance, or create a new VPC security group and associate it with the instance.
+   3. Edit the VPC security group associated with your instance, or create a new VPC security group and associate it with the instance.
       Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
       Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
 
@@ -188,10 +196,13 @@ and set up the watermarks table and publication.
   CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
   GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
   CREATE PUBLICATION flow_publication;
+  ALTER PUBLICATION flow_publication SET (publish_via_partition_root = true);
   ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
   ```
 
-  where `<other_tables>` lists all tables that will be captured from.
+  where `<other_tables>` lists all tables that will be captured from. The `publish_via_partition_root`
+  setting is recommended (because most users will want changes to a partitioned table to be captured
+  under the name of the root table) but is not required.
 
 6. In the [RDS console](https://console.aws.amazon.com/rds/), note the instance's Endpoint and Port. You'll need these for the `address` property when you configure the connector.
 
@@ -200,7 +211,7 @@ and set up the watermarks table and publication.
 1. Allow connections to the database from the Estuary Flow IP address.
 
    1. [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add
-      `34.121.207.128` as an authorized IP address.
+      `34.121.207.128` as an authorized IP address.  See directions below to use a SSH Tunnel instead of enabling public access.
 
    :::info
    Alternatively, you can allow secure connections via SSH tunneling. To do so:
@@ -224,10 +235,13 @@ and set up the watermarks table and publication.
   CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
   GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
   CREATE PUBLICATION flow_publication;
+  ALTER PUBLICATION flow_publication SET (publish_via_partition_root = true);
   ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
   ```
 
-  where `<other_tables>` lists all tables that will be captured from.
+  where `<other_tables>` lists all tables that will be captured from. The `publish_via_partition_root`
+  setting is recommended (because most users will want changes to a partitioned table to be captured
+  under the name of the root table) but is not required.
 
 4. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `5432`.
 Together, you'll use the host:port as the `address` property when you configure the connector.
@@ -285,7 +299,9 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public, <others> TO flow_capture;
 GRANT SELECT ON information_schema.columns, information_schema.tables, pg_catalog.pg_attribute, pg_catalog.pg_class, pg_catalog.pg_index, pg_catalog.pg_namespace TO flow_capture;
 CREATE TABLE IF NOT EXISTS public.flow_watermarks (slot TEXT PRIMARY KEY, watermark TEXT);
 GRANT ALL PRIVILEGES ON TABLE public.flow_watermarks TO flow_capture;
-CREATE PUBLICATION flow_publication FOR TABLE schema.table1, schema.table2;
+CREATE PUBLICATION flow_publication;
+ALTER PUBLICATION flow_publication SET (publish_via_partition_root = true);
+ALTER PUBLICATION flow_publication ADD TABLE public.flow_watermarks, <other_tables>;
 ```
 
 5. Note the following important items for configuration:
@@ -399,7 +415,7 @@ WAL to record all values regardless of size. However, this can have performance 
 It is recommended that the publication used by the capture only contain the tables that will be captured. In some cases it may be desirable to create this publication for all tables in the database instead of specific tables, for example using:
 
 ```sql
-CREATE PUBLICATION flow_publication FOR ALL TABLES;
+CREATE PUBLICATION flow_publication FOR ALL TABLES WITH (publish_via_partition_root = true);
 ```
 
 Caution must be used if creating the publication in this way as all existing tables (even those not part of the capture) will be included in it, and if any of them do not have a primary key they will no longer be able to process updates or deletes.

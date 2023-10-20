@@ -19,6 +19,7 @@ message TaskServiceConfig {
   string task_name = 2;
   string uds_path = 3;
   string container_network = 4;
+  bool   allow_local = 5;
 }
 
 // ShuffleRequest is the request message of a Shuffle RPC.

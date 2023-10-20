@@ -24,41 +24,47 @@ pub enum FuzzError {
 }
 
 fn run_sequence(seq: Vec<(u8, u8, bool)>) -> Result<(), FuzzError> {
-    let schema = build_schema(
-        url::Url::parse("http://schema").unwrap(),
-        &json!({
-            "type": "object",
-            "properties": {
-                "key": {"type": "integer"},
-                "arr": {
-                    "type": "array",
-                    "items": { "type": "integer" },
-                    "reduce": { "strategy": "append" }
-                }
-            },
-            "required": ["key"],
-            "additionalProperties": false,
-            "reduce": { "strategy": "merge" }
-        }),
-    )
-    .unwrap();
+    let spec = combine::Spec::with_bindings(
+        std::iter::repeat_with(|| {
+            let schema = build_schema(
+                url::Url::parse("http://example/schema").unwrap(),
+                &json!({
+                    "type": "object",
+                    "properties": {
+                        "key": {"type": "integer"},
+                        "arr": {
+                            "type": "array",
+                            "items": { "type": "integer" },
+                            "reduce": { "strategy": "append" }
+                        }
+                    },
+                    "required": ["key"],
+                    "additionalProperties": false,
+                    "reduce": { "strategy": "merge" }
+                }),
+            )
+            .unwrap();
+
+            (
+                vec![Extractor::new("/key")],
+                None,
+                Validator::new(schema).unwrap(),
+            )
+        })
+        .take(2),
+    );
 
     let mut spill = combine::SpillWriter::new(std::io::Cursor::new(Vec::new())).unwrap();
-    let chunk_target = (1 << 20)..(1 << 21);
-    let mut memtable = combine::MemTable::new(
-        vec![Extractor::new("/key")].into(),
-        None,
-        Validator::new(schema).unwrap(),
-    );
+    let chunk_target = 1 << 20;
+    let mut memtable = combine::MemTable::new(spec);
     let mut expect = BTreeMap::new();
 
     let mut buf = Vec::new();
     for (i, (seq_key, seq_value, mut is_reduce)) in seq.into_iter().enumerate() {
         // Produce an empirically reasonable number of spills, given quickcheck's defaults.
         if i % 15 == 0 {
-            let (key, schema, validator) =
-                memtable.spill(&mut spill, chunk_target.clone()).unwrap();
-            memtable = combine::MemTable::new(key, schema, validator);
+            let spec = memtable.spill(&mut spill, chunk_target).unwrap();
+            memtable = combine::MemTable::new(spec);
         }
 
         buf.clear();
@@ -85,36 +91,33 @@ fn run_sequence(seq: Vec<(u8, u8, bool)>) -> Result<(), FuzzError> {
             })
             .or_insert_with(|| (vec![seq_value], is_reduce));
 
-        memtable.add(doc, is_reduce).unwrap();
+        let binding = if seq_key < 128 { 0 } else { 1 };
+        memtable.add(binding, doc, is_reduce).unwrap();
     }
 
     // Spill final MemTable and begin to drain.
-    let (key, schema, validator) = memtable.spill(&mut spill, chunk_target.clone()).unwrap();
+    let spec = memtable.spill(&mut spill, chunk_target).unwrap();
     let (spill, ranges) = spill.into_parts();
-    let mut drainer = combine::SpillDrainer::new(key, schema, spill, &ranges, validator).unwrap();
+    let drainer = combine::SpillDrainer::new(spec, spill, &ranges).unwrap();
 
-    let mut count = 0;
     let mut expect_it = expect.into_iter();
 
-    while drainer.drain_while(|node, reduced| {
-        count += 1;
-
-        let actual = json!([node, reduced]);
+    for drained_doc in drainer {
+        let drained_doc = drained_doc?;
+        let actual = json!([drained_doc.root, drained_doc.reduced]);
 
         match expect_it.next() {
             Some((key, (values, reduced))) => {
                 let expect = json!([{"key": key, "arr": values}, reduced]);
                 // eprintln!("key {key} values {values:?}");
 
-                if actual == expect {
-                    Ok(count % 13 == 0) // Restart drain_while() periodically.
-                } else {
-                    Err(FuzzError::Mismatch { actual, expect })
+                if actual != expect {
+                    return Err(FuzzError::Mismatch { actual, expect });
                 }
             }
-            None => Err(FuzzError::Unexpected(actual)),
+            None => return Err(FuzzError::Unexpected(actual)),
         }
-    })? {}
+    }
 
     Ok(())
 }

@@ -9,7 +9,7 @@ pub(crate) async fn load_and_validate(
 ) -> anyhow::Result<(tables::Sources, tables::Validations)> {
     let source = build::arg_source_to_url(source, false)?;
     let sources = surface_errors(load(&source).await.into_result())?;
-    let (sources, validations) = validate(client, true, false, true, sources).await;
+    let (sources, validations) = validate(client, true, false, true, sources, "").await;
     Ok((sources, surface_errors(validations.into_result())?))
 }
 
@@ -17,10 +17,11 @@ pub(crate) async fn load_and_validate(
 pub(crate) async fn load_and_validate_full(
     client: crate::controlplane::Client,
     source: &str,
+    network: &str,
 ) -> anyhow::Result<(tables::Sources, tables::Validations)> {
     let source = build::arg_source_to_url(source, false)?;
     let sources = surface_errors(load(&source).await.into_result())?;
-    let (sources, validations) = validate(client, false, false, false, sources).await;
+    let (sources, validations) = validate(client, false, false, false, sources, network).await;
     Ok((sources, surface_errors(validations.into_result())?))
 }
 
@@ -29,7 +30,7 @@ pub(crate) async fn generate_files(
     client: crate::controlplane::Client,
     sources: tables::Sources,
 ) -> anyhow::Result<()> {
-    let (mut sources, validations) = validate(client, true, false, true, sources).await;
+    let (mut sources, validations) = validate(client, true, false, true, sources, "").await;
 
     let project_root = build::project_root(&sources.fetches[0].resource);
     build::generate_files(&project_root, &validations)?;
@@ -72,13 +73,15 @@ async fn validate(
     noop_derivations: bool,
     noop_materializations: bool,
     sources: tables::Sources,
+    network: &str,
 ) -> (tables::Sources, tables::Validations) {
     let source = &sources.fetches[0].resource.clone();
     let project_root = build::project_root(source);
 
     let (sources, mut validations) = build::validate(
+        true, // Allow local connectors.
         "local-build",
-        "", // Use default connector network.
+        network,
         &Resolver { client },
         false, // Don't generate ops collections.
         ops::tracing_log_handler,
@@ -253,12 +256,15 @@ impl validation::ControlPlane for Resolver {
     fn get_inferred_schemas<'a>(
         &'a self,
         collections: Vec<models::Collection>,
-    ) -> BoxFuture<'a, anyhow::Result<std::collections::BTreeMap<models::Collection, models::Schema>>>
-    {
+    ) -> BoxFuture<
+        'a,
+        anyhow::Result<std::collections::BTreeMap<models::Collection, validation::InferredSchema>>,
+    > {
         #[derive(serde::Deserialize, Clone)]
         struct Row {
             pub collection_name: models::Collection,
             pub schema: models::Schema,
+            pub md5: String,
         }
 
         let rows = collections
@@ -269,7 +275,7 @@ impl validation::ControlPlane for Resolver {
                 let builder = self
                     .client
                     .from("inferred_schemas")
-                    .select("collection_name,schema")
+                    .select("collection_name,schema,md5")
                     .in_("collection_name", names);
 
                 async move { crate::api_exec::<Vec<Row>>(builder).await }
@@ -287,7 +293,10 @@ impl validation::ControlPlane for Resolver {
                         |Row {
                              collection_name,
                              schema,
-                         }| (collection_name, schema),
+                             md5,
+                         }| {
+                            (collection_name, validation::InferredSchema { schema, md5 })
+                        },
                     )
                 })
                 .flatten()

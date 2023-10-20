@@ -75,6 +75,14 @@ test://example/int-string:
           - { $ref: flow://inferred-schema }
       key: [/int]
 
+    testing/int-string-inferred-not-found:
+      writeSchema: test://example/int-string.schema
+      readSchema:
+        allOf:
+          - { $ref: flow://write-schema }
+          - { $ref: flow://inferred-schema }
+      key: [/int]
+
 test://example/int-string-captures:
   import:
     - test://example/int-string

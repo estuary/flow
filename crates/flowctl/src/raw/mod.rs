@@ -9,6 +9,7 @@ use std::{
 mod capture;
 mod discover;
 mod materialize_fixture;
+mod spec;
 mod suggest_schema;
 
 #[derive(Debug, clap::Args)]
@@ -52,6 +53,8 @@ pub enum Command {
     Discover(discover::Discover),
     /// Run a capture connector and combine its documents
     Capture(capture::Capture),
+    /// Get the spec output of a connector
+    Spec(spec::Spec),
     /// Suggest a schema that would alleviate document schema violations of a specific collection
     SuggestSchema(suggest_schema::SuggestSchema),
     /// Emit the Flow specification JSON-Schema.
@@ -145,6 +148,7 @@ impl Advanced {
             }
             Command::Discover(args) => discover::do_discover(ctx, args).await,
             Command::Capture(args) => capture::do_capture(ctx, args).await,
+            Command::Spec(args) => spec::do_spec(ctx, args).await,
             Command::SuggestSchema(args) => suggest_schema::do_suggest_schema(ctx, args).await,
             Command::JsonSchema => {
                 let schema = models::Catalog::root_json_schema();
@@ -206,6 +210,7 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
     let project_root = build::project_root(&source_url);
 
     let build_result = build::managed_build(
+        true, // Allow local connectors.
         build_id.clone(),
         connector_network.clone(),
         Box::new(local_specs::Resolver { client }),
@@ -260,10 +265,12 @@ async fn do_combine(
     };
 
     let mut accumulator = combine::Accumulator::new(
-        extractors::for_key(&collection.spec.key, &collection.spec.projections)?.into(),
-        None,
+        combine::Spec::with_one_binding(
+            extractors::for_key(&collection.spec.key, &collection.spec.projections)?,
+            None,
+            doc::Validator::new(schema).unwrap(),
+        ),
         tempfile::tempfile().context("opening tempfile")?,
-        doc::Validator::new(schema).unwrap(),
     )?;
 
     let mut in_docs = 0usize;
@@ -283,22 +290,19 @@ async fn do_combine(
 
         in_docs += 1;
         in_bytes += line.len() + 1;
-        memtable.add(rhs, false)?;
+        memtable.add(0, rhs, false)?;
     }
 
     let mut out = io::BufWriter::new(io::stdout().lock());
 
     let mut drainer = accumulator.into_drainer()?;
-    assert_eq!(
-        false,
-        drainer.drain_while(|node, _fully_reduced| {
-            serde_json::to_writer(&mut out, &node).context("writing document to stdout")?;
-            out.write(b"\n")?;
-            out_docs += 1;
-            Ok::<_, anyhow::Error>(true)
-        })?,
-        "implementation error: drain_while exited with remaining items to drain"
-    );
+    while let Some(drained) = drainer.next() {
+        let drained = drained?;
+
+        serde_json::to_writer(&mut out, &drained.root).context("writing document to stdout")?;
+        out.write(b"\n")?;
+        out_docs += 1;
+    }
     out.flush()?;
 
     tracing::info!(

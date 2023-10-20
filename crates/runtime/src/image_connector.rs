@@ -78,7 +78,7 @@ enum State<Request> {
         container_status: JoinHandle<tonic::Result<()>>,
         unseal: UnsealFuture<Request>,
     },
-    // Requests reach EOF. We've sent EOF into the container and are
+    // Requests reached EOF. We've sent EOF into the container and are
     // draining its final responses.
     Draining {
         container_status: JoinHandle<tonic::Result<()>>,
@@ -111,15 +111,15 @@ where
         (
             Self {
                 attach_container,
-                unseal,
+                log_handler,
                 network: network.to_string(),
                 request_rx,
-                start_rpc,
                 response_tx,
+                start_rpc,
                 state: State::<Request>::Idle,
                 task_name: task_name.to_string(),
-                log_handler,
                 task_type,
+                unseal,
             },
             response_rx,
         )

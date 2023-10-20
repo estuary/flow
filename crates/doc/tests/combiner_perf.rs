@@ -100,13 +100,12 @@ pub fn combiner_perf() {
     let key_dist = rand_distr::Zipf::new(u64::MAX, ZIPF_PARAM).unwrap();
 
     // Initialize the combiner itself.
-    let mut accum = doc::combine::Accumulator::new(
-        vec![Extractor::new("/key")].into(),
+    let spec = doc::combine::Spec::with_one_binding(
+        vec![Extractor::new("/key")],
         None,
-        tempfile::tempfile().unwrap(),
         Validator::new(schema).unwrap(),
-    )
-    .unwrap();
+    );
+    let mut accum = doc::combine::Accumulator::new(spec, tempfile::tempfile().unwrap()).unwrap();
 
     // Begin to measure performance.
     let start_stats = allocator::current_mem_stats();
@@ -157,25 +156,18 @@ pub fn combiner_perf() {
         )
         .unwrap();
 
-        memtable.add(doc, false).unwrap();
+        memtable.add(0, doc, false).unwrap();
     }
 
     let peak_stats = allocator::current_mem_stats();
     let mut drained: usize = 0;
     let mut shape = doc::Shape::nothing();
 
-    let mut drainer = accum.into_drainer().unwrap();
-    while drainer
-        .drain_while(|entry, _reduce| {
-            drained += 1;
-            match entry {
-                doc::LazyNode::Heap(entry) => shape.widen(&entry),
-                doc::LazyNode::Node(entry) => shape.widen(entry),
-            };
-            Ok::<_, doc::combine::Error>(true)
-        })
-        .unwrap()
-    {}
+    for drained_doc in accum.into_drainer().unwrap() {
+        let drained_doc = drained_doc.unwrap();
+        drained += 1;
+        shape.widen_owned(&drained_doc.root);
+    }
 
     let duration = begin.elapsed();
     let trough_stats = allocator::current_mem_stats();

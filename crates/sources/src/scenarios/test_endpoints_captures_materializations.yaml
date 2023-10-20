@@ -43,6 +43,14 @@ test://example/catalog.yaml:
           config: raw-config.foo
       bindings: []
 
+    capture/local:
+      endpoint:
+        local:
+          command: [do-the-thing, --arg=one, --arg, two]
+          config:
+            some: local config
+      bindings: []
+
   materializations:
     a/materialization:
       sourceCapture: a/capture
@@ -93,10 +101,12 @@ test://example/catalog.yaml:
         - source: other/source/collection
           resource: referenced/not/found.yaml
 
-    to/sqlite:
+    materialization/local:
       endpoint:
-        sqlite:
-          path: relative/to/scope.db
+        local:
+          command: [do-the-thing, --arg=one, --arg, two]
+          config:
+            some: local config
       bindings:
         - source: final/source/collection
           resource: { table: "table_three" }
