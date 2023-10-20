@@ -98,7 +98,7 @@ group by
   live_specs.spec_type;
 grant select on data_processing_notifications_ext to authenticated;
 
-create extension pg_cron with schema extensions;
+create extension if not exists pg_cron with schema extensions;
 select
   cron.schedule (
     'evaluate-data-processing-notifications', -- name of the cron job
