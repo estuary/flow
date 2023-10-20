@@ -1,12 +1,12 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/estuary/flow/go/bindings"
@@ -135,8 +135,12 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		// TODO(johnny): Hack to address string truncation for these common materialization connectors
 		// that don't handle large strings very well. This should be negotiated via connector protocol.
 		var serPolicy = &pf.SerPolicy{}
-		for _, suffix := range []string{"/materialize-snowflake", "/materialize-redshift", "/materialize-sqlite"} {
-			if strings.HasSuffix(m.materialization.Name.String(), suffix) {
+		for _, needle := range []string{
+			"ghcr.io/estuary/materialize-snowflake",
+			"ghcr.io/estuary/materialize-redshift",
+			"ghcr.io/estuary/materialize-sqlite",
+		} {
+			if bytes.Contains(m.materialization.ConfigJson, []byte(needle)) {
 				serPolicy.StrTruncateAfter = 1 << 16 // Truncate at 64KB.
 			}
 		}
