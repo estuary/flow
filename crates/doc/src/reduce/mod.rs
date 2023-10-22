@@ -298,6 +298,29 @@ fn compare_key_lazy<L: AsNode, R: AsNode>(
     }
 }
 
+/// merge_patch_schema returns a JSON-Schema implementing the RFC-7396 Merge patch algorithm.
+pub fn merge_patch_schema() -> serde_json::Value {
+    serde_json::json!({
+        "oneOf": [
+            {
+                "type": "object",
+                "reduce": {"strategy": "merge"},
+                "additionalProperties": {"$ref": "#"}
+            },
+            {
+                "type": "null",
+                "reduce": {
+                    "strategy": "lastWriteWins",
+                    "delete": true,
+                }
+            },
+            {
+                "type": ["array", "boolean", "number", "string"]
+            }
+        ]
+    })
+}
+
 #[cfg(test)]
 pub mod test {
     use super::*;
