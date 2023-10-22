@@ -3,7 +3,7 @@ use super::{
     schema::json_schema_merge, Cursor, Error, Result,
 };
 use crate::{
-    lazy::{LazyDestructured, LazyField, LazyNode},
+    lazy::{LazyDestructured, LazyNode},
     AsNode, BumpVec, HeapNode, Node, Pointer,
 };
 use itertools::EitherOrBoth;
@@ -16,9 +16,9 @@ pub enum Strategy {
     /// done and the reduction is a no-op.
     Append,
     /// FirstWriteWins keeps the LHS value.
-    FirstWriteWins,
+    FirstWriteWins(FirstWriteWins),
     /// LastWriteWins takes the RHS value.
-    LastWriteWins,
+    LastWriteWins(LastWriteWins),
     /// Maximize keeps the greater of the LHS & RHS.
     /// A provided key, if present, determines the relative ordering.
     /// If values are equal, they're deeply merged.
@@ -89,42 +89,55 @@ impl std::convert::TryFrom<&serde_json::Value> for Strategy {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, PartialEq, Eq, Clone)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct FirstWriteWins {}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, PartialEq, Eq, Clone)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct LastWriteWins {
+    #[serde(default)]
+    pub delete: bool,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, PartialEq, Eq, Clone)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Maximize {
     #[serde(default)]
-    key: Vec<Pointer>,
+    pub key: Vec<Pointer>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, PartialEq, Eq, Clone)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Merge {
     #[serde(default)]
-    key: Vec<Pointer>,
+    pub key: Vec<Pointer>,
+    #[serde(default)]
+    pub delete: bool,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, PartialEq, Eq, Clone)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Minimize {
     #[serde(default)]
-    key: Vec<Pointer>,
+    pub key: Vec<Pointer>,
 }
 
 impl Strategy {
     pub fn apply<'alloc, 'schema, L: AsNode, R: AsNode>(
         &'schema self,
         cur: Cursor<'alloc, 'schema, '_, '_, '_, L, R>,
-    ) -> Result<HeapNode<'alloc>> {
+    ) -> Result<(HeapNode<'alloc>, bool)> {
         match self {
-            Strategy::Append => Self::append(cur),
-            Strategy::FirstWriteWins => Self::first_write_wins(cur),
-            Strategy::JsonSchemaMerge => json_schema_merge(cur),
-            Strategy::LastWriteWins => Self::last_write_wins(cur),
-            Strategy::Maximize(max) => Self::maximize(cur, max),
+            Strategy::Append => Ok((Self::append(cur)?, false)),
+            Strategy::FirstWriteWins(fww) => Ok((Self::first_write_wins(cur, fww), false)),
+            Strategy::JsonSchemaMerge => Ok((json_schema_merge(cur)?, false)),
+            Strategy::LastWriteWins(lww) => Ok(Self::last_write_wins(cur, lww)),
+            Strategy::Maximize(max) => Ok((Self::maximize(cur, max)?, false)),
             Strategy::Merge(merge) => Self::merge(cur, merge),
-            Strategy::Minimize(min) => Self::minimize(cur, min),
-            Strategy::Set(set) => set.apply(cur),
-            Strategy::Sum => Self::sum(cur),
+            Strategy::Minimize(min) => Ok((Self::minimize(cur, min)?, false)),
+            Strategy::Set(set) => Ok((set.apply(cur)?, false)),
+            Strategy::Sum => Ok((Self::sum(cur)?, false)),
         }
     }
 
@@ -173,23 +186,25 @@ impl Strategy {
 
     fn first_write_wins<'alloc, L: AsNode, R: AsNode>(
         cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
-    ) -> Result<HeapNode<'alloc>> {
+        _fww: &FirstWriteWins,
+    ) -> HeapNode<'alloc> {
         let Some(lhs) = cur.lhs else {
             let rhs = cur.rhs.into_heap_node(cur.alloc);
             *cur.tape = &cur.tape[count_nodes(&rhs)..];
-            return Ok(rhs);
+            return rhs;
         };
 
         *cur.tape = &cur.tape[count_nodes_lazy(&cur.rhs)..];
-        Ok(lhs.into_heap_node(cur.alloc))
+        lhs.into_heap_node(cur.alloc)
     }
 
     fn last_write_wins<'alloc, L: AsNode, R: AsNode>(
         cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
-    ) -> Result<HeapNode<'alloc>> {
+        lww: &LastWriteWins,
+    ) -> (HeapNode<'alloc>, bool) {
         let rhs = cur.rhs.into_heap_node(cur.alloc);
         *cur.tape = &cur.tape[count_nodes(&rhs)..];
-        Ok(rhs)
+        (rhs, cur.full && lww.delete)
     }
 
     fn min_max_helper<'alloc, L: AsNode, R: AsNode>(
@@ -219,35 +234,26 @@ impl Strategy {
             (true, true) => compare_key_lazy(&[Pointer::empty()], &rhs, &lhs),
         };
 
-        use std::cmp::Ordering;
-
-        match ord {
-            Ordering::Less => {
-                *tape = &tape[count_nodes_lazy(&rhs)..];
-                Ok(lhs.into_heap_node(alloc))
-            }
-            Ordering::Greater => {
-                let rhs = rhs.into_heap_node(alloc);
-                *tape = &tape[count_nodes(&rhs)..];
-                Ok(rhs)
-            }
-            Ordering::Equal if key.is_empty() => {
-                let rhs = rhs.into_heap_node(alloc);
-                *tape = &tape[count_nodes(&rhs)..];
-                Ok(rhs)
-            }
-            Ordering::Equal => {
-                // Lhs and RHS are equal on the chosen key. Deeply merge them.
-                let cur = Cursor {
-                    tape,
-                    loc,
-                    full,
-                    lhs: Some(lhs),
-                    rhs,
-                    alloc,
-                };
-                Self::merge_with_key(cur, &[])
-            }
+        if ord.is_lt() {
+            // Retain the LHS.
+            *tape = &tape[count_nodes_lazy(&rhs)..];
+            Ok(lhs.into_heap_node(alloc))
+        } else if key.is_empty() {
+            // When there's no key then each value is a complete and opaque blob,
+            // and we simply take the RHS.
+            let rhs = rhs.into_heap_node(alloc);
+            *tape = &tape[count_nodes(&rhs)..];
+            Ok(rhs)
+        } else {
+            let cur = Cursor {
+                tape,
+                loc,
+                full,
+                lhs: if ord.is_eq() { Some(lhs) } else { None },
+                rhs,
+                alloc,
+            };
+            Self::merge_with_key(cur, &[])
         }
     }
 
@@ -318,8 +324,9 @@ impl Strategy {
     fn merge<'alloc, L: AsNode, R: AsNode>(
         cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
         merge: &Merge,
-    ) -> Result<HeapNode<'alloc>> {
-        Self::merge_with_key(cur, &merge.key)
+    ) -> Result<(HeapNode<'alloc>, bool)> {
+        let delete = cur.full && merge.delete;
+        Ok((Self::merge_with_key(cur, &merge.key)?, delete))
     }
 
     fn merge_with_key<'alloc, L: AsNode, R: AsNode>(
@@ -344,13 +351,14 @@ impl Strategy {
 
                 let mut fields =
                     BumpVec::with_capacity_in(std::cmp::max(lhs.len(), rhs.len()), alloc);
-                for field in
-                    itertools::merge_join_by(lhs.into_iter(), rhs.into_iter(), |lhs, rhs| {
-                        lhs.property().cmp(rhs.property())
-                    })
-                    .map(|eob| reduce_prop(tape, loc, full, eob, alloc))
-                {
-                    fields.push(field?, alloc);
+
+                for eob in itertools::merge_join_by(lhs.into_iter(), rhs.into_iter(), |lhs, rhs| {
+                    lhs.property().cmp(rhs.property())
+                }) {
+                    let (field, delete) = reduce_prop::<L, R>(tape, loc, full, eob, alloc)?;
+                    if !delete {
+                        fields.push(field, alloc);
+                    }
                 }
                 Ok(HeapNode::Object(fields))
             }
@@ -359,16 +367,13 @@ impl Strategy {
                 *tape = &tape[1..]; // Increment for self.
 
                 let mut fields = BumpVec::with_capacity_in(rhs.len(), alloc);
-                for field in rhs.into_iter().map(|rhs| {
-                    reduce_prop(
-                        tape,
-                        loc,
-                        full,
-                        EitherOrBoth::<LazyField<'_, '_, L>, _>::Right(rhs),
-                        alloc,
-                    )
-                }) {
-                    fields.push(field?, alloc);
+
+                for rhs in rhs.into_iter() {
+                    let (field, delete) =
+                        reduce_prop::<L, R>(tape, loc, full, EitherOrBoth::Right(rhs), alloc)?;
+                    if !delete {
+                        fields.push(field, alloc);
+                    }
                 }
                 Ok(HeapNode::Object(fields))
             }
@@ -379,7 +384,8 @@ impl Strategy {
 
                 let mut items =
                     BumpVec::with_capacity_in(std::cmp::max(lhs.len(), rhs.len()), alloc);
-                for item in itertools::merge_join_by(
+
+                for eob in itertools::merge_join_by(
                     lhs.into_iter().enumerate(),
                     rhs.into_iter().enumerate(),
                     |(lhs_ind, lhs), (rhs_ind, rhs)| {
@@ -389,10 +395,11 @@ impl Strategy {
                             compare_key_lazy(key, lhs, rhs)
                         }
                     },
-                )
-                .map(|eob| reduce_item(tape, loc, full, eob, alloc))
-                {
-                    items.push(item?, alloc);
+                ) {
+                    let (item, delete) = reduce_item::<L, R>(tape, loc, full, eob, alloc)?;
+                    if !delete {
+                        items.push(item, alloc);
+                    }
                 }
                 Ok(HeapNode::Array(items))
             }
@@ -401,16 +408,13 @@ impl Strategy {
                 *tape = &tape[1..]; // Increment for self.
 
                 let mut items = BumpVec::with_capacity_in(rhs.len(), alloc);
-                for field in rhs.into_iter().enumerate().map(|rhs| {
-                    reduce_item(
-                        tape,
-                        loc,
-                        full,
-                        EitherOrBoth::<(usize, LazyNode<'_, '_, L>), _>::Right(rhs),
-                        alloc,
-                    )
-                }) {
-                    items.push(field?, alloc);
+
+                for rhs in rhs.into_iter().enumerate() {
+                    let (item, delete) =
+                        reduce_item::<L, R>(tape, loc, full, EitherOrBoth::Right(rhs), alloc)?;
+                    if !delete {
+                        items.push(item, alloc);
+                    }
                 }
                 Ok(HeapNode::Array(items))
             }
@@ -989,6 +993,96 @@ mod test {
                         {"k": "b", "v": [{"k": 1}, {"k": 3}, {"k": 5, "d": true}]},
                         {"k": "c", "v": [{"k": 9}]},
                     ])),
+                },
+            ],
+        )
+    }
+
+    #[test]
+    fn test_merge_array_deletion() {
+        run_reduce_cases(
+            json!({
+                "items": {
+                    "properties": {
+                        "k": {"type": "integer"},
+                    },
+                    "if": {
+                        "required": ["del"]
+                    },
+                    "then": {
+                        "reduce": {"strategy": "lastWriteWins", "delete": true}
+                    }
+                },
+                "reduce": {
+                    "strategy": "merge",
+                    "key": ["/k"],
+                },
+            }),
+            vec![
+                Partial {
+                    rhs: json!([{"k": 5}, {"k": 9}]),
+                    expect: Ok(json!([{"k": 5}, {"k": 9}])),
+                },
+                // When applied associatively, deletions have no effect.
+                Partial {
+                    rhs: json!([{"k": 5, "del": 1}, {"k": 6}]),
+                    expect: Ok(json!([{"k": 5, "del": 1}, {"k": 6}, {"k": 9}])),
+                },
+                Partial {
+                    rhs: json!([{"k": 5, "del": 1}]),
+                    expect: Ok(json!([{"k": 5, "del": 1}, {"k": 6}, {"k": 9}])),
+                },
+                // However full reductions will remove the nested location.
+                Full {
+                    rhs: json!([{"k": 5, "del": 1}, {"k": 7}]),
+                    expect: Ok(json!([{"k": 6}, {"k": 7}, {"k": 9}])),
+                },
+                Full {
+                    rhs: json!([{"k": 6, "del": 1}, {"k": 8}, {"k": 9, "del": 1}]),
+                    expect: Ok(json!([{"k": 7}, {"k": 8}])),
+                },
+            ],
+        )
+    }
+
+    #[test]
+    fn test_merge_object_deletion() {
+        run_reduce_cases(
+            json!({
+                "additionalProperties": {
+                    "if": {
+                        "const": "del"
+                    },
+                    "then": {
+                        "reduce": {"strategy": "lastWriteWins", "delete": true}
+                    }
+                },
+                "reduce": {
+                    "strategy": "merge"
+                },
+            }),
+            vec![
+                Partial {
+                    rhs: json!({"5": 5, "9": 9}),
+                    expect: Ok(json!({"5": 5, "9": 9})),
+                },
+                // When applied associatively, deletions have no effect.
+                Partial {
+                    rhs: json!({"5": "del", "6": 6}),
+                    expect: Ok(json!({"5": "del", "6": 6, "9": 9})),
+                },
+                Partial {
+                    rhs: json!({"5": "del"}),
+                    expect: Ok(json!({"5": "del", "6": 6, "9": 9})),
+                },
+                // However full reductions will remove the nested location.
+                Full {
+                    rhs: json!({"5": "del", "7": 7}),
+                    expect: Ok(json!({"6": 6, "7": 7, "9": 9})),
+                },
+                Full {
+                    rhs: json!({"6": "del", "8": 8, "9": "del"}),
+                    expect: Ok(json!({"7": 7, "8": 8})),
                 },
             ],
         )

@@ -459,7 +459,9 @@ mod test {
                 type_: types::STRING | types::ARRAY,
                 title: Some("a-title".into()),
                 description: Some("a-description".into()),
-                reduction: Reduction::Strategy(reduce::Strategy::FirstWriteWins),
+                reduction: Reduction::Strategy(
+                    reduce::Strategy::FirstWriteWins(Default::default()),
+                ),
                 provenance: Provenance::Inline,
                 default: Some(Box::new((
                     Value::String("john.doe@gmail.com".to_owned()),
@@ -499,7 +501,9 @@ mod test {
                 "#,
             ],
             Shape {
-                reduction: Reduction::Strategy(reduce::Strategy::FirstWriteWins),
+                reduction: Reduction::Strategy(
+                    reduce::Strategy::FirstWriteWins(Default::default()),
+                ),
                 provenance: Provenance::Inline,
                 ..Shape::anything()
             },
