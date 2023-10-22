@@ -38,9 +38,9 @@ fn reduce_description(reduce: Reduction) -> &'static str {
     match reduce {
         Reduction::Multiple => "multiple strategies may apply",
         Reduction::Strategy(Strategy::Append) => "append",
-        Reduction::Strategy(Strategy::FirstWriteWins) => "first-write-wins",
+        Reduction::Strategy(Strategy::FirstWriteWins(_)) => "first-write-wins",
         Reduction::Strategy(Strategy::JsonSchemaMerge) => "merge json schemas",
-        Reduction::Strategy(Strategy::LastWriteWins) => "last-write-wins",
+        Reduction::Strategy(Strategy::LastWriteWins(_)) => "last-write-wins",
         Reduction::Strategy(Strategy::Maximize(_)) => "maximize",
         Reduction::Strategy(Strategy::Merge(_)) => "merge",
         Reduction::Strategy(Strategy::Minimize(_)) => "minimize",

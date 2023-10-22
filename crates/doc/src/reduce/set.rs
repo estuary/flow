@@ -9,7 +9,7 @@ use crate::{
 use itertools::EitherOrBoth;
 use std::iter::Iterator;
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, PartialEq, Eq, Clone)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Set {
     #[serde(default)]
@@ -223,7 +223,7 @@ impl<'alloc> Builder<'alloc, '_, '_> {
                     arr.push(rhs, alloc);
                 }
                 EitherOrBoth::Both(_, _) if BOTH & mask != 0 => {
-                    arr.push(reduce_item(*tape, *loc, *full, eob, alloc)?, alloc);
+                    arr.push(reduce_item(*tape, *loc, *full, eob, alloc)?.0, alloc);
                 }
                 EitherOrBoth::Left(_) => {
                     // Discard.
@@ -310,7 +310,7 @@ impl<'alloc> Builder<'alloc, '_, '_> {
                     fields.push(rhs, alloc);
                 }
                 EitherOrBoth::Both(_, _) if BOTH & mask != 0 => {
-                    fields.push(reduce_prop(*tape, *loc, *full, eob, alloc)?, alloc);
+                    fields.push(reduce_prop(*tape, *loc, *full, eob, alloc)?.0, alloc);
                 }
                 EitherOrBoth::Left(_) => {
                     // Discard.

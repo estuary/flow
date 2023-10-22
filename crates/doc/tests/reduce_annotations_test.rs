@@ -136,7 +136,7 @@ fn test_validate_then_reduce() {
     for (rhs, expect) in cases {
         let rhs_valid = validator.validate(None, &rhs).unwrap().ok().unwrap();
 
-        let reduced = match lhs {
+        let (reduced, _delete) = match lhs {
             Some(lhs) => reduce::reduce(
                 LazyNode::Heap(&lhs),
                 LazyNode::Node(&rhs),
@@ -145,7 +145,7 @@ fn test_validate_then_reduce() {
                 true,
             )
             .unwrap(),
-            None => HeapNode::from_node(&rhs, &alloc),
+            None => (HeapNode::from_node(&rhs, &alloc), false),
         };
 
         assert_eq!(
@@ -373,14 +373,17 @@ fn reduce_tree(schema: Schema, docs: Vec<Value>) -> Value {
                     let rhs_valid = validator.validate(None, &rhs).unwrap().ok().unwrap();
 
                     cur = Some(match cur {
-                        Some(lhs) => reduce::reduce(
-                            LazyNode::<Value>::Heap(&lhs),
-                            LazyNode::Heap(&rhs),
-                            rhs_valid,
-                            &alloc,
-                            n == 0,
-                        )
-                        .unwrap(),
+                        Some(lhs) => {
+                            reduce::reduce(
+                                LazyNode::<Value>::Heap(&lhs),
+                                LazyNode::Heap(&rhs),
+                                rhs_valid,
+                                &alloc,
+                                n == 0,
+                            )
+                            .unwrap()
+                            .0
+                        }
                         None => HeapNode::from_node(&rhs, &alloc),
                     });
                 }

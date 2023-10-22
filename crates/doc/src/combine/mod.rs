@@ -228,11 +228,11 @@ fn smash<'alloc>(
                 .map_err(Error::SchemaError)?
                 .map_err(Error::FailedValidation)?;
 
-            Ok((
-                reduce::reduce(lhs, rhs, rhs_valid, &alloc, lhs_reduced)
-                    .map_err(Error::Reduction)?,
-                lhs_reduced,
-            ))
+            // TODO(johnny): handle _delete.
+            let (node, _delete) = reduce::reduce(lhs, rhs, rhs_valid, &alloc, lhs_reduced)
+                .map_err(Error::Reduction)?;
+
+            Ok((node, lhs_reduced))
         }
         // `rhs_doc` is actually a fully-reduced LHS, which is reduced with `lhs_doc`.
         (rhs, false, lhs, true) => {
@@ -241,10 +241,11 @@ fn smash<'alloc>(
                 .map_err(Error::SchemaError)?
                 .map_err(Error::FailedValidation)?;
 
-            Ok((
-                reduce::reduce(lhs, rhs, rhs_valid, &alloc, true).map_err(Error::Reduction)?,
-                true,
-            ))
+            // TODO(johnny): handle _delete.
+            let (node, _delete) =
+                reduce::reduce(lhs, rhs, rhs_valid, &alloc, true).map_err(Error::Reduction)?;
+
+            Ok((node, true))
         }
         (_lhs, true, rhs, true) => {
             return Err(Error::AlreadyFullyReduced(
