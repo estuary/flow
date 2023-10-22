@@ -11,7 +11,8 @@ pub use strategy::Strategy;
 mod schema;
 mod set;
 
-pub static DEFAULT_STRATEGY: &Strategy = &Strategy::LastWriteWins;
+pub static DEFAULT_STRATEGY: &Strategy =
+    &Strategy::LastWriteWins(strategy::LastWriteWins { delete: false });
 
 #[derive(thiserror::Error, Debug, serde::Serialize)]
 pub enum Error {
@@ -82,19 +83,22 @@ impl Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
-/// Reduce a RHS document validation into a preceding LHS document.
+/// Reduce a RHS document validation into a preceding LHS document,
+/// returning a reduced document and an indication of whether the
+/// entire document is to be considered "deleted".
+///
 /// The RHS validation provides reduction annotation outcomes used in the reduction.
-/// If |prune|, then LHS is the root-most (or left-most) document in the reduction
-/// sequence. Depending on the reduction strategy, additional pruning can be done
-/// in this case (i.e., removing tombstones) that isn't possible in a partial
-/// non-root reduction.
+/// If `full`, then LHS is the root-most (or left-most) document in the reduction
+/// sequence. Depending on the reduction strategy, additional work can be done
+/// in this case (i.e., removing deleted locations) that isn't possible in an
+/// associative reduction.
 pub fn reduce<'alloc, N: AsNode>(
     lhs: LazyNode<'alloc, '_, N>,
     rhs: LazyNode<'alloc, '_, N>,
     rhs_valid: Valid,
     alloc: &'alloc bumpalo::Bump,
     full: bool,
-) -> Result<HeapNode<'alloc>> {
+) -> Result<(HeapNode<'alloc>, bool)> {
     let tape = rhs_valid.extract_reduce_annotations();
     let tape = &mut tape.as_slice();
 
@@ -125,7 +129,7 @@ pub struct Cursor<'alloc, 'schema, 'tmp, 'l, 'r, L: AsNode, R: AsNode> {
 type Index<'a> = &'a [(&'a Strategy, u64)];
 
 impl<'alloc, L: AsNode, R: AsNode> Cursor<'alloc, '_, '_, '_, '_, L, R> {
-    pub fn reduce(self) -> Result<HeapNode<'alloc>> {
+    pub fn reduce(self) -> Result<(HeapNode<'alloc>, bool)> {
         let (strategy, _) = self.tape.first().unwrap();
         strategy.apply(self)
     }
@@ -169,14 +173,9 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
     full: bool,
     eob: EitherOrBoth<LazyField<'alloc, '_, L>, LazyField<'alloc, '_, R>>,
     alloc: &'alloc bumpalo::Bump,
-) -> Result<HeapField<'alloc>> {
+) -> Result<(HeapField<'alloc>, bool)> {
     match eob {
-        EitherOrBoth::Left(lhs) => Ok(lhs.into_heap_field(alloc)),
-        EitherOrBoth::Right(rhs) if !full => {
-            let rhs = rhs.into_heap_field(alloc);
-            *tape = &tape[count_nodes(&rhs.value)..];
-            Ok(rhs) // Pass-through a partial reduction.
-        }
+        EitherOrBoth::Left(lhs) => Ok((lhs.into_heap_field(alloc), false)),
         EitherOrBoth::Right(rhs) => {
             let (property, rhs) = rhs.into_parts();
 
@@ -186,7 +185,7 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
                 Err(heap) => heap,
             };
 
-            let value = Cursor::<'alloc, '_, '_, '_, '_, L, R> {
+            let (value, delete) = Cursor::<'alloc, '_, '_, '_, '_, L, R> {
                 tape,
                 loc: loc.push_prop(property.as_str()),
                 full,
@@ -196,7 +195,7 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
             }
             .reduce()?;
 
-            Ok(HeapField { property, value })
+            Ok((HeapField { property, value }, delete))
         }
         EitherOrBoth::Both(lhs, rhs) => {
             let (property, lhs, rhs) = match (lhs, rhs) {
@@ -222,7 +221,7 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
                 ),
             };
 
-            let value = Cursor {
+            let (value, delete) = Cursor {
                 tape,
                 loc: loc.push_prop(&property),
                 full,
@@ -232,7 +231,7 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
             }
             .reduce()?;
 
-            Ok(HeapField { property, value })
+            Ok((HeapField { property, value }, delete))
         }
     }
 }
@@ -243,14 +242,9 @@ fn reduce_item<'alloc, L: AsNode, R: AsNode>(
     full: bool,
     eob: EitherOrBoth<(usize, LazyNode<'alloc, '_, L>), (usize, LazyNode<'alloc, '_, R>)>,
     alloc: &'alloc bumpalo::Bump,
-) -> Result<HeapNode<'alloc>> {
+) -> Result<(HeapNode<'alloc>, bool)> {
     match eob {
-        EitherOrBoth::Left((_, lhs)) => Ok(lhs.into_heap_node(alloc)),
-        EitherOrBoth::Right((_, rhs)) if !full => {
-            let rhs = rhs.into_heap_node(alloc);
-            *tape = &tape[count_nodes(&rhs)..];
-            Ok(rhs) // Pass-through a partial reduction.
-        }
+        EitherOrBoth::Left((_, lhs)) => Ok((lhs.into_heap_node(alloc), false)),
         EitherOrBoth::Right((index, rhs)) => Cursor::<'alloc, '_, '_, '_, '_, L, R> {
             tape,
             loc: loc.push_item(index),
@@ -373,12 +367,12 @@ pub mod test {
                     &alloc,
                     full,
                 ),
-                None => Ok(HeapNode::from_node(&rhs, &alloc)),
+                None => Ok((HeapNode::from_node(&rhs, &alloc), false)),
             };
 
             match expect {
                 Ok(expect) => {
-                    let reduced = reduced.unwrap();
+                    let (reduced, _delete) = reduced.unwrap();
                     assert_eq!(
                         crate::compare(&reduced, &expect),
                         std::cmp::Ordering::Equal,
