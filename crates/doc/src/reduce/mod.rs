@@ -15,14 +15,18 @@ pub static DEFAULT_STRATEGY: &Strategy = &Strategy::LastWriteWins;
 
 #[derive(thiserror::Error, Debug, serde::Serialize)]
 pub enum Error {
+    #[error("not associative")]
+    NotAssociative,
     #[error("'append' strategy expects arrays")]
     AppendWrongType,
     #[error("`sum` resulted in numeric overflow")]
     SumNumericOverflow,
     #[error("'sum' strategy expects numbers")]
     SumWrongType,
-    #[error("'json-schema-merge' strategy expects objects containing valid JSON schemas. {}", .detail.as_deref().unwrap_or_default())]
-    JsonSchemaMergeWrongType { detail: Option<String> },
+    #[error(
+        "'json-schema-merge' strategy expects objects containing valid JSON schemas: {detail}"
+    )]
+    JsonSchemaMerge { detail: String },
     #[error("'merge' strategy expects objects or arrays")]
     MergeWrongType,
     #[error(
@@ -55,12 +59,13 @@ impl Error {
 
     fn with_values<L: AsNode, R: AsNode>(
         self,
-        lhs: LazyNode<'_, '_, L>,
+        lhs: Option<LazyNode<'_, '_, L>>,
         rhs: LazyNode<'_, '_, R>,
     ) -> Self {
+        let policy = SerPolicy::debug();
         Error::WithValues {
-            lhs: serde_json::to_value(SerPolicy::debug().on_lazy(&lhs)).unwrap(),
-            rhs: serde_json::to_value(SerPolicy::debug().on_lazy(&rhs)).unwrap(),
+            lhs: serde_json::to_value(lhs.as_ref().map(|n| policy.on_lazy(n))).unwrap(),
+            rhs: serde_json::to_value(policy.on_lazy(&rhs)).unwrap(),
             detail: Box::new(self),
         }
     }
@@ -68,7 +73,7 @@ impl Error {
     fn with_details<L: AsNode, R: AsNode>(
         self,
         loc: json::Location,
-        lhs: LazyNode<'_, '_, L>,
+        lhs: Option<LazyNode<'_, '_, L>>,
         rhs: LazyNode<'_, '_, R>,
     ) -> Self {
         self.with_location(loc).with_values(lhs, rhs)
@@ -97,7 +102,7 @@ pub fn reduce<'alloc, N: AsNode>(
         tape,
         loc: json::Location::Root,
         full,
-        lhs,
+        lhs: Some(lhs),
         rhs,
         alloc,
     }
@@ -112,7 +117,7 @@ pub struct Cursor<'alloc, 'schema, 'tmp, 'l, 'r, L: AsNode, R: AsNode> {
     tape: &'tmp mut Index<'schema>,
     loc: json::Location<'tmp>,
     full: bool,
-    lhs: LazyNode<'alloc, 'l, L>,
+    lhs: Option<LazyNode<'alloc, 'l, L>>,
     rhs: LazyNode<'alloc, 'r, R>,
     alloc: &'alloc bumpalo::Bump,
 }
@@ -167,10 +172,31 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
 ) -> Result<HeapField<'alloc>> {
     match eob {
         EitherOrBoth::Left(lhs) => Ok(lhs.into_heap_field(alloc)),
-        EitherOrBoth::Right(rhs) => {
+        EitherOrBoth::Right(rhs) if !full => {
             let rhs = rhs.into_heap_field(alloc);
             *tape = &tape[count_nodes(&rhs.value)..];
-            Ok(rhs)
+            Ok(rhs) // Pass-through a partial reduction.
+        }
+        EitherOrBoth::Right(rhs) => {
+            let (property, rhs) = rhs.into_parts();
+
+            // Map owned vs borrowed cases into BumpStr.
+            let property = match property {
+                Ok(archive) => BumpStr::from_str(archive, alloc),
+                Err(heap) => heap,
+            };
+
+            let value = Cursor::<'alloc, '_, '_, '_, '_, L, R> {
+                tape,
+                loc: loc.push_prop(property.as_str()),
+                full,
+                lhs: None,
+                rhs,
+                alloc,
+            }
+            .reduce()?;
+
+            Ok(HeapField { property, value })
         }
         EitherOrBoth::Both(lhs, rhs) => {
             let (property, lhs, rhs) = match (lhs, rhs) {
@@ -200,7 +226,7 @@ fn reduce_prop<'alloc, L: AsNode, R: AsNode>(
                 tape,
                 loc: loc.push_prop(&property),
                 full,
-                lhs,
+                lhs: Some(lhs),
                 rhs,
                 alloc,
             }
@@ -220,16 +246,25 @@ fn reduce_item<'alloc, L: AsNode, R: AsNode>(
 ) -> Result<HeapNode<'alloc>> {
     match eob {
         EitherOrBoth::Left((_, lhs)) => Ok(lhs.into_heap_node(alloc)),
-        EitherOrBoth::Right((_, rhs)) => {
+        EitherOrBoth::Right((_, rhs)) if !full => {
             let rhs = rhs.into_heap_node(alloc);
             *tape = &tape[count_nodes(&rhs)..];
-            Ok(rhs)
+            Ok(rhs) // Pass-through a partial reduction.
         }
+        EitherOrBoth::Right((index, rhs)) => Cursor::<'alloc, '_, '_, '_, '_, L, R> {
+            tape,
+            loc: loc.push_item(index),
+            full,
+            lhs: None,
+            rhs,
+            alloc,
+        }
+        .reduce(),
         EitherOrBoth::Both((_, lhs), (index, rhs)) => Cursor {
             tape,
             loc: loc.push_item(index),
             full,
-            lhs,
+            lhs: Some(lhs),
             rhs,
             alloc,
         }
@@ -324,7 +359,7 @@ pub mod test {
         let mut lhs: Option<HeapNode<'_>> = None;
 
         for case in cases {
-            let (rhs, expect, prune) = match case {
+            let (rhs, expect, full) = match case {
                 Partial { rhs, expect } => (rhs, expect, false),
                 Full { rhs, expect } => (rhs, expect, true),
             };
@@ -336,7 +371,7 @@ pub mod test {
                     LazyNode::Node(&rhs),
                     rhs_valid,
                     &alloc,
-                    prune,
+                    full,
                 ),
                 None => Ok(HeapNode::from_node(&rhs, &alloc)),
             };

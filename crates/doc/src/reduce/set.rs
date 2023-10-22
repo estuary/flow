@@ -35,12 +35,13 @@ pub enum Destructured<'alloc, 'l, 'r, L: AsNode, R: AsNode> {
 impl<'alloc, 'l, 'r, L: AsNode, R: AsNode> Destructured<'alloc, 'l, 'r, L, R> {
     fn extract(
         loc: json::Location,
-        lhs: LazyNode<'alloc, 'l, L>,
+        lhs: Option<LazyNode<'alloc, 'l, L>>,
         rhs: LazyNode<'alloc, 'r, R>,
     ) -> Result<Self> {
         // Unwrap required Objects on each side.
-        let (lhs, rhs) = match (lhs.destructure(), rhs.destructure()) {
-            (LazyDestructured::Object(lhs), LazyDestructured::Object(rhs)) => (lhs, rhs),
+        let (lhs, rhs) = match (lhs.as_ref().map(LazyNode::destructure), rhs.destructure()) {
+            (Some(LazyDestructured::Object(lhs)), LazyDestructured::Object(rhs)) => (lhs, rhs),
+            (None, LazyDestructured::Object(rhs)) => (LazyObject::Heap(&[]), rhs),
             _ => return Err(Error::with_details(Error::SetWrongType, loc, lhs, rhs)),
         };
 
@@ -561,8 +562,12 @@ mod test {
 
         // Exercise add / intersect / remove on either side, with property collection.
         assert!(matches!(
-            Destructured::extract(rt, Node(&json!({"add": []})), Node(&json!({"remove": []})),)
-                .unwrap(),
+            Destructured::extract(
+                rt,
+                Some(Node(&json!({"add": []}))),
+                Node(&json!({"remove": []})),
+            )
+            .unwrap(),
             Array {
                 lhs: [Some(_), None, None],
                 rhs: [None, None, Some(_)],
@@ -572,7 +577,7 @@ mod test {
         assert!(matches!(
             Destructured::extract(
                 rt,
-                Node(&json!({"remove": []})),
+                Some(Node(&json!({"remove": []}))),
                 Node(&json!({"intersect": []}))
             )
             .unwrap(),
@@ -585,7 +590,7 @@ mod test {
         assert!(matches!(
             Destructured::extract(
                 rt,
-                Node(&json!({"intersect": []})),
+                Some(Node(&json!({"intersect": []}))),
                 Node(&json!({"add": []}))
             )
             .unwrap(),
@@ -596,8 +601,12 @@ mod test {
         ));
 
         assert!(matches!(
-            Destructured::extract(rt, Node(&json!({"add": {}})), Node(&json!({"remove": {}})))
-                .unwrap(),
+            Destructured::extract(
+                rt,
+                Some(Node(&json!({"add": {}}))),
+                Node(&json!({"remove": {}}))
+            )
+            .unwrap(),
             Object {
                 lhs: [Some(_), None, None],
                 rhs: [None, None, Some(_)],
@@ -607,7 +616,7 @@ mod test {
         assert!(matches!(
             Destructured::extract(
                 rt,
-                Node(&json!({"remove": {}})),
+                Some(Node(&json!({"remove": {}}))),
                 Node(&json!({"intersect": {}}))
             )
             .unwrap(),
@@ -621,7 +630,7 @@ mod test {
         assert!(matches!(
             Destructured::extract(
                 rt,
-                Node(&json!({"intersect": {}})),
+                Some(Node(&json!({"intersect": {}}))),
                 Node(&json!({"add": {}}))
             )
             .unwrap(),
@@ -636,7 +645,7 @@ mod test {
         assert!(matches!(
             Destructured::extract(
                 rt,
-                Node(&json!({})),
+                Some(Node(&json!({}))),
                 Node(&json!({"add": {}, "remove": {}}))
             )
             .unwrap(),
@@ -648,7 +657,7 @@ mod test {
         assert!(matches!(
             Destructured::extract(
                 rt,
-                Node(&json!({"add": [], "remove": []})),
+                Some(Node(&json!({"add": [], "remove": []}))),
                 Node(&json!({}))
             )
             .unwrap(),
@@ -658,32 +667,59 @@ mod test {
             }
         ));
 
+        // The LHS may be undefined.
+        assert!(matches!(
+            Destructured::extract(
+                rt,
+                Option::<LazyNode<Value>>::None,
+                Node(&json!({"add": {}}))
+            )
+            .unwrap(),
+            Object {
+                lhs: [None, None, None],
+                rhs: [Some(_), None, None],
+            }
+        ));
+        assert!(matches!(
+            Destructured::extract(
+                rt,
+                Option::<LazyNode<Value>>::None,
+                Node(&json!({"remove": []}))
+            )
+            .unwrap(),
+            Array {
+                lhs: [None, None, None],
+                rhs: [None, None, Some(_)],
+            }
+        ));
+
         // Cases that fail:
 
         // Mixed types within a side.
         assert!(Destructured::extract(
             rt,
-            Node(&json!({"add": {}, "intersect": []})),
+            Some(Node(&json!({"add": {}, "intersect": []}))),
             Node(&json!({})),
         )
         .is_err());
         // Mixed types across sides.
         assert!(Destructured::extract(
             rt,
-            Node(&json!({"add": {}})),
+            Some(Node(&json!({"add": {}}))),
             Node(&json!({"intersect": []}))
         )
         .is_err());
         // Both "intersect" and "remove" on a side.
         assert!(Destructured::extract(
             rt,
-            Node(&json!({"intersect": [], "remove": []})),
+            Some(Node(&json!({"intersect": [], "remove": []}))),
             Node(&json!({}))
         )
         .is_err());
         // Not an object.
         assert!(
-            Destructured::extract(rt, Node(&json!({"intersect": []})), Node(&json!(42))).is_err()
+            Destructured::extract(rt, Some(Node(&json!({"intersect": []}))), Node(&json!(42)))
+                .is_err()
         );
     }
 
