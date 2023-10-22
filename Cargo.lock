@@ -1328,6 +1328,7 @@ dependencies = [
  "insta",
  "itertools 0.10.5",
  "json",
+ "json-patch",
  "lz4",
  "pretty_assertions",
  "quickcheck",

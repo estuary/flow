@@ -1087,4 +1087,77 @@ mod test {
             ],
         )
     }
+
+    #[test]
+    fn test_merge_patch_examples() {
+        let f1 = json!({
+            "a": 32.6,
+            "c": {
+              "d": [42],
+              "f": "g"
+            }
+        });
+
+        run_reduce_cases(
+            super::super::merge_patch_schema(),
+            vec![
+                Partial {
+                    rhs: f1.clone(),
+                    expect: Ok(f1.clone()),
+                },
+                // Okay to change scalars associatively.
+                Partial {
+                    rhs: json!({
+                      "c": { "d": "e" }
+                    }),
+                    expect: Ok(json!({
+                      "a": 32.6,
+                      "c": {
+                        "d": "e",
+                        "f": "g"
+                      }
+                    })),
+                },
+                Full {
+                    rhs: json!({
+                      "a": "z",
+                      "c": { "f": null }
+                    }),
+                    expect: Ok(json!({
+                      "a": "z",
+                      "c": { "d": "e" }
+                    })),
+                },
+                // Cannot switch from a scalar to a merged type associatively.
+                Partial {
+                    rhs: json!({ "a": { "1": 1 } }),
+                    expect: Err(Error::NotAssociative),
+                },
+                // But can do it in a full reduction.
+                Full {
+                    rhs: json!({ "a": { "1": 1 } }),
+                    expect: Ok(json!({
+                      "a": { "1": 1 },
+                      "c": { "d": "e" }
+                    })),
+                },
+                Full {
+                    rhs: json!([1, 2]),
+                    expect: Ok(json!([1, 2])),
+                },
+                Full {
+                    rhs: json!({"a": {"bb": {"ccc": null}}}),
+                    expect: Ok(json!({"a": {"bb": {}}})),
+                },
+                Full {
+                    rhs: json!(null),
+                    expect: Ok(json!(null)),
+                },
+                Full {
+                    rhs: json!("fin"),
+                    expect: Ok(json!("fin")),
+                },
+            ],
+        )
+    }
 }
