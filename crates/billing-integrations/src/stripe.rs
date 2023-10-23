@@ -269,7 +269,7 @@ impl Invoice {
                             )
                             .as_str(),
                         ),
-                        collection_method: Some(stripe::CollectionMethod::SendInvoice),
+                        collection_method: Some(stripe::CollectionMethod::ChargeAutomatically),
                         auto_advance: Some(false),
                         custom_fields: Some(vec![
                             stripe::CreateInvoiceCustomFields {
