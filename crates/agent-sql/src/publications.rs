@@ -527,6 +527,7 @@ pub async fn update_published_live_spec(
     sqlx::query!(
         r#"
         update live_specs set
+            built_spec = null,
             catalog_name = $2::text::catalog_name,
             connector_image_name = $3,
             connector_image_tag = $4,
