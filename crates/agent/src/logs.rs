@@ -47,6 +47,19 @@ where
     Ok(())
 }
 
+/// NULL is a perfectly valid thing to include in UTF8 bytes, but not according
+/// to postgres. It rejects `TEXT` values containing nulls. This replaces all
+/// null bytes with a space character. The space was chosen somewhat arbitrarily
+/// as a goodenuf replacement in this rare edge case.
+fn sanitize_null_bytes(line: String) -> String {
+    // Check to avoid copying the string if it doesn't contain the character.
+    if line.contains('\u{0000}') {
+        line.replace('\u{0000}', " ")
+    } else {
+        line
+    }
+}
+
 // serve_sink consumes log Lines from the receiver, streaming each
 // to the `logs` table of the database.
 #[tracing::instrument(ret, skip_all)]
@@ -102,7 +115,7 @@ pub async fn serve_sink(
             trace!(%token, %stream, %line, "rx (cont)");
             tokens.push(token);
             streams.push(stream);
-            lines.push(line);
+            lines.push(sanitize_null_bytes(line));
         }
 
         if let None = held_conn {
