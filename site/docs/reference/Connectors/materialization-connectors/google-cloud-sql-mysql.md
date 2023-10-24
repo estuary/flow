@@ -81,14 +81,14 @@ Possible values:
   certificate against the given SSL Server CA, but does not verify the server's
   hostname. This option is most commonly used when connecting to an
   IP address which does not have a hostname to be verified. When using this mode, SSL Server
-  CA must be provided. 
+  CA must be provided.
 - `verify_identity`: Connect using an SSL connection, verify the server's
   certificate and the server's hostname. This is the most secure option. When using this mode, SSL Server
   CA must be provided.
 
 Optionally, SSL Client Certificate and Key can be provided if necessary to
 authorize the client.
- 
+
 #### Bindings
 
 | Property | Title | Description | Type | Required/Default |
@@ -118,13 +118,15 @@ materializations:
 
 ### Setup
 
-You must configure your database to allow connections from Estuary.  The recommended method is to whitelist Estuary Flow's IP address.
+1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
 
-* **Google Cloud SQL**: [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.  See the instructions below to use SSH Tunneling instead of enabling public access.
+   1. To allow direct access:
+       * [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
 
-Alternatively, you can allow secure connections via SSH tunneling. To do so:
+   2. To allow secure connections via SSH tunneling:
+       * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
+       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
-1. Refer to the [guide](../../../../guides/connect-network/) to configure an SSH server on the Google Cloud Platform.
 
 2. Configure your connector as described in the [configuration](#configuration) section above,
 with the additional of the `networkTunnel` stanza to enable the SSH tunnel, if using.

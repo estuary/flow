@@ -85,14 +85,14 @@ Possible values:
   certificate against the given SSL Server CA, but does not verify the server's
   hostname. This option is most commonly used when connecting to an
   IP address which does not have a hostname to be verified. When using this mode, SSL Server
-  CA must be provided. 
+  CA must be provided.
 - `verify_identity`: Connect using an SSL connection, verify the server's
   certificate and the server's hostname. This is the most secure option. When using this mode, SSL Server
   CA must be provided.
 
 Optionally, SSL Client Certificate and Key can be provided if necessary to
 authorize the client.
- 
+
 #### Bindings
 
 | Property | Title | Description | Type | Required/Default |
@@ -123,7 +123,7 @@ materializations:
 ## MySQL on managed cloud platforms
 
 In addition to standard MySQL, this connector supports cloud-based MySQL instances.
-To connect securely, you must use an SSH tunnel.
+To connect securely, you can either enable direct access for Flows's IP or use an SSH tunnel.
 
 Google Cloud Platform, Amazon Web Service, and Microsoft Azure are currently supported.
 You may use other cloud platforms, but Estuary doesn't guarantee performance.
@@ -132,26 +132,25 @@ You may use other cloud platforms, but Estuary doesn't guarantee performance.
 ### Setup
 
 You must configure your database to allow connections from Estuary.
-The recommended method is to whitelist Estuary Flow's IP address.
+There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
 
-* **Amazon RDS and Amazon Aurora**: Edit the VPC security group associated with your database instance, or create a new VPC security group and associate it with the database instance.
-   * [Modify the instance](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), choosing **Publicly accessible** in the **Connectivity** settings.  See the instructions below to use SSH Tunneling instead of enabling public access.
+* **Connect directly with Amazon RDS or Amazon Aurora**: Edit the VPC security group associated with your database instance, or create a new VPC security group and associate it with the database instance.
+   1. [Modify the instance](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), choosing **Publicly accessible** in the **Connectivity** settings.
 
-   * Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
-   Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
+   2. Per the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create),
+   create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
 
-* **Google Cloud SQL**: [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.  See the instructions below to use SSH Tunneling instead of enabling public access.
+* **Connect directly with Google Cloud SQL**: [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.  See the instructions below to use SSH Tunneling instead of enabling public access.
 
-* **Azure Database For MySQL**: Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/mysql/single-server/how-to-manage-firewall-using-portal) that grants access to the IP address `34.121.207.128`.  See the instructions below to use SSH Tunneling instead of enabling public access.
+* **Connect directly with Azure Database For MySQL**: Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/mysql/single-server/how-to-manage-firewall-using-portal) that grants access to the IP address `34.121.207.128`.  See the instructions below to use SSH Tunneling instead of enabling public access.
 
-Alternatively, you can allow secure connections via SSH tunneling. To do so:
+* **Connect with SSH tunneling**
+   1. Refer to the [guide](../../../../guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
 
-1. Refer to the [guide](../../../../guides/connect-network/) to configure an SSH server on the cloud platform of your choice.
-
-2. Configure your connector as described in the [configuration](#configuration) section above,
-with the additional of the `networkTunnel` stanza to enable the SSH tunnel, if using.
-See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-for additional details and a sample.
+   2. Configure your connector as described in the [configuration](#configuration) section above,
+    with the additional of the `networkTunnel` stanza to enable the SSH tunnel, if using.
+    See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
+    for additional details and a sample.
 
 :::tip Configuration Tip
 To configure the connector, you must specify the database address in the format

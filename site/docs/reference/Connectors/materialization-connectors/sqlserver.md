@@ -31,7 +31,7 @@ Use the below properties to configure a SQLServer materialization, which will di
 | **`/address`**              | Address                | Host and port of the database. If only the host is specified, port will default to `3306`. | string | Required         |
 | **`/password`**             | Password               | Password for the specified database user.                                                  | string | Required         |
 | **`/user`**                 | User                   | Database user to connect as.                                                               | string | Required         |
- 
+
 #### Bindings
 
 | Property | Title | Description | Type | Required/Default |
@@ -86,15 +86,14 @@ GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
 
 ### Setup: Azure SQL Database
 
-1. Allow connections to the server from the Estuary Flow IP address.
+1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
 
-   1. Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/azure-sql/database/firewall-configure?view=azuresql#use-the-azure-portal-to-manage-server-level-ip-firewall-rules)
-   that grants access to the IP address `34.121.207.128`.  See the instructions below to use SSH Tunneling instead of enabling public access.
+   1. To allow direct access:
+       * Create a new [firewall rule](https://learn.microsoft.com/en-us/azure/azure-sql/database/firewall-configure?view=azuresql#use-the-azure-portal-to-manage-server-level-ip-firewall-rules) that grants access to the IP address `34.121.207.128`.
 
-   :::info
-   Alternatively, you can allow secure connections via SSH tunneling as described in the setup steps for
-   [self-hosted databases](#setup-self-hosted-sql-server).
-   :::
+   2. To allow secure connections via SSH tunneling:
+       * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
+       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
 2. In your SQL client, connect to your instance as the default `sqlserver` user and issue the following commands.
 
@@ -114,18 +113,15 @@ GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
 
 ### Setup: Amazon RDS for SQL Server
 
-1. Allow connections to the database from the Estuary Flow IP address.
+1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
 
-   1. [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.  See the instructions below to use SSH Tunneling instead of enabling public access.
+   1. To allow direct access:
+       * [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
+       * Edit the VPC security group associated with your database, or create a new VPC security group and associate it as described in [the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
 
-   2. Edit the VPC security group associated with your database, or create a new VPC security group and associate it with the database.
-      Refer to the [steps in the Amazon documentation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html#Overview.RDSSecurityGroups.Create).
-      Create a new inbound rule and a new outbound rule that allow all traffic from the IP address `34.121.207.128`.
-
-   :::info
-   Alternatively, you can allow secure connections via SSH tunneling as described in the setup steps for
-   [self-hosted databases](#setup-self-hosted-sql-server).
-   :::
+   2. To allow secure connections via SSH tunneling:
+       * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
+       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
 2.  In your SQL client, connect to your instance as the default `sqlserver` user and issue the following commands.
 
@@ -141,15 +137,14 @@ GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
 
 ### Setup: Google Cloud SQL for SQL Server
 
-1. Allow connections to the database from the Estuary Flow IP address.
+Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
 
-   1. [Enable public IP on your database](https://cloud.google.com/sql/docs/sqlserver/configure-ip#add) and add
-      `34.121.207.128` as an authorized IP address.  See the instructions below to use SSH Tunneling instead of enabling public access.
+   1. To allow direct access:
+       * [Enable public IP on your database](https://cloud.google.com/sql/docs/sqlserver/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
 
-   :::info
-   Alternatively, you can allow secure connections via SSH tunneling as described in the setup steps for
-   [self-hosted databases](#setup-self-hosted-sql-server).  
-   :::
+   2. To allow secure connections via SSH tunneling:
+       * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
+       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
 2. In your SQL client, connect to your instance as the default `sqlserver` user and issue the following commands.
 
