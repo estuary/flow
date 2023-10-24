@@ -27,19 +27,14 @@ You'll need a PostgreSQL database setup with the following:
 
 ## Setup
 
-1. Allow connections to the database from the Estuary Flow IP address.
+1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
 
-   1. [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add
-      `34.121.207.128` as an authorized IP address.  See directions below to use a SSH Tunnel instead of enabling public access.
+   1. To allow direct access:
+       * [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
 
-   :::info
-   Alternatively, you can allow secure connections via SSH tunneling. To do so:
-     * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
-     * When you configure your connector as described in the [configuration](#configuration) section above,
-        including the additional `networkTunnel` configuration to enable the SSH tunnel.
-        See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks)
-        for additional details and a sample.
-   :::
+   2. To allow secure connections via SSH tunneling:
+       * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
+       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
 2. On Google Cloud, navigate to your instance's Overview page. Click "Edit configuration". Scroll down to the Flags section. Click "ADD FLAG". Set [the `cloudsql.logical_decoding` flag to `on`](https://cloud.google.com/sql/docs/postgres/flags) to enable logical replication on your Cloud SQL PostgreSQL instance.
 
