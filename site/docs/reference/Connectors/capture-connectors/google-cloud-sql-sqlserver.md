@@ -48,7 +48,7 @@ USE <database>;
 -- Enable CDC for the database.
 EXEC msdb.dbo.gcloudsql_cdc_enable_db '<database>';
 -- Create user and password for use with the connector.
-CREATE LOGIN flow_capture WITH PASSWORD = 'secret';
+CREATE LOGIN flow_capture WITH PASSWORD = 'Secret123!';
 CREATE USER flow_capture FOR LOGIN flow_capture;
 -- Grant the user permissions on the CDC schema and schemas with data.
 -- This assumes all tables to be captured are in the default schema, `dbo`.
