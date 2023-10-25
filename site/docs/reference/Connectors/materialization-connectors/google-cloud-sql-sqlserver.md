@@ -28,7 +28,7 @@ Use the below properties to configure a SQLServer materialization, which will di
 | Property                    | Title                  | Description                                                                                | Type   | Required/Default |
 |-----------------------------|------------------------|--------------------------------------------------------------------------------------------|--------|------------------|
 | **`/database`**             | Database               | Name of the logical database to materialize to.                                            | string | Required         |
-| **`/address`**              | Address                | Host and port of the database. If only the host is specified, port will default to `3306`. | string | Required         |
+| **`/address`**              | Address                | Host and port of the database. If only the host is specified, port will default to `1433`. | string | Required         |
 | **`/password`**             | Password               | Password for the specified database user.                                                  | string | Required         |
 | **`/user`**                 | User                   | Database user to connect as.                                                               | string | Required         |
 
