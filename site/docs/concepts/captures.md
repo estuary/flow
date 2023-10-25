@@ -53,6 +53,28 @@ data collection in Flow.
 
 You may then modify the generated configuration as needed before publishing the capture.
 
+:::info
+Discovers can also be run when editing an existing capture. This is commonly done in order to add new bindings, or update the collection specs and schemas associated with existing bindings.
+:::
+
+## AutoDiscover
+
+Capture specs may optionally include an `autoDiscover` property to opt in to periodic discovers that are run in the background. For captures that opt in, the Flow control plane will periodically run a discover operation, and publish the resulting draft.
+
+There are several options for controlling the behavior of `autoDiscover`. The `addNewBindings` option determines whether to add newly discovered bindings to the capture. If it's `false`, then it will only update the collection specs for existing bindings.
+
+The `evolveIncompatibleCollections` property determines how to respond when a discovered collection spec is incompatible with the existing spec. If `true`, then it will trigger an [evolution](./evolutions.md) of the incompatible collection(s).
+
+In the UI, these properties can be set when creating or editing a capture.
+
+![](captures-auto-discover-ui.png)
+
+The toggles in the UI correspond directly to the properties above:
+
+- "Automatically keep schemas up to date" corresponds to `autoDiscover`
+- "Automatically add new collections" corresponds to `addNewBindings`
+- "Breaking changes re-versions collections" corresponds to `evolveIncompatibleCollections`
+
 ## Specification
 
 Captures are defined in Flow specification files per the following format:
@@ -63,6 +85,19 @@ Captures are defined in Flow specification files per the following format:
 captures:
   # The name of the capture.
   acmeCo/example/source-s3:
+    # Automatically performs periodic discover operations, which updates the bindings
+    # to reflect what's in the source, and also updates collection schemas.
+    # To disable autoDiscover, either omit this property or set it to `null`.
+    autoDiscover:
+      # Also add any newly discovered bindings automatically
+      addNewBindings: true
+      # How to handle breaking changes to discovered collections. If true, then existing
+      # materialization bindings will be re-created with new names, as necessary. Or if
+      # collection keys have changed, then new Flow collections will be created. If false,
+      # then incompatible changes will simply result in failed publications, and will
+      # effectively be ignored.
+      evolveIncompatibleCollections: true
+
     # Endpoint defines how to connect to the source of the capture.
     # Required, type: object
     endpoint:
