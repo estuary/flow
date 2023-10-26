@@ -2,7 +2,7 @@
 
 :::info
 Evolutions are a relatively advanced concept in Flow.
-Before continuing, you should have a basic understanding of [Flow captures](/concepts/captures/), [collections](/concepts/collections/), [schemas](/concepts/schemas/), and [materializations](/concepts/materializations/).
+Before continuing, you should have a basic understanding of [Flow captures](/concepts/captures.md), [collections](/concepts/collections.md), [schemas](/concepts/schemas.md), and [materializations](/concepts/materialization.md).
 :::
 
 ## Background
