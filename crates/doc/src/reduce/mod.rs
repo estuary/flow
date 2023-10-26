@@ -16,7 +16,7 @@ pub static DEFAULT_STRATEGY: &Strategy =
 
 #[derive(thiserror::Error, Debug, serde::Serialize)]
 pub enum Error {
-    #[error("not associative")]
+    #[error("encountered non-associative reduction in an unexpected context")]
     NotAssociative,
     #[error("'append' strategy expects arrays")]
     AppendWrongType,
