@@ -241,6 +241,10 @@ type mockSubConn string
 
 func (s mockSubConn) UpdateAddresses([]resolver.Address) {}
 func (s mockSubConn) Connect()                           {}
+func (s mockSubConn) GetOrBuildProducer(balancer.ProducerBuilder) (balancer.Producer, func()) {
+  return nil, func() {}
+}
+func (s mockSubConn) Shutdown()                          {}
 
 func (c *mockClientConn) NewSubConn(a []resolver.Address, _ balancer.NewSubConnOptions) (balancer.SubConn, error) {
 	var sc = mockSubConn(a[0].Addr)

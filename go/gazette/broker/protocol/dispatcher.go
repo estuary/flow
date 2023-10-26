@@ -186,7 +186,6 @@ func (d *dispatcher) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 		if msc.subConn, err = d.cc.NewSubConn(
 			[]resolver.Address{{
 				Addr: d.idToAddr(dr.route, dispatchID),
-				Type: resolver.Backend,
 			}},
 			balancer.NewSubConnOptions{},
 		); err != nil {
