@@ -1,17 +1,27 @@
-use doc::{reduce::Error, validation::build_schema, HeapNode, LazyNode, SerPolicy, Validator};
+use doc::{
+    combine::{MemTable, Spec, SpillDrainer, SpillWriter},
+    reduce::Error,
+    validation::build_schema,
+    HeapNode, LazyNode, SerPolicy, Validator,
+};
 use quickcheck::quickcheck;
-use serde_json::Value;
+use serde_json::{json, Value};
+use std::io;
 
 mod arbitrary_value;
 use arbitrary_value::ArbitraryValue;
 
 quickcheck! {
-    fn merge_patch_fuzz(input: Vec<ArbitraryValue>) -> bool {
-        compare_merge_patch(input)
+    fn reduce_stack_fuzz(input: Vec<ArbitraryValue>) -> bool {
+        reduce_stack(input)
+    }
+
+    fn reduce_combiner_fuzz(input: Vec<ArbitraryValue>) -> bool {
+        reduce_combiner(input)
     }
 }
 
-fn compare_merge_patch(input: Vec<ArbitraryValue>) -> bool {
+fn reduce_stack(input: Vec<ArbitraryValue>) -> bool {
     let alloc = HeapNode::new_allocator();
     let curi = url::Url::parse("http://example").unwrap();
     let mut validator =
@@ -74,4 +84,83 @@ fn compare_merge_patch(input: Vec<ArbitraryValue>) -> bool {
     let reduced = serde_json::to_value(&SerPolicy::default().on(&reduced)).unwrap();
 
     reduced == expect
+}
+
+fn reduce_combiner(input: Vec<ArbitraryValue>) -> bool {
+    let spec = |is_full| {
+        let curi = url::Url::parse("http://example").unwrap();
+        let schema = build_schema(curi, &doc::reduce::merge_patch_schema()).unwrap();
+        (
+            is_full,
+            [], // Empty key (all docs are equal)
+            None,
+            Validator::new(schema).unwrap(),
+        )
+    };
+    let memtable_1 = MemTable::new(Spec::with_bindings([spec(false), spec(true)].into_iter()));
+    let memtable_2 = MemTable::new(Spec::with_bindings([spec(false), spec(true)].into_iter()));
+
+    let seed = json!({"hello": "world", "null": null});
+    let mut expect = seed.clone();
+
+    for rhs in input.into_iter().map(|a| a.0) {
+        for binding in 0..2 {
+            let d1 = HeapNode::from_node(&rhs, memtable_1.alloc());
+            () = memtable_1.add(binding, d1, false).unwrap();
+            let d2 = HeapNode::from_node(&rhs, memtable_2.alloc());
+            () = memtable_2.add(binding, d2, false).unwrap();
+        }
+        json_patch::merge(&mut expect, &rhs);
+    }
+
+    // Add initial `seed` at the front.
+    for binding in 0..2 {
+        let d1 = HeapNode::from_node(&seed, memtable_1.alloc());
+        memtable_1.add(binding, d1, true).unwrap();
+        let d2 = HeapNode::from_node(&seed, memtable_2.alloc());
+        memtable_2.add(binding, d2, true).unwrap();
+    }
+
+    // Drain `memtable_1` using a MemDrainer.
+    let mut mem_drainer = memtable_1.try_into_drainer().unwrap().peekable();
+
+    // Drain `memtable_2` using a SpillDrainer.
+    let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
+    let spec = memtable_2.spill(&mut spill, 1 << 18).unwrap();
+    let (mut spill, ranges) = spill.into_parts();
+
+    let mut spill_drainer = SpillDrainer::new(spec, &mut spill, &ranges)
+        .unwrap()
+        .peekable();
+
+    loop {
+        let mem = mem_drainer.next().unwrap().unwrap();
+        let spill = spill_drainer.next().unwrap().unwrap();
+
+        assert_eq!(
+            mem.meta, spill.meta,
+            "MemDrainer and SpillDrainer return identical Meta values"
+        );
+
+        let binding = mem.meta.binding();
+        let deleted = mem.meta.deleted();
+
+        let mem = serde_json::to_value(&SerPolicy::default().on_owned(&mem.root)).unwrap();
+        let spill = serde_json::to_value(&SerPolicy::default().on_owned(&spill.root)).unwrap();
+
+        assert_eq!(
+            mem, spill,
+            "MemDrainer and SpillDrainer return identical documents"
+        );
+
+        // Have we drained the fully-reduced document?
+        if binding == 1 {
+            assert_eq!(
+                deleted,
+                expect.is_null(),
+                "null is surfaced as a deletion tombstone"
+            );
+            break mem == expect && spill == expect;
+        }
+    }
 }

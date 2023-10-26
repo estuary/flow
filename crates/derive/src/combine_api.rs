@@ -139,6 +139,10 @@ impl cgo::Service for API {
                 };
 
                 let spec = doc::combine::Spec::with_one_binding(
+                    // Use full reductions. This isn't 100% correct for captures
+                    // but matches our previous behavior, while we switch over
+                    // to the `runtime` crate.
+                    true,
                     key_ex.clone(),
                     None,
                     new_validator(&schema_json)?,
@@ -302,11 +306,7 @@ pub fn drain_chunk(
     let target_length = target_length + arena.len();
 
     while let Some(drained) = drainer.next() {
-        let doc::combine::DrainedDoc {
-            binding: _, // Always zero.
-            reduced,
-            root,
-        } = drained?;
+        let doc::combine::DrainedDoc { meta, root } = drained?;
 
         if let Some(ref mut shape) = shape {
             if shape.widen_owned(&root) {
@@ -322,7 +322,7 @@ pub fn drain_chunk(
 
         // Only now do we know the actual length of the document in its serialized form.
         stats.increment(arena.len() - begin);
-        if reduced {
+        if meta.front() {
             cgo::send_bytes(Code::DrainedReducedDocument as u32, begin, arena, out);
         } else {
             cgo::send_bytes(Code::DrainedCombinedDocument as u32, begin, arena, out);
