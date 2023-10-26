@@ -266,6 +266,7 @@ async fn do_combine(
 
     let mut accumulator = combine::Accumulator::new(
         combine::Spec::with_one_binding(
+            true, // Full reductions. Make this an option?
             extractors::for_key(
                 &collection.spec.key,
                 &collection.spec.projections,

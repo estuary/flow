@@ -101,6 +101,7 @@ pub fn combiner_perf() {
 
     // Initialize the combiner itself.
     let spec = doc::combine::Spec::with_one_binding(
+        true, // Full reductions.
         vec![Extractor::new("/key", &doc::SerPolicy::default())],
         None,
         Validator::new(schema).unwrap(),
