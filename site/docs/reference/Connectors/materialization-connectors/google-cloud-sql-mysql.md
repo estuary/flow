@@ -139,6 +139,17 @@ To configure the connector, you must specify the database address in the format
 You can find the host host in the GCP console as "Private IP Address".  The pport is always `3306`. You may need to [configure private IP](https://cloud.google.com/sql/docs/mysql/configure-private-ip) on your database.
 :::
 
+3. Create the `flow_materialize` user with `All` privileges on your database. This user will need the ability to create and update the `flow_materializations` table.
+```sql
+CREATE USER IF NOT EXISTS flow_materialize
+  IDENTIFIED BY 'secret'
+  COMMENT 'User account for Flow MySQL data materialization';
+GRANT ALL PRIVELEGES ON <database>.* TO 'flow_materialize';
+```
+
+4. In the Cloud Console, note the instance's host under Public IP Address. Its port will always be `3306`.
+Together, you'll use the host:port as the `address` property when you configure the connector.
+
 ## Delta updates
 
 This connector supports both standard (merge) and [delta updates](../../../concepts/materialization.md#delta-updates).
