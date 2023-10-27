@@ -3,9 +3,6 @@ use zeroize::Zeroizing;
 
 /// Decrypt a `sops`-protected document using `sops` and application default credentials.
 pub async fn decrypt_sops(config: &models::RawValue) -> anyhow::Result<models::RawValue> {
-    let jq = locate_bin::locate("jq").context("failed to locate sops")?;
-    let sops = locate_bin::locate("sops").context("failed to locate sops")?;
-
     // Only objects can be `sops` documents.
     let dom = config.to_value();
     if !dom.is_object() {
@@ -30,6 +27,9 @@ pub async fn decrypt_sops(config: &models::RawValue) -> anyhow::Result<models::R
     let Some(Sops{encrypted_suffix}) = doc.sops else {
         return Ok(config.to_owned())
     };
+
+    let jq = locate_bin::locate("jq").context("failed to locate jq")?;
+    let sops = locate_bin::locate("sops").context("failed to locate sops")?;
 
     // Note that input_output() pre-allocates an output buffer as large as its input buffer,
     // and our decrypted result will never be larger than its input.
