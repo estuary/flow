@@ -144,8 +144,7 @@ CALL mysql.rds_set_configuration('binlog retention hours', 168);
 
 ### Amazon Aurora
 
-You must apply some of the settings to the entire Aurora DB cluster, and others to a database instance within the cluster
-(we recommend you use a [replica, or reader instance](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Overview.html) to connect with Flow).
+You must apply some of the settings to the entire Aurora DB cluster, and others to a database instance within the cluster.
 For each step, take note of which entity you're working with.
 
 1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
