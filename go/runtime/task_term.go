@@ -244,8 +244,6 @@ func (r *taskReader) StartReadingMessages(
 	cp pc.Checkpoint,
 	tp *flow.Timepoint,
 	ch chan<- consumer.EnvelopeOrError,
-	// We'll just ignore this here, we don't want to do schema inference when reading from collections
-	enableSchemaInference bool,
 ) {
 	shuffle.StartReadingMessages(shard.Context(), r.readBuilder, cp, tp, ch)
 }
