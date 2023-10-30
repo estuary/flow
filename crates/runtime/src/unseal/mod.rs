@@ -2,11 +2,11 @@ use anyhow::Context;
 use zeroize::Zeroizing;
 
 /// Decrypt a `sops`-protected document using `sops` and application default credentials.
-pub async fn decrypt_sops(config: &models::RawValue) -> anyhow::Result<models::RawValue> {
+pub async fn decrypt_sops(config: &models::RawValue) -> anyhow::Result<serde_json::Value> {
     // Only objects can be `sops` documents.
     let dom = config.to_value();
     if !dom.is_object() {
-        return Ok(config.to_owned());
+        return Ok(serde_json::from_slice(config.to_owned().get().as_bytes())?);
     }
 
     #[derive(serde::Deserialize)]
@@ -24,8 +24,8 @@ pub async fn decrypt_sops(config: &models::RawValue) -> anyhow::Result<models::R
         serde_json::from_value(dom).context("decoding `sops` stanza of endpoint config")?;
 
     // If this isn't a `sops` document, then return a copy of it unmodified.
-    let Some(Sops{encrypted_suffix}) = doc.sops else {
-        return Ok(config.to_owned())
+    let Some(Sops { encrypted_suffix }) = doc.sops else {
+        return Ok(serde_json::from_slice(config.to_owned().get().as_bytes())?);
     };
 
     let jq = locate_bin::locate("jq").context("failed to locate jq")?;
@@ -62,7 +62,7 @@ pub async fn decrypt_sops(config: &models::RawValue) -> anyhow::Result<models::R
 
     // If there is no encrypted suffix, then we're all done.
     let Some(encrypted_suffix) = encrypted_suffix else {
-        return Ok(serde_json::from_slice(&stdout).context("parsing `sops` output")?)
+        return Ok(serde_json::from_slice(&stdout).context("parsing `sops` output")?);
     };
 
     // We must re-write the document to remove the encrypted suffix.
@@ -118,9 +118,7 @@ mod test {
         ];
 
         let outputs = futures::stream::iter(configs.into_iter())
-            .map(|config| async move {
-                serde_json::from_str(decrypt_sops(&config).await.unwrap().get()).unwrap()
-            })
+            .map(|config| async move { decrypt_sops(&config).await.unwrap() })
             .buffered(5)
             .collect::<Vec<serde_json::Value>>()
             .await;

@@ -35,7 +35,8 @@ fn unseal(mut request: Request) -> Result<UnsealFuture<Request>, Request> {
             config: sealed_config,
             env,
             protobuf,
-        }) = endpoint else {
+        }) = endpoint
+        else {
             anyhow::bail!("task connector type has changed and is no longer an image")
         };
 
