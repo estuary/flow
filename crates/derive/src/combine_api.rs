@@ -139,10 +139,15 @@ impl cgo::Service for API {
                 };
 
                 let spec = doc::combine::Spec::with_one_binding(
-                    // Use full reductions. This isn't 100% correct for captures
-                    // but matches our previous behavior, while we switch over
-                    // to the `runtime` crate.
-                    true,
+                    // Piggy-back on the `schema_inference` knob to understand
+                    // if we should use full or partial reductions.
+                    // TODO(johnny): This is a hack to avoid churning this API further,
+                    // while we transition over to the `runtime` crate which is replacing this code.
+                    if infer_schema_json.is_empty() {
+                        true // This is a materialization (full reductions).
+                    } else {
+                        false // This is a capture (partial reductions).
+                    },
                     key_ex.clone(),
                     None,
                     new_validator(&schema_json)?,
