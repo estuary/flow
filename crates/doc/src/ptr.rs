@@ -524,6 +524,13 @@ mod test {
             assert!(ptr.create_value(&mut root_value).is_none());
             assert!(ptr.create_heap_node(&mut root_heap_doc, &alloc).is_none());
         }
+
+        let next_index_ptr = Pointer::from_iter(
+            vec![Token::Property("foo".to_string()), Token::NextProperty].into_iter(),
+        );
+
+        let res = next_index_ptr.create_value(&mut root_value);
+        assert_eq!(res, None);
     }
 
     #[test]
