@@ -11,8 +11,10 @@ pub use strategy::Strategy;
 mod schema;
 mod set;
 
-pub static DEFAULT_STRATEGY: &Strategy =
-    &Strategy::LastWriteWins(strategy::LastWriteWins { delete: false });
+pub static DEFAULT_STRATEGY: &Strategy = &Strategy::LastWriteWins(strategy::LastWriteWins {
+    delete: false,
+    associative: true,
+});
 
 #[derive(thiserror::Error, Debug, serde::Serialize)]
 pub enum Error {
@@ -295,6 +297,18 @@ fn compare_key_lazy<L: AsNode, R: AsNode>(
         (LazyNode::Heap(lhs), LazyNode::Node(rhs)) => compare_key(key, *lhs, *rhs),
         (LazyNode::Node(lhs), LazyNode::Heap(rhs)) => compare_key(key, *lhs, *rhs),
         (LazyNode::Node(lhs), LazyNode::Node(rhs)) => compare_key(key, *lhs, *rhs),
+    }
+}
+
+fn compare_lazy<L: AsNode, R: AsNode>(
+    lhs: &LazyNode<'_, '_, L>,
+    rhs: &LazyNode<'_, '_, R>,
+) -> Ordering {
+    match (lhs, rhs) {
+        (LazyNode::Heap(lhs), LazyNode::Heap(rhs)) => crate::compare(*lhs, *rhs),
+        (LazyNode::Heap(lhs), LazyNode::Node(rhs)) => crate::compare(*lhs, *rhs),
+        (LazyNode::Node(lhs), LazyNode::Heap(rhs)) => crate::compare(*lhs, *rhs),
+        (LazyNode::Node(lhs), LazyNode::Node(rhs)) => crate::compare(*lhs, *rhs),
     }
 }
 

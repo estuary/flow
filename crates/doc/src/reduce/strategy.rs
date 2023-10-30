@@ -1,5 +1,5 @@
 use super::{
-    compare_key_lazy, count_nodes, count_nodes_lazy, reduce_item, reduce_prop,
+    compare_key_lazy, compare_lazy, count_nodes, count_nodes_lazy, reduce_item, reduce_prop,
     schema::json_schema_merge, Cursor, Error, Result,
 };
 use crate::{
@@ -96,13 +96,26 @@ pub struct FirstWriteWins {}
 #[derive(serde::Serialize, serde::Deserialize, Debug, Default, PartialEq, Eq, Clone)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct LastWriteWins {
+    /// Delete marks that this location should be removed from the document.
+    /// Deletion is effected only when a document is fully reduced, so partial
+    /// reductions of the document will continue to have deleted locations
+    /// up until the point where they're reduced into a base document.
     #[serde(default)]
     pub delete: bool,
+    /// Associative marks that unequal values are allowed to reduce associatively.
+    /// The default is true. When set to false, then unequal left- and right-hand
+    /// values may not reduce associatively and both documents must be retained
+    /// until a full reduction can be performed.
+    /// EXPERIMENTAL: This keyword may be removed in the future.
+    #[serde(default = "true_value")]
+    pub associative: bool,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Default, PartialEq, Eq, Clone)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Maximize {
+    /// Optional, relative JSON Pointer(s) which form the key over which values
+    /// are maximized. When omitted, the entire value at this location is used.
     #[serde(default)]
     pub key: Vec<Pointer>,
 }
@@ -110,8 +123,15 @@ pub struct Maximize {
 #[derive(serde::Serialize, serde::Deserialize, Debug, Default, PartialEq, Eq, Clone)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Merge {
+    /// Relative JSON Pointer(s) which form the key by which the items of merged
+    /// Arrays are ordered. `key` is ignored in Object merge contexts, where the
+    /// object property is used instead.
     #[serde(default)]
     pub key: Vec<Pointer>,
+    /// Delete marks that this location should be removed from the document.
+    /// Deletion is effected only when a document is fully reduced, so partial
+    /// reductions of the document will continue to have deleted locations
+    /// up until the point where they're reduced into a base document.
     #[serde(default)]
     pub delete: bool,
 }
@@ -119,6 +139,8 @@ pub struct Merge {
 #[derive(serde::Serialize, serde::Deserialize, Debug, Default, PartialEq, Eq, Clone)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Minimize {
+    /// Optional, relative JSON Pointer(s) which form the key over which values
+    /// are minimized. When omitted, the entire value at this location is used.
     #[serde(default)]
     pub key: Vec<Pointer>,
 }
@@ -132,7 +154,7 @@ impl Strategy {
             Strategy::Append => Ok((Self::append(cur)?, false)),
             Strategy::FirstWriteWins(fww) => Ok((Self::first_write_wins(cur, fww), false)),
             Strategy::JsonSchemaMerge => Ok((json_schema_merge(cur)?, false)),
-            Strategy::LastWriteWins(lww) => Ok(Self::last_write_wins(cur, lww)),
+            Strategy::LastWriteWins(lww) => Self::last_write_wins(cur, lww),
             Strategy::Maximize(max) => Ok((Self::maximize(cur, max)?, false)),
             Strategy::Merge(merge) => Self::merge(cur, merge),
             Strategy::Minimize(min) => Ok((Self::minimize(cur, min)?, false)),
@@ -201,10 +223,17 @@ impl Strategy {
     fn last_write_wins<'alloc, L: AsNode, R: AsNode>(
         cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
         lww: &LastWriteWins,
-    ) -> (HeapNode<'alloc>, bool) {
+    ) -> Result<(HeapNode<'alloc>, bool)> {
+        if !lww.associative
+            && !cur.full
+            && matches!(&cur.lhs, Some(lhs) if compare_lazy(lhs, &cur.rhs).is_ne())
+        {
+            // When marked !associative, partial reductions may only reduce equal values.
+            return Err(Error::NotAssociative);
+        }
         let rhs = cur.rhs.into_heap_node(cur.alloc);
         *cur.tape = &cur.tape[count_nodes(&rhs)..];
-        (rhs, cur.full && lww.delete)
+        Ok((rhs, cur.full && lww.delete))
     }
 
     fn min_max_helper<'alloc, L: AsNode, R: AsNode>(
@@ -230,8 +259,8 @@ impl Strategy {
         let ord = match (key.is_empty(), reverse) {
             (false, false) => compare_key_lazy(key, &lhs, &rhs),
             (false, true) => compare_key_lazy(key, &rhs, &lhs),
-            (true, false) => compare_key_lazy(&[Pointer::empty()], &lhs, &rhs),
-            (true, true) => compare_key_lazy(&[Pointer::empty()], &rhs, &lhs),
+            (true, false) => compare_lazy(&lhs, &rhs),
+            (true, true) => compare_lazy(&rhs, &lhs),
         };
 
         if ord.is_lt() {
@@ -438,6 +467,10 @@ impl Strategy {
     }
 }
 
+fn true_value() -> bool {
+    true
+}
+
 #[cfg(test)]
 mod test {
     use super::super::test::*;
@@ -493,7 +526,10 @@ mod test {
     #[test]
     fn test_last_write_wins() {
         run_reduce_cases(
-            json!(true),
+            json!({ "oneOf": [
+                {"type": ["string", "object", "null"], "reduce": { "strategy": "lastWriteWins" } },
+                {"type": "integer", "reduce": { "strategy": "lastWriteWins", "associative": false } },
+            ]}),
             vec![
                 Partial {
                     rhs: json!("foo"),
@@ -506,6 +542,29 @@ mod test {
                 Partial {
                     rhs: json!(null),
                     expect: Ok(json!(null)),
+                },
+                Partial {
+                    rhs: json!(42),
+                    expect: Err(Error::NotAssociative),
+                },
+                // Full reduction may take the value.
+                Full {
+                    rhs: json!(42),
+                    expect: Ok(json!(42)),
+                },
+                // Associative reduction is allowed iff the value doesn't change.
+                Partial {
+                    rhs: json!(42),
+                    expect: Ok(json!(42)),
+                },
+                Partial {
+                    rhs: json!(52),
+                    expect: Err(Error::NotAssociative),
+                },
+                // RHS is allowed to reduce associatively.
+                Partial {
+                    rhs: json!("foo"),
+                    expect: Ok(json!("foo")),
                 },
             ],
         )
