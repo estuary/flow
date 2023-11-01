@@ -2,8 +2,8 @@ use anyhow::{bail, Context};
 use chrono::{Duration, ParseError, Utc};
 use futures::{FutureExt, StreamExt, TryStreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use sqlx::Postgres;
 use sqlx::{postgres::PgPoolOptions, types::chrono::NaiveDate, Pool};
-use sqlx::{types::chrono::DateTime, Postgres};
 use std::collections::HashMap;
 use stripe::List;
 
@@ -12,6 +12,13 @@ const CREATED_BY_BILLING_AUTOMATION: &str = "estuary.dev/created_by_automation";
 const INVOICE_TYPE_KEY: &str = "estuary.dev/invoice_type";
 const BILLING_PERIOD_START_KEY: &str = "estuary.dev/period_start";
 const BILLING_PERIOD_END_KEY: &str = "estuary.dev/period_end";
+
+#[derive(Debug, Clone, Copy, clap::ArgEnum)]
+#[clap(rename_all = "kebab_case")]
+enum ChargeType {
+    AutoCharge,
+    SendInvoice,
+}
 
 #[derive(Debug, clap::Args)]
 #[clap(rename_all = "kebab-case")]
@@ -38,6 +45,12 @@ pub struct PublishInvoice {
     /// Stop execution after first failure
     #[clap(long)]
     fail_fast: bool,
+    /// Whether to attempt to automatically charge the invoice or send it to be paid manually.
+    ///
+    /// NOTE: Invoices are still created as drafts and require approval, this setting only
+    /// changes what happens once the invoice is approved.
+    #[clap(long, value_enum, default_value_t = ChargeType::AutoCharge)]
+    charge_type: ChargeType,
 }
 
 fn parse_date(arg: &str) -> Result<NaiveDate, ParseError> {
@@ -91,6 +104,35 @@ struct LineItem {
     description: Option<String>,
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum InvoiceResult {
+    Created,
+    Updated,
+    LessThanMinimum,
+    NoUsage,
+    FreeTier,
+    FutureTrialStart,
+    Error,
+}
+
+impl InvoiceResult {
+    pub fn message(&self) -> &str {
+        match self {
+            InvoiceResult::Created => "Published new invoice",
+            InvoiceResult::Updated => "Updated existing invoice",
+            InvoiceResult::LessThanMinimum => {
+                "Skipping invoice for less than the minimum chargable amount ($0.50)"
+            }
+            InvoiceResult::NoUsage => "Skipping invoice with no usage",
+            InvoiceResult::FreeTier => "Skipping usage invoice for tenant in free tier",
+            InvoiceResult::FutureTrialStart => {
+                "Skipping invoice ending before free trial start date"
+            }
+            InvoiceResult::Error => "Error publishing invoices",
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, sqlx::FromRow)]
 struct Invoice {
     subtotal: i64,
@@ -109,7 +151,8 @@ impl Invoice {
         client: &stripe::Client,
         db_client: &Pool<Postgres>,
         recreate_finalized: bool,
-    ) -> anyhow::Result<()> {
+        mode: ChargeType,
+    ) -> anyhow::Result<InvoiceResult> {
         match (&self.invoice_type, &self.extra) {
             (InvoiceType::Preview, _) => {
                 bail!("Should not create Stripe invoices for preview invoices")
@@ -123,8 +166,7 @@ impl Invoice {
                     || unwrapped_extra.task_usage_hours.unwrap_or(0.0) > 0.0
                     || self.subtotal > 0)
                 {
-                    tracing::debug!("Skipping invoice with no usage");
-                    return Ok(());
+                    return Ok(InvoiceResult::NoUsage);
                 }
             }
             (InvoiceType::Final, None) => {
@@ -139,12 +181,10 @@ impl Invoice {
         if let InvoiceType::Final = self.invoice_type {
             match get_tenant_trial_date(&db_client, self.billed_prefix.to_owned()).await? {
                 Some(trial_start) if self.date_end < trial_start => {
-                    tracing::info!("Skipping invoice ending before free trial start date");
-                    return Ok(());
+                    return Ok(InvoiceResult::FutureTrialStart);
                 }
                 None => {
-                    tracing::info!("Skipping usage invoice for tenant in free tier");
-                    return Ok(());
+                    return Ok(InvoiceResult::FreeTier);
                 }
                 _ => {}
             }
@@ -153,8 +193,7 @@ impl Invoice {
         // The minimum chargable amount of USD in Stripe is $0.50.
         // https://stripe.com/docs/currencies#minimum-and-maximum-charge-amounts
         if self.subtotal < 50 {
-            tracing::info!("Skipping invoice for less than the minimum chargable amount ($0.50)");
-            return Ok(());
+            return Ok(InvoiceResult::LessThanMinimum);
         }
 
         // Anything before 12:00:00 renders as the previous day in Stripe
@@ -261,7 +300,10 @@ impl Invoice {
                         customer: Some(customer.id.to_owned()),
                         // Stripe timestamps are measured in _seconds_ since epoch
                         // Due date must be in the future. Bill net-30, so 30 days from today
-                        due_date: Some((Utc::now() + Duration::days(30)).timestamp()),
+                        due_date: match mode {
+                            ChargeType::SendInvoice => Some((Utc::now() + Duration::days(30)).timestamp()),
+                            ChargeType::AutoCharge => None
+                        },
                         description: Some(
                             format!(
                                 "Your Flow bill for the billing period between {date_start_human} - {date_end_human}. Tenant: {tenant}",
@@ -269,7 +311,10 @@ impl Invoice {
                             )
                             .as_str(),
                         ),
-                        collection_method: Some(stripe::CollectionMethod::ChargeAutomatically),
+                        collection_method: Some(match mode {
+                            ChargeType::AutoCharge => stripe::CollectionMethod::ChargeAutomatically,
+                            ChargeType::SendInvoice => stripe::CollectionMethod::SendInvoice,
+                        }),
                         auto_advance: Some(false),
                         custom_fields: Some(vec![
                             stripe::CreateInvoiceCustomFields {
@@ -361,12 +406,10 @@ impl Invoice {
         }
 
         if maybe_invoice.is_some() {
-            tracing::info!("Updated existing invoice");
+            return Ok(InvoiceResult::Updated);
         } else {
-            tracing::info!("Published new invoice")
+            return Ok(InvoiceResult::Created);
         }
-
-        Ok(())
     }
 }
 
@@ -459,35 +502,61 @@ pub async fn do_publish_invoices(cmd: &PublishInvoice) -> anyhow::Result<()> {
             let db_pool = db_pool.clone();
             async move {
                 let res = response
-                    .upsert_invoice(&client, &db_pool, cmd.recreate_finalized)
+                    .upsert_invoice(&client, &db_pool, cmd.recreate_finalized, cmd.charge_type)
                     .await;
-                if let Err(error) = res {
-                    let formatted = format!(
-                        "Error publishing invoice for {tenant}",
-                        tenant = response.billed_prefix,
-                    );
-                    bail!("{}\n{err:?}", formatted, err = error);
+                match res {
+                    Err(err) => {
+                        let formatted = format!(
+                            "Error publishing invoice for {tenant}",
+                            tenant = response.billed_prefix,
+                        );
+                        bail!("{}\n{err:?}", formatted, err = err);
+                    }
+                    Ok(res) => {
+                        tracing::debug!(
+                            tenant = response.billed_prefix,
+                            invoice_type = format!("{:?}", response.invoice_type),
+                            subtotal = format!("${:.2}", response.subtotal as f64 / 100.0),
+                            "{}",
+                            res.message()
+                        );
+                        Ok((res, response.subtotal))
+                    }
                 }
-                Ok(())
             }
             .boxed()
         })
         .collect();
 
-    futures::stream::iter(invoice_futures)
+    let collected: HashMap<_, _> = futures::stream::iter(invoice_futures)
         // Let's run 10 `upsert_invoice()`s at a time
         .buffer_unordered(10)
         .or_else(|err| async move {
             if !cmd.fail_fast {
                 tracing::error!("{}", err.to_string());
-                Ok(())
+                Ok((InvoiceResult::Error, 0))
             } else {
                 Err(err)
             }
         })
-        // Collects into Result<(), anyhow::Error> because a stream of ()s can be collected into a single ()
-        .try_collect()
-        .await
+        .try_fold(HashMap::new(), |mut map, (res, subtotal)| async move {
+            let (subtotal_sum, count) = map.entry(res).or_insert((0, 0));
+            *subtotal_sum += subtotal;
+            *count += 1;
+            Ok(map)
+        })
+        .await?;
+
+    for (status, (subtotal_agg, count)) in collected.iter() {
+        tracing::info!(
+            "[{:4} invoices]: {:70}${:.2}",
+            count,
+            status.message(),
+            *subtotal_agg as f64 / 100.0
+        );
+    }
+
+    Ok(())
 }
 
 #[tracing::instrument(skip(db_client))]
