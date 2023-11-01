@@ -1,5 +1,7 @@
 begin;
 
+alter table tenants alter column data_tiers set default '{50}';
+
 -- Not used, let's not confuse ourselves with `internal.billing_report_202308` which is used
 drop function billing_report;
 
