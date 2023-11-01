@@ -247,9 +247,9 @@ mod test {
             select json_build_object('prefix', m.catalog_prefix, 'storageMapping', m.spec)
                 from storage_mappings m where m.catalog_prefix like '%AcmeTenant%'
             union all
-            -- Expect a notification subscription was created.
-            select json_build_object('catalog_prefix', s.catalog_prefix, 'user_id', s.user_id)
-                from notification_subscriptions s where user_id = s.user_id
+            -- Expect an alert subscription was created.
+            select json_build_object('catalog_prefix', s.catalog_prefix, 'email', s.email)
+                from alert_subscriptions s where s.catalog_prefix = 'AcmeTenant/'
             "#,
         )
         .fetch_all(&mut txn)
@@ -305,7 +305,7 @@ mod test {
           },
           {
             "catalog_prefix": "AcmeTenant/",
-            "user_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+            "email": "accounts@example.com"
           }
         ]
         "###);
