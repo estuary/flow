@@ -1,143 +1,3 @@
-
-create function tests.test_billing_v0()
-returns setof text as $$
-declare
-  response json;
-begin
-
-  -- Replace seed grants with fixtures for this test.
-  delete from user_grants;
-  insert into user_grants (user_id, object_role, capability) values
-    ('11111111-1111-1111-1111-111111111111', 'aliceCo/', 'admin'),
-    ('22222222-2222-2222-2222-222222222222', 'bobCo/', 'admin')
-  ;
-
-  insert into catalog_stats (
-    catalog_name, grain, ts, flow_document, bytes_written_by_me, bytes_read_by_me
-  ) values
-    ('aliceCo/hello', 'hourly', '2022-08-29T13:00:00Z', '{}', 1, 0),
-    ('aliceCo/big',   'hourly', '2022-08-29T13:00:00Z', '{}', 0, 1),
-    ('aliceCo/world', 'hourly', '2022-08-29T13:00:00Z', '{}', 0, 1),
-    ('aliceCo/hello', 'monthly', '2022-08-01T00:00:00Z', '{}', 5.125 * 1024 * 1024 * 1024, 0),
-    ('aliceCo/big',   'monthly', '2022-08-01T00:00:00Z', '{}', 7::bigint * 1024 * 1024 * 1024, 9::bigint * 1024 * 1024 * 1024),
-    ('aliceCo/world', 'monthly', '2022-08-01T00:00:00Z', '{}', 0, 22::bigint * 1024 * 1024 * 1024)
-  ;
-
-  -- We're authorized as Alice.
-  perform set_authenticated_context('11111111-1111-1111-1111-111111111111');
-
-  return query select is(billing_report('aliceCo/', '2022-08-29T13:00:00Z'), '{
-    "subtotal": 2484,
-    "line_items": [
-      {
-        "rate": 0,
-        "count": 2,
-        "subtotal": 0,
-        "description": "Included task shards (up to 2)"
-      },
-      {
-        "rate": 2000,
-        "count": 1,
-        "subtotal": 2000,
-        "description": "Additional task shards minimum (assessed at 2022-08-29 13:00:00+00)"
-      },
-      {
-        "rate": 0,
-        "count": 10,
-        "subtotal": 0,
-        "description": "Included data processing (in GB, up to 10.0GB)"
-      },
-      {
-        "rate": 75,
-        "count": 33.125,
-        "subtotal": 2484,
-        "description": "Additional data processing (in GB)"
-      },
-      {
-        "description": "Subtotal is greater of task shards minimum, or data processing volume"
-      }
-    ],
-    "billed_month": "2022-08-01T00:00:00+00:00",
-    "billed_prefix": "aliceCo/",
-    "total_processed_data_gb": 43.125,
-    "max_concurrent_tasks": 3,
-    "max_concurrent_tasks_at": "2022-08-29T13:00:00+00:00"
-  }'::jsonb);
-
-  set role postgres;
-  delete from catalog_stats;
-
-  insert into catalog_stats (
-    catalog_name, grain, ts, flow_document, bytes_written_by_me, bytes_read_by_me
-  ) values
-    ('aliceCo/hello', 'hourly', '2022-08-29T13:00:00Z', '{}', 1, 0),
-    ('aliceCo/big',   'hourly', '2022-08-29T13:00:00Z', '{}', 0, 1),
-    ('aliceCo/world', 'hourly', '2022-08-29T13:00:00Z', '{}', 0, 1),
-
-    ('aliceCo/hello', 'hourly', '2022-08-29T14:00:00Z', '{}', 1, 0),
-    ('aliceCo/big',   'hourly', '2022-08-29T14:00:00Z', '{}', 0, 1),
-    ('aliceCo/world', 'hourly', '2022-08-29T14:00:00Z', '{}', 0, 1),
-    ('aliceCo/of',    'hourly', '2022-08-29T14:00:00Z', '{}', 0, 1),
-    ('aliceCo/data',  'hourly', '2022-08-29T14:00:00Z', '{}', 0, 1),
-
-    ('aliceCo/hello', 'monthly', '2022-08-01T00:00:00Z', '{}', 5.125 * 1024 * 1024 * 1024, 0),
-    ('aliceCo/big',   'monthly', '2022-08-01T00:00:00Z', '{}', 7::bigint * 1024 * 1024 * 1024, 9::bigint * 1024 * 1024 * 1024),
-    ('aliceCo/world', 'monthly', '2022-08-01T00:00:00Z', '{}', 0, 22::bigint * 1024 * 1024 * 1024)
-  ;
-
-  -- We're authorized as Alice.
-  perform set_authenticated_context('11111111-1111-1111-1111-111111111111');
-
-  return query select is(billing_report('aliceCo/', '2022-08-29T13:00:00Z'), '{
-    "subtotal": 6000,
-    "line_items": [
-      {
-        "rate": 0,
-        "count": 2,
-        "subtotal": 0,
-        "description": "Included task shards (up to 2)"
-      },
-      {
-        "rate": 2000,
-        "count": 3,
-        "subtotal": 6000,
-        "description": "Additional task shards minimum (assessed at 2022-08-29 14:00:00+00)"
-      },
-      {
-        "rate": 0,
-        "count": 10,
-        "subtotal": 0,
-        "description": "Included data processing (in GB, up to 10.0GB)"
-      },
-      {
-        "rate": 75,
-        "count": 33.125,
-        "subtotal": 2484,
-        "description": "Additional data processing (in GB)"
-      },
-      {
-        "description": "Subtotal is greater of task shards minimum, or data processing volume"
-      }
-    ],
-    "billed_month": "2022-08-01T00:00:00+00:00",
-    "billed_prefix": "aliceCo/",
-    "total_processed_data_gb": 43.125,
-    "max_concurrent_tasks": 5,
-    "max_concurrent_tasks_at": "2022-08-29T14:00:00+00:00"
-  }'::jsonb);
-
-  -- We're authorized as Bob.
-  perform set_authenticated_context('22222222-2222-2222-2222-222222222222');
-
-  return query select throws_like(
-    $i$ select * from billing_report('aliceCo/', '2022-08-29T13:00:00Z'); $i$,
-    'You are not authorized for the billed prefix aliceCo/',
-    'Attempting to fetch a report for aliceCo/ as Bob fails'
-  );
-
-end
-$$ language plpgsql;
-
 create function tests.test_billing_202308()
 returns setof text as $$
 declare
@@ -164,29 +24,29 @@ begin
   insert into catalog_stats (
     catalog_name, grain, ts, flow_document, bytes_written_by_me, bytes_read_by_me, usage_seconds
   ) values
-    ('aliceCo/hello',    'daily', '2022-08-01T00:00:00Z', '{}', 43.125 * 1024 * 1024 * 1024, 0, 3600 * 738.375),
-    ('aliceCo_aa/hello', 'daily', '2022-08-01T00:00:00Z', '{}', 5.125 * 1024 * 1024 * 1024, 0, 3600 * 720),
-    ('aliceCo_aa/big',   'daily', '2022-08-01T00:00:00Z', '{}', 6::bigint * 1024 * 1024 * 1024, 7::bigint * 1024 * 1024 * 1024, 0),
-    ('aliceCo_aa/big',   'daily', '2022-08-30T00:00:00Z', '{}', 1::bigint * 1024 * 1024 * 1024, 2::bigint * 1024 * 1024 * 1024, 0),
-    ('aliceCo_bb/world', 'daily', '2022-08-01T00:00:00Z', '{}', 0, 22::bigint * 1024 * 1024 * 1024, 3600 * 18.375),
-    ('aliceCo_cc/round', 'daily', '2022-07-01T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
-    ('aliceCo_cc/round', 'daily', '2022-07-02T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
-    ('aliceCo_cc/round', 'daily', '2022-07-03T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
-    ('aliceCo_cc/round', 'daily', '2022-07-04T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
-    ('aliceCo_cc/round', 'daily', '2022-07-05T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
-    ('aliceCo_cc/round', 'daily', '2022-07-06T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
-    ('aliceCo_cc/round', 'daily', '2022-07-07T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
-    ('aliceCo_cc/round', 'daily', '2022-07-08T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
-    ('aliceCo_cc/round', 'daily', '2022-07-09T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
-    ('aliceCo_cc/round', 'daily', '2022-07-10T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
-    ('aliceCo_cc/round', 'daily', '2022-07-11T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
-    ('aliceCo_cc/round', 'daily', '2022-07-12T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
-    ('aliceCo_cc/round', 'daily', '2022-07-13T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
-    ('aliceCo_cc/round', 'daily', '2022-07-14T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
-    ('aliceCo_cc/round', 'daily', '2022-07-15T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
-    ('aliceCo_cc/round', 'daily', '2022-07-16T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
-    ('aliceCo_cc/round', 'daily', '2022-07-17T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0),
-    ('aliceCo_cc/round', 'daily', '2022-07-18T00:00:00Z', '{}', 0, 0.1 * 1024 * 1024 * 1024, 0)
+    ('aliceCo/hello',    'daily', '2022-08-01T00:00:00Z', '{}', 43.125 * 10^9, 0, 3600 * 738.375),
+    ('aliceCo_aa/hello', 'daily', '2022-08-01T00:00:00Z', '{}', 5.125 * 10^9, 0, 3600 * 720),
+    ('aliceCo_aa/big',   'daily', '2022-08-01T00:00:00Z', '{}', 6 * 10^9, 7 * 10^9, 0),
+    ('aliceCo_aa/big',   'daily', '2022-08-30T00:00:00Z', '{}', 1 * 10^9, 2 * 10^9, 0),
+    ('aliceCo_bb/world', 'daily', '2022-08-01T00:00:00Z', '{}', 0, 22 * 10^9, 3600 * 18.375),
+    ('aliceCo_cc/round', 'daily', '2022-07-01T00:00:00Z', '{}', 0, 0.1 * 10^9, 0),
+    ('aliceCo_cc/round', 'daily', '2022-07-02T00:00:00Z', '{}', 0, 0.1 * 10^9, 0),
+    ('aliceCo_cc/round', 'daily', '2022-07-03T00:00:00Z', '{}', 0, 0.1 * 10^9, 0),
+    ('aliceCo_cc/round', 'daily', '2022-07-04T00:00:00Z', '{}', 0, 0.1 * 10^9, 0),
+    ('aliceCo_cc/round', 'daily', '2022-07-05T00:00:00Z', '{}', 0, 0.1 * 10^9, 0),
+    ('aliceCo_cc/round', 'daily', '2022-07-06T00:00:00Z', '{}', 0, 0.1 * 10^9, 0),
+    ('aliceCo_cc/round', 'daily', '2022-07-07T00:00:00Z', '{}', 0, 0.1 * 10^9, 0),
+    ('aliceCo_cc/round', 'daily', '2022-07-08T00:00:00Z', '{}', 0, 0.1 * 10^9, 0),
+    ('aliceCo_cc/round', 'daily', '2022-07-09T00:00:00Z', '{}', 0, 0.1 * 10^9, 0),
+    ('aliceCo_cc/round', 'daily', '2022-07-10T00:00:00Z', '{}', 0, 0.1 * 10^9, 0),
+    ('aliceCo_cc/round', 'daily', '2022-07-11T00:00:00Z', '{}', 0, 0.1 * 10^9, 0),
+    ('aliceCo_cc/round', 'daily', '2022-07-12T00:00:00Z', '{}', 0, 0.1 * 10^9, 0),
+    ('aliceCo_cc/round', 'daily', '2022-07-13T00:00:00Z', '{}', 0, 0.1 * 10^9, 0),
+    ('aliceCo_cc/round', 'daily', '2022-07-14T00:00:00Z', '{}', 0, 0.1 * 10^9, 0),
+    ('aliceCo_cc/round', 'daily', '2022-07-15T00:00:00Z', '{}', 0, 0.1 * 10^9, 0),
+    ('aliceCo_cc/round', 'daily', '2022-07-16T00:00:00Z', '{}', 0, 0.1 * 10^9, 0),
+    ('aliceCo_cc/round', 'daily', '2022-07-17T00:00:00Z', '{}', 0, 0.1 * 10^9, 0),
+    ('aliceCo_cc/round', 'daily', '2022-07-18T00:00:00Z', '{}', 0, 0.1 * 10^9, 0)
   ;
 
   insert into internal.billing_adjustments (
@@ -488,126 +348,126 @@ begin
    "daily_usage":[
       {
          "ts":"2022-07-01T00:00:00+00:00",
-         "data_gb":0.09999999962747097015,
+         "data_gb": 0.1,
          "task_hours":0.00000000000000000000,
          "data_subtotal":50,
          "task_subtotal":0
       },
       {
          "ts":"2022-07-02T00:00:00+00:00",
-         "data_gb":0.09999999962747097015,
+         "data_gb": 0.1,
          "task_hours":0.00000000000000000000,
          "data_subtotal":0,
          "task_subtotal":0
       },
       {
          "ts":"2022-07-03T00:00:00+00:00",
-         "data_gb":0.09999999962747097015,
+         "data_gb": 0.1,
          "task_hours":0.00000000000000000000,
          "data_subtotal":0,
          "task_subtotal":0
       },
       {
          "ts":"2022-07-04T00:00:00+00:00",
-         "data_gb":0.09999999962747097015,
+         "data_gb": 0.1,
          "task_hours":0.00000000000000000000,
          "data_subtotal":0,
          "task_subtotal":0
       },
       {
          "ts":"2022-07-05T00:00:00+00:00",
-         "data_gb":0.09999999962747097015,
+         "data_gb": 0.1,
          "task_hours":0.00000000000000000000,
          "data_subtotal":0,
          "task_subtotal":0
       },
       {
          "ts":"2022-07-06T00:00:00+00:00",
-         "data_gb":0.09999999962747097015,
+         "data_gb": 0.1,
          "task_hours":0.00000000000000000000,
          "data_subtotal":0,
          "task_subtotal":0
       },
       {
          "ts":"2022-07-07T00:00:00+00:00",
-         "data_gb":0.09999999962747097015,
+         "data_gb": 0.1,
          "task_hours":0.00000000000000000000,
          "data_subtotal":0,
          "task_subtotal":0
       },
       {
          "ts":"2022-07-08T00:00:00+00:00",
-         "data_gb":0.09999999962747097015,
+         "data_gb": 0.1,
          "task_hours":0.00000000000000000000,
          "data_subtotal":0,
          "task_subtotal":0
       },
       {
          "ts":"2022-07-09T00:00:00+00:00",
-         "data_gb":0.09999999962747097015,
+         "data_gb": 0.1,
          "task_hours":0.00000000000000000000,
          "data_subtotal":0,
          "task_subtotal":0
       },
       {
          "ts":"2022-07-10T00:00:00+00:00",
-         "data_gb":0.09999999962747097015,
+         "data_gb": 0.1,
          "task_hours":0.00000000000000000000,
          "data_subtotal":0,
          "task_subtotal":0
       },
       {
          "ts":"2022-07-11T00:00:00+00:00",
-         "data_gb":0.09999999962747097015,
+         "data_gb": 0.1,
          "task_hours":0.00000000000000000000,
          "data_subtotal":50,
          "task_subtotal":0
       },
       {
          "ts":"2022-07-12T00:00:00+00:00",
-         "data_gb":0.09999999962747097015,
+         "data_gb": 0.1,
          "task_hours":0.00000000000000000000,
          "data_subtotal":0,
          "task_subtotal":0
       },
       {
          "ts":"2022-07-13T00:00:00+00:00",
-         "data_gb":0.09999999962747097015,
+         "data_gb": 0.1,
          "task_hours":0.00000000000000000000,
          "data_subtotal":0,
          "task_subtotal":0
       },
       {
          "ts":"2022-07-14T00:00:00+00:00",
-         "data_gb":0.09999999962747097015,
+         "data_gb": 0.1,
          "task_hours":0.00000000000000000000,
          "data_subtotal":0,
          "task_subtotal":0
       },
       {
          "ts":"2022-07-15T00:00:00+00:00",
-         "data_gb":0.09999999962747097015,
+         "data_gb": 0.1,
          "task_hours":0.00000000000000000000,
          "data_subtotal":0,
          "task_subtotal":0
       },
       {
          "ts":"2022-07-16T00:00:00+00:00",
-         "data_gb":0.09999999962747097015,
+         "data_gb": 0.1,
          "task_hours":0.00000000000000000000,
          "data_subtotal":0,
          "task_subtotal":0
       },
       {
          "ts":"2022-07-17T00:00:00+00:00",
-         "data_gb":0.09999999962747097015,
+         "data_gb": 0.1,
          "task_hours":0.00000000000000000000,
          "data_subtotal":0,
          "task_subtotal":0
       },
       {
          "ts":"2022-07-18T00:00:00+00:00",
-         "data_gb":0.09999999962747097015,
+         "data_gb": 0.1,
          "task_hours":0.00000000000000000000,
          "data_subtotal":0,
          "task_subtotal":0
@@ -621,7 +481,7 @@ begin
    "billed_prefix":"aliceCo_cc/",
    "recurring_fee":0,
    "task_usage_hours":0.00000000000000000000,
-   "processed_data_gb":1.79999999329447746270
+   "processed_data_gb":1.8
   }'::jsonb));
 
   set role postgres;
