@@ -305,7 +305,7 @@ mod test {
           },
           {
             "catalog_prefix": "AcmeTenant/",
-            "email": "accounts@example.com"
+            "email": "new@example.com"
           }
         ]
         "###);

@@ -84,7 +84,7 @@ pub async fn provision_tenant(
             on conflict do nothing
         ),
         create_alert_subscription as (
-            insert into alert_subscriptions (catalog_prefix, email) values ($2, $4)
+            insert into alert_subscriptions (catalog_prefix, email) values ($2, (select email from auth.users where id = $1 limit 1))
         )
         insert into tenants (tenant, detail) values ($2, $3);
         "#,
