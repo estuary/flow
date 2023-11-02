@@ -16,7 +16,7 @@ tests:
                 geo: { latitude: 40.74, longitude: -74.03 }
                 id: 3184
                 name: "Paulus Hook"
-              timestamp: "2020-09-01 16:18:42.2140"
+              timestamp: "2020-09-01T16:18:42.2140Z"
             bike_id: 17558
             birth_year: 1983
             duration_seconds: 17932
@@ -25,7 +25,7 @@ tests:
                 geo: { latitude: 40.72, longitude: -74.05 }
                 id: 3269
                 name: "Brunswick & 6th"
-              timestamp: "2020-09-01 21:17:34.4800"
+              timestamp: "2020-09-01T21:17:34.4800Z"
             gender: 2
             user_type: Customer
           - &ride2
@@ -34,7 +34,7 @@ tests:
                 geo: { latitude: 40.71, longitude: -74.03 }
                 id: 3184
                 name: "Paulus Hook"
-              timestamp: "2020-09-01 17:17:40.2810"
+              timestamp: "2020-09-01T17:17:40.2810Z"
             bike_id: 17702
             birth_year: 1975
             duration_seconds: 994
@@ -43,7 +43,7 @@ tests:
                 geo: { latitude: 40.72, longitude: -74.04 }
                 id: 3203
                 name: Hamilton Park
-              timestamp: "2020-09-01 17:34:14.6080"
+              timestamp: "2020-09-01T17:34:14.6080Z"
             gender: 1
             user_type: Subscriber
     # Verify steps assert the contents of a collection, after all ingests
