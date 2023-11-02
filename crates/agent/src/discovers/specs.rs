@@ -19,6 +19,10 @@ pub fn parse_response(
     for binding in &mut bindings {
         binding.recommended_name = normalize_recommended_name(&binding.recommended_name);
     }
+    if bindings.iter().any(|b| b.resource_path.is_empty()) {
+        tracing::warn!(%image_name, %image_tag,
+            "connector discovered response omits resource_path, this is OK for now but will become an error in a future release");
+    }
 
     Ok((
         models::CaptureEndpoint::Connector(models::ConnectorConfig {
