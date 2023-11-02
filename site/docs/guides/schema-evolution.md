@@ -1,10 +1,21 @@
 # Schema evolution
 
-How to deal with changing schemas in your materializations
+When collection specifications and schemas change, you must make corresponding changes in other parts of your Data Flow to avoid errors. In this guide, you'll learn how to respond to different types of collection changes.
 
-## Background
+Manual methods (using flowctl) as well as features available in the Flow web app are covered here.
+For an in-depth overview of the automatic schema evolution feature in the web app and how it works, see [this article](../concepts/advanced/evolutions.md).
 
-Flow [collections](../concepts/collections.md) serve not only as a data storage and retrieval mechanism, but also as a contract between producers and consumers of the data. This contract is defined in terms of the collection spec, which includes the JSON schema, the `key`, and [projections](../concepts/advanced/projections.md). This guide helps you figure out how to respond to different types of changes in the collection spec.
+## Introduction
+
+Flow [collections](../concepts/collections.md) serve not only as your real-time data storage, but also as a contract between tasks that produce and consume their data. **Captures** are producers, **materializations** are consumers, and **derivations** can act as either.
+
+This contract helps prevent data loss and error in your Data Flows, and is defined in terms of the collection specification, or spec, which includes:
+
+* The JSON schema
+* The collection `key`
+* [Projections](../concepts/advanced/projections.md), if any
+
+There are many reasons a collection spec might change. Often, it's due to a change in the source data. Regardless, you'll need to make changes to downstream tasks — most often, materializations — to avoid errors.
 
 ## Schema evolution scenarios
 
@@ -13,23 +24,33 @@ This guide is broken down into sections for different common scenarios, dependin
 - [The `key` pointers have changed](#re-creating-a-collection)
 - [The logical partitioning configuration has changed](#re-creating-a-collection)
 - The `schema` (or `readSchema` if defined separately) has changed
-    - A new field is added
-    - A field's data type has changed
-    - A field was removed
+    - [A new field is added](#a-new-field-is-added)
+    - [A field's data type has changed](#a-fields-data-type-has-changed)
+    - [A field was removed](#a-field-was-removed)
 
 :::info
-There are a variety of reasons why these properties may change, and also different mechanisms for detecting changes in source data. In general, it doesn't matter why the collection spec has changed, only _what_ has changed. However, [auto-discovers](../concepts/captures.md#AutoDiscover) are able to handle some of these scenarios automatically. Where applicable, auto-discover behavior will be called out under each section.
+There are a variety of reasons why these properties may change, and also different mechanisms for detecting changes in source data. In general, it doesn't matter why the collection spec has changed, only _what_ has changed. However, [AutoDiscovers](../concepts/captures.md#automatically-update-captures) are able to handle some of these scenarios automatically. Where applicable, AutoDiscover behavior will be called out under each section.
 :::
 
 ### Re-creating a collection
 
-The `key` of a Flow collection cannot be changed after the collection is created. The same is true of the logical partitioning, which also cannot be changed after the collection is created. If you need to change either of those parts of a collection spec, then you'll need to create a new collection and update the bindings of any captures or materializations that reference the old collection. If you're working in the Estuary UI, then you'll see an error message and an offer to re-create the collection by clicking the "Apply" button, as shown in the example below.
+*Scenario: the `key` pointer or logical partitioning configurations have changed.*
+
+The `key` of a Flow collection cannot be changed after the collection is created. The same is true of the logical partitioning, which also cannot be changed after the collection is created.
+
+If you need to change either of those parts of a collection spec, you'll need to create a new collection and update the bindings of any captures or materializations that reference the old collection.
+
+**Web app workflow**
+
+If you're working in the Flow web app, you'll see an error message and an option to re-create the collection as shown in the example below.
 
 ![](./evolution-re-create-ui.png)
 
-**Flowctl workflow:**
+Click **Apply** to re-create the collection and update any tasks that reference the old collection with the new name.
 
-If you're working with flowctl, then you'll follow some different steps, but the net effect will be the same. You'll have to rename the collection in your `flow.yaml`, making sure to also update any captures or materializations that reference it. For example, say you started out with the following YAML specs:
+**flowctl workflow:**
+
+If you're working with flowctl, you'll need to re-create the collection manually in your `flow.yaml` file. You must also update any captures or materializations that reference it. For example, say you have a data flow defined by the following specs:
 
 ```yaml
 captures:
@@ -69,7 +90,7 @@ materializations:
           schema: inventory
 ```
 
-Then to change the collection key, you would update the YAML like so:
+To change the collection key, you would update the YAML like so. Note the capture `target`, collection name, and materialization `source`.
 
 ```yaml
 captures:
@@ -109,40 +130,54 @@ materializations:
           schema: inventory
 ```
 
-The existing `acmeCo/inventory/anvils` collection will not be modified at all by this, and will remain in place.
+The existing `acmeCo/inventory/anvils` collection will not be modified and will remain in place, but won't update because no captures are writing to it.
 
-Note that the collection is now being materialized into a new table, `anvils_v2`. This is because the primary key of the `anvils` table doesn't match the new collection key. New data going forward will be added to `anvils_v2`.
+Note that the collection is now being materialized into a new Snowflake table, `anvils_v2`. This is because the primary key of the `anvils` table doesn't match the new collection key. New data going forward will be added to `anvils_v2` in the data warehouse.
 
 :::warning
-Currently, changing the `target` collection in the capture spec will _not_ cause the capture to perform another backfill. This means that the `anvils_v2` table will end up getting all of the _new_ data going forward, but will not contain the existing data from `anvils`. We plan to soon release updates that make it much easier to keep your destination tables fully in-sync without needing to change the names. In the meantime, feel free to reach out on Slack for help with making this work.
+Currently, changing the `target` collection in the capture spec will _not_ cause the capture to perform another backfill. This means that the `anvils_v2` table will get all of the _new_ data going forward, but will not contain the existing data from `anvils`.
+
+We will soon release updates that make it much easier to keep your destination tables fully in sync without needing to change the names. In the meantime, feel free to [reach out on Slack](https://join.slack.com/t/gazette-dev/shared_invite/enQtNjQxMzgyNTEzNzk1LTU0ZjZlZmY5ODdkOTEzZDQzZWU5OTk3ZTgyNjY1ZDE1M2U1ZTViMWQxMThiMjU1N2MwOTlhMmVjYjEzMjEwMGQ) for help.
 :::
 
 **Auto-Discovers:**
 
-If `autoDiscover` is enabled for your capture, then this re-creation of the collection can optionally be performed automatically by enabling `evolveIncompatibleCollections`. Collections would only be re-created in cases where a new `key` is discovered.
+If you enabled the option to [**Automatically keep schemas up to date** (`autoDiscover`)](../concepts/captures.md#automatically-update-captures) and selected **Breaking change re-versions collections** (`evolveIncompatibleCollections`) for the capture, this evolution would be performed automatically.
 
 ### A new field is added
 
-When a new field appears in the collection schema, it _may_ automatically be added to any materializations that use `recommended` fields. See [the materialization docs](../concepts/materialization.md#projected-fields) for more info about how to enable or disable `recommended` fields.
+*Scenario: this is one way in which the schema can change.*
 
-If the materialization binding uses `recommended: true` in the field selection (it is enabled by default, if unspecified), then new fields will be added automatically if they meet the criteria for the particular materialization connector. For example, scalar fields (strings, numbers, and booleans) are considered "recommended" fields when materializing to database tables.
+When a new field appears in the collection schema, it _may_ automatically be added to any materializations that use `recommended` fields. Recommended fields are enabled by default in each binding. See [the materialization docs](../concepts/materialization.md#projected-fields) for more info about how to enable or disable `recommended` fields.
 
-If your materialization binding uses `recommended: false`, or if the field you want is not recommended, then you can still add it to the materialization. You'll just need to do so explicitly. You can do so either by editing the materialization in the UI and clicking "Show Fields" on the affected binding, or else by adding it to `fields.include` as shown [here](../concepts/materialization.md#projected-fields).
+When recommended fields are enabled, new fields are added automatically if they meet the criteria for the particular materialization connector. For example, scalar fields (strings, numbers, and booleans) are considered "recommended" fields when materializing to database tables.
+
+If your materialization binding is set to `recommended: false`, or if the new field is not recommended, you can manually add it to the materialization.
+
+To manually add a field:
+
+* **In the Flow web app,** [edit the materialization](./edit-data-flows.md#edit-a-materialization), find the affected binding, and click **Show Fields**.
+* **Using flowctl,** add the field to `fields.include` in the materialization specification as shown [here](../concepts/materialization.md#projected-fields).
 
 ### A field's data type has changed
 
-When the data type of a field has changed, the effect on your materialization depends on the specific connector you're using. Note that these restrictions only apply to fields that are actively being materialized. If a field is excluded from your materialization, either explicitly or because it's not recommended, then the data types may change in any way.
+*Scenario: this is one way in which the schema can change.*
+
+When a field's data type has changed, the effect on your materialization depends on the specific connector you're using.
 
 :::warning
-You can still get yourself into trouble if your schema changes such that existing data is no longer valid against the new schema. For example, if you have `excluded_field: { type: string }` and you change it to `type: integer`, then it is likely to cause consumers of the collection to fail due to a schema validation failure, since there may be existing data with string values for that field.
+Note that these restrictions only apply to fields that are actively being materialized. If a field is [excluded from your materialization]((../concepts/materialization.md#projected-fields)), either explicitly or because it's not recommended, then the data types may change in any way.
+
+Regardless of whether the field is materialized or not, it must still pass schema validation tests. Therefore, you must still make sure existing data remains valid against the new schema. For example, if you changed `excluded_field: { type: string }` to `type: integer` while there was existing data with string values, your materialization would fail due to a schema validation error.
 :::
 
-Database (or data warehouse) materializations tend to be somewhat restrictive about changing column types. They typically only allow dropping `NOT NULL` constraints. This means that you can safely change a schema to make a required field optional, or to add `null` as a possible type, and the materialization will continue to work normally.  Most other types of changes will require materializing into a new table.
+Database and data warehouse materializations tend to be somewhat restrictive about changing column types. They typically only allow dropping `NOT NULL` constraints. This means that you can safely change a schema to make a required field optional, or to add `null` as a possible type, and the materialization will continue to work normally.  Most other types of changes will require materializing into a new table.
 
-You can always try publishing your changes, and see if the connector allows it. If not, the publication (or test) will fail with an error message pointing to the field that's changed. In this case, you can work around the issue by simply materializing into a new table. For example, if you started out with the specs below:
+The best way to find out whether a change is acceptable to a given connector is to run test or attempt to re-publish. If the publication or test fails with an error message pointing to the field that's changed, you can work around the issue by materializing into a new table. Failed attempts to publish won't affect any tasks that are already running.
 
+For example, say you have a data flow defined by the following specs:
 
-```
+```yaml
 collections:
   acmeCo/inventory/anvils:
     key: [/sku]
@@ -167,10 +202,9 @@ materializations:
           schema: inventory
 ```
 
-Let's say that the type of `description` is broadened to allow `object` values in addition to `string`. You'd update your specs thusly:
+Let's say the type of `description` was broadened to allow `object` values in addition to `string`. You'd update your specs as follows:
 
-
-```
+```yaml
 collections:
   acmeCo/inventory/anvils:
     key: [/sku]
@@ -195,12 +229,16 @@ materializations:
           schema: inventory
 ```
 
-Note that the collection name has remained the same. Only the materialization `resource` is updated to write to a new table, which will backfill from the existing collection data. This works because the type is broadened, so existing values will still validate against the new schema. If this were not the case, then you'd probably want to [re-create the whole collection](#re-creating-a-collection).
+Note that the collection name is the same. Only the materialization `resource` is updated to write to a new table, which will backfill from the existing collection data.
+
+This works because the type is broadened, so existing values will still validate against the new schema. If this were not the case, then you'd likely need to [re-create the whole collection](#re-creating-a-collection).
 
 **Auto-Discovers:**
 
-If `autoDiscover` is enabled for your capture, then materializing into a new table can optionally be performed automatically by enabling `evolveIncompatibleCollections`.
+If you enabled the option to [**Automatically keep schemas up to date** (`autoDiscover`)](../concepts/captures.md#automatically-update-captures) and selected **Breaking change re-versions collections** (`evolveIncompatibleCollections`) for the capture, this evolution would be performed automatically.
 
 ### A field was removed
+
+*Scenario: this is one way in which the schema can change.*
 
 Removing fields is generally allowed by all connectors, and does not require new tables or collections. Note that for database materializations, the existing column will _not_ be dropped, and will just be ignored by the materialization going forward. A `NOT NULL` constraint would be removed from that column, but it will otherwise be left in place.

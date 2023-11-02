@@ -57,21 +57,23 @@ You may then modify the generated configuration as needed before publishing the 
 Discovers can also be run when editing an existing capture. This is commonly done in order to add new bindings, or update the collection specs and schemas associated with existing bindings.
 :::
 
-## AutoDiscover
+## Automatically update captures
 
-Capture specs may optionally include an `autoDiscover` property to opt in to periodic discovers that are run in the background. For captures that opt in, the Flow control plane will periodically run a discover operation, and publish the resulting draft.
+You can choose to run periodic discovers in the background by adding the n `autoDiscover` property to the capture. Flow will periodically check for changes to the source and re-publish the capture to reflect those changes.
 
-There are several options for controlling the behavior of `autoDiscover`. The `addNewBindings` option determines whether to add newly discovered bindings to the capture. If it's `false`, then it will only update the collection specs for existing bindings.
+There are several options for controlling the behavior of `autoDiscover`:
 
-The `evolveIncompatibleCollections` property determines how to respond when a discovered collection spec is incompatible with the existing spec. If `true`, then it will trigger an [evolution](./evolutions.md) of the incompatible collection(s).
+* The `addNewBindings` option determines whether to add newly discovered resources, such as database tables, to the capture as *bindings*. If set to `false`, autoCapture will only update the collection specs for existing bindings.
 
-In the UI, these properties can be set when creating or editing a capture.
+* The `evolveIncompatibleCollections` option determines how to respond when the discovered updates would cause a breaking change to the collection. If `true`, it will trigger an [evolution](./evolutions.md) of the incompatible collection(s) to prevent failures.
+
+In the Flow web app, you can set these properties when you create or edit a capture.
 
 ![](captures-auto-discover-ui.png)
 
-The toggles in the UI correspond directly to the properties above:
+The toggles in the web app correspond directly to the properties above:
 
-- "Automatically keep schemas up to date" corresponds to `autoDiscover`
+- "Automatically keep schemas up to date" enables `autoDiscover`
 - "Automatically add new collections" corresponds to `addNewBindings`
 - "Breaking changes re-versions collections" corresponds to `evolveIncompatibleCollections`
 
@@ -132,7 +134,7 @@ captures:
         resource:
           stream: a-bucket/another-prefix
           syncMode: incremental
-    
+
     # Interval of time between invocations of non-streaming connectors.
     # If a connector runs to completion and then exits, the capture task will
     # restart the connector after this interval of time has elapsed.

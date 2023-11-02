@@ -1,13 +1,22 @@
 # Schema evolution
 
+**Schema evolutions** are a feature you can use to update your whole Data Flow to reflect edits to a collection, preventing your Data Flow from failing due to mismatched components.
+
 :::info
 Evolutions are a relatively advanced concept in Flow.
 Before continuing, you should have a basic understanding of [Flow captures](../captures.md), [collections](../collections.md), [schemas](../schemas.md), and [materializations](../materialization.md).
 :::
 
-## Background
+## Introduction
 
-To review, Flow collections are the realtime containers for your data, which sit in between captures and materializations.
+Flow stores your real-times datasets as **collections**, groups of continually updating JSON documents.
+**Captures** write data to collections, and **materializations** read data from collections.
+Together, these three components form a complete Data Flow.
+
+:::info Note
+Derivations can also read data from and write data to collections.
+To keep things simple in this article, we'll be referring only to captures and materializations.
+:::
 
 import Mermaid from '@theme/Mermaid';
 <Mermaid chart={`
@@ -18,44 +27,64 @@ import Mermaid from '@theme/Mermaid';
     Materialization-->Dest[Destination System];
 `}/>
 
-Collection specs serve as a formal contract between producers (captures) and consumers (derivations and materializations) of data. 
-This contract encompasses the `id`, `schema` (or `readSchema` and `writeSchema` if defined separately), and logical partitioning of the collection. When any part of the contract changes, both the producers and consumers must approve of the change. If any party rejects the proposed change, Flow will fail the publication with an error. Evolutions are a feature that updates your draft to allow such a publication to proceed.
+Each collection and its data are defined by a **collection specification**, or spec.
+The spec serves as a formal contract between the capture and the materialization, ensuring that data is correctly shaped and moves through the Data Flow without error.
 
-Collection specs may change for a huge variety of reasons, such as:
+The spec includes the collection's `id`, its `schema`, and [logical partitions](./projections.md#logical-partitions) of the collection, if any.
 
-- The source system is a database, and someone ran an `ALTER TABLE` statement on a captured table.
-- The source system contains unstructured data, and some data with a different shape was just captured.
-- Someone manually published a change to the collection's logical partitions.
+When any of these parts change, any capture or materialization writing to or reading from the collection must be updated to approve of the change, otherwise, the Data Flow will fail with an error.
 
-Regardless of why or how a spec change is introduced, the effect is the same. Flow will never knowingly permit you to publish changes that break the contract between producers and consumers of a collection.
+You can use Flow's **schema evolutions** feature to quickly and simultaneously update other parts of a Data Flow so you're able to re-start it without error when you introduce a collection change.
 
-## What do evolutions do?
+Collection specs may change for a variety of reasons, such as:
 
-Evolutions operations that update a draft. Evolutions don't do anything that you couldn't do yourself by editing specs directly. They just make it easier to handle common and repetitive scenarios. They can update drafts in two ways:
+- The source system is a database, and someone ran an `ALTER TABLE` statement on a captured table, so you need to update the collection schema (through [AutoDiscover](../captures.md#autodiscover) or manually).
+- The source system contains unstructured data, and some data with a different shape was just captured so you need to update the collection schema (through AutoDiscover or manually).
+- Someone manually changed the collection's logical partitions.
 
-Update materialization bindings to materialize a collection into a new resource (database table, for example): Any materializations of the evolving collection will be updated to materialize it into a new resource (database table, for example). For example, if the collection was previously materialized into a table called `my_table`, the evolution would update it to instead materialize into `my_table_v2`. The Flow collection itself remains unchanged.
+Regardless of why or how a spec change is introduced, the effect is the same. Flow will never permit you to publish changes that break this contract between captures and materializations, so you'll need to update the contract.
 
-Re-create the Flow collection with a new name: This creates a completely new collection with a `_v2` (`_v3`, etc) suffix, which will start out empty and will need to backfill from the source. All Captures and materializations that reference the old collection will be updated to instead reference the new collection. This will also update any materializations to materialize the new collection into a new resource.
+## Using evolutions
 
-:::info
-Evolutions will soon support additional operations to re-create materialization resources (e.g. tables) while keeping the same names.
-:::
-
-In most common cases, evolutions will only need to update materialization bindings. Evolutions will always try to avoid re-creating the collection if at all possible. Collections will only be re-created in cases where the key or logical partitioning have changed. The remaining cases are due to changes to the collection schema. For example, perhaps a field has changed from `type: string` to `type: integer`, which results in a database materialization rejecting the change. In those cases, it's usually sufficient to materialize the collection into a new table.
-
-## Evolutions in the UI
-
-When you attempt to publish a breaking change to a collection via the UI, you'll get an error message that looks similar to this one:
+When you attempt to publish a breaking change to a collection in the Flow web app, you get an error message that looks similar to this one:
 
 ![](<./evolutions-images/ui-evolution-re-create.png>)
 
-If you click the "Apply" button, then it will trigger an evolution, which updates your draft. You'll then be able to review and publish your draft, which should succeed now that you've handled all the breaking changes.
+Click the **Apply** button to trigger an evolution and update all necessary specification to keep your Data Flow functioning. Then, review and publish your draft.
 
-## Breaking schema changes
+If you enabled [AutoDiscover](../captures.md#autodiscover) on a capture, any breaking changes that it introduces will trigger an automatic schema evolution, so long as you selected the **Breaking change re-versions collections** option(`evolveIncompatibleCollections`).
 
-Changes to the collection `key` or logical partition can happen, but in practice they tend to not be as common. The most common cause of a breaking change is just a change to the collection schema itself. Generally, it's the Materializations, not the Captures, that will complain about breaking schema changes. This is because the new collection specs are discovered by introspecting the data source, or else the collection uses schema inference and you just have to accept whatever came from the source. (TODO: awkward wording here) In any case, changes typically flow from the data sources toward the destinations.
+## What do schema evolutions do?
 
-Consider an example materialization of a collection that looks like this:
+The schema evolution feature is available in the Flow web app when you're editing pre-existing Flow entities.
+It notices when one of your edit would cause other components of the Data Flow to fail, alerts you, and gives you the option to automatically update the specs of these components to prevent failure.
+
+In other words, evolutions happen in the *draft* state. Whenever you edit, you create a draft.
+Evolutions add to the draft so that when it is published and updates the active data flow, operations can continue seamlessly.
+
+Alternatively, you could manually update all the specs to agree to your edit, but this becomes time-consuming and repetitive.
+
+Evolutions can prevent errors resulting from mismatched specs in two ways:
+
+* **Materialize data to a new resource in the endpoint system**: The evolution updates all materialization binding that from the collection to write to a new resource (database table, for example) in the endpoint system. This is done by updating the materialization's *binding specification*. For example, if the collection was previously materialized into a database table called `my_table`, the evolution would update it to instead materialize into `my_table_v2`. The Flow collection itself remains unchanged.
+
+   This is a simpler change, and how evolutions work in most cases.
+
+* **Re-create the Flow collection with a new name**: The evolution creates a completely new collection with numerical suffix, such as `_v2`. This collection starts out empty and backfills from the source. The evolution also updates all captures and materializations that reference the old collection to instead reference the new collection. This also updates any materializations to materialize the new collection into a new resource.
+
+   This is a more complicated change, and evolutions only work this way when necessary: when the collection key or logical partition changes, or when a schema change would cause the endpoint system to reject the materialized data.
+
+:::info
+Evolutions will soon support the re-creation of materialization resources, such as tables, while keeping the same names.
+:::
+
+## What causes breaking schema changes?
+
+Though changes to the collection `key` or logical partition can happen, the most common cause of a breaking change is a change to the collection schema.
+
+Generally materializations, not captures, require updates following breaking schema changes. This is because the new collection specs are usually discovered from the source, so the capture is edited at the same time as the collection.
+
+Consider a collection schema that looks like this:
 
 ```yaml
 schema:
@@ -69,4 +98,4 @@ key: [/id]
 
 If you materialized that collection into a relational database table, the table would look something like `my_table (id integer primary key, foo timestamptz)`.
 
-Now say you create a draft where you update the collection spec to remove `format: date-time` from `bar`. You'd expect the resulting table to then look like `(id integer primary key, foo text)`. But since the column type of `foo` has changed, this will fail when you try to publish your draft. An easy solution in this case would be to change the name of the table that the collection is materialized into. A common convention, which is used by evolutions, is to suffix the table name with `_v2`, or increment the suffix if one is already present. Thus you'd end up with `my_table_v2 (id integer primary key, foo text)`.
+Now, say you edit the collection spec to remove `format: date-time` from `bar`. You'd expect the materialized database table to then look like `(id integer primary key, foo text)`. But since the column type of `foo` has changed, this will fail. An easy solution in this case would be to change the name of the table that the collection is materialized into. Evolutions do this by appending a suffix to the original table name. In this case, you'd end up with `my_table_v2 (id integer primary key, foo text)`.

@@ -376,11 +376,11 @@ You can combine schema conditionals with annotations to build
 
 ## Continuous schema inference
 
-Flow automatically infers a JSON schema for every captured collection. This schema is updated automatically as data is captured. You can reference the inferred schema of a collection within a `readSchema` by using `"$ref": "flow://inferred-schema"`, which gets expanded to the current inferred schema whenever the collection is published.
+Flow automatically infers a JSON schema for every captured collection. This schema is updated automatically as data is captured.
 
-For some systems, like relational databases, Flow is able to determine a complete JSON schema for each collection up front, before even starting the capture. But many other systems are not able to provide detailed and accurate information about the data before it's captured. Often, the data may even be unstructured or loosely structured. For these systems, it is not possible to know the schema up front. The schema can only really be known after the data is captured. Continuous schema inference is most useful in these scenarios.
+For some systems, like relational databases, Flow is able to determine a complete JSON schema for each collection up front, before even starting the capture. But many other systems are not able to provide detailed and accurate information about the data before it's captured. Often, this is because the source system data is unstructured or loosely structured. For these systems, the schema can only be known after the data is captured. Continuous schema inference is most useful in these scenarios.
 
-For example, say we're capturing from MongoDB. MongoDB documents must all have an `_id` field, but that is essentially the only requirement. Generally, you cannot know what other fields may exist on MongoDB documents until you've read them. When you setup a capture from MongoDB using the Flow UI, the collection specs will look something like this:
+For example, say you're capturing from MongoDB. MongoDB documents must all have an `_id` field, but that is essentially the only requirement. You can't know what other fields may exist on MongoDB documents until you've read them. When you set up a capture from MongoDB using the Flow web app, the collection specifications will look something like this:
 
 ```yaml
 key: [ /_id ]
@@ -395,15 +395,15 @@ readSchema:
     - $ref: flow://inferred-schema
 ```
 
-The first thing to point out is that it uses separate read and write schemas. The `writeSchema` is extremely permissive, and only requires an `_id` property with a string value. The `readSchema` references `flow://inferred-schema`, which expands to the current inferred schema when the collection is published.
+Note that this spec uses separate read and write schemas. The `writeSchema` is extremely permissive, and only requires an `_id` property with a string value. The `readSchema` references `flow://inferred-schema`, which expands to the current inferred schema when the collection is published.
 
 :::info
 Note that `$ref: flow://write-schema` expands to the current `writeSchema`. Whenever you use `$ref: flow://inferred-schema`, you should always include the `flow://write-schema` as well, so that you don't need to repeat any fields that are defined in the `writeSchema` or wait for those fields to be observed by schema inference.
 :::
 
-In the initial publication of a collection that uses the inferred schema, the `flow://inferred-schema` will expand to a special placeholder schema. Once the collection has had any data written to it, from then on the inferred schema will strictly and minimally describe any data that was captured. The initial placeholder schema will reject _all_ documents. The purpose of this is to ensure that a non-placeholder inferred schema has been published before allowing any documents to be materialized.
+When you first publish a collection using the inferred schema, `flow://inferred-schema` expands to a special placeholder schema that rejects *all* documents. This is to ensure that a non-placeholder inferred schema has been published before allowing any documents to be materialized. Once data is captured to the collection, the inferred schema immediately updates to strictly and minimally describe the captured.
 
-Note that the effective `readSchema` is only ever updated when the collection is published. So it generally makes sense to use the inferred schema in conjunction with [autoDiscover](/concepts/captures/#autodiscover).
+Because the effective `readSchema` is only ever updated when the collection is published, the best option is usually to use the inferred schema in conjunction with [autoDiscover](/concepts/captures/#autodiscover).
 
 ## `default` annotations
 
