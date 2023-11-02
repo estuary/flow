@@ -220,6 +220,12 @@ message Response {
       // The user may explicitly enable it, but the garden-path expectation
       // for most users is that they likely wouldn't want it.
       bool disable = 5;
+      // Components of the resource path which fully qualify the resource
+      // identified by this binding.
+      // - For an RDBMS, this might be []{dbname, schema, table}.
+      // - For Kafka, this might be []{topic}.
+      // - For Redis, this might be []{key_prefix}.
+      repeated string resource_path = 6;
     }
     repeated Binding bindings = 1;
   }
