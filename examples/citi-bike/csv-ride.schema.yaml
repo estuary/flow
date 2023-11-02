@@ -1,28 +1,28 @@
 "$schema": http://json-schema.org/draft-07/schema#
 type: object
 required:
-- Bike ID
-- Birth Year
-- End Station ID
-- End Station Latitude
-- End Station Longitude
-- End Station Name
-- Gender
-- Start Station ID
-- Start Station Latitude
-- Start Station Longitude
-- Start Station Name
-- Start Time
-- Stop Time
-- Trip Duration
-- User Type
+  - Bike ID
+  - Birth Year
+  - End Station ID
+  - End Station Latitude
+  - End Station Longitude
+  - End Station Name
+  - Gender
+  - Start Station ID
+  - Start Station Latitude
+  - Start Station Longitude
+  - Start Station Name
+  - Start Time
+  - Stop Time
+  - Trip Duration
+  - User Type
 properties:
   Bike ID:
     type: string
   Birth Year:
     type:
-    - 'null'
-    - string
+      - "null"
+      - string
   End Station ID:
     type: string
   End Station Latitude:
@@ -43,11 +43,13 @@ properties:
     type: string
   Start Time:
     type: string
+    format: date-time
   Stop Time:
     type: string
+    format: date-time
   Trip Duration:
     type: string
   User Type:
     type:
-    - 'null'
-    - string
+      - "null"
+      - string
