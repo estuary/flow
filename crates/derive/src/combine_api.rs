@@ -429,6 +429,9 @@ pub mod test {
                 false,
                 json!({"key": "really really really really really really really really long", "min": 10, "max": 10}),
             ),
+            (false, json!({"key": "one", "min": 7, "max": 7.7})),
+            (false, json!({"key": "one", "min": 8, "max": 8.8})),
+            (false, json!({"key": "one", "min": 9, "max": 9.9})),
         ] {
             svc.invoke(
                 if *left {
@@ -458,16 +461,16 @@ pub mod test {
 
         assert_eq!(out.len(), 1 * 3);
 
-        // Poll again to drain the final three, plus stats.
+        // Poll again to drain the final five, plus stats.
         svc.invoke(
             Code::DrainChunk as u32,
-            &(1024 as u32).to_be_bytes(),
+            &(4096 as u32).to_be_bytes(),
             &mut arena,
             &mut out,
         )
         .unwrap();
 
-        assert_eq!(out.len(), 4 * 3 + 1);
+        assert_eq!(out.len(), 6 * 3 + 1);
 
         // The last message in out should be stats
         let stats_out = out.pop().expect("missing stats");
@@ -478,12 +481,12 @@ pub mod test {
         let expected_stats = Stats {
             left: Some(DocsAndBytes { docs: 2, bytes: 62 }),
             right: Some(DocsAndBytes {
-                docs: 4,
-                bytes: 183,
+                docs: 7,
+                bytes: 276,
             }),
             out: Some(DocsAndBytes {
-                docs: 4,
-                bytes: 339,
+                docs: 6,
+                bytes: 491,
             }),
         };
         assert_eq!(expected_stats, stats_message);
