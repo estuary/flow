@@ -122,16 +122,14 @@ impl Entries {
         // `begin_queued` offset of the first queued document in this group.
         // If there are no queued documents, it's next.len().
         let mut begin_queued = 0;
-        // `threshold` is the exclusive lower-bound delta between an index and
-        // `begin` before the index may be compacted. It's zero for a partial
-        // reduction or one for a full reduction, because full reductions must
-        // defer compactions into the left-most document until we drain. Examples:
-        //   Partial: [ d0, d1 ]     (d1 can compact into d0)
-        //   Full:    [ d0, d1, d2 ] (d2 can compact into d1)
-        //   Full:    [ d0, d1 ]     (d1 CANNOT compact into d0)
-        let mut threshold = 0;
 
-        // This loop does extra book-keeping to defer a reduction of
+        // We attempt associative reductions to compact down to two documents
+        // for each group. We must hold back a reduction into the left-most
+        // document because we don't know if it's truly the left-most document
+        // for the group, or if there's yet another document out there that we
+        // might encounter later.
+        //
+        // This loop also does extra book-keeping to defer a reduction of
         // `begin_queued` into a prior entry from `sorted` within each group.
         // We hold it back, preferring to instead reduce a second, third,
         // ... N queued document into `begin_queued` first, and only then
@@ -158,18 +156,13 @@ impl Entries {
 
             // Does `entry` start a new group?
             if !matches!(next.last(), Some(last) if sort_ord(&entry, last).is_eq()) {
-                // If we held back compaction of `begin_queued`, do it now.
-                if begin_queued != next.len() && begin_queued - begin > threshold {
+                // If we held back an eligible compaction of `begin_queued`, do it now.
+                if begin_queued != next.len() && begin_queued - begin > 1 {
                     maybe_reduce(&mut next, begin_queued)?;
                 }
 
                 // Reset for this next group.
                 (begin, begin_queued) = (next.len(), next.len());
-                threshold = if self.spec.is_full[entry.meta.binding()] {
-                    1 // Hold back compactions into the very first doc of this group.
-                } else {
-                    0 // Okay to compact into the first doc.
-                };
             }
 
             let index = next.len();
@@ -178,15 +171,15 @@ impl Entries {
             if !is_queued {
                 // `entry` is from `sorted` and is already reduced.
                 begin_queued = next.len();
-            } else if index != begin_queued && index - begin > threshold {
+            } else if index != begin_queued && index - begin > 1 {
                 // Reduce if `entry` is not `begin_queued` (which is held back)
-                // and we have more than `threshold` other group documents.
+                // and we have more than one other group document.
                 maybe_reduce(&mut next, index)?;
             }
         }
 
         // Apply deferred reduction of `begin_queued` of the final group.
-        if begin_queued != next.len() && begin_queued - begin > threshold {
+        if begin_queued != next.len() && begin_queued - begin > 1 {
             maybe_reduce(&mut next, begin_queued)?;
         }
 
@@ -268,6 +261,7 @@ impl MemTable {
         let (sorted, spec, zz_alloc) = self.try_into_parts()?;
 
         Ok(MemDrainer {
+            in_group: false,
             it: sorted.into_iter().peekable(),
             spec,
             zz_alloc: Arc::new(zz_alloc),
@@ -331,6 +325,7 @@ impl MemTable {
 }
 
 pub struct MemDrainer {
+    in_group: bool,
     it: std::iter::Peekable<std::vec::IntoIter<HeapEntry<'static>>>,
     spec: Spec,
     zz_alloc: Arc<Bump>, // Careful! Order matters. See MemTable.
@@ -351,11 +346,16 @@ impl MemDrainer {
 
         // Attempt to reduce additional entries.
         while let Some(next) = self.it.peek() {
-            if !is_full && meta.not_associative() {
-                break; // We already attempted this associative reduction.
-            } else if meta.binding() != next.meta.binding()
+            if meta.binding() != next.meta.binding()
                 || !Extractor::compare_key(key, &root, &next.root).is_eq()
             {
+                self.in_group = false;
+                break;
+            } else if !is_full && (!self.in_group || meta.not_associative()) {
+                // We're performing associative reductions and:
+                // * This is the first document of a group, which we cannot reduce into, or
+                // * We've already attempted this associative reduction.
+                self.in_group = true;
                 break;
             }
 
@@ -411,7 +411,12 @@ impl Iterator for MemDrainer {
 
 impl MemDrainer {
     pub fn into_spec(self) -> Spec {
-        let MemDrainer { it, spec, zz_alloc } = self;
+        let MemDrainer {
+            in_group: _,
+            it,
+            spec,
+            zz_alloc,
+        } = self;
 
         std::mem::drop(it);
         std::mem::drop(zz_alloc);
@@ -747,17 +752,14 @@ mod test {
             ]),
         );
 
-        // Meta(0) corresponds to binding zero, which is a full-reduction binding.
-        // Full reductions must hold back a compaction of the first document in
+        // Reductions must hold back a compaction of the first document in
         // each group.
-        //
-        // Meta(1) is binding one, which is a partial reduction. Partial reductions
-        // can compact into the first document immediately, and have fewer entries.
         insta::assert_snapshot!(inspect(&memtable), @r###"
         Meta(0) {"k":1,"v":{"a":"b"}}
         Meta(0) {"k":1,"v":{"c":{"d":1}}}
         Meta(0) {"k":2,"v":[1,2]}
-        Meta(1) {"k":1,"v":{"a":"b","c":{"d":1}}}
+        Meta(1) {"k":1,"v":{"a":"b"}}
+        Meta(1) {"k":1,"v":{"c":{"d":1}}}
         Meta(1) {"k":2,"v":[1,2]}
         "###);
 
@@ -777,7 +779,9 @@ mod test {
         Meta(0) {"k":1,"v":{"a":4,"c":{"d":1,"g":2},"e":"f"}}
         Meta(0) {"k":2,"v":[1,2]}
         Meta(0) {"k":2,"v":"hi"}
+        Meta(1) {"k":1,"v":{"a":"b"}}
         Meta(1) {"k":1,"v":{"a":4,"c":{"d":1,"g":2},"e":"f"}}
+        Meta(1) {"k":2,"v":[1,2]}
         Meta(1) {"k":2,"v":"hi"}
         "###);
 
@@ -797,7 +801,9 @@ mod test {
         Meta(0) {"k":1,"v":{"a":5,"c":null,"e":"f"}}
         Meta(0) {"k":2,"v":[1,2]}
         Meta(0) {"k":2,"v":false,"z":null}
+        Meta(1) {"k":1,"v":{"a":"b"}}
         Meta(1) {"k":1,"v":{"a":5,"c":null,"e":"f"}}
+        Meta(1) {"k":2,"v":[1,2]}
         Meta(1) {"k":2,"v":false,"z":null}
         "###);
 
@@ -817,8 +823,10 @@ mod test {
         Meta(0) {"k":1,"v":{"a":{"n":1},"e":"g"}}
         Meta(0) {"k":2,"v":[1,2]}
         Meta(0) {"k":2,"v":true,"z":null}
+        Meta(1) {"k":1,"v":{"a":"b"}}
         Meta(1, "NA") {"k":1,"v":{"a":5,"c":null,"e":"f"}}
         Meta(1) {"k":1,"v":{"a":{"n":1},"e":"g"}}
+        Meta(1) {"k":2,"v":[1,2]}
         Meta(1) {"k":2,"v":true,"z":null}
         "###);
 
@@ -845,10 +853,12 @@ mod test {
         Meta(0) {"k":1,"v":{"a":{"n":{"nn":{"nnn":1},"z":"z"}},"e":"j"}}
         Meta(0) {"k":2,"v":[1,2]}
         Meta(0) {"k":2,"v":null,"z":null}
+        Meta(1) {"k":1,"v":{"a":"b"}}
         Meta(1, "NA") {"k":1,"v":{"a":5,"c":null,"e":"f"}}
         Meta(1, "NA") {"k":1,"v":{"a":{"n":1},"e":"g"}}
         Meta(1, "NA") {"k":1,"v":{"a":{"n":{"nn":1}},"e":"i"}}
         Meta(1) {"k":1,"v":{"a":{"n":{"nn":{"nnn":1},"z":"z"}},"e":"j"}}
+        Meta(1) {"k":2,"v":[1,2]}
         Meta(1) {"k":2,"v":null,"z":null}
         "###);
 
@@ -872,10 +882,12 @@ mod test {
         Meta(0) {"k":2,"v":null,"z":null}
         Meta(0, "F") {"k":3,"v":"other"}
         Meta(1, "F") {"k":1,"v":{"a":{"init":1}}}
+        Meta(1) {"k":1,"v":{"a":"b"}}
         Meta(1, "NA") {"k":1,"v":{"a":5,"c":null,"e":"f"}}
         Meta(1, "NA") {"k":1,"v":{"a":{"n":1},"e":"g"}}
         Meta(1, "NA") {"k":1,"v":{"a":{"n":{"nn":1}},"e":"i"}}
         Meta(1) {"k":1,"v":{"a":{"n":{"nn":{"nnn":1},"z":"z"}},"e":"j"}}
+        Meta(1) {"k":2,"v":[1,2]}
         Meta(1) {"k":2,"v":null,"z":null}
         Meta(1, "F") {"k":3,"v":"other"}
         "###);
@@ -902,11 +914,14 @@ mod test {
         Meta(0) {"k":2,"v":[1,2]}
         Meta(0) {"k":2,"v":null,"z":null}
         Meta(0, "F") {"k":3,"v":"other"}
+        Meta(1, "F") {"k":1,"v":{"a":{"init":1}}}
         Meta(1, "F") {"k":1,"v":{"a":{"init":2},"e":"overridden"}}
+        Meta(1) {"k":1,"v":{"a":"b"}}
         Meta(1, "NA") {"k":1,"v":{"a":5,"c":null,"e":"f"}}
         Meta(1, "NA") {"k":1,"v":{"a":{"n":1},"e":"g"}}
         Meta(1, "NA") {"k":1,"v":{"a":{"n":{"nn":1}},"e":"i"}}
         Meta(1) {"k":1,"v":{"a":{"n":{"nn":{"nnn":1},"z":"z"}},"e":"j"}}
+        Meta(1) {"k":2,"v":[1,2]}
         Meta(1) {"k":2,"v":null,"z":null}
         Meta(1, "F") {"k":3,"v":"other"}
         "###);
@@ -928,10 +943,12 @@ mod test {
         Meta(0, "F") {"k":1,"v":{"a":{"n":{"nn":{"nnn":1},"z":"z"}},"e":"j"}}
         Meta(0) {"k":2}
         Meta(0, "F") {"k":3,"v":"other"}
+        Meta(1, "F") {"k":1,"v":{"a":{"init":1}}}
         Meta(1, "F", "NA") {"k":1,"v":{"a":5,"c":null,"e":"f"}}
         Meta(1, "NA") {"k":1,"v":{"a":{"n":1},"e":"g"}}
         Meta(1, "NA") {"k":1,"v":{"a":{"n":{"nn":1}},"e":"i"}}
         Meta(1) {"k":1,"v":{"a":{"n":{"nn":{"nnn":1},"z":"z"}},"e":"j"}}
+        Meta(1) {"k":2,"v":[1,2]}
         Meta(1) {"k":2,"v":null,"z":null}
         Meta(1, "F") {"k":3,"v":"other"}
         "###);

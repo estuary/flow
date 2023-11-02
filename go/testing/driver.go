@@ -401,8 +401,7 @@ func combineDocumentsForVerify(
 		collection.Key,
 		nil, // Don't extract additional fields.
 		collection.Projections,
-		// Enable schema inference in testing
-		true,
+		false, // Disable schema inference and perform full reductions.
 		&pf.SerPolicy{},
 	); err != nil {
 		return nil, fmt.Errorf("configuring combiner: %w", err)

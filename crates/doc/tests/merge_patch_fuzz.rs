@@ -129,12 +129,13 @@ fn reduce_combiner(input: Vec<ArbitraryValue>) -> bool {
     let spec = memtable_2.spill(&mut spill, 1 << 18).unwrap();
     let (mut spill, ranges) = spill.into_parts();
 
-    let mut spill_drainer = SpillDrainer::new(spec, &mut spill, &ranges)
-        .unwrap()
-        .peekable();
+    let mut spill_drainer = SpillDrainer::new(spec, &mut spill, &ranges).unwrap();
 
-    loop {
-        let mem = mem_drainer.next().unwrap().unwrap();
+    let mut actual_associative = None;
+    let mut actual_full = json!(null);
+
+    while let Some(mem) = mem_drainer.next() {
+        let mem = mem.unwrap();
         let spill = spill_drainer.next().unwrap().unwrap();
 
         assert_eq!(
@@ -153,14 +154,31 @@ fn reduce_combiner(input: Vec<ArbitraryValue>) -> bool {
             "MemDrainer and SpillDrainer return identical documents"
         );
 
-        // Have we drained the fully-reduced document?
-        if binding == 1 {
+        if binding == 0 && actual_associative.is_none() {
+            actual_associative = Some(mem); // Initial value.
+        } else if binding == 0 {
+            json_patch::merge(actual_associative.as_mut().unwrap(), &mem);
+        } else {
+            assert_eq!(binding, 1);
+            actual_full = mem;
+
             assert_eq!(
                 deleted,
                 expect.is_null(),
                 "null is surfaced as a deletion tombstone"
             );
-            break mem == expect && spill == expect;
         }
     }
+    assert!(spill_drainer.next().is_none());
+
+    actual_associative.unwrap() == expect && actual_full == expect
+}
+
+#[test]
+fn test_partial_drain_regression() {
+    // This test case failed under the initial implementation of associative
+    // reductions within the combiner, which was too aggressive in compacting
+    // down to a single document for each binding group (it didn't properly
+    // hold back an initial document of each group).
+    assert!(reduce_combiner(vec![ArbitraryValue(json!({"": null}))]))
 }

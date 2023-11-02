@@ -315,6 +315,7 @@ impl Eq for Segment {}
 pub struct SpillDrainer<F: io::Read + io::Seek> {
     alloc: Arc<Bump>, // Used for individual key reductions.
     heap: BinaryHeap<cmp::Reverse<Segment>>,
+    in_group: bool,
     spec: Spec,
     spill: F,
 }
@@ -345,11 +346,16 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
 
         // Attempt to reduce additional entries.
         while let Some(cmp::Reverse(next)) = self.heap.peek() {
-            if !is_full && meta.not_associative() {
-                break; // We already attempted associative reduction.
-            } else if meta.binding() != next.head.meta.binding()
+            if meta.binding() != next.head.meta.binding()
                 || !Extractor::compare_key(key, root.get(), next.head.root.get()).is_eq()
             {
+                self.in_group = false;
+                break;
+            } else if !is_full && (!self.in_group || meta.not_associative()) {
+                // We're performing associative reductions and:
+                // * This is the first document of a group, which we cannot reduce into, or
+                // * We've already attempted this associative reduction.
+                self.in_group = true;
                 break;
             }
 
@@ -450,6 +456,7 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
         Ok(Self {
             alloc: Arc::new(Bump::new()),
             heap,
+            in_group: false,
             spec,
             spill,
         })
@@ -459,6 +466,7 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
         let Self {
             alloc: _,
             heap: _,
+            in_group: _,
             spec,
             spill,
         } = self;
