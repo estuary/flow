@@ -4,14 +4,14 @@ sidebar_position: 1
 
 # Time Travel
 
-Time travel offers the functionality to limit your materialization data to a specific date range. Applying a time travel to an existing materialization will not remove existing documents, but rather it will provide a filtered view of the materialization within a certain time range. 
+Time travel functionality allows you to restrict the data materialization process to a specific date range. When applying time travel to an existing materialization, it's important to note that it won't remove any existing documents. Instead, it will only materialize new data that falls within the specified date and time window. New data will not be included in your materialization destination unless it conforms to the specified date range criteria. Consequently, setting a lower boundary in the future date will delay the materialization of data until that future date is reached.
 
 
 ## How to configure time travel
 
 In the Flow web app, either navigate to an existing materialization or create a new one. Under **Source Collections** scroll to the bottom of a **Resource Configuration** for a specific collection. If you are working with a new materialization, you must link a collection to the materialization before continuing.
 
-There are two optional `date-time` fields for implementing time travel: `notBefore` and `notAfter`. Clicking on either field will pop up a date/time picker used to populate the row. It is not required to select a value for both fields in order for the time travel to be applied, however selecting a value for both fields will only materialize data which satisfies both limits. For instance, all new data would have to occur before `notAfter` **and** after `notBefore`.
+You'll find two optional date-time fields for implementing time travel: `notBefore` and `notAfter`. Click on either field to open a date/time picker that you can use to set the values. It's not mandatory to select values for both fields for time travel to take effect. However, selecting values for both fields will ensure that only data meeting both criteria is materialized. In other words, new data must fall before the `notAfter` date and after the `notBefore` date to be included in the materialization.
 
 ### Specification
 
