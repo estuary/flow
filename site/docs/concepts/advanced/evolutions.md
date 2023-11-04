@@ -30,7 +30,7 @@ import Mermaid from '@theme/Mermaid';
 Each collection and its data are defined by a **collection specification**, or spec.
 The spec serves as a formal contract between the capture and the materialization, ensuring that data is correctly shaped and moves through the Data Flow without error.
 
-The spec includes the collection's `id`, its `schema`, and [logical partitions](./projections.md#logical-partitions) of the collection, if any.
+The spec includes the collection's `key`, its `schema`, and [logical partitions](./projections.md#logical-partitions) of the collection, if any.
 
 When any of these parts change, any capture or materialization writing to or reading from the collection must be updated to approve of the change, otherwise, the Data Flow will fail with an error.
 

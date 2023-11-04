@@ -173,7 +173,17 @@ Regardless of whether the field is materialized or not, it must still pass schem
 
 Database and data warehouse materializations tend to be somewhat restrictive about changing column types. They typically only allow dropping `NOT NULL` constraints. This means that you can safely change a schema to make a required field optional, or to add `null` as a possible type, and the materialization will continue to work normally.  Most other types of changes will require materializing into a new table.
 
-The best way to find out whether a change is acceptable to a given connector is to run test or attempt to re-publish. If the publication or test fails with an error message pointing to the field that's changed, you can work around the issue by materializing into a new table. Failed attempts to publish won't affect any tasks that are already running.
+The best way to find out whether a change is acceptable to a given connector is to run test or attempt to re-publish. Failed attempts to publish won't affect any tasks that are already running.
+
+**Web app workflow**
+
+If you're working in the Flow web app, and attempt to publish a change that's unacceptable to the connector, you'll see an error message and an option to materialize to a new table, or, in rare cases, to re-create the collection..
+
+Click **Apply** to to accept this solution and continue to publish.
+
+**flowctl workflow**
+
+If you test or attempt to publish a change that's unacceptable to the connector, you'll see an error message pointing to the field that's changed. In most cases, you can work around the issue by manually updating the materialization to materialize into a new table.
 
 For example, say you have a data flow defined by the following specs:
 

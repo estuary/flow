@@ -59,7 +59,7 @@ Discovers can also be run when editing an existing capture. This is commonly don
 
 ## Automatically update captures
 
-You can choose to run periodic discovers in the background by adding the n `autoDiscover` property to the capture. Flow will periodically check for changes to the source and re-publish the capture to reflect those changes.
+You can choose to run periodic discovers in the background by adding the `autoDiscover` property to the capture. Flow will periodically check for changes to the source and re-publish the capture to reflect those changes.
 
 There are several options for controlling the behavior of `autoDiscover`:
 
