@@ -65,7 +65,7 @@ There are several options for controlling the behavior of `autoDiscover`:
 
 * The `addNewBindings` option determines whether to add newly discovered resources, such as database tables, to the capture as *bindings*. If set to `false`, autoCapture will only update the collection specs for existing bindings.
 
-* The `evolveIncompatibleCollections` option determines how to respond when the discovered updates would cause a breaking change to the collection. If `true`, it will trigger an [evolution](./evolutions.md) of the incompatible collection(s) to prevent failures.
+* The `evolveIncompatibleCollections` option determines how to respond when the discovered updates would cause a breaking change to the collection. If `true`, it will trigger an [evolution](./advanced/evolutions.md) of the incompatible collection(s) to prevent failures.
 
 In the Flow web app, you can set these properties when you create or edit a capture.
 
