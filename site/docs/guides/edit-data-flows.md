@@ -12,8 +12,7 @@ with that collection.
 
 :::caution
 Although you edit components of your Data Flows separately, they are all connected.
-For this reason, it's important to be mindful of your edits' potential effects.
-For more information on the implications of editing, see the [reference documentation](../reference/editing.md).
+Flow's [schema evolution](../concepts/advanced/evolutions.md) and [AutoDiscover](../concepts/captures.md#automatically-update-captures) features help prevent common errors, but it's still important to be mindful of your edits' potential effects.
 :::
 
 ## Edit a capture

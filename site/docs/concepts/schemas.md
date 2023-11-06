@@ -43,6 +43,10 @@ Flow can usually generate suitable JSON schemas on your behalf.
 
 [Learn more about using connectors](connectors.md#using-connectors)
 
+For systems like relational databases, Flow will typically generate a complete JSON schema by introspecting the table definition.
+
+For systems that store unstructured data, Flow will typically generate a very minimal schema, and will rely on schema inferrence to fill in the details. See [continuous schema inferenece](#continuous-schema-inference) for more information.
+
 ### Translations
 
 You must only provide Flow
@@ -369,6 +373,37 @@ oneOf:
 
 You can combine schema conditionals with annotations to build
 [rich behaviors](../reference/reduction-strategies/composing-with-conditionals.md).
+
+## Continuous schema inference
+
+Flow automatically infers a JSON schema for every captured collection. This schema is updated automatically as data is captured.
+
+For some systems, like relational databases, Flow is able to determine a complete JSON schema for each collection up front, before even starting the capture. But many other systems are not able to provide detailed and accurate information about the data before it's captured. Often, this is because the source system data is unstructured or loosely structured. For these systems, the schema can only be known after the data is captured. Continuous schema inference is most useful in these scenarios.
+
+For example, say you're capturing from MongoDB. MongoDB documents must all have an `_id` field, but that is essentially the only requirement. You can't know what other fields may exist on MongoDB documents until you've read them. When you set up a capture from MongoDB using the Flow web app, the collection specifications will look something like this:
+
+```yaml
+key: [ /_id ]
+writeSchema:
+  type: object
+  properties:
+    _id: { type: string }
+  required: [ _id ]
+readSchema:
+  allOf:
+    - $ref: flow://write-schema
+    - $ref: flow://inferred-schema
+```
+
+Note that this spec uses separate read and write schemas. The `writeSchema` is extremely permissive, and only requires an `_id` property with a string value. The `readSchema` references `flow://inferred-schema`, which expands to the current inferred schema when the collection is published.
+
+:::info
+Note that `$ref: flow://write-schema` expands to the current `writeSchema`. Whenever you use `$ref: flow://inferred-schema`, you should always include the `flow://write-schema` as well, so that you don't need to repeat any fields that are defined in the `writeSchema` or wait for those fields to be observed by schema inference.
+:::
+
+When you first publish a collection using the inferred schema, `flow://inferred-schema` expands to a special placeholder schema that rejects *all* documents. This is to ensure that a non-placeholder inferred schema has been published before allowing any documents to be materialized. Once data is captured to the collection, the inferred schema immediately updates to strictly and minimally describe the captured.
+
+Because the effective `readSchema` is only ever updated when the collection is published, the best option is usually to use the inferred schema in conjunction with [autoDiscover](/concepts/captures/#autodiscover).
 
 ## `default` annotations
 
