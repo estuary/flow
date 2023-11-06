@@ -166,7 +166,7 @@ To manually add a field:
 When a field's data type has changed, the effect on your materialization depends on the specific connector you're using.
 
 :::warning
-Note that these restrictions only apply to fields that are actively being materialized. If a field is [excluded from your materialization]((../concepts/materialization.md#projected-fields)), either explicitly or because it's not recommended, then the data types may change in any way.
+Note that these restrictions only apply to fields that are actively being materialized. If a field is [excluded from your materialization](../concepts/materialization.md#projected-fields), either explicitly or because it's not recommended, then the data types may change in any way.
 
 Regardless of whether the field is materialized or not, it must still pass schema validation tests. Therefore, you must still make sure existing data remains valid against the new schema. For example, if you changed `excluded_field: { type: string }` to `type: integer` while there was existing data with string values, your materialization would fail due to a schema validation error.
 :::
