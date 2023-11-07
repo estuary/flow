@@ -50,35 +50,8 @@ The following data resources are supported for pro accounts (set **Subscription 
 
 ## Prerequisites
 
-There are two ways to authenticate with HubSpot when capturing data: using OAuth2, and manually, with a private app access token.
-Their prerequisites differ.
+OAuth2 is required for authentication and capturing data with HubSpot. A HubSpot account is required before continuing.
 
-OAuth is recommended for simplicity in the Flow web app;
-the access token method is the only supported method using the command line.
-
-### Using OAuth2 to authenticate with HubSpot in the Flow web app
-
-* A HubSpot account
-
-### Configuring the connector specification manually
-
-* A HubSpot account
-
-* The access token for an appropriately configured [private app](https://developers.hubspot.com/docs/api/private-apps) on the HubSpot account.
-
-#### Setup
-
-To create a private app in HubSpot and generate its access token, do the following.
-
-1. Ensure that your HubSpot user account has [super admin](https://knowledge.hubspot.com/settings/hubspot-user-permissions-guide#super-admin) privileges.
-
-2. In HubSpot, create a [new private app](https://developers.hubspot.com/docs/api/private-apps#create-a-private-app).
-
-   1. Name the app "Estuary Flow," or choose another name that is memorable to you.
-
-   2. Grant the new app **Read** access for all available scopes.
-
-   3. Copy the access token for use in the connector configuration.
 
 ## Configuration
 
@@ -93,9 +66,6 @@ The following properties reflect the access token authentication method.
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/credentials`** | Private Application | Authenticate with a private app access token | object | Required |
-| **`/credentials/access_token`** | Access Token | HubSpot Access token. | string | Required |
-| **`/credentials/credentials_title`** | Credentials | Name of the credentials set | string | Required, `"Private App Credentials"` |
 | **`/start_date`** | Start Date | UTC date and time in the format 2017-01-25T00:00:00Z. Any data before this date will not be replicated. | string | Required |
 | `/subscription_type` | Your HubSpot account subscription type | Some streams are only available to certain subscription packages, we use this information to select which streams to pull data from. | string | `"starter"` |
 
@@ -116,8 +86,11 @@ captures:
         image: ghcr.io/estuary/source-hubspot:dev
           config:
             credentials:
-              credentials_title: Private App Credentials
-              access_token: <secret>
+              client_id_sops: <client-id>
+              client_secret_sops: <client-secret>
+              credentials_title: OAuth Credentials
+              refresh_token_sops: <refresh-token>
+            start_date: 2023-11-07T00:00:00Z
       bindings:
         - resource:
             stream: companies
