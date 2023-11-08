@@ -1,7 +1,7 @@
 ---
 sidebar_position: 6
 ---
-# PostgreSQL
+# Amazon RDS for PostgreSQL
 
 This connector uses change data capture (CDC) to continuously capture updates in a PostgreSQL database into one or more Flow collections.
 
