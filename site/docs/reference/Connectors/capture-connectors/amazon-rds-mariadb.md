@@ -30,10 +30,6 @@ To use this connector, you'll need a MariaDB database setup with the following.
 
 ### Setup
 
-Estuary recommends creating a [read replica](https://aws.amazon.com/rds/features/read-replicas/)
-in RDS for use with Flow; however, it's not required.
-You're able to apply the connector directly to the primary instance if you'd like.
-
 1. Allow connections to the database from the Estuary Flow IP address.
 
    1. [Modify the database](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.DBInstance.Modifying.html), setting **Public accessibility** to **Yes**.
