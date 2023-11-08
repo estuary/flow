@@ -82,7 +82,8 @@ impl Schema {
 
         if !matches!(
             shape.reduction,
-            shape::Reduction::Unset | shape::Reduction::Strategy(reduce::Strategy::LastWriteWins),
+            shape::Reduction::Unset
+                | shape::Reduction::Strategy(reduce::Strategy::LastWriteWins(_)),
         ) {
             return Err(Error::KeyHasReduction {
                 ptr: ptr.to_string(),

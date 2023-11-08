@@ -57,6 +57,7 @@ pub enum Location<'a> {
     Property(LocatedProperty<'a>),
     Item(LocatedItem<'a>),
     EndOfArray(&'a Location<'a>),
+    NextProperty(&'a Location<'a>),
 }
 
 impl<'a> Location<'a> {
@@ -85,6 +86,11 @@ impl<'a> Location<'a> {
     // Returns a new Location that extends this one with a non-existent, trailing array item ("-").
     pub fn push_end_of_array(&'a self) -> Location<'a> {
         Location::EndOfArray(self)
+    }
+
+    // Returns a new Location that extends this one with a pointer to the object's additionalProperties ("*").
+    pub fn push_next_property(&'a self) -> Location<'a> {
+        Location::NextProperty(self)
     }
 
     /// Returns a struct that implements `std::fmt::Display` to provide a string representation of
@@ -126,6 +132,9 @@ impl<'a> Location<'a> {
                 acc = item.parent.fold_inner(acc, fun);
             }
             Location::EndOfArray(parent) => {
+                acc = parent.fold_inner(acc, fun);
+            }
+            Location::NextProperty(parent) => {
                 acc = parent.fold_inner(acc, fun);
             }
         }
@@ -181,6 +190,7 @@ impl<'a> fmt::Display for PointerStr<'a> {
                 }
                 Location::Item(LocatedItem { index, .. }) => write!(f, "/{}", index),
                 Location::EndOfArray(_) => write!(f, "/-"),
+                Location::NextProperty(_) => write!(f, "/*"),
             })
         })
     }
@@ -209,6 +219,7 @@ impl<'a> fmt::Display for UrlEscaped<'a> {
                 }
                 Location::Item(LocatedItem { index, .. }) => write!(f, "/{}", index),
                 Location::EndOfArray(_) => write!(f, "/-"),
+                Location::NextProperty(_) => write!(f, "/*"),
             })
         })
     }

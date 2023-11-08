@@ -27,9 +27,7 @@ fn squash_location_inner(shape: &mut Shape, name: &Token) {
     match name {
         // Squashing of `additional*` fields is not possible here because we don't
         // have access to the parent shape
-        Token::NextIndex => unreachable!(),
-        Token::Property(prop) if prop == "*" => unreachable!(),
-
+        Token::NextIndex | Token::NextProperty => unreachable!(),
         Token::Index(_) => {
             // Pop the last element from the array tuple shape to avoid
             // shifting the indexes of any other tuple shapes
@@ -99,15 +97,13 @@ fn squash_location(shape: &mut Shape, location: &[Token]) {
     match location {
         [] => unreachable!(),
         [Token::NextIndex] => unreachable!(),
-        [Token::Property(prop_name)] if prop_name == "*" => unreachable!(),
+        [Token::NextProperty] => unreachable!(),
 
         [first] => squash_location_inner(shape, first),
         [first, more @ ..] => {
             let inner = match first {
                 Token::NextIndex => shape.array.additional_items.as_deref_mut(),
-                Token::Property(prop_name) if prop_name == "*" => {
-                    shape.object.additional_properties.as_deref_mut()
-                }
+                Token::NextProperty => shape.object.additional_properties.as_deref_mut(),
                 Token::Index(idx) => shape.array.tuple.get_mut(*idx),
                 Token::Property(prop_name) => shape
                     .object
@@ -136,7 +132,7 @@ pub fn enforce_shape_complexity_limit(shape: &mut Shape, limit: usize) {
             // but we don't want to include those locations that are leaf nodes, since
             // leaf node recursion is squashed every time we squash a concrete property.
             [.., Token::NextIndex] => None,
-            [.., Token::Property(prop_name)] if prop_name == "*" => None,
+            [.., Token::NextProperty] => None,
             [] => None,
             _ => Some(ptr),
         })
@@ -450,6 +446,35 @@ mod test {
                 additionalItems: false
             "#,
             &[json!({"foo":[]})],
+            Some(0),
+        );
+    }
+
+    #[test]
+    fn test_quickcheck_regression_3() {
+        widening_snapshot_helper(
+            Some(
+                r#"
+                type: object
+                required:
+                  - ""
+                  - "*"
+                properties:
+                  "":
+                    type: "null"
+                  "*":
+                    type: string
+                    maxLength: 0
+                additionalProperties: false
+            "#,
+            ),
+            r#"
+            type: object
+            additionalProperties:
+                type: ["null", "string"]
+                maxLength: 0
+            "#,
+            &[],
             Some(0),
         );
     }

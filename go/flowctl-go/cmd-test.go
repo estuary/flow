@@ -94,9 +94,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	test.Broker.Address = protocol.Endpoint(brokerAddr)
 	test.Consumer.Address = protocol.Endpoint(consumerAddr)
 
-	if err = test.execute(ctx); err != nil {
-		return err
-	}
+	var testErr = test.execute(ctx)
 
 	// Delete derivations and collections from the local dataplane.
 	var delete = apiDelete{
@@ -114,5 +112,5 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 	// Stop the data plane. It exits as we've removed all entities.
 	dataPlane.gracefulStop()
 
-	return nil
+	return testErr
 }

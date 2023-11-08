@@ -144,11 +144,7 @@ where
                 let mut buf = bytes::BytesMut::new();
 
                 while let Some(drained) = drainer.next() {
-                    let doc::combine::DrainedDoc {
-                        binding: _, // Always zero.
-                        reduced: _, // Always false.
-                        root,
-                    } = drained?;
+                    let doc::combine::DrainedDoc { meta: _, root } = drained?;
 
                     if inferred_shape.widen_owned(&root) {
                         doc::shape::limits::enforce_shape_complexity_limit(
@@ -327,7 +323,12 @@ impl Opened {
             doc::Validator::new(write_schema_json).context("could not build a schema validator")?;
 
         let combiner = doc::Combiner::new(
-            doc::combine::Spec::with_one_binding(key_extractors.clone(), None, validator),
+            doc::combine::Spec::with_one_binding(
+                false, // Derivations use partial reductions.
+                key_extractors.clone(),
+                None,
+                validator,
+            ),
             tempfile::tempfile().context("opening temporary spill file")?,
         )?;
 

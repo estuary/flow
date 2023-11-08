@@ -1,7 +1,7 @@
 use crate::{
     reduce,
     validation::{FailedValidation, Validator},
-    ArchivedNode, Extractor, HeapNode, LazyNode, OwnedNode, SerPolicy,
+    Extractor, HeapNode, OwnedNode,
 };
 use std::io::{self, Seek};
 use std::sync::Arc;
@@ -12,8 +12,6 @@ pub enum Error {
     Reduction(#[from] reduce::Error),
     #[error("document failed validation against its collection JSON Schema")]
     FailedValidation(#[source] FailedValidation),
-    #[error("asked to left-combine, but right-hand document is already fully reduced: {0}")]
-    AlreadyFullyReduced(serde_json::Value),
     #[error(transparent)]
     SchemaError(#[from] json::schema::index::Error),
     #[error("spill file IO error")]
@@ -23,49 +21,67 @@ pub enum Error {
 /// Specification of how Combine operations are to be done
 /// over one or more bindings.
 pub struct Spec {
+    is_full: Vec<bool>,
     keys: Arc<[Box<[Extractor]>]>,
     validators: Vec<(Validator, Option<url::Url>)>,
 }
 
 impl Spec {
     /// Build a Spec from a single binding.
+    /// * When `full` is true, the Combiner performs full reductions to group
+    ///   each key to a single output document.
+    /// * Or, when `full` is false, the Combiner performs all possible
+    ///   associative reductions to group over distinct keys. Where an
+    ///   associative reduction isn't possible, it will yield multiple
+    ///   documents for a grouped key in the left-to-right order with
+    ///   which they reduce into an unknown left-most document.
     pub fn with_one_binding(
+        full: bool,
         key: impl Into<Box<[Extractor]>>,
         schema: Option<url::Url>,
         validator: Validator,
     ) -> Self {
         let key = key.into();
-        assert!(!key.is_empty());
 
         Self {
+            is_full: vec![full],
             keys: vec![key].into(),
             validators: vec![(validator, schema)],
         }
     }
 
-    /// Build a Spec from an Iterator of bindings.
+    /// Build a Spec from an Iterator of (is-full-reduction, key, schema, validator).
     pub fn with_bindings<I, K>(bindings: I) -> Self
     where
-        I: IntoIterator<Item = (K, Option<url::Url>, Validator)>,
+        I: IntoIterator<Item = (bool, K, Option<url::Url>, Validator)>,
         K: Into<Box<[Extractor]>>,
     {
-        let (keys, validators): (Vec<_>, _) = bindings
-            .into_iter()
-            .map(|(key, schema, validator)| (key.into(), (validator, schema)))
-            .unzip();
+        let mut full = Vec::new();
+        let mut keys = Vec::new();
+        let mut validators = Vec::new();
+
+        for (is_full, key, schema, validator) in bindings {
+            full.push(is_full);
+            keys.push(key.into());
+            validators.push((validator, schema));
+        }
 
         Self {
+            is_full: full,
             keys: keys.into(),
             validators,
         }
     }
 }
 
+/// Meta is metadata about an entry: its binding index and flags.
+#[derive(Eq, PartialEq, Clone, Copy)]
+pub struct Meta(u32);
+
 /// HeapEntry is a combiner entry that exists in memory.
 /// It's produced by MemTable and is consumed by SpillWriter.
 pub struct HeapEntry<'s> {
-    binding: u32,
-    reduced: bool,
+    meta: Meta,
     root: HeapNode<'s>,
 }
 
@@ -159,8 +175,7 @@ pub enum Drainer {
 
 /// DrainedDoc is a document drained from a Drainer.
 pub struct DrainedDoc {
-    pub binding: u32,
-    pub reduced: bool,
+    pub meta: Meta,
     pub root: OwnedNode,
 }
 
@@ -210,50 +225,91 @@ impl Combiner {
     }
 }
 
-// Smash two documents together.
-fn smash<'alloc>(
-    alloc: &'alloc bumpalo::Bump,
-    lhs_doc: LazyNode<'alloc, '_, ArchivedNode>,
-    lhs_reduced: bool,
-    rhs_doc: LazyNode<'alloc, '_, ArchivedNode>,
-    rhs_reduced: bool,
-    schema: Option<&url::Url>,
-    validator: &mut Validator,
-) -> Result<(HeapNode<'alloc>, bool), Error> {
-    match (lhs_doc, lhs_reduced, rhs_doc, rhs_reduced) {
-        // `rhs_doc` is being combined into `lhs_doc`, which may or may not be fully reduced.
-        (lhs, lhs_reduced, rhs, false) => {
-            let rhs_valid = rhs
-                .validate_ok(validator, schema)
-                .map_err(Error::SchemaError)?
-                .map_err(Error::FailedValidation)?;
-
-            Ok((
-                reduce::reduce(lhs, rhs, rhs_valid, &alloc, lhs_reduced)
-                    .map_err(Error::Reduction)?,
-                lhs_reduced,
-            ))
+impl Meta {
+    fn new(mut binding: u32, front: bool) -> Self {
+        if front {
+            binding |= META_FLAG_FRONT;
         }
-        // `rhs_doc` is actually a fully-reduced LHS, which is reduced with `lhs_doc`.
-        (rhs, false, lhs, true) => {
-            let rhs_valid = rhs
-                .validate_ok(validator, schema)
-                .map_err(Error::SchemaError)?
-                .map_err(Error::FailedValidation)?;
+        Self(binding)
+    }
 
-            Ok((
-                reduce::reduce(lhs, rhs, rhs_valid, &alloc, true).map_err(Error::Reduction)?,
-                true,
-            ))
-        }
-        (_lhs, true, rhs, true) => {
-            return Err(Error::AlreadyFullyReduced(
-                serde_json::to_value(SerPolicy::debug().on_lazy(&rhs)).unwrap(),
-            )
-            .into())
+    /// The binding for this entry.
+    #[inline]
+    pub fn binding(&self) -> usize {
+        (self.0 & META_BINDING_MASK) as usize
+    }
+
+    /// Was this entry added at the front of the list of documents?
+    /// This is commonly used to add a previously reduced, "left-hand" document
+    /// to a combiner after other right-hand documents have already been added.
+    #[inline]
+    pub fn front(&self) -> bool {
+        self.0 & META_FLAG_FRONT != 0
+    }
+
+    /// Is this entry marked as deleted by its reduction annotation?
+    /// Deleted entries are conceptually a "tombstone" that can be used to
+    /// delete a document from a downstream system (instead of doing an upsert).
+    #[inline]
+    pub fn deleted(&self) -> bool {
+        self.0 & META_FLAG_DELETED != 0
+    }
+
+    // This LHS entry does not associatively reduce with its RHS entry.
+    #[inline]
+    fn not_associative(&self) -> bool {
+        self.0 & META_FLAG_NOT_ASSOCIATIVE != 0
+    }
+
+    #[inline]
+    fn set_deleted(&mut self, deleted: bool) {
+        if deleted {
+            self.0 = self.0 | META_FLAG_DELETED;
+        } else {
+            self.0 = self.0 & !META_FLAG_DELETED;
         }
     }
+
+    #[inline]
+    fn set_not_associative(&mut self) {
+        self.0 = self.0 | META_FLAG_NOT_ASSOCIATIVE;
+    }
+
+    fn to_bytes(&self) -> [u8; 4] {
+        self.0.to_le_bytes()
+    }
+
+    fn from_bytes(b: [u8; 4]) -> Self {
+        Self(u32::from_le_bytes(b))
+    }
 }
+
+impl std::fmt::Debug for Meta {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = f.debug_tuple("Meta");
+        s.field(&self.binding());
+
+        if self.front() {
+            s.field(&"F");
+        }
+        if self.not_associative() {
+            s.field(&"NA");
+        }
+        if self.deleted() {
+            s.field(&"D");
+        }
+        s.finish()
+    }
+}
+
+// Binding is the lower 24 bits of Meta (max value is 16MM).
+const META_BINDING_MASK: u32 = 0x00ffffff;
+// Flag marking entry is at the front of the associative list.
+const META_FLAG_FRONT: u32 = 1 << 31;
+// Flag marking that this LHS entry doesn't associatively reduce with a following RHS.
+const META_FLAG_NOT_ASSOCIATIVE: u32 = 1 << 30;
+// Flag marking this entry is a deletion tombstone.
+const META_FLAG_DELETED: u32 = 1 << 29;
 
 // The number of used bytes within a Bump allocator.
 fn bump_mem_used(alloc: &bumpalo::Bump) -> usize {

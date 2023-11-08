@@ -1,7 +1,9 @@
 ---
 sidebar_position: 3
 ---
+
 # Amazon RDS for SQL Server
+
 
 This connector uses change data capture (CDC) to continuously capture updates in a Microsoft SQL Server database into one or more Flow collections.
 

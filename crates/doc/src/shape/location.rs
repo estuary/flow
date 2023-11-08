@@ -118,6 +118,15 @@ impl Shape {
                 Exists::Cannot,
             ),
 
+            Token::NextProperty if self.type_.overlaps(types::OBJECT) => (
+                self.object
+                    .additional_properties
+                    .as_ref()
+                    .map(AsRef::as_ref)
+                    .unwrap_or(&SENTINEL_SHAPE),
+                Exists::Cannot,
+            ),
+
             Token::Property(property) if self.type_.overlaps(types::OBJECT) => {
                 self.obj_property_location(property)
             }
@@ -134,6 +143,7 @@ impl Shape {
             Token::Index(_) => (&SENTINEL_SHAPE, Exists::Cannot),
             Token::NextIndex => (&SENTINEL_SHAPE, Exists::Cannot),
             Token::Property(_) => (&SENTINEL_SHAPE, Exists::Cannot),
+            Token::NextProperty => (&SENTINEL_SHAPE, Exists::Cannot),
         }
     }
 
@@ -211,7 +221,7 @@ impl Shape {
 
         if let Some(child) = &self.object.additional_properties {
             child.locations_inner(
-                location.push_prop("*"),
+                location.push_next_property(),
                 exists.extend(Exists::May),
                 true,
                 out,
@@ -330,7 +340,7 @@ mod test {
             (&arr1, "/3", ("addl-item", Exists::May)),
             (&arr1, "/9", ("addl-item", Exists::May)),
             (&arr1, "/10", ("addl-item", Exists::Cannot)),
-            (&arr1, "/-", ("addl-item", Exists::Cannot)),
+            (&arr1, "/-", ("<missing>", Exists::Cannot)),
             (&arr2, "/0", ("0", Exists::May)),
             (&arr2, "/1", ("1", Exists::May)),
             (&arr2, "/123", ("<missing>", Exists::Implicit)),

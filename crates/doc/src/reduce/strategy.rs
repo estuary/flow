@@ -1,11 +1,12 @@
 use super::{
-    compare_key_lazy, count_nodes, count_nodes_fields, count_nodes_items, count_nodes_lazy,
-    reduce_item, reduce_prop, schema::json_schema_merge, Cursor, Error, Result,
+    compare_key_lazy, compare_lazy, count_nodes, count_nodes_lazy, reduce_item, reduce_prop,
+    schema::json_schema_merge, Cursor, Error, Result,
 };
 use crate::{
-    lazy::{LazyArray, LazyDestructured, LazyObject},
+    lazy::{LazyDestructured, LazyNode},
     AsNode, BumpVec, HeapNode, Node, Pointer,
 };
+use itertools::EitherOrBoth;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
 #[serde(tag = "strategy", deny_unknown_fields, rename_all = "camelCase")]
@@ -15,9 +16,9 @@ pub enum Strategy {
     /// done and the reduction is a no-op.
     Append,
     /// FirstWriteWins keeps the LHS value.
-    FirstWriteWins,
+    FirstWriteWins(FirstWriteWins),
     /// LastWriteWins takes the RHS value.
-    LastWriteWins,
+    LastWriteWins(LastWriteWins),
     /// Maximize keeps the greater of the LHS & RHS.
     /// A provided key, if present, determines the relative ordering.
     /// If values are equal, they're deeply merged.
@@ -88,42 +89,77 @@ impl std::convert::TryFrom<&serde_json::Value> for Strategy {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, PartialEq, Eq, Clone)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct FirstWriteWins {}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, PartialEq, Eq, Clone)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct LastWriteWins {
+    /// Delete marks that this location should be removed from the document.
+    /// Deletion is effected only when a document is fully reduced, so partial
+    /// reductions of the document will continue to have deleted locations
+    /// up until the point where they're reduced into a base document.
+    #[serde(default)]
+    pub delete: bool,
+    /// Associative marks that unequal values are allowed to reduce associatively.
+    /// The default is true. When set to false, then unequal left- and right-hand
+    /// values may not reduce associatively and both documents must be retained
+    /// until a full reduction can be performed.
+    /// EXPERIMENTAL: This keyword may be removed in the future.
+    #[serde(default = "true_value")]
+    pub associative: bool,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, PartialEq, Eq, Clone)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Maximize {
+    /// Optional, relative JSON Pointer(s) which form the key over which values
+    /// are maximized. When omitted, the entire value at this location is used.
     #[serde(default)]
-    key: Vec<Pointer>,
+    pub key: Vec<Pointer>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, PartialEq, Eq, Clone)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Merge {
+    /// Relative JSON Pointer(s) which form the key by which the items of merged
+    /// Arrays are ordered. `key` is ignored in Object merge contexts, where the
+    /// object property is used instead.
     #[serde(default)]
-    key: Vec<Pointer>,
+    pub key: Vec<Pointer>,
+    /// Delete marks that this location should be removed from the document.
+    /// Deletion is effected only when a document is fully reduced, so partial
+    /// reductions of the document will continue to have deleted locations
+    /// up until the point where they're reduced into a base document.
+    #[serde(default)]
+    pub delete: bool,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, PartialEq, Eq, Clone)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Minimize {
+    /// Optional, relative JSON Pointer(s) which form the key over which values
+    /// are minimized. When omitted, the entire value at this location is used.
     #[serde(default)]
-    key: Vec<Pointer>,
+    pub key: Vec<Pointer>,
 }
 
 impl Strategy {
     pub fn apply<'alloc, 'schema, L: AsNode, R: AsNode>(
         &'schema self,
         cur: Cursor<'alloc, 'schema, '_, '_, '_, L, R>,
-    ) -> Result<HeapNode<'alloc>> {
+    ) -> Result<(HeapNode<'alloc>, bool)> {
         match self {
-            Strategy::Append => Self::append(cur),
-            Strategy::FirstWriteWins => Self::first_write_wins(cur),
-            Strategy::JsonSchemaMerge => json_schema_merge(cur),
-            Strategy::LastWriteWins => Self::last_write_wins(cur),
-            Strategy::Maximize(max) => Self::maximize(cur, max),
+            Strategy::Append => Ok((Self::append(cur)?, false)),
+            Strategy::FirstWriteWins(fww) => Ok((Self::first_write_wins(cur, fww), false)),
+            Strategy::JsonSchemaMerge => Ok((json_schema_merge(cur)?, false)),
+            Strategy::LastWriteWins(lww) => Self::last_write_wins(cur, lww),
+            Strategy::Maximize(max) => Ok((Self::maximize(cur, max)?, false)),
             Strategy::Merge(merge) => Self::merge(cur, merge),
-            Strategy::Minimize(min) => Self::minimize(cur, min),
-            Strategy::Set(set) => set.apply(cur),
-            Strategy::Sum => Self::sum(cur),
+            Strategy::Minimize(min) => Ok((Self::minimize(cur, min)?, false)),
+            Strategy::Set(set) => Ok((set.apply(cur)?, false)),
+            Strategy::Sum => Ok((Self::sum(cur)?, false)),
         }
     }
 
@@ -133,14 +169,16 @@ impl Strategy {
         let Cursor {
             tape,
             loc,
+            full: _,
             lhs,
             rhs,
             alloc,
-            full: _,
         } = cur;
 
-        match (lhs.destructure(), rhs.destructure()) {
-            (LazyDestructured::Array(lhs), LazyDestructured::Array(rhs)) => {
+        use LazyDestructured as LD;
+
+        match (lhs.as_ref().map(LazyNode::destructure), rhs.destructure()) {
+            (Some(LD::Array(lhs)), LD::Array(rhs)) => {
                 *tape = &tape[1..]; // Increment for self.
 
                 let mut arr = BumpVec::with_capacity_in(lhs.len() + rhs.len(), alloc);
@@ -153,45 +191,49 @@ impl Strategy {
                     *tape = &tape[count_nodes(&rhs)..];
                     arr.push(rhs, alloc)
                 }
-
                 Ok(HeapNode::Array(arr))
             }
-
-            // Merge of Null <= Array (takes the null LHS).
-            (
-                LazyDestructured::ScalarNode(Node::Null)
-                | LazyDestructured::ScalarHeap(HeapNode::Null),
-                LazyDestructured::Array(LazyArray::Heap(arr)),
-            ) => {
-                *tape = &tape[count_nodes_items(&arr)..];
-                Ok(HeapNode::Null)
+            (None, LD::Array(_)) => {
+                let rhs = rhs.into_heap_node(alloc);
+                *tape = &tape[count_nodes(&rhs)..];
+                Ok(rhs)
             }
-            (
-                LazyDestructured::ScalarNode(Node::Null)
-                | LazyDestructured::ScalarHeap(HeapNode::Null),
-                LazyDestructured::Array(LazyArray::Node(arr)),
-            ) => {
-                *tape = &tape[count_nodes_items(arr)..];
-                Ok(HeapNode::Null)
+            (Some(LD::ScalarNode(Node::Null) | LD::ScalarHeap(HeapNode::Null)), LD::Array(_)) => {
+                *tape = &tape[count_nodes_lazy(&rhs)..];
+                Ok(HeapNode::Null) // Ignores `rhs` and remains `null`.
             }
-
             _ => Err(Error::with_details(Error::AppendWrongType, loc, lhs, rhs)),
         }
     }
 
     fn first_write_wins<'alloc, L: AsNode, R: AsNode>(
         cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
-    ) -> Result<HeapNode<'alloc>> {
+        _fww: &FirstWriteWins,
+    ) -> HeapNode<'alloc> {
+        let Some(lhs) = cur.lhs else {
+            let rhs = cur.rhs.into_heap_node(cur.alloc);
+            *cur.tape = &cur.tape[count_nodes(&rhs)..];
+            return rhs;
+        };
+
         *cur.tape = &cur.tape[count_nodes_lazy(&cur.rhs)..];
-        Ok(cur.lhs.into_heap_node(cur.alloc))
+        lhs.into_heap_node(cur.alloc)
     }
 
     fn last_write_wins<'alloc, L: AsNode, R: AsNode>(
         cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
-    ) -> Result<HeapNode<'alloc>> {
+        lww: &LastWriteWins,
+    ) -> Result<(HeapNode<'alloc>, bool)> {
+        if !lww.associative
+            && !cur.full
+            && matches!(&cur.lhs, Some(lhs) if compare_lazy(lhs, &cur.rhs).is_ne())
+        {
+            // When marked !associative, partial reductions may only reduce equal values.
+            return Err(Error::NotAssociative);
+        }
         let rhs = cur.rhs.into_heap_node(cur.alloc);
         *cur.tape = &cur.tape[count_nodes(&rhs)..];
-        Ok(rhs)
+        Ok((rhs, cur.full && lww.delete))
     }
 
     fn min_max_helper<'alloc, L: AsNode, R: AsNode>(
@@ -208,42 +250,39 @@ impl Strategy {
             alloc,
         } = cur;
 
+        let Some(lhs) = lhs else {
+            let rhs = rhs.into_heap_node(alloc);
+            *tape = &tape[count_nodes(&rhs)..];
+            return Ok(rhs);
+        };
+
         let ord = match (key.is_empty(), reverse) {
             (false, false) => compare_key_lazy(key, &lhs, &rhs),
             (false, true) => compare_key_lazy(key, &rhs, &lhs),
-            (true, false) => compare_key_lazy(&[Pointer::empty()], &lhs, &rhs),
-            (true, true) => compare_key_lazy(&[Pointer::empty()], &rhs, &lhs),
+            (true, false) => compare_lazy(&lhs, &rhs),
+            (true, true) => compare_lazy(&rhs, &lhs),
         };
 
-        use std::cmp::Ordering;
-
-        match ord {
-            Ordering::Less => {
-                *tape = &tape[count_nodes_lazy(&rhs)..];
-                Ok(lhs.into_heap_node(alloc))
-            }
-            Ordering::Greater => {
-                let rhs = rhs.into_heap_node(alloc);
-                *tape = &tape[count_nodes(&rhs)..];
-                Ok(rhs)
-            }
-            Ordering::Equal if key.is_empty() => {
-                let rhs = rhs.into_heap_node(alloc);
-                *tape = &tape[count_nodes(&rhs)..];
-                Ok(rhs)
-            }
-            Ordering::Equal => {
-                // Lhs and RHS are equal on the chosen key. Deeply merge them.
-                let cur = Cursor {
-                    tape,
-                    loc,
-                    full,
-                    lhs,
-                    rhs,
-                    alloc,
-                };
-                Self::merge_with_key(cur, &[])
-            }
+        if ord.is_lt() {
+            // Retain the LHS.
+            *tape = &tape[count_nodes_lazy(&rhs)..];
+            Ok(lhs.into_heap_node(alloc))
+        } else if key.is_empty() {
+            // When there's no key then each value is a complete and opaque blob,
+            // and we simply take the RHS.
+            let rhs = rhs.into_heap_node(alloc);
+            *tape = &tape[count_nodes(&rhs)..];
+            Ok(rhs)
+        } else {
+            let cur = Cursor {
+                tape,
+                loc,
+                full,
+                lhs: if ord.is_eq() { Some(lhs) } else { None },
+                rhs,
+                alloc,
+            };
+            Self::merge_with_key(cur, &[])
         }
     }
 
@@ -273,22 +312,25 @@ impl Strategy {
             alloc: _,
         } = cur;
 
-        let ln = match lhs.destructure() {
-            LazyDestructured::ScalarNode(Node::PosInt(n)) => json::Number::Unsigned(n),
-            LazyDestructured::ScalarNode(Node::NegInt(n)) => json::Number::Signed(n),
-            LazyDestructured::ScalarNode(Node::Float(n)) => json::Number::Float(n),
-            LazyDestructured::ScalarHeap(HeapNode::PosInt(n)) => json::Number::Unsigned(*n),
-            LazyDestructured::ScalarHeap(HeapNode::NegInt(n)) => json::Number::Signed(*n),
-            LazyDestructured::ScalarHeap(HeapNode::Float(n)) => json::Number::Float(*n),
+        use LazyDestructured as LD;
+
+        let ln = match lhs.as_ref().map(LazyNode::destructure) {
+            None => json::Number::Unsigned(0),
+            Some(LD::ScalarNode(Node::PosInt(n))) => json::Number::Unsigned(n),
+            Some(LD::ScalarNode(Node::NegInt(n))) => json::Number::Signed(n),
+            Some(LD::ScalarNode(Node::Float(n))) => json::Number::Float(n),
+            Some(LD::ScalarHeap(HeapNode::PosInt(n))) => json::Number::Unsigned(*n),
+            Some(LD::ScalarHeap(HeapNode::NegInt(n))) => json::Number::Signed(*n),
+            Some(LD::ScalarHeap(HeapNode::Float(n))) => json::Number::Float(*n),
             _ => return Err(Error::with_details(Error::SumWrongType, loc, lhs, rhs)),
         };
         let rn = match rhs.destructure() {
-            LazyDestructured::ScalarNode(Node::PosInt(n)) => json::Number::Unsigned(n),
-            LazyDestructured::ScalarNode(Node::NegInt(n)) => json::Number::Signed(n),
-            LazyDestructured::ScalarNode(Node::Float(n)) => json::Number::Float(n),
-            LazyDestructured::ScalarHeap(HeapNode::PosInt(n)) => json::Number::Unsigned(*n),
-            LazyDestructured::ScalarHeap(HeapNode::NegInt(n)) => json::Number::Signed(*n),
-            LazyDestructured::ScalarHeap(HeapNode::Float(n)) => json::Number::Float(*n),
+            LD::ScalarNode(Node::PosInt(n)) => json::Number::Unsigned(n),
+            LD::ScalarNode(Node::NegInt(n)) => json::Number::Signed(n),
+            LD::ScalarNode(Node::Float(n)) => json::Number::Float(n),
+            LD::ScalarHeap(HeapNode::PosInt(n)) => json::Number::Unsigned(*n),
+            LD::ScalarHeap(HeapNode::NegInt(n)) => json::Number::Signed(*n),
+            LD::ScalarHeap(HeapNode::Float(n)) => json::Number::Float(*n),
             _ => return Err(Error::with_details(Error::SumWrongType, loc, lhs, rhs)),
         };
 
@@ -311,8 +353,9 @@ impl Strategy {
     fn merge<'alloc, L: AsNode, R: AsNode>(
         cur: Cursor<'alloc, '_, '_, '_, '_, L, R>,
         merge: &Merge,
-    ) -> Result<HeapNode<'alloc>> {
-        Self::merge_with_key(cur, &merge.key)
+    ) -> Result<(HeapNode<'alloc>, bool)> {
+        let delete = cur.full && merge.delete;
+        Ok((Self::merge_with_key(cur, &merge.key)?, delete))
     }
 
     fn merge_with_key<'alloc, L: AsNode, R: AsNode>(
@@ -328,28 +371,50 @@ impl Strategy {
             full,
         } = cur;
 
-        match (lhs.destructure(), rhs.destructure()) {
-            // Merge of Object <= Object.
-            (LazyDestructured::Object(lhs), LazyDestructured::Object(rhs)) => {
+        use LazyDestructured as LD;
+
+        match (lhs.as_ref().map(LazyNode::destructure), rhs.destructure()) {
+            // Object <= Object: deep associative merge.
+            (Some(LD::Object(lhs)), LD::Object(rhs)) => {
                 *tape = &tape[1..]; // Increment for self.
 
-                let mut fields = BumpVec::with_capacity_in(lhs.len() + rhs.len(), alloc);
-                for field in
-                    itertools::merge_join_by(lhs.into_iter(), rhs.into_iter(), |lhs, rhs| {
-                        lhs.property().cmp(rhs.property())
-                    })
-                    .map(|eob| reduce_prop(tape, loc, full, eob, alloc))
-                {
-                    fields.push(field?, alloc);
+                let mut fields =
+                    BumpVec::with_capacity_in(std::cmp::max(lhs.len(), rhs.len()), alloc);
+
+                for eob in itertools::merge_join_by(lhs.into_iter(), rhs.into_iter(), |lhs, rhs| {
+                    lhs.property().cmp(rhs.property())
+                }) {
+                    let (field, delete) = reduce_prop::<L, R>(tape, loc, full, eob, alloc)?;
+                    if !delete {
+                        fields.push(field, alloc);
+                    }
                 }
                 Ok(HeapNode::Object(fields))
             }
-            // Merge of Array <= Array.
-            (LazyDestructured::Array(lhs), LazyDestructured::Array(rhs)) => {
+            // !Object <= Object (full reduction)
+            (_, LD::Object(rhs)) if full => {
                 *tape = &tape[1..]; // Increment for self.
 
-                let mut arr = BumpVec::with_capacity_in(lhs.len() + rhs.len(), alloc);
-                for item in itertools::merge_join_by(
+                let mut fields = BumpVec::with_capacity_in(rhs.len(), alloc);
+
+                for rhs in rhs.into_iter() {
+                    let (field, delete) =
+                        reduce_prop::<L, R>(tape, loc, full, EitherOrBoth::Right(rhs), alloc)?;
+                    if !delete {
+                        fields.push(field, alloc);
+                    }
+                }
+                Ok(HeapNode::Object(fields))
+            }
+
+            // Array <= Array: deep associative merge.
+            (Some(LD::Array(lhs)), LD::Array(rhs)) => {
+                *tape = &tape[1..]; // Increment for self.
+
+                let mut items =
+                    BumpVec::with_capacity_in(std::cmp::max(lhs.len(), rhs.len()), alloc);
+
+                for eob in itertools::merge_join_by(
                     lhs.into_iter().enumerate(),
                     rhs.into_iter().enumerate(),
                     |(lhs_ind, lhs), (rhs_ind, rhs)| {
@@ -359,51 +424,51 @@ impl Strategy {
                             compare_key_lazy(key, lhs, rhs)
                         }
                     },
-                )
-                .map(|eob| reduce_item(tape, loc, full, eob, alloc))
-                {
-                    arr.push(item?, alloc);
+                ) {
+                    let (item, delete) = reduce_item::<L, R>(tape, loc, full, eob, alloc)?;
+                    if !delete {
+                        items.push(item, alloc);
+                    }
                 }
-                Ok(HeapNode::Array(arr))
+                Ok(HeapNode::Array(items))
+            }
+            // !Array <= Array (full reduction)
+            (_, LD::Array(rhs)) if full => {
+                *tape = &tape[1..]; // Increment for self.
+
+                let mut items = BumpVec::with_capacity_in(rhs.len(), alloc);
+
+                for rhs in rhs.into_iter().enumerate() {
+                    let (item, delete) =
+                        reduce_item::<L, R>(tape, loc, full, EitherOrBoth::Right(rhs), alloc)?;
+                    if !delete {
+                        items.push(item, alloc);
+                    }
+                }
+                Ok(HeapNode::Array(items))
             }
 
-            // Merge of Null <= Array or Object (takes the null LHS).
-            (
-                LazyDestructured::ScalarNode(Node::Null)
-                | LazyDestructured::ScalarHeap(HeapNode::Null),
-                LazyDestructured::Array(LazyArray::Heap(arr)),
-            ) => {
-                *tape = &tape[count_nodes_items(&arr)..];
-                Ok(HeapNode::Null)
-            }
-            (
-                LazyDestructured::ScalarNode(Node::Null)
-                | LazyDestructured::ScalarHeap(HeapNode::Null),
-                LazyDestructured::Array(LazyArray::Node(arr)),
-            ) => {
-                *tape = &tape[count_nodes_items(arr)..];
-                Ok(HeapNode::Null)
-            }
-            (
-                LazyDestructured::ScalarNode(Node::Null)
-                | LazyDestructured::ScalarHeap(HeapNode::Null),
-                LazyDestructured::Object(LazyObject::Heap(fields)),
-            ) => {
-                *tape = &tape[count_nodes_fields::<HeapNode>(&fields)..];
-                Ok(HeapNode::Null)
-            }
-            (
-                LazyDestructured::ScalarNode(Node::Null)
-                | LazyDestructured::ScalarHeap(HeapNode::Null),
-                LazyDestructured::Object(LazyObject::Node(fields)),
-            ) => {
-                *tape = &tape[count_nodes_fields::<R>(fields)..];
-                Ok(HeapNode::Null)
+            // !Object <= Object | !Array <= Array (associative reduction)
+            (_, LD::Object(_) | LD::Array(_)) => {
+                if lhs.is_none() {
+                    let rhs = rhs.into_heap_node(alloc);
+                    *tape = &tape[count_nodes(&rhs)..];
+                    Ok(rhs)
+                } else {
+                    // Not associative because:
+                    // {a: 1} . ("foo" . {b: 2}) == {a: 1, b: 2}
+                    // ({a: 1} . "foo") . {b: 2} == {b: 2}
+                    Err(Error::NotAssociative)
+                }
             }
 
             _ => Err(Error::with_details(Error::MergeWrongType, loc, lhs, rhs)),
         }
     }
+}
+
+fn true_value() -> bool {
+    true
 }
 
 #[cfg(test)]
@@ -461,7 +526,10 @@ mod test {
     #[test]
     fn test_last_write_wins() {
         run_reduce_cases(
-            json!(true),
+            json!({ "oneOf": [
+                {"type": ["string", "object", "null"], "reduce": { "strategy": "lastWriteWins" } },
+                {"type": "integer", "reduce": { "strategy": "lastWriteWins", "associative": false } },
+            ]}),
             vec![
                 Partial {
                     rhs: json!("foo"),
@@ -474,6 +542,29 @@ mod test {
                 Partial {
                     rhs: json!(null),
                     expect: Ok(json!(null)),
+                },
+                Partial {
+                    rhs: json!(42),
+                    expect: Err(Error::NotAssociative),
+                },
+                // Full reduction may take the value.
+                Full {
+                    rhs: json!(42),
+                    expect: Ok(json!(42)),
+                },
+                // Associative reduction is allowed iff the value doesn't change.
+                Partial {
+                    rhs: json!(42),
+                    expect: Ok(json!(42)),
+                },
+                Partial {
+                    rhs: json!(52),
+                    expect: Err(Error::NotAssociative),
+                },
+                // RHS is allowed to reduce associatively.
+                Partial {
+                    rhs: json!("foo"),
+                    expect: Ok(json!("foo")),
                 },
             ],
         )
@@ -639,7 +730,7 @@ mod test {
                 // It returns a delegated merge error on equal keys.
                 Partial {
                     rhs: json!({"1": 4}),
-                    expect: Err(Error::MergeWrongType),
+                    expect: Err(Error::NotAssociative),
                 },
                 Partial {
                     rhs: json!([1, 2, "!"]),
@@ -774,9 +865,15 @@ mod test {
                     rhs: json!([0, 32.6, 0, "b"]),
                     expect: Ok(json!([3, 32.6, 4, "b"])),
                 },
+                // Cannot switch merge type during a non-associative reduction.
                 Partial {
                     rhs: json!({}),
-                    expect: Err(Error::MergeWrongType),
+                    expect: Err(Error::NotAssociative),
+                },
+                // But it can switch types during a full reduction.
+                Full {
+                    rhs: json!({"a": "b"}),
+                    expect: Ok(json!({"a": "b"})),
                 },
             ],
         )
@@ -812,14 +909,18 @@ mod test {
                     rhs: json!([1, 2, 7, 10]),
                     expect: Ok(json!([1, 2, 4, 5, 7, 9, 10])),
                 },
-                // After reducing null LHS, future merges are no-ops.
+                // If LHS is a different type, merges are not associative.
                 Partial {
                     rhs: json!(null),
                     expect: Ok(json!(null)),
                 },
                 Partial {
                     rhs: json!([1, 2]),
-                    expect: Ok(json!(null)),
+                    expect: Err(Error::NotAssociative),
+                },
+                Full {
+                    rhs: json!([1, 2]),
+                    expect: Ok(json!([1, 2])),
                 },
             ],
         )
@@ -892,17 +993,21 @@ mod test {
                     ),
                 },
                 Partial {
-                    rhs: json!([1, 2]),
+                    rhs: json!("whoops"),
                     expect: Err(Error::MergeWrongType),
                 },
-                // After reducing null LHS, future merges are no-ops.
+                // If LHS is a different type, merges are not associative.
                 Partial {
                     rhs: json!(null),
                     expect: Ok(json!(null)),
                 },
                 Partial {
                     rhs: json!({"9": 9}),
-                    expect: Ok(json!(null)),
+                    expect: Err(Error::NotAssociative),
+                },
+                Full {
+                    rhs: json!({"9": 9}),
+                    expect: Ok(json!({"9": 9})),
                 },
             ],
         )
@@ -947,6 +1052,169 @@ mod test {
                         {"k": "b", "v": [{"k": 1}, {"k": 3}, {"k": 5, "d": true}]},
                         {"k": "c", "v": [{"k": 9}]},
                     ])),
+                },
+            ],
+        )
+    }
+
+    #[test]
+    fn test_merge_array_deletion() {
+        run_reduce_cases(
+            json!({
+                "items": {
+                    "properties": {
+                        "k": {"type": "integer"},
+                    },
+                    "if": {
+                        "required": ["del"]
+                    },
+                    "then": {
+                        "reduce": {"strategy": "lastWriteWins", "delete": true}
+                    }
+                },
+                "reduce": {
+                    "strategy": "merge",
+                    "key": ["/k"],
+                },
+            }),
+            vec![
+                Partial {
+                    rhs: json!([{"k": 5}, {"k": 9}]),
+                    expect: Ok(json!([{"k": 5}, {"k": 9}])),
+                },
+                // When applied associatively, deletions have no effect.
+                Partial {
+                    rhs: json!([{"k": 5, "del": 1}, {"k": 6}]),
+                    expect: Ok(json!([{"k": 5, "del": 1}, {"k": 6}, {"k": 9}])),
+                },
+                Partial {
+                    rhs: json!([{"k": 5, "del": 1}]),
+                    expect: Ok(json!([{"k": 5, "del": 1}, {"k": 6}, {"k": 9}])),
+                },
+                // However full reductions will remove the nested location.
+                Full {
+                    rhs: json!([{"k": 5, "del": 1}, {"k": 7}]),
+                    expect: Ok(json!([{"k": 6}, {"k": 7}, {"k": 9}])),
+                },
+                Full {
+                    rhs: json!([{"k": 6, "del": 1}, {"k": 8}, {"k": 9, "del": 1}]),
+                    expect: Ok(json!([{"k": 7}, {"k": 8}])),
+                },
+            ],
+        )
+    }
+
+    #[test]
+    fn test_merge_object_deletion() {
+        run_reduce_cases(
+            json!({
+                "additionalProperties": {
+                    "if": {
+                        "const": "del"
+                    },
+                    "then": {
+                        "reduce": {"strategy": "lastWriteWins", "delete": true}
+                    }
+                },
+                "reduce": {
+                    "strategy": "merge"
+                },
+            }),
+            vec![
+                Partial {
+                    rhs: json!({"5": 5, "9": 9}),
+                    expect: Ok(json!({"5": 5, "9": 9})),
+                },
+                // When applied associatively, deletions have no effect.
+                Partial {
+                    rhs: json!({"5": "del", "6": 6}),
+                    expect: Ok(json!({"5": "del", "6": 6, "9": 9})),
+                },
+                Partial {
+                    rhs: json!({"5": "del"}),
+                    expect: Ok(json!({"5": "del", "6": 6, "9": 9})),
+                },
+                // However full reductions will remove the nested location.
+                Full {
+                    rhs: json!({"5": "del", "7": 7}),
+                    expect: Ok(json!({"6": 6, "7": 7, "9": 9})),
+                },
+                Full {
+                    rhs: json!({"6": "del", "8": 8, "9": "del"}),
+                    expect: Ok(json!({"7": 7, "8": 8})),
+                },
+            ],
+        )
+    }
+
+    #[test]
+    fn test_merge_patch_examples() {
+        let f1 = json!({
+            "a": 32.6,
+            "c": {
+              "d": [42],
+              "f": "g"
+            }
+        });
+
+        run_reduce_cases(
+            super::super::merge_patch_schema(),
+            vec![
+                Partial {
+                    rhs: f1.clone(),
+                    expect: Ok(f1.clone()),
+                },
+                // Okay to change scalars associatively.
+                Partial {
+                    rhs: json!({
+                      "c": { "d": "e" }
+                    }),
+                    expect: Ok(json!({
+                      "a": 32.6,
+                      "c": {
+                        "d": "e",
+                        "f": "g"
+                      }
+                    })),
+                },
+                Full {
+                    rhs: json!({
+                      "a": "z",
+                      "c": { "f": null }
+                    }),
+                    expect: Ok(json!({
+                      "a": "z",
+                      "c": { "d": "e" }
+                    })),
+                },
+                // Cannot switch from a scalar to a merged type associatively.
+                Partial {
+                    rhs: json!({ "a": { "1": 1 } }),
+                    expect: Err(Error::NotAssociative),
+                },
+                // But can do it in a full reduction.
+                Full {
+                    rhs: json!({ "a": { "1": 1 } }),
+                    expect: Ok(json!({
+                      "a": { "1": 1 },
+                      "c": { "d": "e" }
+                    })),
+                },
+                Full {
+                    rhs: json!([1, 2]),
+                    expect: Ok(json!([1, 2])),
+                },
+                Full {
+                    rhs: json!({"a": {"bb": {"ccc": null}}}),
+                    expect: Ok(json!({"a": {"bb": {}}})),
+                },
+                Full {
+                    rhs: json!(null),
+                    expect: Ok(json!(null)),
+                },
+                Full {
+                    rhs: json!("fin"),
+                    expect: Ok(json!("fin")),
                 },
             ],
         )

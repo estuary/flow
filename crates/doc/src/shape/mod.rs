@@ -268,11 +268,10 @@ fn shape_from(schema_yaml: &str) -> Shape {
 
 #[cfg(test)]
 mod test {
-    use super::{ArrayShape, ObjShape, Shape, StringShape};
-
     #[test]
     #[cfg(target_arch = "x86_64")]
     fn shape_size_regression() {
+        use super::{ArrayShape, ObjShape, Shape, StringShape};
         assert_eq!(std::mem::size_of::<ObjShape>(), 56);
         assert_eq!(std::mem::size_of::<StringShape>(), 48);
         assert_eq!(std::mem::size_of::<ArrayShape>(), 48);
