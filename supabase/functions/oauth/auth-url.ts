@@ -1,13 +1,13 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js';
-import Mustache from 'https://esm.sh/mustache';
-import { corsHeaders } from '../_shared/cors.ts';
-import { returnPostgresError, compileTemplate } from '../_shared/helpers.ts';
-import { supabaseClient } from '../_shared/supabaseClient.ts';
+import { createClient } from "https://esm.sh/@supabase/supabase-js";
+import Mustache from "https://esm.sh/mustache";
+import { corsHeaders } from "../_shared/cors.ts";
+import { compileTemplate, returnPostgresError } from "../_shared/helpers.ts";
+import { supabaseClient } from "../_shared/supabaseClient.ts";
 
 import { sha256 } from "https://denopkg.com/chiefbiiko/sha256@v1.0.0/mod.ts";
 
 const generateUniqueRandomKey = (size: number = 40) => {
-    const validChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const validChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     let array = new Uint8Array(size) as any;
     window.crypto.getRandomValues(array);
     array = array.map((x: number) => validChars.codePointAt(x % validChars.length));
@@ -17,28 +17,37 @@ const generateUniqueRandomKey = (size: number = 40) => {
 // map a standard base64 encoding to a url-safe encoding
 // see https://www.oauth.com/oauth2-servers/pkce/authorization-request/
 const base64URLSafe = (str: string) =>
-  str.replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/\=+/, '')
+    str.replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/\=+/, "");
 
 interface OauthSettings {
     oauth2_client_id: string;
     oauth2_spec: any;
 }
 
-export async function authURL(req: { connector_id: string; config: object; redirect_uri?: string; state?: object }) {
-    const { connector_id, config, redirect_uri, state } = req;
+export async function authURL(req: { connector_id?: string; connector_config?: OauthSettings; config: object; redirect_uri?: string; state?: object }) {
+    const { connector_id, config, redirect_uri, state, connector_config } = req;
 
-    const { data, error }: { data: OauthSettings | null; error: any } = await supabaseClient
-        .from('connectors')
-        .select('oauth2_client_id,oauth2_spec')
-        .eq('id', connector_id)
-        .single();
+    let data: OauthSettings;
 
-    if (error != null) {
-        returnPostgresError(error);
+    if (connector_id) {
+        const { data: output_data, error }: { data: OauthSettings | null; error: any } = await supabaseClient
+            .from("connectors")
+            .select("oauth2_client_id,oauth2_spec")
+            .eq("id", connector_id)
+            .single();
+
+        if (error != null) {
+            return returnPostgresError(error);
+        }
+        // TODO - check for empty data
+        data = output_data;
+    } else if (connector_config) {
+        data = connector_config;
+    } else {
+        return returnPostgresError("Invalid input");
     }
-    // TODO - check for empty data
 
     const { oauth2_spec, oauth2_client_id } = data as OauthSettings;
 
@@ -53,22 +62,22 @@ export async function authURL(req: { connector_id: string; config: object; redir
     // See https://www.oauth.com/oauth2-servers/pkce/authorization-request/
     const codeVerifier = generateUniqueRandomKey(50);
     const codeChallenge = base64URLSafe(sha256(codeVerifier, "utf8", "base64") as string);
-    const codeChallengeMethod = 'S256';
+    const codeChallengeMethod = "S256";
 
     const url = compileTemplate(
         oauth2_spec.authUrlTemplate,
         {
             state: finalState,
-            redirect_uri: redirect_uri ?? 'https://dashboard.estuary.dev/oauth',
+            redirect_uri: redirect_uri ?? "https://dashboard.estuary.dev/oauth",
             client_id: oauth2_client_id,
             config,
             code_challenge: codeChallenge,
             code_challenge_method: codeChallengeMethod,
-        }
+        },
     );
 
     return new Response(JSON.stringify({ url: url, state: finalState, code_verifier: codeVerifier }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 }
 
