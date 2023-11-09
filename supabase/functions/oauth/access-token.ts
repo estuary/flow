@@ -1,7 +1,7 @@
-import jsonpointer from 'https://esm.sh/jsonpointer.js';
-import { returnPostgresError, compileTemplate } from '../_shared/helpers.ts';
-import { corsHeaders } from '../_shared/cors.ts';
-import { supabaseClient } from '../_shared/supabaseClient.ts';
+import jsonpointer from "https://esm.sh/jsonpointer.js";
+import { compileTemplate, returnPostgresError } from "../_shared/helpers.ts";
+import { corsHeaders } from "../_shared/cors.ts";
+import { supabaseClient } from "../_shared/supabaseClient.ts";
 
 interface OauthSettings {
     oauth2_client_id: string;
@@ -11,35 +11,42 @@ interface OauthSettings {
 }
 
 export async function accessToken(req: Record<string, any>) {
-    const { state, code_verifier, config, redirect_uri, ...params } = req;
+    const { state, code_verifier, config, redirect_uri, connector_config, ...params } = req;
 
     const decodedState = JSON.parse(atob(state));
     const { connector_id } = decodedState;
 
-    const { data, error }: { data: OauthSettings | null; error: any } = await supabaseClient
-        .from('connectors')
-        .select('oauth2_client_id,oauth2_client_secret,oauth2_injected_values,oauth2_spec')
-        .eq('id', connector_id)
-        .single();
+    let data: OauthSettings;
 
-    if (error != null) {
-        returnPostgresError(error);
+    if (connector_config) {
+        data = connector_config;
+    } else {
+        const { data: output_data, error }: { data: OauthSettings | null; error: any } = await supabaseClient
+            .from("connectors")
+            .select("oauth2_client_id,oauth2_client_secret,oauth2_injected_values,oauth2_spec")
+            .eq("id", connector_id)
+            .single();
+
+        if (error != null) {
+            returnPostgresError(error);
+        }
+        // TODO - check for empty data
+        data = output_data;
     }
-    // TODO - check for empty data
 
     const { oauth2_spec, oauth2_client_id, oauth2_injected_values, oauth2_client_secret } = data as OauthSettings;
 
     const url = compileTemplate(
         oauth2_spec.accessTokenUrlTemplate,
         {
-            redirect_uri: redirect_uri ?? 'https://dashboard.estuary.dev/oauth',
+            redirect_uri: redirect_uri ?? "https://dashboard.estuary.dev/oauth",
             client_id: oauth2_client_id,
             client_secret: oauth2_client_secret,
             config,
             code_verifier,
             ...oauth2_injected_values,
             ...params,
-        }
+        },
     );
 
     let body = null;
@@ -54,7 +61,7 @@ export async function accessToken(req: Record<string, any>) {
                 code_verifier,
                 ...oauth2_injected_values,
                 ...params,
-            }
+            },
         );
     }
 
@@ -71,19 +78,22 @@ export async function accessToken(req: Record<string, any>) {
                     code_verifier,
                     ...oauth2_injected_values,
                     ...params,
-                }
+                },
             ),
         );
     }
 
     const defaultContentType: Record<string, string> = Object.keys(headers).some(
-        h => h.toLowerCase() == 'content-type') ? {} : { 'content-type': 'application/json' };
+            (h) => h.toLowerCase() == "content-type",
+        )
+        ? {}
+        : { "content-type": "application/json" };
 
     const response = await fetch(url, {
-        method: 'POST',
+        method: "POST",
         body: body,
         headers: {
-            accept: 'application/json',
+            accept: "application/json",
             ...defaultContentType,
             ...corsHeaders,
             ...headers,
@@ -95,15 +105,15 @@ export async function accessToken(req: Record<string, any>) {
     const responseText = await response.text();
 
     if (response.status >= 400) {
-        console.log('access token request failed');
-        console.log('request: POST ', url);
+        console.log("access token request failed");
+        console.log("request: POST ", url);
         console.log(
-            'response: ',
+            "response: ",
             response.status,
             response.statusText,
-            'headers: ',
+            "headers: ",
             response.headers,
-            'response body:',
+            "response body:",
             responseText,
         );
     }
@@ -112,15 +122,15 @@ export async function accessToken(req: Record<string, any>) {
 
     const mappedData: Record<string, any> = {};
     for (const key in accessTokenResponseMap) {
-        if (accessTokenResponseMap[key].startsWith('/')) {
-          mappedData[key] = jsonpointer.get(responseData, accessTokenResponseMap[key]);
+        if (accessTokenResponseMap[key].startsWith("/")) {
+            mappedData[key] = jsonpointer.get(responseData, accessTokenResponseMap[key]);
         } else {
-          mappedData[key] = compileTemplate(accessTokenResponseMap[key], responseData);
+            mappedData[key] = compileTemplate(accessTokenResponseMap[key], responseData);
         }
     }
 
     return new Response(JSON.stringify(mappedData), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: response.status,
     });
 }
