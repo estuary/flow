@@ -8,6 +8,7 @@ use std::{
 
 mod discover;
 mod materialize_fixture;
+mod oauth;
 mod spec;
 mod suggest_schema;
 
@@ -52,6 +53,8 @@ pub enum Command {
     Discover(discover::Discover),
     /// Get the spec output of a connector
     Spec(spec::Spec),
+    /// Test a connector's OAuth config
+    Oauth(oauth::Oauth),
     /// Suggest a schema that would alleviate document schema violations of a specific collection
     SuggestSchema(suggest_schema::SuggestSchema),
     /// Emit the Flow specification JSON-Schema.
@@ -145,6 +148,7 @@ impl Advanced {
             }
             Command::Discover(args) => discover::do_discover(ctx, args).await,
             Command::Spec(args) => spec::do_spec(ctx, args).await,
+            Command::Oauth(args) => oauth::do_oauth(ctx, args).await,
             Command::SuggestSchema(args) => suggest_schema::do_suggest_schema(ctx, args).await,
             Command::JsonSchema => {
                 let schema = models::Catalog::root_json_schema();
