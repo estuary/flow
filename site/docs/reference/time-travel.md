@@ -55,7 +55,7 @@ materializations:
 
 ## Properties
 
-|-----------------------------|------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------| Property                    | Title                  | Description                                                                                                                                                                                                                                                                                                                                                                                | Type   | Required/Default |
------------------------------------------------------------------------------------------------------------------------------|--------|------------------|
-| **`/notBefore`**             | Not Before               | Only include date before this time                                                                                                                                                                                                                                                                                                                                          | date-time |          |
-| **`/notAfter`**              | Not After                | Only include data after this time                                                                                                                                                                                                                                                                                                 | date-time |          |
+| Property | Title | Description | Type |
+|---|---|---|---|
+| **`/notBefore`**| Not Before | Only include date before this time | date-time |
+| **`/notAfter`** | Not After  | Only include data after this time | date-time |
