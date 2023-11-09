@@ -1656,6 +1656,9 @@ impl serde::Serialize for response::discovered::Binding {
         if self.disable {
             len += 1;
         }
+        if !self.resource_path.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("capture.Response.Discovered.Binding", len)?;
         if !self.recommended_name.is_empty() {
             struct_ser.serialize_field("recommendedName", &self.recommended_name)?;
@@ -1671,6 +1674,9 @@ impl serde::Serialize for response::discovered::Binding {
         }
         if self.disable {
             struct_ser.serialize_field("disable", &self.disable)?;
+        }
+        if !self.resource_path.is_empty() {
+            struct_ser.serialize_field("resourcePath", &self.resource_path)?;
         }
         struct_ser.end()
     }
@@ -1690,6 +1696,8 @@ impl<'de> serde::Deserialize<'de> for response::discovered::Binding {
             "documentSchema",
             "key",
             "disable",
+            "resource_path",
+            "resourcePath",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1699,6 +1707,7 @@ impl<'de> serde::Deserialize<'de> for response::discovered::Binding {
             DocumentSchemaJson,
             Key,
             Disable,
+            ResourcePath,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1725,6 +1734,7 @@ impl<'de> serde::Deserialize<'de> for response::discovered::Binding {
                             "documentSchema" | "document_schema_json" => Ok(GeneratedField::DocumentSchemaJson),
                             "key" => Ok(GeneratedField::Key),
                             "disable" => Ok(GeneratedField::Disable),
+                            "resourcePath" | "resource_path" => Ok(GeneratedField::ResourcePath),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1749,6 +1759,7 @@ impl<'de> serde::Deserialize<'de> for response::discovered::Binding {
                 let mut document_schema_json__ : Option<Box<serde_json::value::RawValue>> = None;
                 let mut key__ = None;
                 let mut disable__ = None;
+                let mut resource_path__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::RecommendedName => {
@@ -1781,6 +1792,12 @@ impl<'de> serde::Deserialize<'de> for response::discovered::Binding {
                             }
                             disable__ = Some(map.next_value()?);
                         }
+                        GeneratedField::ResourcePath => {
+                            if resource_path__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("resourcePath"));
+                            }
+                            resource_path__ = Some(map.next_value()?);
+                        }
                     }
                 }
                 Ok(response::discovered::Binding {
@@ -1789,6 +1806,7 @@ impl<'de> serde::Deserialize<'de> for response::discovered::Binding {
                     document_schema_json: document_schema_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
                     key: key__.unwrap_or_default(),
                     disable: disable__.unwrap_or_default(),
+                    resource_path: resource_path__.unwrap_or_default(),
                 })
             }
         }

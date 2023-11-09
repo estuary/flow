@@ -42,7 +42,10 @@ expression: json_test(msg)
         "key": [
           "/key/ptr"
         ],
-        "disable": true
+        "disable": true,
+        "resourcePath": [
+          "1234"
+        ]
       }
     ]
   },

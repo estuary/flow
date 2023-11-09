@@ -54,7 +54,6 @@ materializations:
 
 
 ## Properties
-
 | Property | Title | Description | Type |
 |---|---|---|---|
 | **`/notBefore`**| Not Before | Only include date before this time | date-time |

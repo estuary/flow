@@ -139,6 +139,15 @@ impl cgo::Service for API {
                 };
 
                 let spec = doc::combine::Spec::with_one_binding(
+                    // Piggy-back on the `schema_inference` knob to understand
+                    // if we should use full or partial reductions.
+                    // TODO(johnny): This is a hack to avoid churning this API further,
+                    // while we transition over to the `runtime` crate which is replacing this code.
+                    if infer_schema_json.is_empty() {
+                        true // This is a materialization (full reductions).
+                    } else {
+                        false // This is a capture (partial reductions).
+                    },
                     key_ex.clone(),
                     None,
                     new_validator(&schema_json)?,
@@ -302,11 +311,7 @@ pub fn drain_chunk(
     let target_length = target_length + arena.len();
 
     while let Some(drained) = drainer.next() {
-        let doc::combine::DrainedDoc {
-            binding: _, // Always zero.
-            reduced,
-            root,
-        } = drained?;
+        let doc::combine::DrainedDoc { meta, root } = drained?;
 
         if let Some(ref mut shape) = shape {
             if shape.widen_owned(&root) {
@@ -322,7 +327,7 @@ pub fn drain_chunk(
 
         // Only now do we know the actual length of the document in its serialized form.
         stats.increment(arena.len() - begin);
-        if reduced {
+        if meta.front() {
             cgo::send_bytes(Code::DrainedReducedDocument as u32, begin, arena, out);
         } else {
             cgo::send_bytes(Code::DrainedCombinedDocument as u32, begin, arena, out);
@@ -424,6 +429,9 @@ pub mod test {
                 false,
                 json!({"key": "really really really really really really really really long", "min": 10, "max": 10}),
             ),
+            (false, json!({"key": "one", "min": 7, "max": 7.7})),
+            (false, json!({"key": "one", "min": 8, "max": 8.8})),
+            (false, json!({"key": "one", "min": 9, "max": 9.9})),
         ] {
             svc.invoke(
                 if *left {
@@ -453,16 +461,16 @@ pub mod test {
 
         assert_eq!(out.len(), 1 * 3);
 
-        // Poll again to drain the final three, plus stats.
+        // Poll again to drain the final five, plus stats.
         svc.invoke(
             Code::DrainChunk as u32,
-            &(1024 as u32).to_be_bytes(),
+            &(4096 as u32).to_be_bytes(),
             &mut arena,
             &mut out,
         )
         .unwrap();
 
-        assert_eq!(out.len(), 4 * 3 + 1);
+        assert_eq!(out.len(), 6 * 3 + 1);
 
         // The last message in out should be stats
         let stats_out = out.pop().expect("missing stats");
@@ -473,12 +481,12 @@ pub mod test {
         let expected_stats = Stats {
             left: Some(DocsAndBytes { docs: 2, bytes: 62 }),
             right: Some(DocsAndBytes {
-                docs: 4,
-                bytes: 183,
+                docs: 7,
+                bytes: 276,
             }),
             out: Some(DocsAndBytes {
-                docs: 4,
-                bytes: 339,
+                docs: 6,
+                bytes: 491,
             }),
         };
         assert_eq!(expected_stats, stats_message);

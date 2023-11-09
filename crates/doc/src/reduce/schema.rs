@@ -18,55 +18,32 @@ pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
         alloc,
     } = cur;
 
-    let (lhs, rhs) = (lhs.into_heap_node(alloc), rhs.into_heap_node(alloc));
+    let lhs = lhs
+        .map(|n| serde_json::to_value(SerPolicy::default().on_lazy(&n)).unwrap())
+        .unwrap_or(serde_json::Value::Bool(false));
+    let rhs = serde_json::to_value(SerPolicy::default().on_lazy(&rhs)).unwrap();
 
     *tape = &tape[count_nodes(&rhs)..];
 
-    // Ensure that we're working with objects on both sides
-    // Question: Should we actually relax this to support
-    // reducing valid schemas like "true" and "false"?
-    let (lhs @ HeapNode::Object(_), rhs @ HeapNode::Object(_)) = (lhs, rhs) else {
-        return Err(Error::with_location(
-            Error::JsonSchemaMergeWrongType { detail: None },
-            loc,
-        ));
-    };
-
-    let left = shape_from_node(&lhs).map_err(|e| Error::with_location(e, loc))?;
-    let right = shape_from_node(&rhs).map_err(|e| Error::with_location(e, loc))?;
+    let left = shape_from_node(lhs).map_err(|e| Error::with_location(e, loc))?;
+    let right = shape_from_node(rhs).map_err(|e| Error::with_location(e, loc))?;
 
     let mut merged_shape = Shape::union(left, right);
     limits::enforce_shape_complexity_limit(&mut merged_shape, DEFAULT_SCHEMA_COMPLEXITY_LIMIT);
 
-    // Union together the LHS and RHS, and convert back from `Shape` into `HeapNode`.
-    let merged_doc = serde_json::to_value(to_schema(merged_shape))
-        .and_then(|value| HeapNode::from_serde(value, alloc))
-        .map_err(|e| {
-            Error::with_location(
-                Error::JsonSchemaMergeWrongType {
-                    detail: Some(e.to_string()),
-                },
-                loc,
-            )
-        })?;
-
+    // Convert back from `Shape` into `HeapNode`.
+    let merged_doc = serde_json::to_value(to_schema(merged_shape)).unwrap();
+    let merged_doc = HeapNode::from_serde(merged_doc, alloc).unwrap();
     Ok(merged_doc)
 }
 
-fn shape_from_node<'a, N: AsNode>(node: &N) -> Result<Shape> {
-    // Should this be something more specific/useful?
+fn shape_from_node(node: serde_json::Value) -> Result<Shape> {
     let url = url::Url::parse("json-schema-reduction:///").unwrap();
 
-    let serialized = serde_json::to_value(SerPolicy::default().on(node)).map_err(|e| {
-        Error::JsonSchemaMergeWrongType {
-            detail: Some(e.to_string()),
-        }
-    })?;
-
-    let schema = json::schema::build::build_schema::<crate::Annotation>(url.clone(), &serialized)
-        .map_err(|e| Error::JsonSchemaMergeWrongType {
-        detail: Some(e.to_string()),
-    })?;
+    let schema = json::schema::build::build_schema::<crate::Annotation>(url.clone(), &node)
+        .map_err(|e| Error::JsonSchemaMerge {
+            detail: format!("{e:#}"),
+        })?;
 
     let mut index = IndexBuilder::new();
     index.add(&schema).unwrap();
@@ -74,11 +51,9 @@ fn shape_from_node<'a, N: AsNode>(node: &N) -> Result<Shape> {
     let index = index.into_index();
 
     Ok(Shape::infer(
-        index
-            .must_fetch(&url)
-            .map_err(|e| Error::JsonSchemaMergeWrongType {
-                detail: Some(e.to_string()),
-            })?,
+        index.must_fetch(&url).map_err(|e| Error::JsonSchemaMerge {
+            detail: format!("{e:#}"),
+        })?,
         &index,
     ))
 }
@@ -107,16 +82,14 @@ mod test {
                 },
                 Partial {
                     rhs: json!("oops!"),
-                    expect: Err(Error::JsonSchemaMergeWrongType { detail: None }),
+                    expect: Err(Error::JsonSchemaMerge { detail: "at schema 'json-schema-reduction:///': expected a schema".to_string() }),
                 },
                 Partial {
                     rhs: json!({
                         "type": "foo"
                     }),
-                    expect: Err(Error::JsonSchemaMergeWrongType {
-                        detail: Some(
-                            r#"at keyword 'type' of schema 'json-schema-reduction:///': expected a type or array of types: invalid type name: 'foo'"#.to_owned(),
-                        ),
+                    expect: Err(Error::JsonSchemaMerge {
+                        detail: r#"at keyword 'type' of schema 'json-schema-reduction:///': expected a type or array of types: invalid type name: 'foo'"#.to_owned(),
                     }),
                 },
                 Partial {

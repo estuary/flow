@@ -84,6 +84,7 @@ func TestSimpleDerive(t *testing.T) {
 	for _, doc := range []string{
 		`{"a_key":"key","a_val":2}`,
 		`{"a_key":"key","a_val":2}`, // Repeat.
+		`{"a_key":"key","a_val":2}`, // Repeat.
 		`{"a_key":"key","a_val":3}`,
 		`{"a_key":"key","a_val":1}`,
 		`{"a_key":"key","a_val":2}`, // Repeat.
