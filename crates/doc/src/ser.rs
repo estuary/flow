@@ -38,6 +38,20 @@ impl SerPolicy {
             str_truncate_after: 512,
         }
     }
+
+    fn apply_to_str<'a>(&self, raw: &'a str) -> &'a str {
+        if raw.len() > self.str_truncate_after {
+            // Find the greatest index that is <= `str_truncate_after` and falls at a utf8
+            // character boundary
+            let mut truncate_at = self.str_truncate_after;
+            while !raw.is_char_boundary(truncate_at) {
+                truncate_at -= 1;
+            }
+            &raw[..truncate_at]
+        } else {
+            raw
+        }
+    }
 }
 
 impl Default for SerPolicy {
@@ -96,15 +110,7 @@ impl<'p, N: AsNode> serde::Serialize for SerNode<'p, N> {
                 )
             })),
             Node::String(mut s) => {
-                if s.len() > self.policy.str_truncate_after {
-                    // Find the greatest index that is <= `str_truncate_after` and falls at a utf8
-                    // character boundary
-                    let mut truncate_at = self.policy.str_truncate_after;
-                    while !s.is_char_boundary(truncate_at) {
-                        truncate_at -= 1;
-                    }
-                    s = &s[..truncate_at];
-                }
+                s = self.policy.apply_to_str(s);
                 serializer.serialize_str(s)
             }
         }
@@ -129,9 +135,7 @@ impl<'p, N: AsNode> tuple::TuplePack for SerNode<'p, N> {
             Node::NegInt(n) => n.pack(w, tuple_depth),
             Node::PosInt(n) => n.pack(w, tuple_depth),
             Node::String(mut s) => {
-                if s.len() > self.policy.str_truncate_after {
-                    s = &s[..self.policy.str_truncate_after];
-                }
+                s = self.policy.apply_to_str(s);
                 s.pack(w, tuple_depth)
             }
         }
