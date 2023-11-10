@@ -97,7 +97,13 @@ impl<'p, N: AsNode> serde::Serialize for SerNode<'p, N> {
             })),
             Node::String(mut s) => {
                 if s.len() > self.policy.str_truncate_after {
-                    s = &s[..self.policy.str_truncate_after];
+                    // Find the greatest index that is <= `str_truncate_after` and falls at a utf8
+                    // character boundary
+                    let mut truncate_at = self.policy.str_truncate_after;
+                    while !s.is_char_boundary(truncate_at) {
+                        truncate_at -= 1;
+                    }
+                    s = &s[..truncate_at];
                 }
                 serializer.serialize_str(s)
             }
