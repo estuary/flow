@@ -161,6 +161,53 @@ where
     (sources, validations)
 }
 
+/// The output of a build, which can be either successful, failed, or anything
+/// in between. The "in between" may seem silly, but may be important for
+/// some use cases. For example, you may be executing a build for the purpose
+/// of getting the collection projections, in which case you may not want to
+/// consider errors from materialization validations to be build failures.
+pub struct BuildOutput {
+    sources: tables::Sources,
+    validations: tables::Validations,
+}
+
+impl BuildOutput {
+    pub fn new(sources: tables::Sources, validations: tables::Validations) -> Self {
+        BuildOutput {
+            sources,
+            validations,
+        }
+    }
+
+    pub fn into_parts(self) -> (tables::Sources, tables::Validations) {
+        (self.sources, self.validations)
+    }
+
+    /// Returns an iterator of all errors that have occurred during any phase of the build.
+    pub fn errors(&self) -> impl Iterator<Item = &tables::Error> {
+        self.sources
+            .errors
+            .iter()
+            .chain(self.validations.errors.iter())
+    }
+
+    pub fn built_materializations(&self) -> &tables::BuiltMaterializations {
+        &self.validations.built_materializations
+    }
+
+    pub fn built_captures(&self) -> &tables::BuiltCaptures {
+        &self.validations.built_captures
+    }
+
+    pub fn built_collections(&self) -> &tables::BuiltCollections {
+        &self.validations.built_collections
+    }
+
+    pub fn built_tests(&self) -> &tables::BuiltTests {
+        &self.validations.built_tests
+    }
+}
+
 /// Perform a "managed" build, which is a convenience for:
 /// * Loading `source` and failing-fast on any load errors.
 /// * Then performing all validations and producing built specs.
@@ -177,47 +224,46 @@ pub async fn managed_build<L>(
     log_handler: L,
     project_root: url::Url,
     source: url::Url,
-) -> Result<(tables::Sources, tables::Validations), tables::Errors>
+) -> BuildOutput
 where
     L: Fn(&ops::Log) + Send + Sync + Clone + 'static,
 {
-    let (sources, validations) = validate(
-        allow_local,
-        &build_id,
-        &connector_network,
-        &*control_plane,
-        true, // Generate ops collections.
-        log_handler,
-        false, // Validate captures.
-        false, // Validate derivations.
-        false, // Validate materializations.
-        &project_root,
-        load(&source, &file_root).await.into_result()?,
-    )
-    .await;
+    let in_sources = load(&source, &file_root).await;
 
-    Ok((sources, validations.into_result()?))
+    let (sources, validations) = if in_sources.errors.is_empty() {
+        validate(
+            allow_local,
+            &build_id,
+            &connector_network,
+            &*control_plane,
+            true, // Generate ops collections.
+            log_handler,
+            false, // Validate captures.
+            false, // Validate derivations.
+            false, // Validate materializations.
+            &project_root,
+            in_sources,
+        )
+        .await
+    } else {
+        (in_sources, Default::default())
+    };
+
+    BuildOutput::new(sources, validations)
 }
 
 /// Persist a managed build Result into the SQLite tables commonly known as a "build DB".
 pub fn persist(
     build_config: proto_flow::flow::build_api::Config,
     db_path: &Path,
-    result: Result<&(tables::Sources, tables::Validations), &tables::Errors>,
+    result: &BuildOutput,
 ) -> anyhow::Result<()> {
     let db = rusqlite::Connection::open(db_path).context("failed to open catalog database")?;
 
-    match result {
-        Ok((sources, validations)) => {
-            tables::persist_tables(&db, &sources.as_tables())
-                .context("failed to persist catalog sources")?;
-            tables::persist_tables(&db, &validations.as_tables())
-                .context("failed to persist catalog validations")?;
-        }
-        Err(errors) => {
-            tables::persist_tables(&db, &[errors]).context("failed to persist catalog errors")?;
-        }
-    }
+    tables::persist_tables(&db, &result.sources.as_tables())
+        .context("failed to persist catalog sources")?;
+    tables::persist_tables(&db, &result.validations.as_tables())
+        .context("failed to persist catalog validations")?;
 
     // Legacy support: encode and persist a deprecated protobuf build Config.
     // At the moment, these are still covered by Go snapshot tests.

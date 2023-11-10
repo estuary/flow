@@ -2,6 +2,7 @@ use crate::{draft::Error, jobs, logs, Id};
 use agent_sql::publications::{ExpandedRow, SpecRow};
 use agent_sql::CatalogType;
 use anyhow::Context;
+use build::BuildOutput;
 use itertools::Itertools;
 use proto_flow::{
     materialize::response::validated::constraint::Type as ConstraintType,
@@ -12,15 +13,6 @@ use sqlx::types::Uuid;
 use std::collections::{BTreeMap, HashSet};
 use std::io::Write;
 use std::path;
-
-#[derive(Default)]
-pub struct BuildOutput {
-    pub errors: tables::Errors,
-    pub built_captures: tables::BuiltCaptures,
-    pub built_collections: tables::BuiltCollections,
-    pub built_materializations: tables::BuiltMaterializations,
-    pub built_tests: tables::BuiltTests,
-}
 
 /// Reasons why a draft collection spec would need to be published under a new name.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
@@ -56,64 +48,64 @@ pub struct RejectedField {
     pub reason: String,
 }
 
-impl BuildOutput {
-    pub fn draft_errors(&self) -> Vec<Error> {
-        self.errors
-            .iter()
-            .map(|e| Error {
-                scope: Some(e.scope.to_string()),
-                // Use "alternate" form to include compact, chained error causes.
-                // See: https://docs.rs/anyhow/latest/anyhow/struct.Error.html#display-representations
-                detail: format!("{:#}", e.error),
-                ..Default::default()
-            })
-            .collect()
-    }
+pub fn draft_errors(output: &BuildOutput) -> Vec<Error> {
+    output
+        .errors()
+        .map(|e| Error {
+            scope: Some(e.scope.to_string()),
+            // Use "alternate" form to include compact, chained error causes.
+            // See: https://docs.rs/anyhow/latest/anyhow/struct.Error.html#display-representations
+            detail: format!("{:#}", e.error),
+            ..Default::default()
+        })
+        .collect()
+}
 
-    pub fn get_incompatible_collections(&self) -> Vec<IncompatibleCollection> {
-        // We'll collect a map of collection names to lists of materializations that have rejected the proposed collection changes.
-        let mut naughty_collections = BTreeMap::new();
+pub fn get_incompatible_collections(output: &BuildOutput) -> Vec<IncompatibleCollection> {
+    // We'll collect a map of collection names to lists of materializations that have rejected the proposed collection changes.
+    let mut naughty_collections = BTreeMap::new();
 
-        // Look at materialization validation responses for any collections that have been rejected due to unsatisfiable constraints.
-        for mat in self.built_materializations.iter() {
-            for (i, binding) in mat.validated.bindings.iter().enumerate() {
-                let Some(collection_name) = mat.spec.bindings[i].collection.as_ref().map(|c| c.name.as_str()) else {
-                    continue;
-                };
-                let naughty_fields: Vec<RejectedField> = binding
-                    .constraints
-                    .iter()
-                    .filter(|(_, constraint)| {
-                        constraint.r#type == ConstraintType::Unsatisfiable as i32
-                    })
-                    .map(|(field, constraint)| RejectedField {
-                        field: field.clone(),
-                        reason: constraint.reason.clone(),
-                    })
-                    .collect();
-                if !naughty_fields.is_empty() {
-                    let affected_consumers = naughty_collections
-                        .entry(collection_name.to_owned())
-                        .or_insert_with(|| Vec::new());
-                    affected_consumers.push(AffectedConsumer {
-                        name: mat.materialization.clone(),
-                        fields: naughty_fields,
-                    });
-                }
+    // Look at materialization validation responses for any collections that have been rejected due to unsatisfiable constraints.
+    for mat in output.built_materializations().iter() {
+        for (i, binding) in mat.validated.bindings.iter().enumerate() {
+            let Some(collection_name) = mat.spec.bindings[i]
+                .collection
+                .as_ref()
+                .map(|c| c.name.as_str())
+            else {
+                continue;
+            };
+            let naughty_fields: Vec<RejectedField> = binding
+                .constraints
+                .iter()
+                .filter(|(_, constraint)| constraint.r#type == ConstraintType::Unsatisfiable as i32)
+                .map(|(field, constraint)| RejectedField {
+                    field: field.clone(),
+                    reason: constraint.reason.clone(),
+                })
+                .collect();
+            if !naughty_fields.is_empty() {
+                let affected_consumers = naughty_collections
+                    .entry(collection_name.to_owned())
+                    .or_insert_with(|| Vec::new());
+                affected_consumers.push(AffectedConsumer {
+                    name: mat.materialization.clone(),
+                    fields: naughty_fields,
+                });
             }
         }
-
-        naughty_collections
-            .into_iter()
-            .map(
-                |(collection, affected_materializations)| IncompatibleCollection {
-                    collection,
-                    affected_materializations,
-                    requires_recreation: Vec::new(),
-                },
-            )
-            .collect()
     }
+
+    naughty_collections
+        .into_iter()
+        .map(
+            |(collection, affected_materializations)| IncompatibleCollection {
+                collection,
+                affected_materializations,
+                requires_recreation: Vec::new(),
+            },
+        )
+        .collect()
 }
 
 pub async fn build_catalog(
@@ -179,7 +171,7 @@ pub async fn build_catalog(
             ..Default::default()
         },
         &db_path,
-        build_result.as_ref(),
+        &build_result,
     )?;
     let dest_url = builds_root.join(&pub_id.to_string())?;
 
@@ -201,29 +193,7 @@ pub async fn build_catalog(
     if !persist_job.success() {
         anyhow::bail!("persist of {db_path:?} exited with an error");
     }
-
-    Ok(match build_result {
-        Ok((
-            _sources,
-            tables::Validations {
-                built_captures,
-                built_collections,
-                built_materializations,
-                built_tests,
-                errors: _,
-            },
-        )) => BuildOutput {
-            built_captures,
-            built_collections,
-            built_materializations,
-            built_tests,
-            ..Default::default()
-        },
-        Err(errors) => BuildOutput {
-            errors,
-            ..Default::default()
-        },
-    })
+    Ok(build_result)
 }
 
 pub async fn data_plane(

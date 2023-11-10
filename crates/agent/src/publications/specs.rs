@@ -1,4 +1,4 @@
-use super::builds::{self, IncompatibleCollection, ReCreateReason};
+use super::builds::{IncompatibleCollection, ReCreateReason};
 use super::draft::Error;
 use agent_sql::publications::{ExpandedRow, SpecRow, Tenant};
 use agent_sql::{Capability, CatalogType, Id};
@@ -475,7 +475,7 @@ pub async fn apply_updates_for_row(
 pub async fn add_build_output_to_live_specs(
     spec_rows: &[SpecRow],
     pruned_collections: &HashSet<String>,
-    build_output: &builds::BuildOutput,
+    build_output: &build::BuildOutput,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), sqlx::Error> {
     // We use the `draft_spec.is_some()` check throughout in order to avoid
@@ -484,7 +484,7 @@ pub async fn add_build_output_to_live_specs(
     // referenced by other tasks in the build. Technically, only collections are
     // ever added to the build output in this way, but we similarly filter the
     // others for consistency.
-    for collection in build_output.built_collections.iter() {
+    for collection in build_output.built_collections().iter() {
         // Note that only non-pruned collections must be updated as part of this function.
         // Pruned collections will already have had their live_specs rows deleted.
         if let Some(row) = spec_rows
@@ -504,7 +504,7 @@ pub async fn add_build_output_to_live_specs(
         }
     }
 
-    for capture in build_output.built_captures.iter() {
+    for capture in build_output.built_captures().iter() {
         if let Some(row) = spec_rows
             .iter()
             .find(|r| r.catalog_name == capture.capture.as_str())
@@ -514,7 +514,7 @@ pub async fn add_build_output_to_live_specs(
         }
     }
 
-    for materialization in build_output.built_materializations.iter() {
+    for materialization in build_output.built_materializations().iter() {
         if let Some(row) = spec_rows
             .iter()
             .find(|r| r.catalog_name == materialization.materialization.as_str())
@@ -525,7 +525,7 @@ pub async fn add_build_output_to_live_specs(
         }
     }
 
-    for test in build_output.built_tests.iter() {
+    for test in build_output.built_tests().iter() {
         if let Some(row) = spec_rows
             .iter()
             .find(|r| r.catalog_name == test.test.as_str())
@@ -543,13 +543,13 @@ pub async fn add_build_output_to_live_specs(
 // changing in this publication per the list of spec_rows.
 pub async fn add_built_specs_to_draft_specs(
     spec_rows: &[SpecRow],
-    build_output: &builds::BuildOutput,
+    build_output: &build::BuildOutput,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), sqlx::Error> {
     // We use the `draft_spec.is_some()` check throughout in order to avoid
     // adding built specs to draft_specs that are being deleted by this
     // publication. See the comment in `add_build_output_to_live_specs`
-    for collection in build_output.built_collections.iter() {
+    for collection in build_output.built_collections().iter() {
         if let Some(row) = spec_rows
             .iter()
             .find(|r| r.catalog_name == collection.collection.as_str())
@@ -565,7 +565,7 @@ pub async fn add_built_specs_to_draft_specs(
         }
     }
 
-    for capture in build_output.built_captures.iter() {
+    for capture in build_output.built_captures().iter() {
         if let Some(row) = spec_rows
             .iter()
             .find(|r| r.catalog_name == capture.capture.as_str())
@@ -581,7 +581,7 @@ pub async fn add_built_specs_to_draft_specs(
         }
     }
 
-    for materialization in build_output.built_materializations.iter() {
+    for materialization in build_output.built_materializations().iter() {
         if let Some(row) = spec_rows
             .iter()
             .find(|r| r.catalog_name == materialization.materialization.as_str())
@@ -597,7 +597,7 @@ pub async fn add_built_specs_to_draft_specs(
         }
     }
 
-    for test in build_output.built_tests.iter() {
+    for test in build_output.built_tests().iter() {
         if let Some(row) = spec_rows
             .iter()
             .find(|r| r.catalog_name == test.test.as_str())
