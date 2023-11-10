@@ -66,16 +66,27 @@ select
   internal.alert_data_processing_firing.alert_type,
   json_build_object(
     'bytes_processed', internal.alert_data_processing_firing.bytes_processed,
-    'email', internal.alert_data_processing_firing.email,
+    'emails', array_agg(internal.alert_data_processing_firing.email),
     'evaluation_interval', internal.alert_data_processing_firing.evaluation_interval,
     'spec_type', internal.alert_data_processing_firing.spec_type
     ) as arguments
 from internal.alert_data_processing_firing
+group by
+  internal.alert_data_processing_firing.catalog_name,
+  internal.alert_data_processing_firing.alert_type,
+  internal.alert_data_processing_firing.bytes_processed,
+  internal.alert_data_processing_firing.evaluation_interval,
+  internal.alert_data_processing_firing.spec_type
 order by catalog_name asc;
 
-create or replace function internal.evaluate_data_processing_alerts()
+create or replace function internal.evaluate_alert_events()
 returns void as $$
 begin
+
+-- Create alerts which have transitioned from !firing => firing
+insert into alert_history (alert_type, catalog_name, fired_at, arguments)
+  select alert_type, catalog_name, now(), arguments from alert_all_firing
+  on conflict (alert_type, catalog_name) do nothing;
 
 -- Resolve alerts that have transitioned from firing => !firing
 with open_alerts as (
@@ -85,15 +96,6 @@ with open_alerts as (
 update alert_history set resolved_at = now()
     where resolved_at is null and (alert_type, catalog_name) not in (select * from open_alerts);
 
--- Create alerts which have transitioned from !firing => firing
-with open_alerts as (
-  select alert_type, catalog_name from alert_history
-  where resolved_at is null
-)
-insert into alert_history (alert_type, catalog_name, fired_at, arguments)
-select alert_type, catalog_name, now(), arguments from alert_all_firing
-  where (alert_type, catalog_name) not in (select * from open_alerts);
-
 end;
 $$ language plpgsql security definer;
 
@@ -102,20 +104,24 @@ select
   cron.schedule (
     'evaluate-alert-events', -- name of the cron job
     '*/3 * * * *', -- every three minutes, update alert event history
-    $$ select internal.evaluate_data_processing_alerts() $$
+    $$ select internal.evaluate_alert_events() $$
   );
 
-create extension if not exists pg_cron with schema extensions;
-select
-  cron.schedule (
-    'evaluate-data-processing-alerts', -- name of the cron job
-    '*/5 * * * *', -- every five minutes, check to see if an alert needs to be sent
-    $$
-    select
-      net.http_post(
-        url:='http://host.docker.internal:5431/functions/v1/alert-data-processing',
-        headers:='{"Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"}'::jsonb,
-        body:=concat('{"time": "', now(), '"}')::jsonb
-      ) as request_id;
-    $$
-  );
+create or replace function internal.send_alerts()
+returns trigger as $trigger$
+begin
+
+if new.alert_type = 'data_not_processed_in_interval' then
+  perform
+    net.http_post(
+      url:='http://host.docker.internal:5431/functions/v1/alert-data-processing',
+      headers:='{"Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"}'::jsonb,
+      body:=concat('{"time": "', now(), '"}')::jsonb
+    );
+end if;
+
+end;
+$trigger$ LANGUAGE plpgsql;
+
+create trigger "Send alerts" after insert or update on alert_history
+  for each row execute procedure internal.send_alerts();

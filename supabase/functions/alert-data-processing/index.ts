@@ -7,7 +7,7 @@ import { supabaseClient } from "../_shared/supabaseClient.ts";
 
 interface DataProcessingArguments {
     bytes_processed: number;
-    email: string;
+    emails: string[];
     evaluation_interval: string;
     spec_type: string;
 }
@@ -65,7 +65,7 @@ const emailNotifications = async (
                 },
                 body: JSON.stringify({
                     from: "Estuary <onboarding@resend.dev>",
-                    to: ["tucker.kiahna@gmail.com"],
+                    to: ["melk@example.com"],
                     subject,
                     html,
                 }),
@@ -115,7 +115,7 @@ serve(async (_request: Request): Promise<Response> => {
     const pendingAlertEmails: EmailConfig[] = alerts
         ? alerts.map(
             ({
-                arguments: { email, evaluation_interval, spec_type },
+                arguments: { emails, evaluation_interval, spec_type },
                 catalog_name,
             }) => {
                 const timeOffset = evaluation_interval.split(":");
@@ -129,7 +129,7 @@ serve(async (_request: Request): Promise<Response> => {
                     `<p>You are receiving this alert because your task, ${spec_type} ${catalog_name} hasn't seen new data in ${formattedEvaluationInterval}.  You can locate your task <a href="https://dashboard.estuary.dev/captures/details/overview?catalogName=${catalog_name}" target="_blank" rel="noopener">here</a> to make changes or update its alerting settings.</p>`;
 
                 return {
-                    emails: [email],
+                    emails,
                     html,
                     subject,
                 };
@@ -139,14 +139,14 @@ serve(async (_request: Request): Promise<Response> => {
 
     const pendingConfirmationEmails: EmailConfig[] = confirmations
         ? confirmations.map(
-            ({ arguments: { email, spec_type }, catalog_name }) => {
+            ({ arguments: { emails, spec_type }, catalog_name }) => {
                 const subject = `Estuary Flow: Alert for ${spec_type} ${catalog_name}`;
 
                 const html =
                     `<p>You are receiving this alert because your task, ${spec_type} ${catalog_name} has resumed processing data.  You can locate your task <a href="https://dashboard.estuary.dev/captures/details/overview?catalogName=${catalog_name}" target="_blank" rel="noopener">here</a> to make changes or update its alerting settings.</p>`;
 
                 return {
-                    emails: [email],
+                    emails,
                     subject,
                     html,
                 };
@@ -155,6 +155,8 @@ serve(async (_request: Request): Promise<Response> => {
         : [];
 
     const pendingEmails = [...pendingAlertEmails, ...pendingConfirmationEmails];
+
+    console.log("pending emails", pendingEmails);
 
     if (pendingEmails.length === 0) {
         return new Response(null, {
