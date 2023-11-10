@@ -231,7 +231,7 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
         ..Default::default()
     };
 
-    build::persist(build_config, &db_path, build_result.as_ref())?;
+    build::persist(build_config, &db_path, &build_result)?;
 
     Ok(())
 }

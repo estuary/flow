@@ -108,7 +108,7 @@ async fn validate(
         })
         .collect::<tables::Errors>();
 
-    let out = (sources, validations);
+    let out = build::Output::new(sources, validations);
 
     // If DEBUG tracing is enabled, then write sources and validations to a
     // debugging database that can be inspected or shipped to Estuary for support.
@@ -119,11 +119,11 @@ async fn validate(
             .as_secs();
 
         let db_path = std::env::temp_dir().join(format!("flowctl_{seconds}.sqlite"));
-        build::persist(Default::default(), &db_path, Ok(&out)).expect("failed to write build DB");
+        build::persist(Default::default(), &db_path, &out).expect("failed to write build DB");
         tracing::debug!(db_path=%db_path.to_string_lossy(), "wrote debugging database");
     }
 
-    out
+    out.into_parts()
 }
 
 pub(crate) fn surface_errors<T>(result: Result<T, tables::Errors>) -> anyhow::Result<T> {
