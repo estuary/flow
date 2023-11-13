@@ -16,7 +16,6 @@ grant select, insert, update, delete on alert_subscriptions to authenticated;
 
 create table alert_data_processing (
   catalog_name           catalog_name not null,
-  alert_type             text         not null default 'data_not_processed_in_interval',
   evaluation_interval    interval     not null,
   primary key (catalog_name)
 );
@@ -43,6 +42,7 @@ create table alert_history (
 create view internal.alert_data_processing_firing as
 select
   alert_data_processing.*,
+  'data_not_processed_in_interval' as alert_type,
   alert_subscriptions.email,
   live_specs.spec_type,
   coalesce(sum(catalog_stats_hourly.bytes_written_by_me + catalog_stats_hourly.bytes_written_to_me + catalog_stats_hourly.bytes_read_by_me), 0)::bigint as bytes_processed
@@ -54,7 +54,6 @@ where live_specs.created_at <= date_trunc('hour', now() - alert_data_processing.
       and catalog_stats_hourly.ts >= date_trunc('hour', now() - alert_data_processing.evaluation_interval)
 group by
   alert_data_processing.catalog_name,
-  alert_data_processing.alert_type,
   alert_data_processing.evaluation_interval,
   alert_subscriptions.email,
   live_specs.spec_type
@@ -90,8 +89,7 @@ insert into alert_history (alert_type, catalog_name, fired_at, arguments)
 
 -- Resolve alerts that have transitioned from firing => !firing
 with open_alerts as (
-  select alert_type, catalog_name from alert_history
-  where resolved_at is null
+  select alert_type, catalog_name from alert_all_firing
 )
 update alert_history set resolved_at = now()
     where resolved_at is null and (alert_type, catalog_name) not in (select * from open_alerts);
@@ -119,6 +117,8 @@ if new.alert_type = 'data_not_processed_in_interval' then
       body:=concat('{"time": "', now(), '"}')::jsonb
     );
 end if;
+
+return null;
 
 end;
 $trigger$ LANGUAGE plpgsql;

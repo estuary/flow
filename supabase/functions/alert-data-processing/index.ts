@@ -65,7 +65,7 @@ const emailNotifications = async (
                 },
                 body: JSON.stringify({
                     from: "Estuary <onboarding@resend.dev>",
-                    to: ["melk@example.com"],
+                    to: emails,
                     subject,
                     html,
                 }),
@@ -87,7 +87,7 @@ serve(async (_request: Request): Promise<Response> => {
         .from<AlertRecord>(TABLES.ALERT_HISTORY)
         .select("*")
         .eq("alert_type", dataProcessingAlertType)
-        .eq("resolved_at", null)
+        .is("resolved_at", null)
         .gt("fired_at", startTimestamp.toUTCString());
 
     if (alertsError !== null) {
@@ -155,8 +155,6 @@ serve(async (_request: Request): Promise<Response> => {
         : [];
 
     const pendingEmails = [...pendingAlertEmails, ...pendingConfirmationEmails];
-
-    console.log("pending emails", pendingEmails);
 
     if (pendingEmails.length === 0) {
         return new Response(null, {
