@@ -710,3 +710,24 @@ pub async fn prune_unbound_collections(
 
     Ok(res.into_iter().map(|r| r.catalog_name).collect())
 }
+
+pub async fn delete_data_processing_alerts(
+    catalog_name: &str,
+    draft_spec: &Option<Json<Box<RawValue>>>,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        r#"
+        delete from alert_data_processing
+        where alert_data_processing.catalog_name = $1
+            and $2::json is null
+        returning alert_data_processing.catalog_name;
+        "#,
+        catalog_name,
+        draft_spec as &Option<Json<Box<RawValue>>>,
+    )
+    .fetch_optional(&mut *txn)
+    .await?;
+
+    Ok(())
+}

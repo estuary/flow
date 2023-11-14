@@ -58,7 +58,7 @@ async fn test_publication_data_operations() {
 
     let mut txn = conn.begin().await.unwrap();
 
-    // Fixture: insert live_specs, grants, drafts, and draft_specs fixtures.
+    // Fixture: insert live_specs, grants, drafts, draft_specs, and alert_data_processing fixtures.
     sqlx::query(
         r#"
         with p1 as (
@@ -98,6 +98,10 @@ async fn test_publication_data_operations() {
           p7 as (
             insert into publications (id, user_id, draft_id) values
             ('eeeeeeeeeeeeeeee', '11111111-1111-1111-1111-111111111111','dddddddddddddddd')
+          ),
+          p8 as (
+            insert into alert_data_processing (catalog_name, evaluation_interval) values
+            ('aliceCo/Second/Thing', '2 hours')
           )
           select 1;
         "#,
@@ -221,6 +225,14 @@ async fn test_publication_data_operations() {
         .await
         .unwrap();
 
+        agent_sql::publications::delete_data_processing_alerts(
+            &row.catalog_name,
+            &row.draft_spec,
+            &mut txn,
+        )
+        .await
+        .unwrap();
+
         agent_sql::drafts::delete_spec(row.draft_spec_id, &mut txn)
             .await
             .unwrap();
@@ -248,6 +260,13 @@ async fn test_publication_data_operations() {
       "[].created_at" => "<redacted-timestamp>",
       "[].updated_at" => "<redacted-timestamp>",
     });
+
+    // Expect `alert_data_processing` is now empty.
+    assert!(sqlx::query("select catalog_name from alert_data_processing")
+    .fetch_optional(&mut txn)
+    .await
+    .unwrap()
+    .is_none());
 }
 
 #[tokio::test]
