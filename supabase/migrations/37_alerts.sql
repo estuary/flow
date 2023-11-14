@@ -21,7 +21,7 @@ create table alert_data_processing (
 );
 alter table alert_data_processing enable row level security;
 
-create policy "Users access alerts for the admin-authorized tasks"
+create policy "Users access alerts for admin-authorized tasks"
   on alert_data_processing as permissive
   using (exists(
     select 1 from auth_roles('admin') r where catalog_name ^@ r.role_prefix
@@ -38,6 +38,15 @@ create table alert_history (
   arguments       json         not null,
   primary key (alert_type, catalog_name)
 );
+alter table alert_history enable row level security;
+
+create policy "Users access alert history for admin-authorized tasks"
+  on alert_history as permissive
+  using (exists(
+    select 1 from auth_roles('admin') r where catalog_name ^@ r.role_prefix
+  ));
+
+grant select on alert_history to authenticated;
 
 create view internal.alert_data_processing_firing as
 select
