@@ -23,7 +23,7 @@ interface AlertRecord {
 interface EmailConfig {
     emails: string[];
     subject: string;
-    html: string;
+    content: string;
 }
 
 export const handleSuccess = <T>(response: any) => {
@@ -55,7 +55,7 @@ const emailNotifications = async (
 ): Promise<void> => {
     // TODO: Replace hardcoded sender and recipient address with the destructured `emails` property.
     const notificationPromises = pendingNotifications.map(
-        ({ emails, html, subject }) =>
+        ({ emails, content, subject }) =>
             fetch("https://api.resend.com/emails", {
                 method: "POST",
                 headers: {
@@ -67,7 +67,14 @@ const emailNotifications = async (
                     from: "Estuary <onboarding@resend.dev>",
                     to: emails,
                     subject,
-                    html,
+                    html: `
+                      <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
+                        ${content}
+
+                        <p style="margin-bottom: 0;">Thanks,</p>
+                        <p style="margin-top: 0;">Estuary Team</p>
+                      </div>
+                    `,
                 }),
             }),
     );
@@ -118,19 +125,24 @@ serve(async (_request: Request): Promise<Response> => {
                 arguments: { emails, evaluation_interval, spec_type },
                 catalog_name,
             }) => {
-                const timeOffset = evaluation_interval.split(":");
-                const hours = Number(timeOffset[0]);
+                let formattedEvaluationInterval = evaluation_interval;
 
-                const formattedEvaluationInterval = isFinite(hours) ? hours.toString() : timeOffset[0];
+                // A postgresql interval in hour increments has the following format: 'HH:00:00'.
+                if (evaluation_interval.includes(":")) {
+                    const timeOffset = evaluation_interval.split(":");
+                    const hours = Number(timeOffset[0]);
+
+                    formattedEvaluationInterval = isFinite(hours) ? `${hours} hours` : `${timeOffset[0]} hours`;
+                }
 
                 const subject = `Estuary Flow: Alert for ${spec_type} ${catalog_name}`;
 
-                const html =
+                const content =
                     `<p>You are receiving this alert because your task, ${spec_type} ${catalog_name} hasn't seen new data in ${formattedEvaluationInterval}.  You can locate your task <a href="https://dashboard.estuary.dev/captures/details/overview?catalogName=${catalog_name}" target="_blank" rel="noopener">here</a> to make changes or update its alerting settings.</p>`;
 
                 return {
+                    content,
                     emails,
-                    html,
                     subject,
                 };
             },
@@ -142,13 +154,13 @@ serve(async (_request: Request): Promise<Response> => {
             ({ arguments: { emails, spec_type }, catalog_name }) => {
                 const subject = `Estuary Flow: Alert for ${spec_type} ${catalog_name}`;
 
-                const html =
+                const content =
                     `<p>You are receiving this alert because your task, ${spec_type} ${catalog_name} has resumed processing data.  You can locate your task <a href="https://dashboard.estuary.dev/captures/details/overview?catalogName=${catalog_name}" target="_blank" rel="noopener">here</a> to make changes or update its alerting settings.</p>`;
 
                 return {
+                    content,
                     emails,
                     subject,
-                    html,
                 };
             },
         )
