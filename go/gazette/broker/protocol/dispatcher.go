@@ -55,7 +55,7 @@ func WithDispatchItemRoute(ctx context.Context, dr DispatchRouter, item string, 
 		id = rt.Members[rt.Primary]
 	}
 	return context.WithValue(ctx, dispatchRouteCtxKey{},
-		dispatchRoute{route: rt, id: id, item: item, DispatchRouter: dr})
+	dispatchRoute{route: rt, id: id, item: item, DispatchRouter: dr})
 }
 
 // DispatchRouter routes item to Routes, and observes item Routes.
@@ -152,8 +152,11 @@ func (d *dispatcher) updateSubConnState(sc balancer.SubConn, state balancer.SubC
 	})
 }
 
+// This method has been deprecated but may still be in use. See https://github.com/grpc/grpc-go/pull/6481
+// For updates to the logic, apply them to `updateSubConnState` instead which has been integrated with the new
+// StateListener interface
 func (d *dispatcher) UpdateSubConnState(sc balancer.SubConn, state balancer.SubConnState) {
-  d.updateSubConnState(sc, state)
+	d.updateSubConnState(sc, state)
 }
 
 // markedSubConn tracks the last mark associated with a SubConn.
@@ -192,10 +195,10 @@ func (d *dispatcher) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 				Addr: d.idToAddr(dr.route, dispatchID),
 			}},
 			balancer.NewSubConnOptions{
-        StateListener: func(state balancer.SubConnState) {
-          d.updateSubConnState(msc.subConn, state)
-        },
-      },
+				StateListener: func(state balancer.SubConnState) {
+					d.updateSubConnState(msc.subConn, state)
+				},
+			},
 		); err != nil {
 			return balancer.PickResult{}, err
 		}
@@ -218,7 +221,7 @@ func (d *dispatcher) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 
 	if tr, ok := trace.FromContext(info.Ctx); ok {
 		tr.LazyPrintf("Pick(Route: %s, ID: %s) => %s (%s)",
-			&dr.route, &dr.id, &dispatchID, state)
+		&dr.route, &dr.id, &dispatchID, state)
 	}
 	switch state {
 	case connectivity.Idle, connectivity.Connecting:
@@ -312,10 +315,10 @@ func (d *dispatcher) sweep() {
 	d.mu.Unlock()
 
 	for _, sc := range toSweep {
-		// RemoveSubConn begins SubConn shutdown. We expect to see a
+		// SubConn.Shutdown begins a shutdown. We expect to see a
 		// HandleSubConnStateChange with connectivity.Shutdown, at which
 		// point we'll de-index it.
-		d.cc.RemoveSubConn(sc)
+		sc.Shutdown()
 	}
 }
 

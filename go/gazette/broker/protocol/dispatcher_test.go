@@ -72,7 +72,7 @@ func (s *DispatcherSuite) TestDispatchCases(c *gc.C) {
 
 	// Case: Specific remote peer is dispatched to.
 	ctx = WithDispatchRoute(context.Background(),
-		buildRouteFixture(), ProcessSpec_ID{Zone: "remote", Suffix: "primary"})
+	buildRouteFixture(), ProcessSpec_ID{Zone: "remote", Suffix: "primary"})
 
 	result, err = disp.Pick(balancer.PickInfo{Ctx: ctx})
 	c.Check(err, gc.Equals, balancer.ErrNoSubConnAvailable)
@@ -130,7 +130,7 @@ func (s *DispatcherSuite) TestDispatchCases(c *gc.C) {
 	mockSubConn{Name: "remote.addr", disp: disp}.UpdateState(balancer.SubConnState{ConnectivityState: connectivity.TransientFailure})
 
 	ctx = WithDispatchRoute(context.Background(),
-		buildRouteFixture(), ProcessSpec_ID{Zone: "remote", Suffix: "primary"})
+	buildRouteFixture(), ProcessSpec_ID{Zone: "remote", Suffix: "primary"})
 
 	_, err = disp.Pick(balancer.PickInfo{Ctx: ctx})
 	c.Check(err, gc.Equals, balancer.ErrTransientFailure)
@@ -253,7 +253,7 @@ func (s mockSubConn) UpdateAddresses([]resolver.Address) { panic("deprecated") }
 func (s mockSubConn) UpdateState(state balancer.SubConnState)  { s.disp.updateSubConnState(s, state) }
 func (s mockSubConn) Connect()                           {}
 func (s mockSubConn) GetOrBuildProducer(balancer.ProducerBuilder) (balancer.Producer, func()) {
-  return nil, func() {}
+	return nil, func() {}
 }
 func (s mockSubConn) Shutdown()                          {
 	var c = s.disp.cc.(*mockClientConn)
@@ -266,12 +266,12 @@ func (c *mockClientConn) NewSubConn(a []resolver.Address, _ balancer.NewSubConnO
 	return sc, c.err
 }
 
-func (c *mockClientConn) UpdateAddresses(balancer.SubConn, []resolver.Address) {}
+func (c *mockClientConn) UpdateAddresses(balancer.SubConn, []resolver.Address) { panic("deprecated") }
 func (c *mockClientConn) UpdateState(balancer.State)                           {}
 func (c *mockClientConn) ResolveNow(resolver.ResolveNowOptions)                {}
 func (c *mockClientConn) Target() string                                       { return "default.addr" }
-func (c *mockClientConn) RemoveSubConn(balancer.SubConn) {
-	panic("deprecated")
+func (c *mockClientConn) RemoveSubConn(sc balancer.SubConn) {
+	sc.Shutdown()
 }
 
 type mockRouter struct{ invalidated string }
