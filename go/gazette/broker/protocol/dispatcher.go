@@ -110,7 +110,7 @@ func (d *dispatcher) UpdateClientConnState(_ balancer.ClientConnState) error {
 // implements its own resolution and selection of an appropriate A record.
 func (d *dispatcher) ResolverError(_ error) {}
 
-func (d *dispatcher) UpdateSubConnState(sc balancer.SubConn, state balancer.SubConnState) {
+func (d *dispatcher) updateSubConnState(sc balancer.SubConn, state balancer.SubConnState) {
 	d.mu.Lock()
 	var id, ok = d.connID[sc]
 	if !ok {
@@ -152,6 +152,10 @@ func (d *dispatcher) UpdateSubConnState(sc balancer.SubConn, state balancer.SubC
 	})
 }
 
+func (d *dispatcher) UpdateSubConnState(sc balancer.SubConn, state balancer.SubConnState) {
+  d.updateSubConnState(sc, state)
+}
+
 // markedSubConn tracks the last mark associated with a SubConn.
 // SubConns not used for a complete sweep interval are closed.
 type markedSubConn struct {
@@ -187,7 +191,11 @@ func (d *dispatcher) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 			[]resolver.Address{{
 				Addr: d.idToAddr(dr.route, dispatchID),
 			}},
-			balancer.NewSubConnOptions{},
+			balancer.NewSubConnOptions{
+        StateListener: func(state balancer.SubConnState) {
+          d.updateSubConnState(msc.subConn, state)
+        },
+      },
 		); err != nil {
 			return balancer.PickResult{}, err
 		}
