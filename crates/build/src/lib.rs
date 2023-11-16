@@ -93,22 +93,19 @@ pub async fn load(source: &url::Url, file_root: &Path) -> tables::Sources {
 /// Perform validations and produce built specifications for `sources`.
 /// * If `generate_ops_collections` is set, then ops collections are added into `sources`.
 /// * If any of `noop_*` is true, then validations are skipped for connectors of that type.
-pub async fn validate<L>(
+pub async fn validate(
     allow_local: bool,
     build_id: &str,
     connector_network: &str,
     control_plane: &dyn validation::ControlPlane,
     generate_ops_collections: bool,
-    log_handler: L,
+    log_handler: impl runtime::LogHandler,
     noop_captures: bool,
     noop_derivations: bool,
     noop_materializations: bool,
     project_root: &url::Url,
     mut sources: tables::Sources,
-) -> (tables::Sources, tables::Validations)
-where
-    L: Fn(&ops::Log) + Send + Sync + Clone + 'static,
-{
+) -> (tables::Sources, tables::Validations) {
     // TODO(johnny): We *really* need to kill this, and have ops collections
     // be injected exclusively from the control-plane.
     if generate_ops_collections {
@@ -215,19 +212,16 @@ impl Output {
 /// This function is used to produce builds by managed control-plane
 /// components but not the `flowctl` CLI, which requires finer-grain
 /// control over build behavior.
-pub async fn managed_build<L>(
+pub async fn managed_build(
     allow_local: bool,
     build_id: String,
     connector_network: String,
     control_plane: Box<dyn validation::ControlPlane>,
     file_root: PathBuf,
-    log_handler: L,
+    log_handler: impl runtime::LogHandler,
     project_root: url::Url,
     source: url::Url,
-) -> Output
-where
-    L: Fn(&ops::Log) + Send + Sync + Clone + 'static,
-{
+) -> Output {
     let in_sources = load(&source, &file_root).await;
 
     let (sources, validations) = if in_sources.errors.is_empty() {
@@ -409,20 +403,14 @@ impl sources::Fetcher for Fetcher {
 
 /// Connectors is a general-purpose implementation of validation::Connectors
 /// that dispatches to its contained runtime::Runtime.
-pub struct Connectors<L>
-where
-    L: Fn(&ops::Log) + Send + Sync + Clone + 'static,
-{
+pub struct Connectors<L: runtime::LogHandler> {
     noop_captures: bool,
     noop_derivations: bool,
     noop_materializations: bool,
     runtime: runtime::Runtime<L>,
 }
 
-impl<L> validation::Connectors for Connectors<L>
-where
-    L: Fn(&ops::Log) + Send + Sync + Clone + 'static,
-{
+impl<L: runtime::LogHandler> validation::Connectors for Connectors<L> {
     fn validate_capture<'a>(
         &'a self,
         request: capture::Request,
@@ -435,8 +423,7 @@ where
                     .runtime
                     .clone()
                     .unary_capture(request, CONNECTOR_TIMEOUT)
-                    .await
-                    .map_err(status_to_anyhow)?)
+                    .await?)
             }
         }
         .boxed()
@@ -476,16 +463,11 @@ where
                     .runtime
                     .clone()
                     .unary_materialize(request, CONNECTOR_TIMEOUT)
-                    .await
-                    .map_err(status_to_anyhow)?)
+                    .await?)
             }
         }
         .boxed()
     }
-}
-
-fn status_to_anyhow(status: tonic::Status) -> anyhow::Error {
-    anyhow::anyhow!(status.message().to_string())
 }
 
 pub const FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
