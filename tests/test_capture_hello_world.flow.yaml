@@ -1,0 +1,34 @@
+---
+captures:
+  acmeCo/hello-world:
+    endpoint:
+      connector:
+        image: "ghcr.io/estuary/source-hello-world:dev"
+        config:
+          rate: 2
+    bindings:
+      - resource:
+          name: greetings
+          prefix: "Hello {}!"
+        target: acmeCo/events
+collections:
+  acmeCo/events:
+    schema:
+      $schema: "http://json-schema.org/draft/2020-12/schema"
+      properties:
+        ts:
+          type: string
+          format: date-time
+          title: Timestamp
+          description: The time at which this message was generated
+        message:
+          type: string
+          title: Message
+          description: A human-readable message
+      type: object
+      required:
+        - ts
+        - message
+      title: Example Output Record
+    key:
+      - /ts

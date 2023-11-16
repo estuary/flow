@@ -1,0 +1,52 @@
+[
+    [
+        [
+            "patterns/ints",
+            {
+                "Key": "key",
+                "Int": 5
+            }
+        ],
+        [
+            "patterns/ints",
+            {
+                "Key": "key",
+                "Int": 5
+            }
+        ],
+        [
+            "patterns/strings",
+            {
+                "Key": "key",
+                "String": "hello"
+            }
+        ]
+    ],
+    [
+        [
+            "patterns/ints",
+            {
+                "Key": "key",
+                "Int": 6
+            }
+        ]
+    ],
+    [
+        [
+            "patterns/ints",
+            {
+                "Key": "key",
+                "Int": 7
+            }
+        ]
+    ],
+    [
+        [
+            "patterns/strings",
+            {
+                "Key": "key",
+                "String": "world"
+            }
+        ]
+    ]
+]
