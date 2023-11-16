@@ -395,6 +395,7 @@ fn ex_capture_response() -> capture::Response {
             resource_config_schema_json: json!({"resource": "schema"}).to_string(),
             documentation_url: "https://example/docs".to_string(),
             oauth2: Some(ex_oauth2()),
+            resource_path_pointers: vec!["/stream".to_string()],
         }),
         discovered: Some(capture::response::Discovered {
             bindings: vec![capture::response::discovered::Binding {
