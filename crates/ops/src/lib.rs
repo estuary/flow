@@ -5,9 +5,9 @@ use std::io::Write;
 pub mod decode;
 pub mod tracing;
 
-pub use proto_flow::ops::log::Level as LogLevel;
-pub use proto_flow::ops::Log;
-pub use proto_flow::ops::TaskType;
+// Re-export many types from proto_flow::ops, so that users of this crate
+// don't also have to use that module.
+pub use proto_flow::ops::{log::Level as LogLevel, stats, Log, Meta, ShardRef, Stats, TaskType};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -22,7 +22,7 @@ pub struct Shard {
     r_clock_begin: HexU32,
 }
 
-impl From<Shard> for proto_flow::ops::ShardRef {
+impl From<Shard> for ShardRef {
     fn from(
         Shard {
             kind,
@@ -145,6 +145,16 @@ impl<S: Serialize> std::fmt::Debug for DebugJson<S> {
         .unwrap();
 
         f.write_str(&value)
+    }
+}
+
+// Merge non-zero counts from `from` into `to`.
+#[inline]
+pub fn merge_docs_and_bytes(from: &stats::DocsAndBytes, to: &mut Option<stats::DocsAndBytes>) {
+    if from.docs_total != 0 {
+        let entry = to.get_or_insert_with(Default::default);
+        entry.docs_total += from.docs_total;
+        entry.bytes_total += from.bytes_total;
     }
 }
 

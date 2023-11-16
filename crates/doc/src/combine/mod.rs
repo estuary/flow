@@ -191,6 +191,14 @@ impl Iterator for Drainer {
 }
 
 impl Drainer {
+    /// Drain the next document of this Drainer.
+    pub fn drain_next(&mut self) -> Result<Option<DrainedDoc>, Error> {
+        match self {
+            Self::Mem { drainer, .. } => drainer.drain_next(),
+            Self::Spill { drainer } => drainer.drain_next(),
+        }
+    }
+
     /// Map this Drainer into a new and empty Accumulator.
     /// Any un-drained documents are dropped.
     pub fn into_new_accumulator(self) -> Result<Accumulator, Error> {

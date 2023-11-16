@@ -217,6 +217,12 @@ impl MemTable {
         &self.zz_alloc
     }
 
+    /// Parse a JSON document string into a HeapNode using this MemTable's allocator.
+    pub fn parse_json_str<'s>(&'s self, doc_json: &str) -> serde_json::Result<HeapNode<'s>> {
+        let mut de = serde_json::Deserializer::from_str(doc_json);
+        HeapNode::from_serde(&mut de, self.alloc())
+    }
+
     /// Add the document to the MemTable.
     pub fn add<'s>(&'s self, binding: u32, root: HeapNode<'s>, front: bool) -> Result<(), Error> {
         // Safety: mutable borrow does not escape this function.

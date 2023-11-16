@@ -83,6 +83,7 @@ pub struct JournalRead {
     end_offset: i64,
     fetch_fragments: bool,
     block: bool,
+    begin_mod_time: i64,
 }
 
 impl JournalRead {
@@ -93,11 +94,17 @@ impl JournalRead {
             end_offset: 0,
             fetch_fragments: true,
             block: false,
+            begin_mod_time: 0,
         }
     }
 
     pub fn starting_at(mut self, start: ReadStart) -> Self {
         self.offset = start.to_broker_offset();
+        self
+    }
+
+    pub fn begin_mod_time(mut self, seconds: i64) -> Self {
+        self.begin_mod_time = seconds;
         self
     }
 
@@ -121,7 +128,7 @@ impl JournalRead {
             block: self.block,
             do_not_proxy: false,
             metadata_only: self.fetch_fragments && !needs_direct_read,
-            begin_mod_time: 0,
+            begin_mod_time: self.begin_mod_time,
         }
     }
 }
