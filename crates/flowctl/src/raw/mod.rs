@@ -6,7 +6,6 @@ use std::{
     path::PathBuf,
 };
 
-mod capture;
 mod discover;
 mod materialize_fixture;
 mod spec;
@@ -51,8 +50,6 @@ pub enum Command {
     MaterializeFixture(materialize_fixture::MaterializeFixture),
     /// Discover a connector and write catalog files
     Discover(discover::Discover),
-    /// Run a capture connector and combine its documents
-    Capture(capture::Capture),
     /// Get the spec output of a connector
     Spec(spec::Spec),
     /// Suggest a schema that would alleviate document schema violations of a specific collection
@@ -147,7 +144,6 @@ impl Advanced {
                 materialize_fixture::do_materialize_fixture(ctx, fixture).await
             }
             Command::Discover(args) => discover::do_discover(ctx, args).await,
-            Command::Capture(args) => capture::do_capture(ctx, args).await,
             Command::Spec(args) => spec::do_spec(ctx, args).await,
             Command::SuggestSchema(args) => suggest_schema::do_suggest_schema(ctx, args).await,
             Command::JsonSchema => {

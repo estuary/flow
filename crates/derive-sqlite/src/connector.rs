@@ -1,8 +1,7 @@
 use super::{dbutil, do_validate, parse_validate, Config, Lambda, Param, Transform};
 use anyhow::Context;
 use futures::channel::mpsc;
-use futures::TryStreamExt;
-use futures::{SinkExt, Stream};
+use futures::{SinkExt, StreamExt};
 use prost::Message;
 use proto_flow::runtime::{derive_request_ext, derive_response_ext, DeriveRequestExt};
 use proto_flow::{
@@ -10,12 +9,9 @@ use proto_flow::{
     flow, RuntimeCheckpoint,
 };
 
-pub fn connector<R>(
-    _peek_request: &Request,
-    request_rx: R,
-) -> anyhow::Result<impl Stream<Item = anyhow::Result<Response>>>
+pub fn connector<R>(request_rx: R) -> mpsc::Receiver<anyhow::Result<Response>>
 where
-    R: futures::stream::Stream<Item = anyhow::Result<Request>> + Send + 'static,
+    R: futures::stream::Stream<Item = Request> + Send + 'static,
 {
     let (mut response_tx, response_rx) = mpsc::channel(16);
 
@@ -27,7 +23,7 @@ where
         })
     });
 
-    Ok(response_rx)
+    response_rx
 }
 
 async fn serve<R>(
@@ -35,7 +31,7 @@ async fn serve<R>(
     response_tx: &mut mpsc::Sender<anyhow::Result<Response>>,
 ) -> anyhow::Result<()>
 where
-    R: futures::stream::Stream<Item = anyhow::Result<Request>>,
+    R: futures::stream::Stream<Item = Request>,
 {
     let mut request_rx = std::pin::pin!(request_rx);
     let tokio_handle = tokio::runtime::Handle::current();
@@ -47,7 +43,7 @@ where
     let mut maybe_handle: Option<Handle> = None;
 
     loop {
-        match request_rx.try_next().await? {
+        match request_rx.next().await {
             None => return Ok(()),
             Some(Request {
                 validate: Some(validate),
