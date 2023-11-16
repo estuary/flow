@@ -15,6 +15,7 @@ assemble = { path = "../assemble" }
 async-process = { path = "../async-process" }
 build = { path = "../build" }
 connector-init = { path = "../connector-init" }
+coroutines = { path = "../coroutines" }
 doc = { path = "../doc" }
 extractors = { path = "../extractors" }
 journal-client = { path = "../journal-client" }
