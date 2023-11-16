@@ -1,0 +1,126 @@
+[
+    [
+        [
+            "examples/citi-bike/rides",
+            {
+                "bike_id": 1000,
+                "begin": {
+                    "station": {
+                        "id": 3276,
+                        "name": "Marin Light Rail"
+                    },
+                    "timestamp": "2020-09-01T01:21:12.3090Z"
+                },
+                "end": {
+                    "station": {
+                        "id": 3639,
+                        "name": "Harborside"
+                    },
+                    "timestamp": "2020-09-01T02:48:12.3830Z"
+                }
+            }
+        ],
+        [
+            "examples/citi-bike/rides",
+            {
+                "bike_id": 2000,
+                "begin": {
+                    "station": {
+                        "id": 3276,
+                        "name": "Marin Light Rail"
+                    },
+                    "timestamp": "2020-09-01T03:21:12.3090Z"
+                },
+                "end": {
+                    "station": {
+                        "id": 3639,
+                        "name": "Harborside"
+                    },
+                    "timestamp": "2020-09-01T04:48:12.3830Z"
+                }
+            }
+        ],
+        [
+            "examples/citi-bike/rides",
+            {
+                "bike_id": 1000,
+                "begin": {
+                    "station": {
+                        "id": 3639,
+                        "name": "Harborside"
+                    },
+                    "timestamp": "2020-09-01T05:48:12.3830Z"
+                },
+                "end": {
+                    "station": {
+                        "id": 3202,
+                        "name": "Newport PATH"
+                    },
+                    "timestamp": "2020-09-01T06:33:35.1020Z"
+                }
+            }
+        ],
+        [
+            "examples/citi-bike/rides",
+            {
+                "bike_id": 2000,
+                "begin": {
+                    "station": {
+                        "id": 3202,
+                        "name": "Newport PATH"
+                    },
+                    "timestamp": "2020-09-01T07:33:35.1020Z"
+                },
+                "end": {
+                    "station": {
+                        "id": 3267,
+                        "name": "Morris Canal"
+                    },
+                    "timestamp": "2020-09-01T08:49:30.1610Z"
+                }
+            }
+        ]
+    ],
+    [
+        [
+            "examples/citi-bike/rides",
+            {
+                "bike_id": 1000,
+                "begin": {
+                    "station": {
+                        "id": 3202,
+                        "name": "Newport PATH"
+                    },
+                    "timestamp": "2020-09-01T09:33:35.1020Z"
+                },
+                "end": {
+                    "station": {
+                        "id": 3267,
+                        "name": "Morris Canal"
+                    },
+                    "timestamp": "2020-09-01T10:49:30.1610Z"
+                }
+            }
+        ],
+        [
+            "examples/citi-bike/rides",
+            {
+                "bike_id": 2000,
+                "begin": {
+                    "station": {
+                        "id": 3639,
+                        "name": "Harborside"
+                    },
+                    "timestamp": "2020-09-01T11:48:12.3830Z"
+                },
+                "end": {
+                    "station": {
+                        "id": 3202,
+                        "name": "Newport PATH"
+                    },
+                    "timestamp": "2020-09-01T12:33:35.1020Z"
+                }
+            }
+        ]
+    ]
+]

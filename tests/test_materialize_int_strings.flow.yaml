@@ -1,0 +1,16 @@
+import:
+  - ../examples/derive-patterns/inputs.flow.yaml
+
+materializations:
+  acmeCo/materialization:
+    endpoint:
+      connector:
+        image: ghcr.io/estuary/materialize-sqlite:dev
+        config: {}
+    bindings:
+      - source: patterns/ints
+        resource:
+          table: some_ints
+      - source: patterns/strings
+        resource:
+          table: some_strings

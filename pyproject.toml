@@ -1,0 +1,14 @@
+[tool.poetry]
+name = "estuary-flow"
+version = "0.1.0"
+description = ""
+authors = ["Johnny Graettinger <johnny@estuary.dev>"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pytest = "^7.4.3"
+pytest-insta = "^0.2.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

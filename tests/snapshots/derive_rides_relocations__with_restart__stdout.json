@@ -1,0 +1,158 @@
+[
+  {
+    "_meta": {
+      "uuid": "13814000-1dd2-11b2-8000-071353030311"
+    },
+    "begin": {
+      "station": {
+        "id": 3276,
+        "name": "Marin Light Rail"
+      },
+      "timestamp": "2020-09-01T01:21:12.3090Z"
+    },
+    "bike_id": 1000,
+    "end": {
+      "station": {
+        "id": 3639,
+        "name": "Harborside"
+      },
+      "timestamp": "2020-09-01T02:48:12.3830Z"
+    }
+  },
+  {
+    "_meta": {
+      "uuid": "14b26d00-1dd2-11b2-8000-071353030311"
+    },
+    "begin": {
+      "station": {
+        "id": 3639,
+        "name": "Harborside"
+      },
+      "timestamp": "2020-09-01T05:48:12.3830Z"
+    },
+    "bike_id": 1000,
+    "end": {
+      "station": {
+        "id": 3202,
+        "name": "Newport PATH"
+      },
+      "timestamp": "2020-09-01T06:33:35.1020Z"
+    }
+  },
+  {
+    "_meta": {
+      "uuid": "1419d680-1dd2-11b2-8000-071353030311"
+    },
+    "begin": {
+      "station": {
+        "id": 3276,
+        "name": "Marin Light Rail"
+      },
+      "timestamp": "2020-09-01T03:21:12.3090Z"
+    },
+    "bike_id": 2000,
+    "end": {
+      "station": {
+        "id": 3639,
+        "name": "Harborside"
+      },
+      "timestamp": "2020-09-01T04:48:12.3830Z"
+    }
+  },
+  {
+    "begin": {
+      "station": {
+        "id": 3639,
+        "name": "Harborside"
+      },
+      "timestamp": "2020-09-01T04:48:12.3830Z"
+    },
+    "bike_id": 2000,
+    "end": {
+      "station": {
+        "id": 3202,
+        "name": "Newport PATH"
+      },
+      "timestamp": "2020-09-01T07:33:35.1020Z"
+    },
+    "relocation": true
+  },
+  {
+    "_meta": {
+      "uuid": "154b0380-1dd2-11b2-8000-071353030311"
+    },
+    "begin": {
+      "station": {
+        "id": 3202,
+        "name": "Newport PATH"
+      },
+      "timestamp": "2020-09-01T07:33:35.1020Z"
+    },
+    "bike_id": 2000,
+    "end": {
+      "station": {
+        "id": 3267,
+        "name": "Morris Canal"
+      },
+      "timestamp": "2020-09-01T08:49:30.1610Z"
+    }
+  },
+  {
+    "_meta": {
+      "uuid": "7545a800-1dda-11b2-8000-071353030311"
+    },
+    "begin": {
+      "station": {
+        "id": 3202,
+        "name": "Newport PATH"
+      },
+      "timestamp": "2020-09-01T09:33:35.1020Z"
+    },
+    "bike_id": 1000,
+    "end": {
+      "station": {
+        "id": 3267,
+        "name": "Morris Canal"
+      },
+      "timestamp": "2020-09-01T10:49:30.1610Z"
+    }
+  },
+  {
+    "begin": {
+      "station": {
+        "id": 3267,
+        "name": "Morris Canal"
+      },
+      "timestamp": "2020-09-01T08:49:30.1610Z"
+    },
+    "bike_id": 2000,
+    "end": {
+      "station": {
+        "id": 3639,
+        "name": "Harborside"
+      },
+      "timestamp": "2020-09-01T11:48:12.3830Z"
+    },
+    "relocation": true
+  },
+  {
+    "_meta": {
+      "uuid": "75de3e80-1dda-11b2-8000-071353030311"
+    },
+    "begin": {
+      "station": {
+        "id": 3639,
+        "name": "Harborside"
+      },
+      "timestamp": "2020-09-01T11:48:12.3830Z"
+    },
+    "bike_id": 2000,
+    "end": {
+      "station": {
+        "id": 3202,
+        "name": "Newport PATH"
+      },
+      "timestamp": "2020-09-01T12:33:35.1020Z"
+    }
+  }
+]
