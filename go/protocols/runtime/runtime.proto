@@ -140,10 +140,48 @@ message Container {
 
 message CaptureRequestExt {
   ops.ShardLabeling labels = 1;
+
+  message Open {
+    // RocksDB descriptor which should be opened.
+    RocksDBDescriptor rocksdb_descriptor = 1;
+  }
+  Open open = 2;
+
+  message StartCommit {
+    // Flow runtime checkpoint associated with this transaction.
+    consumer.Checkpoint runtime_checkpoint = 1;
+  }
+  StartCommit start_commit = 3;
 }
 
 message CaptureResponseExt {
   Container container = 1;
+
+  message Captured {
+      // Packed key extracted from the captured document.
+      bytes key_packed = 1;
+      // Packed partition values extracted from the captured document.
+      bytes partitions_packed = 2;
+  }
+  Captured captured = 2;
+
+  enum PollResult {
+    INVALID = 0;
+    // The poll succeeded and a transaction will be drained.
+    READY = 1;
+    // The connector is running but has produced no data.
+    NOT_READY = 2;
+    // The connector has exited, but cannot be restarted yet.
+    COOL_OFF = 3;
+    // The connector has exited and new session should be started.
+    RESTART = 4;
+  }
+
+  message Checkpoint {
+    ops.Stats stats = 1;
+    PollResult poll_result = 2;
+  }
+  Checkpoint checkpoint = 4;
 }
 
 message DeriveRequestExt {
@@ -184,8 +222,19 @@ message DeriveResponseExt {
 
 message MaterializeRequestExt {
   ops.ShardLabeling labels = 1;
+
+  message Open {
+    // RocksDB descriptor which should be opened.
+    RocksDBDescriptor rocksdb_descriptor = 1;
+  }
+  Open open = 2;
 }
 
 message MaterializeResponseExt {
   Container container = 1;
+
+  message Flushed {
+    ops.Stats stats = 1;
+  }
+  Flushed flushed = 2;
 }

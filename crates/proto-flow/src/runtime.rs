@@ -152,12 +152,109 @@ pub struct Container {
 pub struct CaptureRequestExt {
     #[prost(message, optional, tag = "1")]
     pub labels: ::core::option::Option<super::ops::ShardLabeling>,
+    #[prost(message, optional, tag = "2")]
+    pub open: ::core::option::Option<capture_request_ext::Open>,
+    #[prost(message, optional, tag = "3")]
+    pub start_commit: ::core::option::Option<capture_request_ext::StartCommit>,
+}
+/// Nested message and enum types in `CaptureRequestExt`.
+pub mod capture_request_ext {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Open {
+        /// RocksDB descriptor which should be opened.
+        #[prost(message, optional, tag = "1")]
+        pub rocksdb_descriptor: ::core::option::Option<super::RocksDbDescriptor>,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct StartCommit {
+        /// Flow runtime checkpoint associated with this transaction.
+        #[prost(message, optional, tag = "1")]
+        pub runtime_checkpoint: ::core::option::Option<
+            ::proto_gazette::consumer::Checkpoint,
+        >,
+    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CaptureResponseExt {
     #[prost(message, optional, tag = "1")]
     pub container: ::core::option::Option<Container>,
+    #[prost(message, optional, tag = "2")]
+    pub captured: ::core::option::Option<capture_response_ext::Captured>,
+    #[prost(message, optional, tag = "4")]
+    pub checkpoint: ::core::option::Option<capture_response_ext::Checkpoint>,
+}
+/// Nested message and enum types in `CaptureResponseExt`.
+pub mod capture_response_ext {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Captured {
+        /// Packed key extracted from the captured document.
+        #[prost(bytes = "bytes", tag = "1")]
+        pub key_packed: ::prost::bytes::Bytes,
+        /// Packed partition values extracted from the captured document.
+        #[prost(bytes = "bytes", tag = "2")]
+        pub partitions_packed: ::prost::bytes::Bytes,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Checkpoint {
+        #[prost(message, optional, tag = "1")]
+        pub stats: ::core::option::Option<super::super::ops::Stats>,
+        #[prost(enumeration = "PollResult", tag = "2")]
+        pub poll_result: i32,
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum PollResult {
+        Invalid = 0,
+        /// The poll succeeded and a transaction will be drained.
+        Ready = 1,
+        /// The connector is running but has produced no data.
+        NotReady = 2,
+        /// The connector has exited, but cannot be restarted yet.
+        CoolOff = 3,
+        /// The connector has exited and new session should be started.
+        Restart = 4,
+    }
+    impl PollResult {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                PollResult::Invalid => "INVALID",
+                PollResult::Ready => "READY",
+                PollResult::NotReady => "NOT_READY",
+                PollResult::CoolOff => "COOL_OFF",
+                PollResult::Restart => "RESTART",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "INVALID" => Some(Self::Invalid),
+                "READY" => Some(Self::Ready),
+                "NOT_READY" => Some(Self::NotReady),
+                "COOL_OFF" => Some(Self::CoolOff),
+                "RESTART" => Some(Self::Restart),
+                _ => None,
+            }
+        }
+    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -227,10 +324,33 @@ pub mod derive_response_ext {
 pub struct MaterializeRequestExt {
     #[prost(message, optional, tag = "1")]
     pub labels: ::core::option::Option<super::ops::ShardLabeling>,
+    #[prost(message, optional, tag = "2")]
+    pub open: ::core::option::Option<materialize_request_ext::Open>,
+}
+/// Nested message and enum types in `MaterializeRequestExt`.
+pub mod materialize_request_ext {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Open {
+        /// RocksDB descriptor which should be opened.
+        #[prost(message, optional, tag = "1")]
+        pub rocksdb_descriptor: ::core::option::Option<super::RocksDbDescriptor>,
+    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MaterializeResponseExt {
     #[prost(message, optional, tag = "1")]
     pub container: ::core::option::Option<Container>,
+    #[prost(message, optional, tag = "2")]
+    pub flushed: ::core::option::Option<materialize_response_ext::Flushed>,
+}
+/// Nested message and enum types in `MaterializeResponseExt`.
+pub mod materialize_response_ext {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Flushed {
+        #[prost(message, optional, tag = "1")]
+        pub stats: ::core::option::Option<super::super::ops::Stats>,
+    }
 }
