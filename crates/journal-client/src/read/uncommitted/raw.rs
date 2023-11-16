@@ -12,7 +12,7 @@ use tonic::codec::Streaming;
 pub async fn start_read(client: &mut Client, req: broker::ReadRequest) -> Result<Reader, Error> {
     let offset = req.offset;
     let journal = req.journal.clone();
-    tracing::debug!(%journal, %offset, "starting new read of journal");
+    tracing::debug!(?req, "starting new read of journal");
     let response = client.read(req).await?;
     // TODO: see if there's anything in the response we should check or log before proceeding to read
     Ok(Reader::new(journal, offset, response.into_inner()))

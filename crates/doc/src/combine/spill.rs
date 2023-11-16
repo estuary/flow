@@ -325,7 +325,7 @@ pub struct SpillDrainer<F: io::Read + io::Seek> {
 unsafe impl<F: io::Read + io::Seek> Send for SpillDrainer<F> {}
 
 impl<F: io::Read + io::Seek> SpillDrainer<F> {
-    fn drain_next(&mut self) -> Result<Option<DrainedDoc>, Error> {
+    pub fn drain_next(&mut self) -> Result<Option<DrainedDoc>, Error> {
         let Some(cmp::Reverse(segment)) = self.heap.pop() else {
             return Ok(None);
         };
