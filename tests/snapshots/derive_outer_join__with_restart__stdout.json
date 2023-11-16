@@ -1,0 +1,27 @@
+[
+  {
+    "Key": "key",
+    "LHS": 5
+  },
+  {
+    "Key": "key",
+    "LHS": 5,
+    "RHS": [
+      "hello"
+    ]
+  },
+  {
+    "Key": "key",
+    "LHS": 6
+  },
+  {
+    "Key": "key",
+    "LHS": 7
+  },
+  {
+    "Key": "key",
+    "RHS": [
+      "world"
+    ]
+  }
+]

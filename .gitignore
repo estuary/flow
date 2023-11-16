@@ -12,3 +12,9 @@ Session.vim
 # Supabase
 **/supabase/.branches
 **/supabase/.temp
+
+# Python type-checkingr, virtual environment, and cached bytecode.
+/.mypy_cache
+.venv/
+__pycache__
+.pytest_cache
