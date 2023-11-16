@@ -1,0 +1,4803 @@
+[
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26283",
+      "Birth Year": "1991",
+      "End Station ID": "3207",
+      "End Station Latitude": "40.7376037",
+      "End Station Longitude": "-74.0524783",
+      "End Station Name": "Oakland Ave",
+      "Gender": "1",
+      "Start Station ID": "3275",
+      "Start Station Latitude": "40.71835519823214",
+      "Start Station Longitude": "-74.03891444206238",
+      "Start Station Name": "Columbus Drive",
+      "Start Time": "2017-03-01T00:03:02Z",
+      "Stop Time": "2017-03-01T00:20:58Z",
+      "Trip Duration": "1076",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 0
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24559",
+      "Birth Year": "1987",
+      "End Station ID": "3195",
+      "End Station Latitude": "40.73074262530658",
+      "End Station Longitude": "-74.06378388404846",
+      "End Station Name": "Sip Ave",
+      "Gender": "1",
+      "Start Station ID": "3220",
+      "Start Station Latitude": "40.734961020009514",
+      "Start Station Longitude": "-74.0595030784607",
+      "Start Station Name": "5 Corners Library",
+      "Start Time": "2017-03-01T00:09:02Z",
+      "Stop Time": "2017-03-01T00:25:20Z",
+      "Trip Duration": "978",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 1
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24559",
+      "Birth Year": "1987",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3195",
+      "Start Station Latitude": "40.73074262530658",
+      "Start Station Longitude": "-74.06378388404846",
+      "Start Station Name": "Sip Ave",
+      "Start Time": "2017-03-01T00:28:11Z",
+      "Stop Time": "2017-03-01T00:58:00Z",
+      "Trip Duration": "1789",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 2
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26261",
+      "Birth Year": "1962",
+      "End Station ID": "3189",
+      "End Station Latitude": "40.714402",
+      "End Station Longitude": "-74.0887723",
+      "End Station Name": "West Side Light Rail",
+      "Gender": "1",
+      "Start Station ID": "3194",
+      "Start Station Latitude": "40.7253399253558",
+      "Start Station Longitude": "-74.06762212514877",
+      "Start Station Name": "McGinley Square",
+      "Start Time": "2017-03-01T00:52:30Z",
+      "Stop Time": "2017-03-01T01:02:44Z",
+      "Trip Duration": "613",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 3
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26277",
+      "Birth Year": "1975",
+      "End Station ID": "3199",
+      "End Station Latitude": "40.7287448",
+      "End Station Longitude": "-74.0321082",
+      "End Station Name": "Newport Pkwy",
+      "Gender": "1",
+      "Start Station ID": "3199",
+      "Start Station Latitude": "40.7287448",
+      "Start Station Longitude": "-74.0321082",
+      "Start Station Name": "Newport Pkwy",
+      "Start Time": "2017-03-01T00:54:40Z",
+      "Stop Time": "2017-03-01T01:34:59Z",
+      "Trip Duration": "2418",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 4
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24559",
+      "Birth Year": "1987",
+      "End Station ID": "3220",
+      "End Station Latitude": "40.734961020009514",
+      "End Station Longitude": "-74.0595030784607",
+      "End Station Name": "5 Corners Library",
+      "Gender": "1",
+      "Start Station ID": "3186",
+      "Start Station Latitude": "40.71958611647166",
+      "Start Station Longitude": "-74.04311746358871",
+      "Start Station Name": "Grove St PATH",
+      "Start Time": "2017-03-01T01:02:28Z",
+      "Stop Time": "2017-03-01T01:21:29Z",
+      "Trip Duration": "1141",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 5
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26267",
+      "Birth Year": "1988",
+      "End Station ID": "3190",
+      "End Station Latitude": "40.7104670233797",
+      "End Station Longitude": "-74.07003879547119",
+      "End Station Name": "Garfield Ave Station",
+      "Gender": "1",
+      "Start Station ID": "3213",
+      "Start Station Latitude": "40.71848892",
+      "Start Station Longitude": "-74.047726625",
+      "Start Station Name": "Van Vorst Park",
+      "Start Time": "2017-03-01T03:08:07Z",
+      "Stop Time": "2017-03-01T03:21:33Z",
+      "Trip Duration": "805",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 6
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24486",
+      "Birth Year": "1972",
+      "End Station ID": "3278",
+      "End Station Latitude": "40.72568548362901",
+      "End Station Longitude": "-74.04879033565521",
+      "End Station Name": "Monmouth and 6th",
+      "Gender": "1",
+      "Start Station ID": "3272",
+      "Start Station Latitude": "40.72333158646436",
+      "Start Station Longitude": "-74.04595255851744",
+      "Start Station Name": "Jersey & 3rd",
+      "Start Time": "2017-03-01T03:35:44Z",
+      "Stop Time": "2017-03-01T03:37:39Z",
+      "Trip Duration": "114",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 7
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24471",
+      "Birth Year": "1982",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3209",
+      "Start Station Latitude": "40.7241765",
+      "Start Station Longitude": "-74.0506564",
+      "Start Station Name": "Brunswick St",
+      "Start Time": "2017-03-01T03:38:03Z",
+      "Stop Time": "2017-03-01T03:40:47Z",
+      "Trip Duration": "164",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 8
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24471",
+      "Birth Year": "1983",
+      "End Station ID": "3213",
+      "End Station Latitude": "40.71848892",
+      "End Station Longitude": "-74.047726625",
+      "End Station Name": "Van Vorst Park",
+      "Gender": "1",
+      "Start Station ID": "3186",
+      "Start Station Latitude": "40.71958611647166",
+      "Start Station Longitude": "-74.04311746358871",
+      "Start Station Name": "Grove St PATH",
+      "Start Time": "2017-03-01T04:43:05Z",
+      "Stop Time": "2017-03-01T04:46:07Z",
+      "Trip Duration": "181",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 9
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24453",
+      "Birth Year": "1982",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3279",
+      "Start Station Latitude": "40.721630142638354",
+      "Start Station Longitude": "-74.04996782541275",
+      "Start Station Name": "Dixon Mills",
+      "Start Time": "2017-03-01T04:43:55Z",
+      "Stop Time": "2017-03-01T04:46:28Z",
+      "Trip Duration": "152",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 10
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26160",
+      "Birth Year": "1978",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3203",
+      "Start Station Latitude": "40.727595966",
+      "Start Station Longitude": "-74.044247311",
+      "Start Station Name": "Hamilton Park",
+      "Start Time": "2017-03-01T04:44:54Z",
+      "Stop Time": "2017-03-01T04:48:21Z",
+      "Trip Duration": "206",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 11
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24607",
+      "Birth Year": "1976",
+      "End Station ID": "3272",
+      "End Station Latitude": "40.72333158646436",
+      "End Station Longitude": "-74.04595255851744",
+      "End Station Name": "Jersey & 3rd",
+      "Gender": "1",
+      "Start Station ID": "3199",
+      "Start Station Latitude": "40.7287448",
+      "Start Station Longitude": "-74.0321082",
+      "Start Station Name": "Newport Pkwy",
+      "Start Time": "2017-03-01T05:12:55Z",
+      "Stop Time": "2017-03-01T05:20:48Z",
+      "Trip Duration": "473",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24672",
+      "Birth Year": "1985",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3269",
+      "Start Station Latitude": "40.72601172964625",
+      "Start Station Longitude": "-74.05038893222809",
+      "Start Station Name": "Brunswick & 6th",
+      "Start Time": "2017-03-01T05:16:16Z",
+      "Stop Time": "2017-03-01T05:20:12Z",
+      "Trip Duration": "235",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 13
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26188",
+      "Birth Year": "1980",
+      "End Station ID": "3183",
+      "End Station Latitude": "40.7162469",
+      "End Station Longitude": "-74.0334588",
+      "End Station Name": "Exchange Place",
+      "Gender": "1",
+      "Start Station ID": "3267",
+      "Start Station Latitude": "40.7124188237569",
+      "Start Station Longitude": "-74.03852552175522",
+      "Start Station Name": "Morris Canal",
+      "Start Time": "2017-03-01T05:20:01Z",
+      "Stop Time": "2017-03-01T05:22:46Z",
+      "Trip Duration": "164",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 14
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24584",
+      "Birth Year": "1984",
+      "End Station ID": "3185",
+      "End Station Latitude": "40.7177325",
+      "End Station Longitude": "-74.043845",
+      "End Station Name": "City Hall",
+      "Gender": "2",
+      "Start Station ID": "3207",
+      "Start Station Latitude": "40.7376037",
+      "Start Station Longitude": "-74.0524783",
+      "Start Station Name": "Oakland Ave",
+      "Start Time": "2017-03-01T05:27:26Z",
+      "Stop Time": "2017-03-01T05:43:36Z",
+      "Trip Duration": "970",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 15
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26314",
+      "Birth Year": "1990",
+      "End Station ID": "3195",
+      "End Station Latitude": "40.73074262530658",
+      "End Station Longitude": "-74.06378388404846",
+      "End Station Name": "Sip Ave",
+      "Gender": "1",
+      "Start Station ID": "3197",
+      "Start Station Latitude": "40.752559",
+      "Start Station Longitude": "-74.044725",
+      "Start Station Name": "North St",
+      "Start Time": "2017-03-01T05:35:02Z",
+      "Stop Time": "2017-03-01T05:47:53Z",
+      "Trip Duration": "771",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 16
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26207",
+      "Birth Year": "1989",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3278",
+      "Start Station Latitude": "40.72568548362901",
+      "Start Station Longitude": "-74.04879033565521",
+      "Start Station Name": "Monmouth and 6th",
+      "Start Time": "2017-03-01T05:42:30Z",
+      "Stop Time": "2017-03-01T05:48:26Z",
+      "Trip Duration": "356",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 17
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26230",
+      "Birth Year": "1961",
+      "End Station ID": "152",
+      "End Station Latitude": "40.71473993",
+      "End Station Longitude": "-74.00910627",
+      "End Station Name": "Warren St & Church St",
+      "Gender": "1",
+      "Start Station ID": "3267",
+      "Start Station Latitude": "40.7124188237569",
+      "Start Station Longitude": "-74.03852552175522",
+      "Start Station Name": "Morris Canal",
+      "Start Time": "2017-03-01T05:53:08Z",
+      "Stop Time": "2017-03-01T06:10:32Z",
+      "Trip Duration": "1043",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 18
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26219",
+      "Birth Year": "1983",
+      "End Station ID": "3184",
+      "End Station Latitude": "40.7141454",
+      "End Station Longitude": "-74.0335519",
+      "End Station Name": "Paulus Hook",
+      "Gender": "1",
+      "Start Station ID": "3267",
+      "Start Station Latitude": "40.7124188237569",
+      "Start Station Longitude": "-74.03852552175522",
+      "Start Station Name": "Morris Canal",
+      "Start Time": "2017-03-01T05:54:02Z",
+      "Stop Time": "2017-03-01T05:56:21Z",
+      "Trip Duration": "138",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 19
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24625",
+      "Birth Year": "1980",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3190",
+      "Start Station Latitude": "40.7104670233797",
+      "Start Station Longitude": "-74.07003879547119",
+      "Start Station Name": "Garfield Ave Station",
+      "Start Time": "2017-03-01T05:56:55Z",
+      "Stop Time": "2017-03-01T06:09:09Z",
+      "Trip Duration": "733",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 20
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24631",
+      "Birth Year": "1974",
+      "End Station ID": "3183",
+      "End Station Latitude": "40.7162469",
+      "End Station Longitude": "-74.0334588",
+      "End Station Name": "Exchange Place",
+      "Gender": "1",
+      "Start Station ID": "3267",
+      "Start Station Latitude": "40.7124188237569",
+      "Start Station Longitude": "-74.03852552175522",
+      "Start Station Name": "Morris Canal",
+      "Start Time": "2017-03-01T06:02:49Z",
+      "Stop Time": "2017-03-01T06:06:23Z",
+      "Trip Duration": "213",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 21
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24697",
+      "Birth Year": "1957",
+      "End Station ID": "3183",
+      "End Station Latitude": "40.7162469",
+      "End Station Longitude": "-74.0334588",
+      "End Station Name": "Exchange Place",
+      "Gender": "1",
+      "Start Station ID": "3214",
+      "Start Station Latitude": "40.7127742",
+      "Start Station Longitude": "-74.0364857",
+      "Start Station Name": "Essex Light Rail",
+      "Start Time": "2017-03-01T06:03:21Z",
+      "Stop Time": "2017-03-01T06:06:55Z",
+      "Trip Duration": "214",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 22
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24624",
+      "Birth Year": "1989",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "2",
+      "Start Station ID": "3269",
+      "Start Station Latitude": "40.72601172964625",
+      "Start Station Longitude": "-74.05038893222809",
+      "Start Station Name": "Brunswick & 6th",
+      "Start Time": "2017-03-01T06:04:46Z",
+      "Stop Time": "2017-03-01T06:09:19Z",
+      "Trip Duration": "272",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 23
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26253",
+      "Birth Year": "1973",
+      "End Station ID": "3183",
+      "End Station Latitude": "40.7162469",
+      "End Station Longitude": "-74.0334588",
+      "End Station Name": "Exchange Place",
+      "Gender": "1",
+      "Start Station ID": "3267",
+      "Start Station Latitude": "40.7124188237569",
+      "Start Station Longitude": "-74.03852552175522",
+      "Start Station Name": "Morris Canal",
+      "Start Time": "2017-03-01T06:09:41Z",
+      "Stop Time": "2017-03-01T06:12:40Z",
+      "Trip Duration": "178",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 24
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26165",
+      "Birth Year": "1982",
+      "End Station ID": "3183",
+      "End Station Latitude": "40.7162469",
+      "End Station Longitude": "-74.0334588",
+      "End Station Name": "Exchange Place",
+      "Gender": "1",
+      "Start Station ID": "3214",
+      "Start Station Latitude": "40.7127742",
+      "Start Station Longitude": "-74.0364857",
+      "Start Station Name": "Essex Light Rail",
+      "Start Time": "2017-03-01T06:10:04Z",
+      "Stop Time": "2017-03-01T06:12:32Z",
+      "Trip Duration": "148",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 25
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24504",
+      "Birth Year": "1983",
+      "End Station ID": "3275",
+      "End Station Latitude": "40.71835519823214",
+      "End Station Longitude": "-74.03891444206238",
+      "End Station Name": "Columbus Drive",
+      "Gender": "2",
+      "Start Station ID": "3214",
+      "Start Station Latitude": "40.7127742",
+      "Start Station Longitude": "-74.0364857",
+      "Start Station Name": "Essex Light Rail",
+      "Start Time": "2017-03-01T06:10:46Z",
+      "Stop Time": "2017-03-01T06:14:25Z",
+      "Trip Duration": "218",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 26
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26205",
+      "Birth Year": "1985",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3276",
+      "Start Station Latitude": "40.71458403535893",
+      "Start Station Longitude": "-74.04281705617905",
+      "Start Station Name": "Marin Light Rail",
+      "Start Time": "2017-03-01T06:11:59Z",
+      "Stop Time": "2017-03-01T06:14:37Z",
+      "Trip Duration": "157",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 27
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26196",
+      "Birth Year": "1958",
+      "End Station ID": "3195",
+      "End Station Latitude": "40.73074262530658",
+      "End Station Longitude": "-74.06378388404846",
+      "End Station Name": "Sip Ave",
+      "Gender": "1",
+      "Start Station ID": "3207",
+      "Start Station Latitude": "40.7376037",
+      "Start Station Longitude": "-74.0524783",
+      "Start Station Name": "Oakland Ave",
+      "Start Time": "2017-03-01T06:12:46Z",
+      "Stop Time": "2017-03-01T06:18:05Z",
+      "Trip Duration": "318",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 28
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24433",
+      "Birth Year": "1989",
+      "End Station ID": "3212",
+      "End Station Latitude": "40.734785818",
+      "End Station Longitude": "-74.050443636",
+      "End Station Name": "Christ Hospital",
+      "Gender": "1",
+      "Start Station ID": "3198",
+      "Start Station Latitude": "40.748715945380226",
+      "Start Station Longitude": "-74.04044330120087",
+      "Start Station Name": "Heights Elevator",
+      "Start Time": "2017-03-01T06:12:59Z",
+      "Stop Time": "2017-03-01T06:18:13Z",
+      "Trip Duration": "313",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 29
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24607",
+      "Birth Year": "1976",
+      "End Station ID": "3202",
+      "End Station Latitude": "40.7272235",
+      "End Station Longitude": "-74.0337589",
+      "End Station Name": "Newport PATH",
+      "Gender": "1",
+      "Start Station ID": "3272",
+      "Start Station Latitude": "40.72333158646436",
+      "Start Station Longitude": "-74.04595255851744",
+      "Start Station Name": "Jersey & 3rd",
+      "Start Time": "2017-03-01T06:17:43Z",
+      "Stop Time": "2017-03-01T06:24:40Z",
+      "Trip Duration": "416",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 30
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26226",
+      "Birth Year": "1986",
+      "End Station ID": "3195",
+      "End Station Latitude": "40.73074262530658",
+      "End Station Longitude": "-74.06378388404846",
+      "End Station Name": "Sip Ave",
+      "Gender": "1",
+      "Start Station ID": "3280",
+      "Start Station Latitude": "40.71928220070702",
+      "Start Station Longitude": "-74.07126188278198",
+      "Start Station Name": "Astor Place",
+      "Start Time": "2017-03-01T06:21:24Z",
+      "Stop Time": "2017-03-01T06:30:29Z",
+      "Trip Duration": "544",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 31
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26168",
+      "Birth Year": "1986",
+      "End Station ID": "3195",
+      "End Station Latitude": "40.73074262530658",
+      "End Station Longitude": "-74.06378388404846",
+      "End Station Name": "Sip Ave",
+      "Gender": "2",
+      "Start Station ID": "3280",
+      "Start Station Latitude": "40.71928220070702",
+      "Start Station Longitude": "-74.07126188278198",
+      "Start Station Name": "Astor Place",
+      "Start Time": "2017-03-01T06:21:24Z",
+      "Stop Time": "2017-03-01T06:30:28Z",
+      "Trip Duration": "544",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 32
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26233",
+      "Birth Year": "1991",
+      "End Station ID": "3183",
+      "End Station Latitude": "40.7162469",
+      "End Station Longitude": "-74.0334588",
+      "End Station Name": "Exchange Place",
+      "Gender": "1",
+      "Start Station ID": "3267",
+      "Start Station Latitude": "40.7124188237569",
+      "Start Station Longitude": "-74.03852552175522",
+      "Start Station Name": "Morris Canal",
+      "Start Time": "2017-03-01T06:23:13Z",
+      "Stop Time": "2017-03-01T06:26:26Z",
+      "Trip Duration": "193",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 33
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24444",
+      "Birth Year": "1980",
+      "End Station ID": "3195",
+      "End Station Latitude": "40.73074262530658",
+      "End Station Longitude": "-74.06378388404846",
+      "End Station Name": "Sip Ave",
+      "Gender": "1",
+      "Start Station ID": "3281",
+      "Start Station Latitude": "40.74590996631558",
+      "Start Station Longitude": "-74.0572714805603",
+      "Start Station Name": "Leonard Gordon Park",
+      "Start Time": "2017-03-01T06:24:55Z",
+      "Stop Time": "2017-03-01T06:31:31Z",
+      "Trip Duration": "395",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 34
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26307",
+      "Birth Year": "1983",
+      "End Station ID": "3183",
+      "End Station Latitude": "40.7162469",
+      "End Station Longitude": "-74.0334588",
+      "End Station Name": "Exchange Place",
+      "Gender": "1",
+      "Start Station ID": "3267",
+      "Start Station Latitude": "40.7124188237569",
+      "Start Station Longitude": "-74.03852552175522",
+      "Start Station Name": "Morris Canal",
+      "Start Time": "2017-03-01T06:30:08Z",
+      "Stop Time": "2017-03-01T06:32:59Z",
+      "Trip Duration": "170",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 35
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24664",
+      "Birth Year": "1989",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3279",
+      "Start Station Latitude": "40.721630142638354",
+      "Start Station Longitude": "-74.04996782541275",
+      "Start Station Name": "Dixon Mills",
+      "Start Time": "2017-03-01T06:35:59Z",
+      "Stop Time": "2017-03-01T06:38:56Z",
+      "Trip Duration": "176",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 36
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24403",
+      "Birth Year": "1970",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3279",
+      "Start Station Latitude": "40.721630142638354",
+      "Start Station Longitude": "-74.04996782541275",
+      "Start Station Name": "Dixon Mills",
+      "Start Time": "2017-03-01T06:36:17Z",
+      "Stop Time": "2017-03-01T06:38:21Z",
+      "Trip Duration": "123",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 37
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26246",
+      "Birth Year": "1972",
+      "End Station ID": "3202",
+      "End Station Latitude": "40.7272235",
+      "End Station Longitude": "-74.0337589",
+      "End Station Name": "Newport PATH",
+      "Gender": "1",
+      "Start Station ID": "3210",
+      "Start Station Latitude": "40.742677141",
+      "Start Station Longitude": "-74.051788633",
+      "Start Station Name": "Pershing Field",
+      "Start Time": "2017-03-01T06:39:39Z",
+      "Stop Time": "2017-03-01T06:49:38Z",
+      "Trip Duration": "599",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 38
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26277",
+      "Birth Year": "1979",
+      "End Station ID": "3202",
+      "End Station Latitude": "40.7272235",
+      "End Station Longitude": "-74.0337589",
+      "End Station Name": "Newport PATH",
+      "Gender": "1",
+      "Start Station ID": "3199",
+      "Start Station Latitude": "40.7287448",
+      "Start Station Longitude": "-74.0321082",
+      "Start Station Name": "Newport Pkwy",
+      "Start Time": "2017-03-01T06:43:44Z",
+      "Stop Time": "2017-03-01T06:45:14Z",
+      "Trip Duration": "89",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 39
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26312",
+      "Birth Year": null,
+      "End Station ID": "3273",
+      "End Station Latitude": "40.721650724879986",
+      "End Station Longitude": "-74.04288411140442",
+      "End Station Name": "Manila & 1st",
+      "Gender": "0",
+      "Start Station ID": "3199",
+      "Start Station Latitude": "40.7287448",
+      "Start Station Longitude": "-74.0321082",
+      "Start Station Name": "Newport Pkwy",
+      "Start Time": "2017-03-01T06:44:31Z",
+      "Stop Time": "2017-03-01T06:52:56Z",
+      "Trip Duration": "505",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 40
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24618",
+      "Birth Year": "1987",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "2",
+      "Start Station ID": "3270",
+      "Start Station Latitude": "40.72528910781132",
+      "Start Station Longitude": "-74.04557168483734",
+      "Start Station Name": "Jersey & 6th St",
+      "Start Time": "2017-03-01T06:45:32Z",
+      "Stop Time": "2017-03-01T06:49:12Z",
+      "Trip Duration": "219",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 41
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24607",
+      "Birth Year": "1958",
+      "End Station ID": "3183",
+      "End Station Latitude": "40.7162469",
+      "End Station Longitude": "-74.0334588",
+      "End Station Name": "Exchange Place",
+      "Gender": "1",
+      "Start Station ID": "3202",
+      "Start Station Latitude": "40.7272235",
+      "Start Station Longitude": "-74.0337589",
+      "Start Station Name": "Newport PATH",
+      "Start Time": "2017-03-01T06:45:40Z",
+      "Stop Time": "2017-03-01T06:51:44Z",
+      "Trip Duration": "363",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 42
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24484",
+      "Birth Year": "1989",
+      "End Station ID": "3205",
+      "End Station Latitude": "40.71653978099194",
+      "End Station Longitude": "-74.0496379137039",
+      "End Station Name": "JC Medical Center",
+      "Gender": "1",
+      "Start Station ID": "3270",
+      "Start Station Latitude": "40.72528910781132",
+      "Start Station Longitude": "-74.04557168483734",
+      "Start Station Name": "Jersey & 6th St",
+      "Start Time": "2017-03-01T06:50:48Z",
+      "Stop Time": "2017-03-01T06:55:29Z",
+      "Trip Duration": "280",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 43
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24697",
+      "Birth Year": "1993",
+      "End Station ID": "3199",
+      "End Station Latitude": "40.7287448",
+      "End Station Longitude": "-74.0321082",
+      "End Station Name": "Newport Pkwy",
+      "Gender": "1",
+      "Start Station ID": "3183",
+      "Start Station Latitude": "40.7162469",
+      "Start Station Longitude": "-74.0334588",
+      "Start Station Name": "Exchange Place",
+      "Start Time": "2017-03-01T06:51:15Z",
+      "Stop Time": "2017-03-01T06:57:09Z",
+      "Trip Duration": "354",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 44
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26199",
+      "Birth Year": "1973",
+      "End Station ID": "3202",
+      "End Station Latitude": "40.7272235",
+      "End Station Longitude": "-74.0337589",
+      "End Station Name": "Newport PATH",
+      "Gender": "2",
+      "Start Station ID": "3203",
+      "Start Station Latitude": "40.727595966",
+      "Start Station Longitude": "-74.044247311",
+      "Start Station Name": "Hamilton Park",
+      "Start Time": "2017-03-01T06:53:09Z",
+      "Stop Time": "2017-03-01T07:03:10Z",
+      "Trip Duration": "601",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 45
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26269",
+      "Birth Year": "1987",
+      "End Station ID": "3202",
+      "End Station Latitude": "40.7272235",
+      "End Station Longitude": "-74.0337589",
+      "End Station Name": "Newport PATH",
+      "Gender": "1",
+      "Start Station ID": "3203",
+      "Start Station Latitude": "40.727595966",
+      "Start Station Longitude": "-74.044247311",
+      "Start Station Name": "Hamilton Park",
+      "Start Time": "2017-03-01T06:53:59Z",
+      "Stop Time": "2017-03-01T06:58:40Z",
+      "Trip Duration": "280",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 46
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24533",
+      "Birth Year": "1997",
+      "End Station ID": "3195",
+      "End Station Latitude": "40.73074262530658",
+      "End Station Longitude": "-74.06378388404846",
+      "End Station Name": "Sip Ave",
+      "Gender": "1",
+      "Start Station ID": "3210",
+      "Start Station Latitude": "40.742677141",
+      "Start Station Longitude": "-74.051788633",
+      "Start Station Name": "Pershing Field",
+      "Start Time": "2017-03-01T06:57:58Z",
+      "Stop Time": "2017-03-01T07:05:44Z",
+      "Trip Duration": "466",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 47
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24588",
+      "Birth Year": "1956",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3203",
+      "Start Station Latitude": "40.727595966",
+      "Start Station Longitude": "-74.044247311",
+      "Start Station Name": "Hamilton Park",
+      "Start Time": "2017-03-01T06:57:58Z",
+      "Stop Time": "2017-03-01T07:02:27Z",
+      "Trip Duration": "269",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 48
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24667",
+      "Birth Year": "1980",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3209",
+      "Start Station Latitude": "40.7241765",
+      "Start Station Longitude": "-74.0506564",
+      "Start Station Name": "Brunswick St",
+      "Start Time": "2017-03-01T06:58:15Z",
+      "Stop Time": "2017-03-01T07:01:54Z",
+      "Trip Duration": "219",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 49
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24630",
+      "Birth Year": "1960",
+      "End Station ID": "3183",
+      "End Station Latitude": "40.7162469",
+      "End Station Longitude": "-74.0334588",
+      "End Station Name": "Exchange Place",
+      "Gender": "1",
+      "Start Station ID": "3214",
+      "Start Station Latitude": "40.7127742",
+      "Start Station Longitude": "-74.0364857",
+      "Start Station Name": "Essex Light Rail",
+      "Start Time": "2017-03-01T06:59:01Z",
+      "Stop Time": "2017-03-01T07:01:26Z",
+      "Trip Duration": "144",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 50
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24525",
+      "Birth Year": "1987",
+      "End Station ID": "3183",
+      "End Station Latitude": "40.7162469",
+      "End Station Longitude": "-74.0334588",
+      "End Station Name": "Exchange Place",
+      "Gender": "1",
+      "Start Station ID": "3197",
+      "Start Station Latitude": "40.752559",
+      "Start Station Longitude": "-74.044725",
+      "Start Station Name": "North St",
+      "Start Time": "2017-03-01T07:00:33Z",
+      "Stop Time": "2017-03-01T07:14:19Z",
+      "Trip Duration": "825",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 51
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26222",
+      "Birth Year": "1989",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "2",
+      "Start Station ID": "3269",
+      "Start Station Latitude": "40.72601172964625",
+      "Start Station Longitude": "-74.05038893222809",
+      "Start Station Name": "Brunswick & 6th",
+      "Start Time": "2017-03-01T07:04:09Z",
+      "Stop Time": "2017-03-01T07:08:37Z",
+      "Trip Duration": "267",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 52
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26197",
+      "Birth Year": "1989",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3209",
+      "Start Station Latitude": "40.7241765",
+      "Start Station Longitude": "-74.0506564",
+      "Start Station Name": "Brunswick St",
+      "Start Time": "2017-03-01T07:04:17Z",
+      "Stop Time": "2017-03-01T07:08:37Z",
+      "Trip Duration": "259",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 53
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24471",
+      "Birth Year": "1970",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3213",
+      "Start Station Latitude": "40.71848892",
+      "Start Station Longitude": "-74.047726625",
+      "Start Station Name": "Van Vorst Park",
+      "Start Time": "2017-03-01T07:04:38Z",
+      "Stop Time": "2017-03-01T07:06:58Z",
+      "Trip Duration": "139",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 54
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26156",
+      "Birth Year": "1979",
+      "End Station ID": "3184",
+      "End Station Latitude": "40.7141454",
+      "End Station Longitude": "-74.0335519",
+      "End Station Name": "Paulus Hook",
+      "Gender": "1",
+      "Start Station ID": "3278",
+      "Start Station Latitude": "40.72568548362901",
+      "Start Station Longitude": "-74.04879033565521",
+      "Start Station Name": "Monmouth and 6th",
+      "Start Time": "2017-03-01T07:04:49Z",
+      "Stop Time": "2017-03-01T07:13:57Z",
+      "Trip Duration": "548",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 55
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24457",
+      "Birth Year": "1974",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "2",
+      "Start Station ID": "3213",
+      "Start Station Latitude": "40.71848892",
+      "Start Station Longitude": "-74.047726625",
+      "Start Station Name": "Van Vorst Park",
+      "Start Time": "2017-03-01T07:07:06Z",
+      "Stop Time": "2017-03-01T07:10:27Z",
+      "Trip Duration": "200",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 56
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24578",
+      "Birth Year": "1971",
+      "End Station ID": "3184",
+      "End Station Latitude": "40.7141454",
+      "End Station Longitude": "-74.0335519",
+      "End Station Name": "Paulus Hook",
+      "Gender": "2",
+      "Start Station ID": "3267",
+      "Start Station Latitude": "40.7124188237569",
+      "Start Station Longitude": "-74.03852552175522",
+      "Start Station Name": "Morris Canal",
+      "Start Time": "2017-03-01T07:07:38Z",
+      "Stop Time": "2017-03-01T07:10:54Z",
+      "Trip Duration": "195",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 57
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26431",
+      "Birth Year": "1972",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3213",
+      "Start Station Latitude": "40.71848892",
+      "Start Station Longitude": "-74.047726625",
+      "Start Station Name": "Van Vorst Park",
+      "Start Time": "2017-03-01T07:07:43Z",
+      "Stop Time": "2017-03-01T07:09:53Z",
+      "Trip Duration": "130",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 58
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24441",
+      "Birth Year": "1969",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3203",
+      "Start Station Latitude": "40.727595966",
+      "Start Station Longitude": "-74.044247311",
+      "Start Station Name": "Hamilton Park",
+      "Start Time": "2017-03-01T07:08:11Z",
+      "Stop Time": "2017-03-01T07:12:01Z",
+      "Trip Duration": "229",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 59
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26151",
+      "Birth Year": "1981",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3213",
+      "Start Station Latitude": "40.71848892",
+      "Start Station Longitude": "-74.047726625",
+      "Start Station Name": "Van Vorst Park",
+      "Start Time": "2017-03-01T07:08:17Z",
+      "Stop Time": "2017-03-01T07:11:06Z",
+      "Trip Duration": "169",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 60
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24573",
+      "Birth Year": "1990",
+      "End Station ID": "3206",
+      "End Station Latitude": "40.7311689",
+      "End Station Longitude": "-74.0575736",
+      "End Station Name": "Hilltop",
+      "Gender": "1",
+      "Start Station ID": "3269",
+      "Start Station Latitude": "40.72601172964625",
+      "Start Station Longitude": "-74.05038893222809",
+      "Start Station Name": "Brunswick & 6th",
+      "Start Time": "2017-03-01T07:08:18Z",
+      "Stop Time": "2017-03-01T07:12:48Z",
+      "Trip Duration": "269",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 61
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24465",
+      "Birth Year": "1990",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "2",
+      "Start Station ID": "3276",
+      "Start Station Latitude": "40.71458403535893",
+      "Start Station Longitude": "-74.04281705617905",
+      "Start Station Name": "Marin Light Rail",
+      "Start Time": "2017-03-01T07:08:32Z",
+      "Stop Time": "2017-03-01T07:12:07Z",
+      "Trip Duration": "214",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 62
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24518",
+      "Birth Year": "1973",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3203",
+      "Start Station Latitude": "40.727595966",
+      "Start Station Longitude": "-74.044247311",
+      "Start Station Name": "Hamilton Park",
+      "Start Time": "2017-03-01T07:09:05Z",
+      "Stop Time": "2017-03-01T07:13:23Z",
+      "Trip Duration": "258",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 63
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24716",
+      "Birth Year": "1961",
+      "End Station ID": "3185",
+      "End Station Latitude": "40.7177325",
+      "End Station Longitude": "-74.043845",
+      "End Station Name": "City Hall",
+      "Gender": "1",
+      "Start Station ID": "3267",
+      "Start Station Latitude": "40.7124188237569",
+      "Start Station Longitude": "-74.03852552175522",
+      "Start Station Name": "Morris Canal",
+      "Start Time": "2017-03-01T07:10:09Z",
+      "Stop Time": "2017-03-01T07:14:34Z",
+      "Trip Duration": "264",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 64
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26270",
+      "Birth Year": "1981",
+      "End Station ID": "3202",
+      "End Station Latitude": "40.7272235",
+      "End Station Longitude": "-74.0337589",
+      "End Station Name": "Newport PATH",
+      "Gender": "1",
+      "Start Station ID": "3215",
+      "Start Station Latitude": "40.7467299",
+      "Start Station Longitude": "-74.0492509",
+      "Start Station Name": "Central Ave",
+      "Start Time": "2017-03-01T07:10:52Z",
+      "Stop Time": "2017-03-01T07:22:30Z",
+      "Trip Duration": "698",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 65
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24455",
+      "Birth Year": "1984",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3278",
+      "Start Station Latitude": "40.72568548362901",
+      "Start Station Longitude": "-74.04879033565521",
+      "Start Station Name": "Monmouth and 6th",
+      "Start Time": "2017-03-01T07:11:24Z",
+      "Stop Time": "2017-03-01T07:16:17Z",
+      "Trip Duration": "292",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 66
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26200",
+      "Birth Year": "1986",
+      "End Station ID": "3195",
+      "End Station Latitude": "40.73074262530658",
+      "End Station Longitude": "-74.06378388404846",
+      "End Station Name": "Sip Ave",
+      "Gender": "1",
+      "Start Station ID": "3225",
+      "Start Station Latitude": "40.7236589",
+      "Start Station Longitude": "-74.0641943",
+      "Start Station Name": "Baldwin at Montgomery",
+      "Start Time": "2017-03-01T07:11:51Z",
+      "Stop Time": "2017-03-01T07:15:34Z",
+      "Trip Duration": "223",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 67
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26216",
+      "Birth Year": "1989",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3205",
+      "Start Station Latitude": "40.71653978099194",
+      "Start Station Longitude": "-74.0496379137039",
+      "Start Station Name": "JC Medical Center",
+      "Start Time": "2017-03-01T07:12:36Z",
+      "Stop Time": "2017-03-01T07:16:17Z",
+      "Trip Duration": "220",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 68
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26152",
+      "Birth Year": "1984",
+      "End Station ID": "3273",
+      "End Station Latitude": "40.721650724879986",
+      "End Station Longitude": "-74.04288411140442",
+      "End Station Name": "Manila & 1st",
+      "Gender": "1",
+      "Start Station ID": "3269",
+      "Start Station Latitude": "40.72601172964625",
+      "Start Station Longitude": "-74.05038893222809",
+      "Start Station Name": "Brunswick & 6th",
+      "Start Time": "2017-03-01T07:14:21Z",
+      "Stop Time": "2017-03-01T07:18:47Z",
+      "Trip Duration": "266",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 69
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26168",
+      "Birth Year": "1960",
+      "End Station ID": "3194",
+      "End Station Latitude": "40.7253399253558",
+      "End Station Longitude": "-74.06762212514877",
+      "End Station Name": "McGinley Square",
+      "Gender": "1",
+      "Start Station ID": "3195",
+      "Start Station Latitude": "40.73074262530658",
+      "Start Station Longitude": "-74.06378388404846",
+      "Start Station Name": "Sip Ave",
+      "Start Time": "2017-03-01T07:15:16Z",
+      "Stop Time": "2017-03-01T07:22:24Z",
+      "Trip Duration": "427",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 70
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24432",
+      "Birth Year": "1980",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "0",
+      "Start Station ID": "3272",
+      "Start Station Latitude": "40.72333158646436",
+      "Start Station Longitude": "-74.04595255851744",
+      "Start Station Name": "Jersey & 3rd",
+      "Start Time": "2017-03-01T07:17:16Z",
+      "Stop Time": "2017-03-01T07:20:58Z",
+      "Trip Duration": "222",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 71
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24457",
+      "Birth Year": "1969",
+      "End Station ID": "3202",
+      "End Station Latitude": "40.7272235",
+      "End Station Longitude": "-74.0337589",
+      "End Station Name": "Newport PATH",
+      "Gender": "1",
+      "Start Station ID": "3186",
+      "Start Station Latitude": "40.71958611647166",
+      "Start Station Longitude": "-74.04311746358871",
+      "Start Station Name": "Grove St PATH",
+      "Start Time": "2017-03-01T07:17:32Z",
+      "Stop Time": "2017-03-01T07:22:24Z",
+      "Trip Duration": "292",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 72
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26281",
+      "Birth Year": "1986",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3279",
+      "Start Station Latitude": "40.721630142638354",
+      "Start Station Longitude": "-74.04996782541275",
+      "Start Station Name": "Dixon Mills",
+      "Start Time": "2017-03-01T07:17:41Z",
+      "Stop Time": "2017-03-01T07:21:11Z",
+      "Trip Duration": "209",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 73
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24445",
+      "Birth Year": "1972",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3270",
+      "Start Station Latitude": "40.72528910781132",
+      "Start Station Longitude": "-74.04557168483734",
+      "Start Station Name": "Jersey & 6th St",
+      "Start Time": "2017-03-01T07:19:55Z",
+      "Stop Time": "2017-03-01T07:22:51Z",
+      "Trip Duration": "176",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 74
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26306",
+      "Birth Year": "1979",
+      "End Station ID": "3203",
+      "End Station Latitude": "40.727595966",
+      "End Station Longitude": "-74.044247311",
+      "End Station Name": "Hamilton Park",
+      "Gender": "1",
+      "Start Station ID": "3209",
+      "Start Station Latitude": "40.7241765",
+      "Start Station Longitude": "-74.0506564",
+      "Start Station Name": "Brunswick St",
+      "Start Time": "2017-03-01T07:21:18Z",
+      "Stop Time": "2017-03-01T07:25:14Z",
+      "Trip Duration": "235",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 75
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26164",
+      "Birth Year": "1975",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3279",
+      "Start Station Latitude": "40.721630142638354",
+      "Start Station Longitude": "-74.04996782541275",
+      "Start Station Name": "Dixon Mills",
+      "Start Time": "2017-03-01T07:21:50Z",
+      "Stop Time": "2017-03-01T07:24:23Z",
+      "Trip Duration": "153",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 76
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26155",
+      "Birth Year": "1972",
+      "End Station ID": "3184",
+      "End Station Latitude": "40.7141454",
+      "End Station Longitude": "-74.0335519",
+      "End Station Name": "Paulus Hook",
+      "Gender": "1",
+      "Start Station ID": "3192",
+      "Start Station Latitude": "40.7112423",
+      "Start Station Longitude": "-74.0557013",
+      "Start Station Name": "Liberty Light Rail",
+      "Start Time": "2017-03-01T07:22:08Z",
+      "Stop Time": "2017-03-01T07:31:12Z",
+      "Trip Duration": "544",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 77
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24504",
+      "Birth Year": "1983",
+      "End Station ID": "3214",
+      "End Station Latitude": "40.7127742",
+      "End Station Longitude": "-74.0364857",
+      "End Station Name": "Essex Light Rail",
+      "Gender": "2",
+      "Start Station ID": "3275",
+      "Start Station Latitude": "40.71835519823214",
+      "Start Station Longitude": "-74.03891444206238",
+      "Start Station Name": "Columbus Drive",
+      "Start Time": "2017-03-01T07:22:14Z",
+      "Stop Time": "2017-03-01T07:27:25Z",
+      "Trip Duration": "311",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 78
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24533",
+      "Birth Year": "1964",
+      "End Station ID": "3280",
+      "End Station Latitude": "40.71928220070702",
+      "End Station Longitude": "-74.07126188278198",
+      "End Station Name": "Astor Place",
+      "Gender": "1",
+      "Start Station ID": "3195",
+      "Start Station Latitude": "40.73074262530658",
+      "Start Station Longitude": "-74.06378388404846",
+      "Start Station Name": "Sip Ave",
+      "Start Time": "2017-03-01T07:23:29Z",
+      "Stop Time": "2017-03-01T07:31:38Z",
+      "Trip Duration": "488",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 79
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26192",
+      "Birth Year": "1980",
+      "End Station ID": "3202",
+      "End Station Latitude": "40.7272235",
+      "End Station Longitude": "-74.0337589",
+      "End Station Name": "Newport PATH",
+      "Gender": "1",
+      "Start Station ID": "3187",
+      "Start Station Latitude": "40.7211236",
+      "Start Station Longitude": "-74.03805095",
+      "Start Station Name": "Warren St",
+      "Start Time": "2017-03-01T07:23:31Z",
+      "Stop Time": "2017-03-01T07:26:22Z",
+      "Trip Duration": "171",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 80
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24474",
+      "Birth Year": "1982",
+      "End Station ID": "3183",
+      "End Station Latitude": "40.7162469",
+      "End Station Longitude": "-74.0334588",
+      "End Station Name": "Exchange Place",
+      "Gender": "1",
+      "Start Station ID": "3203",
+      "Start Station Latitude": "40.727595966",
+      "Start Station Longitude": "-74.044247311",
+      "Start Station Name": "Hamilton Park",
+      "Start Time": "2017-03-01T07:25:12Z",
+      "Stop Time": "2017-03-01T07:35:17Z",
+      "Trip Duration": "604",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 81
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24724",
+      "Birth Year": "1971",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "2",
+      "Start Station ID": "3203",
+      "Start Station Latitude": "40.727595966",
+      "Start Station Longitude": "-74.044247311",
+      "Start Station Name": "Hamilton Park",
+      "Start Time": "2017-03-01T07:25:19Z",
+      "Stop Time": "2017-03-01T07:29:56Z",
+      "Trip Duration": "276",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 82
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26160",
+      "Birth Year": "1990",
+      "End Station ID": "3202",
+      "End Station Latitude": "40.7272235",
+      "End Station Longitude": "-74.0337589",
+      "End Station Name": "Newport PATH",
+      "Gender": "1",
+      "Start Station ID": "3186",
+      "Start Station Latitude": "40.71958611647166",
+      "Start Station Longitude": "-74.04311746358871",
+      "Start Station Name": "Grove St PATH",
+      "Start Time": "2017-03-01T07:26:31Z",
+      "Stop Time": "2017-03-01T07:33:22Z",
+      "Trip Duration": "410",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 83
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24461",
+      "Birth Year": "1973",
+      "End Station ID": "3185",
+      "End Station Latitude": "40.7177325",
+      "End Station Longitude": "-74.043845",
+      "End Station Name": "City Hall",
+      "Gender": "1",
+      "Start Station ID": "3276",
+      "Start Station Latitude": "40.71458403535893",
+      "Start Station Longitude": "-74.04281705617905",
+      "Start Station Name": "Marin Light Rail",
+      "Start Time": "2017-03-01T07:26:44Z",
+      "Stop Time": "2017-03-01T07:29:36Z",
+      "Trip Duration": "172",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 84
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24710",
+      "Birth Year": "1980",
+      "End Station ID": "3276",
+      "End Station Latitude": "40.71458403535893",
+      "End Station Longitude": "-74.04281705617905",
+      "End Station Name": "Marin Light Rail",
+      "Gender": "1",
+      "Start Station ID": "3214",
+      "Start Station Latitude": "40.7127742",
+      "Start Station Longitude": "-74.0364857",
+      "Start Station Name": "Essex Light Rail",
+      "Start Time": "2017-03-01T07:29:31Z",
+      "Stop Time": "2017-03-01T07:33:16Z",
+      "Trip Duration": "225",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 85
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24704",
+      "Birth Year": "1992",
+      "End Station ID": "3184",
+      "End Station Latitude": "40.7141454",
+      "End Station Longitude": "-74.0335519",
+      "End Station Name": "Paulus Hook",
+      "Gender": "1",
+      "Start Station ID": "3203",
+      "Start Station Latitude": "40.727595966",
+      "Start Station Longitude": "-74.044247311",
+      "Start Station Name": "Hamilton Park",
+      "Start Time": "2017-03-01T07:31:27Z",
+      "Stop Time": "2017-03-01T07:39:38Z",
+      "Trip Duration": "490",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 86
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24592",
+      "Birth Year": "1984",
+      "End Station ID": "3187",
+      "End Station Latitude": "40.7211236",
+      "End Station Longitude": "-74.03805095",
+      "End Station Name": "Warren St",
+      "Gender": "1",
+      "Start Station ID": "3225",
+      "Start Station Latitude": "40.7236589",
+      "Start Station Longitude": "-74.0641943",
+      "Start Station Name": "Baldwin at Montgomery",
+      "Start Time": "2017-03-01T07:36:01Z",
+      "Stop Time": "2017-03-01T07:44:45Z",
+      "Trip Duration": "524",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 87
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "25475",
+      "Birth Year": "1976",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3267",
+      "Start Station Latitude": "40.7124188237569",
+      "Start Station Longitude": "-74.03852552175522",
+      "Start Station Name": "Morris Canal",
+      "Start Time": "2017-03-01T07:37:14Z",
+      "Stop Time": "2017-03-01T07:43:38Z",
+      "Trip Duration": "384",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 88
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26258",
+      "Birth Year": "1984",
+      "End Station ID": "3211",
+      "End Station Latitude": "40.72152515",
+      "End Station Longitude": "-74.046304543",
+      "End Station Name": "Newark Ave",
+      "Gender": "2",
+      "Start Station ID": "3278",
+      "Start Station Latitude": "40.72568548362901",
+      "Start Station Longitude": "-74.04879033565521",
+      "Start Station Name": "Monmouth and 6th",
+      "Start Time": "2017-03-01T07:39:18Z",
+      "Stop Time": "2017-03-01T07:42:18Z",
+      "Trip Duration": "180",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 89
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24472",
+      "Birth Year": "1967",
+      "End Station ID": "3214",
+      "End Station Latitude": "40.7127742",
+      "End Station Longitude": "-74.0364857",
+      "End Station Name": "Essex Light Rail",
+      "Gender": "1",
+      "Start Station ID": "3192",
+      "Start Station Latitude": "40.7112423",
+      "Start Station Longitude": "-74.0557013",
+      "Start Station Name": "Liberty Light Rail",
+      "Start Time": "2017-03-01T07:39:41Z",
+      "Stop Time": "2017-03-01T07:50:40Z",
+      "Trip Duration": "658",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 90
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24486",
+      "Birth Year": "1978",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3278",
+      "Start Station Latitude": "40.72568548362901",
+      "Start Station Longitude": "-74.04879033565521",
+      "Start Station Name": "Monmouth and 6th",
+      "Start Time": "2017-03-01T07:40:41Z",
+      "Stop Time": "2017-03-01T07:48:59Z",
+      "Trip Duration": "497",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 91
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26265",
+      "Birth Year": "1976",
+      "End Station ID": "3183",
+      "End Station Latitude": "40.7162469",
+      "End Station Longitude": "-74.0334588",
+      "End Station Name": "Exchange Place",
+      "Gender": "2",
+      "Start Station ID": "3267",
+      "Start Station Latitude": "40.7124188237569",
+      "Start Station Longitude": "-74.03852552175522",
+      "Start Station Name": "Morris Canal",
+      "Start Time": "2017-03-01T07:42:23Z",
+      "Stop Time": "2017-03-01T07:46:03Z",
+      "Trip Duration": "219",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 92
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26315",
+      "Birth Year": "1968",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3270",
+      "Start Station Latitude": "40.72528910781132",
+      "Start Station Longitude": "-74.04557168483734",
+      "Start Station Name": "Jersey & 6th St",
+      "Start Time": "2017-03-01T07:43:22Z",
+      "Stop Time": "2017-03-01T07:46:32Z",
+      "Trip Duration": "190",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 93
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26258",
+      "Birth Year": "1976",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3211",
+      "Start Station Latitude": "40.72152515",
+      "Start Station Longitude": "-74.046304543",
+      "Start Station Name": "Newark Ave",
+      "Start Time": "2017-03-01T07:43:31Z",
+      "Stop Time": "2017-03-01T07:45:30Z",
+      "Trip Duration": "119",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 94
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26238",
+      "Birth Year": "1992",
+      "End Station ID": "3185",
+      "End Station Latitude": "40.7177325",
+      "End Station Longitude": "-74.043845",
+      "End Station Name": "City Hall",
+      "Gender": "1",
+      "Start Station ID": "3268",
+      "Start Station Latitude": "40.71346382669195",
+      "Start Station Longitude": "-74.06285852193832",
+      "Start Station Name": "Lafayette Park",
+      "Start Time": "2017-03-01T07:44:37Z",
+      "Stop Time": "2017-03-01T07:51:16Z",
+      "Trip Duration": "399",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 95
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24671",
+      "Birth Year": "1990",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3276",
+      "Start Station Latitude": "40.71458403535893",
+      "Start Station Longitude": "-74.04281705617905",
+      "Start Station Name": "Marin Light Rail",
+      "Start Time": "2017-03-01T07:45:23Z",
+      "Stop Time": "2017-03-01T07:50:25Z",
+      "Trip Duration": "302",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 96
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24647",
+      "Birth Year": "1976",
+      "End Station ID": "3183",
+      "End Station Latitude": "40.7162469",
+      "End Station Longitude": "-74.0334588",
+      "End Station Name": "Exchange Place",
+      "Gender": "1",
+      "Start Station ID": "3192",
+      "Start Station Latitude": "40.7112423",
+      "Start Station Longitude": "-74.0557013",
+      "Start Station Name": "Liberty Light Rail",
+      "Start Time": "2017-03-01T07:45:58Z",
+      "Stop Time": "2017-03-01T08:01:37Z",
+      "Trip Duration": "939",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 97
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24403",
+      "Birth Year": "1989",
+      "End Station ID": "3209",
+      "End Station Latitude": "40.7241765",
+      "End Station Longitude": "-74.0506564",
+      "End Station Name": "Brunswick St",
+      "Gender": "1",
+      "Start Station ID": "3186",
+      "Start Station Latitude": "40.71958611647166",
+      "Start Station Longitude": "-74.04311746358871",
+      "Start Station Name": "Grove St PATH",
+      "Start Time": "2017-03-01T07:46:42Z",
+      "Stop Time": "2017-03-01T07:50:49Z",
+      "Trip Duration": "247",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 98
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24461",
+      "Birth Year": "1990",
+      "End Station ID": "3202",
+      "End Station Latitude": "40.7272235",
+      "End Station Longitude": "-74.0337589",
+      "End Station Name": "Newport PATH",
+      "Gender": "1",
+      "Start Station ID": "3185",
+      "Start Station Latitude": "40.7177325",
+      "Start Station Longitude": "-74.043845",
+      "Start Station Name": "City Hall",
+      "Start Time": "2017-03-01T07:46:44Z",
+      "Stop Time": "2017-03-01T07:53:01Z",
+      "Trip Duration": "377",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 99
+      }
+    }
+  ],
+  "... trimmed from 12201 total lines... ",
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26227",
+      "Birth Year": "1979",
+      "End Station ID": "3214",
+      "End Station Latitude": "40.7127742",
+      "End Station Longitude": "-74.0364857",
+      "End Station Name": "Essex Light Rail",
+      "Gender": "1",
+      "Start Station ID": "3276",
+      "Start Station Latitude": "40.71458403535893",
+      "Start Station Longitude": "-74.04281705617905",
+      "Start Station Name": "Marin Light Rail",
+      "Start Time": "2017-03-31T08:36:30Z",
+      "Stop Time": "2017-03-31T08:42:02Z",
+      "Trip Duration": "332",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12101
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29199",
+      "Birth Year": "1988",
+      "End Station ID": "3185",
+      "End Station Latitude": "40.7177325",
+      "End Station Longitude": "-74.043845",
+      "End Station Name": "City Hall",
+      "Gender": "1",
+      "Start Station ID": "3203",
+      "Start Station Latitude": "40.727595966",
+      "Start Station Longitude": "-74.044247311",
+      "Start Station Name": "Hamilton Park",
+      "Start Time": "2017-03-31T08:36:38Z",
+      "Stop Time": "2017-03-31T08:41:46Z",
+      "Trip Duration": "307",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12102
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29231",
+      "Birth Year": "1980",
+      "End Station ID": "3195",
+      "End Station Latitude": "40.73074262530658",
+      "End Station Longitude": "-74.06378388404846",
+      "End Station Name": "Sip Ave",
+      "Gender": "1",
+      "Start Station ID": "3207",
+      "Start Station Latitude": "40.7376037",
+      "Start Station Longitude": "-74.0524783",
+      "Start Station Name": "Oakland Ave",
+      "Start Time": "2017-03-31T08:37:20Z",
+      "Stop Time": "2017-03-31T08:43:45Z",
+      "Trip Duration": "384",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12103
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26164",
+      "Birth Year": "1982",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3269",
+      "Start Station Latitude": "40.72601172964625",
+      "Start Station Longitude": "-74.05038893222809",
+      "Start Station Name": "Brunswick & 6th",
+      "Start Time": "2017-03-31T08:37:20Z",
+      "Stop Time": "2017-03-31T08:41:16Z",
+      "Trip Duration": "235",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12104
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29247",
+      "Birth Year": "1964",
+      "End Station ID": "3273",
+      "End Station Latitude": "40.721650724879986",
+      "End Station Longitude": "-74.04288411140442",
+      "End Station Name": "Manila & 1st",
+      "Gender": "1",
+      "Start Station ID": "3269",
+      "Start Station Latitude": "40.72601172964625",
+      "Start Station Longitude": "-74.05038893222809",
+      "Start Station Name": "Brunswick & 6th",
+      "Start Time": "2017-03-31T08:40:38Z",
+      "Stop Time": "2017-03-31T08:45:35Z",
+      "Trip Duration": "297",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12105
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29217",
+      "Birth Year": "1982",
+      "End Station ID": "3192",
+      "End Station Latitude": "40.7112423",
+      "End Station Longitude": "-74.0557013",
+      "End Station Name": "Liberty Light Rail",
+      "Gender": "2",
+      "Start Station ID": "3268",
+      "Start Station Latitude": "40.71346382669195",
+      "Start Station Longitude": "-74.06285852193832",
+      "Start Station Name": "Lafayette Park",
+      "Start Time": "2017-03-31T08:41:15Z",
+      "Stop Time": "2017-03-31T08:45:15Z",
+      "Trip Duration": "240",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12106
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26283",
+      "Birth Year": "1978",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3209",
+      "Start Station Latitude": "40.7241765",
+      "Start Station Longitude": "-74.0506564",
+      "Start Station Name": "Brunswick St",
+      "Start Time": "2017-03-31T08:42:43Z",
+      "Stop Time": "2017-03-31T08:46:28Z",
+      "Trip Duration": "224",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12107
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24695",
+      "Birth Year": "1994",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3209",
+      "Start Station Latitude": "40.7241765",
+      "Start Station Longitude": "-74.0506564",
+      "Start Station Name": "Brunswick St",
+      "Start Time": "2017-03-31T08:56:51Z",
+      "Stop Time": "2017-03-31T09:00:47Z",
+      "Trip Duration": "235",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12108
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29228",
+      "Birth Year": "1983",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "2",
+      "Start Station ID": "3203",
+      "Start Station Latitude": "40.727595966",
+      "Start Station Longitude": "-74.044247311",
+      "Start Station Name": "Hamilton Park",
+      "Start Time": "2017-03-31T09:01:38Z",
+      "Stop Time": "2017-03-31T09:06:56Z",
+      "Trip Duration": "317",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12109
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29120",
+      "Birth Year": "1949",
+      "End Station ID": "3183",
+      "End Station Latitude": "40.7162469",
+      "End Station Longitude": "-74.0334588",
+      "End Station Name": "Exchange Place",
+      "Gender": "1",
+      "Start Station ID": "3279",
+      "Start Station Latitude": "40.721630142638354",
+      "Start Station Longitude": "-74.04996782541275",
+      "Start Station Name": "Dixon Mills",
+      "Start Time": "2017-03-31T09:14:18Z",
+      "Stop Time": "2017-03-31T09:21:23Z",
+      "Trip Duration": "425",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12110
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26281",
+      "Birth Year": "1987",
+      "End Station ID": "3195",
+      "End Station Latitude": "40.73074262530658",
+      "End Station Longitude": "-74.06378388404846",
+      "End Station Name": "Sip Ave",
+      "Gender": "1",
+      "Start Station ID": "3210",
+      "Start Station Latitude": "40.742677141",
+      "Start Station Longitude": "-74.051788633",
+      "Start Station Name": "Pershing Field",
+      "Start Time": "2017-03-31T09:14:34Z",
+      "Stop Time": "2017-03-31T09:22:34Z",
+      "Trip Duration": "480",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12111
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26226",
+      "Birth Year": "1993",
+      "End Station ID": "3202",
+      "End Station Latitude": "40.7272235",
+      "End Station Longitude": "-74.0337589",
+      "End Station Name": "Newport PATH",
+      "Gender": "1",
+      "Start Station ID": "3199",
+      "Start Station Latitude": "40.7287448",
+      "Start Station Longitude": "-74.0321082",
+      "Start Station Name": "Newport Pkwy",
+      "Start Time": "2017-03-31T09:23:33Z",
+      "Stop Time": "2017-03-31T09:24:59Z",
+      "Trip Duration": "85",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12112
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26203",
+      "Birth Year": "1973",
+      "End Station ID": "3203",
+      "End Station Latitude": "40.727595966",
+      "End Station Longitude": "-74.044247311",
+      "End Station Name": "Hamilton Park",
+      "Gender": "1",
+      "Start Station ID": "3186",
+      "Start Station Latitude": "40.71958611647166",
+      "Start Station Longitude": "-74.04311746358871",
+      "Start Station Name": "Grove St PATH",
+      "Start Time": "2017-03-31T09:23:51Z",
+      "Stop Time": "2017-03-31T09:27:58Z",
+      "Trip Duration": "247",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12113
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26203",
+      "Birth Year": "1975",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3203",
+      "Start Station Latitude": "40.727595966",
+      "Start Station Longitude": "-74.044247311",
+      "Start Station Name": "Hamilton Park",
+      "Start Time": "2017-03-31T09:35:21Z",
+      "Stop Time": "2017-03-31T09:42:21Z",
+      "Trip Duration": "420",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12114
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24461",
+      "Birth Year": "1991",
+      "End Station ID": "3426",
+      "End Station Latitude": "40.70965083364061",
+      "End Station Longitude": "-74.06860113143921",
+      "End Station Name": "JCBS Depot",
+      "Gender": "1",
+      "Start Station ID": "3186",
+      "Start Station Latitude": "40.71958611647166",
+      "Start Station Longitude": "-74.04311746358871",
+      "Start Station Name": "Grove St PATH",
+      "Start Time": "2017-03-31T09:42:41Z",
+      "Stop Time": "2017-03-31T09:56:42Z",
+      "Trip Duration": "840",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12115
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26249",
+      "Birth Year": "1988",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3203",
+      "Start Station Latitude": "40.727595966",
+      "Start Station Longitude": "-74.044247311",
+      "Start Station Name": "Hamilton Park",
+      "Start Time": "2017-03-31T09:44:53Z",
+      "Stop Time": "2017-03-31T09:49:02Z",
+      "Trip Duration": "249",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12116
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26182",
+      "Birth Year": "1955",
+      "End Station ID": "3194",
+      "End Station Latitude": "40.7253399253558",
+      "End Station Longitude": "-74.06762212514877",
+      "End Station Name": "McGinley Square",
+      "Gender": "1",
+      "Start Station ID": "3195",
+      "Start Station Latitude": "40.73074262530658",
+      "Start Station Longitude": "-74.06378388404846",
+      "Start Station Name": "Sip Ave",
+      "Start Time": "2017-03-31T09:54:51Z",
+      "Stop Time": "2017-03-31T09:59:00Z",
+      "Trip Duration": "249",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12117
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24454",
+      "Birth Year": "1986",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "2",
+      "Start Station ID": "3278",
+      "Start Station Latitude": "40.72568548362901",
+      "Start Station Longitude": "-74.04879033565521",
+      "Start Station Name": "Monmouth and 6th",
+      "Start Time": "2017-03-31T09:57:08Z",
+      "Stop Time": "2017-03-31T10:01:01Z",
+      "Trip Duration": "233",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12118
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26255",
+      "Birth Year": "1983",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3203",
+      "Start Station Latitude": "40.727595966",
+      "Start Station Longitude": "-74.044247311",
+      "Start Station Name": "Hamilton Park",
+      "Start Time": "2017-03-31T10:02:17Z",
+      "Stop Time": "2017-03-31T10:06:33Z",
+      "Trip Duration": "256",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12119
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29122",
+      "Birth Year": "1990",
+      "End Station ID": "3195",
+      "End Station Latitude": "40.73074262530658",
+      "End Station Longitude": "-74.06378388404846",
+      "End Station Name": "Sip Ave",
+      "Gender": "1",
+      "Start Station ID": "3194",
+      "Start Station Latitude": "40.7253399253558",
+      "Start Station Longitude": "-74.06762212514877",
+      "Start Station Name": "McGinley Square",
+      "Start Time": "2017-03-31T10:13:31Z",
+      "Stop Time": "2017-03-31T10:16:08Z",
+      "Trip Duration": "157",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12120
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24520",
+      "Birth Year": "1990",
+      "End Station ID": "3187",
+      "End Station Latitude": "40.7211236",
+      "End Station Longitude": "-74.03805095",
+      "End Station Name": "Warren St",
+      "Gender": "1",
+      "Start Station ID": "3183",
+      "Start Station Latitude": "40.7162469",
+      "Start Station Longitude": "-74.0334588",
+      "Start Station Name": "Exchange Place",
+      "Start Time": "2017-03-31T10:29:12Z",
+      "Stop Time": "2017-03-31T10:33:09Z",
+      "Trip Duration": "236",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12121
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24520",
+      "Birth Year": "1990",
+      "End Station ID": "3183",
+      "End Station Latitude": "40.7162469",
+      "End Station Longitude": "-74.0334588",
+      "End Station Name": "Exchange Place",
+      "Gender": "1",
+      "Start Station ID": "3187",
+      "Start Station Latitude": "40.7211236",
+      "Start Station Longitude": "-74.03805095",
+      "Start Station Name": "Warren St",
+      "Start Time": "2017-03-31T10:37:35Z",
+      "Stop Time": "2017-03-31T10:41:58Z",
+      "Trip Duration": "262",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12122
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26182",
+      "Birth Year": "1973",
+      "End Station ID": "3195",
+      "End Station Latitude": "40.73074262530658",
+      "End Station Longitude": "-74.06378388404846",
+      "End Station Name": "Sip Ave",
+      "Gender": "1",
+      "Start Station ID": "3194",
+      "Start Station Latitude": "40.7253399253558",
+      "Start Station Longitude": "-74.06762212514877",
+      "Start Station Name": "McGinley Square",
+      "Start Time": "2017-03-31T11:00:53Z",
+      "Stop Time": "2017-03-31T11:04:30Z",
+      "Trip Duration": "217",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12123
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26173",
+      "Birth Year": "1975",
+      "End Station ID": "3277",
+      "End Station Latitude": "40.71435836870427",
+      "End Station Longitude": "-74.06661093235016",
+      "End Station Name": "Communipaw & Berry Lane",
+      "Gender": "1",
+      "Start Station ID": "3186",
+      "Start Station Latitude": "40.71958611647166",
+      "Start Station Longitude": "-74.04311746358871",
+      "Start Station Name": "Grove St PATH",
+      "Start Time": "2017-03-31T11:15:40Z",
+      "Stop Time": "2017-03-31T11:31:12Z",
+      "Trip Duration": "932",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12124
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24572",
+      "Birth Year": "1970",
+      "End Station ID": "3213",
+      "End Station Latitude": "40.71848892",
+      "End Station Longitude": "-74.047726625",
+      "End Station Name": "Van Vorst Park",
+      "Gender": "2",
+      "Start Station ID": "3194",
+      "Start Station Latitude": "40.7253399253558",
+      "Start Station Longitude": "-74.06762212514877",
+      "Start Station Name": "McGinley Square",
+      "Start Time": "2017-03-31T11:39:59Z",
+      "Stop Time": "2017-03-31T11:49:34Z",
+      "Trip Duration": "575",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12125
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26188",
+      "Birth Year": "1972",
+      "End Station ID": "3185",
+      "End Station Latitude": "40.7177325",
+      "End Station Longitude": "-74.043845",
+      "End Station Name": "City Hall",
+      "Gender": "2",
+      "Start Station ID": "3211",
+      "Start Station Latitude": "40.72152515",
+      "Start Station Longitude": "-74.046304543",
+      "Start Station Name": "Newark Ave",
+      "Start Time": "2017-03-31T12:35:43Z",
+      "Stop Time": "2017-03-31T12:39:32Z",
+      "Trip Duration": "229",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12126
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29233",
+      "Birth Year": "1986",
+      "End Station ID": "3183",
+      "End Station Latitude": "40.7162469",
+      "End Station Longitude": "-74.0334588",
+      "End Station Name": "Exchange Place",
+      "Gender": "1",
+      "Start Station ID": "3213",
+      "Start Station Latitude": "40.71848892",
+      "Start Station Longitude": "-74.047726625",
+      "Start Station Name": "Van Vorst Park",
+      "Start Time": "2017-03-31T12:56:09Z",
+      "Stop Time": "2017-03-31T13:01:27Z",
+      "Trip Duration": "317",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12127
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26206",
+      "Birth Year": "1982",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "2",
+      "Start Station ID": "3186",
+      "Start Station Latitude": "40.71958611647166",
+      "Start Station Longitude": "-74.04311746358871",
+      "Start Station Name": "Grove St PATH",
+      "Start Time": "2017-03-31T12:59:48Z",
+      "Stop Time": "2017-03-31T13:09:02Z",
+      "Trip Duration": "554",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12128
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26304",
+      "Birth Year": "1981",
+      "End Station ID": "3187",
+      "End Station Latitude": "40.7211236",
+      "End Station Longitude": "-74.03805095",
+      "End Station Name": "Warren St",
+      "Gender": "2",
+      "Start Station ID": "3272",
+      "Start Station Latitude": "40.72333158646436",
+      "Start Station Longitude": "-74.04595255851744",
+      "Start Station Name": "Jersey & 3rd",
+      "Start Time": "2017-03-31T13:00:35Z",
+      "Stop Time": "2017-03-31T13:04:28Z",
+      "Trip Duration": "233",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12129
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24558",
+      "Birth Year": "1979",
+      "End Station ID": "3183",
+      "End Station Latitude": "40.7162469",
+      "End Station Longitude": "-74.0334588",
+      "End Station Name": "Exchange Place",
+      "Gender": "1",
+      "Start Station ID": "3276",
+      "Start Station Latitude": "40.71458403535893",
+      "Start Station Longitude": "-74.04281705617905",
+      "Start Station Name": "Marin Light Rail",
+      "Start Time": "2017-03-31T13:05:57Z",
+      "Stop Time": "2017-03-31T13:12:57Z",
+      "Trip Duration": "419",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12130
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26263",
+      "Birth Year": "1982",
+      "End Station ID": "3279",
+      "End Station Latitude": "40.721630142638354",
+      "End Station Longitude": "-74.04996782541275",
+      "End Station Name": "Dixon Mills",
+      "Gender": "1",
+      "Start Station ID": "3184",
+      "Start Station Latitude": "40.7141454",
+      "Start Station Longitude": "-74.0335519",
+      "Start Station Name": "Paulus Hook",
+      "Start Time": "2017-03-31T13:43:06Z",
+      "Stop Time": "2017-03-31T13:50:39Z",
+      "Trip Duration": "452",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12131
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26305",
+      "Birth Year": "1981",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3269",
+      "Start Station Latitude": "40.72601172964625",
+      "Start Station Longitude": "-74.05038893222809",
+      "Start Station Name": "Brunswick & 6th",
+      "Start Time": "2017-03-31T13:49:47Z",
+      "Stop Time": "2017-03-31T13:54:04Z",
+      "Trip Duration": "257",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12132
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24604",
+      "Birth Year": "1967",
+      "End Station ID": "3193",
+      "End Station Latitude": "40.7246050998869",
+      "End Station Longitude": "-74.07840594649315",
+      "End Station Name": "Lincoln Park",
+      "Gender": "1",
+      "Start Station ID": "3195",
+      "Start Station Latitude": "40.73074262530658",
+      "Start Station Longitude": "-74.06378388404846",
+      "Start Station Name": "Sip Ave",
+      "Start Time": "2017-03-31T14:30:23Z",
+      "Stop Time": "2017-03-31T14:37:51Z",
+      "Trip Duration": "447",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12133
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29240",
+      "Birth Year": "1977",
+      "End Station ID": "3187",
+      "End Station Latitude": "40.7211236",
+      "End Station Longitude": "-74.03805095",
+      "End Station Name": "Warren St",
+      "Gender": "1",
+      "Start Station ID": "3184",
+      "Start Station Latitude": "40.7141454",
+      "Start Station Longitude": "-74.0335519",
+      "Start Station Name": "Paulus Hook",
+      "Start Time": "2017-03-31T14:50:43Z",
+      "Stop Time": "2017-03-31T14:58:45Z",
+      "Trip Duration": "482",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12134
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24470",
+      "Birth Year": "1981",
+      "End Station ID": "3194",
+      "End Station Latitude": "40.7253399253558",
+      "End Station Longitude": "-74.06762212514877",
+      "End Station Name": "McGinley Square",
+      "Gender": "1",
+      "Start Station ID": "3195",
+      "Start Station Latitude": "40.73074262530658",
+      "Start Station Longitude": "-74.06378388404846",
+      "Start Station Name": "Sip Ave",
+      "Start Time": "2017-03-31T14:59:02Z",
+      "Stop Time": "2017-03-31T15:02:25Z",
+      "Trip Duration": "202",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12135
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26263",
+      "Birth Year": "1982",
+      "End Station ID": "3273",
+      "End Station Latitude": "40.721650724879986",
+      "End Station Longitude": "-74.04288411140442",
+      "End Station Name": "Manila & 1st",
+      "Gender": "1",
+      "Start Station ID": "3279",
+      "Start Station Latitude": "40.721630142638354",
+      "Start Station Longitude": "-74.04996782541275",
+      "Start Station Name": "Dixon Mills",
+      "Start Time": "2017-03-31T15:15:42Z",
+      "Stop Time": "2017-03-31T15:18:42Z",
+      "Trip Duration": "179",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12136
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26278",
+      "Birth Year": "1986",
+      "End Station ID": "3269",
+      "End Station Latitude": "40.72601172964625",
+      "End Station Longitude": "-74.05038893222809",
+      "End Station Name": "Brunswick & 6th",
+      "Gender": "2",
+      "Start Station ID": "3186",
+      "Start Station Latitude": "40.71958611647166",
+      "Start Station Longitude": "-74.04311746358871",
+      "Start Station Name": "Grove St PATH",
+      "Start Time": "2017-03-31T15:20:17Z",
+      "Stop Time": "2017-03-31T15:24:10Z",
+      "Trip Duration": "232",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12137
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24558",
+      "Birth Year": "1979",
+      "End Station ID": "3276",
+      "End Station Latitude": "40.71458403535893",
+      "End Station Longitude": "-74.04281705617905",
+      "End Station Name": "Marin Light Rail",
+      "Gender": "1",
+      "Start Station ID": "3183",
+      "Start Station Latitude": "40.7162469",
+      "Start Station Longitude": "-74.0334588",
+      "Start Station Name": "Exchange Place",
+      "Start Time": "2017-03-31T15:45:52Z",
+      "Stop Time": "2017-03-31T15:51:12Z",
+      "Trip Duration": "319",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12138
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26258",
+      "Birth Year": "1975",
+      "End Station ID": "3187",
+      "End Station Latitude": "40.7211236",
+      "End Station Longitude": "-74.03805095",
+      "End Station Name": "Warren St",
+      "Gender": "1",
+      "Start Station ID": "3275",
+      "Start Station Latitude": "40.71835519823214",
+      "Start Station Longitude": "-74.03891444206238",
+      "Start Station Name": "Columbus Drive",
+      "Start Time": "2017-03-31T15:48:58Z",
+      "Stop Time": "2017-03-31T15:50:28Z",
+      "Trip Duration": "89",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12139
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26303",
+      "Birth Year": "1986",
+      "End Station ID": "3279",
+      "End Station Latitude": "40.721630142638354",
+      "End Station Longitude": "-74.04996782541275",
+      "End Station Name": "Dixon Mills",
+      "Gender": "1",
+      "Start Station ID": "3186",
+      "Start Station Latitude": "40.71958611647166",
+      "Start Station Longitude": "-74.04311746358871",
+      "Start Station Name": "Grove St PATH",
+      "Start Time": "2017-03-31T15:50:43Z",
+      "Stop Time": "2017-03-31T15:53:32Z",
+      "Trip Duration": "169",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12140
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24608",
+      "Birth Year": "1958",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3275",
+      "Start Station Latitude": "40.71835519823214",
+      "Start Station Longitude": "-74.03891444206238",
+      "Start Station Name": "Columbus Drive",
+      "Start Time": "2017-03-31T16:11:19Z",
+      "Stop Time": "2017-03-31T16:13:02Z",
+      "Trip Duration": "103",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12141
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24499",
+      "Birth Year": "1972",
+      "End Station ID": "3192",
+      "End Station Latitude": "40.7112423",
+      "End Station Longitude": "-74.0557013",
+      "End Station Name": "Liberty Light Rail",
+      "Gender": "1",
+      "Start Station ID": "3184",
+      "Start Station Latitude": "40.7141454",
+      "Start Station Longitude": "-74.0335519",
+      "Start Station Name": "Paulus Hook",
+      "Start Time": "2017-03-31T16:11:48Z",
+      "Stop Time": "2017-03-31T16:19:50Z",
+      "Trip Duration": "482",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12142
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29201",
+      "Birth Year": "1960",
+      "End Station ID": "3209",
+      "End Station Latitude": "40.7241765",
+      "End Station Longitude": "-74.0506564",
+      "End Station Name": "Brunswick St",
+      "Gender": "1",
+      "Start Station ID": "3267",
+      "Start Station Latitude": "40.7124188237569",
+      "Start Station Longitude": "-74.03852552175522",
+      "Start Station Name": "Morris Canal",
+      "Start Time": "2017-03-31T16:19:20Z",
+      "Stop Time": "2017-03-31T16:28:55Z",
+      "Trip Duration": "575",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12143
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26237",
+      "Birth Year": "1980",
+      "End Station ID": "3267",
+      "End Station Latitude": "40.7124188237569",
+      "End Station Longitude": "-74.03852552175522",
+      "End Station Name": "Morris Canal",
+      "Gender": "1",
+      "Start Station ID": "3183",
+      "Start Station Latitude": "40.7162469",
+      "Start Station Longitude": "-74.0334588",
+      "Start Station Name": "Exchange Place",
+      "Start Time": "2017-03-31T16:21:43Z",
+      "Stop Time": "2017-03-31T16:24:31Z",
+      "Trip Duration": "168",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12144
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29232",
+      "Birth Year": "1960",
+      "End Station ID": "3214",
+      "End Station Latitude": "40.7127742",
+      "End Station Longitude": "-74.0364857",
+      "End Station Name": "Essex Light Rail",
+      "Gender": "1",
+      "Start Station ID": "3183",
+      "Start Station Latitude": "40.7162469",
+      "Start Station Longitude": "-74.0334588",
+      "Start Station Name": "Exchange Place",
+      "Start Time": "2017-03-31T16:25:08Z",
+      "Stop Time": "2017-03-31T16:27:25Z",
+      "Trip Duration": "136",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12145
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24377",
+      "Birth Year": "1980",
+      "End Station ID": "3276",
+      "End Station Latitude": "40.71458403535893",
+      "End Station Longitude": "-74.04281705617905",
+      "End Station Name": "Marin Light Rail",
+      "Gender": "1",
+      "Start Station ID": "3185",
+      "Start Station Latitude": "40.7177325",
+      "Start Station Longitude": "-74.043845",
+      "Start Station Name": "City Hall",
+      "Start Time": "2017-03-31T16:29:32Z",
+      "Stop Time": "2017-03-31T16:33:23Z",
+      "Trip Duration": "231",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12146
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29245",
+      "Birth Year": "1981",
+      "End Station ID": "3269",
+      "End Station Latitude": "40.72601172964625",
+      "End Station Longitude": "-74.05038893222809",
+      "End Station Name": "Brunswick & 6th",
+      "Gender": "1",
+      "Start Station ID": "3202",
+      "Start Station Latitude": "40.7272235",
+      "Start Station Longitude": "-74.0337589",
+      "Start Station Name": "Newport PATH",
+      "Start Time": "2017-03-31T16:38:14Z",
+      "Stop Time": "2017-03-31T16:51:02Z",
+      "Trip Duration": "767",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12147
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24520",
+      "Birth Year": "1976",
+      "End Station ID": "3267",
+      "End Station Latitude": "40.7124188237569",
+      "End Station Longitude": "-74.03852552175522",
+      "End Station Name": "Morris Canal",
+      "Gender": "2",
+      "Start Station ID": "3183",
+      "Start Station Latitude": "40.7162469",
+      "Start Station Longitude": "-74.0334588",
+      "Start Station Name": "Exchange Place",
+      "Start Time": "2017-03-31T16:50:20Z",
+      "Stop Time": "2017-03-31T16:53:49Z",
+      "Trip Duration": "208",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12148
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26226",
+      "Birth Year": "1984",
+      "End Station ID": "3187",
+      "End Station Latitude": "40.7211236",
+      "End Station Longitude": "-74.03805095",
+      "End Station Name": "Warren St",
+      "Gender": "1",
+      "Start Station ID": "3202",
+      "Start Station Latitude": "40.7272235",
+      "Start Station Longitude": "-74.0337589",
+      "Start Station Name": "Newport PATH",
+      "Start Time": "2017-03-31T16:52:24Z",
+      "Stop Time": "2017-03-31T16:57:24Z",
+      "Trip Duration": "299",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12149
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24433",
+      "Birth Year": "1983",
+      "End Station ID": "3203",
+      "End Station Latitude": "40.727595966",
+      "End Station Longitude": "-74.044247311",
+      "End Station Name": "Hamilton Park",
+      "Gender": "1",
+      "Start Station ID": "3186",
+      "Start Station Latitude": "40.71958611647166",
+      "Start Station Longitude": "-74.04311746358871",
+      "Start Station Name": "Grove St PATH",
+      "Start Time": "2017-03-31T16:55:03Z",
+      "Stop Time": "2017-03-31T16:59:11Z",
+      "Trip Duration": "247",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12150
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26265",
+      "Birth Year": "1971",
+      "End Station ID": "3211",
+      "End Station Latitude": "40.72152515",
+      "End Station Longitude": "-74.046304543",
+      "End Station Name": "Newark Ave",
+      "Gender": "1",
+      "Start Station ID": "3270",
+      "Start Station Latitude": "40.72528910781132",
+      "Start Station Longitude": "-74.04557168483734",
+      "Start Station Name": "Jersey & 6th St",
+      "Start Time": "2017-03-31T16:56:52Z",
+      "Stop Time": "2017-03-31T16:58:32Z",
+      "Trip Duration": "99",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12151
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24649",
+      "Birth Year": "1976",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3184",
+      "Start Station Latitude": "40.7141454",
+      "Start Station Longitude": "-74.0335519",
+      "Start Station Name": "Paulus Hook",
+      "Start Time": "2017-03-31T17:16:56Z",
+      "Stop Time": "2017-03-31T17:23:44Z",
+      "Trip Duration": "407",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12152
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29295",
+      "Birth Year": "1954",
+      "End Station ID": "3215",
+      "End Station Latitude": "40.7467299",
+      "End Station Longitude": "-74.0492509",
+      "End Station Name": "Central Ave",
+      "Gender": "1",
+      "Start Station ID": "3195",
+      "Start Station Latitude": "40.73074262530658",
+      "Start Station Longitude": "-74.06378388404846",
+      "Start Station Name": "Sip Ave",
+      "Start Time": "2017-03-31T17:19:45Z",
+      "Stop Time": "2017-03-31T17:32:42Z",
+      "Trip Duration": "777",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12153
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29296",
+      "Birth Year": "1971",
+      "End Station ID": "3280",
+      "End Station Latitude": "40.71928220070702",
+      "End Station Longitude": "-74.07126188278198",
+      "End Station Name": "Astor Place",
+      "Gender": "1",
+      "Start Station ID": "3195",
+      "Start Station Latitude": "40.73074262530658",
+      "Start Station Longitude": "-74.06378388404846",
+      "Start Station Name": "Sip Ave",
+      "Start Time": "2017-03-31T17:24:46Z",
+      "Stop Time": "2017-03-31T17:30:16Z",
+      "Trip Duration": "329",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12154
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29237",
+      "Birth Year": "1980",
+      "End Station ID": "3214",
+      "End Station Latitude": "40.7127742",
+      "End Station Longitude": "-74.0364857",
+      "End Station Name": "Essex Light Rail",
+      "Gender": "1",
+      "Start Station ID": "3183",
+      "Start Station Latitude": "40.7162469",
+      "Start Station Longitude": "-74.0334588",
+      "Start Station Name": "Exchange Place",
+      "Start Time": "2017-03-31T17:25:18Z",
+      "Stop Time": "2017-03-31T17:28:24Z",
+      "Trip Duration": "186",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12155
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24470",
+      "Birth Year": "1956",
+      "End Station ID": "3195",
+      "End Station Latitude": "40.73074262530658",
+      "End Station Longitude": "-74.06378388404846",
+      "End Station Name": "Sip Ave",
+      "Gender": "1",
+      "Start Station ID": "3194",
+      "Start Station Latitude": "40.7253399253558",
+      "Start Station Longitude": "-74.06762212514877",
+      "Start Station Name": "McGinley Square",
+      "Start Time": "2017-03-31T17:31:13Z",
+      "Stop Time": "2017-03-31T17:36:49Z",
+      "Trip Duration": "335",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12156
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29272",
+      "Birth Year": null,
+      "End Station ID": "3183",
+      "End Station Latitude": "40.7162469",
+      "End Station Longitude": "-74.0334588",
+      "End Station Name": "Exchange Place",
+      "Gender": "0",
+      "Start Station ID": "3184",
+      "Start Station Latitude": "40.7141454",
+      "Start Station Longitude": "-74.0335519",
+      "Start Station Name": "Paulus Hook",
+      "Start Time": "2017-03-31T17:31:21Z",
+      "Stop Time": "2017-03-31T17:32:41Z",
+      "Trip Duration": "79",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12157
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29208",
+      "Birth Year": "1986",
+      "End Station ID": "3280",
+      "End Station Latitude": "40.71928220070702",
+      "End Station Longitude": "-74.07126188278198",
+      "End Station Name": "Astor Place",
+      "Gender": "1",
+      "Start Station ID": "3195",
+      "Start Station Latitude": "40.73074262530658",
+      "Start Station Longitude": "-74.06378388404846",
+      "Start Station Name": "Sip Ave",
+      "Start Time": "2017-03-31T17:33:57Z",
+      "Stop Time": "2017-03-31T17:42:27Z",
+      "Trip Duration": "510",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12158
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29201",
+      "Birth Year": "1960",
+      "End Station ID": "3275",
+      "End Station Latitude": "40.71835519823214",
+      "End Station Longitude": "-74.03891444206238",
+      "End Station Name": "Columbus Drive",
+      "Gender": "1",
+      "Start Station ID": "3209",
+      "Start Station Latitude": "40.7241765",
+      "Start Station Longitude": "-74.0506564",
+      "Start Station Name": "Brunswick St",
+      "Start Time": "2017-03-31T17:35:50Z",
+      "Stop Time": "2017-03-31T17:42:50Z",
+      "Trip Duration": "419",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12159
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26265",
+      "Birth Year": "1984",
+      "End Station ID": "3205",
+      "End Station Latitude": "40.71653978099194",
+      "End Station Longitude": "-74.0496379137039",
+      "End Station Name": "JC Medical Center",
+      "Gender": "1",
+      "Start Station ID": "3211",
+      "Start Station Latitude": "40.72152515",
+      "Start Station Longitude": "-74.046304543",
+      "Start Station Name": "Newark Ave",
+      "Start Time": "2017-03-31T17:36:06Z",
+      "Stop Time": "2017-03-31T17:38:50Z",
+      "Trip Duration": "164",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12160
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29248",
+      "Birth Year": "1974",
+      "End Station ID": "3193",
+      "End Station Latitude": "40.7246050998869",
+      "End Station Longitude": "-74.07840594649315",
+      "End Station Name": "Lincoln Park",
+      "Gender": "1",
+      "Start Station ID": "3195",
+      "Start Station Latitude": "40.73074262530658",
+      "Start Station Longitude": "-74.06378388404846",
+      "Start Station Name": "Sip Ave",
+      "Start Time": "2017-03-31T17:37:33Z",
+      "Stop Time": "2017-03-31T17:48:20Z",
+      "Trip Duration": "647",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12161
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29228",
+      "Birth Year": "1976",
+      "End Station ID": "3279",
+      "End Station Latitude": "40.721630142638354",
+      "End Station Longitude": "-74.04996782541275",
+      "End Station Name": "Dixon Mills",
+      "Gender": "1",
+      "Start Station ID": "3186",
+      "Start Station Latitude": "40.71958611647166",
+      "Start Station Longitude": "-74.04311746358871",
+      "Start Station Name": "Grove St PATH",
+      "Start Time": "2017-03-31T17:39:49Z",
+      "Stop Time": "2017-03-31T17:42:48Z",
+      "Trip Duration": "178",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12162
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29246",
+      "Birth Year": "1963",
+      "End Station ID": "3197",
+      "End Station Latitude": "40.752559",
+      "End Station Longitude": "-74.044725",
+      "End Station Name": "North St",
+      "Gender": "1",
+      "Start Station ID": "3212",
+      "Start Station Latitude": "40.734785818",
+      "Start Station Longitude": "-74.050443636",
+      "Start Station Name": "Christ Hospital",
+      "Start Time": "2017-03-31T17:42:04Z",
+      "Stop Time": "2017-03-31T17:53:06Z",
+      "Trip Duration": "662",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12163
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26249",
+      "Birth Year": "1989",
+      "End Station ID": "3205",
+      "End Station Latitude": "40.71653978099194",
+      "End Station Longitude": "-74.0496379137039",
+      "End Station Name": "JC Medical Center",
+      "Gender": "1",
+      "Start Station ID": "3186",
+      "Start Station Latitude": "40.71958611647166",
+      "Start Station Longitude": "-74.04311746358871",
+      "Start Station Name": "Grove St PATH",
+      "Start Time": "2017-03-31T17:44:31Z",
+      "Stop Time": "2017-03-31T17:49:12Z",
+      "Trip Duration": "281",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12164
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24558",
+      "Birth Year": "1979",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3276",
+      "Start Station Latitude": "40.71458403535893",
+      "Start Station Longitude": "-74.04281705617905",
+      "Start Station Name": "Marin Light Rail",
+      "Start Time": "2017-03-31T17:48:08Z",
+      "Stop Time": "2017-03-31T17:52:02Z",
+      "Trip Duration": "233",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12165
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24573",
+      "Birth Year": "1990",
+      "End Station ID": "3276",
+      "End Station Latitude": "40.71458403535893",
+      "End Station Longitude": "-74.04281705617905",
+      "End Station Name": "Marin Light Rail",
+      "Gender": "1",
+      "Start Station ID": "3214",
+      "Start Station Latitude": "40.7127742",
+      "Start Station Longitude": "-74.0364857",
+      "Start Station Name": "Essex Light Rail",
+      "Start Time": "2017-03-31T17:50:40Z",
+      "Stop Time": "2017-03-31T17:54:14Z",
+      "Trip Duration": "213",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12166
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29262",
+      "Birth Year": "1993",
+      "End Station ID": "3276",
+      "End Station Latitude": "40.71458403535893",
+      "End Station Longitude": "-74.04281705617905",
+      "End Station Name": "Marin Light Rail",
+      "Gender": "2",
+      "Start Station ID": "3214",
+      "Start Station Latitude": "40.7127742",
+      "Start Station Longitude": "-74.0364857",
+      "Start Station Name": "Essex Light Rail",
+      "Start Time": "2017-03-31T17:50:51Z",
+      "Stop Time": "2017-03-31T17:54:21Z",
+      "Trip Duration": "210",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12167
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29265",
+      "Birth Year": "1981",
+      "End Station ID": "3272",
+      "End Station Latitude": "40.72333158646436",
+      "End Station Longitude": "-74.04595255851744",
+      "End Station Name": "Jersey & 3rd",
+      "Gender": "2",
+      "Start Station ID": "3273",
+      "Start Station Latitude": "40.721650724879986",
+      "Start Station Longitude": "-74.04288411140442",
+      "Start Station Name": "Manila & 1st",
+      "Start Time": "2017-03-31T18:03:39Z",
+      "Stop Time": "2017-03-31T18:05:52Z",
+      "Trip Duration": "132",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12168
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24504",
+      "Birth Year": "1980",
+      "End Station ID": "3267",
+      "End Station Latitude": "40.7124188237569",
+      "End Station Longitude": "-74.03852552175522",
+      "End Station Name": "Morris Canal",
+      "Gender": "1",
+      "Start Station ID": "3183",
+      "Start Station Latitude": "40.7162469",
+      "Start Station Longitude": "-74.0334588",
+      "Start Station Name": "Exchange Place",
+      "Start Time": "2017-03-31T18:11:06Z",
+      "Stop Time": "2017-03-31T18:17:05Z",
+      "Trip Duration": "359",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12169
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26268",
+      "Birth Year": "1971",
+      "End Station ID": "3191",
+      "End Station Latitude": "40.7182113",
+      "End Station Longitude": "-74.0836394",
+      "End Station Name": "Union St",
+      "Gender": "2",
+      "Start Station ID": "3195",
+      "Start Station Latitude": "40.73074262530658",
+      "Start Station Longitude": "-74.06378388404846",
+      "Start Station Name": "Sip Ave",
+      "Start Time": "2017-03-31T18:19:06Z",
+      "Stop Time": "2017-03-31T18:34:52Z",
+      "Trip Duration": "946",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12170
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24641",
+      "Birth Year": "1975",
+      "End Station ID": "3185",
+      "End Station Latitude": "40.7177325",
+      "End Station Longitude": "-74.043845",
+      "End Station Name": "City Hall",
+      "Gender": "1",
+      "Start Station ID": "3277",
+      "Start Station Latitude": "40.71435836870427",
+      "Start Station Longitude": "-74.06661093235016",
+      "Start Station Name": "Communipaw & Berry Lane",
+      "Start Time": "2017-03-31T18:30:41Z",
+      "Stop Time": "2017-03-31T18:39:10Z",
+      "Trip Duration": "508",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12171
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29233",
+      "Birth Year": "1978",
+      "End Station ID": "3214",
+      "End Station Latitude": "40.7127742",
+      "End Station Longitude": "-74.0364857",
+      "End Station Name": "Essex Light Rail",
+      "Gender": "1",
+      "Start Station ID": "3183",
+      "Start Station Latitude": "40.7162469",
+      "Start Station Longitude": "-74.0334588",
+      "Start Station Name": "Exchange Place",
+      "Start Time": "2017-03-31T18:32:38Z",
+      "Stop Time": "2017-03-31T18:54:12Z",
+      "Trip Duration": "1293",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12172
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26202",
+      "Birth Year": "1986",
+      "End Station ID": "3207",
+      "End Station Latitude": "40.7376037",
+      "End Station Longitude": "-74.0524783",
+      "End Station Name": "Oakland Ave",
+      "Gender": "2",
+      "Start Station ID": "3198",
+      "Start Station Latitude": "40.748715945380226",
+      "Start Station Longitude": "-74.04044330120087",
+      "Start Station Name": "Heights Elevator",
+      "Start Time": "2017-03-31T18:33:34Z",
+      "Stop Time": "2017-03-31T18:43:08Z",
+      "Trip Duration": "573",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12173
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24501",
+      "Birth Year": "1981",
+      "End Station ID": "3214",
+      "End Station Latitude": "40.7127742",
+      "End Station Longitude": "-74.0364857",
+      "End Station Name": "Essex Light Rail",
+      "Gender": "1",
+      "Start Station ID": "3183",
+      "Start Station Latitude": "40.7162469",
+      "Start Station Longitude": "-74.0334588",
+      "Start Station Name": "Exchange Place",
+      "Start Time": "2017-03-31T18:37:57Z",
+      "Stop Time": "2017-03-31T18:40:30Z",
+      "Trip Duration": "153",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12174
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24516",
+      "Birth Year": "1986",
+      "End Station ID": "3280",
+      "End Station Latitude": "40.71928220070702",
+      "End Station Longitude": "-74.07126188278198",
+      "End Station Name": "Astor Place",
+      "Gender": "2",
+      "Start Station ID": "3195",
+      "Start Station Latitude": "40.73074262530658",
+      "Start Station Longitude": "-74.06378388404846",
+      "Start Station Name": "Sip Ave",
+      "Start Time": "2017-03-31T18:43:42Z",
+      "Stop Time": "2017-03-31T18:50:35Z",
+      "Trip Duration": "413",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12175
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29229",
+      "Birth Year": "1967",
+      "End Station ID": "3267",
+      "End Station Latitude": "40.7124188237569",
+      "End Station Longitude": "-74.03852552175522",
+      "End Station Name": "Morris Canal",
+      "Gender": "1",
+      "Start Station ID": "3184",
+      "Start Station Latitude": "40.7141454",
+      "Start Station Longitude": "-74.0335519",
+      "Start Station Name": "Paulus Hook",
+      "Start Time": "2017-03-31T18:45:40Z",
+      "Stop Time": "2017-03-31T18:48:45Z",
+      "Trip Duration": "184",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12176
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26299",
+      "Birth Year": "1978",
+      "End Station ID": "3203",
+      "End Station Latitude": "40.727595966",
+      "End Station Longitude": "-74.044247311",
+      "End Station Name": "Hamilton Park",
+      "Gender": "1",
+      "Start Station ID": "3186",
+      "Start Station Latitude": "40.71958611647166",
+      "Start Station Longitude": "-74.04311746358871",
+      "Start Station Name": "Grove St PATH",
+      "Start Time": "2017-03-31T18:50:01Z",
+      "Stop Time": "2017-03-31T18:53:35Z",
+      "Trip Duration": "213",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12177
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29250",
+      "Birth Year": "1984",
+      "End Station ID": "3187",
+      "End Station Latitude": "40.7211236",
+      "End Station Longitude": "-74.03805095",
+      "End Station Name": "Warren St",
+      "Gender": "1",
+      "Start Station ID": "3269",
+      "Start Station Latitude": "40.72601172964625",
+      "Start Station Longitude": "-74.05038893222809",
+      "Start Station Name": "Brunswick & 6th",
+      "Start Time": "2017-03-31T18:50:42Z",
+      "Stop Time": "2017-03-31T18:57:07Z",
+      "Trip Duration": "384",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12178
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26281",
+      "Birth Year": "1989",
+      "End Station ID": "3212",
+      "End Station Latitude": "40.734785818",
+      "End Station Longitude": "-74.050443636",
+      "End Station Name": "Christ Hospital",
+      "Gender": "2",
+      "Start Station ID": "3195",
+      "Start Station Latitude": "40.73074262530658",
+      "Start Station Longitude": "-74.06378388404846",
+      "Start Station Name": "Sip Ave",
+      "Start Time": "2017-03-31T18:54:29Z",
+      "Stop Time": "2017-03-31T19:03:08Z",
+      "Trip Duration": "519",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12179
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24649",
+      "Birth Year": "1977",
+      "End Station ID": "3203",
+      "End Station Latitude": "40.727595966",
+      "End Station Longitude": "-74.044247311",
+      "End Station Name": "Hamilton Park",
+      "Gender": "1",
+      "Start Station ID": "3186",
+      "Start Station Latitude": "40.71958611647166",
+      "Start Station Longitude": "-74.04311746358871",
+      "Start Station Name": "Grove St PATH",
+      "Start Time": "2017-03-31T19:20:02Z",
+      "Stop Time": "2017-03-31T19:25:05Z",
+      "Trip Duration": "302",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12180
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29201",
+      "Birth Year": "1960",
+      "End Station ID": "3267",
+      "End Station Latitude": "40.7124188237569",
+      "End Station Longitude": "-74.03852552175522",
+      "End Station Name": "Morris Canal",
+      "Gender": "1",
+      "Start Station ID": "3275",
+      "Start Station Latitude": "40.71835519823214",
+      "Start Station Longitude": "-74.03891444206238",
+      "Start Station Name": "Columbus Drive",
+      "Start Time": "2017-03-31T19:23:04Z",
+      "Stop Time": "2017-03-31T19:27:37Z",
+      "Trip Duration": "273",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12181
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26271",
+      "Birth Year": "1949",
+      "End Station ID": "3279",
+      "End Station Latitude": "40.721630142638354",
+      "End Station Longitude": "-74.04996782541275",
+      "End Station Name": "Dixon Mills",
+      "Gender": "1",
+      "Start Station ID": "3186",
+      "Start Station Latitude": "40.71958611647166",
+      "Start Station Longitude": "-74.04311746358871",
+      "Start Station Name": "Grove St PATH",
+      "Start Time": "2017-03-31T19:25:33Z",
+      "Stop Time": "2017-03-31T19:28:56Z",
+      "Trip Duration": "202",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12182
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29225",
+      "Birth Year": "1984",
+      "End Station ID": "3207",
+      "End Station Latitude": "40.7376037",
+      "End Station Longitude": "-74.0524783",
+      "End Station Name": "Oakland Ave",
+      "Gender": "2",
+      "Start Station ID": "3195",
+      "Start Station Latitude": "40.73074262530658",
+      "Start Station Longitude": "-74.06378388404846",
+      "Start Station Name": "Sip Ave",
+      "Start Time": "2017-03-31T19:27:24Z",
+      "Stop Time": "2017-03-31T19:32:45Z",
+      "Trip Duration": "320",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12183
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26216",
+      "Birth Year": "1978",
+      "End Station ID": "3197",
+      "End Station Latitude": "40.752559",
+      "End Station Longitude": "-74.044725",
+      "End Station Name": "North St",
+      "Gender": "1",
+      "Start Station ID": "3220",
+      "Start Station Latitude": "40.734961020009514",
+      "Start Station Longitude": "-74.0595030784607",
+      "Start Station Name": "5 Corners Library",
+      "Start Time": "2017-03-31T19:33:32Z",
+      "Stop Time": "2017-03-31T19:44:12Z",
+      "Trip Duration": "640",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12184
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26276",
+      "Birth Year": "1963",
+      "End Station ID": "3187",
+      "End Station Latitude": "40.7211236",
+      "End Station Longitude": "-74.03805095",
+      "End Station Name": "Warren St",
+      "Gender": "1",
+      "Start Station ID": "3202",
+      "Start Station Latitude": "40.7272235",
+      "Start Station Longitude": "-74.0337589",
+      "Start Station Name": "Newport PATH",
+      "Start Time": "2017-03-31T19:37:02Z",
+      "Stop Time": "2017-03-31T19:41:39Z",
+      "Trip Duration": "277",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12185
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26165",
+      "Birth Year": "1978",
+      "End Station ID": "3278",
+      "End Station Latitude": "40.72568548362901",
+      "End Station Longitude": "-74.04879033565521",
+      "End Station Name": "Monmouth and 6th",
+      "Gender": "1",
+      "Start Station ID": "3186",
+      "Start Station Latitude": "40.71958611647166",
+      "Start Station Longitude": "-74.04311746358871",
+      "Start Station Name": "Grove St PATH",
+      "Start Time": "2017-03-31T19:37:18Z",
+      "Stop Time": "2017-03-31T19:41:49Z",
+      "Trip Duration": "270",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12186
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29286",
+      "Birth Year": "1986",
+      "End Station ID": "3272",
+      "End Station Latitude": "40.72333158646436",
+      "End Station Longitude": "-74.04595255851744",
+      "End Station Name": "Jersey & 3rd",
+      "Gender": "1",
+      "Start Station ID": "3279",
+      "Start Station Latitude": "40.721630142638354",
+      "Start Station Longitude": "-74.04996782541275",
+      "Start Station Name": "Dixon Mills",
+      "Start Time": "2017-03-31T19:43:30Z",
+      "Stop Time": "2017-03-31T19:47:02Z",
+      "Trip Duration": "211",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12187
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24572",
+      "Birth Year": "1962",
+      "End Station ID": "3203",
+      "End Station Latitude": "40.727595966",
+      "End Station Longitude": "-74.044247311",
+      "End Station Name": "Hamilton Park",
+      "Gender": "1",
+      "Start Station ID": "3213",
+      "Start Station Latitude": "40.71848892",
+      "Start Station Longitude": "-74.047726625",
+      "Start Station Name": "Van Vorst Park",
+      "Start Time": "2017-03-31T19:52:46Z",
+      "Stop Time": "2017-03-31T19:58:14Z",
+      "Trip Duration": "328",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12188
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26189",
+      "Birth Year": "1980",
+      "End Station ID": "3214",
+      "End Station Latitude": "40.7127742",
+      "End Station Longitude": "-74.0364857",
+      "End Station Name": "Essex Light Rail",
+      "Gender": "1",
+      "Start Station ID": "3276",
+      "Start Station Latitude": "40.71458403535893",
+      "Start Station Longitude": "-74.04281705617905",
+      "Start Station Name": "Marin Light Rail",
+      "Start Time": "2017-03-31T20:01:21Z",
+      "Stop Time": "2017-03-31T20:05:53Z",
+      "Trip Duration": "271",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12189
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26265",
+      "Birth Year": "1992",
+      "End Station ID": "3186",
+      "End Station Latitude": "40.71958611647166",
+      "End Station Longitude": "-74.04311746358871",
+      "End Station Name": "Grove St PATH",
+      "Gender": "1",
+      "Start Station ID": "3205",
+      "Start Station Latitude": "40.71653978099194",
+      "Start Station Longitude": "-74.0496379137039",
+      "Start Station Name": "JC Medical Center",
+      "Start Time": "2017-03-31T20:18:00Z",
+      "Stop Time": "2017-03-31T20:20:31Z",
+      "Trip Duration": "150",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12190
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24558",
+      "Birth Year": "1967",
+      "End Station ID": "3203",
+      "End Station Latitude": "40.727595966",
+      "End Station Longitude": "-74.044247311",
+      "End Station Name": "Hamilton Park",
+      "Gender": "1",
+      "Start Station ID": "3186",
+      "Start Station Latitude": "40.71958611647166",
+      "Start Station Longitude": "-74.04311746358871",
+      "Start Station Name": "Grove St PATH",
+      "Start Time": "2017-03-31T20:46:19Z",
+      "Stop Time": "2017-03-31T20:54:06Z",
+      "Trip Duration": "467",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12191
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29250",
+      "Birth Year": "1984",
+      "End Station ID": "3269",
+      "End Station Latitude": "40.72601172964625",
+      "End Station Longitude": "-74.05038893222809",
+      "End Station Name": "Brunswick & 6th",
+      "Gender": "1",
+      "Start Station ID": "3187",
+      "Start Station Latitude": "40.7211236",
+      "Start Station Longitude": "-74.03805095",
+      "Start Station Name": "Warren St",
+      "Start Time": "2017-03-31T20:49:40Z",
+      "Stop Time": "2017-03-31T20:58:07Z",
+      "Trip Duration": "506",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12192
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26221",
+      "Birth Year": "1958",
+      "End Station ID": "3278",
+      "End Station Latitude": "40.72568548362901",
+      "End Station Longitude": "-74.04879033565521",
+      "End Station Name": "Monmouth and 6th",
+      "Gender": "1",
+      "Start Station ID": "3278",
+      "Start Station Latitude": "40.72568548362901",
+      "Start Station Longitude": "-74.04879033565521",
+      "Start Station Name": "Monmouth and 6th",
+      "Start Time": "2017-03-31T21:03:18Z",
+      "Stop Time": "2017-03-31T21:12:56Z",
+      "Trip Duration": "577",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12193
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24608",
+      "Birth Year": "1968",
+      "End Station ID": "3203",
+      "End Station Latitude": "40.727595966",
+      "End Station Longitude": "-74.044247311",
+      "End Station Name": "Hamilton Park",
+      "Gender": "1",
+      "Start Station ID": "3186",
+      "Start Station Latitude": "40.71958611647166",
+      "Start Station Longitude": "-74.04311746358871",
+      "Start Station Name": "Grove St PATH",
+      "Start Time": "2017-03-31T21:06:17Z",
+      "Stop Time": "2017-03-31T21:10:21Z",
+      "Trip Duration": "244",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12194
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29219",
+      "Birth Year": "1956",
+      "End Station ID": "3194",
+      "End Station Latitude": "40.7253399253558",
+      "End Station Longitude": "-74.06762212514877",
+      "End Station Name": "McGinley Square",
+      "Gender": "1",
+      "Start Station ID": "3195",
+      "Start Station Latitude": "40.73074262530658",
+      "Start Station Longitude": "-74.06378388404846",
+      "Start Station Name": "Sip Ave",
+      "Start Time": "2017-03-31T21:13:55Z",
+      "Stop Time": "2017-03-31T21:18:20Z",
+      "Trip Duration": "264",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12195
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "29276",
+      "Birth Year": "1970",
+      "End Station ID": "3201",
+      "End Station Latitude": "40.737711",
+      "End Station Longitude": "-74.066921",
+      "End Station Name": "Dey St",
+      "Gender": "1",
+      "Start Station ID": "3195",
+      "Start Station Latitude": "40.73074262530658",
+      "Start Station Longitude": "-74.06378388404846",
+      "Start Station Name": "Sip Ave",
+      "Start Time": "2017-03-31T21:26:40Z",
+      "Stop Time": "2017-03-31T21:30:39Z",
+      "Trip Duration": "239",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12196
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26177",
+      "Birth Year": "1976",
+      "End Station ID": "3267",
+      "End Station Latitude": "40.7124188237569",
+      "End Station Longitude": "-74.03852552175522",
+      "End Station Name": "Morris Canal",
+      "Gender": "1",
+      "Start Station ID": "3183",
+      "Start Station Latitude": "40.7162469",
+      "Start Station Longitude": "-74.0334588",
+      "Start Station Name": "Exchange Place",
+      "Start Time": "2017-03-31T21:46:57Z",
+      "Stop Time": "2017-03-31T21:50:09Z",
+      "Trip Duration": "192",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12197
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26240",
+      "Birth Year": "1956",
+      "End Station ID": "3214",
+      "End Station Latitude": "40.7127742",
+      "End Station Longitude": "-74.0364857",
+      "End Station Name": "Essex Light Rail",
+      "Gender": "1",
+      "Start Station ID": "3183",
+      "Start Station Latitude": "40.7162469",
+      "Start Station Longitude": "-74.0334588",
+      "Start Station Name": "Exchange Place",
+      "Start Time": "2017-03-31T22:03:56Z",
+      "Stop Time": "2017-03-31T22:07:02Z",
+      "Trip Duration": "186",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12198
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "24398",
+      "Birth Year": "1984",
+      "End Station ID": "3268",
+      "End Station Latitude": "40.71346382669195",
+      "End Station Longitude": "-74.06285852193832",
+      "End Station Name": "Lafayette Park",
+      "Gender": "1",
+      "Start Station ID": "3272",
+      "Start Station Latitude": "40.72333158646436",
+      "Start Station Longitude": "-74.04595255851744",
+      "Start Station Name": "Jersey & 3rd",
+      "Start Time": "2017-03-31T23:20:14Z",
+      "Stop Time": "2017-03-31T23:30:32Z",
+      "Trip Duration": "618",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12199
+      }
+    }
+  ],
+  [
+    "acmeCo/tripdata",
+    {
+      "Bike ID": "26200",
+      "Birth Year": "1988",
+      "End Station ID": "3190",
+      "End Station Latitude": "40.7104670233797",
+      "End Station Longitude": "-74.07003879547119",
+      "End Station Name": "Garfield Ave Station",
+      "Gender": "1",
+      "Start Station ID": "3185",
+      "Start Station Latitude": "40.7177325",
+      "Start Station Longitude": "-74.043845",
+      "Start Station Name": "City Hall",
+      "Start Time": "2017-03-31T23:25:34Z",
+      "Stop Time": "2017-03-31T23:36:23Z",
+      "Trip Duration": "649",
+      "User Type": "Subscriber",
+      "_meta": {
+        "file": "tripdata/JC-201703-citibike-tripdata.csv.zip",
+        "offset": 12200
+      }
+    }
+  ]
+]
