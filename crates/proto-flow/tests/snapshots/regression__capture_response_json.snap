@@ -31,7 +31,10 @@ expression: json_test(msg)
       "refreshTokenResponseMap": {
         "access": "here"
       }
-    }
+    },
+    "resourcePathPointers": [
+      "/stream"
+    ]
   },
   "discovered": {
     "bindings": [

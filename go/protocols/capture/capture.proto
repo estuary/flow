@@ -192,6 +192,16 @@ message Response {
     string documentation_url = 4;
     // Optional OAuth2 configuration.
     flow.OAuth2 oauth2 = 5;
+
+    // One or more JSON pointers, which are used to extract the `resource_path`
+    // from a given `resource` of this connector. For example, a database
+    // capture connector might have a `resource` that's represented like:
+    // `{"schema": "foo", "table": "bar", "otherConfig": true}`. In that case
+    // it could use `resource_path_pointers: ["/schema", "/table"]`, which
+    // would result in a `resource_path` of `["foo", "bar"]`. This allows
+    // `otherConfig` to be changed by the user without impacting the identity of
+    // the resource.
+    repeated string resource_path_pointers = 6;
   }
   Spec spec = 1;
 
