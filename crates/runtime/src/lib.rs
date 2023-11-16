@@ -4,13 +4,16 @@ use std::sync::Arc;
 mod capture;
 mod container;
 mod derive;
+pub mod harness;
 mod image_connector;
 mod local_connector;
 mod materialize;
+mod rocksdb;
 mod task_service;
 mod tokio_context;
 mod unary;
 mod unseal;
+pub mod uuid;
 
 pub use task_service::TaskService;
 pub use tokio_context::TokioContext;
@@ -45,12 +48,12 @@ fn stream_status_to_error<T, S: futures::Stream<Item = tonic::Result<T>>>(
     s.map_err(anyhow::Error::new)
 }
 
+pub trait LogHandler: Fn(&ops::Log) + Send + Sync + Clone + 'static {}
+impl<T: Fn(&ops::Log) + Send + Sync + Clone + 'static> LogHandler for T {}
+
 /// Runtime implements the various services that constitute the Flow Runtime.
 #[derive(Clone)]
-pub struct Runtime<L>
-where
-    L: Fn(&ops::Log) + Send + Sync + Clone + 'static,
-{
+pub struct Runtime<L: LogHandler> {
     allow_local: bool,
     container_network: String,
     log_handler: L,
@@ -58,10 +61,7 @@ where
     task_name: String,
 }
 
-impl<L> Runtime<L>
-where
-    L: Fn(&ops::Log) + Send + Sync + Clone + 'static,
-{
+impl<L: LogHandler> Runtime<L> {
     /// Build a new Runtime.
     /// * `allow_local`: Whether local connectors are permitted by this Runtime.
     /// * `container_network`: the Docker container network used for connector containers.
@@ -103,4 +103,114 @@ where
                     .max_encoding_message_size(usize::MAX), // The default, made explicit.
             )
     }
+}
+
+// Extract a LogLevel from a ShardSpec.
+fn shard_log_level(shard: Option<&proto_gazette::consumer::ShardSpec>) -> Option<ops::LogLevel> {
+    let labels = shard
+        .and_then(|shard| shard.labels.as_ref())
+        .map(|l| l.labels.as_slice());
+
+    let Some(labels) = labels else {
+        return None;
+    };
+    match labels.binary_search_by(|label| label.name.as_str().cmp(::labels::LOG_LEVEL)) {
+        Ok(index) => ops::LogLevel::from_str_name(&labels[index].value),
+        Err(_index) => None,
+    }
+}
+
+// verify is a convenience for building protocol error messages in a standard, structured way.
+// You call verify to establish a Verify instance, which is then used to assert expectations
+// over protocol requests or responses.
+// If an expectation fails, it produces a suitable error message.
+fn verify(source: &'static str, expect: &'static str) -> Verify {
+    Verify { source, expect }
+}
+
+struct Verify {
+    source: &'static str,
+    expect: &'static str,
+}
+
+impl Verify {
+    #[must_use]
+    #[inline]
+    fn not_eof<T>(&self, t: Option<T>) -> anyhow::Result<T> {
+        if let Some(t) = t {
+            Ok(t)
+        } else {
+            self.fail(Option::<()>::None)
+        }
+    }
+
+    #[must_use]
+    #[inline]
+    fn is_eof<T: serde::Serialize>(&self, t: Option<T>) -> anyhow::Result<()> {
+        if let Some(t) = t {
+            self.fail(t)
+        } else {
+            Ok(())
+        }
+    }
+
+    #[must_use]
+    #[cold]
+    fn fail<Ok, T: serde::Serialize>(&self, t: T) -> anyhow::Result<Ok> {
+        let (source, expect) = (self.source, self.expect);
+
+        let mut t = serde_json::to_string(&t).unwrap();
+        t.truncate(4096);
+
+        if t == "null" {
+            Err(anyhow::format_err!(
+                "unexpected {source} EOF (expected {expect})"
+            ))
+        } else {
+            Err(anyhow::format_err!(
+                "{source} protocol error (expected {expect}): {t}"
+            ))
+        }
+    }
+}
+
+/// exchange is a combinator for avoiding deadlocks. It sends into a request
+/// Stream while concurrently polling and yielding responses of a corresponding
+/// response Stream. It returns a stream which completes once the send has
+/// completed.
+///
+/// `exchange` mitigates an extremely common deadlock mistake, of sending into
+/// a receiver without consideration for whether the receiver may be unable to
+/// receive because it's output channel is stuffed and is not being serviced.
+/// This is a generalized problem -- in no way unique to Rust -- but the polled
+/// nature of Futures and Streams accentuate it because receiving from a Stream
+/// is *also* polling it, allowing it to perform other important activity even
+/// if it cannot immediately yield an item.
+fn exchange<'s, Request, Tx, Response, Rx>(
+    request: Request,
+    tx: &'s mut Tx,
+    rx: &'s mut Rx,
+) -> impl futures::Stream<Item = Response> + 's
+where
+    Request: 'static,
+    Tx: futures::Sink<Request> + Unpin + 's,
+    Rx: futures::Stream<Item = Response> + Unpin + 's,
+{
+    use futures::{SinkExt, StreamExt};
+
+    futures::stream::unfold((tx.feed(request), rx), move |(mut feed, rx)| async move {
+        tokio::select! {
+            biased;
+
+            // We suppress a `feed` error, which represents a disconnection / reset,
+            // because a better and causal error will invariably be surfaced by `rx`.
+            _result = &mut feed => None,
+
+            response = rx.next() => if let Some(response) = response {
+                Some((response, (feed, rx)))
+            } else {
+                None
+            },
+        }
+    })
 }

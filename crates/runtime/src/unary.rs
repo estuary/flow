@@ -1,18 +1,15 @@
-use super::Runtime;
-use futures::{stream::BoxStream, Future, FutureExt, StreamExt, TryStreamExt};
+use super::{LogHandler, Runtime};
+use futures::{stream::BoxStream, StreamExt, TryStreamExt};
 use proto_flow::{capture, derive, materialize};
 use std::time::Duration;
 
-impl<L> Runtime<L>
-where
-    L: Fn(&ops::Log) + Send + Sync + Clone + 'static,
-{
+impl<L: LogHandler> Runtime<L> {
     pub async fn unary_capture(
         self,
         request: capture::Request,
         timeout: Duration,
-    ) -> tonic::Result<capture::Response> {
-        let response = self.serve_capture(unary_in(request)).boxed();
+    ) -> anyhow::Result<capture::Response> {
+        let response = self.serve_capture(unary_in(request));
         unary_out(response, timeout).await
     }
 
@@ -21,61 +18,30 @@ where
         request: derive::Request,
         timeout: Duration,
     ) -> anyhow::Result<derive::Response> {
-        let response = self.serve_derive(unary_in_2(request));
-        unary_out_2(response, timeout).await
+        let response = self.serve_derive(unary_in(request));
+        unary_out(response, timeout).await
     }
 
     pub async fn unary_materialize(
         self,
         request: materialize::Request,
         timeout: Duration,
-    ) -> tonic::Result<materialize::Response> {
+    ) -> anyhow::Result<materialize::Response> {
         let response = self.serve_materialize(unary_in(request)).boxed();
         unary_out(response, timeout).await
     }
 }
 
-fn unary_in<R: Send + 'static>(request: R) -> BoxStream<'static, tonic::Result<R>> {
+fn unary_in<R: Send + 'static>(request: R) -> BoxStream<'static, anyhow::Result<R>> {
     futures::stream::once(async move { Ok(request) }).boxed()
 }
 
-// TODO(johnny): replace unary_in with this.
-fn unary_in_2<R: Send + 'static>(request: R) -> BoxStream<'static, anyhow::Result<R>> {
-    futures::stream::once(async move { Ok(request) }).boxed()
-}
-
-async fn unary_out<F, R>(f: F, timeout: Duration) -> tonic::Result<R>
+async fn unary_out<S, R>(response_rx: S, timeout: Duration) -> anyhow::Result<R>
 where
-    F: Future<Output = tonic::Result<BoxStream<'static, tonic::Result<R>>>>,
-{
-    let response = async move {
-        let mut responses: Vec<R> = f.await?.try_collect().await?;
-
-        if responses.len() != 1 {
-            return Err(tonic::Status::unknown(
-                "unary request didn't return a response",
-            ));
-        }
-        Ok(responses.pop().unwrap())
-    };
-
-    tokio::select! {
-        response = response => response,
-        _ = tokio::time::sleep(timeout) => {
-            Err(tonic::Status::deadline_exceeded(r#"Timeout while waiting for the connector's response.
-    Please verify any network configuration and retry."#))
-        }
-    }
-}
-
-// TODO(johnny): replace unary_out with this.
-async fn unary_out_2<F, S, R>(f: F, timeout: Duration) -> anyhow::Result<R>
-where
-    F: Future<Output = anyhow::Result<S>>,
     S: futures::Stream<Item = anyhow::Result<R>>,
 {
     let response = async move {
-        let mut responses: Vec<R> = f.await?.try_collect().await?;
+        let mut responses: Vec<R> = response_rx.try_collect().await?;
 
         if responses.len() != 1 {
             anyhow::bail!("unary request didn't return a response");
