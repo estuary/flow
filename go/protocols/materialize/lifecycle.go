@@ -158,10 +158,24 @@ type LoadIterator struct {
 	request     *Request        // Request read into.
 	awaitDoneCh <-chan struct{} // Signaled when last commit acknowledgment has completed.
 	err         error           // Terminal error.
+	cancel      context.CancelFunc
+	ctx         context.Context
 }
 
 // Context returns the Context of this LoadIterator.
-func (it *LoadIterator) Context() context.Context { return it.stream.Context() }
+func (it *LoadIterator) Context() context.Context { 
+	if it.ctx == nil {
+		it.ctx, it.cancel = context.WithCancel(it.stream.Context())
+	}
+
+	return it.ctx
+}
+
+func (it *LoadIterator) Cancel() {
+	if it.ctx != nil {
+		it.cancel()
+	}
+}
 
 // WaitForAcknowledged returns once the prior transaction has been fully acknowledged.
 // Importantly, upon its return a materialization connector is free to issues loads
