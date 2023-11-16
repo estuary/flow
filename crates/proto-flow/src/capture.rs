@@ -188,6 +188,18 @@ pub mod response {
         /// Optional OAuth2 configuration.
         #[prost(message, optional, tag = "5")]
         pub oauth2: ::core::option::Option<super::super::flow::OAuth2>,
+        /// One or more JSON pointers, which are used to extract the `resource_path`
+        /// from a given `resource` of this connector. For example, a database
+        /// capture connector might have a `resource` that's represented like:
+        /// `{"schema": "foo", "table": "bar", "otherConfig": true}`. In that case
+        /// it could use `resource_path_pointers: ["/schema", "/table"]`, which
+        /// would result in a `resource_path` of `["foo", "bar"]`. This allows
+        /// `otherConfig` to be changed by the user without impacting the identity of
+        /// the resource.
+        #[prost(string, repeated, tag = "6")]
+        pub resource_path_pointers: ::prost::alloc::vec::Vec<
+            ::prost::alloc::string::String,
+        >,
     }
     /// Discovered responds to Request.Discover.
     #[allow(clippy::derive_partial_eq_without_eq)]
