@@ -1,4 +1,5 @@
 use futures::TryStreamExt;
+use std::fmt::{self, Display};
 use std::sync::Arc;
 
 mod capture;
@@ -15,6 +16,7 @@ mod unary;
 mod unseal;
 pub mod uuid;
 
+pub use container::flow_runtime_protocol;
 pub use task_service::TaskService;
 pub use tokio_context::TokioContext;
 
@@ -28,6 +30,37 @@ pub const UUID_PLACEHOLDER: &str = "DocUUIDPlaceholder-329Bb50aa48EAa9ef";
 /// schema validation are greatly accelerated when they can loop over multiple
 /// documents without yielding, so it should not be *too* small.
 pub const CHANNEL_BUFFER: usize = 8;
+
+/// Describes the basic type of runtime protocol. This corresponds to the
+/// `FLOW_RUNTIME_PROTOCOL` label that's used on docker images.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RuntimeProtocol {
+    Capture,
+    Materialization,
+    // Derivation, // eventually, maybe
+}
+
+impl<'a> TryFrom<&'a str> for RuntimeProtocol {
+    type Error = &'a str;
+
+    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+        match value {
+            "capture" => Ok(RuntimeProtocol::Capture),
+            "materialization" => Ok(RuntimeProtocol::Materialization),
+            other => Err(other),
+        }
+    }
+}
+
+impl Display for RuntimeProtocol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            RuntimeProtocol::Capture => "capture",
+            RuntimeProtocol::Materialization => "materialization",
+        };
+        f.write_str(s)
+    }
+}
 
 fn anyhow_to_status(err: anyhow::Error) -> tonic::Status {
     tonic::Status::internal(format!("{err:?}"))
