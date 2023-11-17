@@ -1,6 +1,10 @@
+use std::time::Duration;
+
 use super::{jobs, logs, Handler, HandlerStatus, Id};
 use agent_sql::connector_tags::Row;
 use anyhow::Context;
+use proto_flow::flow;
+use runtime::{LogHandler, Runtime, RuntimeProtocol};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use tracing::info;
@@ -96,57 +100,171 @@ impl TagHandler {
             }
         }
 
-        // Fetch its connector specification.
-        let spec = jobs::run_with_output(
-            "spec",
-            &self.logs_tx,
-            row.logs_token,
-            async_process::Command::new(format!("{}/flowctl-go", &self.bindir))
-                .arg("api")
-                .arg("spec")
-                .arg("--image")
-                .arg(&image_composed)
-                .arg("--network")
-                .arg(&self.connector_network),
-        )
-        .await?;
+        let proto_type = match runtime::flow_runtime_protocol(&image_composed).await {
+            Ok(ct) => ct,
+            Err(err) => {
+                tracing::warn!(image = %image_composed, error = %err, "failed to determine connector protocol");
+                return Ok((row.tag_id, JobStatus::SpecFailed));
+            }
+        };
+        let log_handler =
+            logs::ops_handler(self.logs_tx.clone(), "spec".to_string(), row.logs_token);
+        let runtime = Runtime::new(
+            false, // Don't allow local
+            self.connector_network.clone(),
+            log_handler,
+            None, // no need to change log level
+            "ops/connector-tags-job".to_string(),
+        );
 
-        if !spec.0.success() {
-            return Ok((row.tag_id, JobStatus::SpecFailed));
-        }
+        let spec_result = match proto_type {
+            RuntimeProtocol::Capture => spec_capture(&image_composed, runtime).await,
+            RuntimeProtocol::Materialization => {
+                spec_materialization(&image_composed, runtime).await
+            }
+        };
 
-        /// Spec is the output shape of the `flowctl api spec` command.
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Spec {
-            protocol: String,
-            documentation_url: String,
-            config_schema: Box<RawValue>,
-            resource_config_schema: Box<RawValue>,
-            oauth2: Option<Box<RawValue>>,
-        }
-        let Spec {
-            documentation_url,
-            config_schema,
-            protocol,
+        let spec = match spec_result {
+            Ok(s) => s,
+            Err(err) => {
+                tracing::warn!(error = ?err, image = %image_composed, "connector Spec RPC failed");
+                return Ok((row.tag_id, JobStatus::SpecFailed));
+            }
+        };
+
+        let ConnectorSpec {
+            endpoint_config_schema,
             resource_config_schema,
+            documentation_url,
             oauth2,
-        } = serde_json::from_slice(&spec.1).context("parsing connector spec output")?;
+            resource_path_pointers,
+        } = spec;
+
+        if proto_type == RuntimeProtocol::Capture && resource_path_pointers.is_empty() {
+            tracing::warn!(image = %image_composed, "capture connector spec omits resource_path_pointers");
+        }
 
         agent_sql::connector_tags::update_tag_fields(
             row.tag_id,
             documentation_url,
-            config_schema,
-            protocol,
-            resource_config_schema,
+            endpoint_config_schema.into(),
+            proto_type.to_string(),
+            resource_config_schema.into(),
+            resource_path_pointers,
             txn,
         )
         .await?;
 
         if let Some(oauth2) = oauth2 {
-            agent_sql::connector_tags::update_oauth2_spec(row.connector_id, oauth2, txn).await?;
+            agent_sql::connector_tags::update_oauth2_spec(row.connector_id, oauth2.into(), txn)
+                .await?;
         }
 
         return Ok((row.tag_id, JobStatus::Success));
     }
 }
+
+struct ConnectorSpec {
+    documentation_url: String,
+    endpoint_config_schema: Box<RawValue>,
+    resource_config_schema: Box<RawValue>,
+    resource_path_pointers: Vec<String>,
+    oauth2: Option<Box<RawValue>>,
+}
+
+async fn spec_materialization(
+    image: &str,
+    runtime: Runtime<impl LogHandler>,
+) -> anyhow::Result<ConnectorSpec> {
+    use proto_flow::materialize;
+
+    let req = materialize::Request {
+        spec: Some(materialize::request::Spec {
+            connector_type: flow::materialization_spec::ConnectorType::Image as i32,
+            config_json: serde_json::to_string(&serde_json::json!({"image": image, "config":{}}))
+                .unwrap(),
+        }),
+        ..Default::default()
+    };
+
+    let spec = runtime
+        .unary_materialize(req, SPEC_TIMEOUT)
+        .await?
+        .spec
+        .ok_or_else(|| anyhow::anyhow!("connector didn't send expected Spec response"))?;
+
+    let materialize::response::Spec {
+        protocol: _,
+        config_schema_json,
+        resource_config_schema_json,
+        documentation_url,
+        oauth2,
+    } = spec;
+
+    let oauth = if let Some(oa) = oauth2 {
+        Some(serde_json::value::to_raw_value(&oa).expect("serializing oauth2 config"))
+    } else {
+        None
+    };
+    Ok(ConnectorSpec {
+        documentation_url,
+        endpoint_config_schema: RawValue::from_string(config_schema_json)
+            .context("parsing endpoint config schema")?,
+        resource_config_schema: RawValue::from_string(resource_config_schema_json)
+            .context("parsing resource config schema")?,
+
+        // materialization connectors don't currently specify resrouce_path_pointers, though perhaps they should
+        resource_path_pointers: Vec::new(),
+        oauth2: oauth,
+    })
+}
+
+async fn spec_capture(
+    image: &str,
+    runtime: Runtime<impl LogHandler>,
+) -> anyhow::Result<ConnectorSpec> {
+    use proto_flow::capture;
+    let req = capture::Request {
+        spec: Some(capture::request::Spec {
+            connector_type: flow::capture_spec::ConnectorType::Image as i32,
+            config_json: serde_json::to_string(&serde_json::json!({"image": image, "config": {}}))
+                .unwrap(),
+        }),
+        ..Default::default()
+    };
+
+    let spec = runtime
+        .unary_capture(req, SPEC_TIMEOUT)
+        .await?
+        .spec
+        .ok_or_else(|| anyhow::anyhow!("connector didn't send expected Spec response"))?;
+    let capture::response::Spec {
+        // protocol here is the numeric version of the capture protocol
+        protocol: _,
+        config_schema_json,
+        resource_config_schema_json,
+        documentation_url,
+        oauth2,
+        resource_path_pointers,
+    } = spec;
+
+    let oauth = if let Some(oa) = oauth2 {
+        Some(
+            RawValue::from_string(serde_json::to_string(&oa).expect("can serialize oauth2 config"))
+                .expect("serialization of oauth2 config cannot fail"),
+        )
+    } else {
+        None
+    };
+    Ok(ConnectorSpec {
+        documentation_url,
+        endpoint_config_schema: RawValue::from_string(config_schema_json)
+            .context("parsing endpoint config schema")?,
+        resource_config_schema: RawValue::from_string(resource_config_schema_json)
+            .context("parsing resource config schema")?,
+        resource_path_pointers,
+        oauth2: oauth,
+    })
+}
+
+const SPEC_TIMEOUT: Duration = Duration::from_secs(10);

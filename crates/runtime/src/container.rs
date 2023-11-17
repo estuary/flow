@@ -1,3 +1,4 @@
+use crate::RuntimeProtocol;
 use anyhow::Context;
 use futures::channel::oneshot;
 use proto_flow::{flow, runtime};
@@ -10,6 +11,32 @@ use tokio::io::AsyncBufReadExt;
 // The main thing is that we want to avoid any common port numbers to avoid conflicts with
 // connectors.
 const CONNECTOR_INIT_PORT: u16 = 49092;
+
+/// Determines the protocol of an image. If the image has a `FLOW_RUNTIME_PROTOCOL` label,
+/// then it's value is used. Otherwise, this will apply a simple heuristic based on the image name,
+/// for backward compatibility purposes. An error will be returned if it fails to inspect the image
+/// or parse the label.
+pub async fn flow_runtime_protocol(image: &str) -> anyhow::Result<RuntimeProtocol> {
+    let inspect_output = docker_cmd(&["inspect", image])
+        .await
+        .context("inspecting image")?;
+    let inspect_json: serde_json::Value = serde_json::from_slice(&inspect_output)?;
+
+    if let Some(label) = inspect_json
+        .pointer("/Config/Labels/FLOW_RUNTIME_PROTOCOL")
+        .and_then(|v| v.as_str())
+    {
+        RuntimeProtocol::try_from(label).map_err(|unknown| {
+            anyhow::anyhow!("image labels specify unknown protocol FLOW_RUNTIME_PROTOCOL={unknown}")
+        })
+    } else {
+        if image.starts_with("ghcr.io/estuary/materialize-") {
+            Ok(RuntimeProtocol::Materialization)
+        } else {
+            Ok(RuntimeProtocol::Capture)
+        }
+    }
+}
 
 /// Start an image connector container, returning its description and a dialed tonic Channel.
 /// The container is attached to the given `network`, and its logs are dispatched to `log_handler`.

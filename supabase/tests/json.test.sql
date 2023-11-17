@@ -108,3 +108,16 @@ begin
 
 end;
 $$ language plpgsql;
+
+create function tests.test_json_pointers()
+returns setof text as $$
+begin
+
+  return query select lives_ok('select ''/foo''::json_pointer');
+  return query select lives_ok('select ''''::json_pointer');
+  return query select throws_like(
+    'select ''"not a pointer"''::json_pointer',
+    '% violates check constraint "json_pointer_check"'
+  );
+end;
+$$ language plpgsql;

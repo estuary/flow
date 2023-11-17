@@ -133,6 +133,7 @@ pub async fn update_tag_fields(
     endpoint_spec_schema: Box<RawValue>,
     protocol: String,
     resource_spec_schema: Box<RawValue>,
+    resource_path_pointers: Vec<String>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> sqlx::Result<()> {
     sqlx::query!(
@@ -140,7 +141,8 @@ pub async fn update_tag_fields(
             documentation_url = $2,
             endpoint_spec_schema = $3,
             protocol = $4,
-            resource_spec_schema = $5
+            resource_spec_schema = $5,
+            resource_path_pointers = $6
         where id = $1
         returning 1 as "must_exist";
         "#,
@@ -149,6 +151,7 @@ pub async fn update_tag_fields(
         Json(endpoint_spec_schema) as Json<Box<RawValue>>,
         protocol,
         Json(resource_spec_schema) as Json<Box<RawValue>>,
+        resource_path_pointers as Vec<String>,
     )
     .fetch_one(&mut *txn)
     .await?;
