@@ -29,11 +29,11 @@ func RegisterGRPCDispatcher(localZone string) {
 // passed to a gRPC RPC call. If ProcessSpec_ID is non-zero valued, the RPC is
 // dispatched to the specified member. Otherwise, the RPC is dispatched to a
 // Route member, preferring:
-//  * A member not having a currently-broken network connection (eg, due to
-//    a stale Route or network split).
-//  * A member which is in the same zone as the caller (potentially reducing
-//    network traffic costs.
-//  * A member having a Ready connection (potentially reducing latency).
+//   - A member not having a currently-broken network connection (eg, due to
+//     a stale Route or network split).
+//   - A member which is in the same zone as the caller (potentially reducing
+//     network traffic costs.
+//   - A member having a Ready connection (potentially reducing latency).
 func WithDispatchRoute(ctx context.Context, rt Route, id ProcessSpec_ID) context.Context {
 	return context.WithValue(ctx, dispatchRouteCtxKey{}, dispatchRoute{route: rt, id: id})
 }
@@ -55,7 +55,7 @@ func WithDispatchItemRoute(ctx context.Context, dr DispatchRouter, item string, 
 		id = rt.Members[rt.Primary]
 	}
 	return context.WithValue(ctx, dispatchRouteCtxKey{},
-	dispatchRoute{route: rt, id: id, item: item, DispatchRouter: dr})
+		dispatchRoute{route: rt, id: id, item: item, DispatchRouter: dr})
 }
 
 // DispatchRouter routes item to Routes, and observes item Routes.
@@ -221,7 +221,7 @@ func (d *dispatcher) Pick(info balancer.PickInfo) (balancer.PickResult, error) {
 
 	if tr, ok := trace.FromContext(info.Ctx); ok {
 		tr.LazyPrintf("Pick(Route: %s, ID: %s) => %s (%s)",
-		&dr.route, &dr.id, &dispatchID, state)
+			&dr.route, &dr.id, &dispatchID, state)
 	}
 	switch state {
 	case connectivity.Idle, connectivity.Connecting:
