@@ -206,9 +206,10 @@ func RunTransactions(
 
 	for round := 0; true; round++ {
 		var (
-			awaitDoneCh = make(chan struct{}) // Signals await() is done.
-			loadDoneCh  = make(chan struct{}) // Signals load() is done.
-			loadIt      = LoadIterator{stream: stream, request: &rxRequest, awaitDoneCh: awaitDoneCh}
+			awaitDoneCh         = make(chan struct{}) // Signals await() is done.
+			loadDoneCh          = make(chan struct{}) // Signals load() is done.
+			loadCtx, loadCancel = context.WithCancel(stream.Context())
+			loadIt              = LoadIterator{stream: stream, request: &rxRequest, awaitDoneCh: awaitDoneCh, ctx: loadCtx}
 		)
 
 		if err = ReadAcknowledge(stream, &rxRequest); err != nil {
@@ -235,7 +236,7 @@ func RunTransactions(
 					// Before calling transactor.Destroy, we need to make sure that the load phase
 					// is gracefully cancelled to allow for graceful shutdown of the underlying
 					// connector and to avoid resource leaks from the load phase (e.g. connections to database)
-					loadIt.Cancel()
+					loadCancel()
 					return fmt.Errorf("commit failed: %w", awaitErr)
 				}
 				awaitDoneCh = nil
