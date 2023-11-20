@@ -50,14 +50,11 @@ grant select on alert_history to authenticated;
 
 create view internal.alert_data_processing_firing as
 select
-  alert_data_processing.catalog_name,
+  alert_data_processing.*,
   'data_not_processed_in_interval' as alert_type,
-  json_build_object(
-    'bytes_processed', coalesce(sum(catalog_stats_hourly.bytes_written_by_me + catalog_stats_hourly.bytes_written_to_me + catalog_stats_hourly.bytes_read_by_me), 0)::bigint,
-    'emails', array_agg(alert_subscriptions.email),
-    'evaluation_interval', alert_data_processing.evaluation_interval,
-    'spec_type', live_specs.spec_type
-    ) as arguments
+  alert_subscriptions.email,
+  live_specs.spec_type,
+  coalesce(sum(catalog_stats_hourly.bytes_written_by_me + catalog_stats_hourly.bytes_written_to_me + catalog_stats_hourly.bytes_read_by_me), 0)::bigint as bytes_processed
 from alert_data_processing
   left join live_specs on alert_data_processing.catalog_name = live_specs.catalog_name and live_specs.spec is not null and (live_specs.spec->'shards'->>'disable')::boolean is not true
   left join catalog_stats_hourly on alert_data_processing.catalog_name = catalog_stats_hourly.catalog_name and catalog_stats_hourly.ts >= date_trunc('hour', now() - alert_data_processing.evaluation_interval)
@@ -65,6 +62,8 @@ from alert_data_processing
 where live_specs.created_at <= date_trunc('hour', now() - alert_data_processing.evaluation_interval)
 group by
   alert_data_processing.catalog_name,
+  alert_data_processing.evaluation_interval,
+  alert_subscriptions.email,
   live_specs.spec_type
 having coalesce(sum(catalog_stats_hourly.bytes_written_by_me + catalog_stats_hourly.bytes_written_to_me + catalog_stats_hourly.bytes_read_by_me), 0)::bigint = 0;
 
@@ -72,8 +71,19 @@ create view alert_all_firing as
 select
   internal.alert_data_processing_firing.catalog_name,
   internal.alert_data_processing_firing.alert_type,
-  internal.alert_data_processing_firing.arguments
+  json_build_object(
+    'bytes_processed', internal.alert_data_processing_firing.bytes_processed,
+    'emails', array_agg(internal.alert_data_processing_firing.email),
+    'evaluation_interval', internal.alert_data_processing_firing.evaluation_interval,
+    'spec_type', internal.alert_data_processing_firing.spec_type
+    ) as arguments
 from internal.alert_data_processing_firing
+group by
+  internal.alert_data_processing_firing.catalog_name,
+  internal.alert_data_processing_firing.alert_type,
+  internal.alert_data_processing_firing.bytes_processed,
+  internal.alert_data_processing_firing.evaluation_interval,
+  internal.alert_data_processing_firing.spec_type
 order by catalog_name asc;
 
 create or replace function internal.evaluate_alert_events()
