@@ -50,11 +50,8 @@ grant select on alert_history to authenticated;
 
 create view internal.alert_data_processing_firing as
 select
-  alert_data_processing.*,
+  alert_data_processing.catalog_name,
   'data_not_processed_in_interval' as alert_type,
-  alert_subscriptions.email,
-  live_specs.spec_type,
-  coalesce(sum(catalog_stats_hourly.bytes_written_by_me + catalog_stats_hourly.bytes_written_to_me + catalog_stats_hourly.bytes_read_by_me), 0)::bigint as bytes_processed,
   json_build_object(
     'bytes_processed', coalesce(sum(catalog_stats_hourly.bytes_written_by_me + catalog_stats_hourly.bytes_written_to_me + catalog_stats_hourly.bytes_read_by_me), 0)::bigint,
     'emails', array_agg(alert_subscriptions.email),
@@ -68,8 +65,6 @@ from alert_data_processing
 where live_specs.created_at <= date_trunc('hour', now() - alert_data_processing.evaluation_interval)
 group by
   alert_data_processing.catalog_name,
-  alert_data_processing.evaluation_interval,
-  alert_subscriptions.email,
   live_specs.spec_type
 having coalesce(sum(catalog_stats_hourly.bytes_written_by_me + catalog_stats_hourly.bytes_written_to_me + catalog_stats_hourly.bytes_read_by_me), 0)::bigint = 0;
 
