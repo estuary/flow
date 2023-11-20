@@ -36,7 +36,7 @@ create table alert_history (
   fired_at        timestamptz  not null,
   resolved_at     timestamptz,
   arguments       json         not null,
-  primary key (alert_type, catalog_name)
+  primary key (alert_type, catalog_name, fired_at)
 );
 alter table alert_history enable row level security;
 
@@ -54,13 +54,18 @@ select
   'data_not_processed_in_interval' as alert_type,
   alert_subscriptions.email,
   live_specs.spec_type,
-  coalesce(sum(catalog_stats_hourly.bytes_written_by_me + catalog_stats_hourly.bytes_written_to_me + catalog_stats_hourly.bytes_read_by_me), 0)::bigint as bytes_processed
+  coalesce(sum(catalog_stats_hourly.bytes_written_by_me + catalog_stats_hourly.bytes_written_to_me + catalog_stats_hourly.bytes_read_by_me), 0)::bigint as bytes_processed,
+  json_build_object(
+    'bytes_processed', coalesce(sum(catalog_stats_hourly.bytes_written_by_me + catalog_stats_hourly.bytes_written_to_me + catalog_stats_hourly.bytes_read_by_me), 0)::bigint,
+    'emails', array_agg(alert_subscriptions.email),
+    'evaluation_interval', alert_data_processing.evaluation_interval,
+    'spec_type', live_specs.spec_type
+    ) as arguments
 from alert_data_processing
   left join live_specs on alert_data_processing.catalog_name = live_specs.catalog_name and live_specs.spec is not null and (live_specs.spec->'shards'->>'disable')::boolean is not true
-  left join catalog_stats_hourly on alert_data_processing.catalog_name = catalog_stats_hourly.catalog_name
-  left join alert_subscriptions on alert_data_processing.catalog_name ^@ alert_subscriptions.catalog_prefix
+  left join catalog_stats_hourly on alert_data_processing.catalog_name = catalog_stats_hourly.catalog_name and catalog_stats_hourly.ts >= date_trunc('hour', now() - alert_data_processing.evaluation_interval)
+  left join alert_subscriptions on alert_data_processing.catalog_name ^@ alert_subscriptions.catalog_prefix and email is not null
 where live_specs.created_at <= date_trunc('hour', now() - alert_data_processing.evaluation_interval)
-      and catalog_stats_hourly.ts >= date_trunc('hour', now() - alert_data_processing.evaluation_interval)
 group by
   alert_data_processing.catalog_name,
   alert_data_processing.evaluation_interval,
@@ -72,19 +77,8 @@ create view alert_all_firing as
 select
   internal.alert_data_processing_firing.catalog_name,
   internal.alert_data_processing_firing.alert_type,
-  json_build_object(
-    'bytes_processed', internal.alert_data_processing_firing.bytes_processed,
-    'emails', array_agg(internal.alert_data_processing_firing.email),
-    'evaluation_interval', internal.alert_data_processing_firing.evaluation_interval,
-    'spec_type', internal.alert_data_processing_firing.spec_type
-    ) as arguments
+  internal.alert_data_processing_firing.arguments
 from internal.alert_data_processing_firing
-group by
-  internal.alert_data_processing_firing.catalog_name,
-  internal.alert_data_processing_firing.alert_type,
-  internal.alert_data_processing_firing.bytes_processed,
-  internal.alert_data_processing_firing.evaluation_interval,
-  internal.alert_data_processing_firing.spec_type
 order by catalog_name asc;
 
 create or replace function internal.evaluate_alert_events()
