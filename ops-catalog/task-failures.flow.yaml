@@ -62,6 +62,8 @@ collections:
           source: ops.us-central1.v1/logs
           readDelay: 48h
           lambda: DELETE FROM failures WHERE shard = $name AND ts=$ts; DELETE FROM failure_notifications WHERE shard = $name AND ts=$ts;
+      shards:
+        minTxnDuration: 10s
     projections:
       ts: /ts
       task_name: /task_name

@@ -28,6 +28,8 @@ collections:
               $fields->>'collection_name' as collection_name,
               $fields->'schema' as schema
             where $message = 'inferred schema updated';
+      shards:
+        minTxnDuration: 10s
 
   # A direct-copy of L1, but enables us to add more L1s
   # as we create more data planes.
