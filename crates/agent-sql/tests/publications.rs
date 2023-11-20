@@ -227,7 +227,6 @@ async fn test_publication_data_operations() {
 
         agent_sql::publications::delete_data_processing_alerts(
             &row.catalog_name,
-            &row.draft_spec,
             &mut txn,
         )
         .await
