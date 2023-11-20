@@ -48,12 +48,14 @@ const dataProcessingAlertType = "data_not_processed_in_interval";
 
 const TABLES = { ALERT_HISTORY: "alert_history" };
 
-const RESEND_API_KEY = "re_Qu4ZevKs_DmDfQxdNmMvoyuSeGtfYz2VS";
+const getTaskDetailsPageURL = (catalogName: string, specType: string) =>
+    `https://dashboard.estuary.dev/${specType}s/details/overview?catalogName=${catalogName}`;
 
 const emailNotifications = async (
     pendingNotifications: EmailConfig[],
+    token: string,
+    senderAddress: string,
 ): Promise<void> => {
-    // TODO: Replace hardcoded sender and recipient address with the destructured `emails` property.
     const notificationPromises = pendingNotifications.map(
         ({ emails, content, subject }) =>
             fetch("https://api.resend.com/emails", {
@@ -61,10 +63,10 @@ const emailNotifications = async (
                 headers: {
                     ...corsHeaders,
                     "Content-Type": "application/json",
-                    "Authorization": `Bearer ${RESEND_API_KEY}`,
+                    "Authorization": `Bearer ${token}`,
                 },
                 body: JSON.stringify({
-                    from: "Estuary <onboarding@resend.dev>",
+                    from: senderAddress,
                     to: emails,
                     subject,
                     html: `
@@ -132,13 +134,19 @@ serve(async (_request: Request): Promise<Response> => {
                     const timeOffset = evaluation_interval.split(":");
                     const hours = Number(timeOffset[0]);
 
+                    // Ideally, an hour-based interval less than ten would be represented by a single digit. To accomplish this,
+                    // the hour segment of the evaluation interval is selected (i.e., timeOffset[0]) and attempted to be converted to a number.
+                    // This conditional is a failsafe, in the event the aforementioned conversion fails which would result in the display
+                    // of two digits for the hour (e.g., 02 hours instead of 2 hours).
                     formattedEvaluationInterval = isFinite(hours) ? `${hours} hours` : `${timeOffset[0]} hours`;
                 }
 
                 const subject = `Estuary Flow: Alert for ${spec_type} ${catalog_name}`;
 
+                const detailsPageURL = getTaskDetailsPageURL(catalog_name, spec_type);
+
                 const content =
-                    `<p>You are receiving this alert because your task, ${spec_type} ${catalog_name} hasn't seen new data in ${formattedEvaluationInterval}.  You can locate your task <a href="https://dashboard.estuary.dev/captures/details/overview?catalogName=${catalog_name}" target="_blank" rel="noopener">here</a> to make changes or update its alerting settings.</p>`;
+                    `<p>You are receiving this alert because your task, ${spec_type} ${catalog_name} hasn't seen new data in ${formattedEvaluationInterval}.  You can locate your task <a href="${detailsPageURL}" target="_blank" rel="noopener">here</a> to make changes or update its alerting settings.</p>`;
 
                 return {
                     content,
@@ -154,8 +162,10 @@ serve(async (_request: Request): Promise<Response> => {
             ({ arguments: { emails, spec_type }, catalog_name }) => {
                 const subject = `Estuary Flow: Alert for ${spec_type} ${catalog_name}`;
 
+                const detailsPageURL = getTaskDetailsPageURL(catalog_name, spec_type);
+
                 const content =
-                    `<p>You are receiving this alert because your task, ${spec_type} ${catalog_name} has resumed processing data.  You can locate your task <a href="https://dashboard.estuary.dev/captures/details/overview?catalogName=${catalog_name}" target="_blank" rel="noopener">here</a> to make changes or update its alerting settings.</p>`;
+                    `<p>You are receiving this alert because your task, ${spec_type} ${catalog_name} has resumed processing data.  You can locate your task <a href="${detailsPageURL}" target="_blank" rel="noopener">here</a> to make changes or update its alerting settings.</p>`;
 
                 return {
                     content,
@@ -175,7 +185,29 @@ serve(async (_request: Request): Promise<Response> => {
         });
     }
 
-    await emailNotifications(pendingEmails);
+    const resendToken = Deno.env.get('RESEND_API_KEY');
+    const senderAddress = Deno.env.get('RESEND_EMAIL_ADDRESS');
+
+    if (!resendToken || !senderAddress) {
+        return new Response(
+            JSON.stringify({
+                error: {
+                    code: 'invalid_resend_credentials',
+                    message: `Unauthorized: access is denied due to invalid credentials.`,
+                    description: `The server could not verify that you are authorized to access the desired resource with the credentials provided.`,
+                },
+            }),
+            {
+                headers: {
+                    ...corsHeaders,
+                    'Content-Type': 'application/json',
+                },
+                status: 401,
+            }
+        );
+    }
+
+    await emailNotifications(pendingEmails, resendToken, senderAddress);
 
     return new Response(null, {
         status: 200,
