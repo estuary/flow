@@ -134,8 +134,7 @@ pub async fn do_oauth(
         format!("spec/{}", capture.capture),
     )
     .unary_capture(spec_req, build::CONNECTOR_TIMEOUT)
-    .await
-    .map_err(crate::status_to_anyhow)?
+    .await?
     .spec
     .context("connector didn't send expected Spec response")?;
 
