@@ -57,7 +57,7 @@ ETCD_VERSION = v3.5.5
 # PROTOC_INC_GO_MODULES are Go modules which must be resolved and included
 # with `protoc` invocations
 PROTOC_INC_GO_MODULES = \
-	github.com/golang/protobuf \
+	google.golang.org/protobuf \
 	github.com/gogo/protobuf \
 	go.gazette.dev/core
 
