@@ -29,6 +29,8 @@ interface ConnectorTagsResponse {
   endpoint_spec_schema: any
 }
 
+// Note: it's important that we only ever use trusted `endpoint_spec_schemas` here,
+// as that is how we determine which fields need to be encrypted.
 export async function encryptConfig(req: Record<string, any>) {
   const { connector_id, connector_tag_id, config } = req;
 
