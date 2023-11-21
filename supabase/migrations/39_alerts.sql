@@ -139,6 +139,6 @@ end;
 $trigger$ LANGUAGE plpgsql;
 
 create trigger "Send alerts" after insert or update on alert_history
-  for each row execute procedure internal.send_alerts();
+  for each statement execute procedure internal.send_alerts();
 
 commit;
