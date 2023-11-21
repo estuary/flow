@@ -7,7 +7,9 @@ use std::{
     fmt::{Debug, Display},
     net::ToSocketAddrs,
     sync::{Arc, Mutex},
+    time::Duration,
 };
+use tokio::time::timeout_at;
 use warp::{http::Response, Filter};
 
 #[derive(Debug, clap::Args)]
@@ -314,6 +316,9 @@ where
     tokio::select! {
         _ = warp::serve(service).run(listen_addr) => {
             bail!("Server exited early")
+        }
+        _ = tokio::time::sleep(Duration::from_secs(90)) => {
+            bail!("Timed out waiting for auth code redirect")
         }
         resp = rx => {
             return Ok(resp?)
