@@ -29,6 +29,7 @@ pub fn parse_validate(
                 collection: source,
                 lambda_config_json,
                 shuffle_lambda_config_json: _,
+                backfill: _,
             } = transform;
 
             let source = source.as_ref().unwrap();

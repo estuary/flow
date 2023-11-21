@@ -17,7 +17,8 @@ Sources {
               "bindings": [
                 {
                   "resource": "resource/not/found.yaml",
-                  "target": "some/collection"
+                  "target": "some/collection",
+                  "backfill": 2
                 }
               ]
             },
@@ -93,7 +94,8 @@ Sources {
                 },
                 {
                   "resource": {"extra":"stuff"},
-                  "target": "other/collection"
+                  "target": "other/collection",
+                  "backfill": 1
                 }
               ]
             },
@@ -306,7 +308,8 @@ Sources {
                   "source": "some/source/collection",
                   "fields": {
                     "recommended": true
-                  }
+                  },
+                  "backfill": 3
                 }
               ]
             },
@@ -330,7 +333,7 @@ Sources {
             resource: test://example/catalog.yaml,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"captures":{"capture/config-missing":{"bindings":[{"resource":"resource/not/found.yaml","target":"some/collection"}],"endpoint":{"connector":{"config":"config/not/found.yaml","image":"another/image"}}},"capture/config-raw":{"bindings":[],"endpoint":{"connector":{"config":"raw-config.foo","image":"another/image"}}},"capture/local":{"bindings":[],"endpoint":{"local":{"command":["do-the-thing","--arg=one","--arg","two"],"config":{"some":"local config"}}}},"capture/second":{"bindings":[{"resource":"referenced/resource.yaml","target":"third/collection"}],"endpoint":{"connector":{"config":"referenced/config.yaml","image":"another/image"}},"interval":"3m","shards":{"logLevel":"debug","maxTxnDuration":"30s"}},"first/capture":{"bindings":[{"resource":{"stream":"contents"},"target":"a/collection"},{"resource":{"extra":"stuff"},"target":"other/collection"}],"endpoint":{"connector":{"config":{"bucket":"foobar","prefix":"path/prefix"},"image":"an/image"}}}},"materializations":{"a/materialization":{"bindings":[{"resource":{"table":"table_one"},"source":"source/collection"},{"fields":{"exclude":["del"],"include":{"add":{}},"recommended":true},"resource":{"table":"table_two"},"source":{"name":"other/source/collection","partitions":{"exclude":{"other":[42]},"include":{"a_field":["some-val"]}}}}],"endpoint":{"connector":{"config":{"its":"config"},"image":"materialization/image"}},"sourceCapture":"a/capture"},"materialization/local":{"bindings":[{"resource":{"table":"table_three"},"source":"final/source/collection"}],"endpoint":{"local":{"command":["do-the-thing","--arg=one","--arg","two"],"config":{"some":"local config"}}},"shards":{"ringBufferSize":12345}},"materialization/missing-config":{"bindings":[{"resource":"referenced/not/found.yaml","source":"other/source/collection"}],"endpoint":{"connector":{"config":"config/not/found.yaml","image":"materialization/image"}}},"materialization/with-config":{"bindings":[{"resource":"referenced/resource.yaml","source":"some/source/collection"}],"endpoint":{"connector":{"config":"referenced/config.yaml","image":"materialization/another:image"}}},"materialization/with-config-fragment":{"bindings":[],"endpoint":{"connector":{"config":"referenced/config.yaml#/bad/fragment","image":"materialization/another:image"}}}}},
+            content_dom: {"captures":{"capture/config-missing":{"bindings":[{"backfill":2,"resource":"resource/not/found.yaml","target":"some/collection"}],"endpoint":{"connector":{"config":"config/not/found.yaml","image":"another/image"}}},"capture/config-raw":{"bindings":[],"endpoint":{"connector":{"config":"raw-config.foo","image":"another/image"}}},"capture/local":{"bindings":[],"endpoint":{"local":{"command":["do-the-thing","--arg=one","--arg","two"],"config":{"some":"local config"}}}},"capture/second":{"bindings":[{"resource":"referenced/resource.yaml","target":"third/collection"}],"endpoint":{"connector":{"config":"referenced/config.yaml","image":"another/image"}},"interval":"3m","shards":{"logLevel":"debug","maxTxnDuration":"30s"}},"first/capture":{"bindings":[{"resource":{"stream":"contents"},"target":"a/collection"},{"backfill":1,"resource":{"extra":"stuff"},"target":"other/collection"}],"endpoint":{"connector":{"config":{"bucket":"foobar","prefix":"path/prefix"},"image":"an/image"}}}},"materializations":{"a/materialization":{"bindings":[{"resource":{"table":"table_one"},"source":"source/collection"},{"fields":{"exclude":["del"],"include":{"add":{}},"recommended":true},"resource":{"table":"table_two"},"source":{"name":"other/source/collection","partitions":{"exclude":{"other":[42]},"include":{"a_field":["some-val"]}}}}],"endpoint":{"connector":{"config":{"its":"config"},"image":"materialization/image"}},"sourceCapture":"a/capture"},"materialization/local":{"bindings":[{"resource":{"table":"table_three"},"source":"final/source/collection"}],"endpoint":{"local":{"command":["do-the-thing","--arg=one","--arg","two"],"config":{"some":"local config"}}},"shards":{"ringBufferSize":12345}},"materialization/missing-config":{"bindings":[{"resource":"referenced/not/found.yaml","source":"other/source/collection"}],"endpoint":{"connector":{"config":"config/not/found.yaml","image":"materialization/image"}}},"materialization/with-config":{"bindings":[{"backfill":3,"resource":"referenced/resource.yaml","source":"some/source/collection"}],"endpoint":{"connector":{"config":"referenced/config.yaml","image":"materialization/another:image"}}},"materialization/with-config-fragment":{"bindings":[],"endpoint":{"connector":{"config":"referenced/config.yaml#/bad/fragment","image":"materialization/another:image"}}}}},
         },
         Resource {
             resource: test://example/raw-config.foo,

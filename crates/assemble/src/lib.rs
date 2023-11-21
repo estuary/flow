@@ -526,21 +526,25 @@ fn push_partitions(fields: &BTreeMap<String, Vec<Value>>, out: &mut Vec<broker::
     }
 }
 
-/// `encode_resource_path` encodes path components into a string which is
-/// suitable for use within a Gazette path, such as a Journal name or suffix, or
-/// a Shard ID.
+/// `encode_state_key` encodes resource path components and a backfill counter
+/// into a stable string value which is suited for indexing within a persistent
+/// binding state, such as a Flow runtime checkpoint or a connector state.
 ///
-/// Paths are restricted to unicode letters and numbers, plus the symbols
-/// `-_+/.=%`.  All other runes are percent-encoded.
+/// State keys have a restricted set of allowed characters, due to the way
+/// they're represented within Flow runtime checkpoints and, internal to those
+/// checkpoints, as suffixes attached to Gazette Journal names.
+///
+/// State keys are restricted to unicode letters and numbers, plus the symbols
+/// `-_+.=`.  All other runes are percent-encoded.
 ///
 /// See Gazette for more details:
 /// - Path Tokens: broker/protocol/validator.go
 /// - Path Validation Rules: broker/protocol/journal_spec_extensions.go
-pub fn encode_resource_path(resource_path: &[impl AsRef<str>]) -> String {
+pub fn encode_state_key(resource_path: &[impl AsRef<str>], backfill: u32) -> String {
     let mut parts = Vec::new();
     parts.extend(resource_path.iter().map(AsRef::as_ref));
 
-    let mut name = String::new();
+    let mut key = String::new();
 
     for c in parts.join("/").chars() {
         match c {
@@ -549,16 +553,20 @@ pub fn encode_resource_path(resource_path: &[impl AsRef<str>]) -> String {
             // certain positions, no repeats, etc. As a resource_path
             // potentially contains arbitrary user input, we percent encode any
             // `/` characters here to avoid duplicating that validation logic.
-            '-' | '_' | '+' | '.' | '=' => name.push(c),
-            _ if c.is_alphanumeric() => name.push(c),
-            c => name.extend(percent_encoding::utf8_percent_encode(
+            '-' | '_' | '+' | '.' | '=' => key.push(c),
+            _ if c.is_alphanumeric() => key.push(c),
+            c => key.extend(percent_encoding::utf8_percent_encode(
                 &c.to_string(),
                 percent_encoding::NON_ALPHANUMERIC,
             )),
         }
     }
 
-    name
+    if backfill != 0 {
+        key.extend(format!(".v{backfill}").chars());
+    }
+
+    key
 }
 
 pub fn compression_codec(t: models::CompressionCodec) -> broker::CompressionCodec {
@@ -650,18 +658,28 @@ mod test {
     }
 
     #[test]
-    fn test_name_escapes() {
-        let out = encode_resource_path(&vec![
-            "he!lo৬".to_string(),
-            "a/part%".to_string(),
-            "_¾the-=res+.".to_string(),
-        ]);
-        assert_eq!(&out, "he%21lo৬%2Fa%2Fpart%25%2F_¾the-=res+.");
+    fn test_state_key_escapes() {
+        let out = encode_state_key(&["table"], 0);
+        assert_eq!(&out, "table");
+        let out = encode_state_key(&["public", "table"], 0);
+        assert_eq!(&out, "public%2Ftable");
+        let out = encode_state_key(&["public", "table"], 1);
+        assert_eq!(&out, "public%2Ftable.v1");
+
+        let out = encode_state_key(
+            &vec![
+                "he!lo৬".to_string(),
+                "a/part%".to_string(),
+                "_¾the-=res+.".to_string(),
+            ],
+            3,
+        );
+        assert_eq!(&out, "he%21lo৬%2Fa%2Fpart%25%2F_¾the-=res+..v3");
 
         let gross_url =
             "http://user:password@foo.bar.example.com:9000/hooks///baz?type=critical&test=true";
-        let out = encode_resource_path(&vec!["prefix".to_string(), gross_url.to_string()]);
-        assert_eq!(&out, "prefix%2Fhttp%3A%2F%2Fuser%3Apassword%40foo.bar.example.com%3A9000%2Fhooks%2F%2F%2Fbaz%3Ftype=critical%26test=true");
+        let out = encode_state_key(&vec!["prefix".to_string(), gross_url.to_string()], 42);
+        assert_eq!(&out, "prefix%2Fhttp%3A%2F%2Fuser%3Apassword%40foo.bar.example.com%3A9000%2Fhooks%2F%2F%2Fbaz%3Ftype=critical%26test=true.v42");
     }
 
     #[test]

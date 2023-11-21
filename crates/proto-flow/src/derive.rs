@@ -105,6 +105,9 @@ pub mod request {
             /// JSON-encoded object which specifies the lambda configuration.
             #[prost(string, tag = "4")]
             pub lambda_config_json: ::prost::alloc::string::String,
+            /// Backfill counter for this transform.
+            #[prost(uint32, tag = "5")]
+            pub backfill: u32,
         }
     }
     /// Open a derivation stream.

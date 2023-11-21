@@ -17,7 +17,8 @@ Sources {
               "bindings": [
                 {
                   "resource": "test://example/resource/not/found.yaml",
-                  "target": "some/collection"
+                  "target": "some/collection",
+                  "backfill": 2
                 }
               ]
             },
@@ -93,7 +94,8 @@ Sources {
                 },
                 {
                   "resource": {"extra":"stuff"},
-                  "target": "other/collection"
+                  "target": "other/collection",
+                  "backfill": 1
                 }
               ]
             },
@@ -240,7 +242,8 @@ Sources {
                   "source": "some/source/collection",
                   "fields": {
                     "recommended": true
-                  }
+                  },
+                  "backfill": 3
                 }
               ]
             },

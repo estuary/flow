@@ -129,6 +129,7 @@ pub async fn do_discover(
             target: collection.clone(),
             disable: false,
             resource: models::RawValue::from_string(binding.resource_config_json)?,
+            backfill: 0,
         });
 
         collections.insert(

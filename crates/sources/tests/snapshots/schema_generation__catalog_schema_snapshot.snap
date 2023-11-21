@@ -207,6 +207,13 @@ expression: "&schema"
         "target"
       ],
       "properties": {
+        "backfill": {
+          "title": "Backfill counter for this binding.",
+          "description": "Every increment of this counter will result in a new backfill of this binding from the captured endpoint. For example when capturing from a SQL table, incrementing this counter will cause the table to be re-captured in its entirety from the source database.\n\nNote that a backfill does *not* truncate the target collection, and documents published by a backfilled binding will coexist with (and be ordered after) any documents which were published as part of a preceding backfill.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
         "disable": {
           "title": "Whether to disable the binding",
           "description": "Disabled bindings are inactive, and not validated. They can be used to represent discovered resources that are intentionally not being captured.",
@@ -776,6 +783,13 @@ expression: "&schema"
         "source"
       ],
       "properties": {
+        "backfill": {
+          "title": "Backfill counter for this binding.",
+          "description": "Every increment of this counter will result in a new backfill of this binding from its source collection to its materialized resource. For example when materializing to a SQL table, incrementing this counter causes the table to be dropped and then rebuilt by re-reading the source collection.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
         "disable": {
           "title": "Whether to disable the binding",
           "description": "Disabled bindings are inactive, and not validated.",
@@ -1310,6 +1324,13 @@ expression: "&schema"
         "source"
       ],
       "properties": {
+        "backfill": {
+          "title": "Backfill counter for this transform.",
+          "description": "Every increment of this counter will result in a new backfill of this transform. Specifically, the transform's lambda will be re-invoked for every applicable document of its source collection.\n\nNote that a backfill does *not* truncate the derived collection, and documents published by a backfilled transform will coexist with (and be ordered after) any documents which were published as part of a preceding backfill.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
         "disable": {
           "title": "Whether to disable this transform.",
           "description": "Disabled transforms are completely ignored at runtime and are not validated.",

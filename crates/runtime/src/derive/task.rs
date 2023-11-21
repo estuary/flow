@@ -103,6 +103,7 @@ impl Task {
 impl Transform {
     pub fn new(spec: &flow::collection_spec::derivation::Transform) -> anyhow::Result<Self> {
         let flow::collection_spec::derivation::Transform {
+            backfill: _,
             collection,
             journal_read_suffix: _,
             lambda_config_json: _,

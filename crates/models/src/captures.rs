@@ -81,6 +81,18 @@ pub struct CaptureBinding {
     // target, we should turn this into a Target enum as has already been done
     // with Source (used by Materialization & Derive).
     pub target: Collection,
+    /// # Backfill counter for this binding.
+    /// Every increment of this counter will result in a new backfill of this
+    /// binding from the captured endpoint. For example when capturing from a
+    /// SQL table, incrementing this counter will cause the table to be
+    /// re-captured in its entirety from the source database.
+    ///
+    /// Note that a backfill does *not* truncate the target collection,
+    /// and documents published by a backfilled binding will coexist with
+    /// (and be ordered after) any documents which were published as part
+    /// of a preceding backfill.
+    #[serde(default, skip_serializing_if = "super::is_u32_zero")]
+    pub backfill: u32,
 }
 
 impl CaptureDef {
@@ -111,6 +123,7 @@ impl CaptureBinding {
             resource: serde_json::from_value(json!({"stream": "a_stream"})).unwrap(),
             disable: false,
             target: Collection::new("target/collection"),
+            backfill: 0,
         }
     }
 }

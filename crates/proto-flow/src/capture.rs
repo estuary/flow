@@ -89,6 +89,9 @@ pub mod request {
             pub collection: ::core::option::Option<
                 super::super::super::flow::CollectionSpec,
             >,
+            /// Backfill counter for this binding.
+            #[prost(uint32, tag = "3")]
+            pub backfill: u32,
         }
     }
     /// Apply a capture configuration and bindings to its endpoint.

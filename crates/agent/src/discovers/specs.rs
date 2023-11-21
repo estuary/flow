@@ -158,6 +158,7 @@ pub fn merge_capture(
                 target: models::Collection::new(format!("{capture_prefix}/{recommended_name}")),
                 disable: discovered_binding.disable,
                 resource: models::RawValue::from_value(&resource),
+                backfill: 0,
             });
             filtered_bindings.push(discovered_binding);
         }

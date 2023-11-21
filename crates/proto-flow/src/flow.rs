@@ -249,7 +249,7 @@ pub mod collection_spec {
     pub mod derivation {
         /// Transforms of the derivation.
         ///
-        /// Next tag: 13.
+        /// Next tag: 14.
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Transform {
@@ -295,6 +295,10 @@ pub mod collection_spec {
             /// When set, documents after this timestamp are not processed.
             #[prost(message, optional, tag = "12")]
             pub not_after: ::core::option::Option<::pbjson_types::Timestamp>,
+            /// Backfill counter for this transform.
+            /// Every increment of this counter results in a new backfill.
+            #[prost(uint32, tag = "13")]
+            pub backfill: u32,
         }
         #[derive(
             Clone,
@@ -444,6 +448,8 @@ pub mod capture_spec {
     /// Bindings of endpoint resources and collections into which they're captured.
     /// Bindings are ordered and unique on the bound collection name,
     /// and are also unique on the resource path.
+    ///
+    /// Next tag: 6.
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Binding {
@@ -457,6 +463,13 @@ pub mod capture_spec {
         /// Collection to be captured into.
         #[prost(message, optional, tag = "3")]
         pub collection: ::core::option::Option<super::CollectionSpec>,
+        /// Backfill counter for this binding.
+        /// Every increment of this counter results in a new backfill.
+        #[prost(uint32, tag = "4")]
+        pub backfill: u32,
+        /// A suggested key to use for this binding within connector states.
+        #[prost(string, tag = "5")]
+        pub state_key: ::prost::alloc::string::String,
     }
     /// Type of the capture's connector.
     #[derive(
@@ -532,7 +545,7 @@ pub mod materialization_spec {
     /// materialized. Bindings are ordered and unique on the bound collection name,
     /// and are also unique on the resource path.
     ///
-    /// Next tag: 12.
+    /// Next tag: 14.
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Binding {
@@ -573,6 +586,13 @@ pub mod materialization_spec {
         /// When set, documents after this timestamp are not processed.
         #[prost(message, optional, tag = "11")]
         pub not_after: ::core::option::Option<::pbjson_types::Timestamp>,
+        /// Backfill counter for this binding.
+        /// Every increment of this counter results in a new backfill.
+        #[prost(uint32, tag = "12")]
+        pub backfill: u32,
+        /// A suggested key to use for this binding within connector state.
+        #[prost(string, tag = "13")]
+        pub state_key: ::prost::alloc::string::String,
     }
     /// Nested message and enum types in `Binding`.
     pub mod binding {

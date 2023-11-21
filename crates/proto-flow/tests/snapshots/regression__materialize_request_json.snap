@@ -83,7 +83,8 @@ expression: json_test(msg)
         "fieldConfig": {
           "a_field": {"field":"config"},
           "other/field": 42.5
-        }
+        },
+        "backfill": 3
       }
     ]
   },
@@ -193,9 +194,11 @@ expression: json_test(msg)
               "other/field": 42.5
             }
           },
-          "journalReadSuffix": "materialize/acmeCo/materialization/some%20path",
+          "journalReadSuffix": "materialize/acmeCo/materialization/some%20path.v1",
           "notBefore": "2023-08-11T03:00:27+00:00",
-          "notAfter": "2023-03-28T10:40:00+00:00"
+          "notAfter": "2023-03-28T10:40:00+00:00",
+          "backfill": 1,
+          "stateKey": "some%20path.v1"
         }
       ],
       "shardTemplate": {
@@ -351,9 +354,11 @@ expression: json_test(msg)
               "other/field": 42.5
             }
           },
-          "journalReadSuffix": "materialize/acmeCo/materialization/some%20path",
+          "journalReadSuffix": "materialize/acmeCo/materialization/some%20path.v1",
           "notBefore": "2023-08-11T03:00:27+00:00",
-          "notAfter": "2023-03-28T10:40:00+00:00"
+          "notAfter": "2023-03-28T10:40:00+00:00",
+          "backfill": 1,
+          "stateKey": "some%20path.v1"
         }
       ],
       "shardTemplate": {

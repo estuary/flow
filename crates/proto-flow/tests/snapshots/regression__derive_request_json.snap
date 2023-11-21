@@ -146,7 +146,8 @@ expression: json_test(msg)
           }
         },
         "shuffleLambdaConfig": {"shuffle":"config"},
-        "lambdaConfig": {"lambda":"config"}
+        "lambdaConfig": {"lambda":"config"},
+        "backfill": 2
       }
     ],
     "shuffleKeyTypes": [
