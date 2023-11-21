@@ -125,8 +125,8 @@ begin
 if new.alert_type = 'data_not_processed_in_interval' then
   perform
     net.http_post(
-      url:='http://host.docker.internal:5431/functions/v1/alert-data-processing',
-      headers:='{"Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"}'::jsonb,
+      url:='https://eyrcnmuzzyriypdajwdk.supabase.co/functions/v1/alert-data-processing',
+      headers:='{"Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco"}'::jsonb,
       body:=concat('{"time": "', now(), '"}')::jsonb
     );
 end if;
