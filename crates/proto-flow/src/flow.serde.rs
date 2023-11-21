@@ -1944,6 +1944,9 @@ impl serde::Serialize for combine_api::Config {
         if !self.infer_schema_json.is_empty() {
             len += 1;
         }
+        if self.ser_policy.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CombineAPI.Config", len)?;
         if !self.schema_json.is_empty() {
             struct_ser.serialize_field("schemaJson", crate::as_raw_json(&self.schema_json)?)?;
@@ -1965,6 +1968,9 @@ impl serde::Serialize for combine_api::Config {
         }
         if !self.infer_schema_json.is_empty() {
             struct_ser.serialize_field("inferSchemaJson", crate::as_raw_json(&self.infer_schema_json)?)?;
+        }
+        if let Some(v) = self.ser_policy.as_ref() {
+            struct_ser.serialize_field("serPolicy", v)?;
         }
         struct_ser.end()
     }
@@ -1988,6 +1994,8 @@ impl<'de> serde::Deserialize<'de> for combine_api::Config {
             "collectionName",
             "infer_schema_json",
             "inferSchemaJson",
+            "ser_policy",
+            "serPolicy",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1999,6 +2007,7 @@ impl<'de> serde::Deserialize<'de> for combine_api::Config {
             Projections,
             CollectionName,
             InferSchemaJson,
+            SerPolicy,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -2027,6 +2036,7 @@ impl<'de> serde::Deserialize<'de> for combine_api::Config {
                             "projections" => Ok(GeneratedField::Projections),
                             "collectionName" | "collection_name" => Ok(GeneratedField::CollectionName),
                             "inferSchemaJson" | "infer_schema_json" => Ok(GeneratedField::InferSchemaJson),
+                            "serPolicy" | "ser_policy" => Ok(GeneratedField::SerPolicy),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -2053,6 +2063,7 @@ impl<'de> serde::Deserialize<'de> for combine_api::Config {
                 let mut projections__ = None;
                 let mut collection_name__ = None;
                 let mut infer_schema_json__ : Option<Box<serde_json::value::RawValue>> = None;
+                let mut ser_policy__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::SchemaJson => {
@@ -2097,6 +2108,12 @@ impl<'de> serde::Deserialize<'de> for combine_api::Config {
                             }
                             infer_schema_json__ = Some(map.next_value()?);
                         }
+                        GeneratedField::SerPolicy => {
+                            if ser_policy__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("serPolicy"));
+                            }
+                            ser_policy__ = map.next_value()?;
+                        }
                     }
                 }
                 Ok(combine_api::Config {
@@ -2107,6 +2124,7 @@ impl<'de> serde::Deserialize<'de> for combine_api::Config {
                     projections: projections__.unwrap_or_default(),
                     collection_name: collection_name__.unwrap_or_default(),
                     infer_schema_json: infer_schema_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
+                    ser_policy: ser_policy__,
                 })
             }
         }
@@ -5203,6 +5221,100 @@ impl<'de> serde::Deserialize<'de> for ResetStateResponse {
             }
         }
         deserializer.deserialize_struct("flow.ResetStateResponse", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for SerPolicy {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.str_truncate_after != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("flow.SerPolicy", len)?;
+        if self.str_truncate_after != 0 {
+            struct_ser.serialize_field("strTruncateAfter", &self.str_truncate_after)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for SerPolicy {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "str_truncate_after",
+            "strTruncateAfter",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            StrTruncateAfter,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "strTruncateAfter" | "str_truncate_after" => Ok(GeneratedField::StrTruncateAfter),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = SerPolicy;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct flow.SerPolicy")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<SerPolicy, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut str_truncate_after__ = None;
+                while let Some(k) = map.next_key()? {
+                    match k {
+                        GeneratedField::StrTruncateAfter => {
+                            if str_truncate_after__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("strTruncateAfter"));
+                            }
+                            str_truncate_after__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                    }
+                }
+                Ok(SerPolicy {
+                    str_truncate_after: str_truncate_after__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("flow.SerPolicy", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for Slice {

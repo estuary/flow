@@ -9,6 +9,8 @@ pub enum Token {
     Index(usize),
     /// JSON object property name without escaping. Never an integer.
     Property(String),
+    // Represents the concept of "the next property" to be added
+    NextProperty,
     /// Next JSON index which is one beyond the current array extent.
     /// If applied to a JSON object, the property literal "-" is used.
     NextIndex,
@@ -16,9 +18,7 @@ pub enum Token {
 
 impl Token {
     pub fn from_str(s: &str) -> Self {
-        if s == "-" {
-            Token::NextIndex
-        } else if s.starts_with('+') || (s.starts_with('0') && s.len() > 1) {
+        if s.starts_with('+') || (s.starts_with('0') && s.len() > 1) {
             Token::Property(s.to_string())
         } else if let Ok(ind) = usize::from_str(&s) {
             Token::Index(ind)
@@ -33,6 +33,7 @@ impl<'t> std::fmt::Display for Token {
         match self {
             Token::Index(ind) => write!(f, "{ind}"),
             Token::Property(prop) => write!(f, "{prop}"),
+            Token::NextProperty => write!(f, "*"),
             Token::NextIndex => write!(f, "-"),
         }
     }
@@ -53,12 +54,11 @@ impl Pointer {
     /// ```
     /// use doc::ptr::{Pointer, Token};
     ///
-    /// let pointer = Pointer::from_str("/foo/ba~1ar/3/-");
+    /// let pointer = Pointer::from_str("/foo/ba~1ar/3");
     /// let expected_tokens = vec![
     ///     Token::Property("foo".to_string()),
     ///     Token::Property("ba/ar".to_string()),
     ///     Token::Index(3),
-    ///     Token::NextIndex,
     /// ];
     /// assert_eq!(expected_tokens, pointer.0);
     /// ```
@@ -116,6 +116,9 @@ impl Pointer {
                 json::Location::EndOfArray(_) => {
                     ptr.push(Token::NextIndex);
                 }
+                json::Location::NextProperty(_) => {
+                    ptr.push(Token::NextProperty);
+                }
             }
             ptr
         })
@@ -140,12 +143,12 @@ impl Pointer {
                 Node::Object(fields) => match token {
                     Token::Index(ind) => fields.get(&ind.to_string()),
                     Token::Property(property) => fields.get(&property),
-                    Token::NextIndex => fields.get("-"),
+                    Token::NextProperty | Token::NextIndex => None,
                 }
                 .map(|field| field.value()),
                 Node::Array(arr) => match token {
                     Token::Index(ind) => arr.get(*ind),
-                    Token::Property(_) | Token::NextIndex => None,
+                    Token::Property(_) | Token::NextIndex | Token::NextProperty => None,
                 },
                 _ => None,
             };
@@ -181,7 +184,7 @@ impl Pointer {
             // which we'll create the next child location.
             if let Value::Null = v {
                 match token {
-                    Token::Property(_) => {
+                    Token::Property(_) | Token::NextProperty => {
                         *v = Value::Object(serde_json::map::Map::new());
                     }
                     Token::Index(_) | Token::NextIndex => {
@@ -195,7 +198,7 @@ impl Pointer {
                     // Create or modify existing entry.
                     Token::Index(ind) => map.entry(ind.to_string()).or_insert(Value::Null),
                     Token::Property(prop) => map.entry(prop).or_insert(Value::Null),
-                    Token::NextIndex => map.entry("-").or_insert(Value::Null),
+                    Token::NextProperty | Token::NextIndex => return None,
                 },
                 Value::Array(arr) => match token {
                     Token::Index(ind) => {
@@ -212,7 +215,7 @@ impl Pointer {
                         arr.last_mut().unwrap()
                     }
                     // Cannot match (attempt to query property of an array).
-                    Token::Property(_) => return None,
+                    Token::Property(_) | Token::NextProperty => return None,
                 },
                 Value::Number(_) | Value::Bool(_) | Value::String(_) => {
                     return None; // Cannot match (attempt to take child of scalar).
@@ -239,9 +242,10 @@ impl Pointer {
                     Token::Property(_) => {
                         *v = HeapNode::Object(BumpVec::new());
                     }
-                    Token::Index(_) | Token::NextIndex => {
+                    Token::Index(_) => {
                         *v = HeapNode::Array(BumpVec::new());
                     }
+                    Token::NextProperty | Token::NextIndex => return None,
                 };
             }
 
@@ -250,7 +254,7 @@ impl Pointer {
                     // Create or modify existing entry.
                     Token::Index(ind) => fields.insert_property(&ind.to_string(), alloc),
                     Token::Property(property) => fields.insert_property(property, alloc),
-                    Token::NextIndex => fields.insert_property("-", alloc),
+                    Token::NextProperty | Token::NextIndex => return None,
                 },
                 HeapNode::Array(arr) => match token {
                     Token::Index(ind) => {
@@ -270,7 +274,7 @@ impl Pointer {
                         arr.last_mut().unwrap()
                     }
                     // Cannot match (attempt to query property of an array).
-                    Token::Property(_) => return None,
+                    Token::Property(_) | Token::NextProperty => return None,
                 },
                 HeapNode::Bool(_)
                 | HeapNode::Bytes(_)
@@ -333,6 +337,7 @@ impl std::fmt::Display for Pointer {
             write!(f, "/")?;
             match item {
                 Token::NextIndex => write!(f, "-")?,
+                Token::NextProperty => write!(f, "*")?,
                 Token::Property(p) => write!(f, "{}", replace_escapes(p))?,
                 Token::Index(ind) => write!(f, "{}", ind)?,
             };
@@ -354,12 +359,11 @@ mod test {
         use Token::*;
 
         // Basic example.
-        let ptr = Pointer::from("/p1/2/p3/-");
+        let ptr = Pointer::from("/p1/2/p3");
         assert!(vec![
             Property("p1".to_string()),
             Index(2),
-            Property("p3".to_string()),
-            NextIndex
+            Property("p3".to_string())
         ]
         .iter()
         .eq(ptr.iter()));
@@ -384,13 +388,12 @@ mod test {
         );
 
         // Handles disallowed integer representations.
-        let ptr = Pointer::from("/01/+2/-3/4/-");
+        let ptr = Pointer::from("/01/+2/-3/4");
         assert!(vec![
             Property("01".to_string()),
             Property("+2".to_string()),
             Property("-3".to_string()),
-            Index(4),
-            NextIndex,
+            Index(4)
         ]
         .iter()
         .eq(ptr.iter()));
@@ -482,10 +485,9 @@ mod test {
             ("/foo/2/a", json!("hello")),
             // Add property to existing object.
             ("/foo/2/b", json!(3)),
-            ("/foo/0", json!(false)),   // Update existing Null.
-            ("/bar", json!(null)),      // Add property to doc root.
-            ("/foo/0", json!(true)),    // Update from 'false'.
-            ("/foo/-", json!("world")), // NextIndex extends Array.
+            ("/foo/0", json!(false)), // Update existing Null.
+            ("/bar", json!(null)),    // Add property to doc root.
+            ("/foo/0", json!(true)),  // Update from 'false'.
             // Index token is interpreted as property because object exists.
             ("/foo/2/4", json!(5)),
             // NextIndex token is also interpreted as property.
@@ -502,7 +504,7 @@ mod test {
         }
 
         let expect = json!({
-            "foo": [true, null, {"-": false, "a": "hello", "b": 3, "4": 5}, "world"],
+            "foo": [true, null, {"-": false, "a": "hello", "b": 3, "4": 5}],
             "bar": null,
         });
 
@@ -513,6 +515,7 @@ mod test {
         for case in [
             "/foo/2/a/3", // Attempt to index string scalar.
             "/foo/bar",   // Attempt to take property of array.
+            "/foo/-",     // Attempt to take property of array
         ]
         .iter()
         {
@@ -521,6 +524,13 @@ mod test {
             assert!(ptr.create_value(&mut root_value).is_none());
             assert!(ptr.create_heap_node(&mut root_heap_doc, &alloc).is_none());
         }
+
+        let next_index_ptr = Pointer::from_iter(
+            vec![Token::Property("foo".to_string()), Token::NextProperty].into_iter(),
+        );
+
+        let res = next_index_ptr.create_value(&mut root_value);
+        assert_eq!(res, None);
     }
 
     #[test]

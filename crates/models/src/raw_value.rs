@@ -37,6 +37,13 @@ impl From<RawValue> for Box<serde_json::value::RawValue> {
     }
 }
 
+impl From<RawValue> for String {
+    fn from(value: RawValue) -> Self {
+        let s: Box<str> = value.0.into();
+        s.into()
+    }
+}
+
 impl std::ops::Deref for RawValue {
     type Target = serde_json::value::RawValue;
     fn deref(&self) -> &Self::Target {

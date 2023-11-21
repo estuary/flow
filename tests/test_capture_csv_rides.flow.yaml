@@ -1,0 +1,38 @@
+---
+captures:
+  acmeCo/s3-citi-rides:
+    endpoint:
+      connector:
+        image: "ghcr.io/estuary/source-s3:dev"
+        config:
+          bucket: tripdata
+          region: us-east-1
+    bindings:
+      - resource:
+          stream: tripdata/JC-201703
+        target: acmeCo/tripdata
+    interval: 15s
+collections:
+  acmeCo/tripdata:
+    schema:
+      x-infer-schema: true
+      type: object
+      properties:
+        _meta:
+          type: object
+          properties:
+            file:
+              description: "The key of the source file, added automatically by Flow"
+              type: string
+            offset:
+              description: "The offset of the record within the source file, added automatically by Flow"
+              type: integer
+              minimum: 0
+          required:
+            - file
+            - offset
+      required:
+        - _meta
+    key:
+      - /_meta/file
+      - /_meta/offset

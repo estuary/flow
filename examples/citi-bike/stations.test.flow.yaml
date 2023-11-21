@@ -10,10 +10,10 @@ tests:
           - bike_id: &bikeA 8675
             begin:
               station: &Marin { id: 3276, name: "Marin Light Rail" }
-              timestamp: &ts1 "2020-09-01 09:21:12.3090"
+              timestamp: &ts1 "2020-09-01T09:21:12.3090Z"
             end:
               station: &Harborside { id: 3639, name: "Harborside" }
-              timestamp: &ts2 "2020-09-01 13:48:12.3830"
+              timestamp: &ts2 "2020-09-01T13:48:12.3830Z"
 
           - bike_id: &bikeB 17558
             begin:
@@ -42,10 +42,10 @@ tests:
           - bike_id: *bikeA
             begin:
               station: *Harborside
-              timestamp: &ts3 "2020-09-01 14:33:35.1020"
+              timestamp: &ts3 "2020-09-01T14:33:35.1020Z"
             end:
               station: *Marin
-              timestamp: &ts4 "2020-09-01 16:49:30.1610"
+              timestamp: &ts4 "2020-09-01T16:49:30.1610Z"
           - bike_id: *bikeB
             begin:
               station: *Marin

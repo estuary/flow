@@ -1,9 +1,10 @@
-use super::{DrainedDoc, Error, HeapEntry, Spec, SpillWriter};
-use crate::{Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
+use super::{DrainedDoc, Error, HeapEntry, Meta, Spec, SpillWriter};
+use crate::{reduce, Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
 use bumpalo::Bump;
 use std::cell::UnsafeCell;
+use std::cmp::Ordering;
+use std::io;
 use std::sync::Arc;
-use std::{cmp, io};
 
 /// MemTable is an in-memory combiner of HeapDocs.
 /// It requires heap memory for storing and reducing documents.
@@ -29,13 +30,8 @@ unsafe impl Send for MemTable {}
 struct Entries {
     // Queued documents are in any order.
     queued: Vec<HeapEntry<'static>>,
-    // Sorted documents are ordered such that partial combined documents are first,
-    // and fully-reduced documents are second. A (binding, key) may appear at most
-    // twice, once as combined and again as reduced. We must hold reduced keys
-    // separate from combined keys in order to preserve the overall associative
-    // order of reductions. We cannot, for example, reduce a reduced LHS with a
-    // combined RHS if we might later discover there were other combined
-    // documents which are associatively before the RHS we just smashed into LHS.
+    // Sorted documents ordered on (binding, key, !front) so that
+    // for each binding and key, front() documents are first.
     sorted: Vec<HeapEntry<'static>>,
     // Specification of the combine operation.
     spec: Spec,
@@ -61,24 +57,57 @@ impl Entries {
         // of just one key which is reduced over and over, ensure we're combining
         // over a bunch of (small) right-hand documents before combining into its
         // value in `self.sorted`.
-        self.queued.len() >= cmp::max(32, self.sorted.len())
+        self.queued.len() >= std::cmp::max(32, self.sorted.len())
     }
 
     fn compact(&mut self, alloc: &'static Bump) -> Result<(), Error> {
-        // Documents are sorted such that partial-combine documents come before
-        // fully-reduced reduce documents, and within each type they're ordered
-        // on (binding, key). There are typically fewer fully-reduced documents
-        // so, coming second, they're cheaper to split_off() in Self::try_into_drainer().
-        let key_cmp = |lhs: &HeapEntry, rhs: &HeapEntry| {
-            let c = lhs.reduced.cmp(&rhs.reduced);
-            c.then(lhs.binding.cmp(&rhs.binding)).then_with(|| {
-                Extractor::compare_key(&self.spec.keys[lhs.binding as usize], &lhs.root, &rhs.root)
-            })
+        // `sort_ord` orders over (binding, key, !front).
+        let sort_ord = |l: &HeapEntry, r: &HeapEntry| -> Ordering {
+            l.meta
+                .binding()
+                .cmp(&r.meta.binding())
+                .then_with(|| {
+                    Extractor::compare_key(&self.spec.keys[l.meta.binding()], &l.root, &r.root)
+                })
+                .then_with(|| l.meta.front().cmp(&r.meta.front()).reverse())
+        };
+        let validators = &mut self.spec.validators;
+
+        // Closure which attempts an associative reduction of `index` into `index-1`.
+        // If the reduction succeeds then the item at `index` is removed.
+        let mut maybe_reduce = |next: &mut Vec<HeapEntry<'_>>, index: usize| -> Result<(), Error> {
+            let (lhs, rhs) = (&next[index - 1], &next[index]);
+            let (validator, ref schema) = &mut validators[lhs.meta.binding()];
+
+            let rhs_valid = validator
+                .validate(schema.as_ref(), &rhs.root)
+                .map_err(Error::SchemaError)?
+                .ok()
+                .map_err(Error::FailedValidation)?;
+
+            match reduce::reduce::<crate::ArchivedNode>(
+                LazyNode::Heap(&lhs.root),
+                LazyNode::Heap(&rhs.root),
+                rhs_valid,
+                alloc,
+                false, // Compactions are always associative.
+            ) {
+                Ok((root, _deleted)) => {
+                    next[index - 1].root = root;
+                    next.remove(index);
+                    Ok(())
+                }
+                Err(reduce::Error::NotAssociative) => {
+                    next[index - 1].meta.set_not_associative();
+                    Ok(())
+                }
+                Err(err) => Err(Error::Reduction(err)),
+            }
         };
 
-        // Sort queued documents. It's important that this be a stable sort,
-        // as we're combining in left-to-right application order.
-        self.queued.sort_by(key_cmp);
+        // Sort queued documents. It's important that this be a stable sort
+        // to preserve overall left-to-right application order.
+        self.queued.sort_by(sort_ord);
 
         let sorted_len = self.sorted.len();
         let queued_len = self.queued.len();
@@ -87,48 +116,75 @@ impl Entries {
         let mut queued = self.queued.drain(..).peekable();
         let mut sorted = self.sorted.drain(..).peekable();
 
-        while let Some(mut cur) = queued.next() {
-            // Emit documents from `sorted` which are less than `cur`.
-            // Post-condition: sorted.next() is greater-than or equal to `cur`.
-            while matches!(sorted.peek(), Some(peek) if key_cmp(&cur, peek).is_gt()) {
-                next.push(sorted.next().unwrap());
+        // `begin` offset of the first in a run of `sort_ord`-equal documents.
+        // Note: next.len() - begin is the number of documents in the group.
+        let mut begin = 0;
+        // `begin_queued` offset of the first queued document in this group.
+        // If there are no queued documents, it's next.len().
+        let mut begin_queued = 0;
+
+        // We attempt associative reductions to compact down to two documents
+        // for each group. We must hold back a reduction into the left-most
+        // document because we don't know if it's truly the left-most document
+        // for the group, or if there's yet another document out there that we
+        // might encounter later.
+        //
+        // This loop also does extra book-keeping to defer a reduction of
+        // `begin_queued` into a prior entry from `sorted` within each group.
+        // We hold it back, preferring to instead reduce a second, third,
+        // ... N queued document into `begin_queued` first, and only then
+        // reducing `begin_queued` into a left-hand entry drawn from `sorted`.
+        // This is because `queued` documents are often much smaller and
+        // faster to validate, and it's more efficient to reduce a bunch of
+        // them together and only then validate & reduce _that_ result into
+        // an often-larger prior entry from `sorted` .
+
+        loop {
+            // Pop sort_ord() HeapEntry. When equal, take from `sorted` to preserve order.
+            let (is_queued, entry) = match (sorted.peek(), queued.peek()) {
+                (None, Some(_)) => (true, queued.next().unwrap()),
+                (Some(_), None) => (false, sorted.next().unwrap()),
+                (Some(l), Some(c)) => {
+                    if sort_ord(l, c).is_le() {
+                        (false, sorted.next().unwrap())
+                    } else {
+                        (true, queued.next().unwrap())
+                    }
+                }
+                (None, None) => break,
+            };
+
+            // Does `entry` start a new group?
+            if !matches!(next.last(), Some(last) if sort_ord(&entry, last).is_eq()) {
+                // If we held back an eligible compaction of `begin_queued`, do it now.
+                if begin_queued != next.len() && begin_queued - begin > 1 {
+                    maybe_reduce(&mut next, begin_queued)?;
+                }
+
+                // Reset for this next group.
+                (begin, begin_queued) = (next.len(), next.len());
             }
 
-            let (validator, ref schema) = &mut self.spec.validators[cur.binding as usize];
+            let index = next.len();
+            next.push(entry);
 
-            // Look for additional documents of this key from `queued` to combine into `cur`.
-            while matches!(queued.peek(), Some(peek) if key_cmp(&cur, peek).is_eq()) {
-                let next = queued.next().unwrap();
-                (cur.root, cur.reduced) = super::smash(
-                    alloc,
-                    LazyNode::Heap(cur.root),
-                    cur.reduced,
-                    LazyNode::Heap(next.root),
-                    next.reduced,
-                    schema.as_ref(),
-                    validator,
-                )?;
+            if !is_queued {
+                // `entry` is from `sorted` and is already reduced.
+                begin_queued = next.len();
+            } else if index != begin_queued && index - begin > 1 {
+                // Reduce if `entry` is not `begin_queued` (which is held back)
+                // and we have more than one other group document.
+                maybe_reduce(&mut next, index)?;
             }
-
-            // Look for a single matching `sorted` document to combine with `cur`,
-            // which comes before it under our application order.
-            if matches!(sorted.peek(), Some(peek) if key_cmp(&cur, peek).is_eq()) {
-                let prev = sorted.next().unwrap();
-                (cur.root, cur.reduced) = super::smash(
-                    alloc,
-                    LazyNode::Heap(prev.root),
-                    prev.reduced,
-                    LazyNode::Heap(cur.root),
-                    cur.reduced,
-                    schema.as_ref(),
-                    validator,
-                )?;
-            }
-
-            next.push(cur);
         }
-        // `queued` is now empty. Extend with any `sorted` remainder.
-        next.extend(sorted);
+
+        // Apply deferred reduction of `begin_queued` of the final group.
+        if begin_queued != next.len() && begin_queued - begin > 1 {
+            maybe_reduce(&mut next, begin_queued)?;
+        }
+
+        std::mem::drop(sorted);
+        std::mem::drop(queued);
         self.sorted = next;
 
         tracing::trace!(
@@ -161,15 +217,20 @@ impl MemTable {
         &self.zz_alloc
     }
 
+    /// Parse a JSON document string into a HeapNode using this MemTable's allocator.
+    pub fn parse_json_str<'s>(&'s self, doc_json: &str) -> serde_json::Result<HeapNode<'s>> {
+        let mut de = serde_json::Deserializer::from_str(doc_json);
+        HeapNode::from_serde(&mut de, self.alloc())
+    }
+
     /// Add the document to the MemTable.
-    pub fn add<'s>(&'s self, binding: u32, root: HeapNode<'s>, reduced: bool) -> Result<(), Error> {
+    pub fn add<'s>(&'s self, binding: u32, root: HeapNode<'s>, front: bool) -> Result<(), Error> {
         // Safety: mutable borrow does not escape this function.
         let entries = unsafe { &mut *self.entries.get() };
         let root = unsafe { std::mem::transmute::<HeapNode<'s>, HeapNode<'static>>(root) };
 
         entries.queued.push(HeapEntry {
-            binding,
-            reduced,
+            meta: Meta::new(binding, front),
             root,
         });
 
@@ -203,14 +264,11 @@ impl MemTable {
 
     /// Convert this MemTable into a MemDrainer.
     pub fn try_into_drainer(self) -> Result<MemDrainer, Error> {
-        let (mut sorted, spec, zz_alloc) = self.try_into_parts()?;
-
-        let pivot = sorted.partition_point(|doc| !doc.reduced);
-        let other = sorted.split_off(pivot);
+        let (sorted, spec, zz_alloc) = self.try_into_parts()?;
 
         Ok(MemDrainer {
-            it1: sorted.into_iter().peekable(),
-            it2: other.into_iter().peekable(),
+            in_group: false,
+            it: sorted.into_iter().peekable(),
             spec,
             zz_alloc: Arc::new(zz_alloc),
         })
@@ -227,11 +285,7 @@ impl MemTable {
     ) -> Result<Spec, Error> {
         let (sorted, mut spec, alloc) = self.try_into_parts()?;
 
-        let docs = sorted.len();
-        let pivot = sorted.partition_point(|doc| !doc.reduced);
-        let mem_used = alloc.allocated_bytes() - alloc.chunk_capacity();
-
-        // Validate all documents of the spilled segment which are not already reduced.
+        // Validate all !front() documents of the spilled segment.
         //
         // Technically, it's more efficient to defer all validation until we're
         // draining the combiner, and validating now does very slightly slow the
@@ -246,14 +300,14 @@ impl MemTable {
         // and write transactions in key order so `sorted` is often layed out in
         // ascending order within `alloc`).
         //
-        // We do not validate reduced documents now because in the common case
+        // We do not validate front() documents now because in the common case
         // they'll be reduced with another document on drain, after which we'll
         // need to validate that reduced output anyway, so validation now is
         // wasted work. If it happens that there is no further reduction then
         // we'll validate the document upon drain.
         for doc in sorted.iter() {
-            if !doc.reduced {
-                let (validator, ref schema) = &mut spec.validators[doc.binding as usize];
+            if !doc.meta.front() {
+                let (validator, ref schema) = &mut spec.validators[doc.meta.binding()];
                 validator
                     .validate(schema.as_ref(), &doc.root)?
                     .ok()
@@ -261,22 +315,15 @@ impl MemTable {
             }
         }
 
-        // We write combined and reduced documents into separate segments,
-        // because each segment may contain only sorted and unique keys.
-        // Put differently, SpillDrainer only concerns itself with combines
-        // and reductions _across_ segments and not within them.
-        // If there are no combine or reduce documents, these are no-ops.
-        let combine_bytes = writer.write_segment(&sorted[..pivot], chunk_target_size.clone())?;
-        let reduce_bytes = writer.write_segment(&sorted[pivot..], chunk_target_size)?;
-
+        let bytes = writer.write_segment(&sorted, chunk_target_size)?;
         tracing::debug!(
-            %docs,
-            %pivot,
-            %mem_used,
-            %reduce_bytes,
-            %combine_bytes,
+            %bytes,
+            entries=%sorted.len(),
+            mem_used=%(alloc.allocated_bytes() - alloc.chunk_capacity()),
             "spilled MemTable to disk segment",
         );
+
+        std::mem::drop(sorted); // Now safe to drop.
         std::mem::drop(alloc); // Now safe to drop.
 
         Ok(spec)
@@ -284,8 +331,8 @@ impl MemTable {
 }
 
 pub struct MemDrainer {
-    it1: std::iter::Peekable<std::vec::IntoIter<HeapEntry<'static>>>,
-    it2: std::iter::Peekable<std::vec::IntoIter<HeapEntry<'static>>>,
+    in_group: bool,
+    it: std::iter::Peekable<std::vec::IntoIter<HeapEntry<'static>>>,
     spec: Spec,
     zz_alloc: Arc<Bump>, // Careful! Order matters. See MemTable.
 }
@@ -294,101 +341,90 @@ pub struct MemDrainer {
 // and we're sending them and their backing Bump allocator together.
 unsafe impl Send for MemDrainer {}
 
-impl Iterator for MemDrainer {
-    type Item = Result<DrainedDoc, Error>;
+impl MemDrainer {
+    pub fn drain_next(&mut self) -> Result<Option<DrainedDoc>, Error> {
+        let Some(HeapEntry { mut meta, mut root }) = self.it.next() else {
+            return Ok(None);
+        };
+        let is_full = self.spec.is_full[meta.binding()];
+        let key = self.spec.keys[meta.binding()].as_ref();
+        let (validator, ref schema) = &mut self.spec.validators[meta.binding()];
 
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut inner = || {
-            // This multi-level match is a little gross, but benchmarks as being
-            // significantly faster than Itertools::merge_join_by()
-            let HeapEntry {
-                binding,
-                reduced,
-                root,
-            } = match (self.it1.peek(), self.it2.peek()) {
-                (Some(_), None) => self.it1.next().unwrap(), // Most common case.
-                (None, Some(_)) => self.it2.next().unwrap(),
-                (None, None) => return Ok(None),
-                (Some(lhs), Some(rhs)) => {
-                    match lhs.binding.cmp(&rhs.binding).then_with(|| {
-                        Extractor::compare_key(
-                            &self.spec.keys[lhs.binding as usize],
-                            &lhs.root,
-                            &rhs.root,
-                        )
-                    }) {
-                        cmp::Ordering::Less => self.it1.next().unwrap(),
-                        cmp::Ordering::Greater => self.it2.next().unwrap(),
-                        cmp::Ordering::Equal => {
-                            let HeapEntry {
-                                binding,
-                                reduced: lhs_reduced,
-                                root: lhs_root,
-                            } = self.it1.next().unwrap();
+        // Attempt to reduce additional entries.
+        while let Some(next) = self.it.peek() {
+            if meta.binding() != next.meta.binding()
+                || !Extractor::compare_key(key, &root, &next.root).is_eq()
+            {
+                self.in_group = false;
+                break;
+            } else if !is_full && (!self.in_group || meta.not_associative()) {
+                // We're performing associative reductions and:
+                // * This is the first document of a group, which we cannot reduce into, or
+                // * We've already attempted this associative reduction.
+                self.in_group = true;
+                break;
+            }
 
-                            let HeapEntry {
-                                binding: _,
-                                reduced: rhs_reduced,
-                                root: rhs_root,
-                            } = self.it2.next().unwrap();
-
-                            let (validator, ref schema) =
-                                &mut self.spec.validators[binding as usize];
-
-                            let (root, reduced) = super::smash(
-                                &self.zz_alloc,
-                                LazyNode::Heap(lhs_root),
-                                lhs_reduced,
-                                LazyNode::Heap(rhs_root),
-                                rhs_reduced,
-                                schema.as_ref(),
-                                validator,
-                            )?;
-
-                            HeapEntry {
-                                binding,
-                                reduced,
-                                root,
-                            }
-                        }
-                    }
-                }
-            };
-
-            let (validator, ref schema) = &mut self.spec.validators[binding as usize];
-
-            validator
-                .validate(schema.as_ref(), &root)
+            let rhs_valid = validator
+                .validate(schema.as_ref(), &next.root)
                 .map_err(Error::SchemaError)?
                 .ok()
                 .map_err(Error::FailedValidation)?;
 
-            // Safety: `root` was allocated from `self.zz_alloc`.
-            let root = unsafe { OwnedHeapNode::new(root, self.zz_alloc.clone()) };
+            match reduce::reduce::<crate::ArchivedNode>(
+                LazyNode::Heap(&root),
+                LazyNode::Heap(&next.root),
+                rhs_valid,
+                &self.zz_alloc,
+                is_full,
+            ) {
+                Ok((node, deleted)) => {
+                    meta.set_deleted(deleted);
+                    root = node;
+                    _ = self.it.next().unwrap(); // Discard.
+                }
+                Err(reduce::Error::NotAssociative) => {
+                    meta.set_not_associative();
+                    break;
+                }
+                Err(err) => return Err(Error::Reduction(err)),
+            }
+        }
 
-            Ok(Some(DrainedDoc {
-                binding,
-                reduced,
-                root: OwnedNode::Heap(root),
-            }))
-        };
-        inner().transpose()
+        let _valid = validator
+            .validate(schema.as_ref(), &root)
+            .map_err(Error::SchemaError)?
+            .ok()
+            .map_err(Error::FailedValidation)?;
+
+        // Safety: `root` was allocated from `self.zz_alloc`.
+        let root = unsafe { OwnedHeapNode::new(root, self.zz_alloc.clone()) };
+
+        Ok(Some(DrainedDoc {
+            meta,
+            root: OwnedNode::Heap(root),
+        }))
+    }
+}
+
+impl Iterator for MemDrainer {
+    type Item = Result<DrainedDoc, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.drain_next().transpose()
     }
 }
 
 impl MemDrainer {
     pub fn into_spec(self) -> Spec {
         let MemDrainer {
-            it1,
-            it2,
+            in_group: _,
+            it,
             spec,
             zz_alloc,
         } = self;
 
-        // This is probably being pedantic, but:
-        // ensure that iterators are dropped before the Bump.
-        std::mem::drop(it1);
-        std::mem::drop(it2);
+        std::mem::drop(it);
         std::mem::drop(zz_alloc);
 
         spec
@@ -400,7 +436,7 @@ mod test {
     use super::*;
     use serde_json::{json, Value};
 
-    use crate::{combine::CHUNK_TARGET_SIZE, Validator};
+    use crate::{combine::CHUNK_TARGET_SIZE, SerPolicy, Validator};
     use itertools::Itertools;
     use json::schema::build::build_schema;
 
@@ -424,7 +460,12 @@ mod test {
                 .unwrap();
 
                 (
-                    vec![Extractor::with_default("/key", json!("def"))],
+                    true, // Full reduction.
+                    vec![Extractor::with_default(
+                        "/key",
+                        &SerPolicy::default(),
+                        json!("def"),
+                    )],
                     None,
                     Validator::new(schema).unwrap(),
                 )
@@ -434,11 +475,11 @@ mod test {
         let memtable = MemTable::new(spec);
 
         let add_and_compact = |docs: &[(bool, Value)]| {
-            for (full, doc) in docs {
+            for (front, doc) in docs {
                 let doc_0 = HeapNode::from_node(doc, memtable.alloc());
                 let doc_1 = HeapNode::from_node(doc, memtable.alloc());
-                memtable.add(0, doc_0, *full).unwrap();
-                memtable.add(1, doc_1, *full).unwrap();
+                memtable.add(0, doc_0, *front).unwrap();
+                memtable.add(1, doc_1, *front).unwrap();
             }
             memtable.compact().unwrap();
         };
@@ -476,9 +517,9 @@ mod test {
             .unwrap()
             .map_ok(|doc| {
                 (
-                    doc.binding,
-                    serde_json::to_value(doc.root).unwrap(),
-                    doc.reduced,
+                    doc.meta.binding(),
+                    serde_json::to_value(SerPolicy::default().on_owned(&doc.root)).unwrap(),
+                    doc.meta.front(),
                 )
             })
             .collect::<Result<Vec<_>, _>>()
@@ -667,6 +708,259 @@ mod test {
     }
 
     #[test]
+    fn test_merge_patch_sequence() {
+        let spec = |is_full| {
+            (
+                is_full,
+                vec![Extractor::new("/k", &SerPolicy::default())],
+                None,
+                Validator::new(
+                    build_schema(
+                        url::Url::parse("http://example").unwrap(),
+                        &reduce::merge_patch_schema(),
+                    )
+                    .unwrap(),
+                )
+                .unwrap(),
+            )
+        };
+        let memtable = MemTable::new(Spec::with_bindings([spec(true), spec(false)].into_iter()));
+
+        let add_and_compact = |loaded: bool, docs: Value| {
+            for doc in docs.as_array().unwrap() {
+                let d = HeapNode::from_node(doc, memtable.alloc());
+                memtable.add(0, d, loaded).unwrap();
+                let d = HeapNode::from_node(doc, memtable.alloc());
+                memtable.add(1, d, loaded).unwrap();
+            }
+            memtable.compact().unwrap();
+        };
+
+        let inspect = |m: &MemTable| {
+            let entries = unsafe { &*m.entries.get() };
+            let mut b = String::new();
+
+            for HeapEntry { meta, root } in entries.sorted.iter() {
+                b.push_str(&format!(
+                    "{meta:?} {}\n",
+                    serde_json::to_string(&SerPolicy::debug().on(root)).unwrap()
+                ));
+            }
+            b
+        };
+
+        add_and_compact(
+            false,
+            json!([
+              {"k": 1, "v": {"a": "b"}},
+              {"k": 1, "v": {"c": {"d": 1}}},
+              {"k": 2, "v": [1, 2]}
+            ]),
+        );
+
+        // Reductions must hold back a compaction of the first document in
+        // each group.
+        insta::assert_snapshot!(inspect(&memtable), @r###"
+        Meta(0) {"k":1,"v":{"a":"b"}}
+        Meta(0) {"k":1,"v":{"c":{"d":1}}}
+        Meta(0) {"k":2,"v":[1,2]}
+        Meta(1) {"k":1,"v":{"a":"b"}}
+        Meta(1) {"k":1,"v":{"c":{"d":1}}}
+        Meta(1) {"k":2,"v":[1,2]}
+        "###);
+
+        // Further compactions reduce associatively.
+        add_and_compact(
+            false,
+            json!([
+              {"k": 1, "v": {"a": 4}},
+              {"k": 1, "v": {"e": "f"}},
+              {"k": 1, "v": {"c": {"g": 2}}},
+              {"k": 2, "v": "hi"},
+            ]),
+        );
+
+        insta::assert_snapshot!(inspect(&memtable), @r###"
+        Meta(0) {"k":1,"v":{"a":"b"}}
+        Meta(0) {"k":1,"v":{"a":4,"c":{"d":1,"g":2},"e":"f"}}
+        Meta(0) {"k":2,"v":[1,2]}
+        Meta(0) {"k":2,"v":"hi"}
+        Meta(1) {"k":1,"v":{"a":"b"}}
+        Meta(1) {"k":1,"v":{"a":4,"c":{"d":1,"g":2},"e":"f"}}
+        Meta(1) {"k":2,"v":[1,2]}
+        Meta(1) {"k":2,"v":"hi"}
+        "###);
+
+        add_and_compact(
+            false,
+            json!([
+              {"k": 1, "v": {"a": 5}},
+              {"k": 1, "v": {"c": null}},
+              {"k": 2, "z": "whoops"},
+              {"k": 2, "z": null},
+              {"k": 2, "v": false},
+            ]),
+        );
+
+        insta::assert_snapshot!(inspect(&memtable), @r###"
+        Meta(0) {"k":1,"v":{"a":"b"}}
+        Meta(0) {"k":1,"v":{"a":5,"c":null,"e":"f"}}
+        Meta(0) {"k":2,"v":[1,2]}
+        Meta(0) {"k":2,"v":false,"z":null}
+        Meta(1) {"k":1,"v":{"a":"b"}}
+        Meta(1) {"k":1,"v":{"a":5,"c":null,"e":"f"}}
+        Meta(1) {"k":2,"v":[1,2]}
+        Meta(1) {"k":2,"v":false,"z":null}
+        "###);
+
+        // A non-associative reduction stacks a new entry.
+        add_and_compact(
+            false,
+            json!([
+              {"k": 1, "v": {"e": "g"}},
+              {"k": 1, "v": {"a": {"n": 1}}}, // Non-associative.
+              {"k": 2, "v": true},
+            ]),
+        );
+
+        insta::assert_snapshot!(inspect(&memtable), @r###"
+        Meta(0) {"k":1,"v":{"a":"b"}}
+        Meta(0, "NA") {"k":1,"v":{"a":5,"c":null,"e":"f"}}
+        Meta(0) {"k":1,"v":{"a":{"n":1},"e":"g"}}
+        Meta(0) {"k":2,"v":[1,2]}
+        Meta(0) {"k":2,"v":true,"z":null}
+        Meta(1) {"k":1,"v":{"a":"b"}}
+        Meta(1, "NA") {"k":1,"v":{"a":5,"c":null,"e":"f"}}
+        Meta(1) {"k":1,"v":{"a":{"n":1},"e":"g"}}
+        Meta(1) {"k":2,"v":[1,2]}
+        Meta(1) {"k":2,"v":true,"z":null}
+        "###);
+
+        // Multiple non-associative reductions can stack in a single compaction.
+        add_and_compact(
+            false,
+            json!([
+              {"k": 1, "v": {"e": "h"}},
+              {"k": 1, "v": {"a": {"n": {"nn": 1}}}}, // Stacks on existing entry.
+              {"k": 1, "v": {"e": "i"}},
+              {"k": 1, "v": {"a": {"n": {"nn": {"nnn": 1}}}}}, // Stacks on queued entry.
+              {"k": 1, "v": {"a": {"n": {"z": "z"}}}},
+              {"k": 1, "v": {"e": "j"}},
+              {"k": 2, "v": false},
+              {"k": 2, "v": null},
+            ]),
+        );
+
+        insta::assert_snapshot!(inspect(&memtable), @r###"
+        Meta(0) {"k":1,"v":{"a":"b"}}
+        Meta(0, "NA") {"k":1,"v":{"a":5,"c":null,"e":"f"}}
+        Meta(0, "NA") {"k":1,"v":{"a":{"n":1},"e":"g"}}
+        Meta(0, "NA") {"k":1,"v":{"a":{"n":{"nn":1}},"e":"i"}}
+        Meta(0) {"k":1,"v":{"a":{"n":{"nn":{"nnn":1},"z":"z"}},"e":"j"}}
+        Meta(0) {"k":2,"v":[1,2]}
+        Meta(0) {"k":2,"v":null,"z":null}
+        Meta(1) {"k":1,"v":{"a":"b"}}
+        Meta(1, "NA") {"k":1,"v":{"a":5,"c":null,"e":"f"}}
+        Meta(1, "NA") {"k":1,"v":{"a":{"n":1},"e":"g"}}
+        Meta(1, "NA") {"k":1,"v":{"a":{"n":{"nn":1}},"e":"i"}}
+        Meta(1) {"k":1,"v":{"a":{"n":{"nn":{"nnn":1},"z":"z"}},"e":"j"}}
+        Meta(1) {"k":2,"v":[1,2]}
+        Meta(1) {"k":2,"v":null,"z":null}
+        "###);
+
+        // We can add documents at the front.
+        add_and_compact(
+            true,
+            json!([
+              {"k": 1, "v": {"a": {"init": 1}}},
+              {"k": 3, "v": "other"},
+            ]),
+        );
+
+        insta::assert_snapshot!(inspect(&memtable), @r###"
+        Meta(0, "F") {"k":1,"v":{"a":{"init":1}}}
+        Meta(0) {"k":1,"v":{"a":"b"}}
+        Meta(0, "NA") {"k":1,"v":{"a":5,"c":null,"e":"f"}}
+        Meta(0, "NA") {"k":1,"v":{"a":{"n":1},"e":"g"}}
+        Meta(0, "NA") {"k":1,"v":{"a":{"n":{"nn":1}},"e":"i"}}
+        Meta(0) {"k":1,"v":{"a":{"n":{"nn":{"nnn":1},"z":"z"}},"e":"j"}}
+        Meta(0) {"k":2,"v":[1,2]}
+        Meta(0) {"k":2,"v":null,"z":null}
+        Meta(0, "F") {"k":3,"v":"other"}
+        Meta(1, "F") {"k":1,"v":{"a":{"init":1}}}
+        Meta(1) {"k":1,"v":{"a":"b"}}
+        Meta(1, "NA") {"k":1,"v":{"a":5,"c":null,"e":"f"}}
+        Meta(1, "NA") {"k":1,"v":{"a":{"n":1},"e":"g"}}
+        Meta(1, "NA") {"k":1,"v":{"a":{"n":{"nn":1}},"e":"i"}}
+        Meta(1) {"k":1,"v":{"a":{"n":{"nn":{"nnn":1},"z":"z"}},"e":"j"}}
+        Meta(1) {"k":2,"v":[1,2]}
+        Meta(1) {"k":2,"v":null,"z":null}
+        Meta(1, "F") {"k":3,"v":"other"}
+        "###);
+
+        // Documents at the front are also compacted with other front() docs,
+        // but we don't compact between front() and !front(), because we don't
+        // yet know whether additional front() documents could arrive.
+        add_and_compact(
+            true,
+            json!([
+              {"k": 1, "v": {"e": "overridden"}},
+              {"k": 1, "v": {"a": {"init": 2}}},
+            ]),
+        );
+
+        insta::assert_snapshot!(inspect(&memtable), @r###"
+        Meta(0, "F") {"k":1,"v":{"a":{"init":1}}}
+        Meta(0, "F") {"k":1,"v":{"a":{"init":2},"e":"overridden"}}
+        Meta(0) {"k":1,"v":{"a":"b"}}
+        Meta(0, "NA") {"k":1,"v":{"a":5,"c":null,"e":"f"}}
+        Meta(0, "NA") {"k":1,"v":{"a":{"n":1},"e":"g"}}
+        Meta(0, "NA") {"k":1,"v":{"a":{"n":{"nn":1}},"e":"i"}}
+        Meta(0) {"k":1,"v":{"a":{"n":{"nn":{"nnn":1},"z":"z"}},"e":"j"}}
+        Meta(0) {"k":2,"v":[1,2]}
+        Meta(0) {"k":2,"v":null,"z":null}
+        Meta(0, "F") {"k":3,"v":"other"}
+        Meta(1, "F") {"k":1,"v":{"a":{"init":1}}}
+        Meta(1, "F") {"k":1,"v":{"a":{"init":2},"e":"overridden"}}
+        Meta(1) {"k":1,"v":{"a":"b"}}
+        Meta(1, "NA") {"k":1,"v":{"a":5,"c":null,"e":"f"}}
+        Meta(1, "NA") {"k":1,"v":{"a":{"n":1},"e":"g"}}
+        Meta(1, "NA") {"k":1,"v":{"a":{"n":{"nn":1}},"e":"i"}}
+        Meta(1) {"k":1,"v":{"a":{"n":{"nn":{"nnn":1},"z":"z"}},"e":"j"}}
+        Meta(1) {"k":2,"v":[1,2]}
+        Meta(1) {"k":2,"v":null,"z":null}
+        Meta(1, "F") {"k":3,"v":"other"}
+        "###);
+
+        // Drain the combiner. It performs a final round of
+        // reductions over:
+        //  * The held-back initial document of full-reduction bindings.
+        //  * front() vs !front() documents, which were also held back
+        //    (we only now know that further front() docs cannot arrive).
+        let mut drained = String::new();
+        for doc in memtable.try_into_drainer().unwrap() {
+            let DrainedDoc { meta, root } = doc.unwrap();
+            drained.push_str(&format!(
+                "{meta:?} {}\n",
+                serde_json::to_string(&SerPolicy::debug().on_owned(&root)).unwrap()
+            ));
+        }
+        insta::assert_snapshot!(drained, @r###"
+        Meta(0, "F") {"k":1,"v":{"a":{"n":{"nn":{"nnn":1},"z":"z"}},"e":"j"}}
+        Meta(0) {"k":2}
+        Meta(0, "F") {"k":3,"v":"other"}
+        Meta(1, "F") {"k":1,"v":{"a":{"init":1}}}
+        Meta(1, "F", "NA") {"k":1,"v":{"a":5,"c":null,"e":"f"}}
+        Meta(1, "NA") {"k":1,"v":{"a":{"n":1},"e":"g"}}
+        Meta(1, "NA") {"k":1,"v":{"a":{"n":{"nn":1}},"e":"i"}}
+        Meta(1) {"k":1,"v":{"a":{"n":{"nn":{"nnn":1},"z":"z"}},"e":"j"}}
+        Meta(1) {"k":2,"v":[1,2]}
+        Meta(1) {"k":2,"v":null,"z":null}
+        Meta(1, "F") {"k":3,"v":"other"}
+        "###);
+    }
+
+    #[test]
     fn test_spill_and_validate() {
         let spec = Spec::with_bindings(
             std::iter::repeat_with(|| {
@@ -682,7 +976,8 @@ mod test {
                 .unwrap();
 
                 (
-                    vec![Extractor::new("/key")],
+                    true, // Full reduction.
+                    vec![Extractor::new("/key", &SerPolicy::default())],
                     None,
                     Validator::new(schema).unwrap(),
                 )
@@ -691,13 +986,13 @@ mod test {
         );
         let memtable = MemTable::new(spec);
 
-        let add = |memtable: &MemTable, reduced: bool, doc: Value| {
+        let add = |memtable: &MemTable, front: bool, doc: Value| {
             let doc = HeapNode::from_node(&doc, memtable.alloc());
-            memtable.add(0, doc, reduced).unwrap();
+            memtable.add(0, doc, front).unwrap();
         };
 
-        // While we validate the !reduced documents, expect we don't validate the reduced ones,
-        // and will go on to spill a reduced document that doesn't match its schema.
+        // While we validate the !front() documents, expect we don't validate front() ones,
+        // and will go on to spill a front() document that doesn't match its schema.
         add(&memtable, false, json!({"key": "aaa", "v": "good"}));
         add(&memtable, true, json!({"key": "bbb", "v": "good"}));
         add(&memtable, true, json!({"key": "ccc", "v": "bad"}));
@@ -705,23 +1000,18 @@ mod test {
         let mut spill = SpillWriter::new(io::Cursor::new(Vec::new())).unwrap();
         let spec = memtable.spill(&mut spill, CHUNK_TARGET_SIZE).unwrap();
 
-        // Expect we spilled into two segments: one for reduced documents, the other for combined.
         let (spill, ranges) = spill.into_parts();
-        assert_eq!(ranges, vec![0..75, 75..182]);
+        assert_eq!(ranges, vec![0..116]);
         insta::assert_snapshot!(to_hex(spill.get_ref()), @r###"
-        |43000000 48000000 b0000000 00400000| C...H........@.. 00000000
+        |6c000000 d8000000 b0000000 00400000| l............@.. 00000000
         |006b6579 0b008103 08000000 6161610c| .key........aaa. 00000010
         |00000500 10760500 30000001 18008067| .....v..0......g 00000020
-        |6f6f6400 00000411 00f00106 000000cc| ood............. 00000030
-        |ffffff02 00000000 00000063 00000090| ...........c.... 00000040
-        |000000f1 08000000 80400000 006b6579| .........@...key 00000050
-        |00000000 03080000 00626262 0c000005| .........bbb.... 00000060
-        |00107605 00300000 01180080 676f6f64| ..v..0......good 00000070
-        |00000004 11009006 000000cc ffffff02| ................ 00000080
-        |0d000202 000d4800 30636363 1a001003| ......H.0ccc.... 00000090
-        |05000848 00206261 47000260 00074800| ...H. baG..`..H. 000000a0
-        |50000000 0000|                       P.....           000000b0
-                                                               000000b6
+        |6f6f6400 00000411 00900600 0000ccff| ood............. 00000030
+        |ffff020d 00020200 1c804800 30626262| ..........H.0bbb 00000040
+        |1a001003 05000f48 00293063 63634300| .......H.)0cccC. 00000050
+        |0d480020 62618f00 02a80007 90005000| .H. ba........P. 00000060
+        |00000000|                            ....             00000070
+                                                               00000074
         "###);
 
         // New MemTable. This time we attempt to spill an invalid, non-reduced document.

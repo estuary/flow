@@ -167,8 +167,7 @@ async fn generate_missing_capture_configs(
         },
         build::CONNECTOR_TIMEOUT,
     )
-    .await
-    .map_err(crate::status_to_anyhow)?
+    .await?
     .spec
     .context("connector didn't send expected Spec response")?;
 
@@ -322,8 +321,7 @@ async fn generate_missing_materialization_configs(
         },
         build::CONNECTOR_TIMEOUT,
     )
-    .await
-    .map_err(crate::status_to_anyhow)?
+    .await?
     .spec
     .context("connector didn't send expected Spec response")?;
 

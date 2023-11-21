@@ -222,6 +222,13 @@ pub mod response {
             /// for most users is that they likely wouldn't want it.
             #[prost(bool, tag = "5")]
             pub disable: bool,
+            /// Components of the resource path which fully qualify the resource
+            /// identified by this binding.
+            /// - For an RDBMS, this might be []{dbname, schema, table}.
+            /// - For Kafka, this might be []{topic}.
+            /// - For Redis, this might be []{key_prefix}.
+            #[prost(string, repeated, tag = "6")]
+            pub resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
         }
     }
     /// Validated responds to Request.Validate.

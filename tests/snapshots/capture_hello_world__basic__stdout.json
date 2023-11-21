@@ -1,0 +1,23 @@
+[
+  [
+    "acmeCo/events",
+    {
+      "message": "Hello 0!",
+      "ts": "redacted-timestamp"
+    }
+  ],
+  [
+    "acmeCo/events",
+    {
+      "message": "Hello 1!",
+      "ts": "redacted-timestamp"
+    }
+  ],
+  [
+    "acmeCo/events",
+    {
+      "message": "Hello 2!",
+      "ts": "redacted-timestamp"
+    }
+  ]
+]

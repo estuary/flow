@@ -1,4 +1,4 @@
-# Google Cloud SQL for PostgreSQL 
+# Google Cloud SQL for PostgreSQL
 
 This connector materializes Flow collections into tables in a Google Cloud SQL for PostgreSQL database.
 
@@ -62,14 +62,14 @@ materializations:
 
 ### Setup
 
-You must configure your database to allow connections from Estuary.
-The recommended method is to whitelist Estuary Flow's IP address.
+1. Allow connections between the database and Estuary Flow. There are two ways to do this: by granting direct access to Flow's IP or by creating an SSH tunnel.
 
-[Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.  See the instructions below to use SSH Tunneling instead of enabling public access.
+   1. To allow direct access:
+       * [Enable public IP on your database](https://cloud.google.com/sql/docs/mysql/configure-ip#add) and add `34.121.207.128` as an authorized IP address.
 
-Alternatively, you can allow secure connections via SSH tunneling. To do so:
-
-1. Refer to the [guide](../../../../guides/connect-network/) to configure an SSH server on the Google Cloud.
+   2. To allow secure connections via SSH tunneling:
+       * Follow the guide to [configure an SSH server for tunneling](../../../../guides/connect-network/)
+       * When you configure your connector as described in the [configuration](#configuration) section above, including the additional `networkTunnel` configuration to enable the SSH tunnel. See [Connecting to endpoints on secure networks](../../../concepts/connectors.md#connecting-to-endpoints-on-secure-networks) for additional details and a sample.
 
 2. Configure your connector as described in the [configuration](#configuration) section above,
 with the additional of the `networkTunnel` stanza to enable the SSH tunnel, if using.

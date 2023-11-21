@@ -813,6 +813,15 @@ pub struct ConnectorState {
     #[prost(bool, tag = "2")]
     pub merge_patch: bool,
 }
+/// SerPolicy describes a serialization policy for Flow documents and portions thereof.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SerPolicy {
+    /// Length limit after which string values are truncated.
+    /// When zero, there is no limit.
+    #[prost(uint32, tag = "1")]
+    pub str_truncate_after: u32,
+}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExtractApi {}
@@ -923,6 +932,9 @@ pub mod combine_api {
         /// from. If empty, do not emit inferred schemas.
         #[prost(string, tag = "7")]
         pub infer_schema_json: ::prost::alloc::string::String,
+        /// Serialization policy.
+        #[prost(message, optional, tag = "8")]
+        pub ser_policy: ::core::option::Option<super::SerPolicy>,
     }
     /// Stats holds statistics relating to one or more combiner transactions.
     #[allow(clippy::derive_partial_eq_without_eq)]

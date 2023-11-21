@@ -6,7 +6,6 @@ use std::{
     path::PathBuf,
 };
 
-mod capture;
 mod discover;
 mod materialize_fixture;
 mod spec;
@@ -51,8 +50,6 @@ pub enum Command {
     MaterializeFixture(materialize_fixture::MaterializeFixture),
     /// Discover a connector and write catalog files
     Discover(discover::Discover),
-    /// Run a capture connector and combine its documents
-    Capture(capture::Capture),
     /// Get the spec output of a connector
     Spec(spec::Spec),
     /// Suggest a schema that would alleviate document schema violations of a specific collection
@@ -147,7 +144,6 @@ impl Advanced {
                 materialize_fixture::do_materialize_fixture(ctx, fixture).await
             }
             Command::Discover(args) => discover::do_discover(ctx, args).await,
-            Command::Capture(args) => capture::do_capture(ctx, args).await,
             Command::Spec(args) => spec::do_spec(ctx, args).await,
             Command::SuggestSchema(args) => suggest_schema::do_suggest_schema(ctx, args).await,
             Command::JsonSchema => {
@@ -231,7 +227,7 @@ async fn do_build(ctx: &mut crate::CliContext, build: &Build) -> anyhow::Result<
         ..Default::default()
     };
 
-    build::persist(build_config, &db_path, build_result.as_ref())?;
+    build::persist(build_config, &db_path, &build_result)?;
 
     Ok(())
 }
@@ -266,7 +262,12 @@ async fn do_combine(
 
     let mut accumulator = combine::Accumulator::new(
         combine::Spec::with_one_binding(
-            extractors::for_key(&collection.spec.key, &collection.spec.projections)?,
+            true, // Full reductions. Make this an option?
+            extractors::for_key(
+                &collection.spec.key,
+                &collection.spec.projections,
+                &doc::SerPolicy::default(),
+            )?,
             None,
             doc::Validator::new(schema).unwrap(),
         ),
@@ -299,7 +300,8 @@ async fn do_combine(
     while let Some(drained) = drainer.next() {
         let drained = drained?;
 
-        serde_json::to_writer(&mut out, &drained.root).context("writing document to stdout")?;
+        serde_json::to_writer(&mut out, &doc::SerPolicy::default().on_owned(&drained.root))
+            .context("writing document to stdout")?;
         out.write(b"\n")?;
         out_docs += 1;
     }

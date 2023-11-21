@@ -3,9 +3,6 @@ use zeroize::Zeroizing;
 
 /// Decrypt a `sops`-protected document using `sops` and application default credentials.
 pub async fn decrypt_sops(config: &models::RawValue) -> anyhow::Result<models::RawValue> {
-    let jq = locate_bin::locate("jq").context("failed to locate sops")?;
-    let sops = locate_bin::locate("sops").context("failed to locate sops")?;
-
     // Only objects can be `sops` documents.
     let dom = config.to_value();
     if !dom.is_object() {
@@ -27,9 +24,12 @@ pub async fn decrypt_sops(config: &models::RawValue) -> anyhow::Result<models::R
         serde_json::from_value(dom).context("decoding `sops` stanza of endpoint config")?;
 
     // If this isn't a `sops` document, then return a copy of it unmodified.
-    let Some(Sops{encrypted_suffix}) = doc.sops else {
-        return Ok(config.to_owned())
+    let Some(Sops { encrypted_suffix }) = doc.sops else {
+        return Ok(config.to_owned());
     };
+
+    let jq = locate_bin::locate("jq").context("failed to locate jq")?;
+    let sops = locate_bin::locate("sops").context("failed to locate sops")?;
 
     // Note that input_output() pre-allocates an output buffer as large as its input buffer,
     // and our decrypted result will never be larger than its input.
@@ -51,7 +51,10 @@ pub async fn decrypt_sops(config: &models::RawValue) -> anyhow::Result<models::R
     .await
     .context("failed to run sops")?;
 
-    let stdout = Zeroizing::from(stdout);
+    let mut stdout = Zeroizing::from(stdout);
+
+    // `sops` emits JSON with newlines and tabs. Remove them to not break JSONL.
+    stdout.retain(|c| *c != b'\n' && *c != b'\t');
 
     if !status.success() {
         anyhow::bail!(
@@ -62,7 +65,7 @@ pub async fn decrypt_sops(config: &models::RawValue) -> anyhow::Result<models::R
 
     // If there is no encrypted suffix, then we're all done.
     let Some(encrypted_suffix) = encrypted_suffix else {
-        return Ok(serde_json::from_slice(&stdout).context("parsing `sops` output")?)
+        return Ok(serde_json::from_slice(&stdout).context("parsing `sops` output")?);
     };
 
     // We must re-write the document to remove the encrypted suffix.

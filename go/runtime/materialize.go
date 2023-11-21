@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -130,6 +131,20 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 		if err != nil {
 			return nil, err
 		}
+
+		// TODO(johnny): Hack to address string truncation for these common materialization connectors
+		// that don't handle large strings very well. This should be negotiated via connector protocol.
+		var serPolicy = &pf.SerPolicy{}
+		for _, needle := range []string{
+			"ghcr.io/estuary/materialize-snowflake",
+			"ghcr.io/estuary/materialize-redshift",
+			"ghcr.io/estuary/materialize-sqlite",
+		} {
+			if bytes.Contains(m.materialization.ConfigJson, []byte(needle)) {
+				serPolicy.StrTruncateAfter = 1 << 16 // Truncate at 64KB.
+			}
+		}
+
 		return combiner, combiner.Configure(
 			shard.FQN(),
 			binding.Collection.Name,
@@ -138,8 +153,8 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint,
 			binding.Collection.Key,
 			binding.FieldSelection.Values,
 			binding.Collection.Projections,
-			// Disable schema inference for materializations
-			false,
+			false, // Disable schema inference.
+			serPolicy,
 		)
 	}
 

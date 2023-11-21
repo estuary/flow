@@ -14,17 +14,14 @@ const CONNECTOR_INIT_PORT: u16 = 49092;
 /// Start an image connector container, returning its description and a dialed tonic Channel.
 /// The container is attached to the given `network`, and its logs are dispatched to `log_handler`.
 /// `task_name` and `task_type` are used only to label the container.
-pub async fn start<L>(
+pub async fn start(
     image: &str,
-    log_handler: L,
+    log_handler: impl crate::LogHandler,
     log_level: Option<ops::LogLevel>,
     network: &str,
     task_name: &str,
     task_type: ops::TaskType,
-) -> anyhow::Result<(runtime::Container, tonic::transport::Channel, Guard)>
-where
-    L: Fn(&ops::Log) + Send + Sync + 'static,
-{
+) -> anyhow::Result<(runtime::Container, tonic::transport::Channel, Guard)> {
     // Many operational contexts only allow for docker volume mounts
     // from certain locations:
     //  * Docker for Mac restricts file shares to /User, /tmp, and a couple others.
@@ -520,7 +517,8 @@ mod test {
             "a-task-name",
             proto_flow::ops::TaskType::Capture,
         )
-        .await else {
+        .await
+        else {
             panic!("didn't crash")
         };
 

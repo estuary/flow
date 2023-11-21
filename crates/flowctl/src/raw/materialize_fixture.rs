@@ -106,8 +106,9 @@ pub async fn do_materialize_fixture(
                     continue;
                 }
 
-                let key_ex = extractors::for_fields(keys, projections)?;
-                let values_ex = extractors::for_fields(values, projections)?;
+                let key_ex = extractors::for_fields(keys, projections, &doc::SerPolicy::default())?;
+                let values_ex =
+                    extractors::for_fields(values, projections, &doc::SerPolicy::default())?;
 
                 for (exists, doc) in &docs {
                     if !delta_updates {

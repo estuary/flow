@@ -290,7 +290,7 @@ pub async fn remove_unchanged(client: &Client, draft_id: &str) -> anyhow::Result
         catalog_name: String,
     }
 
-    let params = serde_json::to_string(&serde_json::json!({ "draft_id": draft_id })).unwrap();
+    let params = serde_json::to_string(&serde_json::json!({ "prune_draft_id": draft_id })).unwrap();
     // We don't use an explicit select of `catalog_name` because we want the other fields to appear
     // in the response when trace logging is enabled. This may be something we wish to change once
     // we gain more confidence in the spec pruning feature.

@@ -336,11 +336,11 @@ impl PublishHandler {
         )
         .await?;
 
-        let errors = build_output.draft_errors();
+        let errors = builds::draft_errors(&build_output);
         if !errors.is_empty() {
             // If there's a build error, then it's possible that it's due to incompatible collection changes.
             // We'll report those in the status so that the UI can present a dialog allowing users to take action.
-            let incompatible_collections = build_output.get_incompatible_collections();
+            let incompatible_collections = builds::get_incompatible_collections(&build_output);
             return stop_with_errors(
                 errors,
                 JobStatus::build_failed(incompatible_collections),
@@ -431,7 +431,7 @@ impl PublishHandler {
         // so that this function can observe the `live_specs` that we just updated.
         let pub_ids = linked_materializations::create_linked_materialization_publications(
             &self.agent_user_email,
-            &build_output.built_captures,
+            build_output.built_captures(),
             maybe_source_captures,
             txn,
         )

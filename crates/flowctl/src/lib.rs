@@ -69,18 +69,28 @@ pub enum Command {
     /// You then edit the generated stubs in your preferred editor to fill
     /// out implementations for your derivation transform lambdas.
     Generate(generate::Generate),
-    /// Locally run and preview the output of a derivation.
+    /// Locally run and preview a capture, derivation, or materialization.
     ///
-    /// Preview runs a temporary, local instance of your derivation by reading
-    /// documents from your source collections and applying them to your
-    /// derivation's transforms. The output of your derivation is combined and
-    /// periodically written to stdout as newline-delimited JSON.
-    /// Preview will process all of your historical source data and thereafter
-    /// will emit ongoing updates, until you ask it to exit by sending CTRL-D
-    /// (which closes stdin).
+    /// Preview runs a temporary, local instance of your task.
+    /// Capture tasks emit captured data to stdout.
+    /// Derivations read documents from your source collections, run them
+    /// through your derivation connector, and emit the results to stdout.
+    /// Materializations read documents from your source collection and
+    /// update the configured endpoint system.
     ///
-    /// Preview is also able to infer and update the schema of your collection,
-    /// based on the documents that your transforms are observed to publish.
+    /// When reading live collection data, preview will process all of your
+    /// historical source data and thereafter will emit ongoing updates.
+    /// Or, derivations and materializations may alternatively provide a data
+    /// --fixture of collection documents to derive or materialize, which is
+    /// useful in automated testing contexts.
+    ///
+    /// Preview provides various knobs for tuning timeouts, simulating back
+    /// pressure, and running multiple sessions to exercise connector resumption
+    /// and crash recovery, which may be helpful when developing connectors.
+    ///
+    /// WARNING: previews of captures and materializations make live changes
+    /// to their configured endpoints. Be sure that your task does not conflict
+    /// or collide with a live task running in the Flow managed service.
     Preview(preview::Preview),
     /// Work with your Flow catalog drafts.
     ///
@@ -269,8 +279,4 @@ fn format_user(email: Option<String>, full_name: Option<String>, id: Option<uuid
         email = email.unwrap_or_default(),
         id = id.map(|id| id.to_string()).unwrap_or_default(),
     )
-}
-
-fn status_to_anyhow(status: tonic::Status) -> anyhow::Error {
-    anyhow::anyhow!(status.message().to_string())
 }

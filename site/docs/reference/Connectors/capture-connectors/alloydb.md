@@ -76,7 +76,7 @@ See the table below and the [sample config](#sample).
 
 | Property | Title | Description | Type | Required/Default |
 |---|---|---|---|---|
-| **`/address`** | Address | The host or host:port at which the database can be reached. Set to 127.0.0.1:5432 to enable SSH tunneling. | string | Required |
+| **`/address`** | Address | The host or host:port at which the database can be reached. | string | Required |
 | **`/database`** | Database | Logical database name to capture from. | string | Required, `"postgres"` |
 | **`/user`** | User | The database user to authenticate as. | string | Required, `"flow_capture"` |
 | **`/password`** | Password | Password for the specified database user. | string | Required |

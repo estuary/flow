@@ -67,6 +67,7 @@ pub fn display_ptr(ptr: &Pointer) -> String {
             Token::Property(p) => buf.push_str(p),
             Token::Index(i) => write!(&mut buf, "{}", i).unwrap(),
             Token::NextIndex => buf.push('-'),
+            Token::NextProperty => buf.push('*'),
         }
     }
     buf

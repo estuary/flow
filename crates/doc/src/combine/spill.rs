@@ -1,6 +1,6 @@
-use super::{bump_mem_used, DrainedDoc, Error, HeapEntry, Spec, BUMP_THRESHOLD};
+use super::{bump_mem_used, reduce, DrainedDoc, Error, HeapEntry, Meta, Spec, BUMP_THRESHOLD};
 use crate::owned::OwnedArchivedNode;
-use crate::{Extractor, LazyNode, OwnedHeapNode, OwnedNode};
+use crate::{Extractor, HeapNode, LazyNode, OwnedHeapNode, OwnedNode};
 use bumpalo::Bump;
 use bytes::Buf;
 use rkyv::ser::Serializer;
@@ -52,21 +52,11 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
         let mut raw_buf = rkyv::AlignedVec::with_capacity(2 * chunk_target_size);
         let mut rkyv_scratch = Default::default();
 
-        for (
-            index,
-            HeapEntry {
-                binding,
-                reduced,
-                root,
-            },
-        ) in entries.iter().enumerate()
-        {
+        for (index, HeapEntry { meta, root }) in entries.iter().enumerate() {
             let offset = raw_buf.len();
 
-            // Pack `reduced` into binding by setting its high bit.
-            let binding = binding | if *reduced { 1 << 31 } else { 0 };
-            // Write binding header.
-            raw_buf.extend_from_slice(&u32::to_le_bytes(binding));
+            // Write meta header.
+            raw_buf.extend_from_slice(&meta.to_bytes());
             // Reserve space for document size header.
             raw_buf.extend_from_slice(&[0; 4]);
 
@@ -151,8 +141,7 @@ impl<F: io::Read + io::Write + io::Seek> SpillWriter<F> {
 
 // Entry is a parsed document entry of a spill file.
 struct Entry {
-    binding: u32,
-    reduced: bool,
+    meta: Meta,
     root: OwnedArchivedNode,
 }
 
@@ -170,13 +159,9 @@ impl Entry {
         }
 
         // Parse entry header.
-        let reduced_binding = u32::from_le_bytes(chunk[0..4].try_into().unwrap());
+        let meta = Meta::from_bytes(chunk[0..4].try_into().unwrap());
         let doc_len = u32::from_le_bytes(chunk[4..8].try_into().unwrap()) as usize;
         chunk.advance(8); // Consume header.
-
-        // Decompose `reduced_binding` into its parts.
-        let reduced = reduced_binding & 1 << 31 != 0;
-        let binding = reduced_binding & ((1 << 31) - 1);
 
         if chunk.len() < doc_len {
             return Err(io::Error::new(
@@ -191,14 +176,7 @@ impl Entry {
         let rest = chunk.split_off(doc_len);
         let root = unsafe { OwnedArchivedNode::new(chunk) };
 
-        Ok((
-            Self {
-                binding,
-                reduced,
-                root,
-            },
-            rest,
-        ))
+        Ok((Self { meta, root }, rest))
     }
 }
 
@@ -305,21 +283,19 @@ impl Segment {
 
 impl Ord for Segment {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        let (lhs, rhs) = (&self.head, &other.head);
+        let (l, r) = (&self.head, &other.head);
 
-        lhs.binding
-            .cmp(&rhs.binding)
+        // Order entries on (binding, key, !front, spill-order):
+        // For each (binding, key), we take front() entries first, and then
+        // take the Segment which was produced into the spill file first.
+        // This maintains the left-to-right associative ordering of reductions.
+        let binding = l.meta.binding().cmp(&r.meta.binding());
+        binding
             .then_with(|| {
-                Extractor::compare_key(
-                    &self.keys[lhs.binding as usize],
-                    lhs.root.get(),
-                    rhs.root.get(),
-                )
+                Extractor::compare_key(&self.keys[l.meta.binding()], l.root.get(), r.root.get())
             })
-            .then_with(||
-                // When keys are equal than take the Segment which was produced into the spill file first.
-                // This maintains the left-to-right associative ordering of reductions.
-                self.next.start.cmp(&other.next.start))
+            .then_with(|| l.meta.front().cmp(&r.meta.front()).reverse())
+            .then_with(|| self.next.start.cmp(&other.next.start))
     }
 }
 impl PartialOrd for Segment {
@@ -337,128 +313,132 @@ impl Eq for Segment {}
 /// SpillDrainer drains documents across all segments of a spill file,
 /// yielding drained entries (one per binding & key) in ascending order.
 pub struct SpillDrainer<F: io::Read + io::Seek> {
+    alloc: Arc<Bump>, // Used for individual key reductions.
     heap: BinaryHeap<cmp::Reverse<Segment>>,
+    in_group: bool,
     spec: Spec,
     spill: F,
-    // Allocator for reductions, which is not referenced by other internal state of SpillDrainer.
-    alloc: Arc<Bump>,
 }
 
-// Safety: SpillDrainer is safe to Send because its iterators never have lent references,
-// and we're sending them and their backing Bump allocator together.
+// Safety: SpillDrainer is safe to Send because it wraps Bump with Arc,
+// and we emit OwnedNodes that own a reference count to the Bump.
 unsafe impl<F: io::Read + io::Seek> Send for SpillDrainer<F> {}
+
+impl<F: io::Read + io::Seek> SpillDrainer<F> {
+    pub fn drain_next(&mut self) -> Result<Option<DrainedDoc>, Error> {
+        let Some(cmp::Reverse(segment)) = self.heap.pop() else {
+            return Ok(None);
+        };
+
+        // Pop `segment`'s next Entry, and then re-heap it.
+        let (entry, segment) = segment.pop_head(&mut self.spill)?;
+        if let Some(segment) = segment {
+            self.heap.push(cmp::Reverse(segment));
+        }
+
+        let Entry { mut meta, root } = entry;
+        let is_full = self.spec.is_full[meta.binding()];
+        let key = self.spec.keys[meta.binding()].as_ref();
+        let (validator, ref schema) = &mut self.spec.validators[meta.binding()];
+
+        // `reduced` root which is updated as reductions occur.
+        let mut reduced: Option<HeapNode<'_>> = None;
+
+        // Attempt to reduce additional entries.
+        while let Some(cmp::Reverse(next)) = self.heap.peek() {
+            if meta.binding() != next.head.meta.binding()
+                || !Extractor::compare_key(key, root.get(), next.head.root.get()).is_eq()
+            {
+                self.in_group = false;
+                break;
+            } else if !is_full && (!self.in_group || meta.not_associative()) {
+                // We're performing associative reductions and:
+                // * This is the first document of a group, which we cannot reduce into, or
+                // * We've already attempted this associative reduction.
+                self.in_group = true;
+                break;
+            }
+
+            let rhs_valid = validator
+                .validate(schema.as_ref(), next.head.root.get())
+                .map_err(Error::SchemaError)?
+                .ok()
+                .map_err(Error::FailedValidation)?;
+
+            match reduce::reduce::<crate::ArchivedNode>(
+                match &reduced {
+                    Some(root) => LazyNode::Heap(root),
+                    None => LazyNode::Node(root.get()),
+                },
+                LazyNode::Node(next.head.root.get()),
+                rhs_valid,
+                &self.alloc,
+                is_full,
+            ) {
+                Ok((node, deleted)) => {
+                    meta.set_deleted(deleted);
+                    reduced = Some(node);
+
+                    // Discard the peeked entry, which was reduced into `reduced_root`.
+                    let segment = self.heap.pop().unwrap().0;
+                    let (_discard, segment) = segment.pop_head(&mut self.spill)?;
+                    if let Some(segment) = segment {
+                        self.heap.push(cmp::Reverse(segment));
+                    }
+                }
+                Err(reduce::Error::NotAssociative) => {
+                    meta.set_not_associative();
+                    break;
+                }
+                Err(err) => return Err(Error::Reduction(err)),
+            }
+        }
+
+        // Map `reduced` into an owned variant.
+        let root = match reduced {
+            None => {
+                // `root` was spilled to disk and was not reduced again.
+                // We validate !front() documents when spilling to disk and
+                // can skip doing so now (this is the common case).
+                if meta.front() {
+                    validator
+                        .validate(schema.as_ref(), root.get())
+                        .map_err(Error::SchemaError)?
+                        .ok()
+                        .map_err(Error::FailedValidation)?;
+                }
+
+                OwnedNode::Archived(root)
+            }
+            Some(reduced) => {
+                // We built `reduced` via reduction and must re-validate it.
+                validator
+                    .validate(schema.as_ref(), &reduced)
+                    .map_err(Error::SchemaError)?
+                    .ok()
+                    .map_err(Error::FailedValidation)?;
+
+                // Safety: we allocated `reduced` out of `self.alloc`.
+                let reduced = unsafe { OwnedHeapNode::new(reduced, self.alloc.clone()) };
+
+                // Safety: we must hold `alloc` constant for all reductions of a yielded entry.
+                if bump_mem_used(&self.alloc) > BUMP_THRESHOLD {
+                    self.alloc = Arc::new(Bump::new());
+                }
+
+                OwnedNode::Heap(reduced)
+            }
+        };
+
+        Ok(Some(DrainedDoc { meta, root }))
+    }
+}
 
 impl<F: io::Read + io::Seek> Iterator for SpillDrainer<F> {
     type Item = Result<DrainedDoc, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut inner = || {
-            let Some(cmp::Reverse(cur_segment)) = self.heap.pop() else {
-                return Ok(None);
-            };
-
-            let (
-                Entry {
-                    binding,
-                    mut reduced,
-                    root: owned_root,
-                },
-                cur_segment,
-            ) = cur_segment.pop_head(&mut self.spill)?;
-
-            let key = &self.spec.keys[binding as usize];
-            let (validator, ref schema) = &mut self.spec.validators[binding as usize];
-
-            // LazyNode root which is updated as reductions occur.
-            let mut root = LazyNode::Node(owned_root.get());
-
-            // Poll the heap to find additional documents in other segments which share root's key.
-            // Note that there can be at-most one instance of a key within a single segment,
-            // so we don't need to re-heap `cur_segment` just yet.
-            while matches!(self.heap.peek(), Some(cmp::Reverse(peek))
-                if binding == peek.head.binding
-                    && Extractor::compare_key_lazy(
-                        key,
-                        &root,
-                        &LazyNode::Node(peek.head.root.get())
-                    ).is_eq())
-            {
-                let other_segment = self.heap.pop().unwrap().0;
-
-                let (
-                    Entry {
-                        binding: _,
-                        reduced: rhs_reduced,
-                        root: rhs_root,
-                    },
-                    other_segment,
-                ) = other_segment.pop_head(&mut self.spill)?;
-
-                let smashed = super::smash(
-                    &self.alloc,
-                    root,
-                    reduced,
-                    LazyNode::Node(rhs_root.get()),
-                    rhs_reduced,
-                    schema.as_ref(),
-                    validator,
-                )?;
-                (root, reduced) = (LazyNode::Heap(smashed.0), smashed.1);
-
-                // Re-heap `other_segment`.
-                if let Some(other) = other_segment {
-                    self.heap.push(cmp::Reverse(other));
-                }
-            }
-
-            // Re-heap `cur_segment`.
-            if let Some(segment) = cur_segment {
-                self.heap.push(cmp::Reverse(segment));
-            }
-
-            // Map `root` into an owned variant.
-            let root = match root {
-                LazyNode::Node(root) => {
-                    // This document was spilled to disk and was not reduced again.
-                    // We validate !reduced documents when spilling to disk and
-                    // can skip doing so now (this is the common case).
-                    if reduced {
-                        validator
-                            .validate(schema.as_ref(), root)
-                            .map_err(Error::SchemaError)?
-                            .ok()
-                            .map_err(Error::FailedValidation)?;
-                    }
-
-                    OwnedNode::Archived(owned_root)
-                }
-                LazyNode::Heap(root) => {
-                    // We built `doc` via reduction and must re-validate it.
-                    validator
-                        .validate(schema.as_ref(), &root)
-                        .map_err(Error::SchemaError)?
-                        .ok()
-                        .map_err(Error::FailedValidation)?;
-
-                    // Safety: we allocated `root` out of `self.alloc`.
-                    let root = unsafe { OwnedHeapNode::new(root, self.alloc.clone()) };
-
-                    // Safety: we must hold `alloc` constant for all reductions of a yielded entry.
-                    if bump_mem_used(&self.alloc) > BUMP_THRESHOLD {
-                        self.alloc = Arc::new(Bump::new());
-                    }
-
-                    OwnedNode::Heap(root)
-                }
-            };
-
-            Ok(Some(DrainedDoc {
-                binding,
-                reduced,
-                root,
-            }))
-        };
-        inner().transpose()
+        self.drain_next().transpose()
     }
 }
 
@@ -476,6 +456,7 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
         Ok(Self {
             alloc: Arc::new(Bump::new()),
             heap,
+            in_group: false,
             spec,
             spill,
         })
@@ -485,6 +466,7 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
         let Self {
             alloc: _,
             heap: _,
+            in_group: _,
             spec,
             spill,
         } = self;
@@ -495,7 +477,9 @@ impl<F: io::Read + io::Seek> SpillDrainer<F> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{combine::CHUNK_TARGET_SIZE, validation::build_schema, HeapNode, Validator};
+    use crate::{
+        combine::CHUNK_TARGET_SIZE, validation::build_schema, HeapNode, SerPolicy, Validator,
+    };
     use itertools::Itertools;
     use serde_json::{json, Value};
 
@@ -541,8 +525,8 @@ mod test {
         let mut segment = Segment::new(keys, &mut spill, ranges[0].clone()).unwrap();
 
         // First chunk has two documents.
-        assert_eq!(segment.head.binding, 0);
-        assert_eq!(segment.head.reduced, false);
+        assert_eq!(segment.head.meta.binding(), 0);
+        assert_eq!(segment.head.meta.front(), false);
         assert!(crate::compare(segment.head.root.get(), &fixture[0].1).is_eq());
         assert!(!segment.tail.is_empty());
         assert_eq!(segment.next, 112..186);
@@ -550,8 +534,8 @@ mod test {
         let (_, next_segment) = segment.pop_head(&mut spill).unwrap();
         segment = next_segment.unwrap();
 
-        assert_eq!(segment.head.binding, 1);
-        assert_eq!(segment.head.reduced, true);
+        assert_eq!(segment.head.meta.binding(), 1);
+        assert_eq!(segment.head.meta.front(), true);
         assert!(crate::compare(segment.head.root.get(), &fixture[1].1).is_eq());
         assert!(segment.tail.is_empty()); // Chunk is empty.
         assert_eq!(segment.next, 112..186);
@@ -560,8 +544,8 @@ mod test {
         let (_, next_segment) = segment.pop_head(&mut spill).unwrap();
         segment = next_segment.unwrap();
 
-        assert_eq!(segment.head.binding, 2);
-        assert_eq!(segment.head.reduced, true);
+        assert_eq!(segment.head.meta.binding(), 2);
+        assert_eq!(segment.head.meta.front(), true);
         assert!(crate::compare(segment.head.root.get(), &fixture[2].1).is_eq());
         assert!(segment.tail.is_empty()); // Chunk is empty.
         assert_eq!(segment.next, 186..186);
@@ -591,7 +575,12 @@ mod test {
                 .unwrap();
 
                 (
-                    vec![Extractor::with_default("/key", json!("def"))],
+                    true, // Full reduction.
+                    vec![Extractor::with_default(
+                        "/key",
+                        &SerPolicy::default(),
+                        json!("def"),
+                    )],
                     None,
                     Validator::new(schema).unwrap(),
                 )
@@ -640,9 +629,9 @@ mod test {
         let actual = drainer
             .map_ok(|doc| {
                 (
-                    doc.binding,
-                    serde_json::to_value(&doc.root).unwrap(),
-                    doc.reduced,
+                    doc.meta.binding(),
+                    serde_json::to_value(SerPolicy::default().on_owned(&doc.root)).unwrap(),
+                    doc.meta.front(),
                 )
             })
             .collect::<Result<Vec<_>, _>>()
@@ -734,7 +723,8 @@ mod test {
                 .unwrap();
 
                 (
-                    vec![Extractor::new("/key")],
+                    true, // Full reduction.
+                    vec![Extractor::new("/key", &SerPolicy::default())],
                     None,
                     Validator::new(schema).unwrap(),
                 )
@@ -771,31 +761,37 @@ mod test {
         let (spill, ranges) = spill.into_parts();
         let mut drainer = SpillDrainer::new(spec, spill, &ranges).unwrap();
 
-        // "aaa" is reduced & validated, and matches the schema.
+        // "aaa" is front() & validated, and matches the schema.
         assert!(matches!(
             drainer.next().unwrap(),
-            Ok(DrainedDoc { reduced: true, .. })
+            Ok(DrainedDoc { meta, .. }) if meta.front()
         ));
-        // "bbb" doesn't match the schema but is marked as !reduced (we assume it was validated on spill).
+        // "bbb" doesn't match the schema but is !front() (we assume it was validated on spill).
         assert!(matches!(
             drainer.next().unwrap(),
-            Ok(DrainedDoc { reduced: false, .. })
+            Ok(DrainedDoc { meta, .. }) if !meta.front()
         ));
-        // "ccc" doesn't match the schema, is marked reduced, and fails validation.
+        // "ccc" doesn't match the schema, is front(), and fails validation.
         assert!(matches!(
             drainer.next().unwrap(),
             Err(Error::FailedValidation(_))
         ));
-        // "ddd" has an invalid reduced document, but is further reduced upon drain,
+        // "ddd" has an invalid front() document, but is further reduced upon drain,
         // and the reduction output is itself valid.
         assert!(matches!(
             drainer.next().unwrap(),
-            Ok(DrainedDoc { reduced: true, .. })
+            Ok(DrainedDoc { meta, .. }) if meta.front()
         ));
-        // "eee" is reduced on drain, and its output doesn't match the schema.
+        // "eee" is reduced on drain, and its RHS doesn't match the schema.
         assert!(matches!(
             drainer.next().unwrap(),
             Err(Error::FailedValidation(_))
+        ));
+        // Polling the iterator again pops the second "eee" document,
+        // which was peeked but not yet popped during the prior failed validation.
+        assert!(matches!(
+            drainer.next().unwrap(),
+            Ok(DrainedDoc { meta, .. }) if !meta.front()
         ));
 
         assert!(drainer.next().is_none());
@@ -826,9 +822,8 @@ mod test {
     ) -> Vec<HeapEntry<'alloc>> {
         fixture
             .into_iter()
-            .map(|(binding, value, reduced)| HeapEntry {
-                binding: *binding,
-                reduced: *reduced,
+            .map(|(binding, value, front)| HeapEntry {
+                meta: Meta::new(*binding, *front),
                 root: HeapNode::from_node(value, &alloc),
             })
             .collect()

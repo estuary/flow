@@ -73,7 +73,11 @@ struct State {
     // JSON-Pointer into which a UUID placeholder should be set,
     // or None if a placeholder shouldn't be set.
     uuid_placeholder_ptr: Option<doc::Pointer>,
+    // Name of the collection for which we're combining.
+    // Used to log out inferred schemas.
     collection_name: String,
+    // Serialization policy while draining the combiner.
+    ser_policy: doc::SerPolicy,
 }
 
 impl cgo::Service for API {
@@ -106,7 +110,9 @@ impl cgo::Service for API {
                     projections,
                     collection_name,
                     infer_schema_json,
+                    ser_policy,
                 } = combine_api::Config::decode(data)?;
+
                 tracing::debug!(
                     %schema_json,
                     ?key_ptrs,
@@ -114,14 +120,18 @@ impl cgo::Service for API {
                     ?uuid_placeholder_ptr,
                     ?collection_name,
                     schema_inference = infer_schema_json.len()>0,
+                    ?ser_policy,
                     "configure",
                 );
+
+                let ser_policy = extractors::map_policy(&ser_policy.context("missing SerPolicy")?);
 
                 if key_ptrs.is_empty() {
                     return Err(Error::EmptyKey);
                 }
-                let key_ex: Box<[_]> = extractors::for_key(&key_ptrs, &projections)?.into();
-                let fields_ex = extractors::for_fields(&fields, &projections)?;
+                let key_ex: Box<[_]> =
+                    extractors::for_key(&key_ptrs, &projections, &ser_policy)?.into();
+                let fields_ex = extractors::for_fields(&fields, &projections, &ser_policy)?;
 
                 let uuid_placeholder_ptr = match uuid_placeholder_ptr.as_ref() {
                     "" => None,
@@ -129,6 +139,15 @@ impl cgo::Service for API {
                 };
 
                 let spec = doc::combine::Spec::with_one_binding(
+                    // Piggy-back on the `schema_inference` knob to understand
+                    // if we should use full or partial reductions.
+                    // TODO(johnny): This is a hack to avoid churning this API further,
+                    // while we transition over to the `runtime` crate which is replacing this code.
+                    if infer_schema_json.is_empty() {
+                        true // This is a materialization (full reductions).
+                    } else {
+                        false // This is a capture (partial reductions).
+                    },
                     key_ex.clone(),
                     None,
                     new_validator(&schema_json)?,
@@ -168,6 +187,7 @@ impl cgo::Service for API {
                     uuid_placeholder_ptr,
                     stats: CombineStats::default(),
                     collection_name,
+                    ser_policy,
                 });
                 Ok(())
             }
@@ -219,6 +239,7 @@ impl cgo::Service for API {
                     &mut state.stats.out,
                     &mut state.shape,
                     &mut state.shape_changed,
+                    &state.ser_policy,
                 )?;
 
                 if !more {
@@ -284,16 +305,13 @@ pub fn drain_chunk(
     stats: &mut DocCounter,
     shape: &mut Option<doc::Shape>,
     did_change: &mut bool,
+    ser_policy: &doc::SerPolicy,
 ) -> Result<bool, doc::combine::Error> {
     // Convert target from a delta to an absolute target length of the arena.
     let target_length = target_length + arena.len();
 
     while let Some(drained) = drainer.next() {
-        let doc::combine::DrainedDoc {
-            binding: _, // Always zero.
-            reduced,
-            root,
-        } = drained?;
+        let doc::combine::DrainedDoc { meta, root } = drained?;
 
         if let Some(ref mut shape) = shape {
             if shape.widen_owned(&root) {
@@ -305,11 +323,11 @@ pub fn drain_chunk(
         // Send serialized document.
         let begin = arena.len();
         let w: &mut Vec<u8> = &mut *arena;
-        serde_json::to_writer(w, &root).expect("encoding cannot fail");
+        serde_json::to_writer(w, &ser_policy.on_owned(&root)).expect("encoding cannot fail");
 
         // Only now do we know the actual length of the document in its serialized form.
         stats.increment(arena.len() - begin);
-        if reduced {
+        if meta.front() {
             cgo::send_bytes(Code::DrainedReducedDocument as u32, begin, arena, out);
         } else {
             cgo::send_bytes(Code::DrainedCombinedDocument as u32, begin, arena, out);
@@ -390,6 +408,10 @@ pub mod test {
                 ],
                 collection_name: "test".to_string(),
                 infer_schema_json: "false".to_string(),
+                ser_policy: Some(flow::SerPolicy {
+                    // Cut off "really long" string in fixture below.
+                    str_truncate_after: 36,
+                }),
             },
             &mut arena,
             &mut out,
@@ -403,6 +425,13 @@ pub mod test {
             (true, json!({"key": "two", "min": 2, "max": 2.2})),
             (false, json!({"key": "one", "min": 5, "max": 5.5})),
             (false, json!({"key": "three", "min": 6, "max": 6.6})),
+            (
+                false,
+                json!({"key": "really really really really really really really really long", "min": 10, "max": 10}),
+            ),
+            (false, json!({"key": "one", "min": 7, "max": 7.7})),
+            (false, json!({"key": "one", "min": 8, "max": 8.8})),
+            (false, json!({"key": "one", "min": 9, "max": 9.9})),
         ] {
             svc.invoke(
                 if *left {
@@ -432,16 +461,16 @@ pub mod test {
 
         assert_eq!(out.len(), 1 * 3);
 
-        // Poll again to drain the final two, plus stats.
+        // Poll again to drain the final five, plus stats.
         svc.invoke(
             Code::DrainChunk as u32,
-            &(1024 as u32).to_be_bytes(),
+            &(4096 as u32).to_be_bytes(),
             &mut arena,
             &mut out,
         )
         .unwrap();
 
-        assert_eq!(out.len(), 3 * 3 + 1);
+        assert_eq!(out.len(), 6 * 3 + 1);
 
         // The last message in out should be stats
         let stats_out = out.pop().expect("missing stats");
@@ -451,10 +480,13 @@ pub mod test {
             .expect("failed to decode stats message");
         let expected_stats = Stats {
             left: Some(DocsAndBytes { docs: 2, bytes: 62 }),
-            right: Some(DocsAndBytes { docs: 3, bytes: 95 }),
+            right: Some(DocsAndBytes {
+                docs: 7,
+                bytes: 276,
+            }),
             out: Some(DocsAndBytes {
-                docs: 3,
-                bytes: 230,
+                docs: 6,
+                bytes: 491,
             }),
         };
         assert_eq!(expected_stats, stats_message);
@@ -484,6 +516,7 @@ pub mod test {
                     projections: vec![],
                     collection_name: "test".to_string(),
                     infer_schema_json: "".to_string(),
+                    ser_policy: Some(Default::default()),
                 },
                 &mut arena,
                 &mut out,
@@ -509,6 +542,7 @@ pub mod test {
                     projections: vec![],
                     collection_name: "test".to_string(),
                     infer_schema_json: r#"{"type": "object"}"#.to_string(),
+                    ser_policy: Some(Default::default()),
                 },
                 &mut arena,
                 &mut out,
@@ -781,6 +815,7 @@ pub mod test {
                 projections,
                 collection_name: "test".to_string(),
                 infer_schema_json: "".to_string(),
+                ser_policy: Some(Default::default()),
             },
             &mut arena,
             &mut out,

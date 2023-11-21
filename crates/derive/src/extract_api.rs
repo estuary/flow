@@ -107,7 +107,11 @@ impl cgo::Service for API {
 
                 self.state = Some(State {
                     uuid_ptr: doc::Pointer::from(&uuid_ptr),
-                    extractors: extractors::for_key(&field_ptrs, &projections)?,
+                    extractors: extractors::for_key(
+                        &field_ptrs,
+                        &projections,
+                        &doc::SerPolicy::default(),
+                    )?,
                     validator,
                 });
                 Ok(())

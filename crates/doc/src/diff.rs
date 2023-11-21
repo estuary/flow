@@ -1,10 +1,9 @@
-use super::{AsNode, Field, Fields, Node};
+use super::{AsNode, Field, Fields, Node, SerPolicy};
 use itertools::{
     EitherOrBoth::{Both, Left, Right},
     Itertools,
 };
 use json::Location;
-use serde::Serialize;
 
 /// Diff an actual (observed) document against an expected document,
 /// pushing all detected differences into a Vec. Object properties
@@ -20,18 +19,38 @@ pub fn diff<'a, 'e, A: AsNode, E: AsNode>(
 }
 
 /// Diff is a detected difference within a document.
-#[derive(Serialize, Debug)]
+#[derive(Debug)]
 pub struct Diff<'a, 'e, A: AsNode, E: AsNode> {
     /// JSON-Pointer location of the difference.
     pub location: String,
     /// Actual value at the document location.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub actual: Option<&'a A>,
     /// Expected value at the document location.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub expect: Option<&'e E>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<&'static str>,
+}
+
+impl<'a, 'e, A: AsNode, E: AsNode> serde::Serialize for Diff<'a, 'e, A, E> {
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+
+        let mut map = s.serialize_map(None)?;
+        map.serialize_entry("location", &self.location)?;
+
+        if let Some(v) = self.actual {
+            map.serialize_entry("actual", &SerPolicy::debug().on(v))?;
+        }
+        if let Some(v) = self.expect {
+            map.serialize_entry("expect", &SerPolicy::debug().on(v))?;
+        }
+        if let Some(note) = self.note {
+            map.serialize_entry("note", note)?;
+        }
+        map.end()
+    }
 }
 
 impl<'a, 'e, A: AsNode, E: AsNode> Diff<'a, 'e, A, E> {
@@ -86,8 +105,8 @@ impl<'a, 'e, A: AsNode, E: AsNode> Diff<'a, 'e, A, E> {
                 if !f64_eq(actual_f64, expected_f64) {
                     out.push(Diff {
                         location: format!("{}", location.pointer_str()),
-                        expect,
                         actual,
+                        expect,
                         note: None,
                     });
                 }
@@ -100,8 +119,8 @@ impl<'a, 'e, A: AsNode, E: AsNode> Diff<'a, 'e, A, E> {
             _ => {
                 out.push(Diff {
                     location: location.pointer_str().to_string(),
-                    expect,
                     actual,
+                    expect,
                     note: if actual.is_none() {
                         Some("missing in actual document")
                     } else {

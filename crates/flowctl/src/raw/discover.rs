@@ -16,6 +16,10 @@ pub struct Discover {
     /// Should specs be written to one specification file, instead of the canonical layout?
     #[clap(long)]
     flat: bool,
+    /// Emit the raw discover output so it can be used in snapshot tests introspected during development
+    /// Rather than updating the filesystem with the discovered specs
+    #[clap(long)]
+    emit_raw: bool,
     /// Docker network to run the connector.
     #[clap(long, default_value = "bridge")]
     network: String,
@@ -28,6 +32,7 @@ pub async fn do_discover(
         capture,
         flat,
         network,
+        emit_raw,
     }: &Discover,
 ) -> anyhow::Result<()> {
     let source = build::arg_source_to_url(source, false)?;
@@ -94,11 +99,16 @@ pub async fn do_discover(
         format!("discover/{}", capture.capture),
     )
     .unary_capture(discover, build::CONNECTOR_TIMEOUT)
-    .await
-    .map_err(crate::status_to_anyhow)?
+    .await?
     .discovered
     .context("connector didn't send expected Discovered response")?;
 
+    if *emit_raw {
+        for binding in bindings {
+            println!("{}", serde_json::to_string(&binding)?)
+        }
+        return Ok(());
+    }
     // Modify the capture's bindings in-place.
     // TODO(johnny): Refactor and re-use discover deep-merge behavior from the agent.
     capture.spec.bindings.clear();
