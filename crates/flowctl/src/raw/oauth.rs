@@ -41,6 +41,8 @@ pub struct Oauth {
     injected_values: Option<serde_json::Value>,
 }
 
+const OAUTH_CREDENTIALS_KEY: &str = "credentials";
+
 pub async fn do_oauth(
     ctx: &mut crate::CliContext,
     Oauth {
@@ -139,7 +141,49 @@ pub async fn do_oauth(
         .oauth2
         .expect("Connector did not return an oauth config");
 
-    // TODO (jshearer): Validate endpoint config against spec.config_schema_json
+    // Let's make sure that the provided endpoint config matches the
+    // schema emitted by the connector
+    let curi = url::Url::parse("flow://fixture").unwrap();
+    let mut parsed_schema: serde_json::Value =
+        serde_json::from_str(spec_response.config_schema_json.as_str()).unwrap();
+
+    // We have to remove the special "credentials" key from the list of required fields
+    // because the whole point of this command is to generate it, so it's expected
+    // to be missing from the input. Also validate that it's there in the first place,
+    // as it needs to be for oauth to work properly.
+    let creds_key_position = parsed_schema
+        .get("required")
+        .and_then(|val| val.as_array())
+        .and_then(|required_fields| {
+            required_fields.iter().position(|item| {
+                item.as_str()
+                    .map(|str| str.eq(OAUTH_CREDENTIALS_KEY))
+                    .unwrap_or(false)
+            })
+        })
+        .expect(format!("{OAUTH_CREDENTIALS_KEY} must be a required field").as_str());
+
+    // Unwrap here because we already validate above
+    parsed_schema
+        .get_mut("required")
+        .unwrap()
+        .as_array_mut()
+        .unwrap()
+        .remove(creds_key_position);
+
+    let schema = doc::validation::build_schema(curi, &parsed_schema).unwrap();
+    let mut validator = doc::Validator::new(schema).unwrap();
+
+    let pretty_endpoint_config = serde_json::to_string_pretty(&endpoint_config).unwrap();
+    let pretty_schema = serde_json::to_string_pretty(&parsed_schema).unwrap();
+
+    validator.validate(
+        None,
+        endpoint_config
+    ).context(
+        format!("Provided endpoint config did not match schema. \nEndpoint config: {pretty_endpoint_config}\nSchema: {pretty_schema}")
+    )?.ok()
+    .context("Provided endpoint config did not match schema.")?;
 
     tracing::info!(
         "Got connector's OAuth spec: {}",
@@ -165,7 +209,7 @@ pub async fn do_oauth(
         code_verifier: String,
     }
 
-    let authorize_response = reqwest::Client::new()
+    let authorize_response_bytes = reqwest::Client::new()
         .post(oauth_endpoint.clone())
         .bearer_auth(api.access_token.to_owned())
         .header("apikey", api.public_token.to_owned())
@@ -181,9 +225,14 @@ pub async fn do_oauth(
         .send()
         .await
         .context("Fetching auth-url")?
-        .json::<AuthorizeResponse>()
-        .await
-        .context("Parsing auth-url response")?;
+        .bytes()
+        .await?;
+
+    let authorize_response = serde_json::from_slice::<AuthorizeResponse>(&authorize_response_bytes)
+        .with_context(|| {
+            let str = std::str::from_utf8(&authorize_response_bytes).unwrap();
+            format!("Unexpected auth-url response body: {str}")
+        })?;
 
     tracing::info!(url = authorize_response.url, "Opening authorize URL");
 
