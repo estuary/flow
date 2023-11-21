@@ -190,7 +190,7 @@ message CollectionSpec {
     ];
     // Transforms of the derivation.
     message Transform {
-      // Next tag: 13.
+      // Next tag: 14.
 
       // Stable name of this transform.
       string name = 1 [ (gogoproto.casttype) = "Transform" ];
@@ -226,6 +226,9 @@ message CollectionSpec {
       google.protobuf.Timestamp not_before = 11;
       // When set, documents after this timestamp are not processed.
       google.protobuf.Timestamp not_after = 12;
+      // Backfill counter for this transform.
+      // Every increment of this counter results in a new backfill.
+      uint32 backfill = 13;
     }
     repeated Transform transforms = 3 [ (gogoproto.nullable) = false ];
     // JSON types of shuffle key components extracted by the transforms of this derivation.
@@ -285,6 +288,8 @@ message CaptureSpec {
   // Bindings are ordered and unique on the bound collection name,
   // and are also unique on the resource path.
   message Binding {
+    // Next tag: 6.
+
     // JSON-encoded configuration of the bound resource.
     string resource_config_json = 1 [
       (gogoproto.casttype) = "encoding/json.RawMessage",
@@ -295,6 +300,11 @@ message CaptureSpec {
     repeated string resource_path = 2;
     // Collection to be captured into.
     CollectionSpec collection = 3 [ (gogoproto.nullable) = false ];
+    // Backfill counter for this binding.
+    // Every increment of this counter results in a new backfill.
+    uint32 backfill = 4;
+    // A suggested key to use for this binding within connector states.
+    string state_key = 5;
   }
   repeated Binding bindings = 4;
   // Minimum interval of time between successive invocations of the capture.
@@ -328,7 +338,7 @@ message MaterializationSpec {
   // materialized. Bindings are ordered and unique on the bound collection name,
   // and are also unique on the resource path.
   message Binding {
-    // Next tag: 12.
+    // Next tag: 14.
 
     // JSON-encoded configuration of the bound resource.
     string resource_config_json = 1 [
@@ -362,6 +372,11 @@ message MaterializationSpec {
     google.protobuf.Timestamp not_before = 10;
     // When set, documents after this timestamp are not processed.
     google.protobuf.Timestamp not_after = 11;
+    // Backfill counter for this binding.
+    // Every increment of this counter results in a new backfill.
+    uint32 backfill = 12;
+    // A suggested key to use for this binding within connector state.
+    string state_key = 13;
   }
   repeated Binding bindings = 4;
   // Template for shards of this materialization.

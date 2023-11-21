@@ -940,12 +940,18 @@ impl serde::Serialize for request::validate::Binding {
         if self.collection.is_some() {
             len += 1;
         }
+        if self.backfill != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("capture.Request.Validate.Binding", len)?;
         if !self.resource_config_json.is_empty() {
             struct_ser.serialize_field("resourceConfig", crate::as_raw_json(&self.resource_config_json)?)?;
         }
         if let Some(v) = self.collection.as_ref() {
             struct_ser.serialize_field("collection", v)?;
+        }
+        if self.backfill != 0 {
+            struct_ser.serialize_field("backfill", &self.backfill)?;
         }
         struct_ser.end()
     }
@@ -960,12 +966,14 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
             "resource_config_json",
             "resourceConfig",
             "collection",
+            "backfill",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             ResourceConfigJson,
             Collection,
+            Backfill,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -989,6 +997,7 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                         match value {
                             "resourceConfig" | "resource_config_json" => Ok(GeneratedField::ResourceConfigJson),
                             "collection" => Ok(GeneratedField::Collection),
+                            "backfill" => Ok(GeneratedField::Backfill),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1010,6 +1019,7 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
             {
                 let mut resource_config_json__ : Option<Box<serde_json::value::RawValue>> = None;
                 let mut collection__ = None;
+                let mut backfill__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::ResourceConfigJson => {
@@ -1024,11 +1034,20 @@ impl<'de> serde::Deserialize<'de> for request::validate::Binding {
                             }
                             collection__ = map.next_value()?;
                         }
+                        GeneratedField::Backfill => {
+                            if backfill__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("backfill"));
+                            }
+                            backfill__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(request::validate::Binding {
                     resource_config_json: resource_config_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
                     collection: collection__,
+                    backfill: backfill__.unwrap_or_default(),
                 })
             }
         }

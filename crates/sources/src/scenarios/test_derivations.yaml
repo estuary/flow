@@ -57,6 +57,7 @@ test://example/catalog.yaml:
             source: src/collection
             lambda: 42
             shuffle: any
+            backfill: 2
         shards:
           disable: true
           minTxnDuration: 15s

@@ -79,7 +79,8 @@ Sources {
                     "name": "do-the-thing",
                     "source": "src/collection",
                     "shuffle": "any",
-                    "lambda": 42
+                    "lambda": 42,
+                    "backfill": 2
                   }
                 ],
                 "shards": {

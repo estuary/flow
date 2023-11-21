@@ -109,15 +109,21 @@ pub async fn walk_all_captures(
                 let capture::request::validate::Binding {
                     resource_config_json,
                     collection,
+                    backfill,
                 } = binding_request;
 
                 let capture::response::validated::Binding { resource_path } = binding_response;
+
+                let state_key = assemble::encode_state_key(resource_path, backfill);
+
                 (
                     binding_index,
                     flow::capture_spec::Binding {
                         resource_config_json,
                         resource_path: resource_path.clone(),
                         collection,
+                        backfill,
+                        state_key,
                     },
                 )
             })
@@ -258,6 +264,7 @@ fn walk_capture_binding<'a>(
         resource,
         target,
         disable: _,
+        backfill,
     } = binding;
 
     // We must resolve the target collection to continue.
@@ -274,6 +281,7 @@ fn walk_capture_binding<'a>(
     let request = capture::request::validate::Binding {
         resource_config_json: resource.to_string(),
         collection: Some(built_collection.spec.clone()),
+        backfill: *backfill,
     };
 
     Some(request)
@@ -298,7 +306,10 @@ fn extract_validated(
 
     let Some(validated) = response.validated else {
         return Err(Error::Connector {
-            detail: anyhow::anyhow!("expected Validated but got {}", serde_json::to_string(&response).unwrap()),
+            detail: anyhow::anyhow!(
+                "expected Validated but got {}",
+                serde_json::to_string(&response).unwrap()
+            ),
         });
     };
     let network_ports = internal.container.unwrap_or_default().network_ports;

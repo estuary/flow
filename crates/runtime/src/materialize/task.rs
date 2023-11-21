@@ -85,6 +85,7 @@ impl Binding {
         ser_policy: &doc::SerPolicy,
     ) -> anyhow::Result<Self> {
         let flow::materialization_spec::Binding {
+            backfill: _,
             collection,
             delta_updates,
             deprecated_shuffle: _,
@@ -96,6 +97,7 @@ impl Binding {
             priority: _,
             resource_config_json: _,
             resource_path: _,
+            state_key: _,
         } = spec;
 
         let flow::FieldSelection {

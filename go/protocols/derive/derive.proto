@@ -65,6 +65,8 @@ message Request {
         (gogoproto.casttype) = "encoding/json.RawMessage",
         json_name = "lambdaConfig"
       ];
+      // Backfill counter for this transform.
+      uint32 backfill = 5;
     }
     repeated Transform transforms = 4;
     // JSON types of shuffle key components extracted by the transforms of this derivation.

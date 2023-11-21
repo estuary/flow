@@ -111,6 +111,7 @@ test://example/int-string-captures:
           resource:
             stream: other-stream
             namespace: and namespace
+          backfill: 3
       shards:
         hotStandbys: 1
         minTxnDuration: 10s
@@ -150,6 +151,7 @@ test://example/webhook-deliveries:
             include:
               Len: {}
             recommended: false
+          backfill: 7
 
 test://example/webhook-config.yaml:
   address: http://example/webhook
@@ -260,6 +262,7 @@ test://example/int-halve:
             shuffle:
               # Shuffle key is fully covered by logical partition fields.
               key: [/len, /partitionString]
+            backfill: 4
         shards:
           disable: true
 

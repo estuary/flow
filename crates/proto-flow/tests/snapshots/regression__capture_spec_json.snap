@@ -78,7 +78,9 @@ expression: json_test(msg)
           "flags": 4,
           "maxAppendRate": "4020303"
         }
-      }
+      },
+      "backfill": 3,
+      "stateKey": "a%2Fcdc%2Ftable+baz.v3"
     }
   ],
   "intervalSeconds": 300,

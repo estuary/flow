@@ -109,6 +109,10 @@ pub async fn walk_all_materializations(
             .push(scope, errors);
         }
 
+        // We only validated non-disabled bindings, in binding order.
+        // Filter `binding_models` correspondingly.
+        let binding_models: Vec<_> = binding_models.iter().filter(|b| !b.disable).collect();
+
         // Join requests and responses to produce tuples
         // of (binding index, built binding).
         let built_bindings: Vec<_> = std::mem::take(binding_requests)
@@ -120,6 +124,7 @@ pub async fn walk_all_materializations(
                     resource_config_json,
                     collection,
                     field_config_json_map: _,
+                    backfill,
                 } = binding_request;
 
                 let materialize::response::validated::Binding {
@@ -128,21 +133,14 @@ pub async fn walk_all_materializations(
                     resource_path,
                 } = binding_response;
 
-                // When we lookup the binding in the model, we need to account
-                // for the presence of disabled bindings, which would cause
-                // binding indexes to differ between the model and the specs
-                // from the validation request/response.
                 let models::MaterializationBinding {
                     ref source,
                     ref fields,
                     disable: _,
                     priority,
                     resource: _,
-                } = binding_models
-                    .iter()
-                    .filter(|b| !b.disable)
-                    .nth(binding_index)
-                    .expect("models bindings are consistent with validation requests bindings");
+                    backfill: _,
+                } = binding_models[binding_index];
 
                 let field_selection = Some(walk_materialization_response(
                     scope.push_prop("bindings").push_item(binding_index),
@@ -170,11 +168,8 @@ pub async fn walk_all_materializations(
                 let partition_selector =
                     Some(assemble::journal_selector(source_name, source_partitions));
 
-                let journal_read_suffix = format!(
-                    "materialize/{}/{}",
-                    materialization,
-                    assemble::encode_resource_path(resource_path),
-                );
+                let state_key = assemble::encode_state_key(resource_path, backfill);
+                let journal_read_suffix = format!("materialize/{}/{}", materialization, state_key);
 
                 (
                     binding_index,
@@ -190,6 +185,8 @@ pub async fn walk_all_materializations(
                         journal_read_suffix,
                         not_before: not_before.map(assemble::pb_datetime),
                         not_after: not_after.map(assemble::pb_datetime),
+                        backfill,
+                        state_key,
                     },
                 )
             })
@@ -336,6 +333,7 @@ fn walk_materialization_binding<'a>(
             },
         disable: _,
         priority: _,
+        backfill,
     } = binding;
 
     let (collection, source_partitions) = match source {
@@ -383,6 +381,7 @@ fn walk_materialization_binding<'a>(
         resource_config_json: resource.to_string(),
         collection: Some(built_collection.spec.clone()),
         field_config_json_map,
+        backfill: *backfill,
     };
 
     Some(request)
@@ -655,7 +654,10 @@ fn extract_validated(
 
     let Some(validated) = response.validated else {
         return Err(Error::Connector {
-            detail: anyhow::anyhow!("expected Validated but got {}", serde_json::to_string(&response).unwrap()),
+            detail: anyhow::anyhow!(
+                "expected Validated but got {}",
+                serde_json::to_string(&response).unwrap()
+            ),
         });
     };
     let network_ports = internal.container.unwrap_or_default().network_ports;

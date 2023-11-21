@@ -34,7 +34,11 @@ pub async fn walk_all_derivations(
         // Look at only collections that are derivations,
         // and skip if we cannot map into a BuiltCollection.
         let Some(derive) = derive else { continue };
-        let Ok(built_index) = built_collections.binary_search_by_key(&collection, |b| &b.collection) else { continue };
+        let Ok(built_index) =
+            built_collections.binary_search_by_key(&collection, |b| &b.collection)
+        else {
+            continue;
+        };
 
         let validation = walk_derive_request(
             built_collections,
@@ -98,7 +102,7 @@ pub async fn walk_all_derivations(
 
         let models::Derivation {
             using: _,
-            transforms,
+            transforms: transform_models,
             shards,
             shuffle_key_types: _,
         } = derive;
@@ -145,6 +149,10 @@ pub async fn walk_all_derivations(
             .push(scope, errors);
         }
 
+        // We only validated non-disabled transforms, in transform order.
+        // Filter `transform_models` correspondingly.
+        let transform_models: Vec<_> = transform_models.iter().filter(|b| !b.disable).collect();
+
         let built_transforms: Vec<_> = std::mem::take(transform_requests)
             .into_iter()
             .zip(transform_responses.into_iter())
@@ -152,21 +160,25 @@ pub async fn walk_all_derivations(
             .map(
                 |(transform_index, (transform_request, transform_response))| {
                     let derive::request::validate::Transform {
-                        name,
+                        name: transform_name,
                         collection: source_collection,
                         shuffle_lambda_config_json,
                         lambda_config_json,
+                        backfill,
                     } = transform_request;
 
                     let derive::response::validated::Transform { read_only } = transform_response;
 
                     let models::TransformDef {
-                        priority,
-                        read_delay,
+                        name: _,
                         source,
                         shuffle,
-                        ..
-                    } = &transforms[transform_index];
+                        priority,
+                        read_delay,
+                        lambda: _,
+                        disable: _,
+                        backfill: _,
+                    } = transform_models[transform_index];
 
                     let shuffle_key = match shuffle {
                         models::Shuffle::Key(key) => {
@@ -197,12 +209,13 @@ pub async fn walk_all_derivations(
                     let partition_selector =
                         Some(assemble::journal_selector(source_name, source_partitions));
 
-                    let journal_read_suffix = format!("derive/{}/{}", this_collection, name);
+                    let state_key = assemble::encode_state_key(&[&transform_name], backfill);
+                    let journal_read_suffix = format!("derive/{}/{}", this_collection, state_key);
 
                     (
                         transform_index,
                         flow::collection_spec::derivation::Transform {
-                            name,
+                            name: transform_name,
                             collection: source_collection,
                             partition_selector,
                             priority: *priority,
@@ -214,6 +227,7 @@ pub async fn walk_all_derivations(
                             journal_read_suffix,
                             not_before: not_before.map(assemble::pb_datetime),
                             not_after: not_after.map(assemble::pb_datetime),
+                            backfill,
                         },
                     )
                 },
@@ -456,6 +470,7 @@ fn walk_derive_transform(
         read_delay: _,
         lambda,
         disable: _,
+        backfill,
     } = transform;
 
     indexed::walk_name(
@@ -545,6 +560,7 @@ fn walk_derive_transform(
         collection: Some(source.spec.clone()),
         lambda_config_json: lambda.to_string(),
         shuffle_lambda_config_json,
+        backfill: *backfill,
     };
 
     Some((request, shuffle_types))
@@ -569,7 +585,10 @@ fn extract_validated(
 
     let Some(validated) = response.validated else {
         return Err(Error::Connector {
-            detail: anyhow::anyhow!("expected Validated but got {}", serde_json::to_string(&response).unwrap()),
+            detail: anyhow::anyhow!(
+                "expected Validated but got {}",
+                serde_json::to_string(&response).unwrap()
+            ),
         });
     };
     let network_ports = internal.container.unwrap_or_default().network_ports;

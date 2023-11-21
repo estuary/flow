@@ -44,6 +44,7 @@ pub enum Format {
     Regex,
     #[serde(rename = "relative-json-pointer")]
     RelativeJsonPointer,
+    #[serde(alias = "uint32", alias = "uint64")]
     Integer,
     Number,
 }
@@ -266,6 +267,8 @@ mod test {
             ("integer", "1_234", true),
             ("integer", "1.234", false),
             ("integer", " 1234", false),
+            ("uint32", "1234", true),
+            ("uint64", "1234", true),
             ("number", "1234", true),
             ("number", "-1234", true),
             ("number", "1_234", true),

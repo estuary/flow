@@ -228,6 +228,8 @@ All {
                                 derivation: None,
                             },
                         ),
+                        backfill: 3,
+                        state_key: "schema%2Ftable.v3",
                     },
                 ],
                 interval_seconds: 300,
@@ -598,6 +600,8 @@ All {
                                 derivation: None,
                             },
                         ),
+                        backfill: 0,
+                        state_key: "bucke+%2Fpr%40fix",
                     },
                     Binding {
                         resource_config_json: "{\"stream\":\"v2-stream\"}",
@@ -782,6 +786,8 @@ All {
                                 derivation: None,
                             },
                         ),
+                        backfill: 0,
+                        state_key: "other-bucket",
                     },
                 ],
                 interval_seconds: 600,
@@ -1451,6 +1457,7 @@ All {
                                 journal_read_suffix: "derive/testing/from-array-key/withBar",
                                 not_before: None,
                                 not_after: None,
+                                backfill: 0,
                             },
                             Transform {
                                 name: "withFoo",
@@ -1655,6 +1662,7 @@ All {
                                 journal_read_suffix: "derive/testing/from-array-key/withFoo",
                                 not_before: None,
                                 not_after: None,
+                                backfill: 0,
                             },
                         ],
                         shuffle_key_types: [
@@ -2466,6 +2474,7 @@ All {
                                         nanos: 0,
                                     },
                                 ),
+                                backfill: 0,
                             },
                             Transform {
                                 name: "halveSelf",
@@ -2817,9 +2826,10 @@ All {
                                 shuffle_lambda_config_json: "",
                                 lambda_config_json: "null",
                                 read_only: true,
-                                journal_read_suffix: "derive/testing/int-halve/halveSelf",
+                                journal_read_suffix: "derive/testing/int-halve/halveSelf.v4",
                                 not_before: None,
                                 not_after: None,
+                                backfill: 4,
                             },
                         ],
                         shuffle_key_types: [
@@ -3356,6 +3366,7 @@ All {
                                 journal_read_suffix: "derive/testing/int-reverse/reverseIntString",
                                 not_before: None,
                                 not_after: None,
+                                backfill: 0,
                             },
                         ],
                         shuffle_key_types: [],
@@ -4873,6 +4884,8 @@ All {
                         journal_read_suffix: "materialize/testing/db-views/view",
                         not_before: None,
                         not_after: None,
+                        backfill: 0,
+                        state_key: "view",
                     },
                 ],
                 shard_template: Some(
@@ -5302,6 +5315,8 @@ All {
                             },
                         ),
                         not_after: None,
+                        backfill: 0,
+                        state_key: "Web%21hook%2Ffoo%20bar",
                     },
                     Binding {
                         resource_config_json: "{\"fixture\":\"two\"}",
@@ -5666,9 +5681,11 @@ All {
                         ),
                         delta_updates: true,
                         deprecated_shuffle: None,
-                        journal_read_suffix: "materialize/testing/webhook/deliveries/targe+%2Ftwo",
+                        journal_read_suffix: "materialize/testing/webhook/deliveries/targe+%2Ftwo.v7",
                         not_before: None,
                         not_after: None,
+                        backfill: 7,
+                        state_key: "targe+%2Ftwo.v7",
                     },
                 ],
                 shard_template: Some(
@@ -5899,7 +5916,8 @@ All {
               "bindings": [
                 {
                   "resource": {"namespace":"and namespace","stream":"other-stream"},
-                  "target": "testing/int-string"
+                  "target": "testing/int-string",
+                  "backfill": 3
                 }
               ],
               "shards": {
@@ -6060,7 +6078,8 @@ All {
                         "/len",
                         "/partitionString"
                       ]
-                    }
+                    },
+                    "backfill": 4
                   }
                 ],
                 "shards": {
@@ -6409,7 +6428,8 @@ All {
                       "Len": {}
                     },
                     "recommended": false
-                  }
+                  },
+                  "backfill": 7
                 }
               ]
             },
@@ -6457,7 +6477,7 @@ All {
             resource: test://example/int-halve,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"collections":{"testing/int-halve":{"derive":{"shards":{"disable":true},"transforms":[{"name":"halveIntString","shuffle":{"key":["/len","/str"]},"source":{"name":"testing/int-string-rw","notAfter":"2019-03-06T09:30:02Z","partitions":{"exclude":{"bit":[false]},"include":{"bit":[true]}}}},{"name":"halveSelf","shuffle":{"key":["/len","/partitionString"]},"source":{"name":"testing/int-halve"}}],"using":{"typescript":{"module":"int-halve.ts"}}},"journals":{"fragments":{"flushInterval":"15m","length":11223344}},"key":["/int"],"projections":{"Extra":"/extra","Len":{"location":"/len","partition":true},"Root":"","TheString":{"location":"/partitionString","partition":true}},"schema":"test://example/int-string-len.schema"}}},
+            content_dom: {"collections":{"testing/int-halve":{"derive":{"shards":{"disable":true},"transforms":[{"name":"halveIntString","shuffle":{"key":["/len","/str"]},"source":{"name":"testing/int-string-rw","notAfter":"2019-03-06T09:30:02Z","partitions":{"exclude":{"bit":[false]},"include":{"bit":[true]}}}},{"backfill":4,"name":"halveSelf","shuffle":{"key":["/len","/partitionString"]},"source":{"name":"testing/int-halve"}}],"using":{"typescript":{"module":"int-halve.ts"}}},"journals":{"fragments":{"flushInterval":"15m","length":11223344}},"key":["/int"],"projections":{"Extra":"/extra","Len":{"location":"/len","partition":true},"Root":"","TheString":{"location":"/partitionString","partition":true}},"schema":"test://example/int-string-len.schema"}}},
         },
         Resource {
             resource: test://example/int-halve.ts,
@@ -6487,7 +6507,7 @@ All {
             resource: test://example/int-string-captures,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"captures":{"testing/db-cdc":{"bindings":[{"resource":{"namespace":"and namespace","stream":"other-stream"},"target":"testing/int-string"}],"endpoint":{"connector":{"config":"cdc-config.yaml","image":"database"}},"shards":{"hotStandbys":1,"minTxnDuration":"10s"}},"testing/s3-source":{"bindings":[{"resource":{"stream":"a-stream"},"target":"testing/int-string"},{"resource":{"stream":"v2-stream"},"target":"testing/int-string.v2"}],"endpoint":{"connector":{"config":{"bucket":"a-bucket","prefix":"and-prefix"},"image":"s3"}},"interval":"10m"}},"import":["test://example/int-string"]},
+            content_dom: {"captures":{"testing/db-cdc":{"bindings":[{"backfill":3,"resource":{"namespace":"and namespace","stream":"other-stream"},"target":"testing/int-string"}],"endpoint":{"connector":{"config":"cdc-config.yaml","image":"database"}},"shards":{"hotStandbys":1,"minTxnDuration":"10s"}},"testing/s3-source":{"bindings":[{"resource":{"stream":"a-stream"},"target":"testing/int-string"},{"resource":{"stream":"v2-stream"},"target":"testing/int-string.v2"}],"endpoint":{"connector":{"config":{"bucket":"a-bucket","prefix":"and-prefix"},"image":"s3"}},"interval":"10m"}},"import":["test://example/int-string"]},
         },
         Resource {
             resource: test://example/int-string-len.schema,
@@ -6517,7 +6537,7 @@ All {
             resource: test://example/webhook-deliveries,
             content_type: "CATALOG",
             content: ".. binary ..",
-            content_dom: {"import":["test://example/int-string","test://example/int-halve"],"materializations":{"testing/webhook/deliveries":{"bindings":[{"fields":{"exclude":["bit"],"include":{"str":{"pass":"through"}},"recommended":true},"resource":{"fixture":"one"},"source":{"name":"testing/int-string","notBefore":"2017-03-03T03:02:01Z","partitions":{"include":{"bit":[true]}}}},{"fields":{"include":{"Len":{}},"recommended":false},"priority":3,"resource":{"fixture":"two"},"source":"testing/int-halve"}],"endpoint":{"connector":{"config":"webhook-config.yaml","image":"webhook/connector"}}}}},
+            content_dom: {"import":["test://example/int-string","test://example/int-halve"],"materializations":{"testing/webhook/deliveries":{"bindings":[{"fields":{"exclude":["bit"],"include":{"str":{"pass":"through"}},"recommended":true},"resource":{"fixture":"one"},"source":{"name":"testing/int-string","notBefore":"2017-03-03T03:02:01Z","partitions":{"include":{"bit":[true]}}}},{"backfill":7,"fields":{"include":{"Len":{}},"recommended":false},"priority":3,"resource":{"fixture":"two"},"source":"testing/int-halve"}],"endpoint":{"connector":{"config":"webhook-config.yaml","image":"webhook/connector"}}}}},
         },
     ],
     storage_mappings: [
