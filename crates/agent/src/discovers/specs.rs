@@ -1,5 +1,5 @@
 use proto_flow::capture::{response::discovered::Binding, response::Discovered};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 pub fn parse_response(
     endpoint_config: &serde_json::value::RawValue,
@@ -33,12 +33,51 @@ pub fn parse_response(
     ))
 }
 
+type ResourcePath = Vec<String>;
+
+/// Extracts the value of each of the given `resource_path_pointers` and encodes
+/// them into a `ResourcePath`. Each pointer always gets mapped to a string
+/// value, with the string `undefined` being used to represent a missing value.
+/// All other values are encoded as JSON strings. This allows the `ResourcePath`
+/// to be used as a key in hashmaps, which would not be allowed if we used an
+/// array of `serde_json::Value`.
+fn resource_path(
+    resource_path_pointers: &[doc::Pointer],
+    resource: &serde_json::Value,
+) -> ResourcePath {
+    resource_path_pointers
+        .iter()
+        .map(|pointer| match pointer.query(resource) {
+            Some(j) => {
+                serde_json::to_string(j).expect("serializing resource path component cannot fail")
+            }
+            None => String::from("undefined"),
+        })
+        .collect()
+}
+
+fn index_fetched_bindings<'a>(
+    resource_path_pointers: &'_ [doc::Pointer],
+    bindings: &'a [models::CaptureBinding],
+) -> HashMap<ResourcePath, &'a models::CaptureBinding> {
+    bindings
+        .iter()
+        .map(|binding| {
+            let resource = serde_json::from_str(binding.resource.get())
+                .expect("parsing resource config json cannot fail");
+            let rp = resource_path(resource_path_pointers, &resource);
+            (rp, binding)
+        })
+        .collect()
+}
+
 pub fn merge_capture(
     capture_name: &str,
     endpoint: models::CaptureEndpoint,
     discovered_bindings: Vec<Binding>,
     fetched_capture: Option<models::CaptureDef>,
     update_only: bool,
+    resource_path_pointers: &[String],
 ) -> (models::CaptureDef, Vec<Binding>) {
     let capture_prefix = capture_name.rsplit_once("/").unwrap().0;
 
@@ -62,6 +101,17 @@ pub fn merge_capture(
         ),
     };
 
+    let pointers = resource_path_pointers
+        .iter()
+        .map(|p| doc::Pointer::from_str(p.as_str()))
+        .collect::<Vec<_>>();
+
+    let fetched_bindings_by_path = if !pointers.is_empty() {
+        index_fetched_bindings(&pointers, &fetched_bindings)
+    } else {
+        Default::default()
+    };
+
     let mut capture_bindings = Vec::new();
     let mut filtered_bindings = Vec::new();
 
@@ -78,12 +128,25 @@ pub fn merge_capture(
         // spec is a strict subset of the fetched resource spec. In other
         // words the fetched resource spec may have _extra_ locations,
         // but all locations of the discovered resource spec must be equal.
-        let fetched_binding = fetched_bindings
-            .iter()
-            .filter(|fetched| {
-                doc::diff(Some(&serde_json::json!(&fetched.resource)), Some(&resource)).is_empty()
-            })
-            .next();
+        let fetched_binding = if resource_path_pointers.is_empty() {
+            // TODO(phil): Legacy matching behavior, to be removed
+            fetched_bindings
+                .iter()
+                .filter(|fetched| {
+                    doc::diff(Some(&serde_json::json!(&fetched.resource)), Some(&resource))
+                        .is_empty()
+                })
+                .next()
+        } else {
+            // New matching behavior
+            let discovered_resource = serde_json::from_str(&resource_config_json)
+                .expect("resource config must be valid json");
+            let discovered_resource_path = resource_path(&pointers, &discovered_resource);
+
+            fetched_bindings_by_path
+                .get(&discovered_resource_path)
+                .map(|b| *b)
+        };
 
         if let Some(fetched_binding) = fetched_binding {
             // Preserve the fetched version of a matched CaptureBinding.
@@ -194,6 +257,7 @@ fn normalize_recommended_name(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{normalize_recommended_name, BTreeMap, Binding};
+    use proto_flow::capture::response::discovered;
     use serde_json::json;
 
     #[test]
@@ -310,9 +374,63 @@ mod tests {
     }
 
     #[test]
+    fn test_capture_merge_resource_paths_update() {
+        // This is meant to test our merge behavior in the presense of additional fields in the
+        // `resource` that are not part of the resource path.
+        // Fixture is an update of an existing capture, which uses a non-suggested collection name.
+        // There is also a disabled binding, which is expected to remain disabled after the merge.
+        // Additional discovered bindings are filtered.
+        // Note that fields apart from stream and namespace are modified to demonstrate them being
+        // ignored for the purposes of matching up discovered and live bindings (since it's done
+        // by resource_path_pointers now)
+        let (discovered_endpoint, discovered_bindings, fetched_capture) =
+            serde_json::from_value::<(models::CaptureEndpoint, Vec<discovered::Binding>, Option<models::CaptureDef>)>(json!([
+                { "connector": { "config": { "discovered": 1 }, "image": "new/image" } },
+                [
+                    { "recommendedName": "suggested", "resourceConfig": { "stream": "foo", "modified": 0 }, "documentSchema": { "const": "discovered" } },
+                    { "recommendedName": "suggested2", "resourceConfig": { "stream": "foo", "namespace": "spacename", "modified": 0 }, "documentSchema": { "const": "discovered-namepaced" } },
+                    { "recommendedName": "other", "resourceConfig": { "stream": "bar", "modified": 0 }, "documentSchema": false },
+                    { "recommendedName": "other", "resourceConfig": { "stream": "disabled", "modified": 0 }, "documentSchema": false },
+                ],
+                {
+                  "bindings": [
+                    { "resource": { "stream": "foo", "modified": 1 }, "target": "acmeCo/renamed" },
+                    { "resource": { "stream": "foo", "namespace": "spacename", "modified": 2 }, "target": "acmeCo/renamed-namepaced" },
+                    { "resource": { "stream": "removed" }, "target": "acmeCo/discarded" },
+                    { "resource": { "stream": "disabled", "modified": "yup" }, "disable": true, "target": "test/collection/disabled" },
+                  ],
+                  "endpoint": { "connector": { "config": { "fetched": 1 }, "image": "old/image" } },
+                  // Extra fields which are passed-through.
+                  "interval": "34s",
+                  "shards": {
+                    "maxTxnDuration": "12s"
+                  },
+                },
+            ]))
+            .unwrap();
+
+        let out = super::merge_capture(
+            "acmeCo/my-capture",
+            discovered_endpoint.clone(),
+            discovered_bindings.clone(),
+            fetched_capture.clone(),
+            true,
+            &["/stream".to_string(), "/namespace".to_string()],
+        );
+
+        // Expect we:
+        // * Preserved the modified binding configuration.
+        // * Dropped the removed binding.
+        // * Updated the endpoint configuration.
+        // * Preserved unrelated fields of the capture (shard template and interval).
+        // * The resources that specify a namespace are treated separately
+        insta::assert_json_snapshot!(json!(out));
+    }
+
+    #[test]
     fn test_capture_merge_create() {
         let (discovered_endpoint, discovered_bindings)  =
-            serde_json::from_value(json!([
+            serde_json::from_value::<(models::CaptureEndpoint, Vec<discovered::Binding>)>(json!([
                 { "connector": { "config": { "discovered": 1 }, "image": "new/image" } },
                 [
                     { "recommendedName": "foo", "resourceConfig": { "stream": "foo" }, "key": ["/foo-key"], "documentSchema": { "const": "foo" } },
@@ -323,13 +441,30 @@ mod tests {
 
         let out = super::merge_capture(
             "acmeCo/my/capture",
+            discovered_endpoint.clone(),
+            discovered_bindings.clone(),
+            None,
+            false,
+            &[],
+        );
+
+        insta::assert_json_snapshot!(json!(out));
+        // assert that the results of the merge are unchanged when using a valid
+        // slice of resource path pointers.
+        let path_merge_out = super::merge_capture(
+            "acmeCo/my/capture",
             discovered_endpoint,
             discovered_bindings,
             None,
             false,
+            &["/stream".to_string()],
         );
 
-        insta::assert_json_snapshot!(json!(out));
+        assert_eq!(
+            json!(out),
+            json!(path_merge_out),
+            "resource_path_pointers merge output was different"
+        );
     }
 
     #[test]
@@ -338,7 +473,7 @@ mod tests {
         // There is also a disabled binding, which is expected to remain disabled after the merge.
         // Additional discovered bindings are filtered.
         let (discovered_endpoint, discovered_bindings, fetched_capture) =
-            serde_json::from_value(json!([
+            serde_json::from_value::<(models::CaptureEndpoint, Vec<discovered::Binding>, Option<models::CaptureDef>)>(json!([
                 { "connector": { "config": { "discovered": 1 }, "image": "new/image" } },
                 [
                     { "recommendedName": "suggested", "resourceConfig": { "stream": "foo" }, "documentSchema": { "const": "discovered" } },
@@ -363,10 +498,11 @@ mod tests {
 
         let out = super::merge_capture(
             "acmeCo/my-capture",
-            discovered_endpoint,
-            discovered_bindings,
-            fetched_capture,
+            discovered_endpoint.clone(),
+            discovered_bindings.clone(),
+            fetched_capture.clone(),
             true,
+            &[],
         );
 
         // Expect we:
@@ -375,13 +511,29 @@ mod tests {
         // * Updated the endpoint configuration.
         // * Preserved unrelated fields of the capture (shard template and interval).
         insta::assert_json_snapshot!(json!(out));
+        // assert that the results of the merge are unchanged when using a valid
+        // slice of resource path pointers.
+        let path_merge_out = super::merge_capture(
+            "acmeCo/my-capture",
+            discovered_endpoint,
+            discovered_bindings,
+            fetched_capture,
+            true,
+            &["/stream".to_string()],
+        );
+
+        assert_eq!(
+            json!(out),
+            json!(path_merge_out),
+            "resource_path_pointers merge output was different"
+        );
     }
 
     #[test]
     fn test_capture_merge_upsert() {
         // Fixture is an upsert of an existing capture which uses a non-suggested collection name.
         let (discovered_endpoint, discovered_bindings, fetched_capture) =
-            serde_json::from_value(json!([
+            serde_json::from_value::<(models::CaptureEndpoint, Vec<discovered::Binding>, Option<models::CaptureDef>)>(json!([
                 { "connector": { "config": { "discovered": 1 }, "image": "new/image" } },
                 [
                     { "recommendedName": "foo", "resourceConfig": { "stream": "foo" }, "documentSchema": { "const": 1 }, "disable": true },
@@ -400,10 +552,11 @@ mod tests {
 
         let out = super::merge_capture(
             "acmeCo/my-capture",
-            discovered_endpoint,
-            discovered_bindings,
-            fetched_capture,
+            discovered_endpoint.clone(),
+            discovered_bindings.clone(),
+            fetched_capture.clone(),
             false,
+            &[],
         );
 
         // Expect we:
@@ -411,6 +564,23 @@ mod tests {
         // * Added the new binding.
         // * Updated the endpoint configuration.
         insta::assert_json_snapshot!(json!(out));
+
+        // assert that the results of the merge are unchanged when using a valid
+        // slice of resource path pointers.
+        let path_merge_out = super::merge_capture(
+            "acmeCo/my-capture",
+            discovered_endpoint,
+            discovered_bindings,
+            fetched_capture,
+            false,
+            &["/stream".to_string()],
+        );
+
+        assert_eq!(
+            json!(out),
+            json!(path_merge_out),
+            "resource_path_pointers merge output was different"
+        );
     }
 
     #[test]

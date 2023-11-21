@@ -73,7 +73,7 @@ pub async fn do_spec(
     }
 
     let spec_response = runtime::Runtime::new(
-        true, // All local.
+        true, // Allow local.
         network.clone(),
         ops::tracing_log_handler,
         None,

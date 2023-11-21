@@ -158,3 +158,28 @@ pub async fn update_tag_fields(
 
     Ok(())
 }
+
+/// Returns the `resource_path_pointers` for the given image and tag. Returns
+/// `None` if there are no matching rows, or if the `resource_path_pointers`
+/// column value is null.
+pub async fn fetch_resource_path_pointers(
+    image_name: &str,
+    image_tag: &str,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> sqlx::Result<Vec<String>> {
+    let row = sqlx::query!(
+        r#"
+        select ct.resource_path_pointers as "pointers: Vec<String>"
+        from connectors c
+        join connector_tags ct on c.id = ct.connector_id
+        where c.image_name = $1
+            and ct.image_tag = $2
+        "#,
+        image_name,
+        image_tag
+    )
+    .fetch_optional(txn)
+    .await?;
+
+    Ok(row.and_then(|r| r.pointers).unwrap_or_default())
+}
