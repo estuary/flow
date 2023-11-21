@@ -1,3 +1,5 @@
+begin;
+
 create table alert_subscriptions (
   like internal._model including all,
 
@@ -113,7 +115,7 @@ create extension if not exists pg_cron with schema extensions;
 select
   cron.schedule (
     'evaluate-alert-events', -- name of the cron job
-    '*/3 * * * *', -- every three minutes, update alert event history
+    '*/10 * * * *', -- every ten minutes, update alert event history
     $$ perform internal.evaluate_alert_events() $$
   );
 
@@ -138,3 +140,5 @@ $trigger$ LANGUAGE plpgsql;
 
 create trigger "Send alerts" after insert or update on alert_history
   for each row execute procedure internal.send_alerts();
+
+commit;
