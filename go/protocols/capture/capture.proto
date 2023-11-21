@@ -115,6 +115,8 @@ message Request {
       ];
       // Collection to be captured.
       flow.CollectionSpec collection = 2 [ (gogoproto.nullable) = false ];
+      // Backfill counter for this binding.
+      uint32 backfill = 3;
     }
     repeated Binding bindings = 4;
   }

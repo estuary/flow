@@ -62,3 +62,7 @@ fn option_datetime_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::s
 fn is_false(b: &bool) -> bool {
     !*b
 }
+
+fn is_u32_zero(u: &u32) -> bool {
+    *u == 0
+}

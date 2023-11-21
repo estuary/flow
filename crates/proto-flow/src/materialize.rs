@@ -88,6 +88,9 @@ pub mod request {
                 ::prost::alloc::string::String,
                 ::prost::alloc::string::String,
             >,
+            /// Backfill counter for this binding.
+            #[prost(uint32, tag = "4")]
+            pub backfill: u32,
         }
     }
     /// Apply a materialization configuration and bindings to its endpoint.

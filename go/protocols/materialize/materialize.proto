@@ -66,6 +66,8 @@ message Request {
         (gogoproto.castvalue) = "encoding/json.RawMessage",
         json_name = "fieldConfig"
       ];
+      // Backfill counter for this binding.
+      uint32 backfill = 4;
     }
     repeated Binding bindings = 4;
   }

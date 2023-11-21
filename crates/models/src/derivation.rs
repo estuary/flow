@@ -84,11 +84,21 @@ pub struct TransformDef {
     /// or as a relative URL to a file containing the lambda.
     #[serde(default, skip_serializing_if = "RawValue::is_null")]
     pub lambda: RawValue,
-
     /// # Whether to disable this transform.
     /// Disabled transforms are completely ignored at runtime and are not validated.
     #[serde(default, skip_serializing_if = "super::is_false")]
     pub disable: bool,
+    /// # Backfill counter for this transform.
+    /// Every increment of this counter will result in a new backfill of this
+    /// transform. Specifically, the transform's lambda will be re-invoked for
+    /// every applicable document of its source collection.
+    ///
+    /// Note that a backfill does *not* truncate the derived collection,
+    /// and documents published by a backfilled transform will coexist with
+    /// (and be ordered after) any documents which were published as part
+    /// of a preceding backfill.
+    #[serde(default, skip_serializing_if = "super::is_u32_zero")]
+    pub backfill: u32,
 }
 
 /// A Shuffle specifies how a shuffling key is to be extracted from
