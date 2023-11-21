@@ -91,9 +91,13 @@ returns void as $$
 begin
 
 -- Create alerts which have transitioned from !firing => firing
+with open_alerts as (
+  select alert_type, catalog_name from alert_history
+  where resolved_at is null
+)
 insert into alert_history (alert_type, catalog_name, fired_at, arguments)
   select alert_type, catalog_name, now(), arguments from alert_all_firing
-  on conflict (alert_type, catalog_name) do nothing;
+  where (alert_type, catalog_name) not in (select * from open_alerts);
 
 -- Resolve alerts that have transitioned from firing => !firing
 with open_alerts as (
@@ -110,7 +114,7 @@ select
   cron.schedule (
     'evaluate-alert-events', -- name of the cron job
     '*/3 * * * *', -- every three minutes, update alert event history
-    $$ select internal.evaluate_alert_events() $$
+    $$ perform internal.evaluate_alert_events() $$
   );
 
 create or replace function internal.send_alerts()
