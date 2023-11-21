@@ -464,6 +464,15 @@ pub async fn apply_updates_for_row(
     .await
     .context("insert live_spec_flow edges")?;
 
+    if draft_spec.is_none() {
+        agent_sql::publications::delete_data_processing_alerts(
+            catalog_name,
+            txn,
+        )
+        .await
+        .context("delete alert_data_processing rows")?;
+    }
+
     Ok(())
 }
 

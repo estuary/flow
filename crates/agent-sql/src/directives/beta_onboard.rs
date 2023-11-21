@@ -82,6 +82,9 @@ pub async fn provision_tenant(
                 ($2, '{"stores": [{"provider": "GCS", "bucket": "estuary-trial", "prefix": "collection-data/"}]}', $3),
                 ('recovery/' || $2, '{"stores": [{"provider": "GCS", "bucket": "estuary-trial"}]}', $3)
             on conflict do nothing
+        ),
+        create_alert_subscription as (
+            insert into alert_subscriptions (catalog_prefix, email) values ($2, (select email from auth.users where id = $1 limit 1))
         )
         insert into tenants (tenant, detail) values ($2, $3);
         "#,
