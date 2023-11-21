@@ -272,6 +272,16 @@ impl DiscoverHandler {
             return Ok(Err(errors));
         }
 
+        // TODO: As of 2023-11, resource_path_pointers are allowed to be empty.
+        // `merge_capture` will just log a warning if they are. But we plan to
+        // soon require that they are never empty.
+        let resource_path_pointers =
+            agent_sql::connector_tags::fetch_resource_path_pointers(image_name, image_tag, txn)
+                .await?;
+        if resource_path_pointers.is_empty() {
+            tracing::warn!(%image_name, %image_tag, %capture_name, "merging bindings using legacy behavior because resource_path_pointers are missing");
+        }
+
         // Deeply merge the capture and its bindings.
         let capture_name = models::Capture::new(capture_name);
         let (capture, discovered_bindings) = specs::merge_capture(
@@ -280,6 +290,7 @@ impl DiscoverHandler {
             discovered_bindings,
             catalog.captures.remove(&capture_name),
             update_only,
+            &resource_path_pointers,
         );
         let targets = capture
             .bindings

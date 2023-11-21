@@ -23,15 +23,13 @@ pub enum JobStatus {
 /// A TagHandler is a Handler which evaluates tagged connector images.
 pub struct TagHandler {
     connector_network: String,
-    bindir: String,
     logs_tx: logs::Tx,
 }
 
 impl TagHandler {
-    pub fn new(connector_network: &str, bindir: &str, logs_tx: &logs::Tx) -> Self {
+    pub fn new(connector_network: &str, logs_tx: &logs::Tx) -> Self {
         Self {
             connector_network: connector_network.to_string(),
-            bindir: bindir.to_string(),
             logs_tx: logs_tx.clone(),
         }
     }
