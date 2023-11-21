@@ -182,7 +182,7 @@ begin
   perform internal.evaluate_alert_events();
 
   return query select results_eq(
-    $i$ select alert_type, catalog_name, fired_at, resolved_at, arguments::text from alert_history $i$,
+    $i$ select alert_type, catalog_name, fired_at, resolved_at, arguments::text from alert_history order by catalog_name $i$,
     $i$ values (
             'data_not_processed_in_interval',
             'aliceCo/capture/three-hours'::catalog_name,
