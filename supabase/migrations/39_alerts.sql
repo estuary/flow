@@ -116,7 +116,7 @@ select
   cron.schedule (
     'evaluate-alert-events', -- name of the cron job
     '*/10 * * * *', -- every ten minutes, update alert event history
-    $$ perform internal.evaluate_alert_events() $$
+    $$ select internal.evaluate_alert_events() $$
   );
 
 create extension if not exists pg_net with schema extensions;
@@ -124,14 +124,12 @@ create or replace function internal.send_alerts()
 returns trigger as $trigger$
 begin
 
-if new.alert_type = 'data_not_processed_in_interval' then
-  perform
-    net.http_post(
-      url:='https://eyrcnmuzzyriypdajwdk.supabase.co/functions/v1/alert-data-processing',
-      headers:='{"Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco"}'::jsonb,
-      body:=concat('{"time": "', now(), '"}')::jsonb
-    );
-end if;
+perform
+  net.http_post(
+    url:='https://eyrcnmuzzyriypdajwdk.supabase.co/functions/v1/alert-data-processing',
+    headers:='{"Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco"}'::jsonb,
+    body:=concat('{"time": "', now(), '"}')::jsonb
+  );
 
 return null;
 
