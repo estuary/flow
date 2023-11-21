@@ -165,7 +165,7 @@ serve(async (_request: Request): Promise<Response> => {
                 const detailsPageURL = getTaskDetailsPageURL(catalog_name, spec_type);
 
                 const content =
-                    `<p>You are receiving this alert because your task, ${spec_type} ${catalog_name} has resumed processing data.  You can locate your task <a href="${detailsPageURL}" target="_blank" rel="noopener">here</a> to make changes or update its alerting settings.</p>`;
+                    `<p>You are receiving this notice because a previous alert for your task, ${spec_type} ${catalog_name}, has now resolved.  You can locate your task <a href="${detailsPageURL}" target="_blank" rel="noopener">here</a> to make changes or update its alerting settings.</p>`;
 
                 return {
                     content,
