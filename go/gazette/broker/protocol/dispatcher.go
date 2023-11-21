@@ -117,12 +117,19 @@ func (d *dispatcher) UpdateSubConnState(sc balancer.SubConn, state balancer.SubC
 		panic("unexpected SubConn")
 	}
 
-	if state.ConnectivityState == connectivity.Connecting && d.connState[sc] == connectivity.TransientFailure {
+	if (state.ConnectivityState == connectivity.Connecting || state.ConnectivityState == connectivity.Idle) &&
+		d.connState[sc] == connectivity.TransientFailure {
 		// gRPC will quickly transition failed connections back into a Connecting
 		// state. In many cases, such as a remote-initiated close from a
 		// shutting-down server, the SubConn may never return. Until we see a
 		// successful re-connect, continue to consider the SubConn as broken
 		// (and trigger invalidations of cached Routes which use it).
+
+		if state.ConnectivityState == connectivity.Idle {
+			sc.Connect()
+		}
+		d.mu.Unlock()
+		return
 	} else {
 		d.connState[sc] = state.ConnectivityState
 	}
@@ -131,6 +138,10 @@ func (d *dispatcher) UpdateSubConnState(sc balancer.SubConn, state balancer.SubC
 		delete(d.idConn, id)
 		delete(d.connID, sc)
 		delete(d.connState, sc)
+	}
+
+	if state.ConnectivityState == connectivity.Idle {
+		sc.Connect()
 	}
 	d.mu.Unlock()
 
