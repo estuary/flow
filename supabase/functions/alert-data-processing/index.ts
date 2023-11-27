@@ -29,89 +29,89 @@ interface EmailConfig {
 const getTaskDetailsPageURL = (catalogName: string, specType: string) =>
     `https://dashboard.estuary.dev/${specType}s/details/overview?catalogName=${catalogName}`;
 
-    const formatAlertEmail = ({
-        arguments: { emails, evaluation_interval, spec_type },
-        catalog_name,
-    }: AlertRecord): EmailConfig => {
-        let formattedEvaluationInterval = evaluation_interval;
+const formatAlertEmail = ({
+    arguments: { emails, evaluation_interval, spec_type },
+    catalog_name,
+}: AlertRecord): EmailConfig => {
+    let formattedEvaluationInterval = evaluation_interval;
 
-        // A postgresql interval in hour increments has the following format: 'HH:00:00'.
-        if (evaluation_interval.includes(':')) {
-            const timeOffset = evaluation_interval.split(':');
-            const hours = Number(timeOffset[0]);
+    // A postgresql interval in hour increments has the following format: 'HH:00:00'.
+    if (evaluation_interval.includes(':')) {
+        const timeOffset = evaluation_interval.split(':');
+        const hours = Number(timeOffset[0]);
 
-            // Ideally, an hour-based interval less than ten would be represented by a single digit. To accomplish this,
-            // the hour segment of the evaluation interval is selected (i.e., timeOffset[0]) and attempted to be converted to a number.
-            // This conditional is a failsafe, in the event the aforementioned conversion fails which would result in the display
-            // of two digits for the hour (e.g., 02 hours instead of 2 hours).
-            formattedEvaluationInterval = isFinite(hours)
-                ? `${hours} hours`
-                : `${timeOffset[0]} hours`;
-        }
+        // Ideally, an hour-based interval less than ten would be represented by a single digit. To accomplish this,
+        // the hour segment of the evaluation interval is selected (i.e., timeOffset[0]) and attempted to be converted to a number.
+        // This conditional is a failsafe, in the event the aforementioned conversion fails which would result in the display
+        // of two digits for the hour (e.g., 02 hours instead of 2 hours).
+        formattedEvaluationInterval = isFinite(hours)
+            ? `${hours} hours`
+            : `${timeOffset[0]} hours`;
+    }
 
-        const subject = `Estuary Flow: Alert for ${spec_type} ${catalog_name}`;
+    const subject = `Estuary Flow: Alert for ${spec_type} ${catalog_name}`;
 
-        const detailsPageURL = getTaskDetailsPageURL(catalog_name, spec_type);
+    const detailsPageURL = getTaskDetailsPageURL(catalog_name, spec_type);
 
-        const content = `<p>You are receiving this alert because your task, ${spec_type} ${catalog_name} hasn't seen new data in ${formattedEvaluationInterval}.  You can locate your task <a href="${detailsPageURL}" target="_blank" rel="noopener">here</a> to make changes or update its alerting settings.</p>`;
+    const content = `<p>You are receiving this alert because your task, ${spec_type} ${catalog_name} hasn't seen new data in ${formattedEvaluationInterval}.  You can locate your task <a href="${detailsPageURL}" target="_blank" rel="noopener">here</a> to make changes or update its alerting settings.</p>`;
 
-        return {
-            content,
-            emails,
-            subject,
-        };
+    return {
+        content,
+        emails,
+        subject,
     };
+};
 
-    const formatConfirmationEmail = ({
-        arguments: { emails, spec_type },
-        catalog_name,
-    }: AlertRecord): EmailConfig => {
-        const subject = `Estuary Flow: Alert for ${spec_type} ${catalog_name}`;
+const formatConfirmationEmail = ({
+    arguments: { emails, spec_type },
+    catalog_name,
+}: AlertRecord): EmailConfig => {
+    const subject = `Estuary Flow: Alert for ${spec_type} ${catalog_name}`;
 
-        const detailsPageURL = getTaskDetailsPageURL(catalog_name, spec_type);
+    const detailsPageURL = getTaskDetailsPageURL(catalog_name, spec_type);
 
-        const content = `<p>You are receiving this notice because a previous alert for your task, ${spec_type} ${catalog_name}, has now resolved.  You can locate your task <a href="${detailsPageURL}" target="_blank" rel="noopener">here</a> to make changes or update its alerting settings.</p>`;
+    const content = `<p>You are receiving this notice because a previous alert for your task, ${spec_type} ${catalog_name}, has now resolved.  You can locate your task <a href="${detailsPageURL}" target="_blank" rel="noopener">here</a> to make changes or update its alerting settings.</p>`;
 
-        return {
-            content,
-            emails,
-            subject,
-        };
+    return {
+        content,
+        emails,
+        subject,
     };
+};
 
-    const emailNotifications = async (
-        pendingNotification: EmailConfig,
-        token: string,
-        senderAddress: string
-    ): Promise<Response[]> => {
-        const { content, emails, subject } = pendingNotification;
+const emailNotifications = async (
+    pendingNotification: EmailConfig,
+    token: string,
+    senderAddress: string
+): Promise<Response[]> => {
+    const { content, emails, subject } = pendingNotification;
 
-        const notificationPromises = emails.map((email) => {
-            return fetch('https://api.resend.com/emails', {
-                method: 'POST',
-                headers: {
-                    ...corsHeaders,
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                    from: senderAddress,
-                    to: email,
-                    subject,
-                    html: `
-                      <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
-                        ${content}
+    const notificationPromises = emails.map((email) => {
+        return fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+                ...corsHeaders,
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+                from: senderAddress,
+                to: email,
+                subject,
+                html: `
+                    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
+                    ${content}
 
-                        <p style="margin-bottom: 0;">Thanks,</p>
-                        <p style="margin-top: 0;">Estuary Team</p>
-                      </div>
-                    `,
-                }),
-            });
+                    <p style="margin-bottom: 0;">Thanks,</p>
+                    <p style="margin-top: 0;">Estuary Team</p>
+                    </div>
+                `,
+            }),
         });
+    });
 
-        return Promise.all(notificationPromises);
-    };
+    return Promise.all(notificationPromises);
+};
 
 serve(async (request): Promise<Response> => {
     const alertRecord: AlertRecord = await request.json();
