@@ -124,19 +124,23 @@ create or replace function internal.send_alerts()
 returns trigger as $trigger$
 begin
 
-perform
-  net.http_post(
-    url:='https://eyrcnmuzzyriypdajwdk.supabase.co/functions/v1/alert-data-processing',
-    headers:='{"Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco"}'::jsonb,
-    body:=concat('{"time": "', now(), '"}')::jsonb
-  );
+if new.alert_type = 'data_not_processed_in_interval' then
+  perform
+    net.http_post(
+      'https://eyrcnmuzzyriypdajwdk.supabase.co/functions/v1/alert-data-processing',
+      to_jsonb(new.*),
+      headers:='{"Content-Type": "application/json", "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco"}'::jsonb
+    );
+end if;
 
 return null;
-
 end;
 $trigger$ LANGUAGE plpgsql;
 
-create trigger "Send alerts" after insert or update on alert_history
-  for each statement execute procedure internal.send_alerts();
+create trigger "Send email after alert fired" after insert on alert_history
+  for each row execute procedure internal.send_alerts();
+
+create trigger "Send email after alert resolved" after update on alert_history
+  for each row when (old.* is distinct from new.*) execute procedure internal.send_alerts();
 
 commit;
