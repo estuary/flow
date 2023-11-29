@@ -41,6 +41,9 @@ In the future, other open-source materialization connectors from third parties c
 * MongoDB
   * [Configuration](./mongodb.md)
   * Package - ghcr.io/estuary/materialize-mongodb:dev
+* MotherDuck
+  * [Configuration](./motherduck.md)
+  * Package - ghcr.io/estuary/materialize-motherduck:dev
 * MySQL
   * [Configuration](./mysql.md)
   * Package - ghcr.io/estuary/materialize-mysql:dev
