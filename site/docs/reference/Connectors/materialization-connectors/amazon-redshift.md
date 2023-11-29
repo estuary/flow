@@ -59,7 +59,6 @@ more of your Flow collections to your desired tables in the database.
 | **`/table`**                   | Table                       | Name of the database table.                                                           | string  | Required         |
 | `/delta_updates`               | Delta Update                | Should updates to this table be done via delta updates. Default is false.             | boolean | `false`          |
 | `/schema`                      | Alternative Schema          | Alternative schema for this table (optional).                                         | string  |                  |
-| `/additional_table_create_sql` | Additional Table Create SQL | Additional SQL statement(s) to be run in the same transaction that creates the table. | string  |                  |
 
 ### Sample
 
