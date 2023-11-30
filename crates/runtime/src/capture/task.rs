@@ -113,9 +113,11 @@ impl Binding {
         ser_policy: doc::SerPolicy,
     ) -> anyhow::Result<Self> {
         let flow::capture_spec::Binding {
+            backfill: _,
             collection,
             resource_config_json: _,
             resource_path,
+            state_key: _,
         } = spec;
 
         let flow::CollectionSpec {

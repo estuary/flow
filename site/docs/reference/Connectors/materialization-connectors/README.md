@@ -23,6 +23,9 @@ In the future, other open-source materialization connectors from third parties c
 * Apache Parquet in S3
   * [Configuration](./Parquet.md)
   * Package — ghcr.io/estuary/materialize-s3-parquet:dev
+* Databricks
+  * [Configuration](./databricks.md)
+  * Package — ghcr.io/estuary/materialize-databricks:dev
 * Elasticsearch
   * [Configuration](./Elasticsearch.md)
   * Package — ghcr.io/estuary/materialize-elasticsearch:dev

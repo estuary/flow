@@ -654,6 +654,12 @@ impl serde::Serialize for capture_spec::Binding {
         if self.collection.is_some() {
             len += 1;
         }
+        if self.backfill != 0 {
+            len += 1;
+        }
+        if !self.state_key.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CaptureSpec.Binding", len)?;
         if !self.resource_config_json.is_empty() {
             struct_ser.serialize_field("resourceConfig", crate::as_raw_json(&self.resource_config_json)?)?;
@@ -663,6 +669,12 @@ impl serde::Serialize for capture_spec::Binding {
         }
         if let Some(v) = self.collection.as_ref() {
             struct_ser.serialize_field("collection", v)?;
+        }
+        if self.backfill != 0 {
+            struct_ser.serialize_field("backfill", &self.backfill)?;
+        }
+        if !self.state_key.is_empty() {
+            struct_ser.serialize_field("stateKey", &self.state_key)?;
         }
         struct_ser.end()
     }
@@ -679,6 +691,9 @@ impl<'de> serde::Deserialize<'de> for capture_spec::Binding {
             "resource_path",
             "resourcePath",
             "collection",
+            "backfill",
+            "state_key",
+            "stateKey",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -686,6 +701,8 @@ impl<'de> serde::Deserialize<'de> for capture_spec::Binding {
             ResourceConfigJson,
             ResourcePath,
             Collection,
+            Backfill,
+            StateKey,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -710,6 +727,8 @@ impl<'de> serde::Deserialize<'de> for capture_spec::Binding {
                             "resourceConfig" | "resource_config_json" => Ok(GeneratedField::ResourceConfigJson),
                             "resourcePath" | "resource_path" => Ok(GeneratedField::ResourcePath),
                             "collection" => Ok(GeneratedField::Collection),
+                            "backfill" => Ok(GeneratedField::Backfill),
+                            "stateKey" | "state_key" => Ok(GeneratedField::StateKey),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -732,6 +751,8 @@ impl<'de> serde::Deserialize<'de> for capture_spec::Binding {
                 let mut resource_config_json__ : Option<Box<serde_json::value::RawValue>> = None;
                 let mut resource_path__ = None;
                 let mut collection__ = None;
+                let mut backfill__ = None;
+                let mut state_key__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::ResourceConfigJson => {
@@ -752,12 +773,28 @@ impl<'de> serde::Deserialize<'de> for capture_spec::Binding {
                             }
                             collection__ = map.next_value()?;
                         }
+                        GeneratedField::Backfill => {
+                            if backfill__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("backfill"));
+                            }
+                            backfill__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::StateKey => {
+                            if state_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("stateKey"));
+                            }
+                            state_key__ = Some(map.next_value()?);
+                        }
                     }
                 }
                 Ok(capture_spec::Binding {
                     resource_config_json: resource_config_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
                     resource_path: resource_path__.unwrap_or_default(),
                     collection: collection__,
+                    backfill: backfill__.unwrap_or_default(),
+                    state_key: state_key__.unwrap_or_default(),
                 })
             }
         }
@@ -1500,6 +1537,9 @@ impl serde::Serialize for collection_spec::derivation::Transform {
         if self.not_after.is_some() {
             len += 1;
         }
+        if self.backfill != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.CollectionSpec.Derivation.Transform", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -1537,6 +1577,9 @@ impl serde::Serialize for collection_spec::derivation::Transform {
         if let Some(v) = self.not_after.as_ref() {
             struct_ser.serialize_field("notAfter", v)?;
         }
+        if self.backfill != 0 {
+            struct_ser.serialize_field("backfill", &self.backfill)?;
+        }
         struct_ser.end()
     }
 }
@@ -1568,6 +1611,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
             "notBefore",
             "not_after",
             "notAfter",
+            "backfill",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1584,6 +1628,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
             JournalReadSuffix,
             NotBefore,
             NotAfter,
+            Backfill,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1617,6 +1662,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
                             "journalReadSuffix" | "journal_read_suffix" => Ok(GeneratedField::JournalReadSuffix),
                             "notBefore" | "not_before" => Ok(GeneratedField::NotBefore),
                             "notAfter" | "not_after" => Ok(GeneratedField::NotAfter),
+                            "backfill" => Ok(GeneratedField::Backfill),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1648,6 +1694,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
                 let mut journal_read_suffix__ = None;
                 let mut not_before__ = None;
                 let mut not_after__ = None;
+                let mut backfill__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -1726,6 +1773,14 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
                             }
                             not_after__ = map.next_value()?;
                         }
+                        GeneratedField::Backfill => {
+                            if backfill__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("backfill"));
+                            }
+                            backfill__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(collection_spec::derivation::Transform {
@@ -1741,6 +1796,7 @@ impl<'de> serde::Deserialize<'de> for collection_spec::derivation::Transform {
                     journal_read_suffix: journal_read_suffix__.unwrap_or_default(),
                     not_before: not_before__,
                     not_after: not_after__,
+                    backfill: backfill__.unwrap_or_default(),
                 })
             }
         }
@@ -3908,6 +3964,12 @@ impl serde::Serialize for materialization_spec::Binding {
         if self.not_after.is_some() {
             len += 1;
         }
+        if self.backfill != 0 {
+            len += 1;
+        }
+        if !self.state_key.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.MaterializationSpec.Binding", len)?;
         if !self.resource_config_json.is_empty() {
             struct_ser.serialize_field("resourceConfig", crate::as_raw_json(&self.resource_config_json)?)?;
@@ -3942,6 +4004,12 @@ impl serde::Serialize for materialization_spec::Binding {
         if let Some(v) = self.not_after.as_ref() {
             struct_ser.serialize_field("notAfter", v)?;
         }
+        if self.backfill != 0 {
+            struct_ser.serialize_field("backfill", &self.backfill)?;
+        }
+        if !self.state_key.is_empty() {
+            struct_ser.serialize_field("stateKey", &self.state_key)?;
+        }
         struct_ser.end()
     }
 }
@@ -3972,6 +4040,9 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
             "notBefore",
             "not_after",
             "notAfter",
+            "backfill",
+            "state_key",
+            "stateKey",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3987,6 +4058,8 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
             JournalReadSuffix,
             NotBefore,
             NotAfter,
+            Backfill,
+            StateKey,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -4019,6 +4092,8 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
                             "journalReadSuffix" | "journal_read_suffix" => Ok(GeneratedField::JournalReadSuffix),
                             "notBefore" | "not_before" => Ok(GeneratedField::NotBefore),
                             "notAfter" | "not_after" => Ok(GeneratedField::NotAfter),
+                            "backfill" => Ok(GeneratedField::Backfill),
+                            "stateKey" | "state_key" => Ok(GeneratedField::StateKey),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -4049,6 +4124,8 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
                 let mut journal_read_suffix__ = None;
                 let mut not_before__ = None;
                 let mut not_after__ = None;
+                let mut backfill__ = None;
+                let mut state_key__ = None;
                 while let Some(k) = map.next_key()? {
                     match k {
                         GeneratedField::ResourceConfigJson => {
@@ -4119,6 +4196,20 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
                             }
                             not_after__ = map.next_value()?;
                         }
+                        GeneratedField::Backfill => {
+                            if backfill__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("backfill"));
+                            }
+                            backfill__ = 
+                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::StateKey => {
+                            if state_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("stateKey"));
+                            }
+                            state_key__ = Some(map.next_value()?);
+                        }
                     }
                 }
                 Ok(materialization_spec::Binding {
@@ -4133,6 +4224,8 @@ impl<'de> serde::Deserialize<'de> for materialization_spec::Binding {
                     journal_read_suffix: journal_read_suffix__.unwrap_or_default(),
                     not_before: not_before__,
                     not_after: not_after__,
+                    backfill: backfill__.unwrap_or_default(),
+                    state_key: state_key__.unwrap_or_default(),
                 })
             }
         }

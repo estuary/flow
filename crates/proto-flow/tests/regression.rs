@@ -176,6 +176,8 @@ fn ex_capture_spec() -> flow::CaptureSpec {
             resource_config_json: json!({"resource": "config"}).to_string(),
             resource_path: vec!["some".to_string(), "path".to_string()],
             collection: Some(ex_collection_spec()),
+            backfill: 3,
+            state_key: "a%2Fcdc%2Ftable+baz.v3".to_string(),
         }],
         network_ports: ex_network_ports(),
     }
@@ -199,7 +201,7 @@ fn ex_derivation_spec() -> flow::CollectionSpec {
             read_only: true,
             shuffle_key: vec!["/shuffle".to_string(), "/key".to_string()],
             shuffle_lambda_config_json: json!("SELECT $shuffle, $key;").to_string(),
-            journal_read_suffix: "derive/a/collection/transform_name".to_string(),
+            journal_read_suffix: "derive/a/collection/transform_name.v2".to_string(),
             not_before: Some(pbjson_types::Timestamp {
                 seconds: 1691722827,
                 nanos: 0,
@@ -208,6 +210,7 @@ fn ex_derivation_spec() -> flow::CollectionSpec {
                 seconds: 1680000000,
                 nanos: 0,
             }),
+            backfill: 2,
         }],
         shuffle_key_types: vec![
             flow::collection_spec::derivation::ShuffleType::String as i32,
@@ -251,7 +254,7 @@ fn ex_materialization_spec() -> flow::MaterializationSpec {
             }),
             delta_updates: false,
             deprecated_shuffle: None,
-            journal_read_suffix: "materialize/acmeCo/materialization/some%20path".to_string(),
+            journal_read_suffix: "materialize/acmeCo/materialization/some%20path.v1".to_string(),
             not_before: Some(pbjson_types::Timestamp {
                 seconds: 1691722827,
                 nanos: 0,
@@ -260,6 +263,8 @@ fn ex_materialization_spec() -> flow::MaterializationSpec {
                 seconds: 1680000000,
                 nanos: 0,
             }),
+            backfill: 1,
+            state_key: "some%20path.v1".to_string(),
         }],
         network_ports: ex_network_ports(),
     }
@@ -369,6 +374,7 @@ fn ex_capture_request() -> capture::Request {
             bindings: vec![capture::request::validate::Binding {
                 collection: Some(ex_collection_spec()),
                 resource_config_json: json!({"resource":"config"}).to_string(),
+                backfill: 1,
             }],
         }),
         apply: Some(capture::request::Apply {
@@ -444,6 +450,7 @@ fn ex_derive_request() -> derive::Request {
                 collection: Some(ex_collection_spec()),
                 lambda_config_json: json!({"lambda": "config"}).to_string(),
                 shuffle_lambda_config_json: json!({"shuffle": "config"}).to_string(),
+                backfill: 2,
             }],
             shuffle_key_types: vec![
                 flow::collection_spec::derivation::ShuffleType::Boolean as i32,
@@ -530,6 +537,7 @@ fn ex_materialize_request() -> materialize::Request {
                 collection: Some(ex_collection_spec()),
                 resource_config_json: json!({"resource":"config"}).to_string(),
                 field_config_json_map: ex_field_config(),
+                backfill: 3,
             }],
         }),
         apply: Some(materialize::request::Apply {

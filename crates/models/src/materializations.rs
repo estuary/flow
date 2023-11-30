@@ -62,6 +62,14 @@ pub struct MaterializationBinding {
     /// # Selected projections for this materialization.
     #[serde(default)]
     pub fields: MaterializationFields,
+    /// # Backfill counter for this binding.
+    /// Every increment of this counter will result in a new backfill of this
+    /// binding from its source collection to its materialized resource.
+    /// For example when materializing to a SQL table, incrementing this counter
+    /// causes the table to be dropped and then rebuilt by re-reading the source
+    /// collection.
+    #[serde(default, skip_serializing_if = "super::is_u32_zero")]
+    pub backfill: u32,
 }
 
 /// MaterializationFields defines a selection of projections to materialize,
@@ -104,6 +112,7 @@ impl MaterializationBinding {
             disable: false,
             priority: 0,
             fields: MaterializationFields::default(),
+            backfill: 0,
         }
     }
 
