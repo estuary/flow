@@ -53,6 +53,7 @@ impl serde::Serialize for Request {
             struct_ser.serialize_field("reset", v)?;
         }
         if !self.internal.is_empty() {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("$internal", pbjson::private::base64::encode(&self.internal).as_str())?;
         }
         struct_ser.end()
@@ -131,7 +132,7 @@ impl<'de> serde::Deserialize<'de> for Request {
                 formatter.write_str("struct derive.Request")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<Request, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<Request, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -143,56 +144,56 @@ impl<'de> serde::Deserialize<'de> for Request {
                 let mut start_commit__ = None;
                 let mut reset__ = None;
                 let mut internal__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Spec => {
                             if spec__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("spec"));
                             }
-                            spec__ = map.next_value()?;
+                            spec__ = map_.next_value()?;
                         }
                         GeneratedField::Validate => {
                             if validate__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("validate"));
                             }
-                            validate__ = map.next_value()?;
+                            validate__ = map_.next_value()?;
                         }
                         GeneratedField::Open => {
                             if open__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("open"));
                             }
-                            open__ = map.next_value()?;
+                            open__ = map_.next_value()?;
                         }
                         GeneratedField::Read => {
                             if read__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("read"));
                             }
-                            read__ = map.next_value()?;
+                            read__ = map_.next_value()?;
                         }
                         GeneratedField::Flush => {
                             if flush__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("flush"));
                             }
-                            flush__ = map.next_value()?;
+                            flush__ = map_.next_value()?;
                         }
                         GeneratedField::StartCommit => {
                             if start_commit__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("startCommit"));
                             }
-                            start_commit__ = map.next_value()?;
+                            start_commit__ = map_.next_value()?;
                         }
                         GeneratedField::Reset => {
                             if reset__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("reset"));
                             }
-                            reset__ = map.next_value()?;
+                            reset__ = map_.next_value()?;
                         }
                         GeneratedField::Internal => {
                             if internal__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("$internal"));
                             }
                             internal__ = 
-                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
                     }
@@ -269,12 +270,12 @@ impl<'de> serde::Deserialize<'de> for request::Flush {
                 formatter.write_str("struct derive.Request.Flush")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<request::Flush, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::Flush, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                while map.next_key::<GeneratedField>()?.is_some() {
-                    let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                while map_.next_key::<GeneratedField>()?.is_some() {
+                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                 }
                 Ok(request::Flush {
                 })
@@ -379,7 +380,7 @@ impl<'de> serde::Deserialize<'de> for request::Open {
                 formatter.write_str("struct derive.Request.Open")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<request::Open, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::Open, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -387,31 +388,31 @@ impl<'de> serde::Deserialize<'de> for request::Open {
                 let mut version__ = None;
                 let mut range__ = None;
                 let mut state_json__ : Option<Box<serde_json::value::RawValue>> = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Collection => {
                             if collection__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("collection"));
                             }
-                            collection__ = map.next_value()?;
+                            collection__ = map_.next_value()?;
                         }
                         GeneratedField::Version => {
                             if version__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("version"));
                             }
-                            version__ = Some(map.next_value()?);
+                            version__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Range => {
                             if range__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("range"));
                             }
-                            range__ = map.next_value()?;
+                            range__ = map_.next_value()?;
                         }
                         GeneratedField::StateJson => {
                             if state_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("state"));
                             }
-                            state_json__ = Some(map.next_value()?);
+                            state_json__ = Some(map_.next_value()?);
                         }
                     }
                 }
@@ -522,7 +523,7 @@ impl<'de> serde::Deserialize<'de> for request::Read {
                 formatter.write_str("struct derive.Request.Read")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<request::Read, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::Read, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -530,33 +531,33 @@ impl<'de> serde::Deserialize<'de> for request::Read {
                 let mut uuid__ = None;
                 let mut shuffle__ = None;
                 let mut doc_json__ : Option<Box<serde_json::value::RawValue>> = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Transform => {
                             if transform__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("transform"));
                             }
                             transform__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::Uuid => {
                             if uuid__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("uuid"));
                             }
-                            uuid__ = map.next_value()?;
+                            uuid__ = map_.next_value()?;
                         }
                         GeneratedField::Shuffle => {
                             if shuffle__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("shuffle"));
                             }
-                            shuffle__ = map.next_value()?;
+                            shuffle__ = map_.next_value()?;
                         }
                         GeneratedField::DocJson => {
                             if doc_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("doc"));
                             }
-                            doc_json__ = Some(map.next_value()?);
+                            doc_json__ = Some(map_.next_value()?);
                         }
                     }
                 }
@@ -593,6 +594,7 @@ impl serde::Serialize for request::read::Shuffle {
             struct_ser.serialize_field("key", crate::as_raw_json(&self.key_json)?)?;
         }
         if !self.packed.is_empty() {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("packed", pbjson::private::base64::encode(&self.packed).as_str())?;
         }
         if self.hash != 0 {
@@ -658,27 +660,27 @@ impl<'de> serde::Deserialize<'de> for request::read::Shuffle {
                 formatter.write_str("struct derive.Request.Read.Shuffle")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<request::read::Shuffle, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::read::Shuffle, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut key_json__ : Option<Box<serde_json::value::RawValue>> = None;
                 let mut packed__ = None;
                 let mut hash__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::KeyJson => {
                             if key_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("key"));
                             }
-                            key_json__ = Some(map.next_value()?);
+                            key_json__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Packed => {
                             if packed__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("packed"));
                             }
                             packed__ = 
-                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::Hash => {
@@ -686,7 +688,7 @@ impl<'de> serde::Deserialize<'de> for request::read::Shuffle {
                                 return Err(serde::de::Error::duplicate_field("hash"));
                             }
                             hash__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                     }
@@ -758,12 +760,12 @@ impl<'de> serde::Deserialize<'de> for request::Reset {
                 formatter.write_str("struct derive.Request.Reset")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<request::Reset, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::Reset, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                while map.next_key::<GeneratedField>()?.is_some() {
-                    let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                while map_.next_key::<GeneratedField>()?.is_some() {
+                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                 }
                 Ok(request::Reset {
                 })
@@ -788,8 +790,8 @@ impl serde::Serialize for request::Spec {
         }
         let mut struct_ser = serializer.serialize_struct("derive.Request.Spec", len)?;
         if self.connector_type != 0 {
-            let v = super::flow::collection_spec::derivation::ConnectorType::from_i32(self.connector_type)
-                .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.connector_type)))?;
+            let v = super::flow::collection_spec::derivation::ConnectorType::try_from(self.connector_type)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.connector_type)))?;
             struct_ser.serialize_field("connectorType", &v)?;
         }
         if !self.config_json.is_empty() {
@@ -853,25 +855,25 @@ impl<'de> serde::Deserialize<'de> for request::Spec {
                 formatter.write_str("struct derive.Request.Spec")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<request::Spec, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::Spec, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut connector_type__ = None;
                 let mut config_json__ : Option<Box<serde_json::value::RawValue>> = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ConnectorType => {
                             if connector_type__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("connectorType"));
                             }
-                            connector_type__ = Some(map.next_value::<super::flow::collection_spec::derivation::ConnectorType>()? as i32);
+                            connector_type__ = Some(map_.next_value::<super::flow::collection_spec::derivation::ConnectorType>()? as i32);
                         }
                         GeneratedField::ConfigJson => {
                             if config_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("config"));
                             }
-                            config_json__ = Some(map.next_value()?);
+                            config_json__ = Some(map_.next_value()?);
                         }
                     }
                 }
@@ -953,18 +955,18 @@ impl<'de> serde::Deserialize<'de> for request::StartCommit {
                 formatter.write_str("struct derive.Request.StartCommit")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<request::StartCommit, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::StartCommit, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut runtime_checkpoint__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::RuntimeCheckpoint => {
                             if runtime_checkpoint__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("runtimeCheckpoint"));
                             }
-                            runtime_checkpoint__ = map.next_value()?;
+                            runtime_checkpoint__ = map_.next_value()?;
                         }
                     }
                 }
@@ -1007,8 +1009,8 @@ impl serde::Serialize for request::Validate {
         }
         let mut struct_ser = serializer.serialize_struct("derive.Request.Validate", len)?;
         if self.connector_type != 0 {
-            let v = super::flow::collection_spec::derivation::ConnectorType::from_i32(self.connector_type)
-                .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", self.connector_type)))?;
+            let v = super::flow::collection_spec::derivation::ConnectorType::try_from(self.connector_type)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.connector_type)))?;
             struct_ser.serialize_field("connectorType", &v)?;
         }
         if !self.config_json.is_empty() {
@@ -1022,8 +1024,8 @@ impl serde::Serialize for request::Validate {
         }
         if !self.shuffle_key_types.is_empty() {
             let v = self.shuffle_key_types.iter().cloned().map(|v| {
-                super::flow::collection_spec::derivation::ShuffleType::from_i32(v)
-                    .ok_or_else(|| serde::ser::Error::custom(format!("Invalid variant {}", v)))
+                super::flow::collection_spec::derivation::ShuffleType::try_from(v)
+                    .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", v)))
                 }).collect::<Result<Vec<_>, _>>()?;
             struct_ser.serialize_field("shuffleKeyTypes", &v)?;
         }
@@ -1109,7 +1111,7 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                 formatter.write_str("struct derive.Request.Validate")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<request::Validate, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::Validate, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -1120,50 +1122,50 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                 let mut shuffle_key_types__ = None;
                 let mut project_root__ = None;
                 let mut import_map__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ConnectorType => {
                             if connector_type__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("connectorType"));
                             }
-                            connector_type__ = Some(map.next_value::<super::flow::collection_spec::derivation::ConnectorType>()? as i32);
+                            connector_type__ = Some(map_.next_value::<super::flow::collection_spec::derivation::ConnectorType>()? as i32);
                         }
                         GeneratedField::ConfigJson => {
                             if config_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("config"));
                             }
-                            config_json__ = Some(map.next_value()?);
+                            config_json__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Collection => {
                             if collection__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("collection"));
                             }
-                            collection__ = map.next_value()?;
+                            collection__ = map_.next_value()?;
                         }
                         GeneratedField::Transforms => {
                             if transforms__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("transforms"));
                             }
-                            transforms__ = Some(map.next_value()?);
+                            transforms__ = Some(map_.next_value()?);
                         }
                         GeneratedField::ShuffleKeyTypes => {
                             if shuffle_key_types__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("shuffleKeyTypes"));
                             }
-                            shuffle_key_types__ = Some(map.next_value::<Vec<super::flow::collection_spec::derivation::ShuffleType>>()?.into_iter().map(|x| x as i32).collect());
+                            shuffle_key_types__ = Some(map_.next_value::<Vec<super::flow::collection_spec::derivation::ShuffleType>>()?.into_iter().map(|x| x as i32).collect());
                         }
                         GeneratedField::ProjectRoot => {
                             if project_root__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("projectRoot"));
                             }
-                            project_root__ = Some(map.next_value()?);
+                            project_root__ = Some(map_.next_value()?);
                         }
                         GeneratedField::ImportMap => {
                             if import_map__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("importMap"));
                             }
                             import_map__ = Some(
-                                map.next_value::<std::collections::BTreeMap<_, _>>()?
+                                map_.next_value::<std::collections::BTreeMap<_, _>>()?
                             );
                         }
                     }
@@ -1288,7 +1290,7 @@ impl<'de> serde::Deserialize<'de> for request::validate::Transform {
                 formatter.write_str("struct derive.Request.Validate.Transform")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<request::validate::Transform, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<request::validate::Transform, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -1297,38 +1299,38 @@ impl<'de> serde::Deserialize<'de> for request::validate::Transform {
                 let mut shuffle_lambda_config_json__ : Option<Box<serde_json::value::RawValue>> = None;
                 let mut lambda_config_json__ : Option<Box<serde_json::value::RawValue>> = None;
                 let mut backfill__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
                             if name__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("name"));
                             }
-                            name__ = Some(map.next_value()?);
+                            name__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Collection => {
                             if collection__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("collection"));
                             }
-                            collection__ = map.next_value()?;
+                            collection__ = map_.next_value()?;
                         }
                         GeneratedField::ShuffleLambdaConfigJson => {
                             if shuffle_lambda_config_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("shuffleLambdaConfig"));
                             }
-                            shuffle_lambda_config_json__ = Some(map.next_value()?);
+                            shuffle_lambda_config_json__ = Some(map_.next_value()?);
                         }
                         GeneratedField::LambdaConfigJson => {
                             if lambda_config_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("lambdaConfig"));
                             }
-                            lambda_config_json__ = Some(map.next_value()?);
+                            lambda_config_json__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Backfill => {
                             if backfill__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("backfill"));
                             }
                             backfill__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                     }
@@ -1394,6 +1396,7 @@ impl serde::Serialize for Response {
             struct_ser.serialize_field("startedCommit", v)?;
         }
         if !self.internal.is_empty() {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("$internal", pbjson::private::base64::encode(&self.internal).as_str())?;
         }
         struct_ser.end()
@@ -1469,7 +1472,7 @@ impl<'de> serde::Deserialize<'de> for Response {
                 formatter.write_str("struct derive.Response")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<Response, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<Response, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -1480,50 +1483,50 @@ impl<'de> serde::Deserialize<'de> for Response {
                 let mut flushed__ = None;
                 let mut started_commit__ = None;
                 let mut internal__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Spec => {
                             if spec__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("spec"));
                             }
-                            spec__ = map.next_value()?;
+                            spec__ = map_.next_value()?;
                         }
                         GeneratedField::Validated => {
                             if validated__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("validated"));
                             }
-                            validated__ = map.next_value()?;
+                            validated__ = map_.next_value()?;
                         }
                         GeneratedField::Opened => {
                             if opened__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("opened"));
                             }
-                            opened__ = map.next_value()?;
+                            opened__ = map_.next_value()?;
                         }
                         GeneratedField::Published => {
                             if published__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("published"));
                             }
-                            published__ = map.next_value()?;
+                            published__ = map_.next_value()?;
                         }
                         GeneratedField::Flushed => {
                             if flushed__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("flushed"));
                             }
-                            flushed__ = map.next_value()?;
+                            flushed__ = map_.next_value()?;
                         }
                         GeneratedField::StartedCommit => {
                             if started_commit__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("startedCommit"));
                             }
-                            started_commit__ = map.next_value()?;
+                            started_commit__ = map_.next_value()?;
                         }
                         GeneratedField::Internal => {
                             if internal__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("$internal"));
                             }
                             internal__ = 
-                                Some(map.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
                             ;
                         }
                     }
@@ -1599,12 +1602,12 @@ impl<'de> serde::Deserialize<'de> for response::Flushed {
                 formatter.write_str("struct derive.Response.Flushed")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<response::Flushed, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::Flushed, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                while map.next_key::<GeneratedField>()?.is_some() {
-                    let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                while map_.next_key::<GeneratedField>()?.is_some() {
+                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                 }
                 Ok(response::Flushed {
                 })
@@ -1670,12 +1673,12 @@ impl<'de> serde::Deserialize<'de> for response::Opened {
                 formatter.write_str("struct derive.Response.Opened")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<response::Opened, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::Opened, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                while map.next_key::<GeneratedField>()?.is_some() {
-                    let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                while map_.next_key::<GeneratedField>()?.is_some() {
+                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                 }
                 Ok(response::Opened {
                 })
@@ -1753,18 +1756,18 @@ impl<'de> serde::Deserialize<'de> for response::Published {
                 formatter.write_str("struct derive.Response.Published")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<response::Published, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::Published, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut doc_json__ : Option<Box<serde_json::value::RawValue>> = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::DocJson => {
                             if doc_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("doc"));
                             }
-                            doc_json__ = Some(map.next_value()?);
+                            doc_json__ = Some(map_.next_value()?);
                         }
                     }
                 }
@@ -1883,7 +1886,7 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
                 formatter.write_str("struct derive.Response.Spec")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<response::Spec, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::Spec, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -1892,39 +1895,39 @@ impl<'de> serde::Deserialize<'de> for response::Spec {
                 let mut resource_config_schema_json__ : Option<Box<serde_json::value::RawValue>> = None;
                 let mut documentation_url__ = None;
                 let mut oauth2__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Protocol => {
                             if protocol__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("protocol"));
                             }
                             protocol__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::ConfigSchemaJson => {
                             if config_schema_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("configSchema"));
                             }
-                            config_schema_json__ = Some(map.next_value()?);
+                            config_schema_json__ = Some(map_.next_value()?);
                         }
                         GeneratedField::ResourceConfigSchemaJson => {
                             if resource_config_schema_json__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("resourceConfigSchema"));
                             }
-                            resource_config_schema_json__ = Some(map.next_value()?);
+                            resource_config_schema_json__ = Some(map_.next_value()?);
                         }
                         GeneratedField::DocumentationUrl => {
                             if documentation_url__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("documentationUrl"));
                             }
-                            documentation_url__ = Some(map.next_value()?);
+                            documentation_url__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Oauth2 => {
                             if oauth2__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("oauth2"));
                             }
-                            oauth2__ = map.next_value()?;
+                            oauth2__ = map_.next_value()?;
                         }
                     }
                 }
@@ -2008,18 +2011,18 @@ impl<'de> serde::Deserialize<'de> for response::StartedCommit {
                 formatter.write_str("struct derive.Response.StartedCommit")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<response::StartedCommit, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::StartedCommit, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut state__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::State => {
                             if state__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("state"));
                             }
-                            state__ = map.next_value()?;
+                            state__ = map_.next_value()?;
                         }
                     }
                 }
@@ -2109,26 +2112,26 @@ impl<'de> serde::Deserialize<'de> for response::Validated {
                 formatter.write_str("struct derive.Response.Validated")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<response::Validated, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::Validated, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut transforms__ = None;
                 let mut generated_files__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Transforms => {
                             if transforms__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("transforms"));
                             }
-                            transforms__ = Some(map.next_value()?);
+                            transforms__ = Some(map_.next_value()?);
                         }
                         GeneratedField::GeneratedFiles => {
                             if generated_files__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("generatedFiles"));
                             }
                             generated_files__ = Some(
-                                map.next_value::<std::collections::BTreeMap<_, _>>()?
+                                map_.next_value::<std::collections::BTreeMap<_, _>>()?
                             );
                         }
                     }
@@ -2211,18 +2214,18 @@ impl<'de> serde::Deserialize<'de> for response::validated::Transform {
                 formatter.write_str("struct derive.Response.Validated.Transform")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<response::validated::Transform, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<response::validated::Transform, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut read_only__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ReadOnly => {
                             if read_only__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("readOnly"));
                             }
-                            read_only__ = Some(map.next_value()?);
+                            read_only__ = Some(map_.next_value()?);
                         }
                     }
                 }

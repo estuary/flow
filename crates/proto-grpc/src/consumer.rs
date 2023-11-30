@@ -356,7 +356,9 @@ pub mod shard_server {
                             >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).stat(request).await };
+                            let fut = async move {
+                                <T as Shard>::stat(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -402,7 +404,9 @@ pub mod shard_server {
                             >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).list(request).await };
+                            let fut = async move {
+                                <T as Shard>::list(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -449,7 +453,9 @@ pub mod shard_server {
                             >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).apply(request).await };
+                            let fut = async move {
+                                <T as Shard>::apply(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -496,7 +502,9 @@ pub mod shard_server {
                             >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).get_hints(request).await };
+                            let fut = async move {
+                                <T as Shard>::get_hints(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -543,7 +551,9 @@ pub mod shard_server {
                             >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).unassign(request).await };
+                            let fut = async move {
+                                <T as Shard>::unassign(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }

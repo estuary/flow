@@ -266,7 +266,7 @@ pub mod journal_server {
             tonic::Status,
         >;
         /// Server streaming response type for the Read method.
-        type ReadStream: futures_core::Stream<
+        type ReadStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<
                     ::proto_gazette::broker::ReadResponse,
                     tonic::Status,
@@ -290,7 +290,7 @@ pub mod journal_server {
             tonic::Status,
         >;
         /// Server streaming response type for the Replicate method.
-        type ReplicateStream: futures_core::Stream<
+        type ReplicateStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<
                     ::proto_gazette::broker::ReplicateResponse,
                     tonic::Status,
@@ -413,7 +413,9 @@ pub mod journal_server {
                             request: tonic::Request<::proto_gazette::broker::ListRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).list(request).await };
+                            let fut = async move {
+                                <T as Journal>::list(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -459,7 +461,9 @@ pub mod journal_server {
                             >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).apply(request).await };
+                            let fut = async move {
+                                <T as Journal>::apply(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -505,7 +509,9 @@ pub mod journal_server {
                             request: tonic::Request<::proto_gazette::broker::ReadRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).read(request).await };
+                            let fut = async move {
+                                <T as Journal>::read(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -552,7 +558,9 @@ pub mod journal_server {
                             >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).append(request).await };
+                            let fut = async move {
+                                <T as Journal>::append(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -600,7 +608,9 @@ pub mod journal_server {
                             >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).replicate(request).await };
+                            let fut = async move {
+                                <T as Journal>::replicate(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -648,7 +658,7 @@ pub mod journal_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).list_fragments(request).await
+                                <T as Journal>::list_fragments(&inner, request).await
                             };
                             Box::pin(fut)
                         }

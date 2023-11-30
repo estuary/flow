@@ -83,7 +83,7 @@ impl Param {
         })
     }
 
-    pub const EXPLICIT_PREFIX: &str = "$p::(";
+    pub const EXPLICIT_PREFIX: &'static str = "$p::(";
 }
 
 // Map a projection field into its canonical SQLite parameter encoding.

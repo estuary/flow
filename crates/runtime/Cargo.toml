@@ -9,6 +9,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+assemble = { path = "../assemble" }
 async-process = { path = "../async-process" }
 connector-init = { path = "../connector-init"  }
 coroutines = { path = "../coroutines"  }
@@ -44,6 +45,7 @@ tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
+xxhash-rust = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]

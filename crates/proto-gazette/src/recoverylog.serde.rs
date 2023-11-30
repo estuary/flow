@@ -85,32 +85,32 @@ impl<'de> serde::Deserialize<'de> for FsmHints {
                 formatter.write_str("struct recoverylog.FSMHints")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<FsmHints, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<FsmHints, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut log__ = None;
                 let mut live_nodes__ = None;
                 let mut properties__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Log => {
                             if log__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("log"));
                             }
-                            log__ = Some(map.next_value()?);
+                            log__ = Some(map_.next_value()?);
                         }
                         GeneratedField::LiveNodes => {
                             if live_nodes__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("liveNodes"));
                             }
-                            live_nodes__ = Some(map.next_value()?);
+                            live_nodes__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Properties => {
                             if properties__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("properties"));
                             }
-                            properties__ = Some(map.next_value()?);
+                            properties__ = Some(map_.next_value()?);
                         }
                     }
                 }
@@ -140,6 +140,7 @@ impl serde::Serialize for FnodeSegments {
         }
         let mut struct_ser = serializer.serialize_struct("recoverylog.FnodeSegments", len)?;
         if self.fnode != 0 {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("fnode", ToString::to_string(&self.fnode).as_str())?;
         }
         if !self.segments.is_empty() {
@@ -201,27 +202,27 @@ impl<'de> serde::Deserialize<'de> for FnodeSegments {
                 formatter.write_str("struct recoverylog.FnodeSegments")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<FnodeSegments, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<FnodeSegments, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut fnode__ = None;
                 let mut segments__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Fnode => {
                             if fnode__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("fnode"));
                             }
                             fnode__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::Segments => {
                             if segments__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("segments"));
                             }
-                            segments__ = Some(map.next_value()?);
+                            segments__ = Some(map_.next_value()?);
                         }
                     }
                 }
@@ -311,25 +312,25 @@ impl<'de> serde::Deserialize<'de> for Property {
                 formatter.write_str("struct recoverylog.Property")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<Property, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<Property, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut path__ = None;
                 let mut content__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Path => {
                             if path__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("path"));
                             }
-                            path__ = Some(map.next_value()?);
+                            path__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Content => {
                             if content__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("content"));
                             }
-                            content__ = Some(map.next_value()?);
+                            content__ = Some(map_.next_value()?);
                         }
                     }
                 }
@@ -385,6 +386,7 @@ impl serde::Serialize for RecordedOp {
         }
         let mut struct_ser = serializer.serialize_struct("recoverylog.RecordedOp", len)?;
         if self.seq_no != 0 {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("seqNo", ToString::to_string(&self.seq_no).as_str())?;
         }
         if self.checksum != 0 {
@@ -394,9 +396,11 @@ impl serde::Serialize for RecordedOp {
             struct_ser.serialize_field("author", &self.author)?;
         }
         if self.first_offset != 0 {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("firstOffset", ToString::to_string(&self.first_offset).as_str())?;
         }
         if self.last_offset != 0 {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("lastOffset", ToString::to_string(&self.last_offset).as_str())?;
         }
         if !self.log.is_empty() {
@@ -503,7 +507,7 @@ impl<'de> serde::Deserialize<'de> for RecordedOp {
                 formatter.write_str("struct recoverylog.RecordedOp")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<RecordedOp, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<RecordedOp, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -518,14 +522,14 @@ impl<'de> serde::Deserialize<'de> for RecordedOp {
                 let mut unlink__ = None;
                 let mut write__ = None;
                 let mut property__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::SeqNo => {
                             if seq_no__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("seqNo"));
                             }
                             seq_no__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::Checksum => {
@@ -533,7 +537,7 @@ impl<'de> serde::Deserialize<'de> for RecordedOp {
                                 return Err(serde::de::Error::duplicate_field("checksum"));
                             }
                             checksum__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::Author => {
@@ -541,7 +545,7 @@ impl<'de> serde::Deserialize<'de> for RecordedOp {
                                 return Err(serde::de::Error::duplicate_field("author"));
                             }
                             author__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::FirstOffset => {
@@ -549,7 +553,7 @@ impl<'de> serde::Deserialize<'de> for RecordedOp {
                                 return Err(serde::de::Error::duplicate_field("firstOffset"));
                             }
                             first_offset__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::LastOffset => {
@@ -557,44 +561,44 @@ impl<'de> serde::Deserialize<'de> for RecordedOp {
                                 return Err(serde::de::Error::duplicate_field("lastOffset"));
                             }
                             last_offset__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::Log => {
                             if log__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("log"));
                             }
-                            log__ = Some(map.next_value()?);
+                            log__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Create => {
                             if create__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("create"));
                             }
-                            create__ = map.next_value()?;
+                            create__ = map_.next_value()?;
                         }
                         GeneratedField::Link => {
                             if link__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("link"));
                             }
-                            link__ = map.next_value()?;
+                            link__ = map_.next_value()?;
                         }
                         GeneratedField::Unlink => {
                             if unlink__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("unlink"));
                             }
-                            unlink__ = map.next_value()?;
+                            unlink__ = map_.next_value()?;
                         }
                         GeneratedField::Write => {
                             if write__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("write"));
                             }
-                            write__ = map.next_value()?;
+                            write__ = map_.next_value()?;
                         }
                         GeneratedField::Property => {
                             if property__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("property"));
                             }
-                            property__ = map.next_value()?;
+                            property__ = map_.next_value()?;
                         }
                     }
                 }
@@ -684,18 +688,18 @@ impl<'de> serde::Deserialize<'de> for recorded_op::Create {
                 formatter.write_str("struct recoverylog.RecordedOp.Create")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<recorded_op::Create, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<recorded_op::Create, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut path__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Path => {
                             if path__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("path"));
                             }
-                            path__ = Some(map.next_value()?);
+                            path__ = Some(map_.next_value()?);
                         }
                     }
                 }
@@ -723,6 +727,7 @@ impl serde::Serialize for recorded_op::Link {
         }
         let mut struct_ser = serializer.serialize_struct("recoverylog.RecordedOp.Link", len)?;
         if self.fnode != 0 {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("fnode", ToString::to_string(&self.fnode).as_str())?;
         }
         if !self.path.is_empty() {
@@ -784,27 +789,27 @@ impl<'de> serde::Deserialize<'de> for recorded_op::Link {
                 formatter.write_str("struct recoverylog.RecordedOp.Link")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<recorded_op::Link, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<recorded_op::Link, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut fnode__ = None;
                 let mut path__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Fnode => {
                             if fnode__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("fnode"));
                             }
                             fnode__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::Path => {
                             if path__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("path"));
                             }
-                            path__ = Some(map.next_value()?);
+                            path__ = Some(map_.next_value()?);
                         }
                     }
                 }
@@ -836,12 +841,15 @@ impl serde::Serialize for recorded_op::Write {
         }
         let mut struct_ser = serializer.serialize_struct("recoverylog.RecordedOp.Write", len)?;
         if self.fnode != 0 {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("fnode", ToString::to_string(&self.fnode).as_str())?;
         }
         if self.offset != 0 {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("offset", ToString::to_string(&self.offset).as_str())?;
         }
         if self.length != 0 {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("length", ToString::to_string(&self.length).as_str())?;
         }
         struct_ser.end()
@@ -903,21 +911,21 @@ impl<'de> serde::Deserialize<'de> for recorded_op::Write {
                 formatter.write_str("struct recoverylog.RecordedOp.Write")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<recorded_op::Write, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<recorded_op::Write, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut fnode__ = None;
                 let mut offset__ = None;
                 let mut length__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Fnode => {
                             if fnode__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("fnode"));
                             }
                             fnode__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::Offset => {
@@ -925,7 +933,7 @@ impl<'de> serde::Deserialize<'de> for recorded_op::Write {
                                 return Err(serde::de::Error::duplicate_field("offset"));
                             }
                             offset__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::Length => {
@@ -933,7 +941,7 @@ impl<'de> serde::Deserialize<'de> for recorded_op::Write {
                                 return Err(serde::de::Error::duplicate_field("length"));
                             }
                             length__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                     }
@@ -982,18 +990,22 @@ impl serde::Serialize for Segment {
             struct_ser.serialize_field("author", &self.author)?;
         }
         if self.first_seq_no != 0 {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("firstSeqNo", ToString::to_string(&self.first_seq_no).as_str())?;
         }
         if self.first_offset != 0 {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("firstOffset", ToString::to_string(&self.first_offset).as_str())?;
         }
         if self.first_checksum != 0 {
             struct_ser.serialize_field("firstChecksum", &self.first_checksum)?;
         }
         if self.last_seq_no != 0 {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("lastSeqNo", ToString::to_string(&self.last_seq_no).as_str())?;
         }
         if self.last_offset != 0 {
+            #[allow(clippy::needless_borrow)]
             struct_ser.serialize_field("lastOffset", ToString::to_string(&self.last_offset).as_str())?;
         }
         if !self.log.is_empty() {
@@ -1075,7 +1087,7 @@ impl<'de> serde::Deserialize<'de> for Segment {
                 formatter.write_str("struct recoverylog.Segment")
             }
 
-            fn visit_map<V>(self, mut map: V) -> std::result::Result<Segment, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<Segment, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -1086,14 +1098,14 @@ impl<'de> serde::Deserialize<'de> for Segment {
                 let mut last_seq_no__ = None;
                 let mut last_offset__ = None;
                 let mut log__ = None;
-                while let Some(k) = map.next_key()? {
+                while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Author => {
                             if author__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("author"));
                             }
                             author__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::FirstSeqNo => {
@@ -1101,7 +1113,7 @@ impl<'de> serde::Deserialize<'de> for Segment {
                                 return Err(serde::de::Error::duplicate_field("firstSeqNo"));
                             }
                             first_seq_no__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::FirstOffset => {
@@ -1109,7 +1121,7 @@ impl<'de> serde::Deserialize<'de> for Segment {
                                 return Err(serde::de::Error::duplicate_field("firstOffset"));
                             }
                             first_offset__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::FirstChecksum => {
@@ -1117,7 +1129,7 @@ impl<'de> serde::Deserialize<'de> for Segment {
                                 return Err(serde::de::Error::duplicate_field("firstChecksum"));
                             }
                             first_checksum__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::LastSeqNo => {
@@ -1125,7 +1137,7 @@ impl<'de> serde::Deserialize<'de> for Segment {
                                 return Err(serde::de::Error::duplicate_field("lastSeqNo"));
                             }
                             last_seq_no__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::LastOffset => {
@@ -1133,14 +1145,14 @@ impl<'de> serde::Deserialize<'de> for Segment {
                                 return Err(serde::de::Error::duplicate_field("lastOffset"));
                             }
                             last_offset__ = 
-                                Some(map.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
                         GeneratedField::Log => {
                             if log__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("log"));
                             }
-                            log__ = Some(map.next_value()?);
+                            log__ = Some(map_.next_value()?);
                         }
                     }
                 }

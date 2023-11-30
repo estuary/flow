@@ -119,7 +119,7 @@ pub mod connector_server {
     #[async_trait]
     pub trait Connector: Send + Sync + 'static {
         /// Server streaming response type for the Derive method.
-        type DeriveStream: futures_core::Stream<
+        type DeriveStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<::proto_flow::derive::Response, tonic::Status>,
             >
             + Send
@@ -228,7 +228,9 @@ pub mod connector_server {
                             >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).derive(request).await };
+                            let fut = async move {
+                                <T as Connector>::derive(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }

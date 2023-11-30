@@ -166,7 +166,7 @@ pub mod connector_server {
     #[async_trait]
     pub trait Connector: Send + Sync + 'static {
         /// Server streaming response type for the Capture method.
-        type CaptureStream: futures_core::Stream<
+        type CaptureStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<
                     ::proto_flow::capture::Response,
                     tonic::Status,
@@ -323,7 +323,9 @@ pub mod connector_server {
                             >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).capture(request).await };
+                            let fut = async move {
+                                <T as Connector>::capture(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }

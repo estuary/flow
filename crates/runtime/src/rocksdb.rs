@@ -123,9 +123,9 @@ impl RocksDB {
     }
 
     // Key encoding under which a marshalled checkpoint is stored.
-    pub const CHECKPOINT_KEY: &str = "checkpoint";
+    pub const CHECKPOINT_KEY: &'static str = "checkpoint";
     // Key encoding under which a connector state is stored.
-    pub const CONNECTOR_STATE_KEY: &str = "connector-state";
+    pub const CONNECTOR_STATE_KEY: &'static str = "connector-state";
 }
 
 // RocksDB merge operator schema which uses `state_schema` for keys matching "connector-state".

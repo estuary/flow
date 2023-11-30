@@ -124,7 +124,7 @@ pub mod connector_server {
     #[async_trait]
     pub trait Connector: Send + Sync + 'static {
         /// Server streaming response type for the Materialize method.
-        type MaterializeStream: futures_core::Stream<
+        type MaterializeStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<
                     ::proto_flow::materialize::Response,
                     tonic::Status,
@@ -239,7 +239,9 @@ pub mod connector_server {
                             >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).materialize(request).await };
+                            let fut = async move {
+                                <T as Connector>::materialize(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
