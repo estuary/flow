@@ -152,7 +152,9 @@ from publication_specs p
 join live_specs l on p.live_spec_id = l.id,
 lateral view_user_profile(p.user_id) u
 ;
-alter view publication_specs_ext owner to authenticated;
+
+alter view publication_specs_ext set (security_invoker = on);
+grant select on publication_specs_ext to authenticated;
 
 comment on view publication_specs_ext is
   'View of `publication_specs` extended with metadata of its user';
@@ -166,7 +168,9 @@ select
 from drafts d,
 lateral (select count(*) num_specs from draft_specs where draft_id = d.id) s
 ;
-alter view drafts_ext owner to authenticated;
+
+alter view drafts_ext set (security_invoker = on);
+grant select on drafts_ext to authenticated;
 
 comment on view drafts_ext is
   'View of `drafts` extended with metadata of its specifications';
@@ -188,7 +192,9 @@ from draft_specs d
 left outer join live_specs_ext l
   on d.catalog_name = l.catalog_name
 ;
-alter view draft_specs_ext owner to authenticated;
+
+alter view draft_specs_ext set (security_invoker = on);
+grant select on draft_specs_ext to authenticated;
 
 comment on view draft_specs_ext is
   'View of `draft_specs` extended with metadata of its live specification';
