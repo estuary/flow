@@ -114,7 +114,7 @@ pub fn tracing_log_handler(
             .collect::<BTreeMap<_, _>>(),
     );
 
-    match LogLevel::from_i32(*level).unwrap_or_default() {
+    match LogLevel::try_from(*level).unwrap_or_default() {
         LogLevel::Trace => ::tracing::trace!(message, ?fields),
         LogLevel::Debug => ::tracing::debug!(message, ?fields),
         LogLevel::Info => ::tracing::info!(message, ?fields),

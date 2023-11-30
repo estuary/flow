@@ -38,7 +38,7 @@ pub fn validate_binding_against_constraints(
         projected_pointers.push(projection.ptr.to_string());
 
         let constraint = &constraints[field];
-        let ctype = constraint::Type::from_i32(constraint.r#type).unwrap();
+        let ctype = constraint::Type::try_from(constraint.r#type).unwrap();
         if vec![
             constraint::Type::FieldForbidden,
             constraint::Type::Unsatisfiable,
@@ -56,7 +56,7 @@ pub fn validate_binding_against_constraints(
     })?;
 
     constraints.iter().try_for_each(|(field, constraint)| {
-        match constraint::Type::from_i32(constraint.r#type).unwrap() {
+        match constraint::Type::try_from(constraint.r#type).unwrap() {
             constraint::Type::FieldRequired if !fields.contains(field) => {
                 return Err(BindingConstraintError::RequiredFieldMissing {
                     field: field.to_string(),

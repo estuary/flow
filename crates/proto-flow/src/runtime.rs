@@ -104,7 +104,7 @@ pub struct ShuffleResponse {
     #[prost(message, repeated, tag = "7")]
     pub docs: ::prost::alloc::vec::Vec<super::flow::Slice>,
     /// The journal offsets of each document within the requested journal.
-    /// For a document at index i, its offsets are [ offsets\[2*i\], offsets\[2*i+1\]
+    /// For a document at index i, its offsets are \[ offsets[2*i\], offsets\[2*i+1\]
     /// ).
     #[prost(int64, repeated, packed = "false", tag = "8")]
     pub offsets: ::prost::alloc::vec::Vec<i64>,

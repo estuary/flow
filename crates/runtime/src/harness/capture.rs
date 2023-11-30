@@ -187,7 +187,7 @@ async fn run_session(
                 return verify.fail(poll_response);
             };
 
-            let poll_result = PollResult::from_i32(poll_result).context("invalid PollResult")?;
+            let poll_result = PollResult::try_from(poll_result).context("invalid PollResult")?;
             tracing::debug!(?poll_result, "polled capture");
 
             match poll_result {

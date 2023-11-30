@@ -119,7 +119,7 @@ pub mod shuffler_server {
     #[async_trait]
     pub trait Shuffler: Send + Sync + 'static {
         /// Server streaming response type for the Shuffle method.
-        type ShuffleStream: futures_core::Stream<
+        type ShuffleStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<
                     ::proto_flow::runtime::ShuffleResponse,
                     tonic::Status,
@@ -232,7 +232,9 @@ pub mod shuffler_server {
                             >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).shuffle(request).await };
+                            let fut = async move {
+                                <T as Shuffler>::shuffle(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }

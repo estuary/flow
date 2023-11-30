@@ -799,7 +799,7 @@ pub mod test_spec {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RangeSpec {
-    /// [begin, end] inclusive range of keys to be shuffled to this reader.
+    /// \[begin, end\] inclusive range of keys to be shuffled to this reader.
     /// Ranges are with respect to a 32-bit hash of a packed document key.
     ///
     /// The choice of hash function is important: while it need not be
@@ -815,7 +815,7 @@ pub struct RangeSpec {
     pub key_begin: u32,
     #[prost(fixed32, tag = "3")]
     pub key_end: u32,
-    /// Rotated [begin, end] inclusive ranges of Clocks.
+    /// Rotated \[begin, end\] inclusive ranges of Clocks.
     #[prost(fixed32, tag = "4")]
     pub r_clock_begin: u32,
     #[prost(fixed32, tag = "5")]

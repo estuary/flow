@@ -195,8 +195,8 @@ pub mod response {
         /// from a given `resource` of this connector. For example, a database
         /// capture connector might have a `resource` that's represented like:
         /// `{"schema": "foo", "table": "bar", "otherConfig": true}`. In that case
-        /// it could use `resource_path_pointers: ["/schema", "/table"]`, which
-        /// would result in a `resource_path` of `["foo", "bar"]`. This allows
+        /// it could use `resource_path_pointers: \["/schema", "/table"\]`, which
+        /// would result in a `resource_path` of `\["foo", "bar"\]`. This allows
         /// `otherConfig` to be changed by the user without impacting the identity of
         /// the resource.
         #[prost(string, repeated, tag = "6")]
@@ -239,9 +239,9 @@ pub mod response {
             pub disable: bool,
             /// Components of the resource path which fully qualify the resource
             /// identified by this binding.
-            /// - For an RDBMS, this might be []{dbname, schema, table}.
-            /// - For Kafka, this might be []{topic}.
-            /// - For Redis, this might be []{key_prefix}.
+            /// - For an RDBMS, this might be \[\]{dbname, schema, table}.
+            /// - For Kafka, this might be \[\]{topic}.
+            /// - For Redis, this might be \[\]{key_prefix}.
             #[prost(string, repeated, tag = "6")]
             pub resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
         }
@@ -262,9 +262,9 @@ pub mod response {
         pub struct Binding {
             /// Components of the resource path which fully qualify the resource
             /// identified by this binding.
-            /// - For an RDBMS, this might be []{dbname, schema, table}.
-            /// - For Kafka, this might be []{topic}.
-            /// - For Redis, this might be []{key_prefix}.
+            /// - For an RDBMS, this might be \[\]{dbname, schema, table}.
+            /// - For Kafka, this might be \[\]{topic}.
+            /// - For Redis, this might be \[\]{key_prefix}.
             #[prost(string, repeated, tag = "1")]
             pub resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
         }

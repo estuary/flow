@@ -56,7 +56,7 @@ flate2 = "1.0"
 futures = "0.3"
 futures-core = "0.3"
 futures-util = "0.3"
-fxhash = "0.2"
+fxhash = "0.2" # Used in `json` crate. Replace with xxhash.
 hex = "0.4.3"
 hexdump = "0.1"
 humantime = "2.1"
@@ -85,13 +85,13 @@ openssl-sys = { version = "0.9", features = ['vendored'] }
 openssl = "0.10"
 
 pathfinding = "3.0"
-pbjson = "0.5.1"
-pbjson-types = "0.5.1"
+pbjson = "0.6"
+pbjson-types = "0.6"
 percent-encoding = "2.1"
 pin-project-lite = "0.2"
 postgrest = { git = "https://github.com/jshearer/postgrest-rs", branch = "joseph/combined_changes_rebased" }
 page-turner = "0.8.2"
-prost = "0.11"
+prost = "0.12"
 protobuf = "3.1"
 protobuf-json-mapping = "3.1"
 protobuf-parse = "3.1"
@@ -152,7 +152,7 @@ tokio = { version = "1", features = [
     "time",
 ] }
 tokio-util = { version = "0.7", features = ["io", "compat"] }
-tonic = { version = "0.9", features = ["tls", "tls-roots"] }
+tonic = { version = "0.10", features = ["tls", "tls-roots"] }
 tower = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = [
@@ -176,6 +176,7 @@ wasm-bindgen = "0.2.62"
 # compared to the default allocator's ~10K. It is slower than the default
 # allocator, however. It is an optional dependency for WASM modules.
 wee_alloc = { version = "0.4" }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
 yaml-merge-keys = { version = "0.5", features = ["serde_yaml"] }
 zip = "0.5"
 zstd = "0.11.2"
@@ -194,9 +195,9 @@ wasm-bindgen-test = "0.3.13"
 
 # Used exclusively as build-dependencies
 cbindgen = "0.23"
-pbjson-build = "0.5"
-prost-build = "0.11"
-tonic-build = "0.9"
+pbjson-build = "0.6"
+prost-build = "0.12"
+tonic-build = "0.10"
 
 warp = "0.3.3"
 
@@ -207,6 +208,3 @@ debug = 0          # Set this to 1 or 2 to get more useful backtraces in debugge
 [patch.'crates-io']
 rocksdb = { git = "https://github.com/jgraettinger/rust-rocksdb" }
 librocksdb-sys = { git = "https://github.com/jgraettinger/rust-rocksdb" }
-
-# TODO(johnny): remove when PR is upstream - https://github.com/hyperium/tonic/pull/1423
-tonic = { git = "https://github.com/jgraettinger/tonic", branch = "johnny/read-chunks-backport" }

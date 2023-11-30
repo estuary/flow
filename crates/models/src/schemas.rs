@@ -42,9 +42,9 @@ impl Schema {
     }
 
     // URL for referencing the inferred schema of a collection, which may be used within a read schema.
-    pub const REF_INFERRED_SCHEMA_URL: &str = "flow://inferred-schema";
+    pub const REF_INFERRED_SCHEMA_URL: &'static str = "flow://inferred-schema";
     // URL for referencing the write schema of a collection, which may be used within a read schema.
-    pub const REF_WRITE_SCHEMA_URL: &str = "flow://write-schema";
+    pub const REF_WRITE_SCHEMA_URL: &'static str = "flow://write-schema";
 
     /// Returns true if this Schema references the canonical inferred schema URL.
     pub fn references_inferred_schema(&self) -> bool {
