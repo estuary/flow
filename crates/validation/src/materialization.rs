@@ -507,15 +507,15 @@ fn walk_materialization_response(
                     reason: String::new(),
                 });
 
-        let type_ = match Type::from_i32(constraint.r#type) {
-            None | Some(Type::Invalid) => {
+        let type_ = match Type::try_from(constraint.r#type) {
+            Err(_) | Ok(Type::Invalid) => {
                 Error::Connector {
                     detail: anyhow::anyhow!("unknown constraint type {}", constraint.r#type),
                 }
                 .push(scope, errors);
                 Type::FieldForbidden
             }
-            Some(t) => t,
+            Ok(t) => t,
         };
         let reason = constraint.reason.as_str();
 

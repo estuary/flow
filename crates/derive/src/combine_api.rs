@@ -94,9 +94,9 @@ impl cgo::Service for API {
         arena: &mut Vec<u8>,
         out: &mut Vec<cgo::Out>,
     ) -> Result<(), Self::Error> {
-        let code = match Code::from_i32(code as i32) {
-            Some(c) => c,
-            None => return Err(Error::InvalidState),
+        let code = match Code::try_from(code as i32) {
+            Ok(c) => c,
+            Err(_) => return Err(Error::InvalidState),
         };
 
         tracing::trace!(?code, "invoke");

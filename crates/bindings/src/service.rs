@@ -154,7 +154,7 @@ pub fn create<S: Service>(log_level: i32, log_dest_fd: i32) -> *mut Channel {
         // for example by raising the level of third-party packages that produce
         // excessive output at debug or trace.
         "{}",
-        ops::LogLevel::from_i32(log_level)
+        ops::LogLevel::try_from(log_level)
             .unwrap_or(ops::LogLevel::Debug)
             .as_str_name()
     );

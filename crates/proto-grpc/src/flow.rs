@@ -394,7 +394,9 @@ pub mod testing_server {
                             >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).reset_state(request).await };
+                            let fut = async move {
+                                <T as Testing>::reset_state(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -441,7 +443,7 @@ pub mod testing_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).advance_time(request).await
+                                <T as Testing>::advance_time(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -486,7 +488,9 @@ pub mod testing_server {
                             request: tonic::Request<::proto_flow::flow::IngestRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).ingest(request).await };
+                            let fut = async move {
+                                <T as Testing>::ingest(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -563,7 +567,7 @@ pub mod network_proxy_server {
     #[async_trait]
     pub trait NetworkProxy: Send + Sync + 'static {
         /// Server streaming response type for the Proxy method.
-        type ProxyStream: futures_core::Stream<
+        type ProxyStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<
                     ::proto_flow::flow::TaskNetworkProxyResponse,
                     tonic::Status,
@@ -680,7 +684,9 @@ pub mod network_proxy_server {
                             >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { (*inner).proxy(request).await };
+                            let fut = async move {
+                                <T as NetworkProxy>::proxy(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }

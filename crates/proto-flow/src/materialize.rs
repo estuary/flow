@@ -125,7 +125,7 @@ pub mod request {
     /// The driver MUST fence off other streams of this materialization that
     /// overlap the provided [key_begin, key_end) range, such that those streams
     /// cannot issue further commits. The driver MUST return its stored runtime
-    /// checkpoint for this materialization and range [key_begin, key_end]
+    /// checkpoint for this materialization and range \[key_begin, key_end\]
     /// in its Opened response.
     ///
     /// After Open, the runtime will send only Load, Flush, Store,
@@ -361,9 +361,9 @@ pub mod response {
             >,
             /// Components of the resource path which fully qualify the resource
             /// identified by this binding.
-            /// - For an RDBMS, this might be []{dbname, schema, table}.
-            /// - For Kafka, this might be []{topic}.
-            /// - For Redis, this might be []{key_prefix}.
+            /// - For an RDBMS, this might be \[\]{dbname, schema, table}.
+            /// - For Kafka, this might be \[\]{topic}.
+            /// - For Redis, this might be \[\]{key_prefix}.
             #[prost(string, repeated, tag = "2")]
             pub resource_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
             /// Materialize combined delta updates of documents rather than full
@@ -405,7 +405,7 @@ pub mod response {
         /// Flow runtime checkpoint to begin processing from.
         /// If empty, the most recent checkpoint of the Flow recovery log is used.
         ///
-        /// Or, a driver may send the value []byte{0xf8, 0xff, 0xff, 0xff, 0xf, 0x1}
+        /// Or, a driver may send the value \[\]byte{0xf8, 0xff, 0xff, 0xff, 0xf, 0x1}
         /// to explicitly begin processing from a zero-valued checkpoint, effectively
         /// rebuilding the materialization from scratch. This sentinel is a trivial
         /// encoding of the max-value 2^29-1 protobuf tag with boolean true.
