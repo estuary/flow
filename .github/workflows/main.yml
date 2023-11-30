@@ -50,6 +50,8 @@ jobs:
           export_default_credentials: true
 
       - uses: supabase/setup-cli@v1
+        with:
+          version: latest
       - run: supabase start
       - name: SQL tests
         run: ./supabase/run_sql_tests.sh
