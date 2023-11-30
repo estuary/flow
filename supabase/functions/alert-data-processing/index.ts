@@ -26,6 +26,37 @@ interface EmailConfig {
     content: string;
 }
 
+// This is a temporary type guard for the POST request that provides shallow validation
+// of the object.
+const validateAlertRecordKeys = (request: any) => {
+    const validAlertType =
+        Object.hasOwn(request, 'alert_type') &&
+        typeof request.alert_type === 'string';
+
+    const validCatalogName =
+        Object.hasOwn(request, 'catalog_name') &&
+        typeof request.catalog_name === 'string';
+
+    const validFiredAtTimestamp =
+        Object.hasOwn(request, 'fired_at') &&
+        typeof request.fired_at === 'string';
+
+    const validResolvedAtTimestamp =
+        Object.hasOwn(request, 'resolved_at') &&
+        (typeof request.resolved_at === 'string' ||
+            request.resolved_at === null);
+
+    const argumentsExist = Object.hasOwn(request, 'arguments');
+
+    return (
+        validAlertType &&
+        validCatalogName &&
+        validFiredAtTimestamp &&
+        validResolvedAtTimestamp &&
+        argumentsExist
+    );
+};
+
 const getTaskDetailsPageURL = (catalogName: string, specType: string) =>
     `https://dashboard.estuary.dev/${specType}s/details/overview?catalogName=${catalogName}`;
 
@@ -113,27 +144,31 @@ const emailNotifications = async (
     return Promise.all(notificationPromises);
 };
 
-serve(async (request): Promise<Response> => {
-    const alertRecord: AlertRecord = await request.json();
-    console.log('record', alertRecord);
+serve(async (rawRequest: Request): Promise<Response> => {
+    const request = await rawRequest.json();
 
-    if (isEmpty(alertRecord)) {
-        // Terminate the function without error if there aren't any active notifications in the system.
+    if (!validateAlertRecordKeys(request)) {
         return new Response(null, {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            status: 200,
+            status: 400,
         });
     }
 
     const pendingEmail: EmailConfig =
-        alertRecord.resolved_at === null
-            ? formatAlertEmail(alertRecord)
-            : formatConfirmationEmail(alertRecord);
+        request.resolved_at === null
+            ? formatAlertEmail(request)
+            : formatConfirmationEmail(request);
 
     const resendToken = Deno.env.get('RESEND_API_KEY');
     const senderAddress = Deno.env.get('RESEND_EMAIL_ADDRESS');
+    const sharedSecret = Deno.env.get('ALERT_EMAIL_FUNCTION_SECRET');
 
-    if (!resendToken || !senderAddress) {
+    const authHeader = rawRequest.headers.get('authorization');
+
+    const missingCredentials =
+        !resendToken || !senderAddress || !sharedSecret || !authHeader;
+
+    if (missingCredentials || !authHeader.includes(sharedSecret)) {
         return new Response(
             JSON.stringify({
                 error: {
@@ -161,7 +196,11 @@ serve(async (request): Promise<Response> => {
     const errors = responses.filter((response) => response.status >= 400);
 
     if (errors.length > 0) {
-        console.info(`${responses.length - errors.length} emails sent.`);
+        console.log('finished sending emails', {
+            catalogName: request.catalog_name,
+            attempted: responses.length,
+            errors,
+        });
 
         errors.forEach(async (error) => {
             console.error(await error.text());

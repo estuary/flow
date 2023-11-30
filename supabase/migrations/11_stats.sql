@@ -71,6 +71,8 @@ begin
     if not exists (select from pg_catalog.pg_roles where rolname = 'stats_loader') then
         create role stats_loader with login password 'stats_loader_password' bypassrls;
    end if;
+   grant stats_loader to postgres;
+   grant create on schema public to stats_loader;
 end
 $$;
 
