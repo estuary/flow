@@ -119,7 +119,6 @@ select
     $$ select internal.evaluate_alert_events() $$
   );
 
-create extension if not exists supabase_vault with schema vault;
 create extension if not exists pg_net with schema extensions;
 create or replace function internal.send_alerts()
 returns trigger as $trigger$
