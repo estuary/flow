@@ -20,6 +20,8 @@ jobs:
       - uses: actions/checkout@v3
 
       - uses: supabase/setup-cli@v1
+        with:
+          version: latest
 
       - name: Deploy Supabase Edge Functions
         if: ${{ github.ref == 'refs/heads/master' }}
