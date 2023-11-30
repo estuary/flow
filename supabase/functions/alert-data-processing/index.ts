@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.184.0/http/server.ts";
-import { isEmpty, isFinite } from "https://cdn.skypack.dev/lodash";
+import { isFinite } from "https://cdn.skypack.dev/lodash";
 
 import { corsHeaders } from "../_shared/cors.ts";
 import { returnPostgresError } from "../_shared/helpers.ts";
