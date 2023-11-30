@@ -223,6 +223,7 @@ pub fn send_client_published(
     txn.combined_stats.bytes_total += doc_json.len() as u64;
 
     if shape.widen_owned(&root) {
+        txn.updated_inference = true;
         doc::shape::limits::enforce_shape_complexity_limit(
             shape,
             doc::shape::limits::DEFAULT_SCHEMA_COMPLEXITY_LIMIT,
