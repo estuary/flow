@@ -1,15 +1,12 @@
 use crate::local_specs;
 use anyhow::{bail, Context};
-use itertools::Itertools;
 use proto_flow::{capture, flow};
 use std::{
     collections::HashMap,
-    fmt::{Debug, Display},
-    net::ToSocketAddrs,
+    fmt::Debug,
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::time::timeout_at;
 use warp::{http::Response, Filter};
 
 #[derive(Debug, clap::Args)]
@@ -57,21 +54,6 @@ pub async fn do_oauth(
         injected_values,
     }: &Oauth,
 ) -> anyhow::Result<()> {
-    // TESTING
-    let env_filter = tracing_subscriber::EnvFilter::builder()
-        .with_default_directive(tracing_subscriber::filter::LevelFilter::INFO.into()) // Otherwise it's ERROR.
-        .from_env_lossy();
-
-    let guard = tracing::subscriber::set_default(
-        tracing_subscriber::fmt::fmt()
-            .with_env_filter(env_filter)
-            .compact()
-            .without_time()
-            .with_target(false)
-            .with_writer(std::io::stderr)
-            .finish(),
-    );
-    // END TESTING
     let source = build::arg_source_to_url(source, false)?;
     let mut sources = local_specs::surface_errors(local_specs::load(&source).await.into_result())?;
 
@@ -95,9 +77,9 @@ pub async fn do_oauth(
         Err(_) => anyhow::bail!("could not find the capture {needle}"),
     };
 
-    tracing::info!(
-        task_name = capture.capture.as_str(),
-        "Performing oauth flow on task"
+    println!(
+        "Performing oauth flow on task '{}'",
+        capture.capture.as_str()
     );
 
     let spec_req = match &capture.spec.endpoint {
@@ -186,7 +168,7 @@ pub async fn do_oauth(
     )?.ok()
     .context("Provided endpoint config did not match schema.")?;
 
-    tracing::info!(
+    println!(
         "Got connector's OAuth spec: {}",
         serde_json::to_string_pretty(&oauth_spec)?
     );
@@ -235,16 +217,13 @@ pub async fn do_oauth(
             format!("Unexpected auth-url response body: {str}")
         })?;
 
-    tracing::info!(url = authorize_response.url, "Opening authorize URL");
+    println!("Opening authorize URL {}", authorize_response.url);
 
     open::that(authorize_response.url)?;
 
     let redirect_params = get_single_request_query(([127, 0, 0, 1], port)).await?;
 
-    tracing::info!(
-        redirect_params = ?redirect_params,
-        "Got auth code response parameters"
-    );
+    println!("Got auth code response parameters: {:?}", redirect_params);
 
     let mut code_request_body = serde_json::json!({
         "operation": "access-token",
@@ -265,7 +244,7 @@ pub async fn do_oauth(
         code_request_map.insert(k, serde_json::Value::String(v));
     }
 
-    tracing::info!("Exchanging auth code for access token");
+    println!("Exchanging auth code for access token");
 
     let code_response = reqwest::Client::new()
         .post(oauth_endpoint)
@@ -277,12 +256,10 @@ pub async fn do_oauth(
         .json::<serde_json::Value>()
         .await?;
 
-    tracing::info!(
+    println!(
         "🎉 Got access token response: \n{}",
         serde_json::to_string_pretty(&code_response)?
     );
-
-    drop(guard);
 
     Ok(())
 }
