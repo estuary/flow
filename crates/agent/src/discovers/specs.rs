@@ -1,5 +1,7 @@
 use proto_flow::capture::{response::discovered::Binding, response::Discovered};
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
+use std::fmt;
 
 pub fn parse_response(
     endpoint_config: &serde_json::value::RawValue,
@@ -33,40 +35,74 @@ pub fn parse_response(
     ))
 }
 
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
+pub enum BindingType {
+    Existing,
+    Discovered,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct InvalidResource {
+    pub binding_type: BindingType,
+    pub resource_path_pointer: String,
+    pub resource_json: String,
+}
+
+impl fmt::Display for InvalidResource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let ty = match self.binding_type {
+            BindingType::Existing => "existing",
+            BindingType::Discovered => "discovered",
+        };
+        write!(
+            f,
+            "expected {ty} resource value at '{}' to be a string value, in resource: {}",
+            self.resource_path_pointer, self.resource_json
+        )
+    }
+}
+
 type ResourcePath = Vec<String>;
 
 /// Extracts the value of each of the given `resource_path_pointers` and encodes
-/// them into a `ResourcePath`. Each pointer always gets mapped to a string
-/// value, with the string `undefined` being used to represent a missing value.
-/// All other values are encoded as JSON strings. This allows the `ResourcePath`
-/// to be used as a key in hashmaps, which would not be allowed if we used an
-/// array of `serde_json::Value`.
+/// them into a `ResourcePath`. Each pointed-to location must be either a string
+/// value, null, or undefines. Null and undefined values are _not_ included in
+/// the resulting path, and are thus treated as equivalent. Resource path values
+/// other than strings will result in an error.
 fn resource_path(
     resource_path_pointers: &[doc::Pointer],
     resource: &serde_json::Value,
-) -> ResourcePath {
-    resource_path_pointers
-        .iter()
-        .map(|pointer| match pointer.query(resource) {
-            Some(j) => {
-                serde_json::to_string(j).expect("serializing resource path component cannot fail")
+) -> Result<ResourcePath, String> {
+    let mut path = Vec::new();
+    for pointer in resource_path_pointers {
+        match pointer.query(resource) {
+            None | Some(serde_json::Value::Null) => {
+                continue;
             }
-            None => String::from("undefined"),
-        })
-        .collect()
+            Some(serde_json::Value::String(s)) => path.push(s.clone()),
+            Some(_) => return Err(pointer.to_string()),
+        }
+    }
+    Ok(path)
 }
 
 fn index_fetched_bindings<'a>(
     resource_path_pointers: &'_ [doc::Pointer],
     bindings: &'a [models::CaptureBinding],
-) -> HashMap<ResourcePath, &'a models::CaptureBinding> {
+) -> Result<HashMap<ResourcePath, &'a models::CaptureBinding>, InvalidResource> {
     bindings
         .iter()
         .map(|binding| {
             let resource = serde_json::from_str(binding.resource.get())
                 .expect("parsing resource config json cannot fail");
-            let rp = resource_path(resource_path_pointers, &resource);
-            (rp, binding)
+            match resource_path(resource_path_pointers, &resource) {
+                Ok(rp) => Ok((rp, binding)),
+                Err(resource_path_pointer) => Err(InvalidResource {
+                    binding_type: BindingType::Existing,
+                    resource_path_pointer,
+                    resource_json: binding.resource.clone().into(),
+                }),
+            }
         })
         .collect()
 }
@@ -78,7 +114,7 @@ pub fn merge_capture(
     fetched_capture: Option<models::CaptureDef>,
     update_only: bool,
     resource_path_pointers: &[String],
-) -> (models::CaptureDef, Vec<Binding>) {
+) -> Result<(models::CaptureDef, Vec<Binding>), InvalidResource> {
     let capture_prefix = capture_name.rsplit_once("/").unwrap().0;
 
     let (fetched_bindings, interval, shards, auto_discover) = match fetched_capture {
@@ -107,7 +143,7 @@ pub fn merge_capture(
         .collect::<Vec<_>>();
 
     let fetched_bindings_by_path = if !pointers.is_empty() {
-        index_fetched_bindings(&pointers, &fetched_bindings)
+        index_fetched_bindings(&pointers, &fetched_bindings)?
     } else {
         Default::default()
     };
@@ -141,7 +177,13 @@ pub fn merge_capture(
             // New matching behavior
             let discovered_resource = serde_json::from_str(&resource_config_json)
                 .expect("resource config must be valid json");
-            let discovered_resource_path = resource_path(&pointers, &discovered_resource);
+            let discovered_resource_path = resource_path(&pointers, &discovered_resource).map_err(
+                |resource_path_pointer| InvalidResource {
+                    binding_type: BindingType::Discovered,
+                    resource_path_pointer,
+                    resource_json: resource_config_json.clone(),
+                },
+            )?;
 
             fetched_bindings_by_path
                 .get(&discovered_resource_path)
@@ -164,7 +206,7 @@ pub fn merge_capture(
         }
     }
 
-    (
+    Ok((
         models::CaptureDef {
             auto_discover,
             endpoint,
@@ -173,7 +215,7 @@ pub fn merge_capture(
             shards,
         },
         filtered_bindings,
-    )
+    ))
 }
 
 pub fn merge_collections(
@@ -257,7 +299,7 @@ fn normalize_recommended_name(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_recommended_name, BTreeMap, Binding};
+    use super::*;
     use proto_flow::capture::response::discovered;
     use serde_json::json;
 
@@ -417,7 +459,8 @@ mod tests {
             fetched_capture.clone(),
             true,
             &["/stream".to_string(), "/namespace".to_string()],
-        );
+        )
+        .unwrap();
 
         // Expect we:
         // * Preserved the modified binding configuration.
@@ -447,7 +490,8 @@ mod tests {
             None,
             false,
             &[],
-        );
+        )
+        .unwrap();
 
         insta::assert_json_snapshot!(json!(out));
         // assert that the results of the merge are unchanged when using a valid
@@ -459,7 +503,8 @@ mod tests {
             None,
             false,
             &["/stream".to_string()],
-        );
+        )
+        .unwrap();
 
         assert_eq!(
             json!(out),
@@ -504,7 +549,8 @@ mod tests {
             fetched_capture.clone(),
             true,
             &[],
-        );
+        )
+        .unwrap();
 
         // Expect we:
         // * Preserved the modified binding configuration.
@@ -521,7 +567,8 @@ mod tests {
             fetched_capture,
             true,
             &["/stream".to_string()],
-        );
+        )
+        .unwrap();
 
         assert_eq!(
             json!(out),
@@ -558,7 +605,8 @@ mod tests {
             fetched_capture.clone(),
             false,
             &[],
-        );
+        )
+        .unwrap();
 
         // Expect we:
         // * Preserved the modified binding configurations.
@@ -575,13 +623,57 @@ mod tests {
             fetched_capture,
             false,
             &["/stream".to_string()],
-        );
+        )
+        .unwrap();
 
         assert_eq!(
             json!(out),
             json!(path_merge_out),
             "resource_path_pointers merge output was different"
         );
+    }
+
+    #[test]
+    fn test_merge_capture_invalid_resource() {
+        let (discovered_endpoint, discovered_bindings, fetched_capture) =
+            serde_json::from_value::<(models::CaptureEndpoint, Vec<discovered::Binding>, Option<models::CaptureDef>)>(json!([
+                { "connector": { "config": { "discovered": 1 }, "image": "new/image" } },
+                [
+                    { "recommendedName": "foo", "resourceConfig": { "stream": 7 }, "documentSchema": { "const": 1 } },
+                ],
+                {
+                  "bindings": [
+                    { "resource": { "stream": {"invalid":"yup"} }, "target": "acmeCo/foo" },
+                  ],
+                  "endpoint": { "connector": { "config": { "fetched": 1 }, "image": "old/image" } }
+                },
+            ]))
+            .unwrap();
+
+        let err = super::merge_capture(
+            "acmeCo/naughty-capture",
+            discovered_endpoint.clone(),
+            discovered_bindings.clone(),
+            None, // omit fetched binding so we error on the discovered one
+            false,
+            &["/namespace".to_string(), "/stream".to_string()],
+        )
+        .expect_err("should fail because stream is not a string");
+        assert_eq!(BindingType::Discovered, err.binding_type);
+        assert_eq!("/stream", err.resource_path_pointer);
+
+        // now assert that an existing invalid binding also results in an error
+        let err = super::merge_capture(
+            "acmeCo/naughty-capture",
+            discovered_endpoint,
+            discovered_bindings,
+            fetched_capture,
+            false,
+            &["/namespace".to_string(), "/stream".to_string()],
+        )
+        .expect_err("should fail because stream is not a string");
+        assert_eq!(BindingType::Existing, err.binding_type);
+        assert_eq!("/stream", err.resource_path_pointer);
     }
 
     #[test]
