@@ -284,7 +284,7 @@ impl DiscoverHandler {
 
         // Deeply merge the capture and its bindings.
         let capture_name = models::Capture::new(capture_name);
-        let (capture, discovered_bindings) = specs::merge_capture(
+        let merge_result = specs::merge_capture(
             &capture_name,
             endpoint,
             discovered_bindings,
@@ -292,13 +292,23 @@ impl DiscoverHandler {
             update_only,
             &resource_path_pointers,
         );
-        let targets = capture
+        let (merged_capture, discovered_bindings) = match merge_result {
+            Ok(ok) => ok,
+            Err(invalid_resource) => {
+                return Ok(Err(vec![draft::Error {
+                    catalog_name: capture_name.to_string(),
+                    scope: None,
+                    detail: invalid_resource.to_string(),
+                }]))
+            }
+        };
+        let targets = merged_capture
             .bindings
             .iter()
             .map(|models::CaptureBinding { target, .. }| target.clone())
             .collect::<Vec<_>>();
 
-        catalog.captures.insert(capture_name, capture); // Replace merged capture.
+        catalog.captures.insert(capture_name, merged_capture); // Replace merged capture.
 
         // Now resolve all targeted collections, if they exist.
         let resolved = agent_sql::discovers::resolve_merge_target_specs(
