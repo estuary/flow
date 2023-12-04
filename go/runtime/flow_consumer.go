@@ -51,8 +51,6 @@ type FlowConsumer struct {
 	Journals flow.Journals
 	// Shared catalog builds.
 	Builds *flow.BuildService
-	// Proxies network traffic to containers
-	NetworkProxyServer *ProxyServer
 	// Timepoint that regulates shuffled reads of started shards.
 	Timepoint struct {
 		Now *flow.Timepoint
@@ -62,6 +60,25 @@ type FlowConsumer struct {
 	// that we use an AppendService with a context that's scoped to the life of the process, rather
 	// than the lives of individual shards.
 	LogPublisher *message.Publisher
+}
+
+// Application is the interface implemented by Flow shard task stores.
+type Application interface {
+	consumer.Store
+	shuffle.Store
+
+	BeginTxn(consumer.Shard) error
+	ConsumeMessage(consumer.Shard, message.Envelope, *message.Publisher) error
+	FinalizeTxn(consumer.Shard, *message.Publisher) error
+	FinishedTxn(consumer.Shard, consumer.OpFuture)
+
+	StartReadingMessages(consumer.Shard, pc.Checkpoint, *flow.Timepoint, chan<- consumer.EnvelopeOrError)
+	ReplayRange(_ consumer.Shard, _ pb.Journal, begin, end pb.Offset) message.Iterator
+	ReadThrough(pb.Offsets) (pb.Offsets, error)
+
+	// proxyHook exposes a current Container and ops.Publisher
+	// for use by the network proxy server.
+	proxyHook() (*pr.Container, ops.Publisher)
 }
 
 var _ consumer.Application = (*FlowConsumer)(nil)
@@ -200,8 +217,7 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 
 	pr.RegisterShufflerServer(args.Server.GRPCServer, shuffle.NewAPI(args.Service.Resolver))
 
-	f.NetworkProxyServer = NewProxyServer(args.Service.Resolver)
-	pf.RegisterNetworkProxyServer(args.Server.GRPCServer, f.NetworkProxyServer)
+	pf.RegisterNetworkProxyServer(args.Server.GRPCServer, &proxyServer{resolver: args.Service.Resolver})
 
 	return nil
 }
