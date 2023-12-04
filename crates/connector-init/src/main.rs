@@ -35,7 +35,8 @@ fn main() {
     };
 
     // Run until signaled, then gracefully stop.
-    let result = runtime.block_on(connector_init::run(args, log_level));
+    let handle = runtime.spawn(connector_init::run(args, log_level));
+    let result = runtime.block_on(handle);
 
     // Explicitly call Runtime::shutdown_background as an alternative to calling Runtime::Drop.
     // This shuts down the runtime without waiting for blocking background tasks to complete,
@@ -44,7 +45,7 @@ fn main() {
     // (Note that tokio::io maps AsyncRead of file descriptors to blocking tasks under the hood).
     runtime.shutdown_background();
 
-    if let Err(error) = result {
+    if let Err(error) = result.unwrap() {
         tracing::error!(
             error = format!("{error:#}"),
             "connector-init crashed with error"

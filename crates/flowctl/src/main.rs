@@ -13,15 +13,18 @@ fn main() -> Result<(), anyhow::Error> {
         .with_writer(std::io::stderr)
         .init();
 
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
+        .worker_threads(2)
         .build()
         .expect("failed to start runtime");
 
-    let result = runtime.block_on(async move { cli.run().await });
+    let handle = runtime.spawn(async move { cli.run().await });
+    let result = runtime.block_on(handle);
 
     // We must call `shutdown_background()` because otherwise an incomplete spawned future
     // could block indefinitely.
     runtime.shutdown_background();
-    result
+
+    result.unwrap()
 }

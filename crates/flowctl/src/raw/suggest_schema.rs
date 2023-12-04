@@ -6,12 +6,12 @@ use crate::{
 use anyhow::anyhow;
 use bytelines::AsyncByteLines;
 use doc::{shape::schema::to_schema, FailedValidation, SchemaIndexBuilder, Shape};
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt};
 use json::schema::build::build_schema;
 use models::Schema;
 use proto_flow::ops::Log;
 use schema_inference::json_decoder::JsonCodec;
-use std::{io::ErrorKind, pin::Pin};
+use std::io::ErrorKind;
 use tokio::io::BufReader;
 use tokio_util::{codec::FramedRead, compat::FuturesAsyncReadCompatExt};
 use url::Url;
@@ -129,15 +129,14 @@ pub async fn do_suggest_schema(
 
     // Chain together the collection document reader and the log_invalid_documents stream so we can
     // run schema-inference on both
-    let mut docs_stream: Pin<Box<dyn Stream<Item = Result<serde_json::Value, std::io::Error>>>> =
+    let mut docs_stream: futures::stream::BoxStream<Result<serde_json::Value, std::io::Error>> =
         if let Some(reader) = reader {
-            Box::pin(
-                FramedRead::new(FuturesAsyncReadCompatExt::compat(reader), codec)
-                    .map_err(to_io_error)
-                    .chain(log_invalid_documents),
-            )
+            FramedRead::new(FuturesAsyncReadCompatExt::compat(reader), codec)
+                .map_err(to_io_error)
+                .chain(log_invalid_documents)
+                .boxed()
         } else {
-            Box::pin(log_invalid_documents)
+            log_invalid_documents.boxed()
         };
 
     // The original collection schema to be used as the starting point of schema-inference
