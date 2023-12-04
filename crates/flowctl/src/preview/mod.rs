@@ -59,6 +59,11 @@ pub struct Preview {
     /// Docker network to run connector images.
     #[clap(long, default_value = "bridge")]
     network: String,
+    /// Initial JSON connector state to use, which defaults to an empty object.
+    /// When developing a connector, you may want to use --initial-state to pass
+    /// in crafted state configurations you expect the connector to resume from.
+    #[clap(long, default_value = "{}")]
+    initial_state: String,
 }
 
 impl Preview {
@@ -71,6 +76,7 @@ impl Preview {
             sessions,
             fixture,
             network,
+            initial_state,
         } = self;
 
         let source = build::arg_source_to_url(source, false)?;
@@ -120,7 +126,8 @@ impl Preview {
         };
         let journal_reader = journal_reader::Reader::new(ctx.controlplane_client().await?, delay);
 
-        let state = models::RawValue::default();
+        let initial_state =
+            models::RawValue::from_str(initial_state).context("initial state is not valid JSON")?;
         let state_dir = tempfile::tempdir().unwrap();
 
         let num_tasks = validations.built_captures.len()
@@ -153,7 +160,7 @@ impl Preview {
                 runtime,
                 sessions,
                 spec,
-                state,
+                initial_state,
                 state_dir.path(),
                 timeout,
             )
@@ -179,7 +186,7 @@ impl Preview {
                     runtime,
                     sessions,
                     spec,
-                    state,
+                    initial_state,
                     state_dir.path(),
                     timeout,
                 )
@@ -190,7 +197,7 @@ impl Preview {
                     runtime,
                     sessions,
                     spec,
-                    state,
+                    initial_state,
                     state_dir.path(),
                     timeout,
                 )
@@ -212,7 +219,7 @@ impl Preview {
                     runtime,
                     sessions,
                     spec,
-                    state,
+                    initial_state,
                     state_dir.path(),
                     timeout,
                 )
@@ -223,7 +230,7 @@ impl Preview {
                     runtime,
                     sessions,
                     spec,
-                    state,
+                    initial_state,
                     state_dir.path(),
                     timeout,
                 )

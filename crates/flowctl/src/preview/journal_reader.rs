@@ -1,5 +1,5 @@
 use anyhow::Context;
-use futures::{StreamExt, TryFutureExt, TryStreamExt};
+use futures::{channel::mpsc, SinkExt, StreamExt, TryFutureExt, TryStreamExt};
 use proto_flow::flow;
 use proto_gazette::{broker, consumer};
 
@@ -36,8 +36,8 @@ impl Reader {
         self,
         sources: Vec<Source>,
         mut resume: proto_gazette::consumer::Checkpoint,
-    ) -> impl futures::Stream<Item = anyhow::Result<runtime::harness::Read>> {
-        coroutines::try_coroutine(move |mut co| async move {
+    ) -> mpsc::Receiver<anyhow::Result<runtime::harness::Read>> {
+        let reader = coroutines::try_coroutine(move |mut co| async move {
             // We must be able to access all sourced collections.
             let access_prefixes = sources
                 .iter()
@@ -127,8 +127,22 @@ impl Reader {
                     }
                 }
             }
-        })
-        .boxed()
+        });
+
+        // Dispatch through an mpsc for a modest parallelism improvement.
+        let (mut tx, rx) = mpsc::channel(runtime::CHANNEL_BUFFER);
+
+        tokio::spawn(async move {
+            tokio::pin!(reader);
+
+            while let Some(read) = reader.next().await {
+                if let Err(_) = tx.feed(read).await {
+                    break; // Receiver was dropped.
+                }
+            }
+        });
+
+        rx
     }
 
     async fn list_journals(
@@ -216,7 +230,7 @@ impl Reader {
 }
 
 impl runtime::harness::Reader for Reader {
-    type Stream = futures::stream::BoxStream<'static, anyhow::Result<runtime::harness::Read>>;
+    type Stream = mpsc::Receiver<anyhow::Result<runtime::harness::Read>>;
 
     fn start_for_derivation(
         self,
@@ -239,7 +253,7 @@ impl runtime::harness::Reader for Reader {
             })
             .collect();
 
-        self.start(sources, resume).boxed()
+        self.start(sources, resume)
     }
 
     fn start_for_materialization(
@@ -261,6 +275,6 @@ impl runtime::harness::Reader for Reader {
             })
             .collect();
 
-        self.start(sources, resume).boxed()
+        self.start(sources, resume)
     }
 }
