@@ -51,23 +51,33 @@ export async function authURL(req: { connector_id?: string; connector_config?: O
 
     const { oauth2_spec, oauth2_client_id } = data as OauthSettings;
 
-    const finalState = btoa(
-        JSON.stringify({
-            ...(state ?? {}),
-            verification_token: generateUniqueRandomKey(),
-            connector_id,
-        }),
-    );
-
     // See https://www.oauth.com/oauth2-servers/pkce/authorization-request/
+    const stateKey = generateUniqueRandomKey();
     const codeVerifier = generateUniqueRandomKey(50);
     const codeChallenge = base64URLSafe(sha256(codeVerifier, "utf8", "base64") as string);
     const codeChallengeMethod = "S256";
 
+    const { error: oauth_error } = await supabaseClient
+        .from("oauth_flows")
+        .insert({
+            state: stateKey,
+            connector_id,
+            code_verifier: codeVerifier,
+            code_challenge: codeChallenge,
+            code_challenge_method: codeChallengeMethod,
+            extra: state ?? {},
+        });
+
+    if (oauth_error != null) {
+        return returnPostgresError(oauth_error);
+    }
+
+    console.log("Inserted into oauth_flows");
+
     const url = compileTemplate(
         oauth2_spec.authUrlTemplate,
         {
-            state: finalState,
+            state: stateKey,
             redirect_uri: redirect_uri ?? "https://dashboard.estuary.dev/oauth",
             client_id: oauth2_client_id,
             config,
@@ -76,7 +86,7 @@ export async function authURL(req: { connector_id?: string; connector_config?: O
         },
     );
 
-    return new Response(JSON.stringify({ url: url, state: finalState, code_verifier: codeVerifier }), {
+    return new Response(JSON.stringify({ url: url, state: stateKey }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 }
