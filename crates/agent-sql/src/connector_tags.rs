@@ -127,6 +127,10 @@ pub async fn update_oauth2_spec(
     Ok(())
 }
 
+/// Updates `connector_tags` fields, while ensuring that an existing non-null
+/// value of `resource_path_pointers` is unchanged. Returns a boolean indicating
+/// whether the update has taken place. A return value of `false` indicates that
+/// the row already contained a different value for `resource_path_pointers`.
 pub async fn update_tag_fields(
     tag_id: Id,
     documentation_url: String,
@@ -135,8 +139,8 @@ pub async fn update_tag_fields(
     resource_spec_schema: Box<RawValue>,
     resource_path_pointers: Vec<String>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-) -> sqlx::Result<()> {
-    sqlx::query!(
+) -> sqlx::Result<bool> {
+    let row = sqlx::query!(
         r#"update connector_tags set
             documentation_url = $2,
             endpoint_spec_schema = $3,
@@ -144,7 +148,8 @@ pub async fn update_tag_fields(
             resource_spec_schema = $5,
             resource_path_pointers = $6
         where id = $1
-        returning 1 as "must_exist";
+          and (resource_path_pointers is null or resource_path_pointers::text[] = $6)
+        returning true as "updated";
         "#,
         tag_id as Id,
         documentation_url,
@@ -153,10 +158,10 @@ pub async fn update_tag_fields(
         Json(resource_spec_schema) as Json<Box<RawValue>>,
         resource_path_pointers as Vec<String>,
     )
-    .fetch_one(&mut *txn)
+    .fetch_optional(&mut *txn)
     .await?;
 
-    Ok(())
+    Ok(row.is_some())
 }
 
 /// Returns the `resource_path_pointers` for the given image and tag. Returns

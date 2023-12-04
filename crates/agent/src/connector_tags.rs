@@ -17,7 +17,21 @@ pub enum JobStatus {
     PullFailed,
     SpecFailed,
     OpenGraphFailed { error: String },
+    ValidationFailed { error: ValidationError },
     Success,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub enum ValidationError {
+    ResourcePathPointersChanged { rejected: Vec<String> },
+}
+
+impl JobStatus {
+    fn resource_path_pointers_changed(rejected: Vec<String>) -> JobStatus {
+        JobStatus::ValidationFailed {
+            error: ValidationError::ResourcePathPointersChanged { rejected },
+        }
+    }
 }
 
 /// A TagHandler is a Handler which evaluates tagged connector images.
@@ -142,16 +156,25 @@ impl TagHandler {
             tracing::warn!(image = %image_composed, "capture connector spec omits resource_path_pointers");
         }
 
-        agent_sql::connector_tags::update_tag_fields(
+        // The tag fields may not be updated if the resource_path_pointers have
+        // changed. If that happens, then we bail without making any changes
+        // other than to job_status.
+        let tag_updated = agent_sql::connector_tags::update_tag_fields(
             row.tag_id,
             documentation_url,
             endpoint_config_schema.into(),
             proto_type.to_string(),
             resource_config_schema.into(),
-            resource_path_pointers,
+            resource_path_pointers.clone(),
             txn,
         )
         .await?;
+        if !tag_updated {
+            return Ok((
+                row.tag_id,
+                JobStatus::resource_path_pointers_changed(resource_path_pointers),
+            ));
+        }
 
         if let Some(oauth2) = oauth2 {
             agent_sql::connector_tags::update_oauth2_spec(row.connector_id, oauth2.into(), txn)
