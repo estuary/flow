@@ -40,7 +40,8 @@ where
     .await?;
 
     // Start RPC over the container's gRPC `channel`.
-    let mut container_rx = (start_rpc)(channel, request_rx).await?.into_inner();
+    let mut container_rx =
+        crate::stream_status_to_error((start_rpc)(channel, request_rx).await?.into_inner());
 
     let container_rx = coroutines::try_coroutine(move |mut co| async move {
         let _guard = guard; // Move into future.

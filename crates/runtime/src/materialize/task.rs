@@ -23,6 +23,10 @@ impl Task {
         } = spec.as_ref().context("missing materialization")?;
         let range = range.context("missing range")?;
 
+        if range.r_clock_begin != 0 || range.r_clock_end != u32::MAX {
+            anyhow::bail!("materialization cannot split on r-clock: {range:?}");
+        }
+
         // TODO(johnny): Hack to address string truncation for these common materialization connectors
         // that don't handle large strings very well. This should be negotiated via connector protocol.
         // See go/runtime/materialize.go:135
@@ -90,14 +94,14 @@ impl Binding {
             delta_updates,
             deprecated_shuffle: _,
             field_selection,
-            journal_read_suffix: _,
+            journal_read_suffix,
             not_after: _,
             not_before: _,
             partition_selector: _,
             priority: _,
             resource_config_json: _,
             resource_path: _,
-            state_key: _,
+            state_key,
         } = spec;
 
         let flow::FieldSelection {
@@ -135,9 +139,11 @@ impl Binding {
         Ok(Self {
             collection_name: collection_name.clone(),
             delta_updates: *delta_updates,
+            journal_read_suffix: journal_read_suffix.clone(),
             key_extractors,
             read_schema_json,
             ser_policy: ser_policy.clone(),
+            state_key: state_key.clone(),
             store_document: !selected_root.is_empty(),
             value_extractors,
         })

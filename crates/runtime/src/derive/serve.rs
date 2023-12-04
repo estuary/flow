@@ -1,5 +1,5 @@
 use super::{connector, protocol::*, RequestStream, ResponseStream, Transaction};
-use crate::{rocksdb::RocksDB, verify, LogHandler, Runtime};
+use crate::{rocksdb::RocksDB, shard_log_level, verify, LogHandler, Runtime};
 use anyhow::Context;
 use futures::channel::mpsc;
 use futures::stream::BoxStream;
@@ -33,7 +33,7 @@ impl<L: LogHandler> Runtime<L> {
                 return Ok::<(), anyhow::Error>(());
             };
 
-            let db = recv_client_first_open(&open)?;
+            let db = recv_client_first_open(&open).await?;
             let mut shape = doc::Shape::nothing();
 
             while let Some(next) =
@@ -52,7 +52,14 @@ async fn serve_unary<L: LogHandler>(
     co: &mut coroutines::Suspend<Response, ()>,
 ) -> anyhow::Result<Option<Request>> {
     while let Some(request) = request_rx.try_next().await? {
-        if request.open.is_some() {
+        if let Some(open) = &request.open {
+            // Set logging level for logs written before the very first connector start.
+            runtime.set_log_level(
+                open.collection
+                    .as_ref()
+                    .and_then(|spec| spec.derivation.as_ref())
+                    .and_then(|spec| shard_log_level(spec.shard_template.as_ref())),
+            );
             return Ok(Some(request));
         }
         let (connector_tx, mut connector_rx) = connector::start(runtime, request.clone()).await?;
@@ -74,58 +81,57 @@ async fn serve_session<L: LogHandler>(
     runtime: &Runtime<L>,
     shape: &mut doc::Shape,
 ) -> anyhow::Result<Option<Request>> {
-    recv_client_open(&mut open, &db)?;
+    recv_client_open(&mut open, &db).await?;
 
     // Start connector stream and read Opened.
     let (mut connector_tx, mut connector_rx) = connector::start(runtime, open.clone()).await?;
     let opened = TryStreamExt::try_next(&mut connector_rx).await?;
 
     let (task, mut validators, mut accumulator, mut last_checkpoint, opened) =
-        recv_connector_opened(&db, &open, opened)?;
+        recv_connector_opened(&db, &open, opened).await?;
 
     () = co.yield_(opened).await;
 
     let mut buf = bytes::BytesMut::new();
     loop {
-        // Loop over EOF, Reset, and Open until an initial Read or Flush.
-        let initial: Request = loop {
-            match request_rx.try_next().await? {
-                None => {
-                    drain_connector(connector_tx, connector_rx).await?;
-                    return Ok(None);
-                }
-                Some(reset @ Request { reset: Some(_), .. }) => {
-                    connector_tx.try_send(reset).expect("sender is empty");
-                }
-                Some(open @ Request { open: Some(_), .. }) => {
-                    drain_connector(connector_tx, connector_rx).await?;
-                    return Ok(Some(open));
-                }
-                Some(read @ Request { read: Some(_), .. }) => break read,
-                Some(flush @ Request { flush: Some(_), .. }) => break flush,
-                request => {
-                    return verify("client", "EOF, Reset, Open, Read, or Flush").fail(request)
-                }
-            }
-        };
-
-        let mut txn = Transaction::new();
-        txn.started_at = std::time::SystemTime::now();
-
-        enum Step {
-            ClientRx(Option<Request>),
-            ConnectorRx(Option<Response>),
-            ConnectorTx(Result<(), mpsc::SendError>),
-        }
         let mut saw_flush = false;
         let mut saw_flushed = false;
         let mut saw_reset = false;
         let mut send_fut = None;
-        let mut step = Step::ClientRx(Some(initial));
+        let mut txn = Transaction::new();
 
         // Loop over client requests and connector responses until the transaction has flushed.
-        loop {
+        while !saw_flushed {
+            enum Step {
+                ClientRx(Option<Request>),
+                ConnectorRx(Option<Response>),
+                ConnectorTx(Result<(), mpsc::SendError>),
+            }
+
+            let step = if let Some(forward) = &mut send_fut {
+                tokio::select! {
+                    result = forward => Step::ConnectorTx(result),
+                    response = connector_rx.try_next() => Step::ConnectorRx(response?),
+                }
+            } else {
+                tokio::select! {
+                    request = request_rx.try_next(), if !saw_flush => Step::ClientRx(request?),
+                    response = connector_rx.try_next() => Step::ConnectorRx(response?),
+                }
+            };
+
             match step {
+                Step::ClientRx(None) if !txn.started => {
+                    drain_connector(connector_tx, connector_rx).await?;
+                    return Ok(None); // Clean EOF.
+                }
+                Step::ClientRx(Some(open @ Request { open: Some(_), .. })) if !txn.started => {
+                    drain_connector(connector_tx, connector_rx).await?;
+                    return Ok(Some(open)); // Restart a new session.
+                }
+                Step::ClientRx(Some(reset @ Request { reset: Some(_), .. })) if !txn.started => {
+                    send_fut = Some(connector_tx.feed(reset));
+                }
                 Step::ClientRx(request) => {
                     if let Some(send) = recv_client_read_or_flush(
                         request,
@@ -154,22 +160,6 @@ async fn serve_session<L: LogHandler>(
                     send_fut = None;
                 }
             }
-
-            if saw_flush && saw_flushed {
-                break;
-            }
-
-            step = if let Some(forward) = &mut send_fut {
-                tokio::select! {
-                    result = forward => Step::ConnectorTx(result),
-                    response = connector_rx.try_next() => Step::ConnectorRx(response?),
-                }
-            } else {
-                tokio::select! {
-                    request = request_rx.try_next(), if !saw_flush => Step::ClientRx(request?),
-                    response = connector_rx.try_next() => Step::ConnectorRx(response?),
-                }
-            };
         }
 
         if saw_reset {
@@ -199,7 +189,7 @@ async fn serve_session<L: LogHandler>(
         // Read StartedCommit and forward to the client.
         let started_commit = connector_rx.try_next().await?;
         let started_commit =
-            recv_connector_started_commit(&db, started_commit, shape, &task, &txn, wb)?;
+            recv_connector_started_commit(&db, started_commit, shape, &task, &txn, wb).await?;
         () = co.yield_(started_commit).await;
 
         last_checkpoint = txn.checkpoint;

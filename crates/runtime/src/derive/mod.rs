@@ -49,6 +49,7 @@ pub struct Transaction {
     max_clock: u64,                          // Maximum clock of read documents.
     publish_stats: DocsAndBytes,             // Published (right) stats.
     read_stats: BTreeMap<u32, DocsAndBytes>, // Per-transform read document stats.
+    started: bool,                           // Has the transaction been started?
     started_at: std::time::SystemTime,       // Time of first Read request.
     updated_inference: bool,                 // Did we update our inferred Shape this transaction?
 }
@@ -61,6 +62,7 @@ impl Transaction {
             max_clock: 0,
             publish_stats: Default::default(),
             read_stats: BTreeMap::new(),
+            started: false,
             started_at: std::time::SystemTime::UNIX_EPOCH,
             updated_inference: false,
         }

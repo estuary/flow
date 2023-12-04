@@ -20,9 +20,7 @@ pub async fn start<L: LogHandler>(
     let (mut connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
 
     // Adjust the dynamic log level for this connector's lifecycle.
-    if let (Some(log_level), Some(set_log_level)) = (log_level, &runtime.set_log_level) {
-        (set_log_level)(log_level);
-    }
+    runtime.set_log_level(log_level);
 
     fn attach_container(response: &mut Response, container: crate::image_connector::Container) {
         response.set_internal(|internal| {
@@ -59,7 +57,7 @@ pub async fn start<L: LogHandler>(
                 connector_rx,
                 start_rpc,
                 &runtime.task_name,
-                ops::TaskType::Derivation,
+                ops::TaskType::Materialization,
             )
             .await?
             .boxed()

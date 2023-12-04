@@ -2,72 +2,46 @@ use anyhow::Context;
 use prost::Message;
 use proto_flow::runtime::RocksDbDescriptor;
 use proto_gazette::consumer;
+use std::sync::Arc;
+use tokio::runtime::Handle;
 
 /// RocksDB database used for task state.
 pub struct RocksDB {
-    db: rocksdb::DB,
-    _path: std::path::PathBuf,
+    db: Arc<rocksdb::DB>,
     _tmp: Option<tempfile::TempDir>,
-}
-
-impl std::ops::Deref for RocksDB {
-    type Target = rocksdb::DB;
-
-    fn deref(&self) -> &Self::Target {
-        &self.db
-    }
 }
 
 impl RocksDB {
     /// Open a RocksDB from an optional descriptor.
-    /// If a descriptor isn't provided, then a tempdir is used instead.
-    pub fn open(desc: Option<RocksDbDescriptor>) -> anyhow::Result<Self> {
-        let (mut opts, path, _tmp) = match desc {
-            Some(RocksDbDescriptor {
-                rocksdb_path,
-                rocksdb_env_memptr,
-            }) => {
-                tracing::debug!(
-                    ?rocksdb_path,
-                    ?rocksdb_env_memptr,
-                    "opening hooked RocksDB database"
-                );
-                let mut opts = rocksdb::Options::default();
+    pub async fn open(desc: Option<RocksDbDescriptor>) -> anyhow::Result<Self> {
+        let (opts, path, _tmp) = unpack_descriptor(desc)?;
 
-                if rocksdb_env_memptr != 0 {
-                    // Re-hydrate the provided memory address into rocksdb::Env wrapping
-                    // an owned *mut librocksdb_sys::rocksdb_env_t.
-                    let env = unsafe {
-                        rocksdb::Env::from_raw(
-                            rocksdb_env_memptr as *mut librocksdb_sys::rocksdb_env_t,
-                        )
-                    };
-                    opts.set_env(&env);
-                }
-                (opts, std::path::PathBuf::from(rocksdb_path), None)
-            }
-            None => {
-                let dir = tempfile::TempDir::new().unwrap();
-                let opts = rocksdb::Options::default();
+        let db = Handle::current()
+            .spawn_blocking(move || Self::open_blocking(opts, path))
+            .await
+            .unwrap()?;
 
-                tracing::debug!(
-                    rocksdb_path = ?dir.path(),
-                    "opening temporary RocksDB database"
-                );
+        Ok(Self {
+            db: Arc::new(db),
+            _tmp,
+        })
+    }
 
-                (opts, dir.path().to_owned(), Some(dir))
-            }
-        };
-
-        opts.create_if_missing(true);
-        opts.create_missing_column_families(true);
-
+    fn open_blocking(
+        mut opts: rocksdb::Options,
+        path: std::path::PathBuf,
+    ) -> anyhow::Result<rocksdb::DB> {
+        // RocksDB requires that all column families be explicitly passed in on open
+        // or it will fail. We don't currently use column families, but have in the
+        // past and may in the future. Flexibly open the DB by explicitly listing,
+        // opening, and then ignoring column families we don't care about.
         let column_families = match rocksdb::DB::list_cf(&opts, &path) {
             Ok(cf) => cf,
             // Listing column families will fail if the DB doesn't exist.
             // Assume as such, as we'll otherwise fail when we attempt to open.
             Err(_) => vec![rocksdb::DEFAULT_COLUMN_FAMILY_NAME.to_string()],
         };
+        tracing::debug!(column_families=?ops::DebugJson(&column_families), "listed existing rocksdb column families");
 
         let mut cf_descriptors = Vec::with_capacity(column_families.len());
         for name in column_families {
@@ -81,51 +55,158 @@ impl RocksDB {
                     &task_state_default_json_schema(&state_schema).to_string(),
                 )?;
             }
-
             cf_descriptors.push(rocksdb::ColumnFamilyDescriptor::new(name, cf_opts));
         }
+
+        opts.create_if_missing(true);
+        opts.create_missing_column_families(true);
 
         let db = rocksdb::DB::open_cf_descriptors(&opts, &path, cf_descriptors)
             .context("failed to open RocksDB")?;
 
-        // TODO(johnny): Handle migration from a JSON state file here ?
+        Ok(db)
+    }
 
-        Ok(Self {
-            db,
-            _path: path,
-            _tmp,
-        })
+    /// Perform an async get_opt using a blocking background thread.
+    pub async fn get_opt(
+        &self,
+        key: impl AsRef<[u8]> + Send + 'static,
+        ro: rocksdb::ReadOptions,
+    ) -> Result<Option<Vec<u8>>, rocksdb::Error> {
+        let db = self.db.clone();
+        Handle::current()
+            .spawn_blocking(move || db.get_opt(key, &ro))
+            .await
+            .unwrap()
+    }
+
+    /// Perform an async multi_get_opt using a blocking background thread.
+    pub async fn multi_get_opt<K, I>(
+        &self,
+        keys: I,
+        ro: rocksdb::ReadOptions,
+    ) -> Vec<Result<Option<Vec<u8>>, rocksdb::Error>>
+    where
+        K: AsRef<[u8]> + Send + 'static,
+        I: IntoIterator<Item = K> + Send + 'static,
+    {
+        let db = self.db.clone();
+
+        Handle::current()
+            .spawn_blocking(move || db.multi_get_opt(keys, &ro))
+            .await
+            .unwrap()
+    }
+
+    /// Perform an async write_opt using a blocking background thread.
+    pub async fn write_opt(
+        &self,
+        wb: rocksdb::WriteBatch,
+        wo: rocksdb::WriteOptions,
+    ) -> Result<(), rocksdb::Error> {
+        let db = self.db.clone();
+        Handle::current()
+            .spawn_blocking(move || db.write_opt(wb, &wo))
+            .await
+            .unwrap()
     }
 
     /// Load a persisted runtime Checkpoint.
-    pub fn load_checkpoint(&self) -> anyhow::Result<consumer::Checkpoint> {
-        match self.db.get_pinned(Self::CHECKPOINT_KEY)? {
+    pub async fn load_checkpoint(&self) -> anyhow::Result<consumer::Checkpoint> {
+        match self
+            .get_opt(Self::CHECKPOINT_KEY, rocksdb::ReadOptions::default())
+            .await
+            .context("failed to load runtime checkpoint")?
+        {
             Some(v) => Ok(consumer::Checkpoint::decode(v.as_ref())
                 .context("failed to decode consumer checkpoint")?),
             None => Ok(consumer::Checkpoint::default()),
         }
     }
 
-    /// Load a persisted connector state, as a String of encoded JSON.
-    pub fn load_connector_state(&self) -> anyhow::Result<Option<String>> {
-        let state = self
-            .db
-            .get_pinned(Self::CONNECTOR_STATE_KEY)
-            .context("failed to load connector state")?;
+    /// Load a persisted connector state.
+    /// If it doesn't exist, it's durably initialized with value `initial`.
+    pub async fn load_connector_state(
+        &self,
+        initial: models::RawValue,
+    ) -> anyhow::Result<models::RawValue> {
+        if let Some(state) = self
+            .get_opt(Self::CONNECTOR_STATE_KEY, rocksdb::ReadOptions::default())
+            .await
+            .context("failed to load connector state")?
+        {
+            let state = String::from_utf8(state).context("decoding connector state as UTF-8")?;
+            let state = models::RawValue::from_string(state).context("decoding state as JSON")?;
 
-        // If found, decode and attach to `open`.
-        if let Some(state) = state {
-            let state = String::from_utf8(state.to_vec()).context("decoding state as UTF-8")?;
-            Ok(Some(state))
-        } else {
-            Ok(None)
-        }
+            tracing::debug!(state=?ops::DebugJson(&state), "loaded a persisted connector state");
+            return Ok(state);
+        };
+
+        let mut wo = rocksdb::WriteOptions::default();
+        wo.set_sync(true);
+
+        let mut wb = rocksdb::WriteBatch::default();
+        wb.put(Self::CONNECTOR_STATE_KEY, initial.get());
+
+        self.write_opt(wb, wo)
+            .await
+            .context("put-ing initial connector state")?;
+
+        tracing::debug!(state=?ops::DebugJson(&initial), "initialized a new persisted connector state");
+
+        Ok(initial)
     }
 
     // Key encoding under which a marshalled checkpoint is stored.
     pub const CHECKPOINT_KEY: &'static str = "checkpoint";
     // Key encoding under which a connector state is stored.
     pub const CONNECTOR_STATE_KEY: &'static str = "connector-state";
+}
+
+// Unpack a RocksDbDescriptor into its rocksdb::Options and path.
+// If the descriptor does not include an explicit path, a TempDir to use is
+// created and returned.
+fn unpack_descriptor(
+    desc: Option<RocksDbDescriptor>,
+) -> anyhow::Result<(
+    rocksdb::Options,
+    std::path::PathBuf,
+    Option<tempfile::TempDir>,
+)> {
+    Ok(match desc {
+        Some(RocksDbDescriptor {
+            rocksdb_path,
+            rocksdb_env_memptr,
+        }) => {
+            tracing::debug!(
+                ?rocksdb_path,
+                ?rocksdb_env_memptr,
+                "opening hooked RocksDB database"
+            );
+            let mut opts = rocksdb::Options::default();
+
+            if rocksdb_env_memptr != 0 {
+                // Re-hydrate the provided memory address into rocksdb::Env wrapping
+                // an owned *mut librocksdb_sys::rocksdb_env_t.
+                let env = unsafe {
+                    rocksdb::Env::from_raw(rocksdb_env_memptr as *mut librocksdb_sys::rocksdb_env_t)
+                };
+                opts.set_env(&env);
+            }
+            (opts, std::path::PathBuf::from(rocksdb_path), None)
+        }
+        None => {
+            let dir = tempfile::TempDir::new().context("failed to create RocksDB tempdir")?;
+            let opts = rocksdb::Options::default();
+
+            tracing::debug!(
+                rocksdb_path = ?dir.path(),
+                "opening temporary RocksDB database"
+            );
+
+            (opts, dir.path().to_owned(), Some(dir))
+        }
+    })
 }
 
 // RocksDB merge operator schema which uses `state_schema` for keys matching "connector-state".
@@ -253,21 +334,21 @@ fn do_merge(
 mod test {
     use super::*;
 
-    #[test]
-    fn connector_state_merge() {
-        let db = RocksDB::open(None).unwrap();
+    #[tokio::test]
+    async fn connector_state_merge() {
+        let mut wb = rocksdb::WriteBatch::default();
+        let db = RocksDB::open(None).await.unwrap();
 
         for doc in [
             r#"{"a":"b","n":null}"#,
             r#"{"a":"c","nn":null}"#,
             r#"{"d":"e","ans":42}"#,
         ] {
-            db.merge(RocksDB::CONNECTOR_STATE_KEY, doc).unwrap();
+            wb.merge(RocksDB::CONNECTOR_STATE_KEY, doc);
         }
+        db.write_opt(wb, Default::default()).await.unwrap();
 
-        let output = db.get(RocksDB::CONNECTOR_STATE_KEY).unwrap().unwrap();
-        let output = String::from_utf8(output).unwrap();
-
-        assert_eq!(output, r#"{"a":"c","ans":42,"d":"e","n":null}"#);
+        let state = db.load_connector_state(Default::default()).await.unwrap();
+        assert_eq!(state.get(), r#"{"a":"c","ans":42,"d":"e","n":null}"#);
     }
 }
