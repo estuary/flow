@@ -1,23 +1,16 @@
 package runtime
 
 import (
-	"bytes"
-	"context"
 	"database/sql"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"time"
+	"io"
 
 	"github.com/estuary/flow/go/bindings"
-	"github.com/estuary/flow/go/connector"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/estuary/flow/go/protocols/ops"
 	pr "github.com/estuary/flow/go/protocols/runtime"
-	"github.com/estuary/flow/go/shuffle"
-	"github.com/gogo/protobuf/types"
 	"go.gazette.dev/core/broker/client"
 	"go.gazette.dev/core/consumer"
 	"go.gazette.dev/core/consumer/recoverylog"
@@ -26,279 +19,208 @@ import (
 
 // Materialize is a top-level Application which implements the materialization workflow.
 type Materialize struct {
-	driver *connector.Driver
-	// Client of the active driver transactions RPC.
-	client *pm.TxnClient
-	// FlowConsumer which owns this Materialize shard.
-	host *FlowConsumer
-	// Store delegate for persisting local checkpoints.
-	store *consumer.JSONFileStore
-	// Specification under which the materialization is currently running.
-	materialization *pf.MaterializationSpec
-	// Embedded task reader scoped to current task version.
-	// Initialized in RestoreCheckpoint.
-	taskReader
-	// Embedded processing state scoped to a current task version.
-	// Initialized in RestoreCheckpoint.
-	taskTerm
-	// Accumulated stats of a current transaction.
-	txnStats ops.Stats
+	*taskReader[*pf.MaterializationSpec]
+	acknowledged *pf.AsyncOperation
+	client       pm.Connector_MaterializeClient
 }
 
 var _ Application = (*Materialize)(nil)
 
-// NewMaterializeApp returns a new Materialize, which implements Application.
+// NewMaterializeApp returns a *Materialize Application.
 func NewMaterializeApp(host *FlowConsumer, shard consumer.Shard, recorder *recoverylog.Recorder) (*Materialize, error) {
-	var store, err = newConnectorStore(recorder)
+	var base, err = newTaskBase[*pf.MaterializationSpec](host, shard, recorder, extractMaterializationSpec)
 	if err != nil {
-		return nil, fmt.Errorf("newConnectorStore: %w", err)
+		return nil, err
+	}
+	client, err := pm.NewConnectorClient(base.svc.Conn()).Materialize(shard.Context())
+	if err != nil {
+		base.drop()
+		return nil, fmt.Errorf("starting materialize stream: %w", err)
 	}
 
-	var out = &Materialize{
-		host:            host,
-		store:           store,
-		driver:          nil,          // Initialized in RestoreCheckpoint.
-		client:          nil,          // Initialized in RestoreCheckpoint.
-		materialization: nil,          // Initialized in RestoreCheckpoint.
-		taskReader:      taskReader{}, // Initialized in RestoreCheckpoint.
-		taskTerm:        taskTerm{},   // Initialized in RestoreCheckpoint.
-	}
-
-	return out, nil
+	return &Materialize{
+		taskReader:   newTaskReader[*pf.MaterializationSpec](base, shard),
+		acknowledged: nil,
+		client:       client,
+	}, nil
 }
 
-// RestoreCheckpoint establishes a driver connection and begins a Transactions RPC.
-// It queries the driver to select from the latest local or driver-persisted checkpoint.
-func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (cp pf.Checkpoint, err error) {
-	if err = m.initTerm(shard, m.host); err != nil {
+func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, error) {
+	if err := m.initTerm(shard); err != nil {
 		return pf.Checkpoint{}, err
 	}
 
-	var checkpointSource = "n/a"
-	defer func() {
-		if err == nil {
-			ops.PublishLog(m.opsPublisher, ops.Log_debug,
-				"initialized processing term",
-				"build", m.labels.Build,
-				"checkpoint", cp,
-				"checkpointSource", checkpointSource,
-			)
-		} else if !errors.Is(err, context.Canceled) {
-			ops.PublishLog(m.opsPublisher, ops.Log_error,
-				"failed to initialize processing term",
-				"error", err,
-			)
-		}
-	}()
-
-	// Stop a previous Driver and Transactions client if it exists.
-	if m.client != nil {
-		if err = m.client.Close(); err != nil && !errors.Is(err, context.Canceled) {
-			return pf.Checkpoint{}, fmt.Errorf("closing previous connector client: %w", err)
-		}
-		m.client = nil
+	var requestExt = &pr.MaterializeRequestExt{
+		Labels: &m.term.labels,
+		Open:   &pr.MaterializeRequestExt_Open{},
 	}
-	if m.driver != nil {
-		if err = m.driver.Close(); err != nil && !errors.Is(err, context.Canceled) {
-			return pf.Checkpoint{}, fmt.Errorf("closing previous connector driver: %w", err)
-		}
-		m.driver = nil
+	if m.termCount == 1 {
+		requestExt.Open.RocksdbDescriptor = bindings.NewRocksDBDescriptor(m.recorder)
 	}
 
-	// Load the current term's MaterializationSpec.
-	err = m.build.Extract(func(db *sql.DB) error {
-		var materialization, err = catalog.LoadMaterialization(db, m.labels.TaskName)
-		if materialization != nil {
-			m.materialization = materialization
-		}
-		return err
+	_ = doSend(m.client, &pm.Request{
+		Open: &pm.Request_Open{
+			Materialization: m.term.taskSpec,
+			Version:         m.term.labels.Build,
+			Range:           &m.term.labels.Range,
+			StateJson:       m.legacyState, // TODO(johnny): Just "{}".
+		},
+		Internal: pr.ToInternal(requestExt),
 	})
+
+	var opened, err = doRecv(m.client)
 	if err != nil {
 		return pf.Checkpoint{}, err
 	}
-	ops.PublishLog(m.opsPublisher, ops.Log_debug,
-		"loaded specification",
-		"spec", m.materialization, "build", m.labels.Build)
+	var openedExt = pr.FromInternal[pr.MaterializeResponseExt](opened.Internal)
+	m.container.Store(openedExt.Container)
+	var checkpoint = *opened.Opened.RuntimeCheckpoint
 
-	// Initialize for reading shuffled source collection journals.
-	if err = m.initReader(m.host, shard, m.materialization, &m.taskTerm); err != nil {
-		return pf.Checkpoint{}, err
+	// TODO(johnny): Remove after migration.
+	if len(checkpoint.Sources) == 0 && len(checkpoint.AckIntents) == 0 {
+		checkpoint = m.legacyCheckpoint
 	}
 
-	// Closure which builds a Combiner for a specified binding.
-	var newCombinerFn = func(binding *pf.MaterializationSpec_Binding) (pf.Combiner, error) {
-		var combiner, err = bindings.NewCombine(m.opsPublisher)
-		if err != nil {
-			return nil, err
-		}
+	// Send initial Acknowledge of the session.
+	_ = doSend(m.client, &pm.Request{Acknowledge: &pm.Request_Acknowledge{}})
 
-		// TODO(johnny): Hack to address string truncation for these common materialization connectors
-		// that don't handle large strings very well. This should be negotiated via connector protocol.
-		var serPolicy = &pf.SerPolicy{}
-		for _, needle := range []string{
-			"ghcr.io/estuary/materialize-snowflake",
-			"ghcr.io/estuary/materialize-redshift",
-			"ghcr.io/estuary/materialize-sqlite",
-		} {
-			if bytes.Contains(m.materialization.ConfigJson, []byte(needle)) {
-				serPolicy.StrTruncateAfter = 1 << 16 // Truncate at 64KB.
-			}
-		}
+	m.acknowledged = pf.NewAsyncOperation()
+	go readAcknowledged(m.client, m.acknowledged)
 
-		return combiner, combiner.Configure(
-			shard.FQN(),
-			binding.Collection.Name,
-			binding.Collection.GetReadSchemaJson(),
-			"", // Don't generate UUID placeholders.
-			binding.Collection.Key,
-			binding.FieldSelection.Values,
-			binding.Collection.Projections,
-			false, // Disable schema inference.
-			serPolicy,
-		)
-	}
-
-	var configHandle = m.host.NetworkProxyServer.NetworkConfigHandle(m.shardSpec.Id, m.labels.Ports)
-	// Start driver and Transactions RPC client.
-	m.driver, err = connector.NewDriver(
-		shard.Context(),
-		m.materialization.ConfigJson,
-		m.materialization.ConnectorType.String(),
-		m.opsPublisher,
-		m.host.Config.Flow.Network,
-		configHandle,
-	)
-	if err != nil {
-		return pf.Checkpoint{}, fmt.Errorf("building endpoint driver: %w", err)
-	}
-
-	// Open a Transactions RPC stream for the materialization.
-	err = connector.WithUnsealed(m.driver, m.materialization, func(unsealed *pf.MaterializationSpec) error {
-		var err error
-		m.client, err = pm.OpenTransactions(
-			shard.Context(),
-			m.driver.MaterializeClient(),
-			loadDriverCheckpoint(m.store),
-			newCombinerFn,
-			m.labels.Range,
-			unsealed,
-			m.labels.Build,
-		)
-		return err
-	})
-	if err != nil {
-		return pf.Checkpoint{}, fmt.Errorf("opening transactions RPC: %w", err)
-	}
-
-	// If the store provided a Flow checkpoint, prefer that over
-	// the `checkpoint` recovered from the local recovery log store.
-	if m.client.Opened().RuntimeCheckpoint != nil {
-		cp = *m.client.Opened().RuntimeCheckpoint
-		checkpointSource = "driver"
-	} else {
-		// Otherwise restore locally persisted checkpoint.
-		if cp, err = m.store.RestoreCheckpoint(shard); err != nil {
-			return pf.Checkpoint{}, fmt.Errorf("store.RestoreCheckpoint: %w", err)
-		}
-		checkpointSource = "recoveryLog"
-	}
-
-	removeOldOpsJournalAckIntents(cp.AckIntents)
-
-	return cp, nil
+	// We must block until the very first Acknowledged is read (or errors).
+	// If we didn't do this, then Request.Flush could potentially be sent before
+	// the first Acknowledged is read, which is a protocol violation.
+	return checkpoint, m.acknowledged.Err()
 }
-
-// StartCommit implements consumer.Store.StartCommit
-func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
-	driverCP, opAcknowledged, err := m.client.StartCommit(&cp)
-	if err != nil {
-		return client.FinishedOperation(err)
-	} else if err = updateDriverCheckpoint(m.store, driverCP); err != nil {
-		return client.FinishedOperation(err)
-	}
-
-	// Synchronously commit to the recovery log.
-	// This should be fast (milliseconds) because we're not writing much data.
-	// Then, write Acknowledge to the client.
-	if opLog := m.store.StartCommit(shard, cp, waitFor); opLog.Err() != nil {
-		return opLog
-	} else if err = m.client.Acknowledge(); err != nil {
-		return client.FinishedOperation(err)
-	}
-
-	ops.PublishLog(m.opsPublisher, ops.Log_debug, "started commit",
-		"runtimeCheckpoint", cp,
-		"driverCheckpoint", driverCP)
-
-	// Return `opAcknowledged` so that the next transaction will remain open
-	// so long as the driver is still committing the current transaction.
-	return opAcknowledged
-}
-
-// Destroy implements consumer.Store.Destroy
-func (m *Materialize) Destroy() {
-	if m.driver != nil {
-		_ = m.driver.Close()
-	}
-	if m.client != nil {
-		_ = m.client.Close()
-	}
-	m.taskTerm.destroy()
-	m.store.Destroy()
-}
-
-// Implementing shuffle.Store for Materialize
-var _ shuffle.Store = (*Materialize)(nil)
-
-// Implementing runtime.Application for Materialize
-var _ Application = (*Materialize)(nil)
-
-// BeginTxn implements Application.BeginTxn.
-func (m *Materialize) BeginTxn(shard consumer.Shard) error {
-	m.txnStats = ops.Stats{
-		Shard:       ops.NewShardRef(m.labels),
-		Timestamp:   types.TimestampNow(),
-		TxnCount:    1,
-		Materialize: make(map[string]*ops.Stats_Binding),
-	}
-	return nil
-}
-func (m *Materialize) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {} // No-op.
 
 // ConsumeMessage implements Application.ConsumeMessage.
 func (m *Materialize) ConsumeMessage(shard consumer.Shard, envelope message.Envelope, pub *message.Publisher) error {
 	var isr = envelope.Message.(pr.IndexedShuffleResponse)
+	var keyPacked = isr.Arena.Bytes(isr.PackedKey[isr.Index])
+	var docJson = isr.Arena.Bytes(isr.Docs[isr.Index])
 
 	if message.GetFlags(isr.GetUUID()) == message.Flag_ACK_TXN {
 		return nil // We just ignore the ACK documents.
 	}
 
-	var keyPacked = isr.Arena.Bytes(isr.PackedKey[isr.Index])
-	var keyJSON json.RawMessage // TODO(johnny).
-	var doc = isr.Arena.Bytes(isr.Docs[isr.Index])
+	var request = &pm.Request{
+		Load: &pm.Request_Load{
+			Binding:   uint32(isr.ShuffleIndex),
+			KeyJson:   docJson,
+			KeyPacked: keyPacked,
+		},
+	}
+	if m.client.Send(request) == io.EOF {
+		// We must await readAcknowledged() before attempting to read from `m.client`.
+		if m.acknowledged.Err() != nil {
+			return m.acknowledged.Err()
+		}
+		var _, err = doRecv(m.client)
+		return err
+	}
 
-	return m.client.AddDocument(isr.ShuffleIndex, keyPacked, keyJSON, doc)
+	return nil
 }
 
 func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error {
-	if err := m.client.Flush(); err != nil {
+	// Precondition: m.acknowledged has resolved successfully and m.client is not being read.
+
+	// Send Flush and await Flushed response.
+	if err := doSend(m.client, &pm.Request{Flush: &pm.Request_Flush{}}); err != nil {
 		return err
 	}
-	ops.PublishLog(m.opsPublisher, ops.Log_debug, "flushed loads")
 
-	var bindingStats, err = m.client.Store()
+	var resp, err = doRecv(m.client)
 	if err != nil {
 		return err
+	} else if resp.Flushed == nil {
+		return fmt.Errorf("expected Flushed (got %#v)", resp)
 	}
-	ops.PublishLog(m.opsPublisher, ops.Log_debug, "stored documents")
 
-	for i, s := range bindingStats {
-		mergeBinding(m.txnStats.Materialize, m.materialization.Bindings[i].Collection.Name.String(), s)
-	}
-	m.txnStats.OpenSecondsTotal = time.Since(m.txnStats.GoTimestamp()).Seconds()
-
-	if err := m.opsPublisher.PublishStats(m.txnStats, pub.PublishUncommitted); err != nil {
+	var flushedExt = pr.FromInternal[pr.MaterializeResponseExt](resp.Internal)
+	if err := m.publisher.PublishStats(*flushedExt.Flushed.Stats, pub.PublishUncommitted); err != nil {
 		return fmt.Errorf("publishing stats: %w", err)
 	}
+
 	return nil
+}
+
+func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor consumer.OpFutures) consumer.OpFuture {
+	ops.PublishLog(m.publisher, ops.Log_debug,
+		"StartCommit",
+		"capture", m.term.labels.TaskName,
+		"shard", m.term.shardSpec.Id,
+		"build", m.term.labels.Build,
+	)
+
+	// Install a barrier such that we don't begin writing until `waitFor` has resolved.
+	_ = m.recorder.Barrier(waitFor)
+
+	// Tell materialize runtime we're starting to commit.
+	if err := doSend(m.client, &pm.Request{
+		StartCommit: &pm.Request_StartCommit{RuntimeCheckpoint: &cp},
+	}); err != nil {
+		return client.FinishedOperation(err)
+	}
+	// Await it's StartedCommit, which tells us that all recovery log writes have been sequenced.
+	if started, err := doRecv(m.client); err != nil {
+		return client.FinishedOperation(err)
+	} else if started.StartedCommit == nil {
+		return client.FinishedOperation(fmt.Errorf("expected StartedCommit, but got %#v", started))
+	}
+
+	// Synchronously wait for another barrier which notifies when recovery log
+	// writes have been durably recorded. This should be fast (milliseconds)
+	// because we're only writing state & checkpoint updates.
+	var barrier = m.recorder.Barrier(nil)
+	if barrier.Err() != nil {
+		return barrier
+	}
+
+	// Send Acknowledge.
+	if err := doSend(m.client, &pm.Request{
+		Acknowledge: &pm.Request_Acknowledge{},
+	}); err != nil {
+		return client.FinishedOperation(err)
+	}
+
+	// Start async read of Acknowledged.
+	m.acknowledged = pf.NewAsyncOperation()
+	go readAcknowledged(m.client, m.acknowledged)
+
+	// Return `opAcknowledged` so that the next transaction will remain open
+	// so long as the driver is still committing the current transaction.
+	return m.acknowledged
+}
+
+// Destroy implements consumer.Store.Destroy
+func (m *Materialize) Destroy() {
+	if m.client != nil {
+		_ = m.client.CloseSend()
+	}
+	m.taskReader.drop()
+}
+
+func (m *Materialize) BeginTxn(shard consumer.Shard) error                    { return nil } // No-op.
+func (m *Materialize) FinishedTxn(shard consumer.Shard, op consumer.OpFuture) {}             // No-op.
+
+func readAcknowledged(
+	client pm.Connector_MaterializeClient,
+	acknowledged *pf.AsyncOperation,
+) (__err error) {
+	defer func() {
+		acknowledged.Resolve(__err)
+	}()
+
+	if resp, err := doRecv(client); err != nil {
+		return err
+	} else if resp.Acknowledged == nil {
+		return fmt.Errorf("expected Acknowledged (got %#v)", resp)
+	} else {
+		return nil
+	}
+}
+
+func extractMaterializationSpec(db *sql.DB, taskName string) (*pf.MaterializationSpec, error) {
+	return catalog.LoadMaterialization(db, taskName)
 }
