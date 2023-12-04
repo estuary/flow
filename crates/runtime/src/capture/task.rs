@@ -29,6 +29,10 @@ impl Task {
         } = spec.as_ref().context("missing capture")?;
         let range = range.context("missing range")?;
 
+        if range.r_clock_begin != 0 || range.r_clock_end != u32::MAX {
+            anyhow::bail!("captures cannot split on r-clock: {range:?}");
+        }
+
         let ser_policy = doc::SerPolicy::default();
 
         let bindings = bindings

@@ -209,17 +209,20 @@ pub async fn start(
         .connect_timeout(std::time::Duration::from_secs(5))
         .connect()
         .await
-        .context("failed to connect to connector-init inside of container")?;
+        .with_context(|| {
+            format!("failed to connect to container connector-init at {init_address}")
+        })?;
 
     tracing::info!(
         %image,
         %init_address,
         %ip_addr,
-        ?mapped_host_ports,
+        mapped_host_ports = ?ops::DebugJson(&mapped_host_ports),
         %name,
+        network_ports = ?ops::DebugJson(&network_ports),
         %task_name,
         ?task_type,
-        "started connector"
+        "started connector container"
     );
 
     Ok((
@@ -462,8 +465,7 @@ async fn inspect_image_and_copy(
 }
 
 // TODO(johnny): Consider better packaging and versioning of `flow-connector-init`.
-// TODO(johnny): Update tag once https://github.com/estuary/flow/pull/1167 is merged.
-const CONNECTOR_INIT_IMAGE: &str = "ghcr.io/estuary/flow:v0.3.5-40-g1751ed2af";
+const CONNECTOR_INIT_IMAGE: &str = "ghcr.io/estuary/flow:v0.3.9-12-g1bf50ba62";
 const CONNECTOR_INIT_IMAGE_PATH: &str = "/usr/local/bin/flow-connector-init";
 
 #[cfg(test)]

@@ -1,11 +1,10 @@
-use super::{connector, protocol::*, RequestStream, ResponseStream, Transaction};
-use crate::{rocksdb::RocksDB, verify, LogHandler, Runtime};
+use super::{connector, protocol::*, LoadKeySet, RequestStream, ResponseStream, Transaction};
+use crate::{rocksdb::RocksDB, shard_log_level, verify, LogHandler, Runtime};
 use anyhow::Context;
 use futures::channel::mpsc;
 use futures::stream::BoxStream;
 use futures::{SinkExt, StreamExt, TryStreamExt};
 use proto_flow::materialize::{Request, Response};
-use std::collections::HashSet;
 
 #[tonic::async_trait]
 impl<L: LogHandler> proto_grpc::materialize::connector_server::Connector for Runtime<L> {
@@ -34,7 +33,7 @@ impl<L: LogHandler> Runtime<L> {
                 return Ok::<(), anyhow::Error>(());
             };
 
-            let db = recv_client_first_open(&open)?;
+            let db = recv_client_first_open(&open).await?;
 
             while let Some(next) = serve_session(&mut co, &db, open, &mut request_rx, &self).await?
             {
@@ -51,7 +50,13 @@ async fn serve_unary<L: LogHandler>(
     co: &mut coroutines::Suspend<Response, ()>,
 ) -> anyhow::Result<Option<Request>> {
     while let Some(request) = request_rx.try_next().await? {
-        if request.open.is_some() {
+        if let Some(open) = &request.open {
+            // Set logging level for logs written before the very first connector start.
+            runtime.set_log_level(
+                open.materialization
+                    .as_ref()
+                    .and_then(|spec| shard_log_level(spec.shard_template.as_ref())),
+            );
             return Ok(Some(request));
         }
         let (connector_tx, mut connector_rx) = connector::start(runtime, request.clone()).await?;
@@ -72,14 +77,14 @@ async fn serve_session<L: LogHandler>(
     request_rx: &mut impl RequestStream,
     runtime: &Runtime<L>,
 ) -> anyhow::Result<Option<Request>> {
-    recv_client_open(&mut open, &db)?;
+    recv_client_open(&mut open, &db).await?;
 
     // Start connector stream and read Opened.
     let (mut connector_tx, mut connector_rx) = connector::start(runtime, open.clone()).await?;
     let opened = TryStreamExt::try_next(&mut connector_rx).await?;
 
-    let (task, mut accumulator, mut last_checkpoint, opened) =
-        recv_connector_opened(&db, &open, opened)?;
+    let (task, mut accumulator, mut last_checkpoint, opened, mut max_keys) =
+        recv_connector_opened(&db, &open, opened).await?;
 
     () = co.yield_(opened).await;
 
@@ -93,49 +98,49 @@ async fn serve_session<L: LogHandler>(
             request => return verify("client", "Acknowledge").fail(request),
         }
 
-        // Loop over EOF and Open until an initial Load or Flush.
-        let initial: Request = loop {
-            match request_rx.try_next().await? {
-                None => {
-                    drain_connector(connector_tx, connector_rx).await?;
-                    return Ok(None);
-                }
-                Some(open @ Request { open: Some(_), .. }) => {
-                    drain_connector(connector_tx, connector_rx).await?;
-                    return Ok(Some(open));
-                }
-                Some(load @ Request { load: Some(_), .. }) => break load,
-                Some(flush @ Request { flush: Some(_), .. }) => break flush,
-                request => return verify("client", "EOF, Open, Load, or Flush").fail(request),
-            }
-        };
-
-        let mut txn = Transaction::new();
-        txn.started_at = std::time::SystemTime::now();
-
-        // TODO(johnny): Use RocksDB to spill this to disk.
-        let mut load_keys: HashSet<(u32, bytes::Bytes)> = HashSet::new();
-
-        enum Step {
-            ClientRx(Option<Request>),
-            ConnectorRx(Option<Response>),
-            ConnectorTx(Result<(), mpsc::SendError>),
-        }
+        let mut load_keys = LoadKeySet::default();
         let mut saw_acknowledged = false;
         let mut saw_flush = false;
         let mut saw_flushed = false;
         let mut saw_reset = false;
         let mut send_fut = None;
-        let mut step = Step::ClientRx(Some(initial));
+        let mut txn = Transaction::new();
 
         // Loop over client requests and connector responses until the transaction has flushed.
-        loop {
+        while !saw_flushed {
+            enum Step {
+                ClientRx(Option<Request>),
+                ConnectorRx(Option<Response>),
+                ConnectorTx(Result<(), mpsc::SendError>),
+            }
+
+            let step = if let Some(forward) = &mut send_fut {
+                tokio::select! {
+                    result = forward => Step::ConnectorTx(result),
+                    response = connector_rx.try_next() => Step::ConnectorRx(response?),
+                }
+            } else {
+                tokio::select! {
+                    request = request_rx.try_next(), if !saw_flush => Step::ClientRx(request?),
+                    response = connector_rx.try_next() => Step::ConnectorRx(response?),
+                }
+            };
+
             match step {
+                Step::ClientRx(None) if !txn.started => {
+                    drain_connector(connector_tx, connector_rx).await?;
+                    return Ok(None); // Clean EOF.
+                }
+                Step::ClientRx(Some(open @ Request { open: Some(_), .. })) if !txn.started => {
+                    drain_connector(connector_tx, connector_rx).await?;
+                    return Ok(Some(open)); // Restart a new session.
+                }
                 Step::ClientRx(request) => {
                     if let Some(send) = recv_client_load_or_flush(
                         &mut accumulator,
                         &mut buf,
                         &mut load_keys,
+                        &mut max_keys,
                         request,
                         &mut saw_acknowledged,
                         &mut saw_flush,
@@ -164,22 +169,6 @@ async fn serve_session<L: LogHandler>(
                     send_fut = None;
                 }
             }
-
-            if saw_flush && saw_flushed {
-                break;
-            }
-
-            step = if let Some(forward) = &mut send_fut {
-                tokio::select! {
-                    result = forward => Step::ConnectorTx(result),
-                    response = connector_rx.try_next() => Step::ConnectorRx(response?),
-                }
-            } else {
-                tokio::select! {
-                    request = request_rx.try_next(), if !saw_flush => Step::ClientRx(request?),
-                    response = connector_rx.try_next() => Step::ConnectorRx(response?),
-                }
-            };
         }
 
         if saw_reset {
@@ -187,6 +176,13 @@ async fn serve_session<L: LogHandler>(
                 "connector reset its connection unexpectedly but sent Flushed without an error"
             );
         }
+
+        // We must durably commit updates to `max_keys` now, before we send any Store
+        // requests into the connector, because the connector may not be
+        // transactional and could immediately Store sent documents.
+        // TODO(johnny): factor into a future that's started upon Flush
+        // and runs concurrently with Flushed?
+        persist_max_keys(db, &mut max_keys, &task).await?;
 
         // Prepare to drain `accumulator`.
         let mut drainer = accumulator
@@ -219,7 +215,7 @@ async fn serve_session<L: LogHandler>(
 
         // Read StartedCommit and forward to the client.
         let started_commit = connector_rx.try_next().await?;
-        let started_commit = recv_connector_started_commit(&db, started_commit, wb)?;
+        let started_commit = recv_connector_started_commit(&db, started_commit, wb).await?;
         () = co.yield_(started_commit).await;
 
         last_checkpoint = txn.checkpoint;
@@ -234,8 +230,12 @@ async fn drain_connector(
     std::mem::drop(tx);
 
     match rx.try_next().await? {
-        Some(ack) if ack.acknowledged.is_some() => (),
-        response => return verify("connector", "Acknowledged").fail(response),
+        // Connector may immediately EOF.
+        None => Ok(()),
+        // Or it may return Acknowledged, which must be followed by EOF.
+        Some(ack) if ack.acknowledged.is_some() => {
+            verify("connector", "EOF").is_eof(rx.try_next().await?)
+        }
+        response => return verify("connector", "Acknowledged or EOF").fail(response),
     }
-    verify("connector", "EOF").is_eof(rx.try_next().await?)
 }

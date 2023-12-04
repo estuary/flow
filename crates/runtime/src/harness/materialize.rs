@@ -13,13 +13,12 @@ pub fn run_materialize<L: LogHandler>(
     runtime: Runtime<L>,
     sessions: Vec<usize>,
     spec: &flow::MaterializationSpec,
-    state: models::RawValue,
+    mut state: models::RawValue,
     state_dir: &std::path::Path,
     timeout: std::time::Duration,
 ) -> impl ResponseStream {
     let spec = spec.clone();
     let state_dir = state_dir.to_owned();
-    let mut state: String = state.into();
 
     // TODO(johnny): extract from spec?
     let version = super::unique_version();
@@ -77,20 +76,21 @@ pub fn run_materialize<L: LogHandler>(
         verify("runtime", "EOF").is_eof(response_rx.try_next().await?)?;
 
         // Re-open RocksDB.
-        let rocksdb = RocksDB::open(rocksdb_desc)?;
+        let rocksdb = RocksDB::open(rocksdb_desc).await?;
 
-        tracing::debug!(
-            checkpoint = ?::ops::DebugJson(rocksdb.load_checkpoint()?),
-            "final runtime checkpoint",
-        );
+        let checkpoint = rocksdb.load_checkpoint().await?;
+        tracing::debug!(checkpoint = ?::ops::DebugJson(checkpoint), "final runtime checkpoint");
 
         // Extract and yield the final connector state
-        let state = rocksdb.load_connector_state()?;
+        let state = rocksdb
+            .load_connector_state(models::RawValue::default())
+            .await?;
+
         () = co
             .yield_(Response {
                 started_commit: Some(response::StartedCommit {
-                    state: state.map(|updated_json| flow::ConnectorState {
-                        updated_json,
+                    state: Some(flow::ConnectorState {
+                        updated_json: state.into(),
                         merge_patch: false,
                     }),
                 }),
@@ -109,7 +109,7 @@ async fn run_session(
     request_tx: &mut mpsc::Sender<anyhow::Result<Request>>,
     response_rx: &mut Pin<&mut impl ResponseStream>,
     spec: &flow::MaterializationSpec,
-    state: &mut String,
+    state: &mut models::RawValue,
     target_transactions: usize,
     timeout: std::time::Duration,
     version: &str,
@@ -125,7 +125,7 @@ async fn run_session(
                 r_clock_begin: 0,
                 r_clock_end: u32::MAX,
             }),
-            state_json: std::mem::take(state),
+            state_json: std::mem::take(state).into(),
         }),
         ..Default::default()
     }

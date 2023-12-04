@@ -115,11 +115,25 @@ impl DerefMut for TokioContext {
 
 impl Drop for TokioContext {
     fn drop(&mut self) {
-        // Explicitly call Runtime::shutdown_background as an alternative to calling Runtime::Drop.
-        // This shuts down the runtime without waiting for blocking background tasks to complete,
-        // which is good because they sometimes never will. Consider a blocking call to read from stdin,
-        // where the sender is itself waiting for us to exit or write to our stdout.
-        // (Note that tokio::io maps AsyncRead of file descriptors to blocking tasks under the hood).
-        self.runtime.take().unwrap().shutdown_background();
+        let rt = self.runtime.take().unwrap();
+        let duration = std::time::Duration::from_secs(30);
+
+        // Ask the runtime to shutdown, providing a bounded duration to do so.
+        // We want to give it a reasonable chance to complete spawned tasks,
+        // notably because async-process spawns a shutdown task via Drop.
+        //
+        // However, we don't want to wait indefinitely (as Runtime::Drop does),
+        // because there isn't a guarantee that blocking background tasks will
+        // ever complete (consider a blocking read from stdin: tokio::io maps
+        // AsyncRead of file descriptors to blocking tasks under the hood).
+        //
+        // If we're within another tokio Runtime, we must spawn a blocking task
+        // to perform the actual shutdown, or we'll block a current async task
+        // (and in practice, tokio will panic).
+        if let Ok(parent) = tokio::runtime::Handle::try_current() {
+            parent.spawn_blocking(move || rt.shutdown_timeout(duration));
+        } else {
+            rt.shutdown_timeout(duration)
+        }
     }
 }

@@ -29,7 +29,7 @@ pub const UUID_PLACEHOLDER: &str = "DocUUIDPlaceholder-329Bb50aa48EAa9ef";
 /// so this value should be small. At the same time, processing steps such as
 /// schema validation are greatly accelerated when they can loop over multiple
 /// documents without yielding, so it should not be *too* small.
-pub const CHANNEL_BUFFER: usize = 8;
+pub const CHANNEL_BUFFER: usize = 16;
 
 /// Describes the basic type of runtime protocol. This corresponds to the
 /// `FLOW_RUNTIME_PROTOCOL` label that's used on docker images.
@@ -78,7 +78,14 @@ fn stream_error_to_status<T, S: futures::Stream<Item = anyhow::Result<T>>>(
 fn stream_status_to_error<T, S: futures::Stream<Item = tonic::Result<T>>>(
     s: S,
 ) -> impl futures::Stream<Item = anyhow::Result<T>> {
-    s.map_err(anyhow::Error::new)
+    s.map_err(|status| match status.code() {
+        // Unwrap Internal (only), as this code is consistently used for user-facing errors.
+        // Note that non-Status errors are wrapped with Internal when mapping back into Status.
+        tonic::Code::Internal => anyhow::anyhow!(status.message().to_owned()),
+        // For all other Status types, pass through the Status in order to preserve a
+        // capability to lossless-ly downcast back to the Status later.
+        _ => anyhow::Error::new(status),
+    })
 }
 
 pub trait LogHandler: Fn(&ops::Log) + Send + Sync + Clone + 'static {}
@@ -114,6 +121,13 @@ impl<L: LogHandler> Runtime<L> {
             log_handler,
             set_log_level,
             task_name,
+        }
+    }
+
+    /// Attempt to set the dynamic log level to the given `level`.
+    pub fn set_log_level(&self, level: Option<ops::LogLevel>) {
+        if let (Some(level), Some(set_log_level)) = (level, &self.set_log_level) {
+            (set_log_level)(level);
         }
     }
 

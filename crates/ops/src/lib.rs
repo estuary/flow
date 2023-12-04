@@ -160,8 +160,9 @@ pub fn merge_docs_and_bytes(from: &stats::DocsAndBytes, to: &mut Option<stats::D
 
 #[cfg(test)]
 mod test {
-    use super::{Log, LogLevel};
+    use super::{merge_docs_and_bytes, Log, LogLevel};
     use crate::new_encoded_json_write_handler;
+    use proto_flow::ops::stats;
     use serde_json::json;
     use std::sync::{Arc, Mutex};
 
@@ -191,5 +192,49 @@ mod test {
         {"ts":"1970-01-01T00:00:00+00:00","level":"warn","message":"hello world","fields":{"name":"value"}}
         {"ts":"1970-01-01T00:00:00+00:00","level":"warn","message":"I'm different!","fields":{"name":"value"}}
         "###);
+    }
+
+    #[test]
+    fn test_merge_stats() {
+        let mut to = None;
+
+        merge_docs_and_bytes(
+            &stats::DocsAndBytes {
+                docs_total: 0,
+                bytes_total: 0,
+            },
+            &mut to,
+        );
+        assert_eq!(to, None);
+
+        merge_docs_and_bytes(
+            &stats::DocsAndBytes {
+                docs_total: 1,
+                bytes_total: 10,
+            },
+            &mut to,
+        );
+        assert_eq!(
+            to,
+            Some(stats::DocsAndBytes {
+                docs_total: 1,
+                bytes_total: 10
+            })
+        );
+
+        merge_docs_and_bytes(
+            &stats::DocsAndBytes {
+                docs_total: 2,
+                bytes_total: 20,
+            },
+            &mut to,
+        );
+        assert_eq!(
+            to,
+            Some(stats::DocsAndBytes {
+                docs_total: 3,
+                bytes_total: 30
+            })
+        );
     }
 }

@@ -33,24 +33,38 @@ pub fn recv_unary(request: Request, response: Response) -> anyhow::Result<Respon
     }
 }
 
-pub fn recv_client_first_open(open: &Request) -> anyhow::Result<RocksDB> {
-    let db = RocksDB::open(open.get_internal()?.open.and_then(|o| o.rocksdb_descriptor))?;
+pub async fn recv_client_first_open(open: &Request) -> anyhow::Result<RocksDB> {
+    let db = RocksDB::open(open.get_internal()?.open.and_then(|o| o.rocksdb_descriptor)).await?;
 
     Ok(db)
 }
 
-pub fn recv_client_open(open: &mut Request, db: &RocksDB) -> anyhow::Result<()> {
-    if let Some(state) = db.load_connector_state()? {
-        let open = open.open.as_mut().unwrap();
-        open.state_json = state;
-        tracing::debug!(state=%open.state_json, "loaded and attached a persisted connector Open.state_json");
-    } else {
-        tracing::debug!("no previously-persisted connector state was found");
+pub async fn recv_client_open(open: &mut Request, db: &RocksDB) -> anyhow::Result<()> {
+    let Some(open) = open.open.as_mut() else {
+        return verify("client", "Open").fail(open);
+    };
+    let Some(capture) = open.capture.as_mut() else {
+        return verify("client", "Open.Capture").fail(open);
+    };
+
+    open.state_json = db
+        .load_connector_state(
+            models::RawValue::from_str(&open.state_json)
+                .context("failed to parse initial open connector state")?,
+        )
+        .await?
+        .into();
+
+    // TODO(johnny): Switch to erroring if `state_key` is not already populated.
+    for binding in capture.bindings.iter_mut() {
+        binding.state_key = assemble::encode_state_key(&binding.resource_path, binding.backfill);
     }
+
     Ok(())
 }
 
-pub fn recv_connector_opened(
+pub async fn recv_connector_opened(
+    db: &RocksDB,
     open: &Request,
     opened: Option<Response>,
     shapes_by_key: &mut BTreeMap<String, doc::Shape>,
@@ -62,9 +76,7 @@ pub fn recv_connector_opened(
     doc::combine::Accumulator,
     Response,
 )> {
-    let Some(opened) = opened else {
-        anyhow::bail!("unexpected connector EOF reading Opened")
-    };
+    let opened = verify("connecter", "Opened").not_eof(opened)?;
 
     let task = Task::new(&open, &opened)?;
     // Inferred document shapes, indexed by binding offset.
@@ -74,12 +86,20 @@ pub fn recv_connector_opened(
     let a1 = doc::combine::Accumulator::new(task.combine_spec()?, tempfile::tempfile()?)?;
     let a2 = doc::combine::Accumulator::new(task.combine_spec()?, tempfile::tempfile()?)?;
 
-    let opened = Response {
+    let checkpoint = db.load_checkpoint().await?;
+
+    let mut opened = Response {
         opened: Some(response::Opened {
             explicit_acknowledgements: true,
         }),
         ..Default::default()
     };
+    opened.set_internal(|internal| {
+        internal.opened = Some(capture_response_ext::Opened {
+            runtime_checkpoint: Some(checkpoint),
+        })
+    });
+
     Ok((task.clone(), task, shapes, a1, a2, opened))
 }
 
@@ -113,12 +133,13 @@ pub fn send_client_poll_result(
     )
 }
 
-pub fn send_connector_acknowledge(last_checkpoints: u32, task: &Task) -> Option<Request> {
-    if last_checkpoints != 0 && task.explicit_acknowledgements {
+pub fn send_connector_acknowledge(last_checkpoints: &mut u32, task: &Task) -> Option<Request> {
+    if *last_checkpoints != 0 && task.explicit_acknowledgements {
+        let checkpoints = *last_checkpoints;
+        *last_checkpoints = 0; // Reset.
+
         Some(Request {
-            acknowledge: Some(request::Acknowledge {
-                checkpoints: last_checkpoints,
-            }),
+            acknowledge: Some(request::Acknowledge { checkpoints }),
             ..Default::default()
         })
     } else {
@@ -236,7 +257,7 @@ pub fn send_client_final_checkpoint(
     })
 }
 
-pub fn recv_client_start_commit(
+pub async fn recv_client_start_commit(
     db: &RocksDB,
     request: Option<Request>,
     shapes: &[doc::Shape],
@@ -274,7 +295,7 @@ pub fn recv_client_start_commit(
         let serialized = doc::shape::schema::to_schema(shapes[*binding].clone());
 
         tracing::info!(
-            schema = ?::ops::DebugJson(serialized),
+            schema = ?ops::DebugJson(serialized),
             collection_name = %task.bindings[*binding].collection_name,
             binding = binding,
             "inferred schema updated"
@@ -282,7 +303,8 @@ pub fn recv_client_start_commit(
     }
 
     // Atomically write our commit batch.
-    db.write(wb)
+    db.write_opt(wb, Default::default())
+        .await
         .context("failed to write atomic RocksDB commit")?;
 
     Ok(())

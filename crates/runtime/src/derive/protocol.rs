@@ -22,24 +22,29 @@ pub fn recv_unary(request: Request, response: Response) -> anyhow::Result<Respon
     }
 }
 
-pub fn recv_client_first_open(open: &Request) -> anyhow::Result<RocksDB> {
-    let db = RocksDB::open(open.get_internal()?.open.and_then(|o| o.rocksdb_descriptor))?;
+pub async fn recv_client_first_open(open: &Request) -> anyhow::Result<RocksDB> {
+    let db = RocksDB::open(open.get_internal()?.open.and_then(|o| o.rocksdb_descriptor)).await?;
 
     Ok(db)
 }
 
-pub fn recv_client_open(open: &mut Request, db: &RocksDB) -> anyhow::Result<()> {
-    if let Some(state) = db.load_connector_state()? {
-        let open = open.open.as_mut().unwrap();
-        open.state_json = state;
-        tracing::debug!(state=%open.state_json, "loaded and attached a persisted connector Open.state_json");
-    } else {
-        tracing::debug!("no previously-persisted connector state was found");
-    }
+pub async fn recv_client_open(open: &mut Request, db: &RocksDB) -> anyhow::Result<()> {
+    let Some(open) = open.open.as_mut() else {
+        return verify("client", "Open").fail(open);
+    };
+
+    open.state_json = db
+        .load_connector_state(
+            models::RawValue::from_str(&open.state_json)
+                .context("failed to parse initial open connector state")?,
+        )
+        .await?
+        .into();
+
     Ok(())
 }
 
-pub fn recv_connector_opened(
+pub async fn recv_connector_opened(
     db: &RocksDB,
     open: &Request,
     opened: Option<Response>,
@@ -50,9 +55,7 @@ pub fn recv_connector_opened(
     consumer::Checkpoint,
     Response,
 )> {
-    let Some(mut opened) = opened else {
-        anyhow::bail!("unexpected connector EOF reading Opened")
-    };
+    let mut opened = verify("connecter", "Opened").not_eof(opened)?;
 
     let task = Task::new(&open, &opened)?;
     let validators = task.validators()?;
@@ -60,6 +63,7 @@ pub fn recv_connector_opened(
 
     let mut checkpoint = db
         .load_checkpoint()
+        .await
         .context("failed to load runtime checkpoint from RocksDB")?;
 
     // TODO(johnny): Expose Opened.runtime_checkpoint in the public protocol.
@@ -94,6 +98,11 @@ pub fn recv_client_read_or_flush(
     txn: &mut Transaction,
     validators: &mut Vec<doc::Validator>,
 ) -> anyhow::Result<Option<Request>> {
+    if !txn.started {
+        txn.started = true;
+        txn.started_at = std::time::SystemTime::now();
+    }
+
     let read = match request {
         Some(Request {
             read: Some(read), ..
@@ -325,7 +334,7 @@ pub fn recv_client_start_commit(
     Ok((request, wb))
 }
 
-pub fn recv_connector_started_commit(
+pub async fn recv_connector_started_commit(
     db: &RocksDB,
     response: Option<Response>,
     shape: &doc::Shape,
@@ -374,7 +383,8 @@ pub fn recv_connector_started_commit(
         );
     }
 
-    db.write(wb)
+    db.write_opt(wb, Default::default())
+        .await
         .context("failed to write atomic RocksDB commit")?;
 
     Ok(response)
