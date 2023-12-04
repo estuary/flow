@@ -157,13 +157,18 @@ message CaptureRequestExt {
 message CaptureResponseExt {
   Container container = 1;
 
+  message Opened {
+    consumer.Checkpoint runtime_checkpoint = 1;
+  }
+  Opened opened = 2;
+
   message Captured {
       // Packed key extracted from the captured document.
       bytes key_packed = 1;
       // Packed partition values extracted from the captured document.
       bytes partitions_packed = 2;
   }
-  Captured captured = 2;
+  Captured captured = 3;
 
   enum PollResult {
     INVALID = 0;
