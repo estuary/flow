@@ -1,12 +1,14 @@
-use super::{Task, Transaction};
+use super::{Binding, LoadKeySet, Task, Transaction};
 use crate::{rocksdb::RocksDB, verify};
 use anyhow::Context;
+use bytes::{Buf, BufMut};
 use prost::Message;
 use proto_flow::flow;
 use proto_flow::materialize::{request, response, Request, Response};
 use proto_flow::runtime::materialize_response_ext;
 use proto_gazette::consumer;
 use std::collections::{BTreeMap, HashSet};
+use xxhash_rust::xxh3::xxh3_128;
 
 pub fn recv_unary(request: Request, response: Response) -> anyhow::Result<Response> {
     if request.spec.is_some() && response.spec.is_some() {
@@ -26,24 +28,37 @@ pub fn recv_unary(request: Request, response: Response) -> anyhow::Result<Respon
     }
 }
 
-pub fn recv_client_first_open(open: &Request) -> anyhow::Result<RocksDB> {
-    let db = RocksDB::open(open.get_internal()?.open.and_then(|o| o.rocksdb_descriptor))?;
+pub async fn recv_client_first_open(open: &Request) -> anyhow::Result<RocksDB> {
+    let db = RocksDB::open(open.get_internal()?.open.and_then(|o| o.rocksdb_descriptor)).await?;
 
     Ok(db)
 }
 
-pub fn recv_client_open(open: &mut Request, db: &RocksDB) -> anyhow::Result<()> {
-    if let Some(state) = db.load_connector_state()? {
-        let open = open.open.as_mut().unwrap();
-        open.state_json = state;
-        tracing::debug!(open=%open.state_json, "loaded and attached a persisted connector Open.state_json");
-    } else {
-        tracing::debug!("no previously-persisted connector state was found");
+pub async fn recv_client_open(open: &mut Request, db: &RocksDB) -> anyhow::Result<()> {
+    let Some(open) = open.open.as_mut() else {
+        return verify("client", "Open").fail(open);
+    };
+    let Some(materialization) = open.materialization.as_mut() else {
+        return verify("client", "Open.Materialization").fail(open);
+    };
+
+    open.state_json = db
+        .load_connector_state(
+            models::RawValue::from_str(&open.state_json)
+                .context("failed to parse initial open connector state")?,
+        )
+        .await?
+        .into();
+
+    // TODO(johnny): Switch to erroring if `state_key` is not already populated.
+    for binding in materialization.bindings.iter_mut() {
+        binding.state_key = assemble::encode_state_key(&binding.resource_path, binding.backfill);
     }
+
     Ok(())
 }
 
-pub fn recv_connector_opened(
+pub async fn recv_connector_opened(
     db: &RocksDB,
     open: &Request,
     opened: Option<Response>,
@@ -52,6 +67,7 @@ pub fn recv_connector_opened(
     doc::combine::Accumulator,
     consumer::Checkpoint,
     Response,
+    Vec<(bytes::Bytes, bytes::Bytes)>,
 )> {
     let verify = verify("connector", "Opened");
     let mut opened = verify.not_eof(opened)?;
@@ -68,35 +84,74 @@ pub fn recv_connector_opened(
 
     let mut checkpoint = db
         .load_checkpoint()
+        .await
         .context("failed to load runtime checkpoint from RocksDB")?;
 
     if let Some(runtime_checkpoint) = runtime_checkpoint {
         checkpoint = runtime_checkpoint.clone();
         tracing::debug!(
-            ?checkpoint,
+            checkpoint=?ops::DebugJson(&checkpoint),
             "using connector-provided OpenedExt.runtime_checkpoint",
         );
     } else {
         *runtime_checkpoint = Some(checkpoint.clone());
         tracing::debug!(
-            ?checkpoint,
+            checkpoint=?ops::DebugJson(&checkpoint),
             "loaded and attached a persisted OpenedExt.runtime_checkpoint",
         );
     }
 
-    Ok((task, accumulator, checkpoint, opened))
+    // Collect all the active journal read suffixes of the checkpoint.
+    let active_read_suffixes: HashSet<&str> = checkpoint
+        .sources
+        .iter()
+        .filter_map(|(journal, _source)| journal.split(';').skip(1).next())
+        .collect();
+
+    // Fetch a persisted max-key value for each active binding.
+    let max_keys: Vec<String> = task.bindings.iter().map(max_key_key).collect();
+    let max_keys = db.multi_get_opt(max_keys, Default::default()).await;
+    let max_keys: Vec<(bytes::Bytes, bytes::Bytes)> = task
+        .bindings
+        .iter()
+        .zip(max_keys.into_iter())
+        .map(|(binding, prev_max)| match prev_max {
+            Ok(None) if active_read_suffixes.get(binding.journal_read_suffix.as_str()).is_some() => {
+                tracing::debug!(state_key=%binding.state_key, "binding has no persisted max-key but is in the runtime checkpoint");
+                Ok((vec![0xff].into(), bytes::Bytes::new())) // 0xff is tuple::ESCAPE, larger than any tuple opcode.
+            }
+            Ok(None) => {
+                tracing::debug!(state_key=%binding.state_key, "binding has no persisted max-key and is not in runtime checkpoint");
+                Ok((bytes::Bytes::new(), bytes::Bytes::new()))
+            }
+            Ok(Some(prev_max)) => {
+                let unpacked: Vec<tuple::Element> = tuple::unpack(&prev_max).context("corrupted binding max-key")?;
+                tracing::debug!(state_key=%binding.state_key, ?unpacked, "recovered persisted binding max-key");
+                Ok((prev_max.into(), bytes::Bytes::new()))
+            }
+            Err(err) => Err(err.into()),
+        })
+        .collect::<anyhow::Result<_>>()?;
+
+    Ok((task, accumulator, checkpoint, opened, max_keys))
 }
 
 pub fn recv_client_load_or_flush(
     accumulator: &mut doc::combine::Accumulator,
     buf: &mut bytes::BytesMut,
-    load_keys: &mut HashSet<(u32, bytes::Bytes)>,
+    load_keys: &mut LoadKeySet,
+    max_keys: &mut [(bytes::Bytes, bytes::Bytes)],
     request: Option<Request>,
     saw_acknowledged: &mut bool,
     saw_flush: &mut bool,
     task: &Task,
     txn: &mut Transaction,
 ) -> anyhow::Result<Option<Request>> {
+    if !txn.started {
+        txn.started = true;
+        txn.started_at = std::time::SystemTime::now();
+    }
+
     match request {
         Some(Request {
             load:
@@ -113,7 +168,12 @@ pub fn recv_client_load_or_flush(
             let doc = memtable
                 .parse_json_str(&doc_json)
                 .context("couldn't parse captured document as JSON")?;
-            let key_packed = doc::Extractor::extract_all(&doc, &binding.key_extractors, buf);
+
+            // Encode the binding index and then the packed key as a single Bytes.
+            buf.put_u32(binding_index);
+            let mut key_packed = doc::Extractor::extract_all(&doc, &binding.key_extractors, buf);
+            let key_hash: u128 = xxh3_128(&key_packed);
+            key_packed.advance(4); // Advance past 4-byte binding index.
 
             memtable.add(binding_index, doc, false)?;
 
@@ -122,16 +182,27 @@ pub fn recv_client_load_or_flush(
             stats.1.docs_total += 1;
             stats.1.bytes_total += doc_json.len() as u64;
 
-            let load_key = (binding_index, key_packed);
-            if load_keys.contains(&load_key) {
+            let (ref prev_max, next_max) = &mut max_keys[binding_index as usize];
+
+            // Is `key_packed` larger than the largest key previously stored
+            // to the connector? If so, then it cannot possibly exist.
+            if key_packed > *prev_max {
+                if key_packed > *next_max {
+                    // This is a new high water mark for the largest-stored key.
+                    *next_max = key_packed.clone();
+                }
                 Ok(None)
+            } else if binding.delta_updates {
+                Ok(None) // Delta-update bindings don't load.
+            } else if load_keys.contains(&key_hash) {
+                Ok(None) // We already sent a Load request for this key.
             } else {
-                load_keys.insert(load_key.clone());
+                load_keys.insert(key_hash);
 
                 Ok(Some(Request {
                     load: Some(request::Load {
-                        binding: load_key.0,
-                        key_packed: load_key.1,
+                        binding: binding_index,
+                        key_packed,
                         key_json: String::new(), // TODO
                     }),
                     ..Default::default()
@@ -147,12 +218,15 @@ pub fn recv_client_load_or_flush(
             }
             *saw_flush = true;
 
+            // Drop the set of loaded keys, as they're no longer needed.
+            _ = std::mem::take(load_keys);
+
             Ok(Some(Request {
                 flush: Some(request::Flush {}),
                 ..Default::default()
             }))
         }
-        request => verify("client", "Load, Acknowledge, or Flush").fail(request),
+        request => verify("client", "Load or Flush").fail(request),
     }
 }
 
@@ -296,6 +370,38 @@ pub fn send_client_flushed(buf: &mut bytes::BytesMut, task: &Task, txn: &Transac
     })
 }
 
+pub async fn persist_max_keys(
+    db: &RocksDB,
+    max_keys: &mut [(bytes::Bytes, bytes::Bytes)],
+    task: &Task,
+) -> anyhow::Result<()> {
+    let mut wb = rocksdb::WriteBatch::default();
+
+    for (binding, (prev_max, next_max)) in task.bindings.iter().zip(max_keys.iter_mut()) {
+        if next_max.is_empty() {
+            continue;
+        }
+        *prev_max = std::mem::take(next_max);
+        wb.put(max_key_key(binding), &prev_max);
+
+        let unpacked: Vec<tuple::Element> = tuple::unpack(prev_max).unwrap();
+        tracing::debug!(state_key=%binding.state_key, ?unpacked, "persisting updated binding max-key");
+    }
+
+    let mut wo = rocksdb::WriteOptions::default();
+
+    // Write should not return until it's been synchronized to the recovery log.
+    // This depends on journal writes completing and can block indefinitely.
+    wo.set_sync(true);
+
+    () = db
+        .write_opt(wb, wo)
+        .await
+        .context("writing maximum-key updates")?;
+
+    Ok(())
+}
+
 pub fn recv_client_start_commit(
     last_checkpoint: consumer::Checkpoint,
     request: Option<Request>,
@@ -332,7 +438,7 @@ pub fn recv_client_start_commit(
     Ok((request, wb))
 }
 
-pub fn recv_connector_started_commit(
+pub async fn recv_connector_started_commit(
     db: &RocksDB,
     response: Option<Response>,
     mut wb: rocksdb::WriteBatch,
@@ -364,8 +470,13 @@ pub fn recv_connector_started_commit(
         tracing::debug!(updated=?ops::DebugJson(updated), %merge_patch, "persisted an updated StartedCommit.state");
     }
 
-    db.write(wb)
+    db.write_opt(wb, Default::default())
+        .await
         .context("failed to write atomic RocksDB commit")?;
 
     Ok(response)
+}
+
+fn max_key_key(binding: &Binding) -> String {
+    format!("MK:{}", &binding.state_key)
 }

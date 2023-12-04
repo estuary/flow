@@ -1,5 +1,5 @@
 use super::{connector, protocol::*, RequestStream, ResponseStream, Task, Transaction};
-use crate::{rocksdb::RocksDB, verify, LogHandler, Runtime};
+use crate::{rocksdb::RocksDB, shard_log_level, verify, LogHandler, Runtime};
 use anyhow::Context;
 use futures::channel::oneshot;
 use futures::future::FusedFuture;
@@ -35,7 +35,7 @@ impl<L: LogHandler> Runtime<L> {
                 return Ok::<(), anyhow::Error>(());
             };
 
-            let db = recv_client_first_open(&open)?;
+            let db = recv_client_first_open(&open).await?;
             let mut shapes = BTreeMap::new();
 
             while let Some(next) =
@@ -54,7 +54,13 @@ async fn serve_unary<L: LogHandler>(
     co: &mut coroutines::Suspend<Response, ()>,
 ) -> anyhow::Result<Option<Request>> {
     while let Some(request) = request_rx.try_next().await? {
-        if request.open.is_some() {
+        if let Some(open) = &request.open {
+            // Set logging level for logs written before the very first connector start.
+            runtime.set_log_level(
+                open.capture
+                    .as_ref()
+                    .and_then(|spec| shard_log_level(spec.shard_template.as_ref())),
+            );
             return Ok(Some(request));
         }
         let (connector_tx, mut connector_rx) = connector::start(runtime, request.clone()).await?;
@@ -76,14 +82,14 @@ async fn serve_session<L: LogHandler>(
     runtime: &Runtime<L>,
     shapes_by_key: &mut BTreeMap<String, doc::Shape>,
 ) -> anyhow::Result<Option<Request>> {
-    recv_client_open(&mut open, &db)?;
+    recv_client_open(&mut open, &db).await?;
 
     // Start connector stream and read Opened.
     let (mut connector_tx, mut connector_rx) = connector::start(runtime, open.clone()).await?;
     let opened = TryStreamExt::try_next(&mut connector_rx).await?;
 
     let (task, task_clone, mut shapes, accumulator, mut next_accumulator, opened) =
-        recv_connector_opened(&open, opened, shapes_by_key)?;
+        recv_connector_opened(db, &open, opened, shapes_by_key).await?;
 
     () = co.yield_(opened).await;
 
@@ -125,7 +131,7 @@ async fn serve_session<L: LogHandler>(
         };
 
         // Acknowledge committed checkpoints to the connector.
-        if let Some(ack) = send_connector_acknowledge(last_checkpoints, &task) {
+        if let Some(ack) = send_connector_acknowledge(&mut last_checkpoints, &task) {
             tokio::select! {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(10)) => anyhow::bail!(
                     "connector requested acknowledgements but is not processing its input",
@@ -182,7 +188,7 @@ async fn serve_session<L: LogHandler>(
         () = co.yield_(checkpoint).await;
 
         let start_commit = request_rx.try_next().await?;
-        recv_client_start_commit(&db, start_commit, &shapes, &task, &txn, wb)?;
+        recv_client_start_commit(&db, start_commit, &shapes, &task, &txn, wb).await?;
 
         () = co.yield_(send_client_started_commit()).await;
 
