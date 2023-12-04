@@ -182,12 +182,22 @@ pub struct CaptureResponseExt {
     #[prost(message, optional, tag = "1")]
     pub container: ::core::option::Option<Container>,
     #[prost(message, optional, tag = "2")]
+    pub opened: ::core::option::Option<capture_response_ext::Opened>,
+    #[prost(message, optional, tag = "3")]
     pub captured: ::core::option::Option<capture_response_ext::Captured>,
     #[prost(message, optional, tag = "4")]
     pub checkpoint: ::core::option::Option<capture_response_ext::Checkpoint>,
 }
 /// Nested message and enum types in `CaptureResponseExt`.
 pub mod capture_response_ext {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Opened {
+        #[prost(message, optional, tag = "1")]
+        pub runtime_checkpoint: ::core::option::Option<
+            ::proto_gazette::consumer::Checkpoint,
+        >,
+    }
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Captured {
