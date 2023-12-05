@@ -21,9 +21,9 @@ pub fn parse_response(
     for binding in &mut bindings {
         binding.recommended_name = normalize_recommended_name(&binding.recommended_name);
     }
-    if bindings.iter().any(|b| b.resource_path.is_empty()) {
+    if bindings.iter().any(|b| !b.resource_path.is_empty()) {
         tracing::warn!(%image_name, %image_tag,
-            "connector discovered response omits resource_path, this is OK for now but will become an error in a future release");
+            "connector discovered response includes deprecated field 'resource_path'");
     }
 
     Ok((
@@ -66,7 +66,7 @@ type ResourcePath = Vec<String>;
 
 /// Extracts the value of each of the given `resource_path_pointers` and encodes
 /// them into a `ResourcePath`. Each pointed-to location must be either a string
-/// value, null, or undefines. Null and undefined values are _not_ included in
+/// value, null, or undefined. Null and undefined values are _not_ included in
 /// the resulting path, and are thus treated as equivalent. Resource path values
 /// other than strings will result in an error.
 fn resource_path(
