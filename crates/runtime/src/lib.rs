@@ -3,6 +3,7 @@ use std::fmt::{self, Display};
 use std::sync::Arc;
 
 mod capture;
+mod combine;
 mod container;
 mod derive;
 pub mod harness;
@@ -145,7 +146,12 @@ impl<L: LogHandler> Runtime<L> {
                     .max_encoding_message_size(usize::MAX), // The default, made explicit.
             )
             .add_service(
-                proto_grpc::materialize::connector_server::ConnectorServer::new(self)
+                proto_grpc::materialize::connector_server::ConnectorServer::new(self.clone())
+                    .max_decoding_message_size(usize::MAX) // Up from 4MB. Accept whatever the Go runtime sends.
+                    .max_encoding_message_size(usize::MAX), // The default, made explicit.
+            )
+            .add_service(
+                proto_grpc::runtime::combiner_server::CombinerServer::new(self)
                     .max_decoding_message_size(usize::MAX) // Up from 4MB. Accept whatever the Go runtime sends.
                     .max_encoding_message_size(usize::MAX), // The default, made explicit.
             )

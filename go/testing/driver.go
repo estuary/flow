@@ -16,13 +16,13 @@ import (
 	"github.com/estuary/flow/go/labels"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
+	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/nsf/jsondiff"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
-	"go.gazette.dev/core/message"
 )
 
 // ClusterDriver implements a Driver which drives actions against a data plane.
@@ -34,6 +34,7 @@ type ClusterDriver struct {
 	buildID string
 	// Index of collection specs which may be referenced by test steps.
 	collections map[pf.Collection]*pf.CollectionSpec
+	svc         *bindings.TaskService
 }
 
 // NewClusterDriver builds a ClusterDriver from the provided cluster clients,
@@ -51,12 +52,21 @@ func NewClusterDriver(
 		collectionIndex[spec.Name] = spec
 	}
 
+	var svc, err = bindings.NewTaskService(
+		pr.TaskServiceConfig{TaskName: "cluster-driver"},
+		ops.NewLocalPublisher(ops.ShardLabeling{TaskName: "cluster-driver"}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create task service: %w", err)
+	}
+
 	var driver = &ClusterDriver{
 		sc:          sc,
 		rjc:         rjc,
 		tc:          tc,
 		buildID:     buildID,
 		collections: collectionIndex,
+		svc:         svc,
 	}
 
 	return driver, nil
@@ -193,7 +203,7 @@ func (c *ClusterDriver) Verify(ctx context.Context, test *pf.TestSpec, testStep 
 	if !ok {
 		return fmt.Errorf("unknown collection %s", step.Collection)
 	}
-	actual, err := combineDocumentsForVerify(collection, fetched)
+	actual, err := combineDocumentsForVerify(ctx, c.svc, collection, fetched)
 	if err != nil {
 		return err
 	}
@@ -370,64 +380,62 @@ func FetchDocuments(ctx context.Context, rjc pb.RoutedJournalClient, selector pb
 // (ACKs) are filtered.
 // Combined documents, one per collection key, are returned.
 func combineDocumentsForVerify(
+	ctx context.Context,
+	svc *bindings.TaskService,
 	collection *pf.CollectionSpec,
 	documents [][]byte,
 ) ([]json.RawMessage, error) {
-	var publisher = ops.NewLocalPublisher(ops.ShardLabeling{})
 
-	// Feed documents into an extractor, to extract UUIDs.
-	var extractor, err = bindings.NewExtractor(publisher)
-	if err != nil {
-		return nil, fmt.Errorf("creating extractor: %w", err)
-	} else if err = extractor.Configure(collection.UuidPtr, nil, nil, nil); err != nil {
-		return nil, fmt.Errorf("configuring extractor: %w", err)
-	}
-	for _, d := range documents {
-		extractor.Document(d)
-	}
-	uuids, _, err := extractor.Extract()
-	if err != nil {
-		return nil, fmt.Errorf("extracting UUIDs: %w", err)
-	}
-
-	combiner, err := bindings.NewCombine(publisher)
+	var combiner, err = pr.NewCombinerClient(svc.Conn()).Combine(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("creating combiner: %w", err)
-	} else if err = combiner.Configure(
-		collection.Name.String(),
-		collection.Name,
-		collection.GetReadSchemaJson(),
-		collection.UuidPtr,
-		collection.Key,
-		nil, // Don't extract additional fields.
-		collection.Projections,
-		false, // Disable schema inference and perform full reductions.
-		&pf.SerPolicy{},
-	); err != nil {
-		return nil, fmt.Errorf("configuring combiner: %w", err)
 	}
 
-	for d := range documents {
-		if uuids[d].Node&uint64(message.Flag_ACK_TXN) != 0 {
-			continue
-		}
+	combiner.Send(&pr.CombineRequest{
+		Open: &pr.CombineRequest_Open{
+			Bindings: []*pr.CombineRequest_Open_Binding{
+				{
+					Full:        true,
+					Key:         collection.Key,
+					Projections: collection.Projections,
+					SchemaJson:  collection.GetReadSchemaJson(),
+					SerPolicy:   nil,
+					UuidPtr:     collection.UuidPtr,
+					Values:      nil,
+				},
+			},
+		},
+	})
 
-		var err = combiner.CombineRight(json.RawMessage(documents[d]))
+	// Feed documents into the combiner.
+	for _, d := range documents {
+		var err = combiner.Send(
+			&pr.CombineRequest{
+				Add: &pr.CombineRequest_Add{
+					Binding: 0,
+					DocJson: json.RawMessage(d),
+					Front:   false,
+				},
+			})
 		if err != nil {
-			return nil, fmt.Errorf("combine-right failed: %w", err)
+			_, err = combiner.Recv()
+			return nil, err
 		}
 	}
+	combiner.CloseSend()
 
 	// Drain actual documents from the combiner.
 	var actual []json.RawMessage
-	_, err = combiner.Drain(func(_ bool, doc json.RawMessage, _, _ []byte) error {
+	for {
+		var response, err = combiner.Recv()
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			return nil, err
+		}
 		// Replace document UUID placeholder with a more friendly value.
-		doc = bytes.Replace(doc, pf.DocumentUUIDPlaceholder, []byte("flow-uuid"), -1)
-		actual = append(actual, doc)
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("combiner.Finish failed: %w", err)
+		actual = append(actual,
+			bytes.Replace(response.DocJson, pf.DocumentUUIDPlaceholder, []byte("flow-uuid"), 1))
 	}
 
 	return actual, nil
