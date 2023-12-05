@@ -69,6 +69,18 @@ func NewTaskService(
 		}
 	}()
 
+	if config.UdsPath == "" {
+		var udsFile, err = os.CreateTemp("", "flow-testing-socket")
+		if err != nil {
+			return nil, fmt.Errorf("creating task service socket file: %w", err)
+		}
+		config.UdsPath = udsFile.Name()
+
+		if err = os.Remove(config.UdsPath); err != nil {
+			return nil, fmt.Errorf("removing task service socket file: %w", err)
+		}
+	}
+
 	// Unix sockets are limited to 108 characters in length.
 	// TODO(johnny): Remove hashing after pet-set migration, when we know there's a bound on directory length.
 	if len(config.UdsPath) > 107 {

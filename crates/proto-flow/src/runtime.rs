@@ -364,3 +364,86 @@ pub mod materialize_response_ext {
         pub stats: ::core::option::Option<super::super::ops::Stats>,
     }
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CombineRequest {
+    #[prost(message, optional, tag = "1")]
+    pub open: ::core::option::Option<combine_request::Open>,
+    #[prost(message, optional, tag = "2")]
+    pub add: ::core::option::Option<combine_request::Add>,
+}
+/// Nested message and enum types in `CombineRequest`.
+pub mod combine_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Open {
+        #[prost(message, repeated, tag = "1")]
+        pub bindings: ::prost::alloc::vec::Vec<open::Binding>,
+    }
+    /// Nested message and enum types in `Open`.
+    pub mod open {
+        #[allow(clippy::derive_partial_eq_without_eq)]
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Binding {
+            /// Perform full reduction (true), or only associative combines (false)?
+            #[prost(bool, tag = "1")]
+            pub full: bool,
+            /// Composite key to combine over, as JSON-Pointers.
+            #[prost(string, repeated, tag = "2")]
+            pub key: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+            /// Projections of the collection, which must include all `key` and `values` pointers.
+            #[prost(message, repeated, tag = "3")]
+            pub projections: ::prost::alloc::vec::Vec<
+                super::super::super::flow::Projection,
+            >,
+            /// Collection JSON-Schema to reduce over.
+            #[prost(string, tag = "4")]
+            pub schema_json: ::prost::alloc::string::String,
+            /// Optional SerPolicy to use for extracted fields and the document.
+            #[prost(message, optional, tag = "5")]
+            pub ser_policy: ::core::option::Option<super::super::super::flow::SerPolicy>,
+            /// JSON pointer at which a UUID placeholder should be added on drain.
+            /// Leave empty to disable.
+            #[prost(string, tag = "6")]
+            pub uuid_ptr: ::prost::alloc::string::String,
+            /// Values to extract and return.
+            #[prost(string, repeated, tag = "7")]
+            pub values: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        }
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Add {
+        /// Binding of the added document.
+        #[prost(uint32, tag = "1")]
+        pub binding: u32,
+        /// Document to add to the combiner.
+        #[prost(string, tag = "2")]
+        pub doc_json: ::prost::alloc::string::String,
+        /// Add document to the front (true), or back (false) of the combiner?
+        #[prost(bool, tag = "3")]
+        pub front: bool,
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CombineResponse {
+    /// Binding of this document.
+    #[prost(uint32, tag = "1")]
+    pub binding: u32,
+    /// Is this document marked as deleted?
+    #[prost(bool, tag = "2")]
+    pub deleted: bool,
+    /// Full JSON document.
+    #[prost(string, tag = "3")]
+    pub doc_json: ::prost::alloc::string::String,
+    /// Was this document at the front, or back of the combiner?
+    #[prost(bool, tag = "4")]
+    pub front: bool,
+    /// Packed key extracted from the captured document.
+    #[prost(bytes = "bytes", tag = "5")]
+    pub key_packed: ::prost::bytes::Bytes,
+    /// Packed values extracted from the captured document.
+    #[prost(bytes = "bytes", tag = "6")]
+    pub values_packed: ::prost::bytes::Bytes,
+}
