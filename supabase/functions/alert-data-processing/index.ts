@@ -97,7 +97,7 @@ const formatConfirmationEmail = ({
     arguments: { emails, spec_type },
     catalog_name,
 }: AlertRecord): EmailConfig => {
-    const subject = `Estuary Flow: Alert for ${spec_type} ${catalog_name}`;
+    const subject = `Estuary Flow: Alert resolved for ${spec_type} ${catalog_name}`;
 
     const detailsPageURL = getTaskDetailsPageURL(catalog_name, spec_type);
 
