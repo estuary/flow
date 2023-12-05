@@ -6,7 +6,7 @@ use super::{
     draft::{self, Error},
     logs, Handler, HandlerStatus, Id,
 };
-use agent_sql::{connector_tags::UnknownConnector, publications::Row};
+use agent_sql::{connector_tags::UnknownConnector, publications::Row, CatalogType};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -163,6 +163,18 @@ impl PublishHandler {
         let spec_rows =
             specs::resolve_specifications(row.draft_id, row.pub_id, row.user_id, txn).await?;
         tracing::debug!(specs = %spec_rows.len(), "resolved specifications");
+
+        // Keep track of which collections are being deleted so that we can account for them
+        // while resolving "remote" collection specs during the build.
+        let deleted_collections: HashSet<String> = spec_rows
+            .iter()
+            .filter_map(|r| match r.live_type {
+                Some(CatalogType::Collection) if r.draft_type.is_none() => {
+                    Some(r.catalog_name.clone())
+                }
+                _ => None,
+            })
+            .collect();
 
         let mut draft_catalog = models::Catalog::default();
         let mut live_catalog = models::Catalog::default();
@@ -328,7 +340,8 @@ impl PublishHandler {
             &self.builds_root,
             &draft_catalog,
             &self.connector_network,
-            self.control_plane.clone(),
+            self.control_plane
+                .with_deleted_collections(deleted_collections),
             row.logs_token,
             &self.logs_tx,
             row.pub_id,
