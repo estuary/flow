@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sync/atomic"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/estuary/flow/go/protocols/fdb/tuple"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
+	pr "github.com/estuary/flow/go/protocols/runtime"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -33,18 +35,29 @@ type FlowTesting struct {
 	pub *message.Publisher
 	// Clock held by the Publisher.
 	pubClock *message.Clock
+	// Task service for associated testing RPCs.
+	svc *bindings.TaskService
 }
 
 // NewFlowTesting builds a *FlowTesting which will ingest using the given AppendService.
-func NewFlowTesting(inner *FlowConsumer, ajc *client.AppendService) *FlowTesting {
+func NewFlowTesting(inner *FlowConsumer, ajc *client.AppendService) (*FlowTesting, error) {
 	var pubClock = new(message.Clock)
+
+	svc, err := bindings.NewTaskService(
+		pr.TaskServiceConfig{TaskName: "flow-testing"},
+		ops.NewLocalPublisher(ops.ShardLabeling{TaskName: "flow-testing"}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create task service: %w", err)
+	}
 
 	return &FlowTesting{
 		FlowConsumer: inner,
 		ajc:          ajc,
 		pub:          message.NewPublisher(ajc, pubClock),
 		pubClock:     pubClock,
-	}
+		svc:          svc,
+	}, nil
 }
 
 // ResetState is a testing API that clears registers of derivation shards.
@@ -115,67 +128,69 @@ func (f *FlowTesting) Ingest(ctx context.Context, req *pf.IngestRequest) (*pf.In
 		return nil, fmt.Errorf("loading collection: %w", err)
 	}
 
-	var publisher = ops.NewLocalPublisher(ops.ShardLabeling{
-		Build:    req.BuildId,
-		TaskName: req.Collection.String(),
-		TaskType: ops.TaskType_capture,
-	})
-
 	// Build a combiner of documents for this collection.
-	combiner, err := bindings.NewCombine(publisher)
+	combiner, err := pr.NewCombinerClient(f.svc.Conn()).Combine(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("creating combiner: %w", err)
 	}
-	defer combiner.Destroy()
-
-	if err := combiner.Configure(
-		collection.Name.String(),
-		collection.Name,
-		collection.WriteSchemaJson,
-		collection.UuidPtr,
-		collection.Key,
-		collection.PartitionFields,
-		collection.Projections,
-		true, // Enable schema inference (act as a capture does).
-		&pf.SerPolicy{},
-	); err != nil {
-		return nil, fmt.Errorf("configuring combiner: %w", err)
-	}
+	combiner.Send(&pr.CombineRequest{
+		Open: &pr.CombineRequest_Open{
+			Bindings: []*pr.CombineRequest_Open_Binding{
+				{
+					Full:        false,
+					Key:         collection.Key,
+					Projections: collection.Projections,
+					SchemaJson:  collection.WriteSchemaJson,
+					SerPolicy:   nil,
+					UuidPtr:     collection.UuidPtr,
+					Values:      collection.PartitionFields,
+				},
+			},
+		},
+	})
 
 	// Feed fixture documents into the combiner.
 	for d := range req.DocsJsonVec {
-		var err = combiner.CombineRight(json.RawMessage(req.DocsJsonVec[d]))
+		var err = combiner.Send(
+			&pr.CombineRequest{
+				Add: &pr.CombineRequest_Add{
+					Binding: 0,
+					DocJson: json.RawMessage(req.DocsJsonVec[d]),
+					Front:   false,
+				},
+			})
 		if err != nil {
-			return nil, fmt.Errorf("combine-right failed: %w", err)
+			_, err = combiner.Recv()
+			return nil, err
 		}
 	}
+	combiner.CloseSend()
 
 	// Update our publisher's clock to the current test time.
 	var delta = time.Duration(atomic.LoadInt64((*int64)(&f.Service.PublishClockDelta)))
 	f.pubClock.Update(time.Now().Add(delta))
-
 	// Drain the combiner, mapping documents to logical partitions and writing
 	// them as uncommitted messages.
 	var mapper = flow.NewMapper(ctx, f.Service.Etcd, f.Journals, f.Service.State.LocalKey)
-	// Ignore combine stats for testing
-	if _, err = combiner.Drain(func(full bool, doc json.RawMessage, packedKey, packedPartitions []byte) error {
-		if full {
-			panic("ingest produces only partially combined documents")
+
+	for {
+		var response, err = combiner.Recv()
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			return nil, err
 		}
 
-		var partitions, err = tuple.Unpack(packedPartitions)
-		if err != nil {
-			return fmt.Errorf("unpacking partitions: %w", err)
-		}
-		_, err = f.pub.PublishUncommitted(mapper.Map, flow.Mappable{
+		if partitions, err := tuple.Unpack(response.ValuesPacked); err != nil {
+			return nil, fmt.Errorf("unpacking partitions: %w", err)
+		} else if _, err = f.pub.PublishUncommitted(mapper.Map, flow.Mappable{
 			Spec:       collection,
-			Doc:        doc,
-			PackedKey:  packedKey,
+			Doc:        json.RawMessage(response.DocJson),
+			PackedKey:  response.KeyPacked,
 			Partitions: partitions,
-		})
-		return err
-	}); err != nil {
-		return nil, fmt.Errorf("combiner.Drain: %w", err)
+		}); err != nil {
+			return nil, err
+		}
 	}
 
 	// Build and immediately write all ACK intents.

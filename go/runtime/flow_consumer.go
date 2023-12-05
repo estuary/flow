@@ -229,7 +229,11 @@ func (f *FlowConsumer) InitApplication(args runconsumer.InitArgs) error {
 
 	if config.Flow.TestAPIs {
 		var ajc = client.NewAppendService(args.Context, args.Service.Journals)
-		pf.RegisterTestingServer(args.Server.GRPCServer, NewFlowTesting(f, ajc))
+		if testing, err := NewFlowTesting(f, ajc); err != nil {
+			return fmt.Errorf("creating testing service: %w", err)
+		} else {
+			pf.RegisterTestingServer(args.Server.GRPCServer, testing)
+		}
 	}
 
 	pr.RegisterShufflerServer(args.Server.GRPCServer, shuffle.NewAPI(args.Service.Resolver))

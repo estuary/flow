@@ -23,7 +23,15 @@ models = { path = "../models" }
 ops = { path = "../ops" }
 proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
-proto-grpc = { path = "../proto-grpc", features = ["capture_client", "derive_client", "derive_server", "materialize_client"] }
+proto-grpc = { path = "../proto-grpc", features = [
+    "capture_client",
+    "capture_server",
+    "derive_client",
+    "derive_server",
+    "materialize_client",
+    "materialize_server",
+    "runtime_server",
+    ]}
 tuple = { path = "../tuple" }
 
 anyhow = { workspace = true }
