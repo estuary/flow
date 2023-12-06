@@ -215,11 +215,12 @@ impl<R: Retry> Reader<R> {
     }
 
     fn continue_after_eof(&self) -> bool {
-        if self.read.end_offset > 0 {
-            self.read.offset < self.read.end_offset
-                || (self.read.offset >= self.target_write_head && !self.read.block)
+        let want_more = self.read.end_offset == 0 || self.read.offset < self.read.end_offset;
+
+        if self.read.block {
+            want_more
         } else {
-            self.read.offset < self.target_write_head
+            want_more && self.read.offset < self.target_write_head
         }
     }
 
