@@ -200,6 +200,9 @@ pub mod request {
         /// Exists is true if this document has previously been loaded or stored.
         #[prost(bool, tag = "7")]
         pub exists: bool,
+        /// Delete is true if this document is being deleted, which also implies `exists`.
+        #[prost(bool, tag = "8")]
+        pub delete: bool,
     }
     /// Mark the end of the Store phase, and if the remote store is authoritative,
     /// instruct it to start committing its transaction.

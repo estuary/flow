@@ -172,6 +172,8 @@ message Request {
     ];
     // Exists is true if this document has previously been loaded or stored.
     bool exists = 7;
+    // Delete is true if this document is being deleted, which also implies `exists`.
+    bool delete = 8;
   }
   Store store = 7;
 

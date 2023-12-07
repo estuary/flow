@@ -566,6 +566,7 @@ fn ex_materialize_request() -> materialize::Request {
             values_json: json!([3.14159, "field!"]).to_string(),
             doc_json: json!({"full": "document"}).to_string(),
             exists: true,
+            delete: true,
         }),
         start_commit: Some(materialize::request::StartCommit {
             runtime_checkpoint: Some(ex_consumer_checkpoint()),

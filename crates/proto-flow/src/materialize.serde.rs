@@ -1314,6 +1314,9 @@ impl serde::Serialize for request::Store {
         if self.exists {
             len += 1;
         }
+        if self.delete {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("materialize.Request.Store", len)?;
         if self.binding != 0 {
             struct_ser.serialize_field("binding", &self.binding)?;
@@ -1338,6 +1341,9 @@ impl serde::Serialize for request::Store {
         if self.exists {
             struct_ser.serialize_field("exists", &self.exists)?;
         }
+        if self.delete {
+            struct_ser.serialize_field("delete", &self.delete)?;
+        }
         struct_ser.end()
     }
 }
@@ -1360,6 +1366,7 @@ impl<'de> serde::Deserialize<'de> for request::Store {
             "doc_json",
             "doc",
             "exists",
+            "delete",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1371,6 +1378,7 @@ impl<'de> serde::Deserialize<'de> for request::Store {
             ValuesPacked,
             DocJson,
             Exists,
+            Delete,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1399,6 +1407,7 @@ impl<'de> serde::Deserialize<'de> for request::Store {
                             "valuesPacked" | "values_packed" => Ok(GeneratedField::ValuesPacked),
                             "doc" | "doc_json" => Ok(GeneratedField::DocJson),
                             "exists" => Ok(GeneratedField::Exists),
+                            "delete" => Ok(GeneratedField::Delete),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1425,6 +1434,7 @@ impl<'de> serde::Deserialize<'de> for request::Store {
                 let mut values_packed__ = None;
                 let mut doc_json__ : Option<Box<serde_json::value::RawValue>> = None;
                 let mut exists__ = None;
+                let mut delete__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Binding => {
@@ -1475,6 +1485,12 @@ impl<'de> serde::Deserialize<'de> for request::Store {
                             }
                             exists__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Delete => {
+                            if delete__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("delete"));
+                            }
+                            delete__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(request::Store {
@@ -1485,6 +1501,7 @@ impl<'de> serde::Deserialize<'de> for request::Store {
                     values_packed: values_packed__.unwrap_or_default(),
                     doc_json: doc_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
                     exists: exists__.unwrap_or_default(),
+                    delete: delete__.unwrap_or_default(),
                 })
             }
         }
