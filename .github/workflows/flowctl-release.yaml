@@ -17,8 +17,12 @@ jobs:
       fail-fast: false
       matrix:
         config:
+          # Use the oldest ubuntu version because it'll have an old glibc. Programs built agains
+          # an old glibc can link to a newer version, but not the other way around.
           - os: ubuntu-20.04
             assetName: flowctl-x86_64-linux
+          # On mac, it's the opposite. Programs built on the latest macos can run on older versions,
+          # but not the other way around.
           - os: macos-latest
             assetName: flowctl-multiarch-macos
     steps:
@@ -31,12 +35,12 @@ jobs:
 
       # Linux build steps:
       - name: Install Rust
-        if: matrix.config.os == 'ubuntu-latest'
+        if: matrix.config.os == 'ubuntu-20.04'
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
       - name: Build Linux
-        if: matrix.config.os == 'ubuntu-latest'
+        if: matrix.config.os == 'ubuntu-20.04'
         run: |-
           cargo build -p flowctl --release && mv target/release/flowctl ${ASSET_NAME}
 
