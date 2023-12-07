@@ -13,7 +13,6 @@ crate_type = ["staticlib"]
 
 [dependencies]
 allocator = { path = "../allocator" }
-build = { path = "../build" }
 cgo = { path = "../cgo" }
 derive = { path = "../derive" }
 ops = { path = "../ops" }

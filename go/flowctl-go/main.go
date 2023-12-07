@@ -71,10 +71,6 @@ Monitor a catalog's dataflow execution in the data-plane, and exit when it finis
 Delete tasks and collections of a built Flow catalog.
 `, &apiDelete{})
 
-	addCmd(apis, "spec", "Query a connector image for its specification", `
-Query a connector image for its specification.
-`, &apiSpec{})
-
 	addCmd(apis, "discover", "Discover resource of a capture connector", `
 Discover resources of a capture connector using a configuration.
 `, &apiDiscover{})
