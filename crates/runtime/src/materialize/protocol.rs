@@ -322,6 +322,7 @@ pub fn send_connector_store(
     Request {
         store: Some(request::Store {
             binding: binding_index as u32,
+            delete: meta.deleted(),
             doc_json,
             exists: meta.front(),
             key_json: String::new(), // TODO(johnny)
