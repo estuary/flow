@@ -428,7 +428,8 @@ expression: json_test(msg)
     "values": [3.14159,"field!"],
     "valuesPacked": "PFs=",
     "doc": {"full":"document"},
-    "exists": true
+    "exists": true,
+    "delete": true
   },
   "startCommit": {
     "runtimeCheckpoint": {
