@@ -193,10 +193,6 @@ ${RUST_MUSL_BIN}/flow-network-tunnel:
 ${RUST_MUSL_BIN}/flow-parser:
 	cargo build --target x86_64-unknown-linux-musl --release --locked -p parser
 
-.PHONY: ${RUST_MUSL_BIN}/flow-schema-inference
-${RUST_MUSL_BIN}/flow-schema-inference:
-	cargo build --target x86_64-unknown-linux-musl --release --locked -p schema-inference
-
 .PHONY: ${RUST_MUSL_BIN}/flow-schemalate
 ${RUST_MUSL_BIN}/flow-schemalate:
 	cargo build --target x86_64-unknown-linux-musl --release --locked -p schemalate
@@ -217,7 +213,6 @@ MUSL_TARGETS = \
 	${PKGDIR}/bin/flow-connector-init \
 	${PKGDIR}/bin/flow-network-tunnel \
 	${PKGDIR}/bin/flow-parser \
-	${PKGDIR}/bin/flow-schema-inference \
 	${PKGDIR}/bin/flow-schemalate
 
 .PHONY: linux-gnu-binaries
@@ -225,11 +220,10 @@ linux-gnu-binaries: $(GNU_TARGETS)
 
 .PHONY: linux-musl-binaries
 linux-musl-binaries: | ${PKGDIR}
-	cargo build --target x86_64-unknown-linux-musl --release --locked -p connector-init -p network-tunnel -p parser -p schema-inference -p schemalate
+	cargo build --target x86_64-unknown-linux-musl --release --locked -p connector-init -p network-tunnel -p parser -p schemalate
 	cp -f target/x86_64-unknown-linux-musl/release/flow-connector-init .build/package/bin/
 	cp -f target/x86_64-unknown-linux-musl/release/flow-network-tunnel .build/package/bin/
 	cp -f target/x86_64-unknown-linux-musl/release/flow-parser .build/package/bin/
-	cp -f target/x86_64-unknown-linux-musl/release/flow-schema-inference .build/package/bin/
 	cp -f target/x86_64-unknown-linux-musl/release/flow-schemalate .build/package/bin/
 
 .PHONY: linux-binaries
@@ -255,9 +249,6 @@ ${PKGDIR}/bin/flow-network-tunnel: ${RUST_MUSL_BIN}/flow-network-tunnel | ${PKGD
 
 ${PKGDIR}/bin/flow-parser: ${RUST_MUSL_BIN}/flow-parser | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-parser $@
-
-${PKGDIR}/bin/flow-schema-inference: ${RUST_MUSL_BIN}/flow-schema-inference | ${PKGDIR}
-	cp ${RUST_MUSL_BIN}/flow-schema-inference $@
 
 ${PKGDIR}/bin/flow-schemalate: ${RUST_MUSL_BIN}/flow-schemalate | ${PKGDIR}
 	cp ${RUST_MUSL_BIN}/flow-schemalate $@

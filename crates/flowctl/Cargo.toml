@@ -28,7 +28,6 @@ proto-flow = { path = "../proto-flow" }
 proto-gazette = { path = "../proto-gazette" }
 proto-grpc = { path = "../proto-grpc", features = ["capture_client"] }
 runtime = { path = "../runtime" }
-schema-inference = { path = "../schema-inference" }
 sources = { path = "../sources" }
 tables = { path = "../tables", features = ["persist"] }
 validation = { path = "../validation" }

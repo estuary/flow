@@ -1,4 +1,3 @@
-mod combine;
 mod extract;
 mod metrics;
 mod service;
