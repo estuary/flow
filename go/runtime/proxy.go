@@ -15,6 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.gazette.dev/core/consumer"
 	pc "go.gazette.dev/core/consumer/protocol"
+	"golang.org/x/net/trace"
 )
 
 type proxyServer struct {
@@ -58,6 +59,10 @@ func (ps *proxyServer) Proxy(client pf.NetworkProxy_ProxyServer) (_err error) {
 	// Resolve the target port to the current container.
 	var container, publisher = resolution.Store.(Application).proxyHook()
 	resolution.Done()
+
+	if tr, ok := trace.FromContext(ctx); ok {
+		tr.LazyPrintf("resolved container: %s", container.String())
+	}
 
 	if container == nil {
 		// Container is not currently running.

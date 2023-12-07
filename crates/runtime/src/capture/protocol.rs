@@ -76,7 +76,7 @@ pub async fn recv_connector_opened(
     doc::combine::Accumulator,
     Response,
 )> {
-    let opened = verify("connecter", "Opened").not_eof(opened)?;
+    let mut opened = verify("connecter", "Opened").not_eof(opened)?;
 
     let task = Task::new(&open, &opened)?;
     // Inferred document shapes, indexed by binding offset.
@@ -88,12 +88,6 @@ pub async fn recv_connector_opened(
 
     let checkpoint = db.load_checkpoint().await?;
 
-    let mut opened = Response {
-        opened: Some(response::Opened {
-            explicit_acknowledgements: true,
-        }),
-        ..Default::default()
-    };
     opened.set_internal(|internal| {
         internal.opened = Some(capture_response_ext::Opened {
             runtime_checkpoint: Some(checkpoint),
