@@ -5,13 +5,14 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/estuary/flow/go/connector"
+	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
 	"github.com/estuary/flow/go/labels"
 	pfc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	pm "github.com/estuary/flow/go/protocols/materialize"
 	"github.com/estuary/flow/go/protocols/ops"
+	pr "github.com/estuary/flow/go/protocols/runtime"
 	log "github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
 	mbp "go.gazette.dev/core/mainboilerplate"
@@ -64,6 +65,19 @@ func (cmd apiDelete) execute(ctx context.Context) error {
 		return fmt.Errorf("extracting from build: %w", err)
 	}
 
+	svc, err := bindings.NewTaskService(
+		pr.TaskServiceConfig{
+			TaskName:         "delete",
+			ContainerNetwork: cmd.Network,
+			AllowLocal:       false, // TODO(johnny)?
+		},
+		ops.NewLocalPublisher(ops.ShardLabeling{TaskName: "activate"}),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create task service: %w", err)
+	}
+	defer svc.Drop()
+
 	shards, journals, err := flow.DeletionChanges(ctx, rjc, sc, collections, tasks)
 	if err != nil {
 		return err
@@ -81,11 +95,6 @@ func (cmd apiDelete) execute(ctx context.Context) error {
 		if !ok {
 			continue
 		}
-		var publisher = ops.NewLocalPublisher(ops.ShardLabeling{
-			Build:    spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
-			TaskName: spec.TaskName(),
-			TaskType: ops.TaskType_capture,
-		})
 
 		if spec.ShardTemplate.Disable {
 			log.WithField("capture", spec.Name.String()).
@@ -96,22 +105,20 @@ func (cmd apiDelete) execute(ctx context.Context) error {
 		// Communicate a deletion to the connector as a semantic apply of this capture with no bindings.
 		spec.Bindings = nil
 
-		var request = &pfc.Request{
+		stream, err := pfc.NewConnectorClient(svc.Conn()).Capture(ctx)
+		if err != nil {
+			return fmt.Errorf("starting capture: %w", err)
+		}
+		stream.Send(&pfc.Request{
 			Apply: &pfc.Request_Apply{
 				Capture: spec,
-				Version: publisher.Labels().Build,
+				Version: spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
 				DryRun:  cmd.DryRun,
 			},
-		}
-		var response, err = connector.Invoke[pfc.Response](
-			ctx,
-			request,
-			cmd.Network,
-			publisher,
-			func(driver *connector.Driver) (pfc.Connector_CaptureClient, error) {
-				return driver.CaptureClient().Capture(ctx)
-			},
-		)
+		})
+		stream.CloseSend()
+
+		response, err := stream.Recv()
 		if err != nil {
 			return fmt.Errorf("deleting capture %q: %w", spec.Name, err)
 		}
@@ -131,11 +138,6 @@ func (cmd apiDelete) execute(ctx context.Context) error {
 		if !ok {
 			continue
 		}
-		var publisher = ops.NewLocalPublisher(ops.ShardLabeling{
-			Build:    spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
-			TaskName: spec.TaskName(),
-			TaskType: ops.TaskType_materialization,
-		})
 
 		if spec.ShardTemplate.Disable {
 			log.WithField("materialization", spec.Name.String()).
@@ -146,22 +148,20 @@ func (cmd apiDelete) execute(ctx context.Context) error {
 		// Communicate a deletion to the connector as a semantic apply of this materialization with no bindings.
 		spec.Bindings = nil
 
-		var request = &pm.Request{
+		stream, err := pm.NewConnectorClient(svc.Conn()).Materialize(ctx)
+		if err != nil {
+			return fmt.Errorf("starting capture: %w", err)
+		}
+		stream.Send(&pm.Request{
 			Apply: &pm.Request_Apply{
 				Materialization: spec,
-				Version:         publisher.Labels().Build,
+				Version:         spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
 				DryRun:          cmd.DryRun,
 			},
-		}
-		var response, err = connector.Invoke[pm.Response](
-			ctx,
-			request,
-			cmd.Network,
-			publisher,
-			func(driver *connector.Driver) (pm.Connector_MaterializeClient, error) {
-				return driver.MaterializeClient().Materialize(ctx)
-			},
-		)
+		})
+		stream.CloseSend()
+
+		response, err := stream.Recv()
 		if err != nil {
 			return fmt.Errorf("deleting materialization %q: %w", spec.Name, err)
 		}
