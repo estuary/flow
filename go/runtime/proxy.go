@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"sync/atomic"
 
-	"github.com/estuary/flow/go/connector"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
 	"github.com/prometheus/client_golang/prometheus"
@@ -63,7 +62,7 @@ func (ps *proxyServer) Proxy(client pf.NetworkProxy_ProxyServer) (_err error) {
 		// Container is not currently running.
 		opened.OpenResponse.Status = pf.TaskNetworkProxyResponse_SHARD_STOPPED
 		return client.Send(opened)
-	} else if open.Open.TargetPort == uint32(connector.CONNECTOR_INIT_PORT) {
+	} else if open.Open.TargetPort == uint32(connectorInitPort) {
 		opened.OpenResponse.Status = pf.TaskNetworkProxyResponse_PORT_NOT_ALLOWED
 		return client.Send(opened)
 	}
@@ -214,3 +213,6 @@ var proxyConnBytesOutboundCounter = promauto.NewCounterVec(prometheus.CounterOpt
 	Name: "net_proxy_conn_outbound_bytes_total",
 	Help: "total bytes proxied from container to client",
 }, []string{"shard", "port"})
+
+// See crates/runtime/src/container.rs
+const connectorInitPort = 49092
