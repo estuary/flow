@@ -112,16 +112,6 @@ typedef struct TaskService {
   uintptr_t err_cap;
 } TaskService;
 
-struct Channel *combine_create(int32_t log_level, int32_t log_dest_fd);
-
-void combine_invoke1(struct Channel *ch, struct In1 i);
-
-void combine_invoke4(struct Channel *ch, struct In4 i);
-
-void combine_invoke16(struct Channel *ch, struct In16 i);
-
-void combine_drop(struct Channel *ch);
-
 struct Channel *extract_create(int32_t log_level, int32_t log_dest_fd);
 
 void extract_invoke1(struct Channel *ch, struct In1 i);

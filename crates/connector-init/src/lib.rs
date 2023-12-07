@@ -9,7 +9,6 @@ mod codec;
 mod derive;
 mod inspect;
 mod materialize;
-mod proxy;
 pub mod rpc;
 
 #[derive(clap::Parser, Debug)]
@@ -76,9 +75,6 @@ pub async fn run(
         .max_decoding_message_size(usize::MAX) // Up from 4MB. Accept whatever the runtime sends.
         .max_encoding_message_size(usize::MAX); // The default, made explicit.
 
-    let proxy_handler = proxy::ProxyHandler::new("localhost");
-    let proxy = proto_grpc::flow::network_proxy_server::NetworkProxyServer::new(proxy_handler);
-
     // Gracefully exit on either SIGINT (ctrl-c) or SIGTERM.
     let mut sigint = unix::signal(unix::SignalKind::interrupt()).unwrap();
     let mut sigterm = unix::signal(unix::SignalKind::terminate()).unwrap();
@@ -95,7 +91,6 @@ pub async fn run(
         .add_service(capture)
         .add_service(derive)
         .add_service(materialize)
-        .add_service(proxy)
         .serve_with_incoming_shutdown(incoming, signal)
         .await?;
 

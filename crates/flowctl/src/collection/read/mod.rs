@@ -1,4 +1,4 @@
-use crate::dataplane::{self, fetch_data_plane_access_token};
+use crate::dataplane::{self};
 use crate::{collection::CollectionJournalSelector, output::OutputType};
 use anyhow::Context;
 use journal_client::{
@@ -8,7 +8,6 @@ use journal_client::{
     read::uncommitted::{ExponentialBackoff, JournalRead, ReadStart, ReadUntil, Reader},
     Client,
 };
-use reqwest::StatusCode;
 use time::OffsetDateTime;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 
@@ -16,41 +15,6 @@ use tokio_util::compat::FuturesAsyncReadCompatExt;
 pub struct SchemaInferenceArgs {
     #[clap(flatten)]
     pub selector: CollectionJournalSelector,
-}
-
-pub async fn get_collection_inferred_schema(
-    ctx: &mut crate::CliContext,
-    args: &SchemaInferenceArgs,
-) -> anyhow::Result<()> {
-    let cp_client = ctx.controlplane_client().await?;
-    let token = fetch_data_plane_access_token(cp_client, vec![args.selector.collection.clone()])
-        .await
-        .context("fetching data plane access token")?;
-
-    let client = reqwest::Client::new();
-
-    let inference_response = client
-        .get(format!("{}/infer_schema", token.gateway_url))
-        .query(&[("collection", args.selector.collection.clone())])
-        .bearer_auth(token.auth_token.clone())
-        .send()
-        .await
-        .context("schema inference request")?;
-
-    match inference_response.status() {
-        StatusCode::OK => {
-            let response: schema_inference::server::InferenceResponse =
-                inference_response.json().await?;
-            let schema_json = serde_json::to_string(&response.schema)?;
-
-            println!("{}", schema_json);
-        }
-        err => {
-            anyhow::bail!("[{}]: {}", err, inference_response.text().await?);
-        }
-    }
-
-    Ok(())
 }
 
 #[derive(clap::Args, Default, Debug, Clone)]
