@@ -8,10 +8,12 @@ import (
 	"os"
 	"time"
 
-	"github.com/estuary/flow/go/connector"
+	"github.com/estuary/flow/go/bindings"
 	pc "github.com/estuary/flow/go/protocols/capture"
+	pfc "github.com/estuary/flow/go/protocols/capture"
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
+	pr "github.com/estuary/flow/go/protocols/runtime"
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/sirupsen/logrus"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -45,25 +47,33 @@ func (cmd apiDiscover) execute(ctx context.Context) (*pc.Response_Discovered, er
 	if err != nil {
 		return nil, err
 	}
-	var publisher = ops.NewLocalPublisher(ops.ShardLabeling{
-		TaskName: cmd.Name,
-	})
 
-	var request = &pc.Request{
+	svc, err := bindings.NewTaskService(
+		pr.TaskServiceConfig{
+			TaskName:         cmd.Name,
+			ContainerNetwork: cmd.Network,
+			AllowLocal:       false, // TODO(johnny)?
+		},
+		ops.NewLocalPublisher(ops.ShardLabeling{TaskName: cmd.Name}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create task service: %w", err)
+	}
+	defer svc.Drop()
+
+	stream, err := pfc.NewConnectorClient(svc.Conn()).Capture(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("starting capture: %w", err)
+	}
+	stream.Send(&pfc.Request{
 		Discover: &pc.Request_Discover{
 			ConnectorType: pf.CaptureSpec_IMAGE,
 			ConfigJson:    spec,
 		},
-	}
-	response, err := connector.Invoke[pc.Response](
-		ctx,
-		request,
-		cmd.Network,
-		publisher,
-		func(driver *connector.Driver) (pc.Connector_CaptureClient, error) {
-			return driver.CaptureClient().Capture(ctx)
-		},
-	)
+	})
+	stream.CloseSend()
+
+	response, err := stream.Recv()
 	if err != nil {
 		return nil, err
 	}
