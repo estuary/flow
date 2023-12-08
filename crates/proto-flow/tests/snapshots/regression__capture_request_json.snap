@@ -86,7 +86,8 @@ expression: json_test(msg)
         },
         "backfill": 1
       }
-    ]
+    ],
+    "lastVersion": "11:22:33:44"
   },
   "apply": {
     "capture": {
@@ -216,7 +217,8 @@ expression: json_test(msg)
         }
       ]
     },
-    "version": "11:22:33:44"
+    "version": "11:22:33:44",
+    "lastVersion": "00:11:22:33"
   },
   "open": {
     "capture": {

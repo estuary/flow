@@ -124,6 +124,8 @@ pub async fn walk_all_derivations(
             shuffle_key_types,
             project_root: _,
             import_map: _,
+            last_collection: _,
+            last_version: _,
         } = &mut request;
 
         let derive::response::Validated {
@@ -451,6 +453,9 @@ fn walk_derive_request<'a>(
         shuffle_key_types,
         project_root: project_root.to_string(),
         import_map,
+        // TODO(johnny): Thread these through.
+        last_collection: None,
+        last_version: String::new(),
     };
 
     Some((built_index, derivation, request))
