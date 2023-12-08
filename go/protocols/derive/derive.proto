@@ -82,6 +82,10 @@ message Request {
     // framed to the user's filesystem, rather than the filesystem within
     // the connector.
     map<string, string> import_map = 7;
+    // Last CollectionSpec which was validated and published.
+    flow.CollectionSpec last_collection = 8;
+    // Version of the last validated CollectionSpec.
+    string last_version = 9;
   }
   Validate validate = 2;
 

@@ -95,6 +95,8 @@ pub async fn walk_all_materializations(
             config_json,
             bindings: binding_requests,
             name,
+            last_materialization: _,
+            last_version: _,
         } = &mut request;
 
         let materialize::response::Validated {
@@ -310,6 +312,9 @@ fn walk_materialization_request<'a>(
         connector_type,
         config_json,
         bindings,
+        // TODO(johnny): Thread these through.
+        last_materialization: None,
+        last_version: String::new(),
     };
 
     Some((materialization, request))

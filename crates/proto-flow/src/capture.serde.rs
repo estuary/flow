@@ -305,6 +305,12 @@ impl serde::Serialize for request::Apply {
         if self.dry_run {
             len += 1;
         }
+        if self.last_capture.is_some() {
+            len += 1;
+        }
+        if !self.last_version.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("capture.Request.Apply", len)?;
         if let Some(v) = self.capture.as_ref() {
             struct_ser.serialize_field("capture", v)?;
@@ -314,6 +320,12 @@ impl serde::Serialize for request::Apply {
         }
         if self.dry_run {
             struct_ser.serialize_field("dryRun", &self.dry_run)?;
+        }
+        if let Some(v) = self.last_capture.as_ref() {
+            struct_ser.serialize_field("lastCapture", v)?;
+        }
+        if !self.last_version.is_empty() {
+            struct_ser.serialize_field("lastVersion", &self.last_version)?;
         }
         struct_ser.end()
     }
@@ -329,6 +341,10 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
             "version",
             "dry_run",
             "dryRun",
+            "last_capture",
+            "lastCapture",
+            "last_version",
+            "lastVersion",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -336,6 +352,8 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
             Capture,
             Version,
             DryRun,
+            LastCapture,
+            LastVersion,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -360,6 +378,8 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                             "capture" => Ok(GeneratedField::Capture),
                             "version" => Ok(GeneratedField::Version),
                             "dryRun" | "dry_run" => Ok(GeneratedField::DryRun),
+                            "lastCapture" | "last_capture" => Ok(GeneratedField::LastCapture),
+                            "lastVersion" | "last_version" => Ok(GeneratedField::LastVersion),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -382,6 +402,8 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                 let mut capture__ = None;
                 let mut version__ = None;
                 let mut dry_run__ = None;
+                let mut last_capture__ = None;
+                let mut last_version__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Capture => {
@@ -402,12 +424,26 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                             }
                             dry_run__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::LastCapture => {
+                            if last_capture__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("lastCapture"));
+                            }
+                            last_capture__ = map_.next_value()?;
+                        }
+                        GeneratedField::LastVersion => {
+                            if last_version__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("lastVersion"));
+                            }
+                            last_version__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(request::Apply {
                     capture: capture__,
                     version: version__.unwrap_or_default(),
                     dry_run: dry_run__.unwrap_or_default(),
+                    last_capture: last_capture__,
+                    last_version: last_version__.unwrap_or_default(),
                 })
             }
         }
@@ -801,6 +837,12 @@ impl serde::Serialize for request::Validate {
         if !self.bindings.is_empty() {
             len += 1;
         }
+        if self.last_capture.is_some() {
+            len += 1;
+        }
+        if !self.last_version.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("capture.Request.Validate", len)?;
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
@@ -815,6 +857,12 @@ impl serde::Serialize for request::Validate {
         }
         if !self.bindings.is_empty() {
             struct_ser.serialize_field("bindings", &self.bindings)?;
+        }
+        if let Some(v) = self.last_capture.as_ref() {
+            struct_ser.serialize_field("lastCapture", v)?;
+        }
+        if !self.last_version.is_empty() {
+            struct_ser.serialize_field("lastVersion", &self.last_version)?;
         }
         struct_ser.end()
     }
@@ -832,6 +880,10 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
             "config_json",
             "config",
             "bindings",
+            "last_capture",
+            "lastCapture",
+            "last_version",
+            "lastVersion",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -840,6 +892,8 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
             ConnectorType,
             ConfigJson,
             Bindings,
+            LastCapture,
+            LastVersion,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -865,6 +919,8 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                             "connectorType" | "connector_type" => Ok(GeneratedField::ConnectorType),
                             "config" | "config_json" => Ok(GeneratedField::ConfigJson),
                             "bindings" => Ok(GeneratedField::Bindings),
+                            "lastCapture" | "last_capture" => Ok(GeneratedField::LastCapture),
+                            "lastVersion" | "last_version" => Ok(GeneratedField::LastVersion),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -888,6 +944,8 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                 let mut connector_type__ = None;
                 let mut config_json__ : Option<Box<serde_json::value::RawValue>> = None;
                 let mut bindings__ = None;
+                let mut last_capture__ = None;
+                let mut last_version__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Name => {
@@ -914,6 +972,18 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                             }
                             bindings__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::LastCapture => {
+                            if last_capture__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("lastCapture"));
+                            }
+                            last_capture__ = map_.next_value()?;
+                        }
+                        GeneratedField::LastVersion => {
+                            if last_version__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("lastVersion"));
+                            }
+                            last_version__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(request::Validate {
@@ -921,6 +991,8 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                     connector_type: connector_type__.unwrap_or_default(),
                     config_json: config_json__.map(|r| Box::<str>::from(r).into()).unwrap_or_default(),
                     bindings: bindings__.unwrap_or_default(),
+                    last_capture: last_capture__,
+                    last_version: last_version__.unwrap_or_default(),
                 })
             }
         }

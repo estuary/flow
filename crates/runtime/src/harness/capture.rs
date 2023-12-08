@@ -38,6 +38,8 @@ pub fn run_capture<L: LogHandler>(
                 capture: Some(spec.clone()),
                 dry_run: false,
                 version: version.clone(),
+                last_capture: None,
+                last_version: String::new(),
             }),
             ..Default::default()
         };

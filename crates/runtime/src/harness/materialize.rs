@@ -34,6 +34,8 @@ pub fn run_materialize<L: LogHandler>(
                 materialization: Some(spec.clone()),
                 dry_run: false,
                 version: version.clone(),
+                last_materialization: None,
+                last_version: String::new(),
             }),
             ..Default::default()
         };
