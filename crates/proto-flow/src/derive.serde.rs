@@ -1007,6 +1007,12 @@ impl serde::Serialize for request::Validate {
         if !self.import_map.is_empty() {
             len += 1;
         }
+        if self.last_collection.is_some() {
+            len += 1;
+        }
+        if !self.last_version.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("derive.Request.Validate", len)?;
         if self.connector_type != 0 {
             let v = super::flow::collection_spec::derivation::ConnectorType::try_from(self.connector_type)
@@ -1035,6 +1041,12 @@ impl serde::Serialize for request::Validate {
         if !self.import_map.is_empty() {
             struct_ser.serialize_field("importMap", &self.import_map)?;
         }
+        if let Some(v) = self.last_collection.as_ref() {
+            struct_ser.serialize_field("lastCollection", v)?;
+        }
+        if !self.last_version.is_empty() {
+            struct_ser.serialize_field("lastVersion", &self.last_version)?;
+        }
         struct_ser.end()
     }
 }
@@ -1057,6 +1069,10 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
             "projectRoot",
             "import_map",
             "importMap",
+            "last_collection",
+            "lastCollection",
+            "last_version",
+            "lastVersion",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1068,6 +1084,8 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
             ShuffleKeyTypes,
             ProjectRoot,
             ImportMap,
+            LastCollection,
+            LastVersion,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -1096,6 +1114,8 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                             "shuffleKeyTypes" | "shuffle_key_types" => Ok(GeneratedField::ShuffleKeyTypes),
                             "projectRoot" | "project_root" => Ok(GeneratedField::ProjectRoot),
                             "importMap" | "import_map" => Ok(GeneratedField::ImportMap),
+                            "lastCollection" | "last_collection" => Ok(GeneratedField::LastCollection),
+                            "lastVersion" | "last_version" => Ok(GeneratedField::LastVersion),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -1122,6 +1142,8 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                 let mut shuffle_key_types__ = None;
                 let mut project_root__ = None;
                 let mut import_map__ = None;
+                let mut last_collection__ = None;
+                let mut last_version__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ConnectorType => {
@@ -1168,6 +1190,18 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                                 map_.next_value::<std::collections::BTreeMap<_, _>>()?
                             );
                         }
+                        GeneratedField::LastCollection => {
+                            if last_collection__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("lastCollection"));
+                            }
+                            last_collection__ = map_.next_value()?;
+                        }
+                        GeneratedField::LastVersion => {
+                            if last_version__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("lastVersion"));
+                            }
+                            last_version__ = Some(map_.next_value()?);
+                        }
                     }
                 }
                 Ok(request::Validate {
@@ -1178,6 +1212,8 @@ impl<'de> serde::Deserialize<'de> for request::Validate {
                     shuffle_key_types: shuffle_key_types__.unwrap_or_default(),
                     project_root: project_root__.unwrap_or_default(),
                     import_map: import_map__.unwrap_or_default(),
+                    last_collection: last_collection__,
+                    last_version: last_version__.unwrap_or_default(),
                 })
             }
         }

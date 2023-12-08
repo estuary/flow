@@ -70,6 +70,11 @@ message Request {
       uint32 backfill = 4;
     }
     repeated Binding bindings = 4;
+    // Last MaterializationSpec which was validated and published.
+    // Note that this MaterializationSpec may not have been applied.
+    flow.MaterializationSpec last_materialization = 5;
+    // Version of the last validated MaterializationSpec.
+    string last_version = 6;
   }
   Validate validate = 2;
 
@@ -86,6 +91,10 @@ message Request {
     // Is this Apply a dry-run? If so, no action is undertaken and Apply will
     // report only what would have happened.
     bool dry_run = 3;
+    // Last CaptureSpec which was successfully applied.
+    flow.MaterializationSpec last_materialization = 4;
+    // Version of the last applied MaterializationSpec.
+    string last_version = 5;
   }
   Apply apply = 3;
 

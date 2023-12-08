@@ -157,7 +157,8 @@ expression: json_test(msg)
     "projectRoot": "file:///project/root",
     "importMap": {
       "/using/typescript/module": "file:///path/to/import"
-    }
+    },
+    "lastVersion": "00:11:22:33"
   },
   "open": {
     "collection": {

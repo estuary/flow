@@ -16,6 +16,8 @@ pub fn parse_validate(
         shuffle_key_types: _,
         project_root: _,
         import_map: _,
+        last_collection: _,
+        last_version: _,
     } = &validate;
 
     let config: Config = serde_json::from_str(&config_json)
