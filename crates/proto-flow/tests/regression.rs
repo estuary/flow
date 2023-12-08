@@ -376,11 +376,15 @@ fn ex_capture_request() -> capture::Request {
                 resource_config_json: json!({"resource":"config"}).to_string(),
                 backfill: 1,
             }],
+            last_capture: None,
+            last_version: "11:22:33:44".to_string(),
         }),
         apply: Some(capture::request::Apply {
             capture: Some(ex_capture_spec()),
             dry_run: false,
             version: "11:22:33:44".to_string(),
+            last_capture: None,
+            last_version: "00:11:22:33".to_string(),
         }),
         open: Some(capture::request::Open {
             capture: Some(ex_capture_spec()),
@@ -462,6 +466,8 @@ fn ex_derive_request() -> derive::Request {
                 "file:///path/to/import".to_string(),
             )]
             .into(),
+            last_collection: None,
+            last_version: "00:11:22:33".to_string(),
         }),
         open: Some(derive::request::Open {
             collection: Some(ex_collection_spec()),
@@ -539,11 +545,15 @@ fn ex_materialize_request() -> materialize::Request {
                 field_config_json_map: ex_field_config(),
                 backfill: 3,
             }],
+            last_materialization: None,
+            last_version: "00:11:22:33".to_string(),
         }),
         apply: Some(materialize::request::Apply {
             materialization: Some(ex_materialization_spec()),
             dry_run: false,
             version: "11:22:33:44".to_string(),
+            last_materialization: None,
+            last_version: "00:11:22:33".to_string(),
         }),
         open: Some(materialize::request::Open {
             materialization: Some(ex_materialization_spec()),

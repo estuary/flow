@@ -73,6 +73,13 @@ pub mod request {
         pub config_json: ::prost::alloc::string::String,
         #[prost(message, repeated, tag = "4")]
         pub bindings: ::prost::alloc::vec::Vec<validate::Binding>,
+        /// Last CaptureSpec which was validated and published.
+        /// Note that this CaptureSpec may not have been applied.
+        #[prost(message, optional, tag = "5")]
+        pub last_capture: ::core::option::Option<super::super::flow::CaptureSpec>,
+        /// Version of the last validated CaptureSpec.
+        #[prost(string, tag = "6")]
+        pub last_version: ::prost::alloc::string::String,
     }
     /// Nested message and enum types in `Validate`.
     pub mod validate {
@@ -112,6 +119,12 @@ pub mod request {
         /// report only what would have happened.
         #[prost(bool, tag = "3")]
         pub dry_run: bool,
+        /// Last CaptureSpec which was successfully applied.
+        #[prost(message, optional, tag = "4")]
+        pub last_capture: ::core::option::Option<super::super::flow::CaptureSpec>,
+        /// Version of the last applied CaptureSpec.
+        #[prost(string, tag = "5")]
+        pub last_version: ::prost::alloc::string::String,
     }
     /// Open a capture for reading documents from the endpoint.
     /// Unless the connector requests explicit acknowledgements,

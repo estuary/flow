@@ -85,6 +85,8 @@ pub async fn walk_all_captures(
             config_json,
             bindings: binding_requests,
             name,
+            last_capture: _,
+            last_version: _,
         } = &mut request;
 
         let capture::response::Validated {
@@ -249,6 +251,9 @@ fn walk_capture_request<'a>(
         connector_type,
         config_json,
         bindings,
+        // TODO(johnny): Thread these through.
+        last_capture: None,
+        last_version: String::new(),
     };
 
     Some((capture, request))

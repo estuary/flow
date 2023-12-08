@@ -84,6 +84,12 @@ pub mod request {
             ::prost::alloc::string::String,
             ::prost::alloc::string::String,
         >,
+        /// Last CollectionSpec which was validated and published.
+        #[prost(message, optional, tag = "8")]
+        pub last_collection: ::core::option::Option<super::super::flow::CollectionSpec>,
+        /// Version of the last validated CollectionSpec.
+        #[prost(string, tag = "9")]
+        pub last_version: ::prost::alloc::string::String,
     }
     /// Nested message and enum types in `Validate`.
     pub mod validate {
