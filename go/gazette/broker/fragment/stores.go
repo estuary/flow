@@ -10,6 +10,8 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/Azure/azure-pipeline-go/pipeline"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/service"
 	"github.com/gorilla/schema"
 	"github.com/pkg/errors"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -35,10 +37,14 @@ var sharedStores = struct {
 	azure *azureBackend
 	fs    *fsBackend
 }{
-	s3:    newS3Backend(),
-	gcs:   &gcsBackend{},
-	azure: &azureBackend{},
-	fs:    &fsBackend{},
+	s3:  newS3Backend(),
+	gcs: &gcsBackend{},
+	azure: &azureBackend{
+		pipelines: make(map[string]pipeline.Pipeline),
+		clients:   make(map[string]*service.Client),
+		udcs:      make(map[string]udcAndExp),
+	},
+	fs: &fsBackend{},
 }
 
 func getBackend(scheme string) backend {
@@ -194,14 +200,13 @@ func evalPathPostfix(spool Spool, spec *pb.JournalSpec) (string, error) {
 // in the implementation of new journal naming taxonomies which don't disrupt
 // journal fragments that are already written.
 //
-//      var cfg = RewriterConfig{
-//          Replace: "/old-path/page-views/
-//          Find:    "/bar/v1/page-views/",
-//      }
-//      // Remaps journal name => fragment store URL:
-//      //  "/foo/bar/v1/page-views/part-000" => "s3://my-bucket/foo/old-path/page-views/part-000" // Matched.
-//      //  "/foo/bar/v2/page-views/part-000" => "s3://my-bucket/foo/bar/v2/page-views/part-000"   // Not matched.
-//
+//	var cfg = RewriterConfig{
+//	    Replace: "/old-path/page-views/
+//	    Find:    "/bar/v1/page-views/",
+//	}
+//	// Remaps journal name => fragment store URL:
+//	//  "/foo/bar/v1/page-views/part-000" => "s3://my-bucket/foo/old-path/page-views/part-000" // Matched.
+//	//  "/foo/bar/v2/page-views/part-000" => "s3://my-bucket/foo/bar/v2/page-views/part-000"   // Not matched.
 type RewriterConfig struct {
 	// Find is the string to replace in the unmodified journal name.
 	Find string
