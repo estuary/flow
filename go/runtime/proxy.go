@@ -95,12 +95,11 @@ func (ps *proxyServer) Proxy(client pf.NetworkProxy_ProxyServer) (_err error) {
 	// Dial the container.
 	var dialer net.Dialer
 	dialed, err := dialer.DialContext(ctx, "tcp", address)
-	var delegate = dialed.(*net.TCPConn)
-	defer delegate.Close()
-
 	if err != nil {
 		return fmt.Errorf("failed to connect to container: %w", err)
 	}
+	var delegate = dialed.(*net.TCPConn)
+	defer delegate.Close()
 
 	// All validations were successful and we dialed the container.
 	_ = client.Send(opened)
