@@ -86,7 +86,7 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, error) 
 		requestExt.Open.RocksdbDescriptor = bindings.NewRocksDBDescriptor(d.recorder)
 	}
 
-	_ = doSend(d.client, &pd.Request{
+	_ = doSend[pd.Response](d.client, &pd.Request{
 		Open: &pd.Request_Open{
 			Collection: d.term.taskSpec,
 			Version:    d.term.labels.Build,
@@ -96,7 +96,7 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, error) 
 		Internal: pr.ToInternal(requestExt),
 	})
 
-	var opened, err = doRecv(d.client)
+	var opened, err = doRecv[pd.Response](d.client)
 	if err != nil {
 		return pf.Checkpoint{}, err
 	}
@@ -113,7 +113,7 @@ func (d *Derive) ConsumeMessage(_ consumer.Shard, env message.Envelope, _ *messa
 	var keyPacked = isr.Arena.Bytes(isr.PackedKey[isr.Index])
 	var docJson = isr.Arena.Bytes(isr.Docs[isr.Index])
 
-	return doSend(d.client, &pd.Request{
+	return doSend[pd.Response](d.client, &pd.Request{
 		Read: &pd.Request_Read{
 			Transform: uint32(isr.ShuffleIndex),
 			Uuid:      &uuid,
@@ -131,7 +131,7 @@ func (d *Derive) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) error
 	_ = d.client.Send(&pd.Request{Flush: &pd.Request_Flush{}})
 
 	for {
-		var response, err = doRecv(d.client)
+		var response, err = doRecv[pd.Response](d.client)
 		if err != nil {
 			return err
 		}
@@ -172,13 +172,13 @@ func (d *Derive) StartCommit(_ consumer.Shard, cp pf.Checkpoint, waitFor client.
 	_ = d.recorder.Barrier(waitFor)
 
 	// Tell derive runtime we're starting to commit.
-	if err := doSend(d.client, &pd.Request{
+	if err := doSend[pd.Response](d.client, &pd.Request{
 		StartCommit: &pd.Request_StartCommit{RuntimeCheckpoint: &cp},
 	}); err != nil {
 		return client.FinishedOperation(err)
 	}
 	// Await it's StartedCommit, which tells us that all recovery log writes have been sequenced.
-	if started, err := doRecv(d.client); err != nil {
+	if started, err := doRecv[pd.Response](d.client); err != nil {
 		return client.FinishedOperation(err)
 	} else if started.StartedCommit == nil {
 		return client.FinishedOperation(fmt.Errorf("expected StartedCommit, but got %#v", started))

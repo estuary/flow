@@ -58,7 +58,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, er
 		requestExt.Open.RocksdbDescriptor = bindings.NewRocksDBDescriptor(m.recorder)
 	}
 
-	_ = doSend(m.client, &pm.Request{
+	_ = doSend[pm.Response](m.client, &pm.Request{
 		Open: &pm.Request_Open{
 			Materialization: m.term.taskSpec,
 			Version:         m.term.labels.Build,
@@ -68,7 +68,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, er
 		Internal: pr.ToInternal(requestExt),
 	})
 
-	var opened, err = doRecv(m.client)
+	var opened, err = doRecv[pm.Response](m.client)
 	if err != nil {
 		return pf.Checkpoint{}, err
 	}
@@ -82,7 +82,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, er
 	}
 
 	// Send initial Acknowledge of the session.
-	_ = doSend(m.client, &pm.Request{Acknowledge: &pm.Request_Acknowledge{}})
+	_ = doSend[pm.Response](m.client, &pm.Request{Acknowledge: &pm.Request_Acknowledge{}})
 
 	m.acknowledged = pf.NewAsyncOperation()
 	go readAcknowledged(m.client, m.acknowledged)
@@ -115,7 +115,7 @@ func (m *Materialize) ConsumeMessage(shard consumer.Shard, envelope message.Enve
 		if m.acknowledged.Err() != nil {
 			return m.acknowledged.Err()
 		}
-		var _, err = doRecv(m.client)
+		var _, err = doRecv[pm.Response](m.client)
 		return err
 	}
 
@@ -126,11 +126,11 @@ func (m *Materialize) FinalizeTxn(shard consumer.Shard, pub *message.Publisher) 
 	// Precondition: m.acknowledged has resolved successfully and m.client is not being read.
 
 	// Send Flush and await Flushed response.
-	if err := doSend(m.client, &pm.Request{Flush: &pm.Request_Flush{}}); err != nil {
+	if err := doSend[pm.Response](m.client, &pm.Request{Flush: &pm.Request_Flush{}}); err != nil {
 		return err
 	}
 
-	var resp, err = doRecv(m.client)
+	var resp, err = doRecv[pm.Response](m.client)
 	if err != nil {
 		return err
 	} else if resp.Flushed == nil {
@@ -157,13 +157,13 @@ func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFo
 	_ = m.recorder.Barrier(waitFor)
 
 	// Tell materialize runtime we're starting to commit.
-	if err := doSend(m.client, &pm.Request{
+	if err := doSend[pm.Response](m.client, &pm.Request{
 		StartCommit: &pm.Request_StartCommit{RuntimeCheckpoint: &cp},
 	}); err != nil {
 		return client.FinishedOperation(err)
 	}
 	// Await it's StartedCommit, which tells us that all recovery log writes have been sequenced.
-	if started, err := doRecv(m.client); err != nil {
+	if started, err := doRecv[pm.Response](m.client); err != nil {
 		return client.FinishedOperation(err)
 	} else if started.StartedCommit == nil {
 		return client.FinishedOperation(fmt.Errorf("expected StartedCommit, but got %#v", started))
@@ -178,7 +178,7 @@ func (m *Materialize) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFo
 	}
 
 	// Send Acknowledge.
-	if err := doSend(m.client, &pm.Request{
+	if err := doSend[pm.Response](m.client, &pm.Request{
 		Acknowledge: &pm.Request_Acknowledge{},
 	}); err != nil {
 		return client.FinishedOperation(err)
@@ -212,7 +212,7 @@ func readAcknowledged(
 		acknowledged.Resolve(__err)
 	}()
 
-	if resp, err := doRecv(client); err != nil {
+	if resp, err := doRecv[pm.Response](client); err != nil {
 		return err
 	} else if resp.Acknowledged == nil {
 		return fmt.Errorf("expected Acknowledged (got %#v)", resp)

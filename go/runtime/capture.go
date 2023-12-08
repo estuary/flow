@@ -73,7 +73,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, error)
 		requestExt.Open.RocksdbDescriptor = bindings.NewRocksDBDescriptor(c.recorder)
 	}
 
-	_ = doSend(c.client, &pc.Request{
+	_ = doSend[pc.Response](c.client, &pc.Request{
 		Open: &pc.Request_Open{
 			Capture:   c.term.taskSpec,
 			Version:   c.term.labels.Build,
@@ -83,7 +83,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, error)
 		Internal: pr.ToInternal(requestExt),
 	})
 
-	var opened, err = doRecv(c.client)
+	var opened, err = doRecv[pc.Response](c.client)
 	if err != nil {
 		return pf.Checkpoint{}, err
 	}
@@ -175,12 +175,12 @@ func pollLoop(
 		case <-pollCh:
 		}
 
-		if err := doSend(client, &pc.Request{
+		if err := doSend[pc.Response](client, &pc.Request{
 			Acknowledge: &pc.Request_Acknowledge{Checkpoints: 0},
 		}); err != nil {
 			return err
 		}
-		polled, err := doRecv(client)
+		polled, err := doRecv[pc.Response](client)
 		if err != nil {
 			return err
 		}
@@ -256,7 +256,7 @@ func (c *Capture) ConsumeMessage(shard consumer.Shard, env message.Envelope, pub
 	// Transaction responses are completed with a final checkpoint that has stats.
 	// Preceding checkpoints have state updates, which we don't care about here.
 	for stats == nil {
-		var response, err = doRecv(c.client)
+		var response, err = doRecv[pc.Response](c.client)
 		if err != nil {
 			return err
 		}
@@ -316,7 +316,7 @@ func (c *Capture) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor co
 	_ = c.recorder.Barrier(waitFor)
 
 	// Tell capture runtime we're starting to commit.
-	if err := doSend(c.client, &pc.Request{
+	if err := doSend[pc.Response](c.client, &pc.Request{
 		Internal: pr.ToInternal(&pr.CaptureRequestExt{
 			StartCommit: &pr.CaptureRequestExt_StartCommit{RuntimeCheckpoint: &cp},
 		}),
@@ -324,7 +324,7 @@ func (c *Capture) StartCommit(shard consumer.Shard, cp pf.Checkpoint, waitFor co
 		return client.FinishedOperation(err)
 	}
 	// Await it's StartedCommit, which tells us that all recovery log writes have been sequenced.
-	if started, err := doRecv(c.client); err != nil {
+	if started, err := doRecv[pc.Response](c.client); err != nil {
 		return client.FinishedOperation(err)
 	} else if started.Checkpoint == nil { // Checkpoint is used for StartedCommit.
 		return client.FinishedOperation(fmt.Errorf("expected StartedCommit, but got %#v", started))
