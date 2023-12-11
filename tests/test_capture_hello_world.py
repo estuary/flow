@@ -10,7 +10,7 @@ def test_basic(request, snapshot):
             "--source",
             request.config.rootdir + "/tests/test_capture_hello_world.flow.yaml",
             "--sessions",
-            "3",
+            "3,2",
         ],
         stdout=subprocess.PIPE,
         text=True,

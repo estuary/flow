@@ -19,5 +19,19 @@
       "message": "Hello 2!",
       "ts": "redacted-timestamp"
     }
+  ],
+  [
+    "acmeCo/events",
+    {
+      "message": "Hello 3!",
+      "ts": "redacted-timestamp"
+    }
+  ],
+  [
+    "acmeCo/events",
+    {
+      "message": "Hello 4!",
+      "ts": "redacted-timestamp"
+    }
   ]
 ]
