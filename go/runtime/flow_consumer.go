@@ -93,14 +93,31 @@ func (f *FlowConsumer) NewStore(shard consumer.Shard, rec *recoverylog.Recorder)
 		return nil, fmt.Errorf("completing shard split: %w", err)
 	}
 
+	// Note that the if/else blocks below are REQUIRED.
+	// We cannot return a *Capture directly, because it may be nil but a
+	// naive return would convert it into a non-nil consumer.Store holding
+	// a dynamic instance of (*Capture)(nil).
+
 	var taskType = shard.Spec().LabelSet.ValueOf(labels.TaskType)
 	switch taskType {
 	case ops.TaskType_capture.String():
-		return NewCaptureApp(f, shard, rec)
+		if c, err := NewCaptureApp(f, shard, rec); err != nil {
+			return nil, err
+		} else {
+			return c, nil
+		}
 	case ops.TaskType_derivation.String():
-		return NewDeriveApp(f, shard, rec)
+		if d, err := NewDeriveApp(f, shard, rec); err != nil {
+			return nil, err
+		} else {
+			return d, nil
+		}
 	case ops.TaskType_materialization.String():
-		return NewMaterializeApp(f, shard, rec)
+		if m, err := NewMaterializeApp(f, shard, rec); err != nil {
+			return nil, err
+		} else {
+			return m, nil
+		}
 	default:
 		return nil, fmt.Errorf("don't know how to serve catalog task type %q", taskType)
 	}
