@@ -33,9 +33,6 @@ update auth.users set
   updated_at = now()
 ;
 
-insert into auth.identities (id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
-select id, id, json_build_object('sub', id), 'email', now(), now(), now() from auth.users;
-
 -- Public directive which allows a new user to provision a new tenant.
 insert into directives (catalog_prefix, spec, token) values
   ('ops/', '{"type":"clickToAccept"}', 'd4a37dd7-1bf5-40e3-b715-60c4edd0f6dc'),
