@@ -383,14 +383,11 @@ func (s *FSMSuite) TestPropertyUpdates(c *gc.C) {
 	// Attempting a property update of an existing file fails.
 	c.Check(s.property(44, 0xf11e2261, 100, "/a/path", "bad"), gc.Equals, ErrLinkExists)
 
-	// Attempting a property update of an existing property fails. We may change
-	// this in the future, if a sufficient motivating case appears, but for now
-	// we apply the most restrictive behavior.
-	c.Check(s.property(44, 0xf11e2261, 100, "/a/property", "update"), gc.Equals,
-		ErrPropertyExists)
+	// An existing property may be updated.
+	c.Check(s.property(44, 0xf11e2261, 100, "/a/property", "update"), gc.IsNil)
 
 	c.Check(s.fsm.Properties, gc.DeepEquals, map[string]string{
-		"/a/property":       "content",
+		"/a/property":       "update",
 		"/another/property": "other-content",
 	})
 }

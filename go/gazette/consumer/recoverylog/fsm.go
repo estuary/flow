@@ -301,8 +301,6 @@ func (m *FSM) applyWrite(op *RecordedOp) error {
 func (m *FSM) applyProperty(op *Property) error {
 	if _, ok := m.Links[op.Path]; ok {
 		return ErrLinkExists
-	} else if content, ok := m.Properties[op.Path]; ok && content != op.Content {
-		return ErrPropertyExists
 	}
 	if m.Properties == nil {
 		m.Properties = make(map[string]string)
