@@ -175,7 +175,10 @@ pub async fn do_oauth(
 
     let port = 16963;
 
-    tracing::warn!("Make sure that your application has http://localhost:{port} set as an allowed redirect URL");
+    let redirect_uri = format!("http://localhost:{port}/");
+    tracing::warn!(
+        "Make sure that your application has {redirect_uri} set as an allowed redirect URL"
+    );
     let api = ctx
         .config
         .api
@@ -185,11 +188,10 @@ pub async fn do_oauth(
     let mut oauth_endpoint = api.endpoint.clone();
     oauth_endpoint.set_path("functions/v1/oauth");
 
-    #[derive(serde::Deserialize)]
+    #[derive(serde::Deserialize, serde::Serialize)]
     struct AuthorizeResponse {
         url: String,
         state: String,
-        code_verifier: String,
     }
 
     let authorize_response_bytes = reqwest::Client::new()
@@ -202,7 +204,7 @@ pub async fn do_oauth(
                 "oauth2_client_id": client_id,
                 "oauth2_spec": oauth_spec
             },
-            "redirect_uri": format!("http://localhost:{port}").as_str(),
+            "redirect_uri": redirect_uri,
             "config": endpoint_config
         }))
         .send()
@@ -217,6 +219,10 @@ pub async fn do_oauth(
             format!("Unexpected auth-url response body: {str}")
         })?;
 
+    println!(
+        "Got authorize response: {}",
+        serde_json::to_string_pretty(&authorize_response).unwrap()
+    );
     println!("Opening authorize URL {}", authorize_response.url);
 
     open::that(authorize_response.url)?;
@@ -234,8 +240,8 @@ pub async fn do_oauth(
             "oauth2_spec": oauth_spec
         },
         "state": authorize_response.state,
-        "code_verifier": authorize_response.code_verifier,
-        "config": endpoint_config
+        "config": endpoint_config,
+        "redirect_uri": redirect_uri
     });
 
     let code_request_map = code_request_body.as_object_mut().unwrap();
@@ -244,7 +250,10 @@ pub async fn do_oauth(
         code_request_map.insert(k, serde_json::Value::String(v));
     }
 
-    println!("Exchanging auth code for access token");
+    println!(
+        "Exchanging auth code for access token. Request map: {}",
+        serde_json::to_string_pretty(&code_request_map).unwrap()
+    );
 
     let code_response = reqwest::Client::new()
         .post(oauth_endpoint)
