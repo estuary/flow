@@ -222,7 +222,7 @@ func (s *AppenderSuite) TestAppendCases(c *gc.C) {
 			{status: pb.Status_NOT_JOURNAL_PRIMARY_BROKER},
 			{status: pb.Status_OK},
 			// Case 2: Unexpected status is surfaced.
-			{status: pb.Status_INSUFFICIENT_JOURNAL_BROKERS},
+			{status: pb.Status_WRONG_APPEND_OFFSET},
 			// Case 3: As are errors.
 			{err: errors.New("an error")},
 		}
@@ -273,7 +273,7 @@ func (s *AppenderSuite) TestAppendCases(c *gc.C) {
 
 	// Case 2: Unexpected status is surfaced.
 	_, err = Append(ctx, rjc, pb.AppendRequest{Journal: "a/journal"}, con, tent)
-	c.Check(err, gc.ErrorMatches, "INSUFFICIENT_JOURNAL_BROKERS")
+	c.Check(err, gc.ErrorMatches, "WRONG_APPEND_OFFSET")
 
 	// Case 3: As are errors.
 	_, err = Append(ctx, rjc, pb.AppendRequest{Journal: "a/journal"}, con, tent)

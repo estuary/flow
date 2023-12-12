@@ -180,7 +180,7 @@ func Append(ctx context.Context, rjc pb.RoutedJournalClient, req pb.AppendReques
 			return a.Response, nil
 		} else if s, ok := status.FromError(err); ok && s.Code() == codes.Unavailable {
 			// Fallthrough to retry
-		} else if err == ErrNotJournalPrimaryBroker {
+		} else if err == ErrNotJournalPrimaryBroker || err == ErrInsufficientJournalBrokers {
 			// Fallthrough.
 		} else {
 			return a.Response, err
