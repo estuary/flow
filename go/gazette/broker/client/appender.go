@@ -96,8 +96,6 @@ func (a *Appender) Close() (err error) {
 		switch a.Response.Status {
 		case pb.Status_OK:
 			// Pass.
-		case pb.Status_JOURNAL_NOT_FOUND:
-			err = ErrJournalNotFound
 		case pb.Status_NOT_JOURNAL_PRIMARY_BROKER:
 			err = ErrNotJournalPrimaryBroker
 		case pb.Status_WRONG_APPEND_OFFSET:
