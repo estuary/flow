@@ -21,6 +21,12 @@ import (
 // writes block until successfully committed, as opposed to handling errors
 // and retries themselves.
 //
+// AppendService will retry all errors except for context cancellation and
+// ErrJournalNotFound. Appends to journals which don't exist are not treated
+// as hard errors, as there are scenarios where clients cannot prevent a raced
+// deletion of a journal. Instead, the append is discarded and callers can
+// inspect its response Status.
+//
 // For each journal, AppendService manages an ordered list of AsyncAppends,
 // each having buffered content to be appended. The list is dispatched in
 // FIFO order by a journal-specific goroutine.
@@ -278,7 +284,8 @@ func (p *AsyncAppend) Writer() *bufio.Writer { return p.fb.buf }
 // also roll back any writes queued by the caller, aborting the append
 // transaction. Require is valid for use only until Release is called.
 // Require returns itself, allowing uses like:
-//      Require(maybeErrors()).Release()
+//
+//	Require(maybeErrors()).Release()
 func (p *AsyncAppend) Require(err error) *AsyncAppend {
 	if err != nil && p.op.err == nil {
 		p.op.err = err
@@ -395,6 +402,10 @@ var serveAppends = func(s *AppendService, aa *AsyncAppend, err error) {
 					if err2 == context.Canceled || err2 == context.DeadlineExceeded {
 						err = err2
 						return nil // Break retry loop.
+					} else if err2 == ErrJournalNotFound {
+						log.WithField("journal", aa.app.Request.Journal).
+							Warn("discarding append for journal that does not exist")
+						return nil // Success; break loop.
 					} else if err2 != nil {
 						aa.app.Reset()
 						return err2 // Retry by returning |err2|.

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	gc "gopkg.in/check.v1"
 	pb "go.gazette.dev/core/broker/protocol"
 	"go.gazette.dev/core/broker/teststub"
+	gc "gopkg.in/check.v1"
 )
 
 type AppenderSuite struct{}
@@ -124,6 +124,17 @@ func (s *AppenderSuite) TestBrokerCommitError(c *gc.C) {
 			},
 			errRe:       `validating broker response: Commit.Journal: invalid length .*`,
 			cachedRoute: 0,
+		},
+		// Case: known error status (journal not found).
+		{
+			finish: func() {
+				broker.AppendRespCh <- pb.AppendResponse{
+					Status: pb.Status_JOURNAL_NOT_FOUND,
+					Header: *buildHeaderFixture(broker),
+				}
+			},
+			errVal:      ErrJournalNotFound,
+			cachedRoute: 1,
 		},
 		// Case: known error status (not primary broker).
 		{
