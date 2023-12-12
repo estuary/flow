@@ -261,3 +261,6 @@ where
         }
     })
 }
+
+// Maximum accepted message size.
+const MAX_MESSAGE_SIZE: usize = 1 << 26; // 64MB.
