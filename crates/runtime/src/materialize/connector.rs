@@ -34,6 +34,8 @@ pub async fn start<L: LogHandler>(
     ) -> crate::image_connector::StartRpcFuture<Response> {
         async move {
             proto_grpc::materialize::connector_client::ConnectorClient::new(channel)
+                .max_decoding_message_size(crate::MAX_MESSAGE_SIZE)
+                .max_encoding_message_size(usize::MAX)
                 .materialize(rx)
                 .await
         }
