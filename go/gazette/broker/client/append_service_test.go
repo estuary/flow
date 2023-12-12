@@ -66,6 +66,17 @@ func (s *AppendServiceSuite) TestBasicAppendWithRetry(c *gc.C) {
 	aaNext.mu.Unlock()
 
 	c.Check(as.PendingExcept(""), gc.HasLen, 0)
+
+	// Case: broker responds with a terminal JOURNAL_NOT_FOUND error.
+	aa = as.StartAppend(pb.AppendRequest{Journal: "a/journal"}, nil)
+	_, _ = aa.Writer().WriteString("hello, world")
+	c.Assert(aa.Release(), gc.IsNil)
+
+	readHelloWorldAppendRequest(c, broker) // RPC is dispatched to broker.
+	broker.AppendRespCh <- buildNotFoundFixture(broker)
+
+	c.Check(aa.Err(), gc.Equals, ErrJournalNotFound)
+	c.Check(aa.Response().Status, gc.DeepEquals, pb.Status_JOURNAL_NOT_FOUND)
 }
 
 func (s *AppendServiceSuite) TestAppendPipelineWithAborts(c *gc.C) {
@@ -608,6 +619,13 @@ func buildAppendResponseFixture(ep interface{ Endpoint() pb.Endpoint }) pb.Appen
 			CompressionCodec: pb.CompressionCodec_NONE,
 		},
 		Registers: new(pb.LabelSet),
+	}
+}
+
+func buildNotFoundFixture(ep interface{ Endpoint() pb.Endpoint }) pb.AppendResponse {
+	return pb.AppendResponse{
+		Status: pb.Status_JOURNAL_NOT_FOUND,
+		Header: *buildHeaderFixture(ep),
 	}
 }
 
