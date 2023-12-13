@@ -651,6 +651,8 @@ func TestRunTxnsACKsRecoveredCheckpoint(t *testing.T) {
 	var cp = playAndComplete(t, shard)
 	cp.AckIntents = map[pb.Journal][]byte{
 		echoOut.Name: []byte(`{"Key": "recovered fixture"}` + "\n"),
+		// Recovered ACK intents may included journals which do not exist.
+		"does/not/exist": []byte(`{"Key": "discarded fixture"}` + "\n"),
 	}
 
 	// Use a read channel fixture which immediately closes.

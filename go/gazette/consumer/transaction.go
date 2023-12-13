@@ -1,6 +1,7 @@
 package consumer
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"runtime/trace"
@@ -43,9 +44,24 @@ func runTransactions(s *shard, cp pc.Checkpoint, readCh <-chan EnvelopeOrError, 
 	<-realTimer.C // Timer starts as idle.
 
 	// Begin by acknowledging (or re-acknowledging) messages published as part
-	// of the most-recent recovered transaction checkpoint.
-	if err := txnAcknowledge(s, &prev, cp); err != nil {
-		return fmt.Errorf("txnAcknowledge(recovered Checkpoint): %w", err)
+	// of the most-recent recovered transaction checkpoint. This is a relaxed
+	// form of txnAcknowledge(), as we allow recovered intents to name journals
+	// that don't actually exist (presumably they were deleted in the meantime).
+	for journal, ack := range cp.AckIntents {
+		var op = client.NewAsyncOperation()
+		prev.acks[op] = struct{}{}
+
+		go func(req pb.AppendRequest, r *bytes.Reader) (_err error) {
+			defer func() { op.Resolve(_err) }()
+
+			if _, err := client.Append(s.ctx, s.ajc, req, r); err == client.ErrJournalNotFound {
+				log.WithField("journal", req.Journal).
+					Warn("discarding recovered ACK-intent of non-existent journal")
+			} else if err != nil {
+				return fmt.Errorf("writing recovered ACK intent for journal %s: %w", req.Journal, err)
+			}
+			return nil
+		}(pb.AppendRequest{Journal: journal}, bytes.NewReader(ack))
 	}
 
 	for {
