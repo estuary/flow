@@ -9,9 +9,6 @@ use tokio::runtime::Handle;
 pub struct RocksDB {
     db: Arc<rocksdb::DB>,
     _tmp: Option<tempfile::TempDir>,
-    // TODO(johnny): Remove after RocksDB cut-over.
-    migrate_connector_state: std::sync::atomic::AtomicBool,
-    migrate_checkpoint: std::sync::atomic::AtomicBool,
 }
 
 impl RocksDB {
@@ -19,7 +16,7 @@ impl RocksDB {
     pub async fn open(desc: Option<RocksDbDescriptor>) -> anyhow::Result<Self> {
         let (opts, path, _tmp) = unpack_descriptor(desc)?;
 
-        let (db, migrate) = Handle::current()
+        let db = Handle::current()
             .spawn_blocking(move || Self::open_blocking(opts, path))
             .await
             .unwrap()?;
@@ -27,39 +24,13 @@ impl RocksDB {
         Ok(Self {
             db: Arc::new(db),
             _tmp,
-            migrate_connector_state: migrate.into(),
-            migrate_checkpoint: migrate.into(),
         })
     }
 
     fn open_blocking(
         mut opts: rocksdb::Options,
         path: std::path::PathBuf,
-    ) -> anyhow::Result<(rocksdb::DB, bool)> {
-        // TODO(johnny): Remove after RocksDB cut-over.
-        // Is the recovered state.json more recent than the database?
-        // If so, we'll initially prefer it over DB-stored values.
-        let migrate = match (
-            std::fs::metadata(&path.join("state.json")),
-            std::fs::metadata(&path.join("CURRENT")),
-        ) {
-            (Ok(state), Ok(current)) => {
-                let state = state.modified().context("mtime")?;
-                let current = current.modified().context("mtime")?;
-                let migrate = state > current;
-
-                tracing::warn!(
-                    ?current,
-                    ?state,
-                    migrate,
-                    "rocks migration: CURRENT and state.json both exist",
-                );
-
-                migrate
-            }
-            _ => false,
-        };
-
+    ) -> anyhow::Result<rocksdb::DB> {
         // RocksDB requires that all column families be explicitly passed in on open
         // or it will fail. We don't currently use column families, but have in the
         // past and may in the future. Flexibly open the DB by explicitly listing,
@@ -93,7 +64,7 @@ impl RocksDB {
         let db = rocksdb::DB::open_cf_descriptors(&opts, &path, cf_descriptors)
             .context("failed to open RocksDB")?;
 
-        Ok((db, migrate))
+        Ok(db)
     }
 
     /// Perform an async get_opt using a blocking background thread.
@@ -142,16 +113,6 @@ impl RocksDB {
 
     /// Load a persisted runtime Checkpoint.
     pub async fn load_checkpoint(&self) -> anyhow::Result<consumer::Checkpoint> {
-        // TODO(johnny): Remove after RocksDB cut-over.
-        if self
-            .migrate_checkpoint
-            .swap(false, std::sync::atomic::Ordering::SeqCst)
-        {
-            // Ignore a DB-stored value and return an empty checkpoint.
-            // The Go runtime will then prefer its legacy, state.json value.
-            return Ok(consumer::Checkpoint::default());
-        }
-
         match self
             .get_opt(Self::CHECKPOINT_KEY, rocksdb::ReadOptions::default())
             .await
@@ -169,27 +130,17 @@ impl RocksDB {
         &self,
         initial: models::RawValue,
     ) -> anyhow::Result<models::RawValue> {
-        // TODO(johnny): Remove after RocksDB cut-over.
-        if self
-            .migrate_connector_state
-            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        if let Some(state) = self
+            .get_opt(Self::CONNECTOR_STATE_KEY, rocksdb::ReadOptions::default())
+            .await
+            .context("failed to load connector state")?
         {
-            // Fall through to immediately persist the value populated by state.json
-        } else {
-            if let Some(state) = self
-                .get_opt(Self::CONNECTOR_STATE_KEY, rocksdb::ReadOptions::default())
-                .await
-                .context("failed to load connector state")?
-            {
-                let state =
-                    String::from_utf8(state).context("decoding connector state as UTF-8")?;
-                let state =
-                    models::RawValue::from_string(state).context("decoding state as JSON")?;
+            let state = String::from_utf8(state).context("decoding connector state as UTF-8")?;
+            let state = models::RawValue::from_string(state).context("decoding state as JSON")?;
 
-                tracing::debug!(state=?ops::DebugJson(&state), "loaded a persisted connector state");
-                return Ok(state);
-            };
-        }
+            tracing::debug!(state=?ops::DebugJson(&state), "loaded a persisted connector state");
+            return Ok(state);
+        };
 
         let mut wo = rocksdb::WriteOptions::default();
         wo.set_sync(true);
