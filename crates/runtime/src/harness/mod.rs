@@ -42,13 +42,3 @@ pub trait Reader: Clone + Send + Sync + 'static {
         resume: consumer::Checkpoint,
     ) -> Self::Stream;
 }
-
-fn unique_version() -> String {
-    format!(
-        "harness-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-    )
-}

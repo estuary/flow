@@ -5,7 +5,7 @@ use anyhow::Context;
 use futures::{channel::mpsc, TryStreamExt};
 use proto_flow::flow;
 use proto_flow::materialize::{request, response, Request, Response};
-use proto_flow::runtime::{self, materialize_request_ext};
+use proto_flow::runtime;
 use std::pin::Pin;
 
 pub fn run_materialize<L: LogHandler>(
@@ -20,56 +20,29 @@ pub fn run_materialize<L: LogHandler>(
     let spec = spec.clone();
     let state_dir = state_dir.to_owned();
 
-    // TODO(johnny): extract from spec?
-    let version = super::unique_version();
-
     coroutines::try_coroutine(move |mut co| async move {
         let (mut request_tx, request_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
         let response_rx = runtime.serve_materialize(request_rx);
         tokio::pin!(response_rx);
 
-        // Send Apply.
-        let apply = Request {
-            apply: Some(request::Apply {
-                materialization: Some(spec.clone()),
-                dry_run: false,
-                version: version.clone(),
-                last_materialization: None,
-                last_version: String::new(),
-            }),
-            ..Default::default()
-        };
-        request_tx.try_send(Ok(apply)).expect("sender is empty");
-
-        // Receive Applied.
-        match response_rx.try_next().await? {
-            Some(applied) if applied.applied.is_some() => {
-                () = co.yield_(applied).await;
-            }
-            response => return verify("runtime", "Applied").fail(response),
-        }
-
         let state_dir = state_dir.to_str().context("tempdir is not utf8")?;
-        let rocksdb_desc = Some(runtime::RocksDbDescriptor {
+        let rocksdb_desc = runtime::RocksDbDescriptor {
             rocksdb_env_memptr: 0,
             rocksdb_path: state_dir.to_owned(),
-        });
-        let open_ext = materialize_request_ext::Open {
-            rocksdb_descriptor: rocksdb_desc.clone(),
         };
 
-        for target_transactions in sessions {
+        for (sessions_index, target_transactions) in sessions.into_iter().enumerate() {
             () = run_session(
                 &mut co,
-                &open_ext,
                 reader.clone(),
                 &mut request_tx,
                 &mut response_rx,
+                &rocksdb_desc,
+                sessions_index,
                 &spec,
                 &mut state,
                 target_transactions,
                 timeout,
-                &version,
             )
             .await?;
         }
@@ -78,7 +51,7 @@ pub fn run_materialize<L: LogHandler>(
         verify("runtime", "EOF").is_eof(response_rx.try_next().await?)?;
 
         // Re-open RocksDB.
-        let rocksdb = RocksDB::open(rocksdb_desc).await?;
+        let rocksdb = RocksDB::open(Some(rocksdb_desc)).await?;
 
         let checkpoint = rocksdb.load_checkpoint().await?;
         tracing::debug!(checkpoint = ?::ops::DebugJson(checkpoint), "final runtime checkpoint");
@@ -106,21 +79,50 @@ pub fn run_materialize<L: LogHandler>(
 
 async fn run_session(
     co: &mut coroutines::Suspend<Response, ()>,
-    open_ext: &materialize_request_ext::Open,
     reader: impl Reader,
     request_tx: &mut mpsc::Sender<anyhow::Result<Request>>,
     response_rx: &mut Pin<&mut impl ResponseStream>,
+    rocksdb_desc: &runtime::RocksDbDescriptor,
+    sessions_index: usize,
     spec: &flow::MaterializationSpec,
     state: &mut models::RawValue,
     target_transactions: usize,
     timeout: std::time::Duration,
-    version: &str,
 ) -> anyhow::Result<()> {
+    let labeling = crate::parse_shard_labeling(spec.shard_template.as_ref())?;
+
+    // Send Apply.
+    let apply = Request {
+        apply: Some(request::Apply {
+            materialization: Some(spec.clone()),
+            dry_run: false,
+            version: labeling.build.clone(),
+            last_materialization: None,
+            last_version: String::new(),
+        }),
+        ..Default::default()
+    }
+    .with_internal(|internal| {
+        if sessions_index == 0 {
+            internal.rocksdb_descriptor = Some(rocksdb_desc.clone());
+        }
+        internal.set_log_level(labeling.log_level());
+    });
+    request_tx.try_send(Ok(apply)).expect("sender is empty");
+
+    // Receive Applied.
+    match response_rx.try_next().await? {
+        Some(applied) if applied.applied.is_some() => {
+            () = co.yield_(applied).await;
+        }
+        response => return verify("runtime", "Applied").fail(response),
+    }
+
     // Send Open.
     let open = Request {
         open: Some(request::Open {
             materialization: Some(spec.clone()),
-            version: version.to_string(),
+            version: labeling.build.clone(),
             range: Some(flow::RangeSpec {
                 key_begin: 0,
                 key_end: u32::MAX,
@@ -131,9 +133,7 @@ async fn run_session(
         }),
         ..Default::default()
     }
-    .with_internal(|internal| {
-        internal.open = Some(open_ext.clone());
-    });
+    .with_internal(|internal| internal.set_log_level(labeling.log_level()));
     request_tx.try_send(Ok(open)).expect("sender is empty");
 
     // Receive Opened.

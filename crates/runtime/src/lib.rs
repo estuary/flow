@@ -161,6 +161,18 @@ impl<L: LogHandler> Runtime<L> {
     }
 }
 
+fn parse_shard_labeling(
+    shard: Option<&proto_gazette::consumer::ShardSpec>,
+) -> anyhow::Result<ops::ShardLabeling> {
+    let Some(shard) = shard else {
+        anyhow::bail!("missing shard")
+    };
+    let Some(set) = &shard.labels else {
+        anyhow::bail!("missing shard labels")
+    };
+    labels::parse::shard_labeling(set).context("parsing shard labeling")
+}
+
 // verify is a convenience for building protocol error messages in a standard, structured way.
 // You call verify to establish a Verify instance, which is then used to assert expectations
 // over protocol requests or responses.
