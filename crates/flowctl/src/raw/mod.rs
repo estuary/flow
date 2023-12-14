@@ -301,10 +301,16 @@ async fn do_combine(
     let mut out = io::BufWriter::new(io::stdout().lock());
 
     let mut drainer = accumulator.into_drainer()?;
+    let ser_policy = doc::SerPolicy {
+        str_truncate_after: 1 << 16,
+        array_truncate_after: 1000,
+        obj_truncate_after: usize::MAX,
+        nested_obj_truncate_after: 1000,
+    };
     while let Some(drained) = drainer.next() {
         let drained = drained?;
 
-        serde_json::to_writer(&mut out, &doc::SerPolicy::default().on_owned(&drained.root))
+        serde_json::to_writer(&mut out, &ser_policy.on_owned(&drained.root))
             .context("writing document to stdout")?;
         out.write(b"\n")?;
         out_docs += 1;
