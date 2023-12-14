@@ -139,13 +139,10 @@ message Container {
 }
 
 message CaptureRequestExt {
-  ops.ShardLabeling labels = 1;
-
-  message Open {
-    // RocksDB descriptor which should be opened.
-    RocksDBDescriptor rocksdb_descriptor = 1;
-  }
-  Open open = 2;
+  // Log.Level of this Request.
+  ops.Log.Level log_level = 1;
+  // RocksDB descriptor which should be opened. Sent (only) with the first Request.
+  RocksDBDescriptor rocksdb_descriptor = 2;
 
   message StartCommit {
     // Flow runtime checkpoint associated with this transaction.
@@ -190,15 +187,17 @@ message CaptureResponseExt {
 }
 
 message DeriveRequestExt {
-  ops.ShardLabeling labels = 1;
+  // Log.Level of this Request.
+  ops.Log.Level log_level = 1;
+  // RocksDB descriptor which should be opened. Sent (only) with the first Request.
+  // Ommitted if this is a SQLite derivation.
+  RocksDBDescriptor rocksdb_descriptor = 2;
 
   message Open {
     // URL with a registered SQLite VFS which should be opened.
     string sqlite_vfs_uri = 1;
-    // RocksDB descriptor which should be opened.
-    RocksDBDescriptor rocksdb_descriptor = 2;
   }
-  Open open = 2;
+  Open open = 3;
 }
 
 message DeriveResponseExt {
@@ -226,13 +225,10 @@ message DeriveResponseExt {
 }
 
 message MaterializeRequestExt {
-  ops.ShardLabeling labels = 1;
-
-  message Open {
-    // RocksDB descriptor which should be opened.
-    RocksDBDescriptor rocksdb_descriptor = 1;
-  }
-  Open open = 2;
+  // Log.Level of this Request.
+  ops.Log.Level log_level = 1;
+  // RocksDB descriptor which should be opened. Sent (only) with the first Request.
+  RocksDBDescriptor rocksdb_descriptor = 2;
 }
 
 message MaterializeResponseExt {

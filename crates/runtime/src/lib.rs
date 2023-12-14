@@ -1,3 +1,4 @@
+use anyhow::Context;
 use futures::TryStreamExt;
 use std::fmt::{self, Display};
 use std::sync::Arc;
@@ -126,8 +127,10 @@ impl<L: LogHandler> Runtime<L> {
     }
 
     /// Attempt to set the dynamic log level to the given `level`.
-    pub fn set_log_level(&self, level: Option<ops::LogLevel>) {
-        if let (Some(level), Some(set_log_level)) = (level, &self.set_log_level) {
+    pub fn set_log_level(&self, level: ops::LogLevel) {
+        if level == ops::LogLevel::UndefinedLevel {
+            // No-op
+        } else if let Some(set_log_level) = &self.set_log_level {
             (set_log_level)(level);
         }
     }
@@ -155,21 +158,6 @@ impl<L: LogHandler> Runtime<L> {
                     .max_decoding_message_size(usize::MAX) // Up from 4MB. Accept whatever the Go runtime sends.
                     .max_encoding_message_size(usize::MAX), // The default, made explicit.
             )
-    }
-}
-
-// Extract a LogLevel from a ShardSpec.
-fn shard_log_level(shard: Option<&proto_gazette::consumer::ShardSpec>) -> Option<ops::LogLevel> {
-    let labels = shard
-        .and_then(|shard| shard.labels.as_ref())
-        .map(|l| l.labels.as_slice());
-
-    let Some(labels) = labels else {
-        return None;
-    };
-    match labels.binary_search_by(|label| label.name.as_str().cmp(::labels::LOG_LEVEL)) {
-        Ok(index) => ops::LogLevel::from_str_name(&labels[index].value),
-        Err(_index) => None,
     }
 }
 

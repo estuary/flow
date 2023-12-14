@@ -44,7 +44,7 @@ pub async fn flow_runtime_protocol(image: &str) -> anyhow::Result<RuntimeProtoco
 pub async fn start(
     image: &str,
     log_handler: impl crate::LogHandler,
-    log_level: Option<ops::LogLevel>,
+    log_level: ops::LogLevel,
     network: &str,
     task_name: &str,
     task_type: ops::TaskType,
@@ -85,7 +85,7 @@ pub async fn start(
 
     // This is default `docker run` behavior if --network is not provided.
     let network = if network == "" { "bridge" } else { network };
-    let log_level = log_level.unwrap_or(ops::LogLevel::Warn);
+    let log_level = log_level.or(ops::LogLevel::Warn);
 
     // Generate a unique name for this container instance.
     let name = unique_container_name();
@@ -487,7 +487,7 @@ mod test {
         let (container, channel, _guard) = start(
             "ghcr.io/estuary/source-http-ingest:dev",
             ops::tracing_log_handler,
-            Some(ops::LogLevel::Debug),
+            ops::LogLevel::Debug,
             "",
             "a-task-name",
             proto_flow::ops::TaskType::Capture,
@@ -541,7 +541,7 @@ mod test {
         let Err(err) = start(
             "alpine", // Not a connector.
             ops::tracing_log_handler,
-            Some(ops::LogLevel::Debug),
+            ops::LogLevel::Debug,
             "",
             "a-task-name",
             proto_flow::ops::TaskType::Capture,

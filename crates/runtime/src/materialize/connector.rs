@@ -4,7 +4,6 @@ use futures::{channel::mpsc, stream::BoxStream, FutureExt, StreamExt};
 use proto_flow::{
     flow::materialization_spec::ConnectorType,
     materialize::{Request, Response},
-    runtime::MaterializeRequestExt,
 };
 
 // Start a materialization connector as indicated by the `initial` Request.
@@ -16,11 +15,9 @@ pub async fn start<L: LogHandler>(
     mpsc::Sender<Request>,
     BoxStream<'static, anyhow::Result<Response>>,
 )> {
-    let (endpoint, log_level, config_json) = extract_endpoint(&mut initial)?;
+    let log_level = initial.get_internal()?.log_level();
+    let (endpoint, config_json) = extract_endpoint(&mut initial)?;
     let (mut connector_tx, connector_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
-
-    // Adjust the dynamic log level for this connector's lifecycle.
-    runtime.set_log_level(log_level);
 
     fn attach_container(response: &mut Response, container: crate::image_connector::Container) {
         response.set_internal(|internal| {
@@ -96,31 +93,15 @@ pub async fn start<L: LogHandler>(
 
 fn extract_endpoint<'r>(
     request: &'r mut Request,
-) -> anyhow::Result<(
-    models::MaterializationEndpoint,
-    Option<ops::LogLevel>,
-    &'r mut String,
-)> {
-    let ext_log_level = match request.get_internal() {
-        Ok(MaterializeRequestExt {
-            labels: Some(labels),
-            ..
-        }) => Some(labels.log_level()),
-        _ => None,
-    };
-
-    let (connector_type, log_level, config_json) = match request {
+) -> anyhow::Result<(models::MaterializationEndpoint, &'r mut String)> {
+    let (connector_type, config_json) = match request {
         Request {
             spec: Some(spec), ..
-        } => (spec.connector_type, ext_log_level, &mut spec.config_json),
+        } => (spec.connector_type, &mut spec.config_json),
         Request {
             validate: Some(validate),
             ..
-        } => (
-            validate.connector_type,
-            ext_log_level,
-            &mut validate.config_json,
-        ),
+        } => (validate.connector_type, &mut validate.config_json),
         Request {
             apply: Some(apply), ..
         } => {
@@ -129,11 +110,7 @@ fn extract_endpoint<'r>(
                 .as_mut()
                 .context("`apply` missing required `materialization`")?;
 
-            (
-                inner.connector_type,
-                crate::shard_log_level(inner.shard_template.as_ref()),
-                &mut inner.config_json,
-            )
+            (inner.connector_type, &mut inner.config_json)
         }
         Request {
             open: Some(open), ..
@@ -143,11 +120,7 @@ fn extract_endpoint<'r>(
                 .as_mut()
                 .context("`open` missing required `materialization`")?;
 
-            (
-                inner.connector_type,
-                crate::shard_log_level(inner.shard_template.as_ref()),
-                &mut inner.config_json,
-            )
+            (inner.connector_type, &mut inner.config_json)
         }
         request => return crate::verify("client", "valid first request").fail(request),
     };
@@ -157,7 +130,6 @@ fn extract_endpoint<'r>(
             models::MaterializationEndpoint::Connector(
                 serde_json::from_str(config_json).context("parsing connector config")?,
             ),
-            log_level,
             config_json,
         ))
     } else if connector_type == ConnectorType::Local as i32 {
@@ -165,7 +137,6 @@ fn extract_endpoint<'r>(
             models::MaterializationEndpoint::Local(
                 serde_json::from_str(config_json).context("parsing local config")?,
             ),
-            log_level,
             config_json,
         ))
     } else {
