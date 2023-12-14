@@ -24,58 +24,31 @@ pub fn run_capture<L: LogHandler>(
     let spec = spec.clone();
     let state_dir = state_dir.to_owned();
 
-    // TODO(johnny): extract from spec?
-    let version = super::unique_version();
-
     coroutines::try_coroutine(move |mut co| async move {
         let (mut request_tx, request_rx) = mpsc::channel(crate::CHANNEL_BUFFER);
         let response_rx = runtime.serve_capture(request_rx);
         tokio::pin!(response_rx);
 
-        // Send Apply.
-        let apply = Request {
-            apply: Some(request::Apply {
-                capture: Some(spec.clone()),
-                dry_run: false,
-                version: version.clone(),
-                last_capture: None,
-                last_version: String::new(),
-            }),
-            ..Default::default()
-        };
-        request_tx.try_send(Ok(apply)).expect("sender is empty");
-
-        // Receive Applied.
-        match response_rx.try_next().await? {
-            Some(applied) if applied.applied.is_some() => {
-                () = co.yield_(applied).await;
-            }
-            response => return verify("runtime", "Applied").fail(response),
-        }
-
         let state_dir = state_dir.to_str().context("tempdir is not utf8")?;
-        let rocksdb_desc = Some(runtime::RocksDbDescriptor {
+        let rocksdb_desc = runtime::RocksDbDescriptor {
             rocksdb_env_memptr: 0,
             rocksdb_path: state_dir.to_owned(),
-        });
-        let open_ext = capture_request_ext::Open {
-            rocksdb_descriptor: rocksdb_desc.clone(),
         };
 
         let sessions_len = sessions.len();
-        for (index, target_transactions) in sessions.into_iter().enumerate() {
+        for (sessions_index, target_transactions) in sessions.into_iter().enumerate() {
             () = run_session(
                 &mut co,
                 delay,
-                index == sessions_len - 1,
-                &open_ext,
                 &mut request_tx,
                 &mut response_rx,
+                &rocksdb_desc,
+                sessions_index,
+                sessions_len,
                 &spec,
                 &mut state,
                 target_transactions,
                 timeout,
-                &version,
             )
             .await?;
         }
@@ -84,7 +57,7 @@ pub fn run_capture<L: LogHandler>(
         verify("runtime", "EOF").is_eof(response_rx.try_next().await?)?;
 
         // Re-open RocksDB.
-        let rocksdb = RocksDB::open(rocksdb_desc).await?;
+        let rocksdb = RocksDB::open(Some(rocksdb_desc)).await?;
 
         let checkpoint = rocksdb.load_checkpoint().await?;
         tracing::debug!(checkpoint = ?::ops::DebugJson(checkpoint), "final runtime checkpoint");
@@ -113,21 +86,50 @@ pub fn run_capture<L: LogHandler>(
 async fn run_session(
     co: &mut coroutines::Suspend<Response, ()>,
     delay: std::time::Duration,
-    last_session: bool,
-    open_ext: &capture_request_ext::Open,
     request_tx: &mut mpsc::Sender<anyhow::Result<Request>>,
     response_rx: &mut Pin<&mut impl ResponseStream>,
+    rocksdb_desc: &runtime::RocksDbDescriptor,
+    sessions_index: usize,
+    sessions_len: usize,
     spec: &flow::CaptureSpec,
     state: &mut models::RawValue,
     target_transactions: usize,
     timeout: std::time::Duration,
-    version: &str,
 ) -> anyhow::Result<()> {
+    let labeling = crate::parse_shard_labeling(spec.shard_template.as_ref())?;
+
+    // Send Apply.
+    let apply = Request {
+        apply: Some(request::Apply {
+            capture: Some(spec.clone()),
+            dry_run: false,
+            version: labeling.build.clone(),
+            last_capture: None,
+            last_version: String::new(),
+        }),
+        ..Default::default()
+    }
+    .with_internal(|internal| {
+        if sessions_index == 0 {
+            internal.rocksdb_descriptor = Some(rocksdb_desc.clone());
+        }
+        internal.set_log_level(labeling.log_level());
+    });
+    request_tx.try_send(Ok(apply)).expect("sender is empty");
+
+    // Receive Applied.
+    match response_rx.try_next().await? {
+        Some(applied) if applied.applied.is_some() => {
+            () = co.yield_(applied).await;
+        }
+        response => return verify("runtime", "Applied").fail(response),
+    }
+
     // Send Open.
     let open = Request {
         open: Some(request::Open {
             capture: Some(spec.clone()),
-            version: version.to_string(),
+            version: labeling.build.clone(),
             range: Some(flow::RangeSpec {
                 key_begin: 0,
                 key_end: u32::MAX,
@@ -138,9 +140,7 @@ async fn run_session(
         }),
         ..Default::default()
     }
-    .with_internal(|internal| {
-        internal.open = Some(open_ext.clone());
-    });
+    .with_internal(|internal| internal.set_log_level(labeling.log_level()));
     request_tx.try_send(Ok(open)).expect("sender is empty");
 
     // Receive Opened.
@@ -195,7 +195,7 @@ async fn run_session(
             match poll_result {
                 PollResult::Invalid => return verify.fail(poll_response),
                 PollResult::Ready => true,
-                PollResult::CoolOff if last_session => break,
+                PollResult::CoolOff if sessions_index + 1 == sessions_len => break,
                 PollResult::CoolOff | PollResult::NotReady => false,
                 PollResult::Restart => break,
             }
