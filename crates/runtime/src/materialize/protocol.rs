@@ -29,12 +29,6 @@ pub fn recv_unary(request: Request, response: Response) -> anyhow::Result<Respon
     }
 }
 
-pub async fn recv_client_first_open(open: &Request) -> anyhow::Result<RocksDB> {
-    let db = RocksDB::open(open.get_internal()?.open.and_then(|o| o.rocksdb_descriptor)).await?;
-
-    Ok(db)
-}
-
 pub async fn recv_client_open(open: &mut Request, db: &RocksDB) -> anyhow::Result<()> {
     let Some(open) = open.open.as_mut() else {
         return verify("client", "Open").fail(open);
@@ -61,7 +55,7 @@ pub async fn recv_client_open(open: &mut Request, db: &RocksDB) -> anyhow::Resul
 
 pub async fn recv_connector_opened(
     db: &RocksDB,
-    open: &Request,
+    open: Request,
     opened: Option<Response>,
 ) -> anyhow::Result<(
     Task,

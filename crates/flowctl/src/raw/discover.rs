@@ -76,20 +76,15 @@ pub async fn do_discover(
             config_json: serde_json::to_string(config).unwrap(),
         },
     };
-    let mut discover = capture::Request {
+    let discover = capture::Request {
         discover: Some(discover),
         ..Default::default()
-    };
-
-    if let Some(log_level) = capture
-        .spec
-        .shards
-        .log_level
-        .as_ref()
-        .and_then(|s| ops::LogLevel::from_str_name(s))
-    {
-        discover.set_internal_log_level(log_level);
     }
+    .with_internal(|internal| {
+        if let Some(s) = &capture.spec.shards.log_level {
+            internal.set_log_level(ops::LogLevel::from_str_name(s).unwrap_or_default());
+        }
+    });
 
     let capture::response::Discovered { bindings } = runtime::Runtime::new(
         true, // All local.

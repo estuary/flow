@@ -6,7 +6,7 @@ pub fn serve<Request, Response>(
     command: Vec<String>,                // Connector to run.
     env: BTreeMap<String, String>,       // Environment variables.
     log_handler: impl crate::LogHandler, // Handler for connector logs.
-    log_level: Option<ops::LogLevel>,    // Log-level of the container, if known.
+    log_level: ops::LogLevel,            // Log-level of the container, if known.
     protobuf: bool,                      // Whether to use protobuf codec.
     request_rx: mpsc::Receiver<Request>, // Caller's input request stream.
 ) -> anyhow::Result<impl Stream<Item = anyhow::Result<Response>> + Send>
@@ -24,9 +24,7 @@ where
     let mut connector = connector_init::rpc::new_command(&command);
     connector.envs(&env);
 
-    if let Some(log_level) = log_level {
-        connector.env("LOG_LEVEL", log_level.as_str_name());
-    }
+    connector.env("LOG_LEVEL", log_level.or(ops::LogLevel::Info).as_str_name());
 
     let container_rx = connector_init::rpc::bidi::<Request, Response, _, _>(
         connector,

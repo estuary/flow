@@ -66,13 +66,25 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, error)
 	}
 
 	var requestExt = &pr.CaptureRequestExt{
-		Labels: &c.term.labels,
-		Open:   &pr.CaptureRequestExt_Open{},
+		LogLevel: c.term.labels.LogLevel,
 	}
 	if c.termCount == 1 {
-		requestExt.Open.RocksdbDescriptor = bindings.NewRocksDBDescriptor(c.recorder)
+		requestExt.RocksdbDescriptor = bindings.NewRocksDBDescriptor(c.recorder)
 	}
 
+	// Send Apply / receive Applied.
+	_ = doSend[pc.Response](c.client, &pc.Request{
+		Apply: &pc.Request_Apply{
+			Capture: c.term.taskSpec,
+			Version: c.term.labels.Build,
+		},
+		Internal: pr.ToInternal(requestExt),
+	})
+	if _, err := doRecv[pc.Response](c.client); err != nil {
+		return pf.Checkpoint{}, err
+	}
+
+	// Send Open / receive Opened.
 	_ = doSend[pc.Response](c.client, &pc.Request{
 		Open: &pc.Request_Open{
 			Capture:   c.term.taskSpec,
@@ -80,7 +92,7 @@ func (c *Capture) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, error)
 			Range:     &c.term.labels.Range,
 			StateJson: c.legacyState, // TODO(johnny): Just "{}".
 		},
-		Internal: pr.ToInternal(requestExt),
+		Internal: pr.ToInternal(&pr.CaptureRequestExt{LogLevel: c.term.labels.LogLevel}),
 	})
 
 	var opened, err = doRecv[pc.Response](c.client)

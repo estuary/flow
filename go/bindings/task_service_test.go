@@ -70,9 +70,7 @@ func TestSimpleDerive(t *testing.T) {
 			StateJson: []byte("{}"),
 		},
 		Internal: pr.ToInternal(&pr.DeriveRequestExt{
-			Labels: &ops.ShardLabeling{
-				LogLevel: ops.Log_debug,
-			},
+			LogLevel: ops.Log_debug,
 		}),
 	}))
 

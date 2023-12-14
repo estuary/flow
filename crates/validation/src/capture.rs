@@ -28,20 +28,15 @@ pub async fn walk_all_captures(
     let validations = validations
         .into_iter()
         .map(|(capture, request)| async move {
-            let mut wrapped = capture::Request {
+            let wrapped = capture::Request {
                 validate: Some(request.clone()),
                 ..Default::default()
-            };
-
-            if let Some(log_level) = capture
-                .spec
-                .shards
-                .log_level
-                .as_ref()
-                .and_then(|s| LogLevel::from_str_name(s))
-            {
-                wrapped.set_internal_log_level(log_level);
             }
+            .with_internal(|internal| {
+                if let Some(s) = &capture.spec.shards.log_level {
+                    internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
+                }
+            });
 
             // If shards are disabled, then don't ask the connector to validate.
             // A broken but disabled endpoint should not cause a build to fail.

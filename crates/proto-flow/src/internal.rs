@@ -1,4 +1,4 @@
-use crate::{capture, derive, materialize, ops, runtime};
+use crate::{capture, derive, materialize, runtime};
 use prost::Message;
 
 macro_rules! impl_internal {
@@ -63,26 +63,3 @@ impl_internal!(derive::Request, runtime::DeriveRequestExt);
 impl_internal!(derive::Response, runtime::DeriveResponseExt);
 impl_internal!(materialize::Request, runtime::MaterializeRequestExt);
 impl_internal!(materialize::Response, runtime::MaterializeResponseExt);
-
-macro_rules! impl_internal_set_log_level {
-    ($msg_type:ty , $ext_type:ty) => {
-        impl $msg_type {
-            /// Set the log-level of the internal extension field of this Request.
-            pub fn set_internal_log_level(&mut self, log_level: ops::log::Level) {
-                self.set_internal(|internal| match internal.labels.as_mut() {
-                    Some(labels) => labels.log_level = log_level as i32,
-                    None => {
-                        internal.labels = Some(ops::ShardLabeling {
-                            log_level: log_level as i32,
-                            ..Default::default()
-                        })
-                    }
-                })
-            }
-        }
-    };
-}
-
-impl_internal_set_log_level!(capture::Request, runtime::CaptureRequestExt);
-impl_internal_set_log_level!(derive::Request, runtime::DeriveRequestExt);
-impl_internal_set_log_level!(materialize::Request, runtime::MaterializeRequestExt);

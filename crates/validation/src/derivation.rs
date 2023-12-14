@@ -61,19 +61,15 @@ pub async fn walk_all_derivations(
         validations
             .into_iter()
             .map(|(built_index, derivation, request)| async move {
-                let mut wrapped = derive::Request {
+                let wrapped = derive::Request {
                     validate: Some(request.clone()),
                     ..Default::default()
-                };
-
-                if let Some(log_level) = derivation
-                    .shards
-                    .log_level
-                    .as_ref()
-                    .and_then(|s| LogLevel::from_str_name(s))
-                {
-                    wrapped.set_internal_log_level(log_level);
                 }
+                .with_internal(|internal| {
+                    if let Some(s) = &derivation.shards.log_level {
+                        internal.set_log_level(LogLevel::from_str_name(s).unwrap_or_default());
+                    }
+                });
 
                 // For the moment, we continue to validate a disabled derivation.
                 // There's an argument that we shouldn't, but it's currently inconclusive.
