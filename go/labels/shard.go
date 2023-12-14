@@ -2,7 +2,6 @@ package labels
 
 import (
 	"fmt"
-	"strconv"
 
 	pf "github.com/estuary/flow/go/protocols/flow"
 	"github.com/estuary/flow/go/protocols/ops"
@@ -45,9 +44,6 @@ func ParseShardLabels(set pf.LabelSet) (ops.ShardLabeling, error) {
 	} else {
 		out.TaskType = ops.TaskType(kind)
 	}
-	if out.Ports, err = parsePorts(set); err != nil {
-		return out, err
-	}
 	if out.Hostname, err = maybeOne(set, Hostname); err != nil {
 		return out, err
 	}
@@ -83,33 +79,4 @@ func maybeOne(set pf.LabelSet, name string) (string, error) {
 	} else {
 		return v[0], nil
 	}
-}
-
-func parsePorts(set pf.LabelSet) ([]pf.NetworkPort, error) {
-	var out []pf.NetworkPort
-
-	for _, value := range set.ValuesOf(ExposePort) {
-		var number, err = strconv.ParseUint(value, 10, 16)
-		if err != nil {
-			return nil, fmt.Errorf("parsing value '%s' of label '%s': %w", value, ExposePort, err)
-		}
-		if number == 0 || number > 65535 {
-			return nil, fmt.Errorf("invalid '%s' value: '%s'", ExposePort, value)
-		}
-
-		var public bool
-		if publicVal := set.ValueOf(PortPublicPrefix + value); publicVal != "" {
-			public, err = strconv.ParseBool(publicVal)
-			if err != nil {
-				return nil, fmt.Errorf("parsing '%s=%s': %w", PortPublicPrefix, publicVal, err)
-			}
-		}
-
-		out = append(out, pf.NetworkPort{
-			Number:   uint32(number),
-			Public:   public,
-			Protocol: set.ValueOf(PortProtoPrefix + value),
-		})
-	}
-	return out, nil
 }

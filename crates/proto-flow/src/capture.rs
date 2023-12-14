@@ -115,10 +115,6 @@ pub mod request {
         /// Version of the CaptureSpec being applied.
         #[prost(string, tag = "2")]
         pub version: ::prost::alloc::string::String,
-        /// Is this Apply a dry-run? If so, no action is undertaken and Apply will
-        /// report only what would have happened.
-        #[prost(bool, tag = "3")]
-        pub dry_run: bool,
         /// Last CaptureSpec which was successfully applied.
         #[prost(message, optional, tag = "4")]
         pub last_capture: ::core::option::Option<super::super::flow::CaptureSpec>,
@@ -286,9 +282,8 @@ pub mod response {
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Applied {
-        /// Human-readable description of the action that the Driver took (or, if
-        /// dry_run, would have taken). If empty, this Apply is to be considered a
-        /// "no-op".
+        /// Human-readable description of the action that the connector took.
+        /// If empty, this Apply is to be considered a "no-op".
         #[prost(string, tag = "1")]
         pub action_description: ::prost::alloc::string::String,
     }

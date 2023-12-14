@@ -102,7 +102,6 @@ async fn run_session(
     let apply = Request {
         apply: Some(request::Apply {
             capture: Some(spec.clone()),
-            dry_run: false,
             version: labeling.build.clone(),
             last_capture: None,
             last_version: String::new(),

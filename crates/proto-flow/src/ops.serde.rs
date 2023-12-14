@@ -389,9 +389,6 @@ impl serde::Serialize for ShardLabeling {
         if self.log_level != 0 {
             len += 1;
         }
-        if !self.ports.is_empty() {
-            len += 1;
-        }
         if self.range.is_some() {
             len += 1;
         }
@@ -418,9 +415,6 @@ impl serde::Serialize for ShardLabeling {
             let v = log::Level::try_from(self.log_level)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.log_level)))?;
             struct_ser.serialize_field("logLevel", &v)?;
-        }
-        if !self.ports.is_empty() {
-            struct_ser.serialize_field("ports", &self.ports)?;
         }
         if let Some(v) = self.range.as_ref() {
             struct_ser.serialize_field("range", v)?;
@@ -453,7 +447,6 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
             "hostname",
             "log_level",
             "logLevel",
-            "ports",
             "range",
             "split_source",
             "splitSource",
@@ -470,7 +463,6 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
             Build,
             Hostname,
             LogLevel,
-            Ports,
             Range,
             SplitSource,
             SplitTarget,
@@ -500,7 +492,6 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
                             "build" => Ok(GeneratedField::Build),
                             "hostname" => Ok(GeneratedField::Hostname),
                             "logLevel" | "log_level" => Ok(GeneratedField::LogLevel),
-                            "ports" => Ok(GeneratedField::Ports),
                             "range" => Ok(GeneratedField::Range),
                             "splitSource" | "split_source" => Ok(GeneratedField::SplitSource),
                             "splitTarget" | "split_target" => Ok(GeneratedField::SplitTarget),
@@ -528,7 +519,6 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
                 let mut build__ = None;
                 let mut hostname__ = None;
                 let mut log_level__ = None;
-                let mut ports__ = None;
                 let mut range__ = None;
                 let mut split_source__ = None;
                 let mut split_target__ = None;
@@ -553,12 +543,6 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
                                 return Err(serde::de::Error::duplicate_field("logLevel"));
                             }
                             log_level__ = Some(map_.next_value::<log::Level>()? as i32);
-                        }
-                        GeneratedField::Ports => {
-                            if ports__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("ports"));
-                            }
-                            ports__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Range => {
                             if range__.is_some() {
@@ -596,7 +580,6 @@ impl<'de> serde::Deserialize<'de> for ShardLabeling {
                     build: build__.unwrap_or_default(),
                     hostname: hostname__.unwrap_or_default(),
                     log_level: log_level__.unwrap_or_default(),
-                    ports: ports__.unwrap_or_default(),
                     range: range__,
                     split_source: split_source__.unwrap_or_default(),
                     split_target: split_target__.unwrap_or_default(),

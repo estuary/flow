@@ -30,11 +30,6 @@ message ShardLabeling {
 	string hostname = 2;
 	// Logging level of the task.
 	Log.Level log_level = 3;
-	// Ports is a map from port name to the combined configuration
-	// for the port. The runtime itself doesn't actually care
-	// about the alpn protocol, but it's there for the sake of
-	// completeness.
-  repeated flow.NetworkPort ports = 4 [(gogoproto.nullable) = false];
 	// Key and R-Clock range of the shard.
 	flow.RangeSpec range = 5 [(gogoproto.nullable) = false];
 	// If non-empty, the shard which this task is splitting from.
