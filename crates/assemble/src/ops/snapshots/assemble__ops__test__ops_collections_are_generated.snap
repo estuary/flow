@@ -314,28 +314,6 @@ Sources {
                 "shard",
                 "ts"
               ],
-              "oneOf": [
-                {
-                  "required": [
-                    "capture"
-                  ]
-                },
-                {
-                  "required": [
-                    "derive"
-                  ]
-                },
-                {
-                  "required": [
-                    "materialize"
-                  ]
-                },
-                {
-                  "required": [
-                    "interval"
-                  ]
-                }
-              ],
               "$defs": {
                 "docsAndBytes": {
                   "type": "object",
