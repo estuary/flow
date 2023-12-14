@@ -34,11 +34,6 @@ func TestParsingShardLabels(t *testing.T) {
 		Build:    "a-build",
 		Hostname: "test-host",
 		LogLevel: ops.Log_debug,
-		Ports: []pf.NetworkPort{
-			{Number: 8080, Protocol: "http/1.1", Public: false},
-			{Number: 9000, Protocol: "", Public: true},
-			{Number: 9001, Protocol: "", Public: false},
-		},
 		Range: pf.RangeSpec{
 			KeyBegin:    0xaaaaaaaa,
 			KeyEnd:      0xbbbbbbbb,

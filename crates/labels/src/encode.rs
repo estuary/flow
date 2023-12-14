@@ -46,7 +46,6 @@ mod test {
             build: "a-build".to_string(),
             hostname: "a.hostname".to_string(),
             log_level: ops::log::Level::Info as i32,
-            ports: Vec::new(),
             range: Some(flow::RangeSpec {
                 key_begin: 256,
                 key_end: 1024,

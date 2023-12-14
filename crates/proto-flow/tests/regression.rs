@@ -381,7 +381,6 @@ fn ex_capture_request() -> capture::Request {
         }),
         apply: Some(capture::request::Apply {
             capture: Some(ex_capture_spec()),
-            dry_run: false,
             version: "11:22:33:44".to_string(),
             last_capture: None,
             last_version: "00:11:22:33".to_string(),
@@ -550,7 +549,6 @@ fn ex_materialize_request() -> materialize::Request {
         }),
         apply: Some(materialize::request::Apply {
             materialization: Some(ex_materialization_spec()),
-            dry_run: false,
             version: "11:22:33:44".to_string(),
             last_materialization: None,
             last_version: "00:11:22:33".to_string(),
@@ -640,7 +638,6 @@ fn ex_shard_labeling() -> ops::ShardLabeling {
         build: "a-build-id".to_string(),
         hostname: "a-hostname".to_string(),
         log_level: ops::log::Level::Info as i32,
-        ports: ex_network_ports(),
         range: Some(ex_range()),
         split_source: "split/source/shard".to_string(),
         split_target: String::new(),
