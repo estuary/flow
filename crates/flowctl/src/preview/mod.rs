@@ -260,9 +260,7 @@ async fn preview_capture<L: runtime::LogHandler>(
             .get_internal()
             .context("failed to decode internal runtime.CaptureResponseExt")?;
 
-        if let Some(capture::response::Applied { action_description }) = response.applied {
-            tracing::info!(action_description, "capture was applied");
-        } else if let Some(capture::response::Captured { binding, doc_json }) = response.captured {
+        if let Some(capture::response::Captured { binding, doc_json }) = response.captured {
             let proto_flow::runtime::capture_response_ext::Captured {
                 key_packed,
                 partitions_packed,
@@ -346,9 +344,7 @@ async fn preview_materialization<L: runtime::LogHandler>(
             .get_internal()
             .context("failed to decode internal runtime.MaterializeResponseExt")?;
 
-        if let Some(materialize::response::Applied { action_description }) = response.applied {
-            tracing::info!(action_description, "materialization was applied");
-        } else if let Some(materialize::response::Flushed {}) = response.flushed {
+        if let Some(materialize::response::Flushed {}) = response.flushed {
             let proto_flow::runtime::materialize_response_ext::Flushed { stats } =
                 internal.flushed.unwrap_or_default();
             tracing::debug!(stats=?ops::DebugJson(stats), "flushed");

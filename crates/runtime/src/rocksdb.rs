@@ -124,6 +124,29 @@ impl RocksDB {
         }
     }
 
+    /// Load the persisted, last-applied task specification.
+    pub async fn load_last_applied<S>(&self) -> anyhow::Result<Option<S>>
+    where
+        S: prost::Message + serde::Serialize + Default,
+    {
+        match self
+            .get_opt(Self::LAST_APPLIED, rocksdb::ReadOptions::default())
+            .await
+            .context("failed to load the last-applied task specification")?
+        {
+            Some(v) => {
+                let spec = S::decode(v.as_ref())
+                    .context("failed to decode the last-applied task specification")?;
+                tracing::debug!(spec=?ops::DebugJson(&spec), "loaded the last-applied task specification");
+                Ok(Some(spec))
+            }
+            None => {
+                tracing::debug!("did not find a last-applied task specification");
+                Ok(None)
+            }
+        }
+    }
+
     /// Load a persisted connector state.
     /// If it doesn't exist, it's durably initialized with value `initial`.
     pub async fn load_connector_state(
@@ -157,6 +180,8 @@ impl RocksDB {
         Ok(initial)
     }
 
+    // Key encoding under which the last-applied specification is stored.
+    pub const LAST_APPLIED: &'static str = "last-applied";
     // Key encoding under which a marshalled checkpoint is stored.
     pub const CHECKPOINT_KEY: &'static str = "checkpoint";
     // Key encoding under which a connector state is stored.
