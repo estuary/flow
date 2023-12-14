@@ -10,6 +10,8 @@ def test_no_crash(request, snapshot):
             request.config.rootdir + "/tests/test_materialize_int_strings.flow.yaml",
             "--fixture",
             request.config.rootdir + "/tests/ints-strings-fixture.json",
+            "--sessions",
+            "1,-1",  # Restart after the first transaction.
         ],
         stdout=subprocess.PIPE,
         text=True,
