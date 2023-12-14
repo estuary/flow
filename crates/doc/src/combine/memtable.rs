@@ -463,7 +463,7 @@ mod test {
                     true, // Full reduction.
                     vec![Extractor::with_default(
                         "/key",
-                        &SerPolicy::default(),
+                        &SerPolicy::noop(),
                         json!("def"),
                     )],
                     None,
@@ -518,7 +518,7 @@ mod test {
             .map_ok(|doc| {
                 (
                     doc.meta.binding(),
-                    serde_json::to_value(SerPolicy::default().on_owned(&doc.root)).unwrap(),
+                    serde_json::to_value(SerPolicy::noop().on_owned(&doc.root)).unwrap(),
                     doc.meta.front(),
                 )
             })
@@ -712,7 +712,7 @@ mod test {
         let spec = |is_full| {
             (
                 is_full,
-                vec![Extractor::new("/k", &SerPolicy::default())],
+                vec![Extractor::new("/k", &SerPolicy::noop())],
                 None,
                 Validator::new(
                     build_schema(
@@ -977,7 +977,7 @@ mod test {
 
                 (
                     true, // Full reduction.
-                    vec![Extractor::new("/key", &SerPolicy::default())],
+                    vec![Extractor::new("/key", &SerPolicy::noop())],
                     None,
                     Validator::new(schema).unwrap(),
                 )

@@ -33,7 +33,7 @@ impl Task {
             anyhow::bail!("captures cannot split on r-clock: {range:?}");
         }
 
-        let ser_policy = doc::SerPolicy::default();
+        let ser_policy = doc::SerPolicy::noop();
 
         let bindings = bindings
             .into_iter()
