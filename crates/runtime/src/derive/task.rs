@@ -42,7 +42,7 @@ impl Task {
         }
 
         let range = range.context("missing range")?;
-        let ser_policy = doc::SerPolicy::default();
+        let ser_policy = doc::SerPolicy::noop();
 
         let document_uuid_ptr = doc::Pointer::from(uuid_ptr);
         let key_extractors = extractors::for_key(&key, &projections, &ser_policy)?;

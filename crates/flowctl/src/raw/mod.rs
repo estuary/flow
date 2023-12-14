@@ -266,7 +266,7 @@ async fn do_combine(
             extractors::for_key(
                 &collection.spec.key,
                 &collection.spec.projections,
-                &doc::SerPolicy::default(),
+                &doc::SerPolicy::noop(),
             )?,
             None,
             doc::Validator::new(schema).unwrap(),
@@ -300,7 +300,7 @@ async fn do_combine(
     while let Some(drained) = drainer.next() {
         let drained = drained?;
 
-        serde_json::to_writer(&mut out, &doc::SerPolicy::default().on_owned(&drained.root))
+        serde_json::to_writer(&mut out, &doc::SerPolicy::noop().on_owned(&drained.root))
             .context("writing document to stdout")?;
         out.write(b"\n")?;
         out_docs += 1;
