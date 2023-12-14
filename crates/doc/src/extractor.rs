@@ -169,7 +169,7 @@ mod test {
             ],
             "long-str": "very very very very very very very very very very very very long",
         });
-        let policy = SerPolicy::new(32);
+        let policy = SerPolicy::truncate_strings(32);
 
         let extractors = vec![
             Extractor::new("/missing", &policy),

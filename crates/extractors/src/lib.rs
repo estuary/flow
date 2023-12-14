@@ -17,7 +17,7 @@ type Result<T> = std::result::Result<T, Error>;
 pub fn map_policy(policy: &flow::SerPolicy) -> doc::SerPolicy {
     let proto_flow::flow::SerPolicy { str_truncate_after } = policy;
 
-    doc::SerPolicy::new(if *str_truncate_after == 0 {
+    doc::SerPolicy::truncate_strings(if *str_truncate_after == 0 {
         usize::MAX
     } else {
         *str_truncate_after as usize
@@ -110,7 +110,7 @@ mod test {
 
     #[test]
     fn test_projection_mapping() {
-        let policy = doc::SerPolicy::new(1234);
+        let policy = doc::SerPolicy::truncate_strings(1234);
 
         let mut projections: Vec<flow::Projection> = serde_json::from_value(json!([
             {"field": "the/key", "ptr": "/the/key", "inference": {"default": "the/key"}},
