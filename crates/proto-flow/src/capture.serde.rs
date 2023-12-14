@@ -302,9 +302,6 @@ impl serde::Serialize for request::Apply {
         if !self.version.is_empty() {
             len += 1;
         }
-        if self.dry_run {
-            len += 1;
-        }
         if self.last_capture.is_some() {
             len += 1;
         }
@@ -317,9 +314,6 @@ impl serde::Serialize for request::Apply {
         }
         if !self.version.is_empty() {
             struct_ser.serialize_field("version", &self.version)?;
-        }
-        if self.dry_run {
-            struct_ser.serialize_field("dryRun", &self.dry_run)?;
         }
         if let Some(v) = self.last_capture.as_ref() {
             struct_ser.serialize_field("lastCapture", v)?;
@@ -339,8 +333,6 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
         const FIELDS: &[&str] = &[
             "capture",
             "version",
-            "dry_run",
-            "dryRun",
             "last_capture",
             "lastCapture",
             "last_version",
@@ -351,7 +343,6 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
         enum GeneratedField {
             Capture,
             Version,
-            DryRun,
             LastCapture,
             LastVersion,
         }
@@ -377,7 +368,6 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                         match value {
                             "capture" => Ok(GeneratedField::Capture),
                             "version" => Ok(GeneratedField::Version),
-                            "dryRun" | "dry_run" => Ok(GeneratedField::DryRun),
                             "lastCapture" | "last_capture" => Ok(GeneratedField::LastCapture),
                             "lastVersion" | "last_version" => Ok(GeneratedField::LastVersion),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
@@ -401,7 +391,6 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
             {
                 let mut capture__ = None;
                 let mut version__ = None;
-                let mut dry_run__ = None;
                 let mut last_capture__ = None;
                 let mut last_version__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -417,12 +406,6 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                                 return Err(serde::de::Error::duplicate_field("version"));
                             }
                             version__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::DryRun => {
-                            if dry_run__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("dryRun"));
-                            }
-                            dry_run__ = Some(map_.next_value()?);
                         }
                         GeneratedField::LastCapture => {
                             if last_capture__.is_some() {
@@ -441,7 +424,6 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                 Ok(request::Apply {
                     capture: capture__,
                     version: version__.unwrap_or_default(),
-                    dry_run: dry_run__.unwrap_or_default(),
                     last_capture: last_capture__,
                     last_version: last_version__.unwrap_or_default(),
                 })

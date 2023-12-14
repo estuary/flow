@@ -88,9 +88,6 @@ message Request {
     flow.MaterializationSpec materialization = 1;
     // Version of the MaterializationSpec being applied.
     string version = 2;
-    // Is this Apply a dry-run? If so, no action is undertaken and Apply will
-    // report only what would have happened.
-    bool dry_run = 3;
     // Last CaptureSpec which was successfully applied.
     flow.MaterializationSpec last_materialization = 4;
     // Version of the last applied MaterializationSpec.
@@ -288,9 +285,8 @@ message Response {
 
   // Applied responds to Request.Apply.
   message Applied {
-    // Human-readable description of the action that the Driver took (or, if
-    // dry_run, would have taken). If empty, this Apply is to be considered a
-    // "no-op".
+    // Human-readable description of the action that the connector took.
+    // If empty, this Apply is to be considered a "no-op".
     string action_description = 1;
   }
   Applied applied = 3;

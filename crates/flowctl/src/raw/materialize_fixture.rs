@@ -54,7 +54,6 @@ pub async fn do_materialize_fixture(
     emit(Request {
         apply: Some(request::Apply {
             materialization: Some(spec.clone()),
-            dry_run: false,
             version: "test".to_string(),
             last_materialization: None,
             last_version: String::new(),

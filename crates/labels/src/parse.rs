@@ -31,7 +31,6 @@ pub fn shard_labeling(set: &LabelSet) -> Result<ops::ShardLabeling> {
         Some(e) => e,
     } as i32;
 
-    let ports = Vec::new(); // Deprecated.
     let range = if has_range_spec(set) {
         Some(range_spec(set)?)
     } else {
@@ -63,7 +62,6 @@ pub fn shard_labeling(set: &LabelSet) -> Result<ops::ShardLabeling> {
         build,
         hostname,
         log_level,
-        ports,
         range,
         split_source,
         split_target,

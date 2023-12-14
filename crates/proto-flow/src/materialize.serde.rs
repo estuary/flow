@@ -623,9 +623,6 @@ impl serde::Serialize for request::Apply {
         if !self.version.is_empty() {
             len += 1;
         }
-        if self.dry_run {
-            len += 1;
-        }
         if self.last_materialization.is_some() {
             len += 1;
         }
@@ -638,9 +635,6 @@ impl serde::Serialize for request::Apply {
         }
         if !self.version.is_empty() {
             struct_ser.serialize_field("version", &self.version)?;
-        }
-        if self.dry_run {
-            struct_ser.serialize_field("dryRun", &self.dry_run)?;
         }
         if let Some(v) = self.last_materialization.as_ref() {
             struct_ser.serialize_field("lastMaterialization", v)?;
@@ -660,8 +654,6 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
         const FIELDS: &[&str] = &[
             "materialization",
             "version",
-            "dry_run",
-            "dryRun",
             "last_materialization",
             "lastMaterialization",
             "last_version",
@@ -672,7 +664,6 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
         enum GeneratedField {
             Materialization,
             Version,
-            DryRun,
             LastMaterialization,
             LastVersion,
         }
@@ -698,7 +689,6 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                         match value {
                             "materialization" => Ok(GeneratedField::Materialization),
                             "version" => Ok(GeneratedField::Version),
-                            "dryRun" | "dry_run" => Ok(GeneratedField::DryRun),
                             "lastMaterialization" | "last_materialization" => Ok(GeneratedField::LastMaterialization),
                             "lastVersion" | "last_version" => Ok(GeneratedField::LastVersion),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
@@ -722,7 +712,6 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
             {
                 let mut materialization__ = None;
                 let mut version__ = None;
-                let mut dry_run__ = None;
                 let mut last_materialization__ = None;
                 let mut last_version__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -738,12 +727,6 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                                 return Err(serde::de::Error::duplicate_field("version"));
                             }
                             version__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::DryRun => {
-                            if dry_run__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("dryRun"));
-                            }
-                            dry_run__ = Some(map_.next_value()?);
                         }
                         GeneratedField::LastMaterialization => {
                             if last_materialization__.is_some() {
@@ -762,7 +745,6 @@ impl<'de> serde::Deserialize<'de> for request::Apply {
                 Ok(request::Apply {
                     materialization: materialization__,
                     version: version__.unwrap_or_default(),
-                    dry_run: dry_run__.unwrap_or_default(),
                     last_materialization: last_materialization__,
                     last_version: last_version__.unwrap_or_default(),
                 })
