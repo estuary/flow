@@ -556,6 +556,16 @@ message SerPolicy {
   // Length limit after which string values are truncated.
   // When zero, there is no limit.
   uint32 str_truncate_after = 1;
+
+  // Truncate nested objects after this number of properties.
+  // Object truncation is done by taking the first `nested_obj_truncate_after`
+  // properties. Whether or not this is deterministic will depend on whether the
+  // underlying object iterator provides the keys in a deterministic order.
+  // We generally use sorted maps, which works for this.
+  // The root object is never truncated.
+  uint32 nested_obj_truncate_after = 2;
+  // Truncate arrays with more items than this limit.
+  uint32 array_truncate_after = 3;
 }
 
 message ExtractAPI {

@@ -155,8 +155,7 @@ pub fn send_client_captured_or_checkpoint(
 
     if index == task.bindings.len() {
         // This is a merged checkpoint state update.
-        let updated_json =
-            serde_json::to_string(&doc::SerPolicy::default().on_owned(&root)).unwrap();
+        let updated_json = serde_json::to_string(&doc::SerPolicy::noop().on_owned(&root)).unwrap();
 
         tracing::debug!(
             state=%updated_json,

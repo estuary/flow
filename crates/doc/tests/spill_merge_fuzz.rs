@@ -24,7 +24,7 @@ pub enum FuzzError {
 }
 
 fn run_sequence(seq: Vec<(u8, u8, bool)>) -> Result<(), FuzzError> {
-    let ser_policy = doc::SerPolicy::default();
+    let ser_policy = doc::SerPolicy::noop();
     let spec = combine::Spec::with_bindings(
         std::iter::repeat_with(|| {
             let schema = build_schema(

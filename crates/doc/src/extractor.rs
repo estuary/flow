@@ -1,7 +1,13 @@
 use crate::{compare::compare, AsNode, Node, OwnedNode, Pointer, SerPolicy};
 use bytes::BufMut;
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    sync::atomic::{AtomicBool, Ordering},
+};
 use tuple::TuplePack;
+
+/// JSON pointer of the synthetic projection of the truncation indicator.
+pub const TRUNCATION_INDICATOR_PTR: &str = "/_meta/flow_truncated";
 
 /// Extractor extracts locations from documents, and encapsulates various
 /// details of precisely how that's done.
@@ -10,7 +16,13 @@ pub struct Extractor {
     ptr: Pointer,
     policy: SerPolicy,
     default: serde_json::Value,
-    is_uuid_v1_date_time: bool,
+    magic: Option<Magic>,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+enum Magic {
+    UuidV1DateTime,
+    TruncationIndicator,
 }
 
 impl Extractor {
@@ -21,7 +33,7 @@ impl Extractor {
             ptr: Pointer::from(ptr),
             policy: policy.clone(),
             default: serde_json::Value::Null,
-            is_uuid_v1_date_time: false,
+            magic: None,
         }
     }
 
@@ -32,7 +44,7 @@ impl Extractor {
             ptr: Pointer::from(ptr),
             policy: policy.clone(),
             default,
-            is_uuid_v1_date_time: false,
+            magic: None,
         }
     }
 
@@ -40,9 +52,18 @@ impl Extractor {
     pub fn for_uuid_v1_date_time(ptr: &str) -> Self {
         Self {
             ptr: Pointer::from(ptr),
-            policy: SerPolicy::default(),
+            policy: SerPolicy::noop(),
             default: serde_json::Value::Null,
-            is_uuid_v1_date_time: true,
+            magic: Some(Magic::UuidV1DateTime),
+        }
+    }
+
+    pub fn for_truncation_indicator() -> Self {
+        Self {
+            ptr: Pointer::empty(),
+            policy: SerPolicy::noop(),
+            default: serde_json::Value::Null,
+            magic: Some(Magic::TruncationIndicator),
         }
     }
 
@@ -63,25 +84,35 @@ impl Extractor {
             return Err(Cow::Borrowed(&self.default));
         };
 
-        if self.is_uuid_v1_date_time {
-            if let Some(date_time) = match node.as_node() {
-                Node::String(s) => Some(s),
-                _ => None,
+        match self.magic {
+            None => { /* sorry, kid, I guess your parents aren't coming back */ }
+            Some(Magic::UuidV1DateTime) => {
+                if let Some(date_time) = match node.as_node() {
+                    Node::String(s) => Some(s),
+                    _ => None,
+                }
+                .and_then(|s| uuid::Uuid::parse_str(s).ok())
+                .and_then(|u| u.get_timestamp())
+                .and_then(|t| {
+                    let (seconds, nanos) = t.to_unix();
+                    time::OffsetDateTime::from_unix_timestamp_nanos(
+                        seconds as i128 * 1_000_000_000 + nanos as i128,
+                    )
+                    .ok()
+                }) {
+                    return Err(Cow::Owned(serde_json::Value::String(
+                        date_time
+                            .format(&time::format_description::well_known::Rfc3339)
+                            .expect("rfc3339 format always succeeds"),
+                    )));
+                }
             }
-            .and_then(|s| uuid::Uuid::parse_str(s).ok())
-            .and_then(|u| u.get_timestamp())
-            .and_then(|t| {
-                let (seconds, nanos) = t.to_unix();
-                time::OffsetDateTime::from_unix_timestamp_nanos(
-                    seconds as i128 * 1_000_000_000 + nanos as i128,
-                )
-                .ok()
-            }) {
-                return Err(Cow::Owned(serde_json::Value::String(
-                    date_time
-                        .format(&time::format_description::well_known::Rfc3339)
-                        .expect("rfc3339 format always succeeds"),
-                )));
+            Some(Magic::TruncationIndicator) => {
+                // The real magic is behind some _other_ curtain.
+                // We just set a constant false value here.
+                // If we end up pruning some part of the document, we'll go back and change this
+                // value retroactively as part of `extract_all_indicate_truncation`.
+                return Err(Cow::Owned(serde_json::Value::Bool(false)));
             }
         }
 
@@ -94,40 +125,94 @@ impl Extractor {
         extractors: &[Self],
         out: &mut bytes::BytesMut,
     ) -> bytes::Bytes {
+        let indicator = &AtomicBool::new(false);
+        Extractor::extract_all_indicate_truncation(doc, extractors, out, indicator)
+    }
+
+    /// Extract a packed tuple representation from an instance of doc::AsNode.
+    pub fn extract_all_indicate_truncation<N: AsNode>(
+        doc: &N,
+        extractors: &[Self],
+        out: &mut bytes::BytesMut,
+        indicator: &AtomicBool,
+    ) -> bytes::Bytes {
         let mut w = out.writer();
 
+        // Truncation indicators are handled by having the extractor always write
+        // a `false` value (0x26). We remember the byte offset of this value in the
+        // encoded tuple, and will change it to `true` at the end if any value was
+        // truncated.
+        let mut projected_indicator_pos: Option<usize> = None;
         for ex in extractors {
+            if ex.magic == Some(Magic::TruncationIndicator) {
+                debug_assert!(
+                    projected_indicator_pos.is_none(),
+                    "extractors have multiple projections of truncation indicator"
+                );
+                projected_indicator_pos = Some(w.get_ref().len());
+            }
             // Unwrap because Write is infallible for BytesMut.
-            ex.extract(doc, &mut w).unwrap();
+            ex.extract_indicate_truncation(doc, &mut w, indicator)
+                .unwrap();
+        }
+
+        let write_indicator = projected_indicator_pos.filter(|_| indicator.load(Ordering::SeqCst));
+        if let Some(pos) = write_indicator {
+            out[pos] = 0x27; // this is the Foundation tuple byte value of `true`
         }
         out.split().freeze()
     }
 
-    /// Extract a packed tuple representation from an instance of doc::OwnedNode.
     pub fn extract_all_owned<'alloc>(
         doc: &OwnedNode,
         extractors: &[Self],
         out: &mut bytes::BytesMut,
     ) -> bytes::Bytes {
+        let indicator = &AtomicBool::new(false);
+        Extractor::extract_all_owned_indicate_truncation(doc, extractors, out, indicator)
+    }
+
+    /// Extract a packed tuple representation from an instance of doc::OwnedNode.
+    pub fn extract_all_owned_indicate_truncation<'alloc>(
+        doc: &OwnedNode,
+        extractors: &[Self],
+        out: &mut bytes::BytesMut,
+        indicator: &AtomicBool,
+    ) -> bytes::Bytes {
         match doc {
-            OwnedNode::Heap(n) => Self::extract_all(n.get(), extractors, out),
-            OwnedNode::Archived(n) => Self::extract_all(n.get(), extractors, out),
+            OwnedNode::Heap(n) => {
+                Self::extract_all_indicate_truncation(n.get(), extractors, out, indicator)
+            }
+            OwnedNode::Archived(n) => {
+                Self::extract_all_indicate_truncation(n.get(), extractors, out, indicator)
+            }
         }
     }
 
     /// Extract from an instance of doc::AsNode, writing a packed encoding into the writer.
-    pub fn extract<N: AsNode, W: std::io::Write>(&self, doc: &N, w: &mut W) -> std::io::Result<()> {
+    pub fn extract_indicate_truncation<N: AsNode, W: std::io::Write>(
+        &self,
+        doc: &N,
+        w: &mut W,
+        indicator: &AtomicBool,
+    ) -> std::io::Result<()> {
         match self.query(doc) {
             Ok(v) => self
                 .policy
-                .on(v)
+                .with_truncation_indicator(v, indicator)
                 .pack(w, tuple::TupleDepth::new().increment())?,
             Err(v) => self
                 .policy
-                .on(v.as_ref())
+                .with_truncation_indicator(v.as_ref(), indicator)
                 .pack(w, tuple::TupleDepth::new().increment())?,
         };
         Ok(())
+    }
+
+    /// Extract from an instance of doc::AsNode, writing a packed encoding into the writer.
+    pub fn extract<N: AsNode, W: std::io::Write>(&self, doc: &N, w: &mut W) -> std::io::Result<()> {
+        let indicator = &AtomicBool::new(false);
+        self.extract_indicate_truncation(doc, w, indicator)
     }
 
     /// Compare the deep ordering of `lhs` and `rhs` with respect to a composite key.
@@ -169,7 +254,7 @@ mod test {
             ],
             "long-str": "very very very very very very very very very very very very long",
         });
-        let policy = SerPolicy::new(32);
+        let policy = SerPolicy::truncate_strings(32);
 
         let extractors = vec![
             Extractor::new("/missing", &policy),
@@ -191,7 +276,10 @@ mod test {
         ];
 
         let mut buffer = bytes::BytesMut::new();
-        let packed = Extractor::extract_all(&v1, &extractors, &mut buffer);
+        let indicator = AtomicBool::new(false);
+        let packed =
+            Extractor::extract_all_indicate_truncation(&v1, &extractors, &mut buffer, &indicator);
+        assert!(indicator.load(std::sync::atomic::Ordering::SeqCst));
         let unpacked: Vec<tuple::Element> = tuple::unpack(&packed).unwrap();
 
         insta::assert_debug_snapshot!(unpacked, @r###"
@@ -243,11 +331,60 @@ mod test {
     }
 
     #[test]
+    fn test_setting_truncation_indicator() {
+        let policy = SerPolicy {
+            str_truncate_after: 7,
+            ..SerPolicy::noop()
+        };
+
+        let doc = json!({
+            "nested": {
+                "big": "a string that will be truncated",
+            },
+            "smol": "notuchy",
+        });
+
+        let mut extractors = vec![
+            Extractor::for_truncation_indicator(),
+            Extractor::new("/smol", &policy),
+        ];
+
+        // Assert that the truncation indicator is false when no extracted
+        // fields were affected by the SerPolicy.
+        let mut buffer = bytes::BytesMut::new();
+        let prune_indicator = AtomicBool::new(false);
+        let packed = Extractor::extract_all_indicate_truncation(
+            &doc,
+            &extractors,
+            &mut buffer,
+            &prune_indicator,
+        );
+        assert!(!prune_indicator.load(std::sync::atomic::Ordering::SeqCst));
+        let unpacked: Vec<tuple::Element> = tuple::unpack(&packed).unwrap();
+        assert_eq!(tuple::Element::Bool(false), unpacked[0]);
+
+        // Add an extractor for the root document, and assert that the truncation indicator
+        // gets set to true.
+        extractors.push(Extractor::new("", &policy));
+        let mut buffer = bytes::BytesMut::new();
+        let prune_indicator = AtomicBool::new(false);
+        let packed = Extractor::extract_all_indicate_truncation(
+            &doc,
+            &extractors,
+            &mut buffer,
+            &prune_indicator,
+        );
+        assert!(prune_indicator.load(std::sync::atomic::Ordering::SeqCst));
+        let unpacked: Vec<tuple::Element> = tuple::unpack(&packed).unwrap();
+        assert_eq!(tuple::Element::Bool(true), unpacked[0]);
+    }
+
+    #[test]
     fn test_compare_objects() {
         let d1 = &json!({"a": 1, "b": 2, "c": 3});
         let d2 = &json!({"a": 2, "b": 1});
 
-        let policy = SerPolicy::default();
+        let policy = SerPolicy::noop();
         let empty = || Extractor::new("", &policy);
         let a = || Extractor::new("/a", &policy);
         let b = || Extractor::new("/b", &policy);
@@ -282,7 +419,7 @@ mod test {
         let d1 = &json!([1, 2, 3]);
         let d2 = &json!([2, 1]);
 
-        let policy = SerPolicy::default();
+        let policy = SerPolicy::noop();
         let empty = || Extractor::new("", &policy);
         let zero = || Extractor::new("/0", &policy);
         let one = || Extractor::new("/1", &policy);
@@ -319,7 +456,7 @@ mod test {
         let d1 = &json!({"a": null, "c": 3});
         let d2 = &json!({"b": 2});
 
-        let policy = SerPolicy::default();
+        let policy = SerPolicy::noop();
         let missing = || Extractor::new("/does/not/exist", &policy);
         let a = || Extractor::new("/a", &policy);
         let b = || Extractor::new("/b", &policy);
