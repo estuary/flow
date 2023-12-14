@@ -19,8 +19,7 @@ import (
 // pipelined and batched to amortize the cost of broker Append RPCs. It may
 // also simplify implementations for clients who would prefer to simply have
 // writes block until successfully committed, as opposed to handling errors
-// and retries themselves. AppendService will retry all errors except for
-// context cancellation and ErrJournalNotFound.
+// and retries themselves.
 //
 // For each journal, AppendService manages an ordered list of AsyncAppends,
 // each having buffered content to be appended. The list is dispatched in
@@ -279,8 +278,7 @@ func (p *AsyncAppend) Writer() *bufio.Writer { return p.fb.buf }
 // also roll back any writes queued by the caller, aborting the append
 // transaction. Require is valid for use only until Release is called.
 // Require returns itself, allowing uses like:
-//
-//	Require(maybeErrors()).Release()
+//      Require(maybeErrors()).Release()
 func (p *AsyncAppend) Require(err error) *AsyncAppend {
 	if err != nil && p.op.err == nil {
 		p.op.err = err
@@ -394,7 +392,7 @@ var serveAppends = func(s *AppendService, aa *AsyncAppend, err error) {
 						err2 = aa.app.Close()
 					}
 
-					if err2 == context.Canceled || err2 == context.DeadlineExceeded || err2 == ErrJournalNotFound {
+					if err2 == context.Canceled || err2 == context.DeadlineExceeded {
 						err = err2
 						return nil // Break retry loop.
 					} else if err2 != nil {
