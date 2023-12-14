@@ -95,7 +95,6 @@ async fn run_session(
     let apply = Request {
         apply: Some(request::Apply {
             materialization: Some(spec.clone()),
-            dry_run: false,
             version: labeling.build.clone(),
             last_materialization: None,
             last_version: String::new(),

@@ -13,12 +13,6 @@ pub struct ShardLabeling {
     /// Logging level of the task.
     #[prost(enumeration = "log::Level", tag = "3")]
     pub log_level: i32,
-    /// Ports is a map from port name to the combined configuration
-    /// for the port. The runtime itself doesn't actually care
-    /// about the alpn protocol, but it's there for the sake of
-    /// completeness.
-    #[prost(message, repeated, tag = "4")]
-    pub ports: ::prost::alloc::vec::Vec<super::flow::NetworkPort>,
     /// Key and R-Clock range of the shard.
     #[prost(message, optional, tag = "5")]
     pub range: ::core::option::Option<super::flow::RangeSpec>,
