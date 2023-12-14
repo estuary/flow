@@ -27,7 +27,7 @@ impl Task {
             anyhow::bail!("materialization cannot split on r-clock: {range:?}");
         }
 
-        // TODO(johnny): Hack to address string truncation for these common materialization connectors
+        // TODO(johnny): Hack to limit serialized value sizes for these common materialization connectors
         // that don't handle large strings very well. This should be negotiated via connector protocol.
         // See go/runtime/materialize.go:135
         let ser_policy = if [
@@ -40,6 +40,9 @@ impl Task {
         {
             doc::SerPolicy {
                 str_truncate_after: 1 << 16, // Truncate at 64KB.
+                obj_truncate_after: usize::MAX,
+                nested_obj_truncate_after: 1000,
+                array_truncate_after: 1000,
             }
         } else {
             doc::SerPolicy::default()
