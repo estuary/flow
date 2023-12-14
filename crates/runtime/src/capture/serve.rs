@@ -1,5 +1,5 @@
 use super::{connector, protocol::*, RequestStream, ResponseStream, Task, Transaction};
-use crate::{rocksdb::RocksDB, shard_log_level, verify, LogHandler, Runtime};
+use crate::{rocksdb::RocksDB, verify, LogHandler, Runtime};
 use anyhow::Context;
 use futures::channel::oneshot;
 use futures::future::FusedFuture;
@@ -31,17 +31,26 @@ impl<L: LogHandler> proto_grpc::capture::connector_server::Connector for Runtime
 impl<L: LogHandler> Runtime<L> {
     pub fn serve_capture(self, mut request_rx: impl RequestStream) -> impl ResponseStream {
         coroutines::try_coroutine(move |mut co| async move {
-            let Some(mut open) = serve_unary(&self, &mut request_rx, &mut co).await? else {
+            let Some(request) = request_rx.try_next().await? else {
                 return Ok::<(), anyhow::Error>(());
             };
+            self.set_log_level(request.get_internal()?.log_level());
 
-            let db = recv_client_first_open(&open).await?;
+            let db = RocksDB::open(request.get_internal()?.rocksdb_descriptor.clone()).await?;
             let mut shapes = BTreeMap::new();
+            let mut next = Some(request);
 
-            while let Some(next) =
-                serve_session(&mut co, &db, open, &mut request_rx, &self, &mut shapes).await?
-            {
-                open = next;
+            while let Some(request) = next {
+                self.set_log_level(request.get_internal()?.log_level());
+
+                if request.open.is_some() {
+                    next =
+                        serve_session(&mut co, &db, request, &mut request_rx, &self, &mut shapes)
+                            .await?;
+                } else {
+                    serve_unary(&self, request, &mut co).await?;
+                    next = request_rx.try_next().await?;
+                }
             }
             Ok(())
         })
@@ -50,28 +59,17 @@ impl<L: LogHandler> Runtime<L> {
 
 async fn serve_unary<L: LogHandler>(
     runtime: &Runtime<L>,
-    request_rx: &mut impl RequestStream,
+    request: Request,
     co: &mut coroutines::Suspend<Response, ()>,
-) -> anyhow::Result<Option<Request>> {
-    while let Some(request) = request_rx.try_next().await? {
-        if let Some(open) = &request.open {
-            // Set logging level for logs written before the very first connector start.
-            runtime.set_log_level(
-                open.capture
-                    .as_ref()
-                    .and_then(|spec| shard_log_level(spec.shard_template.as_ref())),
-            );
-            return Ok(Some(request));
-        }
-        let (connector_tx, mut connector_rx) = connector::start(runtime, request.clone()).await?;
-        std::mem::drop(connector_tx); // Send EOF.
+) -> anyhow::Result<()> {
+    let (connector_tx, mut connector_rx) = connector::start(runtime, request.clone()).await?;
+    std::mem::drop(connector_tx); // Send EOF.
 
-        let verify = verify("connector", "unary response");
-        let response = verify.not_eof(connector_rx.try_next().await?)?;
-        () = co.yield_(recv_unary(request, response)?).await;
-        () = verify.is_eof(connector_rx.try_next().await?)?;
-    }
-    Ok(None)
+    let verify = verify("connector", "unary response");
+    let response = verify.not_eof(connector_rx.try_next().await?)?;
+    () = co.yield_(recv_unary(request, response)?).await;
+    () = verify.is_eof(connector_rx.try_next().await?)?;
+    Ok(())
 }
 
 async fn serve_session<L: LogHandler>(
@@ -89,7 +87,7 @@ async fn serve_session<L: LogHandler>(
     let opened = TryStreamExt::try_next(&mut connector_rx).await?;
 
     let (task, task_clone, mut shapes, accumulator, mut next_accumulator, opened) =
-        recv_connector_opened(db, &open, opened, shapes_by_key).await?;
+        recv_connector_opened(db, open, opened, shapes_by_key).await?;
 
     () = co.yield_(opened).await;
 
@@ -117,16 +115,16 @@ async fn serve_session<L: LogHandler>(
                 acknowledge: Some(ack),
                 ..
             }) => ack,
-            // An Open ends this session, and immediately starts a next one.
-            Some(open @ Request { open: Some(_), .. }) => {
+            // An Open or Apply gracefully ends this session.
+            Some(request) if request.open.is_some() || request.apply.is_some() => {
                 *shapes_by_key = task.binding_shapes_by_key(shapes);
-                return Ok(Some(open));
+                return Ok(Some(request));
             }
             // Caller sent EOF which gracefully ends this RPC.
             None => return Ok(None),
             // Anything else is a protocol error.
             Some(request) => {
-                return verify("client", "Acknowledge, Open, or EOF").fail(request);
+                return verify("client", "Acknowledge, Open, Apply, or EOF").fail(request);
             }
         };
 

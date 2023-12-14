@@ -150,22 +150,17 @@ pub struct Container {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CaptureRequestExt {
-    #[prost(message, optional, tag = "1")]
-    pub labels: ::core::option::Option<super::ops::ShardLabeling>,
+    /// Log.Level of this Request.
+    #[prost(enumeration = "super::ops::log::Level", tag = "1")]
+    pub log_level: i32,
+    /// RocksDB descriptor which should be opened. Sent (only) with the first Request.
     #[prost(message, optional, tag = "2")]
-    pub open: ::core::option::Option<capture_request_ext::Open>,
+    pub rocksdb_descriptor: ::core::option::Option<RocksDbDescriptor>,
     #[prost(message, optional, tag = "3")]
     pub start_commit: ::core::option::Option<capture_request_ext::StartCommit>,
 }
 /// Nested message and enum types in `CaptureRequestExt`.
 pub mod capture_request_ext {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Open {
-        /// RocksDB descriptor which should be opened.
-        #[prost(message, optional, tag = "1")]
-        pub rocksdb_descriptor: ::core::option::Option<super::RocksDbDescriptor>,
-    }
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct StartCommit {
@@ -269,9 +264,14 @@ pub mod capture_response_ext {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DeriveRequestExt {
-    #[prost(message, optional, tag = "1")]
-    pub labels: ::core::option::Option<super::ops::ShardLabeling>,
+    /// Log.Level of this Request.
+    #[prost(enumeration = "super::ops::log::Level", tag = "1")]
+    pub log_level: i32,
+    /// RocksDB descriptor which should be opened. Sent (only) with the first Request.
+    /// Ommitted if this is a SQLite derivation.
     #[prost(message, optional, tag = "2")]
+    pub rocksdb_descriptor: ::core::option::Option<RocksDbDescriptor>,
+    #[prost(message, optional, tag = "3")]
     pub open: ::core::option::Option<derive_request_ext::Open>,
 }
 /// Nested message and enum types in `DeriveRequestExt`.
@@ -282,9 +282,6 @@ pub mod derive_request_ext {
         /// URL with a registered SQLite VFS which should be opened.
         #[prost(string, tag = "1")]
         pub sqlite_vfs_uri: ::prost::alloc::string::String,
-        /// RocksDB descriptor which should be opened.
-        #[prost(message, optional, tag = "2")]
-        pub rocksdb_descriptor: ::core::option::Option<super::RocksDbDescriptor>,
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -332,20 +329,12 @@ pub mod derive_response_ext {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MaterializeRequestExt {
-    #[prost(message, optional, tag = "1")]
-    pub labels: ::core::option::Option<super::ops::ShardLabeling>,
+    /// Log.Level of this Request.
+    #[prost(enumeration = "super::ops::log::Level", tag = "1")]
+    pub log_level: i32,
+    /// RocksDB descriptor which should be opened. Sent (only) with the first Request.
     #[prost(message, optional, tag = "2")]
-    pub open: ::core::option::Option<materialize_request_ext::Open>,
-}
-/// Nested message and enum types in `MaterializeRequestExt`.
-pub mod materialize_request_ext {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Open {
-        /// RocksDB descriptor which should be opened.
-        #[prost(message, optional, tag = "1")]
-        pub rocksdb_descriptor: ::core::option::Option<super::RocksDbDescriptor>,
-    }
+    pub rocksdb_descriptor: ::core::option::Option<RocksDbDescriptor>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

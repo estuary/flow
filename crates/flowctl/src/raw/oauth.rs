@@ -93,20 +93,15 @@ pub async fn do_oauth(
         },
     };
     // Get the task spec's oauth field
-    let mut spec_req = capture::Request {
+    let spec_req = capture::Request {
         spec: Some(spec_req),
         ..Default::default()
-    };
-
-    if let Some(log_level) = capture
-        .spec
-        .shards
-        .log_level
-        .as_ref()
-        .and_then(|s| ops::LogLevel::from_str_name(s))
-    {
-        spec_req.set_internal_log_level(log_level);
     }
+    .with_internal(|internal| {
+        if let Some(s) = &capture.spec.shards.log_level {
+            internal.set_log_level(ops::LogLevel::from_str_name(s).unwrap_or_default());
+        }
+    });
 
     let spec_response = runtime::Runtime::new(
         true, // All local.
