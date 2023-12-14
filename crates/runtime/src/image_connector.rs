@@ -14,7 +14,7 @@ pub async fn serve<Request, Response, StartRpc, Attach>(
     attach_container: Attach, // Attaches a Container description to a response.
     image: String,            // Container image to run.
     log_handler: impl crate::LogHandler, // Handler for connector logs.
-    log_level: Option<ops::LogLevel>, // Log-level of the connector, if known.
+    log_level: ops::LogLevel, // Log-level of the connector, if known.
     network: &str,            // Container network to use.
     request_rx: mpsc::Receiver<Request>, // Caller's input request stream.
     start_rpc: StartRpc,      // Begins RPC over a started container channel.

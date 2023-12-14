@@ -59,6 +59,17 @@ pub fn as_timestamp(ts: std::time::SystemTime) -> ::pbjson_types::Timestamp {
     }
 }
 
+impl ops::log::Level {
+    /// Return this Level if it's not UndefinedLevel, or else return `or`.
+    pub fn or(self, or: Self) -> Self {
+        if self != ops::log::Level::UndefinedLevel {
+            self
+        } else {
+            or
+        }
+    }
+}
+
 // Re-export some commonly used types.
 pub use proto_gazette::consumer::checkpoint as runtime_checkpoint;
 pub use proto_gazette::consumer::Checkpoint as RuntimeCheckpoint;

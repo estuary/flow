@@ -51,13 +51,25 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, er
 	}
 
 	var requestExt = &pr.MaterializeRequestExt{
-		Labels: &m.term.labels,
-		Open:   &pr.MaterializeRequestExt_Open{},
+		LogLevel: m.term.labels.LogLevel,
 	}
 	if m.termCount == 1 {
-		requestExt.Open.RocksdbDescriptor = bindings.NewRocksDBDescriptor(m.recorder)
+		requestExt.RocksdbDescriptor = bindings.NewRocksDBDescriptor(m.recorder)
 	}
 
+	// Send Apply / receive Applied.
+	_ = doSend[pm.Response](m.client, &pm.Request{
+		Apply: &pm.Request_Apply{
+			Materialization: m.term.taskSpec,
+			Version:         m.term.labels.Build,
+		},
+		Internal: pr.ToInternal(requestExt),
+	})
+	if _, err := doRecv[pm.Response](m.client); err != nil {
+		return pf.Checkpoint{}, err
+	}
+
+	// Send Open / receive Opened.
 	_ = doSend[pm.Response](m.client, &pm.Request{
 		Open: &pm.Request_Open{
 			Materialization: m.term.taskSpec,
@@ -65,7 +77,7 @@ func (m *Materialize) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, er
 			Range:           &m.term.labels.Range,
 			StateJson:       m.legacyState, // TODO(johnny): Just "{}".
 		},
-		Internal: pr.ToInternal(requestExt),
+		Internal: pr.ToInternal(&pr.MaterializeRequestExt{LogLevel: m.term.labels.LogLevel}),
 	})
 
 	var opened, err = doRecv[pm.Response](m.client)

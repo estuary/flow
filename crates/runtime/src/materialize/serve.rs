@@ -1,5 +1,5 @@
 use super::{connector, protocol::*, LoadKeySet, RequestStream, ResponseStream, Transaction};
-use crate::{rocksdb::RocksDB, shard_log_level, verify, LogHandler, Runtime};
+use crate::{rocksdb::RocksDB, verify, LogHandler, Runtime};
 use anyhow::Context;
 use futures::channel::mpsc;
 use futures::stream::BoxStream;
@@ -29,15 +29,23 @@ impl<L: LogHandler> proto_grpc::materialize::connector_server::Connector for Run
 impl<L: LogHandler> Runtime<L> {
     pub fn serve_materialize(self, mut request_rx: impl RequestStream) -> impl ResponseStream {
         coroutines::try_coroutine(move |mut co| async move {
-            let Some(mut open) = serve_unary(&self, &mut request_rx, &mut co).await? else {
+            let Some(request) = request_rx.try_next().await? else {
                 return Ok::<(), anyhow::Error>(());
             };
+            self.set_log_level(request.get_internal()?.log_level());
 
-            let db = recv_client_first_open(&open).await?;
+            let db = RocksDB::open(request.get_internal()?.rocksdb_descriptor.clone()).await?;
+            let mut next = Some(request);
 
-            while let Some(next) = serve_session(&mut co, &db, open, &mut request_rx, &self).await?
-            {
-                open = next;
+            while let Some(request) = next {
+                self.set_log_level(request.get_internal()?.log_level());
+
+                if request.open.is_some() {
+                    next = serve_session(&mut co, &db, request, &mut request_rx, &self).await?;
+                } else {
+                    serve_unary(&self, request, &mut co).await?;
+                    next = request_rx.try_next().await?;
+                }
             }
             Ok(())
         })
@@ -46,28 +54,17 @@ impl<L: LogHandler> Runtime<L> {
 
 async fn serve_unary<L: LogHandler>(
     runtime: &Runtime<L>,
-    request_rx: &mut impl RequestStream,
+    request: Request,
     co: &mut coroutines::Suspend<Response, ()>,
-) -> anyhow::Result<Option<Request>> {
-    while let Some(request) = request_rx.try_next().await? {
-        if let Some(open) = &request.open {
-            // Set logging level for logs written before the very first connector start.
-            runtime.set_log_level(
-                open.materialization
-                    .as_ref()
-                    .and_then(|spec| shard_log_level(spec.shard_template.as_ref())),
-            );
-            return Ok(Some(request));
-        }
-        let (connector_tx, mut connector_rx) = connector::start(runtime, request.clone()).await?;
-        std::mem::drop(connector_tx); // Send EOF.
+) -> anyhow::Result<()> {
+    let (connector_tx, mut connector_rx) = connector::start(runtime, request.clone()).await?;
+    std::mem::drop(connector_tx); // Send EOF.
 
-        let verify = verify("connector", "unary response");
-        let response = verify.not_eof(connector_rx.try_next().await?)?;
-        () = co.yield_(recv_unary(request, response)?).await;
-        () = verify.is_eof(connector_rx.try_next().await?)?;
-    }
-    Ok(None)
+    let verify = verify("connector", "unary response");
+    let response = verify.not_eof(connector_rx.try_next().await?)?;
+    () = co.yield_(recv_unary(request, response)?).await;
+    () = verify.is_eof(connector_rx.try_next().await?)?;
+    Ok(())
 }
 
 async fn serve_session<L: LogHandler>(
@@ -84,7 +81,7 @@ async fn serve_session<L: LogHandler>(
     let opened = TryStreamExt::try_next(&mut connector_rx).await?;
 
     let (task, mut accumulator, mut last_checkpoint, opened, mut max_keys) =
-        recv_connector_opened(&db, &open, opened).await?;
+        recv_connector_opened(&db, open, opened).await?;
 
     () = co.yield_(opened).await;
 
@@ -131,9 +128,12 @@ async fn serve_session<L: LogHandler>(
                     drain_connector(connector_tx, connector_rx).await?;
                     return Ok(None); // Clean EOF.
                 }
-                Step::ClientRx(Some(open @ Request { open: Some(_), .. })) if !txn.started => {
+                // An Open or Apply gracefully ends this session.
+                Step::ClientRx(Some(request))
+                    if !txn.started && (request.open.is_some() || request.apply.is_some()) =>
+                {
                     drain_connector(connector_tx, connector_rx).await?;
-                    return Ok(Some(open)); // Restart a new session.
+                    return Ok(Some(request)); // Restart a new session.
                 }
                 Step::ClientRx(request) => {
                     if let Some(send) = recv_client_load_or_flush(

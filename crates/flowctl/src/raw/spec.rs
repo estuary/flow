@@ -47,7 +47,7 @@ pub async fn do_spec(
         Err(_) => anyhow::bail!("could not find the capture {needle}"),
     };
 
-    let spec_req = match &capture.spec.endpoint {
+    let request = match &capture.spec.endpoint {
         models::CaptureEndpoint::Connector(config) => capture::request::Spec {
             connector_type: flow::capture_spec::ConnectorType::Image as i32,
             config_json: serde_json::to_string(&config).unwrap(),
@@ -57,35 +57,30 @@ pub async fn do_spec(
             config_json: serde_json::to_string(config).unwrap(),
         },
     };
-    let mut spec_req = capture::Request {
-        spec: Some(spec_req),
+    let request = capture::Request {
+        spec: Some(request),
         ..Default::default()
-    };
-
-    if let Some(log_level) = capture
-        .spec
-        .shards
-        .log_level
-        .as_ref()
-        .and_then(|s| ops::LogLevel::from_str_name(s))
-    {
-        spec_req.set_internal_log_level(log_level);
     }
+    .with_internal(|internal| {
+        if let Some(s) = &capture.spec.shards.log_level {
+            internal.set_log_level(ops::LogLevel::from_str_name(s).unwrap_or_default());
+        }
+    });
 
-    let spec_response = runtime::Runtime::new(
+    let response = runtime::Runtime::new(
         true, // Allow local.
         network.clone(),
         ops::tracing_log_handler,
         None,
         format!("spec/{}", capture.capture),
     )
-    .unary_capture(spec_req, build::CONNECTOR_TIMEOUT)
+    .unary_capture(request, build::CONNECTOR_TIMEOUT)
     .await?
     .spec
     .context("connector didn't send expected Spec response")?;
 
     let serialized =
-        serde_json::to_string(&spec_response).context("Failed to serialize spec response")?;
+        serde_json::to_string(&response).context("Failed to serialize spec response")?;
 
     println!("{}", serialized);
 

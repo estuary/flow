@@ -77,13 +77,13 @@ func (d *Derive) RestoreCheckpoint(shard consumer.Shard) (pf.Checkpoint, error) 
 	}
 
 	var requestExt = &pr.DeriveRequestExt{
-		Labels: &d.term.labels,
-		Open:   &pr.DeriveRequestExt_Open{},
+		LogLevel: d.term.labels.LogLevel,
+		Open:     &pr.DeriveRequestExt_Open{},
 	}
 	if d.sqlite != nil {
 		requestExt.Open.SqliteVfsUri = d.sqlite.URIForDB("primary.db")
 	} else if d.termCount == 1 {
-		requestExt.Open.RocksdbDescriptor = bindings.NewRocksDBDescriptor(d.recorder)
+		requestExt.RocksdbDescriptor = bindings.NewRocksDBDescriptor(d.recorder)
 	}
 
 	_ = doSend[pd.Response](d.client, &pd.Request{
