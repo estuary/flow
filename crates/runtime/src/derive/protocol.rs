@@ -8,7 +8,7 @@ use proto_flow::runtime::derive_response_ext;
 use proto_gazette::consumer;
 use std::collections::BTreeMap;
 
-pub fn recv_unary(request: Request, response: Response) -> anyhow::Result<Response> {
+pub fn recv_connector_unary(request: Request, response: Response) -> anyhow::Result<Response> {
     if request.spec.is_some() && response.spec.is_some() {
         Ok(response)
     } else if request.spec.is_some() {
