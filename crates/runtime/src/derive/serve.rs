@@ -64,7 +64,7 @@ async fn serve_unary<L: LogHandler>(
 
     let verify = verify("connector", "unary response");
     let response = verify.not_eof(connector_rx.try_next().await?)?;
-    () = co.yield_(recv_unary(request, response)?).await;
+    () = co.yield_(recv_connector_unary(request, response)?).await;
     () = verify.is_eof(connector_rx.try_next().await?)?;
     Ok(())
 }

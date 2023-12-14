@@ -11,7 +11,48 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use xxhash_rust::xxh3::xxh3_128;
 
-pub fn recv_unary(request: Request, response: Response) -> anyhow::Result<Response> {
+pub async fn recv_client_unary(
+    db: &RocksDB,
+    request: &mut Request,
+    wb: &mut rocksdb::WriteBatch,
+) -> anyhow::Result<()> {
+    if let Some(apply) = &mut request.apply {
+        let last_spec = db.load_last_applied::<flow::MaterializationSpec>().await?;
+
+        if let Some(last_spec) = &last_spec {
+            apply.last_version =
+                crate::parse_shard_labeling(last_spec.shard_template.as_ref())?.build;
+        }
+
+        if last_spec != apply.materialization {
+            wb.put(
+                RocksDB::LAST_APPLIED,
+                apply
+                    .materialization
+                    .as_ref()
+                    .map(|m| m.encode_to_vec())
+                    .unwrap_or_default(),
+            );
+
+            tracing::info!(
+                last_version = apply.last_version,
+                next_version = apply.version,
+                "applying updated task specification",
+            );
+        } else {
+            tracing::debug!(
+                version = apply.version,
+                "applying unchanged task specification",
+            );
+        }
+
+        apply.last_materialization = last_spec;
+    }
+
+    Ok(())
+}
+
+pub fn recv_connector_unary(request: Request, response: Response) -> anyhow::Result<Response> {
     if request.spec.is_some() && response.spec.is_some() {
         Ok(response)
     } else if request.spec.is_some() {
@@ -20,7 +61,15 @@ pub fn recv_unary(request: Request, response: Response) -> anyhow::Result<Respon
         Ok(response)
     } else if request.validate.is_some() {
         verify("connector", "Validated").fail(response)
-    } else if request.apply.is_some() && response.applied.is_some() {
+    } else if let (Some(apply), Some(applied)) = (&request.apply, &response.applied) {
+        if !applied.action_description.is_empty() {
+            tracing::info!(
+                action = applied.action_description,
+                last_version = apply.last_version,
+                version = apply.version,
+                "materialization was applied"
+            );
+        }
         Ok(response)
     } else if request.apply.is_some() {
         verify("connector", "Applied").fail(response)
