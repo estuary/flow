@@ -2424,6 +2424,13 @@ dependencies = [
 [[package]]
 name = "labels"
 version = "0.0.0"
+dependencies = [
+ "insta",
+ "proto-flow",
+ "proto-gazette",
+ "serde_json",
+ "thiserror",
+]
 
 [[package]]
 name = "lazy_static"
