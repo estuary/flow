@@ -48,7 +48,7 @@ impl<L: LogHandler> Runtime<L> {
                         serve_session(&mut co, &db, request, &mut request_rx, &self, &mut shapes)
                             .await?;
                 } else {
-                    serve_unary(&self, request, &mut co).await?;
+                    serve_unary(&mut co, &db, request, &self).await?;
                     next = request_rx.try_next().await?;
                 }
             }
@@ -58,17 +58,26 @@ impl<L: LogHandler> Runtime<L> {
 }
 
 async fn serve_unary<L: LogHandler>(
-    runtime: &Runtime<L>,
-    request: Request,
     co: &mut coroutines::Suspend<Response, ()>,
+    db: &RocksDB,
+    mut request: Request,
+    runtime: &Runtime<L>,
 ) -> anyhow::Result<()> {
+    let mut wb = rocksdb::WriteBatch::default();
+    recv_client_unary(db, &mut request, &mut wb).await?;
+
     let (connector_tx, mut connector_rx) = connector::start(runtime, request.clone()).await?;
     std::mem::drop(connector_tx); // Send EOF.
 
     let verify = verify("connector", "unary response");
     let response = verify.not_eof(connector_rx.try_next().await?)?;
-    () = co.yield_(recv_unary(request, response)?).await;
+    () = co.yield_(recv_connector_unary(request, response)?).await;
     () = verify.is_eof(connector_rx.try_next().await?)?;
+
+    if !wb.is_empty() {
+        db.write_opt(wb, Default::default()).await?;
+    }
+
     Ok(())
 }
 
