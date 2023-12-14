@@ -7,7 +7,9 @@ pub mod tracing;
 
 // Re-export many types from proto_flow::ops, so that users of this crate
 // don't also have to use that module.
-pub use proto_flow::ops::{log::Level as LogLevel, stats, Log, Meta, ShardRef, Stats, TaskType};
+pub use proto_flow::ops::{
+    log::Level as LogLevel, stats, Log, Meta, ShardLabeling, ShardRef, Stats, TaskType,
+};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
