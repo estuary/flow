@@ -11,15 +11,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/estuary/flow/go/bindings"
 	"github.com/estuary/flow/go/flow"
-	"github.com/estuary/flow/go/labels"
-	pfc "github.com/estuary/flow/go/protocols/capture"
 	"github.com/estuary/flow/go/protocols/catalog"
 	pf "github.com/estuary/flow/go/protocols/flow"
-	pm "github.com/estuary/flow/go/protocols/materialize"
-	"github.com/estuary/flow/go/protocols/ops"
-	pr "github.com/estuary/flow/go/protocols/runtime"
 	log "github.com/sirupsen/logrus"
 	"go.gazette.dev/core/broker/client"
 	pb "go.gazette.dev/core/broker/protocol"
@@ -63,109 +57,19 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 		return err
 	}
 
-	var build = builds.Open(cmd.BuildID)
-	defer build.Close()
-
 	// Identify collections and tasks of the build to activate.
 	var collections []*pf.CollectionSpec
 	var tasks []pf.Task
 
+	var build = builds.Open(cmd.BuildID)
 	if err := build.Extract(func(db *sql.DB) error {
 		collections, tasks, err = loadFromCatalog(db, cmd.Names, cmd.All, cmd.AllDerivations)
 		return err
 	}); err != nil {
 		return fmt.Errorf("extracting from build: %w", err)
 	}
-
-	svc, err := bindings.NewTaskService(
-		pr.TaskServiceConfig{
-			TaskName:         "activate",
-			ContainerNetwork: cmd.Network,
-			AllowLocal:       false, // TODO(johnny)?
-		},
-		ops.NewLocalPublisher(ops.ShardLabeling{TaskName: "activate"}),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create task service: %w", err)
-	}
-	defer svc.Drop()
-
-	// Apply captures to endpoints before we create or update the task shards
-	// that will reference them.
-	for _, t := range tasks {
-		var spec, ok = t.(*pf.CaptureSpec)
-		if !ok {
-			continue
-		}
-
-		if spec.ShardTemplate.Disable {
-			log.WithField("capture", spec.Name).
-				Info("Will skip applying capture because it's shards are disabled")
-			continue
-		}
-
-		stream, err := pfc.NewConnectorClient(svc.Conn()).Capture(ctx)
-		if err != nil {
-			return fmt.Errorf("starting capture: %w", err)
-		}
-		stream.Send(&pfc.Request{
-			Apply: &pfc.Request_Apply{
-				Capture: spec,
-				Version: spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
-				DryRun:  cmd.DryRun,
-			},
-		})
-		stream.CloseSend()
-
-		response, err := stream.Recv()
-		if err != nil {
-			return fmt.Errorf("applying capture %q: %w", spec.Name, err)
-		}
-
-		if response.Applied != nil && response.Applied.ActionDescription != "" {
-			fmt.Println("Applying capture ", spec.Name, ":")
-			fmt.Println(response.Applied.ActionDescription)
-		}
-		log.WithFields(log.Fields{"name": spec.Name}).Info("applied capture to endpoint")
-	}
-
-	// As with captures, apply materializations before we create or update the
-	// task shards that reference them.
-	for _, t := range tasks {
-		var spec, ok = t.(*pf.MaterializationSpec)
-		if !ok {
-			continue
-		}
-
-		if spec.ShardTemplate.Disable {
-			log.WithField("materialization", spec.Name).
-				Info("Will skip applying materialization because it's shards are disabled")
-			continue
-		}
-
-		stream, err := pm.NewConnectorClient(svc.Conn()).Materialize(ctx)
-		if err != nil {
-			return fmt.Errorf("starting capture: %w", err)
-		}
-		stream.Send(&pm.Request{
-			Apply: &pm.Request_Apply{
-				Materialization: spec,
-				Version:         spec.ShardTemplate.LabelSet.ValueOf(labels.Build),
-				DryRun:          cmd.DryRun,
-			},
-		})
-		stream.CloseSend()
-
-		response, err := stream.Recv()
-		if err != nil {
-			return fmt.Errorf("applying materialization %q: %w", spec.Name, err)
-		}
-
-		if response.Applied != nil && response.Applied.ActionDescription != "" {
-			fmt.Println("Applying materialization ", spec.Name, ":")
-			fmt.Println(response.Applied.ActionDescription)
-		}
-		log.WithFields(log.Fields{"name": spec.Name}).Info("applied materialization to endpoint")
+	if err := build.Close(); err != nil {
+		return fmt.Errorf("closing build: %w", err)
 	}
 
 	shards, journals, err := flow.ActivationChanges(ctx, rjc, sc, collections, tasks, cmd.InitialSplits)
@@ -247,9 +151,6 @@ func (cmd apiActivate) execute(ctx context.Context) error {
 		log.Info("all shards ready")
 	}
 
-	if err := build.Close(); err != nil {
-		return fmt.Errorf("closing build: %w", err)
-	}
 	return nil
 }
 
