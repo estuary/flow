@@ -339,12 +339,12 @@ pub fn drain_chunk(
             match &root {
                 doc::OwnedNode::Heap(n) => {
                     for ex in extractors {
-                        ex.extract(n.get(), arena).unwrap();
+                        ex.extract(n.get(), arena, None).unwrap();
                     }
                 }
                 doc::OwnedNode::Archived(n) => {
                     for ex in extractors {
-                        ex.extract(n.get(), arena).unwrap();
+                        ex.extract(n.get(), arena, None).unwrap();
                     }
                 }
             }

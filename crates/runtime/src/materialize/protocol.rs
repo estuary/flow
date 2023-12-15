@@ -305,19 +305,35 @@ pub fn send_connector_store(
     let binding_index = meta.binding();
     let binding = &task.bindings[binding_index];
 
-    let key_packed = doc::Extractor::extract_all_owned(&root, &binding.key_extractors, buf);
-    let values_packed = doc::Extractor::extract_all_owned(&root, &binding.value_extractors, buf);
-    let mut doc_json = serde_json::to_string(&binding.ser_policy.on_owned(&root))
-        .expect("document serialization cannot fail");
+    let truncation_sentinel = AtomicBool::new(false);
+    let key_packed = doc::Extractor::extract_all_owned(
+        &root,
+        &binding.key_extractors,
+        buf,
+        Some(&truncation_sentinel),
+    );
+    let values_packed = doc::Extractor::extract_all_owned(
+        &root,
+        &binding.value_extractors,
+        buf,
+        Some(&truncation_sentinel),
+    );
+
+    // Because we serialize the document outside of `extract_all_owned`, the truncation sentinel
+    // cannot account for values that were truncated in the flow document but weren't part of the
+    // field selection. In other words, it's possible that we'll truncate values inside the document
+    // but still set the truncation sentinel to false, as long as none of those values were extracted.
+    let doc_json = if binding.store_document {
+        serde_json::to_string(&binding.ser_policy.on_owned(&root))
+            .expect("document serialization cannot fail")
+    } else {
+        String::new()
+    };
 
     // Accumulate metrics over reads for our transforms.
     let stats = &mut txn.stats.entry(binding_index as u32).or_default();
     stats.2.docs_total += 1;
     stats.2.bytes_total += doc_json.len() as u64;
-
-    if !binding.store_document {
-        doc_json.clear(); // Don't send if it's not needed.
-    }
 
     Request {
         store: Some(request::Store {

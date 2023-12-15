@@ -394,5 +394,5 @@ fn reduce_tree(schema: Schema, docs: Vec<Value>) -> Value {
 
     let root = docs.into_iter().next().unwrap();
 
-    serde_json::to_value(doc::SerPolicy::default().on(&root)).unwrap()
+    serde_json::to_value(doc::SerPolicy::default().on(&root, None)).unwrap()
 }

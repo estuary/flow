@@ -81,7 +81,7 @@ fn reduce_stack(input: Vec<ArbitraryValue>) -> bool {
         .unwrap();
     }
 
-    let reduced = serde_json::to_value(&SerPolicy::default().on(&reduced)).unwrap();
+    let reduced = serde_json::to_value(&SerPolicy::default().on(&reduced, None)).unwrap();
 
     reduced == expect
 }

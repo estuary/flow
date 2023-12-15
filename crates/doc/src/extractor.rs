@@ -1,6 +1,9 @@
 use crate::{compare::compare, AsNode, Node, OwnedNode, Pointer, SerPolicy};
 use bytes::BufMut;
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    sync::atomic::{AtomicBool, Ordering},
+};
 use tuple::TuplePack;
 
 /// Extractor extracts locations from documents, and encapsulates various
@@ -10,7 +13,13 @@ pub struct Extractor {
     ptr: Pointer,
     policy: SerPolicy,
     default: serde_json::Value,
-    is_uuid_v1_date_time: bool,
+    magic: Option<Magic>,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+enum Magic {
+    UuidV1DateTime,
+    TruncationSentinel,
 }
 
 impl Extractor {
@@ -21,7 +30,7 @@ impl Extractor {
             ptr: Pointer::from(ptr),
             policy: policy.clone(),
             default: serde_json::Value::Null,
-            is_uuid_v1_date_time: false,
+            magic: None,
         }
     }
 
@@ -32,7 +41,7 @@ impl Extractor {
             ptr: Pointer::from(ptr),
             policy: policy.clone(),
             default,
-            is_uuid_v1_date_time: false,
+            magic: None,
         }
     }
 
@@ -42,7 +51,16 @@ impl Extractor {
             ptr: Pointer::from(ptr),
             policy: SerPolicy::default(),
             default: serde_json::Value::Null,
-            is_uuid_v1_date_time: true,
+            magic: Some(Magic::UuidV1DateTime),
+        }
+    }
+
+    pub fn for_truncation_sentinel() -> Self {
+        Self {
+            ptr: Pointer::empty(),
+            policy: SerPolicy::default(),
+            default: serde_json::Value::Null,
+            magic: Some(Magic::TruncationSentinel),
         }
     }
 
@@ -63,25 +81,35 @@ impl Extractor {
             return Err(Cow::Borrowed(&self.default));
         };
 
-        if self.is_uuid_v1_date_time {
-            if let Some(date_time) = match node.as_node() {
-                Node::String(s) => Some(s),
-                _ => None,
+        match self.magic {
+            None => { /* sorry, kid, I guess your parents aren't coming back */ }
+            Some(Magic::UuidV1DateTime) => {
+                if let Some(date_time) = match node.as_node() {
+                    Node::String(s) => Some(s),
+                    _ => None,
+                }
+                .and_then(|s| uuid::Uuid::parse_str(s).ok())
+                .and_then(|u| u.get_timestamp())
+                .and_then(|t| {
+                    let (seconds, nanos) = t.to_unix();
+                    time::OffsetDateTime::from_unix_timestamp_nanos(
+                        seconds as i128 * 1_000_000_000 + nanos as i128,
+                    )
+                    .ok()
+                }) {
+                    return Err(Cow::Owned(serde_json::Value::String(
+                        date_time
+                            .format(&time::format_description::well_known::Rfc3339)
+                            .expect("rfc3339 format always succeeds"),
+                    )));
+                }
             }
-            .and_then(|s| uuid::Uuid::parse_str(s).ok())
-            .and_then(|u| u.get_timestamp())
-            .and_then(|t| {
-                let (seconds, nanos) = t.to_unix();
-                time::OffsetDateTime::from_unix_timestamp_nanos(
-                    seconds as i128 * 1_000_000_000 + nanos as i128,
-                )
-                .ok()
-            }) {
-                return Err(Cow::Owned(serde_json::Value::String(
-                    date_time
-                        .format(&time::format_description::well_known::Rfc3339)
-                        .expect("rfc3339 format always succeeds"),
-                )));
+            Some(Magic::TruncationSentinel) => {
+                // The real magic is behind some _other_ curtain.
+                // We just set a constant false value here.
+                // If we end up pruning some part of the document, we'll go back and change this
+                // value retroactively.
+                return Err(Cow::Owned(serde_json::Value::Bool(false)));
             }
         }
 
@@ -93,12 +121,41 @@ impl Extractor {
         doc: &N,
         extractors: &[Self],
         out: &mut bytes::BytesMut,
+        sentinel: Option<&AtomicBool>,
     ) -> bytes::Bytes {
         let mut w = out.writer();
 
+        // Truncation sentinels are handled by having the extractor always write
+        // a `false` value (0x26). We remember the byte offset of this value in the
+        // encoded tuple, and will change it to `true` at the end if any value was
+        // truncated.
+        let mut projected_sentinel_pos: Option<usize> = None;
         for ex in extractors {
+            if ex.magic == Some(Magic::TruncationSentinel) {
+                debug_assert!(sentinel.is_some(), "extractors include a projection of the truncation sentinel, but no sentinel was passed in the arguments");
+                debug_assert!(
+                    projected_sentinel_pos.is_none(),
+                    "extractors have multiple projections of truncation sentinel"
+                );
+                projected_sentinel_pos = Some(w.get_ref().len());
+            }
             // Unwrap because Write is infallible for BytesMut.
-            ex.extract(doc, &mut w).unwrap();
+            ex.extract(doc, &mut w, sentinel).unwrap();
+
+            if ex.magic == Some(Magic::TruncationSentinel) {
+                let n_written = w.get_ref().len() - projected_sentinel_pos.unwrap();
+                assert_eq!(
+                    1, n_written,
+                    "expected one byte written for truncation sentinel"
+                )
+            }
+        }
+
+        let write_sentinel = sentinel
+            .filter(|s| s.load(std::sync::atomic::Ordering::SeqCst))
+            .and(projected_sentinel_pos);
+        if let Some(pos) = write_sentinel {
+            out[pos] = 0x27; // this is the byte value of `true`
         }
         out.split().freeze()
     }
@@ -108,23 +165,29 @@ impl Extractor {
         doc: &OwnedNode,
         extractors: &[Self],
         out: &mut bytes::BytesMut,
+        sentinel: Option<&AtomicBool>,
     ) -> bytes::Bytes {
         match doc {
-            OwnedNode::Heap(n) => Self::extract_all(n.get(), extractors, out),
-            OwnedNode::Archived(n) => Self::extract_all(n.get(), extractors, out),
+            OwnedNode::Heap(n) => Self::extract_all(n.get(), extractors, out, sentinel),
+            OwnedNode::Archived(n) => Self::extract_all(n.get(), extractors, out, sentinel),
         }
     }
 
     /// Extract from an instance of doc::AsNode, writing a packed encoding into the writer.
-    pub fn extract<N: AsNode, W: std::io::Write>(&self, doc: &N, w: &mut W) -> std::io::Result<()> {
+    pub fn extract<N: AsNode, W: std::io::Write>(
+        &self,
+        doc: &N,
+        w: &mut W,
+        sentinel: Option<&AtomicBool>,
+    ) -> std::io::Result<()> {
         match self.query(doc) {
             Ok(v) => self
                 .policy
-                .on(v)
+                .on(v, sentinel)
                 .pack(w, tuple::TupleDepth::new().increment())?,
             Err(v) => self
                 .policy
-                .on(v.as_ref())
+                .on(v.as_ref(), sentinel)
                 .pack(w, tuple::TupleDepth::new().increment())?,
         };
         Ok(())
@@ -191,7 +254,9 @@ mod test {
         ];
 
         let mut buffer = bytes::BytesMut::new();
-        let packed = Extractor::extract_all(&v1, &extractors, &mut buffer);
+        let prune_sentinel = AtomicBool::new(false);
+        let packed = Extractor::extract_all(&v1, &extractors, &mut buffer, Some(&prune_sentinel));
+        assert!(prune_sentinel.load(std::sync::atomic::Ordering::SeqCst));
         let unpacked: Vec<tuple::Element> = tuple::unpack(&packed).unwrap();
 
         insta::assert_debug_snapshot!(unpacked, @r###"
@@ -240,6 +305,45 @@ mod test {
             ),
         ]
         "###);
+    }
+
+    #[test]
+    fn test_setting_truncation_sentinel() {
+        let policy = SerPolicy {
+            str_truncate_after: 7,
+            ..Default::default()
+        };
+
+        let doc = json!({
+            "nested": {
+                "big": "a string that will be truncated",
+            },
+            "smol": "notuchy",
+        });
+
+        let mut extractors = vec![
+            Extractor::for_truncation_sentinel(),
+            Extractor::new("/smol", &policy),
+        ];
+
+        // Assert that the truncation sentinel is false when no extracted
+        // fields were affected by the SerPolicy.
+        let mut buffer = bytes::BytesMut::new();
+        let prune_sentinel = AtomicBool::new(false);
+        let packed = Extractor::extract_all(&doc, &extractors, &mut buffer, Some(&prune_sentinel));
+        assert!(!prune_sentinel.load(std::sync::atomic::Ordering::SeqCst));
+        let unpacked: Vec<tuple::Element> = tuple::unpack(&packed).unwrap();
+        assert_eq!(tuple::Element::Bool(false), unpacked[0]);
+
+        // Add an extractor for the root document, and assert that the truncation sentinel
+        // gets set to true.
+        extractors.push(Extractor::new("", &policy));
+        let mut buffer = bytes::BytesMut::new();
+        let prune_sentinel = AtomicBool::new(false);
+        let packed = Extractor::extract_all(&doc, &extractors, &mut buffer, Some(&prune_sentinel));
+        assert!(prune_sentinel.load(std::sync::atomic::Ordering::SeqCst));
+        let unpacked: Vec<tuple::Element> = tuple::unpack(&packed).unwrap();
+        assert_eq!(tuple::Element::Bool(true), unpacked[0]);
     }
 
     #[test]

@@ -743,7 +743,7 @@ mod test {
             for HeapEntry { meta, root } in entries.sorted.iter() {
                 b.push_str(&format!(
                     "{meta:?} {}\n",
-                    serde_json::to_string(&SerPolicy::debug().on(root)).unwrap()
+                    serde_json::to_string(&SerPolicy::debug().on(root, None)).unwrap()
                 ));
             }
             b
