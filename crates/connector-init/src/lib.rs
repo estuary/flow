@@ -40,7 +40,7 @@ pub async fn run(
     // Now write a byte to stderr to let our container host know that we're alive.
     // Whitespace avoids interfering with JSON logs that also write to stderr.
     std::io::stderr().write(" ".as_bytes()).unwrap();
-    tracing::info!(%log_level, port, message = "connector-init started");
+    tracing::debug!(%log_level, port, message = "connector-init started");
 
     let image = inspect::Image::parse_from_json_file(&image_inspect_json_path)
         .context("reading image inspect JSON")?;
@@ -84,7 +84,7 @@ pub async fn run(
             _ = sigint.recv() => (),
             _ = sigterm.recv() => (),
         }
-        tracing::info!("caught signal to exit");
+        tracing::debug!("caught signal to exit");
     };
 
     let () = tonic::transport::Server::builder()

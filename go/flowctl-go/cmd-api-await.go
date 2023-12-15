@@ -107,7 +107,7 @@ func (cmd apiAwait) Execute(_ []string) error {
 		"config":    cmd,
 		"version":   mbp.Version,
 		"buildDate": mbp.BuildDate,
-	}).Info("flowctl configuration")
+	}).Debug("flowctl configuration")
 	pb.RegisterGRPCDispatcher("local")
 
 	return cmd.execute(ctx)
