@@ -448,7 +448,13 @@ pub mod response {
     /// The driver will send no further Loaded responses.
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Flushed {}
+    pub struct Flushed {
+        /// Optional update to ConnectorState.
+        /// This update is durably written before the connector receives a following
+        /// Store or StartCommit request.
+        #[prost(message, optional, tag = "1")]
+        pub state: ::core::option::Option<super::super::flow::ConnectorState>,
+    }
     /// StartedCommit responds to a Request.StartCommit.
     /// The driver has processed all Store requests, it has started to commit its
     /// transaction (if it has one), and it is now ready for the runtime to start
@@ -456,18 +462,28 @@ pub mod response {
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct StartedCommit {
+        /// Optional *transactional* update to ConnectorState.
+        /// This update commits atomically with the Flow recovery log checkpoint.
         #[prost(message, optional, tag = "1")]
         pub state: ::core::option::Option<super::super::flow::ConnectorState>,
     }
-    /// Notify the runtime that the previous driver transaction has committed
-    /// to the endpoint store (where applicable). On receipt, the runtime may
-    /// begin to flush, store, and commit a next (pipelined) transaction.
+    /// Notify the runtime that the previous transaction has committed.
+    /// On receipt, the runtime may begin to flush, store, and commit a
+    /// next (pipelined) transaction.
     ///
     /// Acknowledged is _not_ a direct response to Request.Acknowledge,
     /// and Acknowledge vs Acknowledged may be written in either order.
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Acknowledged {}
+    pub struct Acknowledged {
+        /// Optional *non-transactional* update to ConnectorState.
+        /// This update is not transactional and the connector must tolerate a future,
+        /// duplicate Request.Acknowledge of this same checkpoint and connector state,
+        /// even after having previously responded with Acknowledged and a (discarded)
+        /// connector state update.
+        #[prost(message, optional, tag = "1")]
+        pub state: ::core::option::Option<super::super::flow::ConnectorState>,
+    }
 }
 /// Extra messages used by connectors
 /// TODO(johnny): Do we still need this?

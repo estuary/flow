@@ -344,7 +344,7 @@ async fn preview_materialization<L: runtime::LogHandler>(
             .get_internal()
             .context("failed to decode internal runtime.MaterializeResponseExt")?;
 
-        if let Some(materialize::response::Flushed {}) = response.flushed {
+        if let Some(materialize::response::Flushed { .. }) = response.flushed {
             let proto_flow::runtime::materialize_response_ext::Flushed { stats } =
                 internal.flushed.unwrap_or_default();
             tracing::debug!(stats=?ops::DebugJson(stats), "flushed");

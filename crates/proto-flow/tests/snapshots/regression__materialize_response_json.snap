@@ -89,13 +89,23 @@ expression: json_test(msg)
     "binding": 4,
     "doc": {"loaded":"doc"}
   },
-  "flushed": {},
+  "flushed": {
+    "state": {
+      "updated": {"state":"update"},
+      "mergePatch": true
+    }
+  },
   "startedCommit": {
     "state": {
       "updated": {"state":"update"},
       "mergePatch": true
     }
   },
-  "acknowledged": {},
+  "acknowledged": {
+    "state": {
+      "updated": {"state":"update"},
+      "mergePatch": true
+    }
+  },
   "$internal": "EgJIaRgB"
 }
