@@ -518,7 +518,7 @@ mod test {
             .map_ok(|doc| {
                 (
                     doc.meta.binding(),
-                    serde_json::to_value(SerPolicy::default().on_owned(&doc.root)).unwrap(),
+                    serde_json::to_value(SerPolicy::default().on_owned(&doc.root, None)).unwrap(),
                     doc.meta.front(),
                 )
             })
@@ -743,7 +743,7 @@ mod test {
             for HeapEntry { meta, root } in entries.sorted.iter() {
                 b.push_str(&format!(
                     "{meta:?} {}\n",
-                    serde_json::to_string(&SerPolicy::debug().on(root)).unwrap()
+                    serde_json::to_string(&SerPolicy::debug().on(root, None)).unwrap()
                 ));
             }
             b
@@ -942,7 +942,7 @@ mod test {
             let DrainedDoc { meta, root } = doc.unwrap();
             drained.push_str(&format!(
                 "{meta:?} {}\n",
-                serde_json::to_string(&SerPolicy::debug().on_owned(&root)).unwrap()
+                serde_json::to_string(&SerPolicy::debug().on_owned(&root, None)).unwrap()
             ));
         }
         insta::assert_snapshot!(drained, @r###"

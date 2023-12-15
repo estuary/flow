@@ -41,10 +41,10 @@ impl<'a, 'e, A: AsNode, E: AsNode> serde::Serialize for Diff<'a, 'e, A, E> {
         map.serialize_entry("location", &self.location)?;
 
         if let Some(v) = self.actual {
-            map.serialize_entry("actual", &SerPolicy::debug().on(v))?;
+            map.serialize_entry("actual", &SerPolicy::debug().on(v, None))?;
         }
         if let Some(v) = self.expect {
-            map.serialize_entry("expect", &SerPolicy::debug().on(v))?;
+            map.serialize_entry("expect", &SerPolicy::debug().on(v, None))?;
         }
         if let Some(note) = self.note {
             map.serialize_entry("note", note)?;

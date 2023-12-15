@@ -194,7 +194,9 @@ impl<'schema, 'doc, 'tmp, N: AsNode> Validation<'schema, 'doc, 'tmp, N> {
         assert_eq!(span, full_span);
 
         Err(FailedValidation {
-            document: serde_json::to_value(SerPolicy::debug().on(document)).unwrap(),
+            // TODO: It might be a good idea to add a field on `FailedValidation` to indicate
+            // whether the document serialized here has been truncated.
+            document: serde_json::to_value(SerPolicy::debug().on(document, None)).unwrap(),
             basic_output: json::validator::build_basic_output(full_validator.outcomes()),
         })
     }
