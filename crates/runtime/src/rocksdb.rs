@@ -1,6 +1,6 @@
 use anyhow::Context;
 use prost::Message;
-use proto_flow::runtime::RocksDbDescriptor;
+use proto_flow::{flow, runtime::RocksDbDescriptor};
 use proto_gazette::consumer;
 use std::sync::Arc;
 use tokio::runtime::Handle;
@@ -186,6 +186,29 @@ impl RocksDB {
     pub const CHECKPOINT_KEY: &'static str = "checkpoint";
     // Key encoding under which a connector state is stored.
     pub const CONNECTOR_STATE_KEY: &'static str = "connector-state";
+}
+
+// Enqueues a MERGE or PUT to the WriteBatch for this `state` update.
+pub fn queue_connector_state_update(
+    state: &flow::ConnectorState,
+    wb: &mut rocksdb::WriteBatch,
+) -> anyhow::Result<()> {
+    let flow::ConnectorState {
+        merge_patch,
+        updated_json,
+    } = state;
+
+    let updated: models::RawValue =
+        serde_json::from_str(updated_json).context("failed to decode connector state as JSON")?;
+
+    if *merge_patch {
+        wb.merge(RocksDB::CONNECTOR_STATE_KEY, updated.get());
+    } else {
+        wb.put(RocksDB::CONNECTOR_STATE_KEY, updated.get());
+    }
+    tracing::debug!(updated=?ops::DebugJson(updated), %merge_patch, "applied an updated connector state");
+
+    Ok(())
 }
 
 // Unpack a RocksDbDescriptor into its rocksdb::Options and path.

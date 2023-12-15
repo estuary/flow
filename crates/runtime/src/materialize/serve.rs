@@ -111,6 +111,7 @@ async fn serve_session<L: LogHandler>(
         let mut saw_reset = false;
         let mut send_fut = None;
         let mut txn = Transaction::new();
+        let mut wb = rocksdb::WriteBatch::default();
 
         // Loop over client requests and connector responses until the transaction has flushed.
         while !saw_flushed {
@@ -162,12 +163,16 @@ async fn serve_session<L: LogHandler>(
                 Step::ConnectorRx(response) => {
                     if let Some(send) = recv_connector_acked_or_loaded_or_flushed(
                         &mut accumulator,
+                        &db,
                         response,
                         &mut saw_acknowledged,
                         &mut saw_flush,
                         &mut saw_flushed,
                         &mut txn,
-                    )? {
+                        &mut wb,
+                    )
+                    .await?
+                    {
                         () = co.yield_(send).await;
                     }
                 }
@@ -189,9 +194,8 @@ async fn serve_session<L: LogHandler>(
         // We must durably commit updates to `max_keys` now, before we send any Store
         // requests into the connector, because the connector may not be
         // transactional and could immediately Store sent documents.
-        // TODO(johnny): factor into a future that's started upon Flush
-        // and runs concurrently with Flushed?
-        persist_max_keys(db, &mut max_keys, &task).await?;
+        // `wb` may also have a connector state update from Flushed which is also written.
+        persist_max_keys(db, &mut max_keys, &task, wb).await?;
 
         // Prepare to drain `accumulator`.
         let mut drainer = accumulator

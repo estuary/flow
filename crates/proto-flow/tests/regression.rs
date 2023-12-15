@@ -620,12 +620,16 @@ fn ex_materialize_response() -> materialize::Response {
         opened: Some(materialize::response::Opened {
             runtime_checkpoint: Some(ex_consumer_checkpoint()),
         }),
-        acknowledged: Some(materialize::response::Acknowledged {}),
+        acknowledged: Some(materialize::response::Acknowledged {
+            state: Some(ex_connector_state()),
+        }),
         loaded: Some(materialize::response::Loaded {
             binding: 4,
             doc_json: json!({"loaded": "doc"}).to_string(),
         }),
-        flushed: Some(materialize::response::Flushed { }),
+        flushed: Some(materialize::response::Flushed {
+            state: Some(ex_connector_state()),
+        }),
         started_commit: Some(materialize::response::StartedCommit {
             state: Some(ex_connector_state()),
         }),

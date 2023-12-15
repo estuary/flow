@@ -1,5 +1,6 @@
 use super::{Task, Transaction};
-use crate::{rocksdb::RocksDB, verify};
+use crate::rocksdb::{queue_connector_state_update, RocksDB};
+use crate::verify;
 use anyhow::Context;
 use prost::Message;
 use proto_flow::derive::{request, response, Request, Response};
@@ -347,20 +348,8 @@ pub async fn recv_connector_started_commit(
         return verify.fail(response);
     };
 
-    if let Some(flow::ConnectorState {
-        merge_patch,
-        updated_json,
-    }) = state
-    {
-        let updated: models::RawValue = serde_json::from_str(updated_json)
-            .context("failed to decode connector state as JSON")?;
-
-        if !*merge_patch {
-            wb.merge(RocksDB::CONNECTOR_STATE_KEY, "null");
-        }
-        wb.merge(RocksDB::CONNECTOR_STATE_KEY, updated.get());
-
-        tracing::debug!(updated=?ops::DebugJson(updated), %merge_patch, "persisted an updated StartedCommit.state");
+    if let Some(state) = state {
+        queue_connector_state_update(state, &mut wb).context("invalid StartedCommit")?;
     }
 
     // We're about to write out our write batch which, when written to the
