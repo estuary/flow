@@ -51,5 +51,5 @@ fn main() {
             "connector-init crashed with error"
         );
     }
-    tracing::info!("connector-init exiting");
+    tracing::debug!("connector-init exiting");
 }

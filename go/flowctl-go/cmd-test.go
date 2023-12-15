@@ -30,7 +30,7 @@ func (cmd cmdTest) Execute(_ []string) (retErr error) {
 		"config":    cmd,
 		"version":   mbp.Version,
 		"buildDate": mbp.BuildDate,
-	}).Info("flowctl configuration")
+	}).Debug("flowctl configuration")
 	protocol.RegisterGRPCDispatcher("local")
 
 	// Create a temporary directory which will contain the Etcd database
