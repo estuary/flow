@@ -310,7 +310,7 @@ async fn do_combine(
     while let Some(drained) = drainer.next() {
         let drained = drained?;
 
-        serde_json::to_writer(&mut out, &ser_policy.on_owned(&drained.root))
+        serde_json::to_writer(&mut out, &ser_policy.on_owned(&drained.root, None))
             .context("writing document to stdout")?;
         out.write(b"\n")?;
         out_docs += 1;

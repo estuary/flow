@@ -323,7 +323,7 @@ pub fn drain_chunk(
         // Send serialized document.
         let begin = arena.len();
         let w: &mut Vec<u8> = &mut *arena;
-        serde_json::to_writer(w, &ser_policy.on_owned(&root)).expect("encoding cannot fail");
+        serde_json::to_writer(w, &ser_policy.on_owned(&root, None)).expect("encoding cannot fail");
 
         // Only now do we know the actual length of the document in its serialized form.
         stats.increment(arena.len() - begin);
@@ -339,12 +339,12 @@ pub fn drain_chunk(
             match &root {
                 doc::OwnedNode::Heap(n) => {
                     for ex in extractors {
-                        ex.extract(n.get(), arena).unwrap();
+                        ex.extract(n.get(), arena, None).unwrap();
                     }
                 }
                 doc::OwnedNode::Archived(n) => {
                     for ex in extractors {
-                        ex.extract(n.get(), arena).unwrap();
+                        ex.extract(n.get(), arena, None).unwrap();
                     }
                 }
             }

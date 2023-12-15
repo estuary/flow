@@ -186,11 +186,11 @@ fn bind_parameter_node<N: doc::AsNode>(
         Node::PosInt(u) => stmt.raw_bind_parameter(index + 1, u),
         Node::Array(_) => stmt.raw_bind_parameter(
             index + 1,
-            &serde_json::to_string(&doc::SerPolicy::default().on(node)).unwrap(),
+            &serde_json::to_string(&doc::SerPolicy::default().on(node, None)).unwrap(),
         ),
         Node::Object(_) => stmt.raw_bind_parameter(
             index + 1,
-            &serde_json::to_string(&doc::SerPolicy::default().on(node)).unwrap(),
+            &serde_json::to_string(&doc::SerPolicy::default().on(node, None)).unwrap(),
         ),
     }
 }

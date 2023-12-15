@@ -107,7 +107,7 @@ fn run_sequence(seq: Vec<(u8, u8, bool)>) -> Result<(), FuzzError> {
     for drained_doc in drainer {
         let drained_doc = drained_doc?;
         let actual = json!([
-            ser_policy.on_owned(&drained_doc.root),
+            ser_policy.on_owned(&drained_doc.root, None),
             drained_doc.meta.front()
         ]);
 

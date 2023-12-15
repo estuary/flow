@@ -142,7 +142,7 @@ mod test {
                     nested_obj_truncate_after: 18446744073709551615,
                 },
                 default: String("user_key"),
-                is_uuid_v1_date_time: false,
+                magic: None,
             },
             Extractor {
                 ptr: Pointer(
@@ -162,7 +162,7 @@ mod test {
                     nested_obj_truncate_after: 18446744073709551615,
                 },
                 default: Null,
-                is_uuid_v1_date_time: false,
+                magic: None,
             },
         ]
         "###);
@@ -182,9 +182,12 @@ mod test {
                 ),
                 policy: SerPolicy {
                     str_truncate_after: 1234,
+                    array_truncate_after: 18446744073709551615,
+                    obj_truncate_after: 18446744073709551615,
+                    nested_obj_truncate_after: 18446744073709551615,
                 },
                 default: Null,
-                is_uuid_v1_date_time: false,
+                magic: None,
             },
             Extractor {
                 ptr: Pointer(
@@ -196,9 +199,12 @@ mod test {
                 ),
                 policy: SerPolicy {
                     str_truncate_after: 1234,
+                    array_truncate_after: 18446744073709551615,
+                    obj_truncate_after: 18446744073709551615,
+                    nested_obj_truncate_after: 18446744073709551615,
                 },
                 default: Number(32),
-                is_uuid_v1_date_time: false,
+                magic: None,
             },
             Extractor {
                 ptr: Pointer(
@@ -213,9 +219,14 @@ mod test {
                 ),
                 policy: SerPolicy {
                     str_truncate_after: 18446744073709551615,
+                    array_truncate_after: 18446744073709551615,
+                    obj_truncate_after: 18446744073709551615,
+                    nested_obj_truncate_after: 18446744073709551615,
                 },
                 default: Null,
-                is_uuid_v1_date_time: true,
+                magic: Some(
+                    UuidV1DateTime,
+                ),
             },
         ]
         "###);

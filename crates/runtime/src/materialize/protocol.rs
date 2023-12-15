@@ -8,6 +8,7 @@ use proto_flow::materialize::{request, response, Request, Response};
 use proto_flow::runtime::materialize_response_ext;
 use proto_gazette::consumer;
 use std::collections::{BTreeMap, HashSet};
+use std::sync::atomic::AtomicBool;
 use xxhash_rust::xxh3::xxh3_128;
 
 pub fn recv_unary(request: Request, response: Response) -> anyhow::Result<Response> {
@@ -171,7 +172,8 @@ pub fn recv_client_load_or_flush(
 
             // Encode the binding index and then the packed key as a single Bytes.
             buf.put_u32(binding_index);
-            let mut key_packed = doc::Extractor::extract_all(&doc, &binding.key_extractors, buf);
+            let mut key_packed =
+                doc::Extractor::extract_all(&doc, &binding.key_extractors, buf, None);
             let key_hash: u128 = xxh3_128(&key_packed);
             key_packed.advance(4); // Advance past 4-byte binding index.
 
@@ -305,19 +307,41 @@ pub fn send_connector_store(
     let binding_index = meta.binding();
     let binding = &task.bindings[binding_index];
 
-    let key_packed = doc::Extractor::extract_all_owned(&root, &binding.key_extractors, buf);
-    let values_packed = doc::Extractor::extract_all_owned(&root, &binding.value_extractors, buf);
-    let mut doc_json = serde_json::to_string(&binding.ser_policy.on_owned(&root))
-        .expect("document serialization cannot fail");
+    // A note on the order of operations:
+    // The value extractors may contain a special truncation sentinel extractor,
+    // which will write the value of this variable. It's important that we
+    // extract the values last, so that the sentinel can account for truncations
+    // in both the keys and the flow document.
+    let truncation_sentinel = AtomicBool::new(false);
+    let key_packed = doc::Extractor::extract_all_owned(
+        &root,
+        &binding.key_extractors,
+        buf,
+        Some(&truncation_sentinel),
+    );
+
+    let doc_json = if binding.store_document {
+        serde_json::to_string(
+            &binding
+                .ser_policy
+                .on_owned(&root, Some(&truncation_sentinel)),
+        )
+        .expect("document serialization cannot fail")
+    } else {
+        String::new()
+    };
+
+    let values_packed = doc::Extractor::extract_all_owned(
+        &root,
+        &binding.value_extractors,
+        buf,
+        Some(&truncation_sentinel),
+    );
 
     // Accumulate metrics over reads for our transforms.
     let stats = &mut txn.stats.entry(binding_index as u32).or_default();
     stats.2.docs_total += 1;
     stats.2.bytes_total += doc_json.len() as u64;
-
-    if !binding.store_document {
-        doc_json.clear(); // Don't send if it's not needed.
-    }
 
     Request {
         store: Some(request::Store {

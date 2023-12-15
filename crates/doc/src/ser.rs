@@ -1,5 +1,8 @@
 use super::{AsNode, Field, Fields, LazyNode, Node, OwnedNode};
-use std::io;
+use std::{
+    io,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 /// SerPolicy is a policy for serialization of AsNode instances.
 /// It tweaks serialization behavior, such as by truncating long strings.
@@ -23,8 +26,16 @@ impl SerPolicy {
     }
 
     /// Apply the policy to an AsNode instance, returning a serializable SerNode.
-    pub fn on<'p, 'n, N: AsNode>(&'p self, node: &'n N) -> SerNode<'p, 'n, N> {
-        SerNode { node, policy: self }
+    pub fn on<'p, 'n, 's, N: AsNode>(
+        &'p self,
+        node: &'n N,
+        prune_sentinel: Option<&'s AtomicBool>,
+    ) -> SerNode<'p, 'n, 's, N> {
+        SerNode {
+            node,
+            policy: self,
+            sentinel: prune_sentinel,
+        }
     }
 
     /// Apply the policy to a LazyNode instance, returning a serializable SerLazy.
@@ -36,8 +47,16 @@ impl SerPolicy {
     }
 
     /// Apply the policy to an OwnedNode instance, returning a serializable SerOwned.
-    pub fn on_owned<'p>(&'p self, node: &'p OwnedNode) -> SerOwned<'p> {
-        SerOwned { node, policy: self }
+    pub fn on_owned<'p, 's>(
+        &'p self,
+        node: &'p OwnedNode,
+        truncation_sentinel: Option<&'s AtomicBool>,
+    ) -> SerOwned<'p, 's> {
+        SerOwned {
+            node,
+            policy: self,
+            sentinel: truncation_sentinel,
+        }
     }
 
     // Return a SerPolicy appropriate for error messages and other debugging cases.
@@ -50,8 +69,11 @@ impl SerPolicy {
         }
     }
 
-    fn apply_to_str<'a>(&self, raw: &'a str) -> &'a str {
+    fn apply_to_str<'a, 'b>(&self, raw: &'a str, sentinel: Option<&'b AtomicBool>) -> &'a str {
         if raw.len() > self.str_truncate_after {
+            if let Some(marker) = sentinel {
+                marker.store(true, Ordering::SeqCst);
+            }
             // Find the greatest index that is <= `str_truncate_after` and falls at a utf8
             // character boundary
             let mut truncate_at = self.str_truncate_after;
@@ -77,7 +99,8 @@ impl Default for SerPolicy {
     }
 }
 
-pub struct SerNode<'p, 'n, N: AsNode> {
+pub struct SerNode<'p, 'n, 's, N: AsNode> {
+    sentinel: Option<&'s AtomicBool>,
     node: &'n N,
     policy: &'p SerPolicy,
 }
@@ -87,21 +110,28 @@ pub struct SerLazy<'p, 'alloc, 'n, N: AsNode> {
     policy: &'p SerPolicy,
 }
 
-pub struct SerOwned<'p> {
+pub struct SerOwned<'p, 's> {
+    sentinel: Option<&'s AtomicBool>,
     node: &'p OwnedNode,
     policy: &'p SerPolicy,
 }
 
-impl<'p, 'n, N: AsNode> serde::Serialize for SerNode<'p, 'n, N> {
+impl<'p, 'n, 's, N: AsNode> serde::Serialize for SerNode<'p, 'n, 's, N> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ::serde::Serializer,
     {
         match self.node.as_node() {
             Node::Array(arr) => {
+                if let Some(sentinel) = self.sentinel {
+                    if arr.len() > self.policy.array_truncate_after {
+                        sentinel.store(true, Ordering::SeqCst);
+                    }
+                }
                 let child_policy = self.policy.for_child();
                 serializer.collect_seq(arr.iter().take(self.policy.array_truncate_after).map(|d| {
                     SerNode {
+                        sentinel: self.sentinel.clone(),
                         node: d,
                         policy: &child_policy,
                     }
@@ -123,12 +153,18 @@ impl<'p, 'n, N: AsNode> serde::Serialize for SerNode<'p, 'n, N> {
             Node::NegInt(n) => serializer.serialize_i64(n),
             Node::PosInt(n) => serializer.serialize_u64(n),
             Node::Object(fields) => {
+                if let Some(sentinel) = self.sentinel {
+                    if fields.len() > self.policy.obj_truncate_after {
+                        sentinel.store(true, Ordering::SeqCst);
+                    }
+                }
                 let child_policy = self.policy.for_child();
                 serializer.collect_map(fields.iter().take(self.policy.obj_truncate_after).map(
                     |field| {
                         (
                             field.property(),
                             SerNode {
+                                sentinel: self.sentinel.clone(),
                                 node: field.value(),
                                 policy: &child_policy,
                             },
@@ -137,7 +173,7 @@ impl<'p, 'n, N: AsNode> serde::Serialize for SerNode<'p, 'n, N> {
                 ))
             }
             Node::String(mut s) => {
-                s = self.policy.apply_to_str(s);
+                s = self.policy.apply_to_str(s, self.sentinel);
                 serializer.serialize_str(s)
             }
         }
@@ -145,7 +181,7 @@ impl<'p, 'n, N: AsNode> serde::Serialize for SerNode<'p, 'n, N> {
 }
 
 // SerNode may be packed as a FoundationDB tuple.
-impl<'p, 'n, N: AsNode> tuple::TuplePack for SerNode<'p, 'n, N> {
+impl<'p, 'n, 's, N: AsNode> tuple::TuplePack for SerNode<'p, 'n, 's, N> {
     fn pack<W: io::Write>(
         &self,
         w: &mut W,
@@ -162,7 +198,7 @@ impl<'p, 'n, N: AsNode> tuple::TuplePack for SerNode<'p, 'n, N> {
             Node::NegInt(n) => n.pack(w, tuple_depth),
             Node::PosInt(n) => n.pack(w, tuple_depth),
             Node::String(mut s) => {
-                s = self.policy.apply_to_str(s);
+                s = self.policy.apply_to_str(s, self.sentinel);
                 s.pack(w, tuple_depth)
             }
         }
@@ -176,12 +212,14 @@ impl<N: AsNode> serde::Serialize for SerLazy<'_, '_, '_, N> {
     {
         match &self.node {
             LazyNode::Heap(n) => SerNode {
+                sentinel: None,
                 node: *n,
                 policy: self.policy,
             }
             .serialize(serializer),
 
             LazyNode::Node(n) => SerNode {
+                sentinel: None,
                 node: *n,
                 policy: self.policy,
             }
@@ -190,19 +228,21 @@ impl<N: AsNode> serde::Serialize for SerLazy<'_, '_, '_, N> {
     }
 }
 
-impl serde::Serialize for SerOwned<'_> {
+impl serde::Serialize for SerOwned<'_, '_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         match &self.node {
             OwnedNode::Heap(n) => SerNode {
+                sentinel: self.sentinel,
                 node: n.get(),
                 policy: self.policy,
             }
             .serialize(serializer),
 
             OwnedNode::Archived(n) => SerNode {
+                sentinel: self.sentinel,
                 node: n.get(),
                 policy: self.policy,
             }
@@ -218,7 +258,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_ser_policy() {
+    fn test_ser_policy_all_types() {
         // We use ordered maps, so object keys should be truncated
         // deterministically. The big_obj properties all start with `p`, so
         // those ought to be the ones truncated.
@@ -247,9 +287,12 @@ mod test {
             nested_obj_truncate_after: 40,
         };
 
-        let val: Value = yuge_tracks_of_land.into();
-        let ser = serde_json::to_string(&policy.on(&val)).unwrap();
-        let result: Value = serde_json::from_str(&ser).unwrap();
+        let was_pruned = AtomicBool::new(false);
+        let result = round_trip_serde(&policy, yuge_tracks_of_land.into(), &was_pruned);
+        assert!(
+            was_pruned.load(Ordering::SeqCst),
+            "document should have been pruned during ser"
+        );
 
         assert_obj_len(&result, "", 80);
         assert_obj_len(&result, "/bigNestedObj", 40);
@@ -266,6 +309,120 @@ mod test {
         assert_array_len(&result, "/nested/smolArray", 3);
 
         assert!(result.pointer("/z").is_none());
+    }
+
+    // Below tests are all checking that we set the sentinel flag if we truncate any values.
+
+    #[test]
+    fn test_ser_policy_truncation_sentinel_strings() {
+        let policy = SerPolicy {
+            str_truncate_after: 3,
+            ..Default::default()
+        };
+        let input = json!({
+            "a": "foo"
+        });
+        let sentinel = AtomicBool::new(false);
+        let str_val = serde_json::to_string(&policy.on(&input, Some(&sentinel))).unwrap();
+        assert!(!sentinel.load(Ordering::SeqCst));
+        assert_eq!(r#"{"a":"foo"}"#, &str_val);
+
+        let input = json!({
+            "a": big_str(9),
+        });
+        let sentinel = AtomicBool::new(false);
+        let str_val = serde_json::to_string(&policy.on(&input, Some(&sentinel))).unwrap();
+        assert!(sentinel.load(Ordering::SeqCst));
+        assert_eq!(r#"{"a":"长"}"#, &str_val);
+    }
+
+    #[test]
+    fn test_ser_policy_truncation_sentinel_objects() {
+        let policy = SerPolicy {
+            obj_truncate_after: 2,
+            ..Default::default()
+        };
+        let input: Value = big_obj(2).into(); // not so big afterall
+        let sentinel = AtomicBool::new(false);
+        let result = round_trip_serde(&policy, input, &sentinel);
+        assert!(!sentinel.load(Ordering::SeqCst));
+        assert_obj_len(&result, "", 2);
+
+        let input: Value = big_obj(9).into(); // not so big afterall
+        let sentinel = AtomicBool::new(false);
+        let result = round_trip_serde(&policy, input, &sentinel);
+        assert!(sentinel.load(Ordering::SeqCst));
+        assert_obj_len(&result, "", 2);
+    }
+
+    #[test]
+    fn test_ser_policy_truncation_sentinel_nested_objects() {
+        let policy = SerPolicy {
+            obj_truncate_after: usize::MAX,
+            nested_obj_truncate_after: 3,
+            ..Default::default()
+        };
+        let input = json!({
+            "a": big_obj(3),
+            "b": big_obj(3),
+            "c": big_obj(3),
+            "d": big_obj(3),
+        });
+        let sentinel = AtomicBool::new(false);
+        let result = round_trip_serde(&policy, input, &sentinel);
+        assert!(!sentinel.load(Ordering::SeqCst));
+        assert_obj_len(&result, "", 4);
+        assert_obj_len(&result, "/a", 3);
+        assert_obj_len(&result, "/b", 3);
+        assert_obj_len(&result, "/c", 3);
+        assert_obj_len(&result, "/d", 3);
+
+        let input = json!({
+            "a": big_obj(3),
+            "b": big_obj(3),
+            "c": big_obj(3),
+            "d": big_obj(99),
+        });
+        let sentinel = AtomicBool::new(false);
+        let result = round_trip_serde(&policy, input, &sentinel);
+        assert!(sentinel.load(Ordering::SeqCst));
+        assert_obj_len(&result, "", 4);
+        assert_obj_len(&result, "/a", 3);
+        assert_obj_len(&result, "/b", 3);
+        assert_obj_len(&result, "/c", 3);
+        assert_obj_len(&result, "/d", 3);
+    }
+
+    #[test]
+    fn test_ser_policy_truncation_sentinel_arrays() {
+        let policy = SerPolicy {
+            array_truncate_after: 3,
+            ..Default::default()
+        };
+        let input = json!({
+            "a": big_array(3),
+        });
+        let sentinel = AtomicBool::new(false);
+        let result = round_trip_serde(&policy, input, &sentinel);
+        assert!(!sentinel.load(Ordering::SeqCst));
+        assert_array_len(&result, "/a", 3);
+
+        let input = json!({
+            "a": big_array(4),
+        });
+        let sentinel = AtomicBool::new(false);
+        let result = round_trip_serde(&policy, input, &sentinel);
+        assert!(sentinel.load(Ordering::SeqCst));
+        assert_array_len(&result, "/a", 3);
+    }
+
+    fn round_trip_serde(policy: &SerPolicy, input: Value, sentinel: &AtomicBool) -> Value {
+        assert!(
+            !sentinel.load(Ordering::SeqCst),
+            "sentinel must start out false"
+        );
+        let str_val = serde_json::to_string(&policy.on(&input, Some(sentinel))).unwrap();
+        serde_json::from_str(&str_val).expect("failed to deserialize round tripped doc")
     }
 
     fn assert_array_len(val: &Value, ptr: &str, expect_len: usize) {
@@ -286,10 +443,13 @@ mod test {
         assert_eq!(expect_len, obj.len(), "wrong object len for ptr: '{ptr}'");
     }
 
-    fn big_str(len: usize) -> Value {
+    fn big_str(at_least_len: usize) -> Value {
         // Use a multi-byte character so that we can assert that truncation
         // only happens at character boundaries.
-        let s = std::iter::repeat('长').take(len).collect();
+        let mut s = String::new();
+        while s.len() < at_least_len {
+            s.push('长');
+        }
         Value::String(s)
     }
 
