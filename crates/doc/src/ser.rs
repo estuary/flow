@@ -30,8 +30,9 @@ impl SerPolicy {
         &'p self,
         node: &'n N,
         prune_sentinel: Option<&'s AtomicBool>,
-    ) -> SerNode<'p, 'n, 's, N> {
+    ) -> SerNode<'p, 'n, 's, N, Root> {
         SerNode {
+            _marker: std::marker::PhantomData::<Root>,
             node,
             policy: self,
             sentinel: prune_sentinel,
@@ -85,12 +86,6 @@ impl SerPolicy {
             raw
         }
     }
-
-    fn for_child(&self) -> SerPolicy {
-        let mut cp = self.clone();
-        cp.obj_truncate_after = cp.nested_obj_truncate_after;
-        cp
-    }
 }
 
 impl Default for SerPolicy {
@@ -99,7 +94,24 @@ impl Default for SerPolicy {
     }
 }
 
-pub struct SerNode<'p, 'n, 's, N: AsNode> {
+pub struct Root;
+pub struct Nested;
+trait PolicyHelper {
+    fn get_object_property_limit(policy: &SerPolicy) -> usize;
+}
+impl PolicyHelper for Root {
+    fn get_object_property_limit(policy: &SerPolicy) -> usize {
+        policy.obj_truncate_after
+    }
+}
+impl PolicyHelper for Nested {
+    fn get_object_property_limit(policy: &SerPolicy) -> usize {
+        policy.nested_obj_truncate_after
+    }
+}
+
+pub struct SerNode<'p, 'n, 's, N: AsNode, T> {
+    _marker: std::marker::PhantomData<T>,
     sentinel: Option<&'s AtomicBool>,
     node: &'n N,
     policy: &'p SerPolicy,
@@ -116,7 +128,7 @@ pub struct SerOwned<'p, 's> {
     policy: &'p SerPolicy,
 }
 
-impl<'p, 'n, 's, N: AsNode> serde::Serialize for SerNode<'p, 'n, 's, N> {
+impl<'p, 'n, 's, N: AsNode, T: PolicyHelper> serde::Serialize for SerNode<'p, 'n, 's, N, T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ::serde::Serializer,
@@ -128,12 +140,12 @@ impl<'p, 'n, 's, N: AsNode> serde::Serialize for SerNode<'p, 'n, 's, N> {
                         sentinel.store(true, Ordering::SeqCst);
                     }
                 }
-                let child_policy = self.policy.for_child();
                 serializer.collect_seq(arr.iter().take(self.policy.array_truncate_after).map(|d| {
                     SerNode {
-                        sentinel: self.sentinel.clone(),
+                        _marker: std::marker::PhantomData::<Nested>,
+                        sentinel: self.sentinel,
                         node: d,
-                        policy: &child_policy,
+                        policy: self.policy,
                     }
                 }))
             }
@@ -153,24 +165,23 @@ impl<'p, 'n, 's, N: AsNode> serde::Serialize for SerNode<'p, 'n, 's, N> {
             Node::NegInt(n) => serializer.serialize_i64(n),
             Node::PosInt(n) => serializer.serialize_u64(n),
             Node::Object(fields) => {
+                let key_limit = T::get_object_property_limit(self.policy);
                 if let Some(sentinel) = self.sentinel {
-                    if fields.len() > self.policy.obj_truncate_after {
+                    if fields.len() > key_limit {
                         sentinel.store(true, Ordering::SeqCst);
                     }
                 }
-                let child_policy = self.policy.for_child();
-                serializer.collect_map(fields.iter().take(self.policy.obj_truncate_after).map(
-                    |field| {
-                        (
-                            field.property(),
-                            SerNode {
-                                sentinel: self.sentinel.clone(),
-                                node: field.value(),
-                                policy: &child_policy,
-                            },
-                        )
-                    },
-                ))
+                serializer.collect_map(fields.iter().take(key_limit).map(|field| {
+                    (
+                        field.property(),
+                        SerNode {
+                            _marker: std::marker::PhantomData::<Nested>,
+                            sentinel: self.sentinel.clone(),
+                            node: field.value(),
+                            policy: self.policy,
+                        },
+                    )
+                }))
             }
             Node::String(mut s) => {
                 s = self.policy.apply_to_str(s, self.sentinel);
@@ -181,7 +192,7 @@ impl<'p, 'n, 's, N: AsNode> serde::Serialize for SerNode<'p, 'n, 's, N> {
 }
 
 // SerNode may be packed as a FoundationDB tuple.
-impl<'p, 'n, 's, N: AsNode> tuple::TuplePack for SerNode<'p, 'n, 's, N> {
+impl<'p, 'n, 's, N: AsNode> tuple::TuplePack for SerNode<'p, 'n, 's, N, Root> {
     fn pack<W: io::Write>(
         &self,
         w: &mut W,
@@ -212,6 +223,7 @@ impl<N: AsNode> serde::Serialize for SerLazy<'_, '_, '_, N> {
     {
         match &self.node {
             LazyNode::Heap(n) => SerNode {
+                _marker: std::marker::PhantomData::<Root>,
                 sentinel: None,
                 node: *n,
                 policy: self.policy,
@@ -219,6 +231,7 @@ impl<N: AsNode> serde::Serialize for SerLazy<'_, '_, '_, N> {
             .serialize(serializer),
 
             LazyNode::Node(n) => SerNode {
+                _marker: std::marker::PhantomData::<Root>,
                 sentinel: None,
                 node: *n,
                 policy: self.policy,
@@ -235,6 +248,7 @@ impl serde::Serialize for SerOwned<'_, '_> {
     {
         match &self.node {
             OwnedNode::Heap(n) => SerNode {
+                _marker: std::marker::PhantomData::<Root>,
                 sentinel: self.sentinel,
                 node: n.get(),
                 policy: self.policy,
@@ -242,6 +256,7 @@ impl serde::Serialize for SerOwned<'_, '_> {
             .serialize(serializer),
 
             OwnedNode::Archived(n) => SerNode {
+                _marker: std::marker::PhantomData::<Root>,
                 sentinel: self.sentinel,
                 node: n.get(),
                 policy: self.policy,
