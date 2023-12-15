@@ -1,5 +1,6 @@
 use super::{Binding, LoadKeySet, Task, Transaction};
-use crate::{rocksdb::RocksDB, verify};
+use crate::rocksdb::{queue_connector_state_update, RocksDB};
+use crate::verify;
 use anyhow::Context;
 use bytes::{Buf, BufMut};
 use prost::Message;
@@ -274,13 +275,15 @@ pub fn recv_client_load_or_flush(
     }
 }
 
-pub fn recv_connector_acked_or_loaded_or_flushed(
+pub async fn recv_connector_acked_or_loaded_or_flushed(
     accumulator: &mut doc::combine::Accumulator,
+    db: &RocksDB,
     response: Option<Response>,
     saw_acknowledged: &mut bool,
     saw_flush: &mut bool,
     saw_flushed: &mut bool,
     txn: &mut Transaction,
+    wb: &mut rocksdb::WriteBatch,
 ) -> anyhow::Result<Option<Response>> {
     match response {
         Some(Response {
@@ -307,7 +310,7 @@ pub fn recv_connector_acked_or_loaded_or_flushed(
             Ok(None)
         }
         Some(Response {
-            acknowledged: Some(response::Acknowledged {}),
+            acknowledged: Some(response::Acknowledged { state }),
             ..
         }) => {
             if *saw_acknowledged {
@@ -315,13 +318,19 @@ pub fn recv_connector_acked_or_loaded_or_flushed(
             }
             *saw_acknowledged = true;
 
+            if let Some(state) = state {
+                let mut wb = rocksdb::WriteBatch::default();
+                queue_connector_state_update(&state, &mut wb).context("invalid Acknowledged")?;
+                db.write_opt(wb, rocksdb::WriteOptions::default()).await?;
+            }
+
             Ok(Some(Response {
-                acknowledged: Some(response::Acknowledged {}),
+                acknowledged: Some(response::Acknowledged { state: None }),
                 ..Default::default()
             }))
         }
         Some(Response {
-            flushed: Some(response::Flushed {}),
+            flushed: Some(response::Flushed { state }),
             ..
         }) => {
             if !*saw_acknowledged {
@@ -331,6 +340,11 @@ pub fn recv_connector_acked_or_loaded_or_flushed(
                 anyhow::bail!("connector sent Flushed before receiving Flush");
             }
             *saw_flushed = true;
+
+            if let Some(state) = state {
+                // Add to WriteBatch which is synchronously written with max-keys updates.
+                queue_connector_state_update(&state, wb).context("invalid Flushed")?;
+            }
 
             Ok(None)
         }
@@ -433,7 +447,7 @@ pub fn send_client_flushed(buf: &mut bytes::BytesMut, task: &Task, txn: &Transac
     };
 
     Response {
-        flushed: Some(response::Flushed {}),
+        flushed: Some(response::Flushed { state: None }),
         ..Default::default()
     }
     .with_internal_buf(buf, |internal| {
@@ -445,9 +459,8 @@ pub async fn persist_max_keys(
     db: &RocksDB,
     max_keys: &mut [(bytes::Bytes, bytes::Bytes)],
     task: &Task,
+    mut wb: rocksdb::WriteBatch,
 ) -> anyhow::Result<()> {
-    let mut wb = rocksdb::WriteBatch::default();
-
     for (binding, (prev_max, next_max)) in task.bindings.iter().zip(max_keys.iter_mut()) {
         if next_max.is_empty() {
             continue;
@@ -525,22 +538,9 @@ pub async fn recv_connector_started_commit(
         return verify.fail(response);
     };
 
-    if let Some(flow::ConnectorState {
-        merge_patch,
-        updated_json,
-    }) = state
-    {
-        let updated: models::RawValue = serde_json::from_str(updated_json)
-            .context("failed to decode connector state as JSON")?;
-
-        if *merge_patch {
-            wb.merge(RocksDB::CONNECTOR_STATE_KEY, updated.get());
-        } else {
-            wb.put(RocksDB::CONNECTOR_STATE_KEY, updated.get());
-        }
-        tracing::debug!(updated=?ops::DebugJson(updated), %merge_patch, "persisted an updated StartedCommit.state");
+    if let Some(state) = state {
+        queue_connector_state_update(state, &mut wb).context("invalid StartedCommit")?;
     }
-
     db.write_opt(wb, Default::default())
         .await
         .context("failed to write atomic RocksDB commit")?;
