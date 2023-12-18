@@ -1,0 +1,14 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/catalog.yaml#/collections/testing~1with_truncation_sentinel/projections/should_fail,
+        error: projection 'should_fail' has location '/_meta/flow_truncated', which is not allowed because the location names a synthetic projection that's added automatically and cannot be changed,
+    },
+    Error {
+        scope: test://example/catalog.yaml#/collections/testing~1with_truncation_sentinel/projections/_meta~1flow_truncated,
+        error: projection _meta/flow_truncated is the canonical field name of location "/_meta/flow_truncated", and cannot re-map it to "/bad",
+    },
+]

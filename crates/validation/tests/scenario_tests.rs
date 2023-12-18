@@ -1541,7 +1541,13 @@ impl validation::Connectors for MockDriverCalls {
         &'a self,
         request: capture::Request,
     ) -> BoxFuture<'a, anyhow::Result<capture::Response>> {
-        let capture::Request{validate: Some(request), ..} = request else { unreachable!() };
+        let capture::Request {
+            validate: Some(request),
+            ..
+        } = request
+        else {
+            unreachable!()
+        };
 
         async move {
             let call = match self.captures.get(&request.name) {
@@ -1601,7 +1607,13 @@ impl validation::Connectors for MockDriverCalls {
         &'a self,
         request: derive::Request,
     ) -> BoxFuture<'a, anyhow::Result<derive::Response>> {
-        let derive::Request{validate: Some(request), ..} = request else { unreachable!() };
+        let derive::Request {
+            validate: Some(request),
+            ..
+        } = request
+        else {
+            unreachable!()
+        };
 
         async move {
             let name = &request.collection.as_ref().unwrap().name;
@@ -1677,7 +1689,13 @@ impl validation::Connectors for MockDriverCalls {
         &'a self,
         request: materialize::Request,
     ) -> BoxFuture<'a, anyhow::Result<materialize::Response>> {
-        let materialize::Request{validate: Some(request), ..} = request else { unreachable!() };
+        let materialize::Request {
+            validate: Some(request),
+            ..
+        } = request
+        else {
+            unreachable!()
+        };
 
         async move {
             let call = match self.materializations.get(&request.name) {
