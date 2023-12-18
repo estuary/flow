@@ -1,0 +1,10 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: errors
+---
+[
+    Error {
+        scope: test://example/catalog.yaml#/collections/testing~1with_truncation_sentinel/projections,
+        error: schema has location '/_meta/flow_truncated', which is not allowed because the location names a synthetic projection that's added automatically and cannot be changed,
+    },
+]
