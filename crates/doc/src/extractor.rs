@@ -6,6 +6,9 @@ use std::{
 };
 use tuple::TuplePack;
 
+/// JSON pointer of the synthetic projection of the truncation sentinel.
+pub const TRUNCATION_SENTINEL_PTR: &str = "/_meta/flow_truncated";
+
 /// Extractor extracts locations from documents, and encapsulates various
 /// details of precisely how that's done.
 #[derive(Debug, Clone)]

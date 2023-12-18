@@ -76,7 +76,7 @@ pub use ptr::Pointer;
 
 // Extractor extracts locations from documents.
 mod extractor;
-pub use extractor::Extractor;
+pub use extractor::{Extractor, TRUNCATION_SENTINEL_PTR};
 
 // Walker is a medium-term integration joint between AsNode implementations
 // and our JSON-schema validator. We may seek to get rid of this and have

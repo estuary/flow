@@ -216,7 +216,7 @@ fn walk_collection_projections(
     // Map explicit projections into built flow::Projection instances.
     let mut projections = projections
         .iter()
-        .map(|(field, projection)| {
+        .filter_map(|(field, projection)| {
             let scope = scope.push_prop(field);
 
             let (ptr, partition) = match projection {
@@ -226,6 +226,14 @@ fn walk_collection_projections(
                     partition,
                 } => (location, *partition),
             };
+            if ptr.as_str() == doc::TRUNCATION_SENTINEL_PTR {
+                Error::ProjectionRemapsSyntheticPointer {
+                    field: field.to_string(),
+                    pointer: ptr.to_string(),
+                }
+                .push(scope, errors);
+                return None;
+            }
 
             if partition {
                 indexed::walk_name(
@@ -244,13 +252,13 @@ fn walk_collection_projections(
 
                 // UUID_DATE_TIME_PTR is not a location that actually exists.
                 // Return a synthetic projection because walk_ptr() will fail.
-                return flow::Projection {
+                return Some(flow::Projection {
                     ptr: UUID_PTR.to_string(),
                     field: field.to_string(),
                     explicit: true,
                     inference: Some(assemble::inference_uuid_v1_date_time()),
                     ..Default::default()
-                };
+                });
             }
 
             if let Err(err) = effective_read_schema.walk_ptr(ptr, partition) {
@@ -267,14 +275,14 @@ fn walk_collection_projections(
                 .shape
                 .locate(&doc::Pointer::from_str(ptr));
 
-            flow::Projection {
+            Some(flow::Projection {
                 ptr: ptr.to_string(),
                 field: field.to_string(),
                 explicit: true,
                 is_primary_key: key.iter().any(|k| k == ptr),
                 is_partition_key: partition,
                 inference: Some(assemble::inference(r_shape, r_exists)),
-            }
+            })
         })
         .collect::<Vec<_>>();
 
@@ -303,6 +311,14 @@ fn walk_collection_projections(
         })
     }
 
+    // No conditional because we don't allow re-naming this projection
+    projections.push(flow::Projection {
+        ptr: doc::TRUNCATION_SENTINEL_PTR.to_string(),
+        field: FLOW_TRUNCATED.to_string(),
+        inference: Some(assemble::inference_truncation_sentinel()),
+        ..Default::default()
+    });
+
     // Now add implicit projections for the collection key.
     // These may duplicate explicit projections -- that's okay, we'll dedup them later.
     for ptr in key.iter() {
@@ -320,10 +336,18 @@ fn walk_collection_projections(
         });
     }
 
+    let truncation_sentinel_pointer = doc::Pointer::from_str(doc::TRUNCATION_SENTINEL_PTR);
     // Now add all statically inferred locations from the read-time JSON schema
     // which are not patterns or the document root.
     for (ptr, pattern, r_shape, r_exists) in effective_read_schema.shape.locations() {
         if pattern || ptr.0.is_empty() {
+            continue;
+        }
+        if ptr == truncation_sentinel_pointer {
+            Error::SchemaLocationNotAllowed {
+                disallowed_pointer: ptr.to_string(),
+            }
+            .push(scope, errors);
             continue;
         }
         // Canonical-ize by stripping the leading "/".
@@ -441,6 +465,8 @@ pub fn walk_selector(
 const FLOW_DOCUMENT: &str = "flow_document";
 /// The default field name for the document publication time.
 const FLOW_PUBLISHED_AT: &str = "flow_published_at";
+/// The default field name for the truncation sentinel.
+const FLOW_TRUNCATED: &str = "_meta/flow_truncated";
 /// The JSON Pointer of the Flow document UUID.
 const UUID_PTR: &str = "/_meta/uuid";
 /// The JSON Pointer of the synthetic document publication time.

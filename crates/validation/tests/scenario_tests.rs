@@ -76,6 +76,76 @@ fn test_golden_all_visits() {
 }
 
 #[test]
+fn test_collection_schema_contains_truncation_sentinel() {
+    let fixture = serde_yaml::from_str(
+        r##"
+test://example/catalog.yaml:
+  collections:
+    testing/with_truncation_sentinel:
+      schema:
+        type: object
+        properties:
+          _meta:
+            type: object
+            properties:
+              flow_truncated: { type: boolean }
+          id: { type: string }
+        required: [id]
+      key: [/id]
+  storageMappings:
+    testing/:
+      stores: [{provider: S3, bucket: a-bucket}]
+    recovery/:
+      stores: [{provider: S3, bucket: a-bucket}]
+driver:
+  captures: {}
+  derivations: {}
+  materializations: {}
+    "##,
+    )
+    .unwrap();
+
+    let errors = run_test_errors(&fixture, "{}");
+
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
+fn test_collection_projections_contains_truncation_sentinel() {
+    let fixture = serde_yaml::from_str(
+        r##"
+test://example/catalog.yaml:
+  collections:
+    testing/with_truncation_sentinel:
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+          bad: { type: string }
+        required: [id]
+      key: [/id]
+      projections:
+        should_fail: /_meta/flow_truncated
+        '_meta/flow_truncated': /bad
+  storageMappings:
+    testing/:
+      stores: [{provider: S3, bucket: a-bucket}]
+    recovery/:
+      stores: [{provider: S3, bucket: a-bucket}]
+driver:
+  captures: {}
+  derivations: {}
+  materializations: {}
+    "##,
+    )
+    .unwrap();
+
+    let errors = run_test_errors(&fixture, "{}");
+
+    insta::assert_debug_snapshot!(errors);
+}
+
+#[test]
 fn connector_validation_is_skipped_when_shards_are_disabled() {
     let fixture =
         serde_yaml::from_slice(include_bytes!("validation_skipped_when_disabled.yaml")).unwrap();
@@ -1541,7 +1611,13 @@ impl validation::Connectors for MockDriverCalls {
         &'a self,
         request: capture::Request,
     ) -> BoxFuture<'a, anyhow::Result<capture::Response>> {
-        let capture::Request{validate: Some(request), ..} = request else { unreachable!() };
+        let capture::Request {
+            validate: Some(request),
+            ..
+        } = request
+        else {
+            unreachable!()
+        };
 
         async move {
             let call = match self.captures.get(&request.name) {
@@ -1601,7 +1677,13 @@ impl validation::Connectors for MockDriverCalls {
         &'a self,
         request: derive::Request,
     ) -> BoxFuture<'a, anyhow::Result<derive::Response>> {
-        let derive::Request{validate: Some(request), ..} = request else { unreachable!() };
+        let derive::Request {
+            validate: Some(request),
+            ..
+        } = request
+        else {
+            unreachable!()
+        };
 
         async move {
             let name = &request.collection.as_ref().unwrap().name;
@@ -1677,7 +1759,13 @@ impl validation::Connectors for MockDriverCalls {
         &'a self,
         request: materialize::Request,
     ) -> BoxFuture<'a, anyhow::Result<materialize::Response>> {
-        let materialize::Request{validate: Some(request), ..} = request else { unreachable!() };
+        let materialize::Request {
+            validate: Some(request),
+            ..
+        } = request
+        else {
+            unreachable!()
+        };
 
         async move {
             let call = match self.materializations.get(&request.name) {

@@ -110,6 +110,10 @@ pub enum Error {
         canonical_ptr: String,
         wrong_ptr: String,
     },
+    #[error("projection '{field}' has location '{pointer}', which is not allowed because the location names a synthetic projection that's added automatically and cannot be changed")]
+    ProjectionRemapsSyntheticPointer { field: String, pointer: String },
+    #[error("schema has location '{disallowed_pointer}', which is not allowed because the location names a synthetic projection that's added automatically and cannot be changed")]
+    SchemaLocationNotAllowed { disallowed_pointer: String },
     #[error("{category} partition selector field {field} value {value} is incompatible with the projections type, {type_:?}")]
     SelectorTypeMismatch {
         category: String,

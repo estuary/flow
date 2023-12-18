@@ -89,6 +89,9 @@ pub fn for_projection(
     {
         return Ok(doc::Extractor::for_uuid_v1_date_time(&projection.ptr));
     }
+    if projection.ptr == doc::TRUNCATION_SENTINEL_PTR {
+        return Ok(doc::Extractor::for_truncation_sentinel());
+    }
 
     let default = if inf.default_json != "" {
         serde_json::from_str(&inf.default_json).map_err(Error::ParseDefault)?
