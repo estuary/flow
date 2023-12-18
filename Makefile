@@ -5,7 +5,7 @@
 export FLOW_VERSION = $(shell git describe --dirty --tags)
 DATE    = $(shell date +%F-%T-%Z)
 # Number of available processors for parallel builds.
-NPROC := $(if ${NPROC},${NPROC},$(shell nproc))
+NPROC := $(if ${NPROC},${NPROC},$(shell sysctl -n hw.logicalcpu))
 # Configured Rust installation path of built release targets.
 # Caller may override with a CARGO_TARGET_DIR environment variable.
 # See: https://doc.rust-lang.org/cargo/reference/environment-variables.html
