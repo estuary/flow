@@ -129,6 +129,26 @@ All {
                                         ),
                                     },
                                     Projection {
+                                        ptr: "/_meta/flow_truncated",
+                                        field: "flow_truncated",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                string: None,
+                                                title: "Flow truncation indicator",
+                                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
                                         ptr: "/int",
                                         field: "int",
                                         explicit: false,
@@ -501,6 +521,26 @@ All {
                                         ),
                                     },
                                     Projection {
+                                        ptr: "/_meta/flow_truncated",
+                                        field: "flow_truncated",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                string: None,
+                                                title: "Flow truncation indicator",
+                                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
                                         ptr: "/int",
                                         field: "int",
                                         explicit: false,
@@ -680,6 +720,26 @@ All {
                                                 ),
                                                 title: "Flow Publication Time",
                                                 description: "Flow publication date-time of this document",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/_meta/flow_truncated",
+                                        field: "flow_truncated",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                string: None,
+                                                title: "Flow truncation indicator",
+                                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
                                                 default_json: "",
                                                 secret: false,
                                                 exists: Must,
@@ -1052,6 +1112,26 @@ All {
                             },
                         ),
                     },
+                    Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
                 ],
                 ack_template_json: "{\"_meta\":{\"ack\":true,\"uuid\":\"DocUUIDPlaceholder-329Bb50aa48EAa9ef\"}}",
                 partition_template: Some(
@@ -1173,6 +1253,26 @@ All {
                                 ),
                                 title: "Flow Publication Time",
                                 description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
                                 default_json: "",
                                 secret: false,
                                 exists: Must,
@@ -1368,6 +1468,26 @@ All {
                                                         ),
                                                         title: "Flow Publication Time",
                                                         description: "Flow publication date-time of this document",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Must,
+                                                    },
+                                                ),
+                                            },
+                                            Projection {
+                                                ptr: "/_meta/flow_truncated",
+                                                field: "flow_truncated",
+                                                explicit: false,
+                                                is_partition_key: false,
+                                                is_primary_key: false,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [
+                                                            "boolean",
+                                                        ],
+                                                        string: None,
+                                                        title: "Flow truncation indicator",
+                                                        description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
                                                         default_json: "",
                                                         secret: false,
                                                         exists: Must,
@@ -1573,6 +1693,26 @@ All {
                                                         ),
                                                         title: "Flow Publication Time",
                                                         description: "Flow publication date-time of this document",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Must,
+                                                    },
+                                                ),
+                                            },
+                                            Projection {
+                                                ptr: "/_meta/flow_truncated",
+                                                field: "flow_truncated",
+                                                explicit: false,
+                                                is_partition_key: false,
+                                                is_primary_key: false,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [
+                                                            "boolean",
+                                                        ],
+                                                        string: None,
+                                                        title: "Flow truncation indicator",
+                                                        description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
                                                         default_json: "",
                                                         secret: false,
                                                         exists: Must,
@@ -1960,6 +2100,26 @@ All {
                         ),
                     },
                     Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
                         ptr: "/int",
                         field: "int",
                         explicit: false,
@@ -2276,6 +2436,26 @@ All {
                                                         ),
                                                         title: "Flow Publication Time",
                                                         description: "Flow publication date-time of this document",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Must,
+                                                    },
+                                                ),
+                                            },
+                                            Projection {
+                                                ptr: "/_meta/flow_truncated",
+                                                field: "flow_truncated",
+                                                explicit: false,
+                                                is_partition_key: false,
+                                                is_primary_key: false,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [
+                                                            "boolean",
+                                                        ],
+                                                        string: None,
+                                                        title: "Flow truncation indicator",
+                                                        description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
                                                         default_json: "",
                                                         secret: false,
                                                         exists: Must,
@@ -2640,6 +2820,26 @@ All {
                                                         ),
                                                         title: "Flow Publication Time",
                                                         description: "Flow publication date-time of this document",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Must,
+                                                    },
+                                                ),
+                                            },
+                                            Projection {
+                                                ptr: "/_meta/flow_truncated",
+                                                field: "flow_truncated",
+                                                explicit: false,
+                                                is_partition_key: false,
+                                                is_primary_key: false,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [
+                                                            "boolean",
+                                                        ],
+                                                        string: None,
+                                                        title: "Flow truncation indicator",
+                                                        description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
                                                         default_json: "",
                                                         secret: false,
                                                         exists: Must,
@@ -3035,6 +3235,26 @@ All {
                         ),
                     },
                     Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
                         ptr: "/int",
                         field: "int",
                         explicit: false,
@@ -3232,6 +3452,26 @@ All {
                                                         ),
                                                         title: "Flow Publication Time",
                                                         description: "Flow publication date-time of this document",
+                                                        default_json: "",
+                                                        secret: false,
+                                                        exists: Must,
+                                                    },
+                                                ),
+                                            },
+                                            Projection {
+                                                ptr: "/_meta/flow_truncated",
+                                                field: "flow_truncated",
+                                                explicit: false,
+                                                is_partition_key: false,
+                                                is_primary_key: false,
+                                                inference: Some(
+                                                    Inference {
+                                                        types: [
+                                                            "boolean",
+                                                        ],
+                                                        string: None,
+                                                        title: "Flow truncation indicator",
+                                                        description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
                                                         default_json: "",
                                                         secret: false,
                                                         exists: Must,
@@ -3584,6 +3824,26 @@ All {
                         ),
                     },
                     Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
                         ptr: "/int",
                         field: "int",
                         explicit: false,
@@ -3759,6 +4019,26 @@ All {
                                 ),
                                 title: "Flow Publication Time",
                                 description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
                                 default_json: "",
                                 secret: false,
                                 exists: Must,
@@ -4013,6 +4293,26 @@ All {
                                 ),
                                 title: "Flow Publication Time",
                                 description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
                                 default_json: "",
                                 secret: false,
                                 exists: Must,
@@ -4291,6 +4591,26 @@ All {
                         ),
                     },
                     Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
                         ptr: "/int",
                         field: "int",
                         explicit: false,
@@ -4513,6 +4833,26 @@ All {
                                 ),
                                 title: "Flow Publication Time",
                                 description: "Flow publication date-time of this document",
+                                default_json: "",
+                                secret: false,
+                                exists: Must,
+                            },
+                        ),
+                    },
+                    Projection {
+                        ptr: "/_meta/flow_truncated",
+                        field: "flow_truncated",
+                        explicit: false,
+                        is_partition_key: false,
+                        is_primary_key: false,
+                        inference: Some(
+                            Inference {
+                                types: [
+                                    "boolean",
+                                ],
+                                string: None,
+                                title: "Flow truncation indicator",
+                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
                                 default_json: "",
                                 secret: false,
                                 exists: Must,
@@ -4745,6 +5085,26 @@ All {
                                                 ),
                                                 title: "Flow Publication Time",
                                                 description: "Flow publication date-time of this document",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/_meta/flow_truncated",
+                                        field: "flow_truncated",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                string: None,
+                                                title: "Flow truncation indicator",
+                                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
                                                 default_json: "",
                                                 secret: false,
                                                 exists: Must,
@@ -5168,6 +5528,26 @@ All {
                                         ),
                                     },
                                     Projection {
+                                        ptr: "/_meta/flow_truncated",
+                                        field: "flow_truncated",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                string: None,
+                                                title: "Flow truncation indicator",
+                                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
                                         ptr: "/int",
                                         field: "int",
                                         explicit: false,
@@ -5486,6 +5866,26 @@ All {
                                                 ),
                                                 title: "Flow Publication Time",
                                                 description: "Flow publication date-time of this document",
+                                                default_json: "",
+                                                secret: false,
+                                                exists: Must,
+                                            },
+                                        ),
+                                    },
+                                    Projection {
+                                        ptr: "/_meta/flow_truncated",
+                                        field: "flow_truncated",
+                                        explicit: false,
+                                        is_partition_key: false,
+                                        is_primary_key: false,
+                                        inference: Some(
+                                            Inference {
+                                                types: [
+                                                    "boolean",
+                                                ],
+                                                string: None,
+                                                title: "Flow truncation indicator",
+                                                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
                                                 default_json: "",
                                                 secret: false,
                                                 exists: Must,

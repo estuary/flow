@@ -78,6 +78,17 @@ pub fn inference_uuid_v1_date_time() -> flow::Inference {
     }
 }
 
+pub fn inference_truncation_sentinel() -> flow::Inference {
+    flow::Inference {
+        types: vec!["boolean".to_string()],
+        string: None,
+        title: "Flow truncation indicator".to_string(),
+        description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.".to_string(),
+        exists: flow::inference::Exists::Must as i32,
+        ..Default::default()
+    }
+}
+
 // partition_template returns a template JournalSpec for creating
 // or updating data partitions of the collection.
 pub fn partition_template(

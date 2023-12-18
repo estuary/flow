@@ -212,6 +212,7 @@ fn walk_collection_projections(
 
     let mut saw_root_projection = false;
     let mut saw_uuid_timestamp_projection = false;
+    let mut saw_truncation_ptr_projection = false;
 
     // Map explicit projections into built flow::Projection instances.
     let mut projections = projections
@@ -249,6 +250,16 @@ fn walk_collection_projections(
                     field: field.to_string(),
                     explicit: true,
                     inference: Some(assemble::inference_uuid_v1_date_time()),
+                    ..Default::default()
+                };
+
+            // TODO: so if someone tries to partition on this field, then it gets treated as a regular pointer? Seems bad
+            } else if ptr.as_str() == TRUNCATION_SENTINEL_PTR && !partition {
+                return flow::Projection {
+                    ptr: TRUNCATION_SENTINEL_PTR.to_string(),
+                    field: field.to_string(),
+                    explicit: true,
+                    inference: Some(assemble::inference_truncation_sentinel()),
                     ..Default::default()
                 };
             }
@@ -301,6 +312,14 @@ fn walk_collection_projections(
             inference: Some(assemble::inference_uuid_v1_date_time()),
             ..Default::default()
         })
+    }
+    if !saw_truncation_ptr_projection {
+        projections.push(flow::Projection {
+            ptr: TRUNCATION_SENTINEL_PTR.to_string(),
+            field: FLOW_TRUNCATED.to_string(),
+            inference: Some(assemble::inference_truncation_sentinel()),
+            ..Default::default()
+        });
     }
 
     // Now add implicit projections for the collection key.
@@ -441,8 +460,13 @@ pub fn walk_selector(
 const FLOW_DOCUMENT: &str = "flow_document";
 /// The default field name for the document publication time.
 const FLOW_PUBLISHED_AT: &str = "flow_published_at";
+/// The default field name for the truncation sentinel.
+const FLOW_TRUNCATED: &str = "flow_truncated";
 /// The JSON Pointer of the Flow document UUID.
 const UUID_PTR: &str = "/_meta/uuid";
 /// The JSON Pointer of the synthetic document publication time.
 /// This pointer typically pairs with the FLOW_PUBLISHED_AT field.
 const UUID_DATE_TIME_PTR: &str = "/_meta/uuid/date-time";
+/// JSON pointer of the synthetic projection of the truncation sentinel.
+/// By default, this will get projected as `FLOW_TRUNCATED`.
+const TRUNCATION_SENTINEL_PTR: &str = "/_meta/flow_truncated";
