@@ -44,13 +44,13 @@ impl SerPolicy {
     pub fn on<'p, 'n, 's, N: AsNode>(
         &'p self,
         node: &'n N,
-        prune_sentinel: Option<&'s AtomicBool>,
+        truncation_indicator: Option<&'s AtomicBool>,
     ) -> SerNode<'p, 'n, 's, N, Root> {
         SerNode {
             _marker: std::marker::PhantomData::<Root>,
             node,
             policy: self,
-            sentinel: prune_sentinel,
+            truncation_indicator,
         }
     }
 
@@ -66,12 +66,12 @@ impl SerPolicy {
     pub fn on_owned<'p, 's>(
         &'p self,
         node: &'p OwnedNode,
-        truncation_sentinel: Option<&'s AtomicBool>,
+        truncation_indicator: Option<&'s AtomicBool>,
     ) -> SerOwned<'p, 's> {
         SerOwned {
             node,
             policy: self,
-            sentinel: truncation_sentinel,
+            truncation_indicator,
         }
     }
 
@@ -85,9 +85,13 @@ impl SerPolicy {
         }
     }
 
-    fn apply_to_str<'a, 'b>(&self, raw: &'a str, sentinel: Option<&'b AtomicBool>) -> &'a str {
+    fn apply_to_str<'a, 'b>(
+        &self,
+        raw: &'a str,
+        truncation_indicator: Option<&'b AtomicBool>,
+    ) -> &'a str {
         if raw.len() > self.str_truncate_after {
-            if let Some(marker) = sentinel {
+            if let Some(marker) = truncation_indicator {
                 marker.store(true, Ordering::SeqCst);
             }
             // Find the greatest index that is <= `str_truncate_after` and falls at a utf8
@@ -127,7 +131,7 @@ impl PolicyHelper for Nested {
 
 pub struct SerNode<'p, 'n, 's, N: AsNode, T> {
     _marker: std::marker::PhantomData<T>,
-    sentinel: Option<&'s AtomicBool>,
+    truncation_indicator: Option<&'s AtomicBool>,
     node: &'n N,
     policy: &'p SerPolicy,
 }
@@ -138,7 +142,7 @@ pub struct SerLazy<'p, 'alloc, 'n, N: AsNode> {
 }
 
 pub struct SerOwned<'p, 's> {
-    sentinel: Option<&'s AtomicBool>,
+    truncation_indicator: Option<&'s AtomicBool>,
     node: &'p OwnedNode,
     policy: &'p SerPolicy,
 }
@@ -150,15 +154,15 @@ impl<'p, 'n, 's, N: AsNode, T: PolicyHelper> serde::Serialize for SerNode<'p, 'n
     {
         match self.node.as_node() {
             Node::Array(arr) => {
-                if let Some(sentinel) = self.sentinel {
+                if let Some(indicator) = self.truncation_indicator {
                     if arr.len() > self.policy.array_truncate_after {
-                        sentinel.store(true, Ordering::SeqCst);
+                        indicator.store(true, Ordering::SeqCst);
                     }
                 }
                 serializer.collect_seq(arr.iter().take(self.policy.array_truncate_after).map(|d| {
                     SerNode {
                         _marker: std::marker::PhantomData::<Nested>,
-                        sentinel: self.sentinel,
+                        truncation_indicator: self.truncation_indicator,
                         node: d,
                         policy: self.policy,
                     }
@@ -181,9 +185,9 @@ impl<'p, 'n, 's, N: AsNode, T: PolicyHelper> serde::Serialize for SerNode<'p, 'n
             Node::PosInt(n) => serializer.serialize_u64(n),
             Node::Object(fields) => {
                 let key_limit = T::get_object_property_limit(self.policy);
-                if let Some(sentinel) = self.sentinel {
+                if let Some(indicator) = self.truncation_indicator {
                     if fields.len() > key_limit {
-                        sentinel.store(true, Ordering::SeqCst);
+                        indicator.store(true, Ordering::SeqCst);
                     }
                 }
                 serializer.collect_map(fields.iter().take(key_limit).map(|field| {
@@ -191,7 +195,7 @@ impl<'p, 'n, 's, N: AsNode, T: PolicyHelper> serde::Serialize for SerNode<'p, 'n
                         field.property(),
                         SerNode {
                             _marker: std::marker::PhantomData::<Nested>,
-                            sentinel: self.sentinel.clone(),
+                            truncation_indicator: self.truncation_indicator.clone(),
                             node: field.value(),
                             policy: self.policy,
                         },
@@ -199,7 +203,7 @@ impl<'p, 'n, 's, N: AsNode, T: PolicyHelper> serde::Serialize for SerNode<'p, 'n
                 }))
             }
             Node::String(mut s) => {
-                s = self.policy.apply_to_str(s, self.sentinel);
+                s = self.policy.apply_to_str(s, self.truncation_indicator);
                 serializer.serialize_str(s)
             }
         }
@@ -224,7 +228,7 @@ impl<'p, 'n, 's, N: AsNode> tuple::TuplePack for SerNode<'p, 'n, 's, N, Root> {
             Node::NegInt(n) => n.pack(w, tuple_depth),
             Node::PosInt(n) => n.pack(w, tuple_depth),
             Node::String(mut s) => {
-                s = self.policy.apply_to_str(s, self.sentinel);
+                s = self.policy.apply_to_str(s, self.truncation_indicator);
                 s.pack(w, tuple_depth)
             }
         }
@@ -239,7 +243,7 @@ impl<N: AsNode> serde::Serialize for SerLazy<'_, '_, '_, N> {
         match &self.node {
             LazyNode::Heap(n) => SerNode {
                 _marker: std::marker::PhantomData::<Root>,
-                sentinel: None,
+                truncation_indicator: None,
                 node: *n,
                 policy: self.policy,
             }
@@ -247,7 +251,7 @@ impl<N: AsNode> serde::Serialize for SerLazy<'_, '_, '_, N> {
 
             LazyNode::Node(n) => SerNode {
                 _marker: std::marker::PhantomData::<Root>,
-                sentinel: None,
+                truncation_indicator: None,
                 node: *n,
                 policy: self.policy,
             }
@@ -264,7 +268,7 @@ impl serde::Serialize for SerOwned<'_, '_> {
         match &self.node {
             OwnedNode::Heap(n) => SerNode {
                 _marker: std::marker::PhantomData::<Root>,
-                sentinel: self.sentinel,
+                truncation_indicator: self.truncation_indicator,
                 node: n.get(),
                 policy: self.policy,
             }
@@ -272,7 +276,7 @@ impl serde::Serialize for SerOwned<'_, '_> {
 
             OwnedNode::Archived(n) => SerNode {
                 _marker: std::marker::PhantomData::<Root>,
-                sentinel: self.sentinel,
+                truncation_indicator: self.truncation_indicator,
                 node: n.get(),
                 policy: self.policy,
             }
@@ -341,10 +345,10 @@ mod test {
         assert!(result.pointer("/z").is_none());
     }
 
-    // Below tests are all checking that we set the sentinel flag if we truncate any values.
+    // Below tests are all checking that we set the truncation_indicator if we truncate any values.
 
     #[test]
-    fn test_ser_policy_truncation_sentinel_strings() {
+    fn test_ser_policy_truncation_indicator_strings() {
         let policy = SerPolicy {
             str_truncate_after: 3,
             ..Default::default()
@@ -352,41 +356,41 @@ mod test {
         let input = json!({
             "a": "foo"
         });
-        let sentinel = AtomicBool::new(false);
-        let str_val = serde_json::to_string(&policy.on(&input, Some(&sentinel))).unwrap();
-        assert!(!sentinel.load(Ordering::SeqCst));
+        let indicator = AtomicBool::new(false);
+        let str_val = serde_json::to_string(&policy.on(&input, Some(&indicator))).unwrap();
+        assert!(!indicator.load(Ordering::SeqCst));
         assert_eq!(r#"{"a":"foo"}"#, &str_val);
 
         let input = json!({
             "a": big_str(9),
         });
-        let sentinel = AtomicBool::new(false);
-        let str_val = serde_json::to_string(&policy.on(&input, Some(&sentinel))).unwrap();
-        assert!(sentinel.load(Ordering::SeqCst));
+        let indicator = AtomicBool::new(false);
+        let str_val = serde_json::to_string(&policy.on(&input, Some(&indicator))).unwrap();
+        assert!(indicator.load(Ordering::SeqCst));
         assert_eq!(r#"{"a":"长"}"#, &str_val);
     }
 
     #[test]
-    fn test_ser_policy_truncation_sentinel_objects() {
+    fn test_ser_policy_truncation_indicator_objects() {
         let policy = SerPolicy {
             root_obj_truncate_after: 2,
             ..Default::default()
         };
         let input: Value = big_obj(2).into(); // not so big afterall
-        let sentinel = AtomicBool::new(false);
-        let result = round_trip_serde(&policy, input, &sentinel);
-        assert!(!sentinel.load(Ordering::SeqCst));
+        let indicator = AtomicBool::new(false);
+        let result = round_trip_serde(&policy, input, &indicator);
+        assert!(!indicator.load(Ordering::SeqCst));
         assert_obj_len(&result, "", 2);
 
         let input: Value = big_obj(9).into(); // not so big afterall
-        let sentinel = AtomicBool::new(false);
-        let result = round_trip_serde(&policy, input, &sentinel);
-        assert!(sentinel.load(Ordering::SeqCst));
+        let indicator = AtomicBool::new(false);
+        let result = round_trip_serde(&policy, input, &indicator);
+        assert!(indicator.load(Ordering::SeqCst));
         assert_obj_len(&result, "", 2);
     }
 
     #[test]
-    fn test_ser_policy_truncation_sentinel_nested_objects() {
+    fn test_ser_policy_truncation_indicator_nested_objects() {
         let policy = SerPolicy {
             root_obj_truncate_after: usize::MAX,
             nested_obj_truncate_after: 3,
@@ -398,9 +402,9 @@ mod test {
             "c": big_obj(3),
             "d": big_obj(3),
         });
-        let sentinel = AtomicBool::new(false);
-        let result = round_trip_serde(&policy, input, &sentinel);
-        assert!(!sentinel.load(Ordering::SeqCst));
+        let indicator = AtomicBool::new(false);
+        let result = round_trip_serde(&policy, input, &indicator);
+        assert!(!indicator.load(Ordering::SeqCst));
         assert_obj_len(&result, "", 4);
         assert_obj_len(&result, "/a", 3);
         assert_obj_len(&result, "/b", 3);
@@ -413,9 +417,9 @@ mod test {
             "c": big_obj(3),
             "d": big_obj(99),
         });
-        let sentinel = AtomicBool::new(false);
-        let result = round_trip_serde(&policy, input, &sentinel);
-        assert!(sentinel.load(Ordering::SeqCst));
+        let indicator = AtomicBool::new(false);
+        let result = round_trip_serde(&policy, input, &indicator);
+        assert!(indicator.load(Ordering::SeqCst));
         assert_obj_len(&result, "", 4);
         assert_obj_len(&result, "/a", 3);
         assert_obj_len(&result, "/b", 3);
@@ -424,7 +428,7 @@ mod test {
     }
 
     #[test]
-    fn test_ser_policy_truncation_sentinel_arrays() {
+    fn test_ser_policy_truncation_indicator_arrays() {
         let policy = SerPolicy {
             array_truncate_after: 3,
             ..Default::default()
@@ -432,26 +436,26 @@ mod test {
         let input = json!({
             "a": big_array(3),
         });
-        let sentinel = AtomicBool::new(false);
-        let result = round_trip_serde(&policy, input, &sentinel);
-        assert!(!sentinel.load(Ordering::SeqCst));
+        let indicator = AtomicBool::new(false);
+        let result = round_trip_serde(&policy, input, &indicator);
+        assert!(!indicator.load(Ordering::SeqCst));
         assert_array_len(&result, "/a", 3);
 
         let input = json!({
             "a": big_array(4),
         });
-        let sentinel = AtomicBool::new(false);
-        let result = round_trip_serde(&policy, input, &sentinel);
-        assert!(sentinel.load(Ordering::SeqCst));
+        let indicator = AtomicBool::new(false);
+        let result = round_trip_serde(&policy, input, &indicator);
+        assert!(indicator.load(Ordering::SeqCst));
         assert_array_len(&result, "/a", 3);
     }
 
-    fn round_trip_serde(policy: &SerPolicy, input: Value, sentinel: &AtomicBool) -> Value {
+    fn round_trip_serde(policy: &SerPolicy, input: Value, indicator: &AtomicBool) -> Value {
         assert!(
-            !sentinel.load(Ordering::SeqCst),
-            "sentinel must start out false"
+            !indicator.load(Ordering::SeqCst),
+            "indicator must start out false"
         );
-        let str_val = serde_json::to_string(&policy.on(&input, Some(sentinel))).unwrap();
+        let str_val = serde_json::to_string(&policy.on(&input, Some(indicator))).unwrap();
         serde_json::from_str(&str_val).expect("failed to deserialize round tripped doc")
     }
 
