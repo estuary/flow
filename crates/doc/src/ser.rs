@@ -10,18 +10,33 @@ use std::{
 pub struct SerPolicy {
     /// Truncate strings which are longer than this limit.
     pub str_truncate_after: usize,
+    /// Truncate arrays with more items than this limti.
     pub array_truncate_after: usize,
-    pub obj_truncate_after: usize,
+    /// Truncate the root document after this number of properties.
+    /// Object truncation is done by taking the first `root_obj_truncate_after`
+    /// properties. Whether or not this is deterministic will depend on whether the
+    /// underlying object iterator provides the keys in a deterministic order.
+    /// We generally use sorted maps, which works for this.
+    pub root_obj_truncate_after: usize,
+    /// Same as `root_obj_truncate_after`, except that this is applied only to
+    /// nested objects (anything below the document root).
     pub nested_obj_truncate_after: usize,
 }
 
 impl SerPolicy {
+    pub const fn unrestricted() -> Self {
+        Self {
+            str_truncate_after: usize::MAX,
+            array_truncate_after: usize::MAX,
+            root_obj_truncate_after: usize::MAX,
+            nested_obj_truncate_after: usize::MAX,
+        }
+    }
+
     pub fn truncate_strings(str_truncate_after: usize) -> Self {
         Self {
             str_truncate_after,
-            array_truncate_after: usize::MAX,
-            obj_truncate_after: usize::MAX,
-            nested_obj_truncate_after: usize::MAX,
+            ..SerPolicy::unrestricted()
         }
     }
 
@@ -65,7 +80,7 @@ impl SerPolicy {
         Self {
             str_truncate_after: 512,
             array_truncate_after: 200,
-            obj_truncate_after: 400,
+            root_obj_truncate_after: 400,
             nested_obj_truncate_after: 100,
         }
     }
@@ -90,7 +105,7 @@ impl SerPolicy {
 
 impl Default for SerPolicy {
     fn default() -> Self {
-        Self::truncate_strings(usize::MAX)
+        Self::unrestricted()
     }
 }
 
@@ -101,7 +116,7 @@ trait PolicyHelper {
 }
 impl PolicyHelper for Root {
     fn get_object_property_limit(policy: &SerPolicy) -> usize {
-        policy.obj_truncate_after
+        policy.root_obj_truncate_after
     }
 }
 impl PolicyHelper for Nested {
@@ -298,7 +313,7 @@ mod test {
         let policy = SerPolicy {
             str_truncate_after: 80,
             array_truncate_after: 80,
-            obj_truncate_after: 80,
+            root_obj_truncate_after: 80,
             nested_obj_truncate_after: 40,
         };
 
@@ -354,7 +369,7 @@ mod test {
     #[test]
     fn test_ser_policy_truncation_sentinel_objects() {
         let policy = SerPolicy {
-            obj_truncate_after: 2,
+            root_obj_truncate_after: 2,
             ..Default::default()
         };
         let input: Value = big_obj(2).into(); // not so big afterall
@@ -373,7 +388,7 @@ mod test {
     #[test]
     fn test_ser_policy_truncation_sentinel_nested_objects() {
         let policy = SerPolicy {
-            obj_truncate_after: usize::MAX,
+            root_obj_truncate_after: usize::MAX,
             nested_obj_truncate_after: 3,
             ..Default::default()
         };

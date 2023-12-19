@@ -841,6 +841,12 @@ pub struct SerPolicy {
     /// When zero, there is no limit.
     #[prost(uint32, tag = "1")]
     pub str_truncate_after: u32,
+    #[prost(uint32, tag = "2")]
+    pub root_obj_truncate_after: u32,
+    #[prost(uint32, tag = "3")]
+    pub nested_obj_truncate_after: u32,
+    #[prost(uint32, tag = "4")]
+    pub array_truncate_after: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

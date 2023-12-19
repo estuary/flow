@@ -300,7 +300,7 @@ async fn do_combine(
     let ser_policy = doc::SerPolicy {
         str_truncate_after: 1 << 16,
         array_truncate_after: 1000,
-        obj_truncate_after: usize::MAX,
+        root_obj_truncate_after: usize::MAX,
         nested_obj_truncate_after: 1000,
     };
     while let Some(drained) = drainer.next() {

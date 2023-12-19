@@ -5313,9 +5313,27 @@ impl serde::Serialize for SerPolicy {
         if self.str_truncate_after != 0 {
             len += 1;
         }
+        if self.root_obj_truncate_after != 0 {
+            len += 1;
+        }
+        if self.nested_obj_truncate_after != 0 {
+            len += 1;
+        }
+        if self.array_truncate_after != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("flow.SerPolicy", len)?;
         if self.str_truncate_after != 0 {
             struct_ser.serialize_field("strTruncateAfter", &self.str_truncate_after)?;
+        }
+        if self.root_obj_truncate_after != 0 {
+            struct_ser.serialize_field("rootObjTruncateAfter", &self.root_obj_truncate_after)?;
+        }
+        if self.nested_obj_truncate_after != 0 {
+            struct_ser.serialize_field("nestedObjTruncateAfter", &self.nested_obj_truncate_after)?;
+        }
+        if self.array_truncate_after != 0 {
+            struct_ser.serialize_field("arrayTruncateAfter", &self.array_truncate_after)?;
         }
         struct_ser.end()
     }
@@ -5329,11 +5347,20 @@ impl<'de> serde::Deserialize<'de> for SerPolicy {
         const FIELDS: &[&str] = &[
             "str_truncate_after",
             "strTruncateAfter",
+            "root_obj_truncate_after",
+            "rootObjTruncateAfter",
+            "nested_obj_truncate_after",
+            "nestedObjTruncateAfter",
+            "array_truncate_after",
+            "arrayTruncateAfter",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             StrTruncateAfter,
+            RootObjTruncateAfter,
+            NestedObjTruncateAfter,
+            ArrayTruncateAfter,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
             fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
@@ -5356,6 +5383,9 @@ impl<'de> serde::Deserialize<'de> for SerPolicy {
                     {
                         match value {
                             "strTruncateAfter" | "str_truncate_after" => Ok(GeneratedField::StrTruncateAfter),
+                            "rootObjTruncateAfter" | "root_obj_truncate_after" => Ok(GeneratedField::RootObjTruncateAfter),
+                            "nestedObjTruncateAfter" | "nested_obj_truncate_after" => Ok(GeneratedField::NestedObjTruncateAfter),
+                            "arrayTruncateAfter" | "array_truncate_after" => Ok(GeneratedField::ArrayTruncateAfter),
                             _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
                         }
                     }
@@ -5376,6 +5406,9 @@ impl<'de> serde::Deserialize<'de> for SerPolicy {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut str_truncate_after__ = None;
+                let mut root_obj_truncate_after__ = None;
+                let mut nested_obj_truncate_after__ = None;
+                let mut array_truncate_after__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::StrTruncateAfter => {
@@ -5386,10 +5419,37 @@ impl<'de> serde::Deserialize<'de> for SerPolicy {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::RootObjTruncateAfter => {
+                            if root_obj_truncate_after__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("rootObjTruncateAfter"));
+                            }
+                            root_obj_truncate_after__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::NestedObjTruncateAfter => {
+                            if nested_obj_truncate_after__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("nestedObjTruncateAfter"));
+                            }
+                            nested_obj_truncate_after__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::ArrayTruncateAfter => {
+                            if array_truncate_after__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("arrayTruncateAfter"));
+                            }
+                            array_truncate_after__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                     }
                 }
                 Ok(SerPolicy {
                     str_truncate_after: str_truncate_after__.unwrap_or_default(),
+                    root_obj_truncate_after: root_obj_truncate_after__.unwrap_or_default(),
+                    nested_obj_truncate_after: nested_obj_truncate_after__.unwrap_or_default(),
+                    array_truncate_after: array_truncate_after__.unwrap_or_default(),
                 })
             }
         }

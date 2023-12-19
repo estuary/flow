@@ -556,6 +556,9 @@ message SerPolicy {
   // Length limit after which string values are truncated.
   // When zero, there is no limit.
   uint32 str_truncate_after = 1;
+  uint32 root_obj_truncate_after = 2;
+  uint32 nested_obj_truncate_after = 3;
+  uint32 array_truncate_after = 4;
 }
 
 message ExtractAPI {
