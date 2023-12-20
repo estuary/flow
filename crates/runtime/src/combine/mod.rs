@@ -10,7 +10,7 @@ impl<T: Stream<Item = anyhow::Result<Request>> + Send + Unpin + 'static> Request
 pub trait ResponseStream: Stream<Item = anyhow::Result<Response>> + Send + 'static {}
 impl<T: Stream<Item = anyhow::Result<Response>> + Send + 'static> ResponseStream for T {}
 
-struct Binding {
+pub struct Binding {
     key: Vec<doc::Extractor>,
     ser_policy: doc::SerPolicy,
     uuid_ptr: Option<doc::Pointer>,
