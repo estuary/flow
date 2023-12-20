@@ -10,16 +10,14 @@ use std::{
 pub struct SerPolicy {
     /// Truncate strings which are longer than this limit.
     pub str_truncate_after: usize,
-    /// Truncate arrays with more items than this limti.
+    /// Truncate arrays with more items than this limit.
     pub array_truncate_after: usize,
-    /// Truncate the root document after this number of properties.
-    /// Object truncation is done by taking the first `root_obj_truncate_after`
+    /// Truncate nested objects after this number of properties.
+    /// Object truncation is done by taking the first `nested_obj_truncate_after`
     /// properties. Whether or not this is deterministic will depend on whether the
     /// underlying object iterator provides the keys in a deterministic order.
     /// We generally use sorted maps, which works for this.
-    pub root_obj_truncate_after: usize,
-    /// Same as `root_obj_truncate_after`, except that this is applied only to
-    /// nested objects (anything below the document root).
+    /// The root object is never truncated.
     pub nested_obj_truncate_after: usize,
 }
 
@@ -28,7 +26,6 @@ impl SerPolicy {
         Self {
             str_truncate_after: usize::MAX,
             array_truncate_after: usize::MAX,
-            root_obj_truncate_after: usize::MAX,
             nested_obj_truncate_after: usize::MAX,
         }
     }
@@ -91,7 +88,6 @@ impl SerPolicy {
         Self {
             str_truncate_after: 512,
             array_truncate_after: 200,
-            root_obj_truncate_after: 400,
             nested_obj_truncate_after: 100,
         }
     }
@@ -124,8 +120,8 @@ trait PolicyHelper {
     fn get_object_property_limit(policy: &SerPolicy) -> usize;
 }
 impl PolicyHelper for Root {
-    fn get_object_property_limit(policy: &SerPolicy) -> usize {
-        policy.root_obj_truncate_after
+    fn get_object_property_limit(_: &SerPolicy) -> usize {
+        usize::MAX
     }
 }
 impl PolicyHelper for Nested {
@@ -315,14 +311,10 @@ mod test {
                 "smolArray": [1, 2, 3],
             }),
         );
-        // For good measure, assert that this property is removed, since it
-        // comes after all the `p{n}` keys lexicographically.
-        yuge_tracks_of_land.insert("z".to_string(), json!("this should be removed"));
 
         let policy = SerPolicy {
             str_truncate_after: 80,
             array_truncate_after: 80,
-            root_obj_truncate_after: 80,
             nested_obj_truncate_after: 40,
         };
 
@@ -333,7 +325,7 @@ mod test {
             "document should have been pruned during ser"
         );
 
-        assert_obj_len(&result, "", 80);
+        assert_obj_len(&result, "", 104); // root should not be truncated
         assert_obj_len(&result, "/bigNestedObj", 40);
 
         // Smaller than 80 because truncation must be done only at character boundaries
@@ -346,8 +338,6 @@ mod test {
         assert_array_len(&result, "/nested/stuff", 80);
         assert_str_len(&result, "/nested/smolStr", 9);
         assert_array_len(&result, "/nested/smolArray", 3);
-
-        assert!(result.pointer("/z").is_none());
     }
 
     // Below tests are all checking that we set the truncation_indicator if we truncate any values.
@@ -376,28 +366,8 @@ mod test {
     }
 
     #[test]
-    fn test_ser_policy_truncation_indicator_objects() {
-        let policy = SerPolicy {
-            root_obj_truncate_after: 2,
-            ..SerPolicy::unrestricted()
-        };
-        let input: Value = big_obj(2).into(); // not so big afterall
-        let indicator = AtomicBool::new(false);
-        let result = round_trip_serde(&policy, input, &indicator);
-        assert!(!indicator.load(Ordering::SeqCst));
-        assert_obj_len(&result, "", 2);
-
-        let input: Value = big_obj(9).into(); // not so big afterall
-        let indicator = AtomicBool::new(false);
-        let result = round_trip_serde(&policy, input, &indicator);
-        assert!(indicator.load(Ordering::SeqCst));
-        assert_obj_len(&result, "", 2);
-    }
-
-    #[test]
     fn test_ser_policy_truncation_indicator_nested_objects() {
         let policy = SerPolicy {
-            root_obj_truncate_after: usize::MAX,
             nested_obj_truncate_after: 3,
             ..SerPolicy::unrestricted()
         };

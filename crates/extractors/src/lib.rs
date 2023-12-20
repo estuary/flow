@@ -17,7 +17,6 @@ type Result<T> = std::result::Result<T, Error>;
 pub fn map_policy(policy: &flow::SerPolicy) -> doc::SerPolicy {
     let proto_flow::flow::SerPolicy {
         str_truncate_after,
-        root_obj_truncate_after,
         nested_obj_truncate_after,
         array_truncate_after,
     } = policy;
@@ -33,7 +32,6 @@ pub fn map_policy(policy: &flow::SerPolicy) -> doc::SerPolicy {
     doc::SerPolicy {
         str_truncate_after: zero_to_max(*str_truncate_after),
         array_truncate_after: zero_to_max(*array_truncate_after),
-        root_obj_truncate_after: zero_to_max(*root_obj_truncate_after),
         nested_obj_truncate_after: zero_to_max(*nested_obj_truncate_after),
     }
 }
@@ -155,7 +153,6 @@ mod test {
                 policy: SerPolicy {
                     str_truncate_after: 1234,
                     array_truncate_after: 18446744073709551615,
-                    root_obj_truncate_after: 18446744073709551615,
                     nested_obj_truncate_after: 18446744073709551615,
                 },
                 default: String("user_key"),
@@ -175,7 +172,6 @@ mod test {
                 policy: SerPolicy {
                     str_truncate_after: 1234,
                     array_truncate_after: 18446744073709551615,
-                    root_obj_truncate_after: 18446744073709551615,
                     nested_obj_truncate_after: 18446744073709551615,
                 },
                 default: Null,
@@ -200,7 +196,6 @@ mod test {
                 policy: SerPolicy {
                     str_truncate_after: 1234,
                     array_truncate_after: 18446744073709551615,
-                    root_obj_truncate_after: 18446744073709551615,
                     nested_obj_truncate_after: 18446744073709551615,
                 },
                 default: Null,
@@ -217,7 +212,6 @@ mod test {
                 policy: SerPolicy {
                     str_truncate_after: 1234,
                     array_truncate_after: 18446744073709551615,
-                    root_obj_truncate_after: 18446744073709551615,
                     nested_obj_truncate_after: 18446744073709551615,
                 },
                 default: Number(32),
@@ -237,7 +231,6 @@ mod test {
                 policy: SerPolicy {
                     str_truncate_after: 18446744073709551615,
                     array_truncate_after: 18446744073709551615,
-                    root_obj_truncate_after: 18446744073709551615,
                     nested_obj_truncate_after: 18446744073709551615,
                 },
                 default: Null,

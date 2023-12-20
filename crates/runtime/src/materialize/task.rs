@@ -40,9 +40,9 @@ impl Task {
         {
             doc::SerPolicy {
                 str_truncate_after: 1 << 16, // Truncate at 64KB.
-                root_obj_truncate_after: usize::MAX,
                 nested_obj_truncate_after: 1000,
                 array_truncate_after: 1000,
+                ..doc::SerPolicy::unrestricted()
             }
         } else {
             doc::SerPolicy::unrestricted()

@@ -841,11 +841,16 @@ pub struct SerPolicy {
     /// When zero, there is no limit.
     #[prost(uint32, tag = "1")]
     pub str_truncate_after: u32,
+    /// Truncate nested objects after this number of properties.
+    /// Object truncation is done by taking the first `nested_obj_truncate_after`
+    /// properties. Whether or not this is deterministic will depend on whether the
+    /// underlying object iterator provides the keys in a deterministic order.
+    /// We generally use sorted maps, which works for this.
+    /// The root object is never truncated.
     #[prost(uint32, tag = "2")]
-    pub root_obj_truncate_after: u32,
-    #[prost(uint32, tag = "3")]
     pub nested_obj_truncate_after: u32,
-    #[prost(uint32, tag = "4")]
+    /// Truncate arrays with more items than this limit.
+    #[prost(uint32, tag = "3")]
     pub array_truncate_after: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
