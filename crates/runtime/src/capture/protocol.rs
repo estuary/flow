@@ -155,8 +155,10 @@ pub fn send_client_captured_or_checkpoint(
 
     if index == task.bindings.len() {
         // This is a merged checkpoint state update.
-        let updated_json =
-            serde_json::to_string(&doc::SerPolicy::default().on_owned(&root, None)).unwrap();
+        let updated_json = serde_json::to_string(
+            &doc::SerPolicy::unrestricted().on_owned_ignore_truncation(&root),
+        )
+        .unwrap();
 
         tracing::debug!(
             state=%updated_json,
@@ -175,10 +177,14 @@ pub fn send_client_captured_or_checkpoint(
     }
 
     let binding = &task.bindings[index];
-    let key_packed = doc::Extractor::extract_all_owned(&root, &binding.key_extractors, buf, None);
-    let partitions_packed =
-        doc::Extractor::extract_all_owned(&root, &binding.partition_extractors, buf, None);
-    let doc_json = serde_json::to_string(&binding.ser_policy.on_owned(&root, None))
+    let key_packed =
+        doc::Extractor::extract_all_owned_ignore_truncation(&root, &binding.key_extractors, buf);
+    let partitions_packed = doc::Extractor::extract_all_owned_ignore_truncation(
+        &root,
+        &binding.partition_extractors,
+        buf,
+    );
+    let doc_json = serde_json::to_string(&binding.ser_policy.on_owned_ignore_truncation(&root))
         .expect("document serialization cannot fail");
 
     let stats = &mut txn.stats.entry(index as u32).or_default().1;

@@ -106,16 +106,19 @@ pub async fn do_materialize_fixture(
                     continue;
                 }
 
-                let key_ex = extractors::for_fields(keys, projections, &doc::SerPolicy::default())?;
+                let key_ex =
+                    extractors::for_fields(keys, projections, &doc::SerPolicy::unrestricted())?;
                 let values_ex =
-                    extractors::for_fields(values, projections, &doc::SerPolicy::default())?;
+                    extractors::for_fields(values, projections, &doc::SerPolicy::unrestricted())?;
 
                 for (exists, doc) in &docs {
                     if !delta_updates {
                         loads.push(Request {
                             load: Some(request::Load {
                                 binding: binding_index as u32,
-                                key_packed: doc::Extractor::extract_all(doc, &key_ex, buf, None),
+                                key_packed: doc::Extractor::extract_all_ignore_truncation(
+                                    doc, &key_ex, buf,
+                                ),
                                 ..Default::default()
                             }),
                             ..Default::default()
@@ -124,8 +127,12 @@ pub async fn do_materialize_fixture(
                     stores.push(Request {
                         store: Some(request::Store {
                             binding: binding_index as u32,
-                            key_packed: doc::Extractor::extract_all(doc, &key_ex, buf, None),
-                            values_packed: doc::Extractor::extract_all(doc, &values_ex, buf, None),
+                            key_packed: doc::Extractor::extract_all_ignore_truncation(
+                                doc, &key_ex, buf,
+                            ),
+                            values_packed: doc::Extractor::extract_all_ignore_truncation(
+                                doc, &values_ex, buf,
+                            ),
                             doc_json: doc.to_string(),
                             exists: *exists && !delta_updates,
                             ..Default::default()

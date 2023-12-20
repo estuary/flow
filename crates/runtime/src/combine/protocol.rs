@@ -102,7 +102,10 @@ pub fn recv_client_add(
             .with_context(|| {
                 format!(
                     "invalid document UUID {}",
-                    serde_json::to_string(&doc::SerPolicy::default().on(uuid)).unwrap()
+                    serde_json::to_string(
+                        &doc::SerPolicy::unrestricted().on_ignore_truncation(uuid)
+                    )
+                    .unwrap()
                 )
             })?;
 
@@ -131,9 +134,10 @@ pub fn send_client_response(
     let binding_index = meta.binding();
     let binding = &bindings[binding_index];
 
-    let key_packed = doc::Extractor::extract_all_owned(&root, &binding.key, buf);
-    let values_packed = doc::Extractor::extract_all_owned(&root, &binding.values, buf);
-    let doc_json = serde_json::to_string(&binding.ser_policy.on_owned(&root))
+    let key_packed = doc::Extractor::extract_all_owned_ignore_truncation(&root, &binding.key, buf);
+    let values_packed =
+        doc::Extractor::extract_all_owned_ignore_truncation(&root, &binding.values, buf);
+    let doc_json = serde_json::to_string(&binding.ser_policy.on_owned_ignore_truncation(&root))
         .expect("document serialization cannot fail");
 
     Ok(Response {

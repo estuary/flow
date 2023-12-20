@@ -54,6 +54,13 @@ impl SerPolicy {
         }
     }
 
+    pub fn on_ignore_truncation<'p, 'n, N: AsNode>(
+        &'p self,
+        node: &'n N,
+    ) -> SerNode<'p, 'n, 'static, N, Root> {
+        self.on(node, None)
+    }
+
     /// Apply the policy to a LazyNode instance, returning a serializable SerLazy.
     pub fn on_lazy<'p, 'alloc, 'n, N: AsNode>(
         &'p self,
@@ -73,6 +80,10 @@ impl SerPolicy {
             policy: self,
             truncation_indicator,
         }
+    }
+
+    pub fn on_owned_ignore_truncation<'p>(&'p self, node: &'p OwnedNode) -> SerOwned<'p, 'static> {
+        self.on_owned(node, None)
     }
 
     // Return a SerPolicy appropriate for error messages and other debugging cases.
@@ -104,12 +115,6 @@ impl SerPolicy {
         } else {
             raw
         }
-    }
-}
-
-impl Default for SerPolicy {
-    fn default() -> Self {
-        Self::unrestricted()
     }
 }
 
@@ -351,7 +356,7 @@ mod test {
     fn test_ser_policy_truncation_indicator_strings() {
         let policy = SerPolicy {
             str_truncate_after: 3,
-            ..Default::default()
+            ..SerPolicy::unrestricted()
         };
         let input = json!({
             "a": "foo"
@@ -374,7 +379,7 @@ mod test {
     fn test_ser_policy_truncation_indicator_objects() {
         let policy = SerPolicy {
             root_obj_truncate_after: 2,
-            ..Default::default()
+            ..SerPolicy::unrestricted()
         };
         let input: Value = big_obj(2).into(); // not so big afterall
         let indicator = AtomicBool::new(false);
@@ -394,7 +399,7 @@ mod test {
         let policy = SerPolicy {
             root_obj_truncate_after: usize::MAX,
             nested_obj_truncate_after: 3,
-            ..Default::default()
+            ..SerPolicy::unrestricted()
         };
         let input = json!({
             "a": big_obj(3),
@@ -431,7 +436,7 @@ mod test {
     fn test_ser_policy_truncation_indicator_arrays() {
         let policy = SerPolicy {
             array_truncate_after: 3,
-            ..Default::default()
+            ..SerPolicy::unrestricted()
         };
         let input = json!({
             "a": big_array(3),

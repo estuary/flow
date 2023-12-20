@@ -30,7 +30,7 @@ impl Task {
         // TODO(johnny): Hack to limit serialized value sizes for these common materialization connectors
         // that don't handle large strings very well. This should be negotiated via connector protocol.
         // See go/runtime/materialize.go:135
-        let limit_images = &[
+        let ser_policy = if [
             "ghcr.io/estuary/materialize-snowflake",
             "ghcr.io/estuary/materialize-redshift",
             "ghcr.io/estuary/materialize-sqlite",
@@ -45,7 +45,7 @@ impl Task {
                 array_truncate_after: 1000,
             }
         } else {
-            doc::SerPolicy::default()
+            doc::SerPolicy::unrestricted()
         };
 
         let bindings = bindings

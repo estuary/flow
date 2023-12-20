@@ -139,7 +139,7 @@ pub fn walk_test_step(
     } else if let Ok(key) = extractors::for_key(
         &collection.spec.key,
         &collection.spec.projections,
-        &doc::SerPolicy::default(),
+        &doc::SerPolicy::unrestricted(),
     ) {
         // Verify that any verified documents are ordered correctly w.r.t.
         // the collection's key.

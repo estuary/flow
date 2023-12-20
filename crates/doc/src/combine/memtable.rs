@@ -463,7 +463,7 @@ mod test {
                     true, // Full reduction.
                     vec![Extractor::with_default(
                         "/key",
-                        &SerPolicy::default(),
+                        &SerPolicy::unrestricted(),
                         json!("def"),
                     )],
                     None,
@@ -518,7 +518,8 @@ mod test {
             .map_ok(|doc| {
                 (
                     doc.meta.binding(),
-                    serde_json::to_value(SerPolicy::default().on_owned(&doc.root, None)).unwrap(),
+                    serde_json::to_value(SerPolicy::unrestricted().on_owned(&doc.root, None))
+                        .unwrap(),
                     doc.meta.front(),
                 )
             })
@@ -712,7 +713,7 @@ mod test {
         let spec = |is_full| {
             (
                 is_full,
-                vec![Extractor::new("/k", &SerPolicy::default())],
+                vec![Extractor::new("/k", &SerPolicy::unrestricted())],
                 None,
                 Validator::new(
                     build_schema(
@@ -743,7 +744,7 @@ mod test {
             for HeapEntry { meta, root } in entries.sorted.iter() {
                 b.push_str(&format!(
                     "{meta:?} {}\n",
-                    serde_json::to_string(&SerPolicy::debug().on(root, None)).unwrap()
+                    serde_json::to_string(&SerPolicy::debug().on_ignore_truncation(root)).unwrap()
                 ));
             }
             b
@@ -977,7 +978,7 @@ mod test {
 
                 (
                     true, // Full reduction.
-                    vec![Extractor::new("/key", &SerPolicy::default())],
+                    vec![Extractor::new("/key", &SerPolicy::unrestricted())],
                     None,
                     Validator::new(schema).unwrap(),
                 )

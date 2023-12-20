@@ -52,7 +52,7 @@ impl Extractor {
     pub fn for_uuid_v1_date_time(ptr: &str) -> Self {
         Self {
             ptr: Pointer::from(ptr),
-            policy: SerPolicy::default(),
+            policy: SerPolicy::unrestricted(),
             default: serde_json::Value::Null,
             magic: Some(Magic::UuidV1DateTime),
         }
@@ -61,7 +61,7 @@ impl Extractor {
     pub fn for_truncation_sentinel() -> Self {
         Self {
             ptr: Pointer::empty(),
-            policy: SerPolicy::default(),
+            policy: SerPolicy::unrestricted(),
             default: serde_json::Value::Null,
             magic: Some(Magic::TruncationSentinel),
         }
@@ -120,6 +120,15 @@ impl Extractor {
     }
 
     /// Extract a packed tuple representation from an instance of doc::AsNode.
+    pub fn extract_all_ignore_truncation<N: AsNode>(
+        doc: &N,
+        extractors: &[Self],
+        out: &mut bytes::BytesMut,
+    ) -> bytes::Bytes {
+        Extractor::extract_all(doc, extractors, out, None)
+    }
+
+    /// Extract a packed tuple representation from an instance of doc::AsNode.
     pub fn extract_all<N: AsNode>(
         doc: &N,
         extractors: &[Self],
@@ -153,6 +162,14 @@ impl Extractor {
             out[pos] = 0x27; // this is the byte value of `true`
         }
         out.split().freeze()
+    }
+
+    pub fn extract_all_owned_ignore_truncation<'alloc>(
+        doc: &OwnedNode,
+        extractors: &[Self],
+        out: &mut bytes::BytesMut,
+    ) -> bytes::Bytes {
+        Extractor::extract_all_owned(doc, extractors, out, None)
     }
 
     /// Extract a packed tuple representation from an instance of doc::OwnedNode.
@@ -306,7 +323,7 @@ mod test {
     fn test_setting_truncation_sentinel() {
         let policy = SerPolicy {
             str_truncate_after: 7,
-            ..Default::default()
+            ..SerPolicy::unrestricted()
         };
 
         let doc = json!({
@@ -346,7 +363,7 @@ mod test {
         let d1 = &json!({"a": 1, "b": 2, "c": 3});
         let d2 = &json!({"a": 2, "b": 1});
 
-        let policy = SerPolicy::default();
+        let policy = SerPolicy::unrestricted();
         let empty = || Extractor::new("", &policy);
         let a = || Extractor::new("/a", &policy);
         let b = || Extractor::new("/b", &policy);
@@ -381,7 +398,7 @@ mod test {
         let d1 = &json!([1, 2, 3]);
         let d2 = &json!([2, 1]);
 
-        let policy = SerPolicy::default();
+        let policy = SerPolicy::unrestricted();
         let empty = || Extractor::new("", &policy);
         let zero = || Extractor::new("/0", &policy);
         let one = || Extractor::new("/1", &policy);
@@ -418,7 +435,7 @@ mod test {
         let d1 = &json!({"a": null, "c": 3});
         let d2 = &json!({"b": 2});
 
-        let policy = SerPolicy::default();
+        let policy = SerPolicy::unrestricted();
         let missing = || Extractor::new("/does/not/exist", &policy);
         let a = || Extractor::new("/a", &policy);
         let b = || Extractor::new("/b", &policy);

@@ -19,9 +19,9 @@ pub fn json_schema_merge<'alloc, L: AsNode, R: AsNode>(
     } = cur;
 
     let lhs = lhs
-        .map(|n| serde_json::to_value(SerPolicy::default().on_lazy(&n)).unwrap())
+        .map(|n| serde_json::to_value(SerPolicy::unrestricted().on_lazy(&n)).unwrap())
         .unwrap_or(serde_json::Value::Bool(false));
-    let rhs = serde_json::to_value(SerPolicy::default().on_lazy(&rhs)).unwrap();
+    let rhs = serde_json::to_value(SerPolicy::unrestricted().on_lazy(&rhs)).unwrap();
 
     *tape = &tape[count_nodes(&rhs)..];
 
