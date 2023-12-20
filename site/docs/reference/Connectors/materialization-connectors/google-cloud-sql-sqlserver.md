@@ -74,7 +74,7 @@ materializations:
 ```sql
 USE <database>;
 -- Create user and password for use with the connector.
-CREATE LOGIN flow_materialize WITH PASSWORD = 'secret';
+CREATE LOGIN flow_materialize WITH PASSWORD = 'Secret123!';
 CREATE USER flow_materialize FOR LOGIN flow_materialize;
 -- Grant control on the database to flow_materialize
 GRANT CONTROL ON DATABASE::<database> TO flow_materialize;
