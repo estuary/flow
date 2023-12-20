@@ -39,8 +39,7 @@ This connector can capture the following Salesforce [standard objects](https://d
 * WorkOrder
 * WorkOrderLineItem
 
-[Custom objects](https://help.salesforce.com/s/articleView?id=sf.dev_object_def.htm&type=5) aren't currently supported.
-Each captured object is mapped to a Flow collection through a separate binding.
+The Salesforce connector has the ability to capture all standard Salesforce objects as well as custom objects. All available objects will appear after connecting to Salesforce.
 
 Because most Salesforce accounts contain large volumes of data, you may only want to capture a subset of the available objects.
 There are several ways to control this:
