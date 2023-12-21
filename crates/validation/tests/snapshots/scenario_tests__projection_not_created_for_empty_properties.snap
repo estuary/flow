@@ -1,0 +1,120 @@
+---
+source: crates/validation/tests/scenario_tests.rs
+expression: "validations.built_collections[0].spec.projections"
+---
+[
+    Projection {
+        ptr: "/_meta/flow_truncated",
+        field: "_meta/flow_truncated",
+        explicit: false,
+        is_partition_key: false,
+        is_primary_key: false,
+        inference: Some(
+            Inference {
+                types: [
+                    "boolean",
+                ],
+                string: None,
+                title: "Flow truncation indicator",
+                description: "Indicates whether any of the materialized values for this row have been truncated to make them fit inside the limitations of the destination system.",
+                default_json: "",
+                secret: false,
+                exists: Must,
+            },
+        ),
+    },
+    Projection {
+        ptr: "/a",
+        field: "a",
+        explicit: false,
+        is_partition_key: false,
+        is_primary_key: false,
+        inference: Some(
+            Inference {
+                types: [
+                    "object",
+                ],
+                string: None,
+                title: "",
+                description: "",
+                default_json: "",
+                secret: false,
+                exists: May,
+            },
+        ),
+    },
+    Projection {
+        ptr: "",
+        field: "flow_document",
+        explicit: false,
+        is_partition_key: false,
+        is_primary_key: false,
+        inference: Some(
+            Inference {
+                types: [
+                    "object",
+                ],
+                string: None,
+                title: "",
+                description: "",
+                default_json: "",
+                secret: false,
+                exists: Must,
+            },
+        ),
+    },
+    Projection {
+        ptr: "/_meta/uuid",
+        field: "flow_published_at",
+        explicit: false,
+        is_partition_key: false,
+        is_primary_key: false,
+        inference: Some(
+            Inference {
+                types: [
+                    "string",
+                ],
+                string: Some(
+                    String {
+                        content_type: "",
+                        format: "date-time",
+                        content_encoding: "uuid",
+                        max_length: 0,
+                    },
+                ),
+                title: "Flow Publication Time",
+                description: "Flow publication date-time of this document",
+                default_json: "",
+                secret: false,
+                exists: Must,
+            },
+        ),
+    },
+    Projection {
+        ptr: "/id",
+        field: "id",
+        explicit: false,
+        is_partition_key: false,
+        is_primary_key: true,
+        inference: Some(
+            Inference {
+                types: [
+                    "string",
+                ],
+                string: Some(
+                    String {
+                        content_type: "",
+                        format: "",
+                        content_encoding: "",
+                        max_length: 0,
+                    },
+                ),
+                title: "",
+                description: "",
+                default_json: "",
+                secret: false,
+                exists: Must,
+            },
+        ),
+    },
+]
