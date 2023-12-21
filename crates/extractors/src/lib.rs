@@ -101,8 +101,8 @@ pub fn for_projection(
     {
         return Ok(doc::Extractor::for_uuid_v1_date_time(&projection.ptr));
     }
-    if projection.ptr == doc::TRUNCATION_SENTINEL_PTR {
-        return Ok(doc::Extractor::for_truncation_sentinel());
+    if projection.ptr == doc::TRUNCATION_INDICATOR_PTR {
+        return Ok(doc::Extractor::for_truncation_indicator());
     }
 
     let default = if inf.default_json != "" {

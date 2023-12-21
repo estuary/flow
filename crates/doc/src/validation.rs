@@ -196,8 +196,7 @@ impl<'schema, 'doc, 'tmp, N: AsNode> Validation<'schema, 'doc, 'tmp, N> {
         Err(FailedValidation {
             // TODO: It might be a good idea to add a field on `FailedValidation` to indicate
             // whether the document serialized here has been truncated.
-            document: serde_json::to_value(SerPolicy::debug().on_ignore_truncation(document))
-                .unwrap(),
+            document: serde_json::to_value(SerPolicy::debug().on(document)).unwrap(),
             basic_output: json::validator::build_basic_output(full_validator.outcomes()),
         })
     }

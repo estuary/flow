@@ -630,7 +630,7 @@ mod test {
             .map_ok(|doc| {
                 (
                     doc.meta.binding(),
-                    serde_json::to_value(SerPolicy::noop().on_owned(&doc.root, None)).unwrap(),
+                    serde_json::to_value(SerPolicy::noop().on_owned(&doc.root)).unwrap(),
                     doc.meta.front(),
                 )
             })

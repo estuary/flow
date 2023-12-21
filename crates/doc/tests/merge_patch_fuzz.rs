@@ -81,7 +81,7 @@ fn reduce_stack(input: Vec<ArbitraryValue>) -> bool {
         .unwrap();
     }
 
-    let reduced = serde_json::to_value(&SerPolicy::noop().on_ignore_truncation(&reduced)).unwrap();
+    let reduced = serde_json::to_value(&SerPolicy::noop().on(&reduced)).unwrap();
 
     reduced == expect
 }
@@ -146,8 +146,8 @@ fn reduce_combiner(input: Vec<ArbitraryValue>) -> bool {
         let binding = mem.meta.binding();
         let deleted = mem.meta.deleted();
 
-        let mem = serde_json::to_value(&SerPolicy::noop().on_owned(&mem.root, None)).unwrap();
-        let spill = serde_json::to_value(&SerPolicy::noop().on_owned(&spill.root, None)).unwrap();
+        let mem = serde_json::to_value(&SerPolicy::noop().on_owned(&mem.root)).unwrap();
+        let spill = serde_json::to_value(&SerPolicy::noop().on_owned(&spill.root)).unwrap();
 
         assert_eq!(
             mem, spill,

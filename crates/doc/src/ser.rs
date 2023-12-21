@@ -38,24 +38,26 @@ impl SerPolicy {
     }
 
     /// Apply the policy to an AsNode instance, returning a serializable SerNode.
-    pub fn on<'p, 'n, 's, N: AsNode>(
+    pub fn with_truncation_indicator<'p, 'n, 's, N: AsNode>(
         &'p self,
         node: &'n N,
-        truncation_indicator: Option<&'s AtomicBool>,
+        truncation_indicator: &'s AtomicBool,
     ) -> SerNode<'p, 'n, 's, N, Root> {
         SerNode {
             _marker: std::marker::PhantomData::<Root>,
             node,
             policy: self,
-            truncation_indicator,
+            truncation_indicator: Some(truncation_indicator),
         }
     }
 
-    pub fn on_ignore_truncation<'p, 'n, N: AsNode>(
-        &'p self,
-        node: &'n N,
-    ) -> SerNode<'p, 'n, 'static, N, Root> {
-        self.on(node, None)
+    pub fn on<'p, 'n, N: AsNode>(&'p self, node: &'n N) -> SerNode<'p, 'n, 'static, N, Root> {
+        SerNode {
+            _marker: std::marker::PhantomData::<Root>,
+            node,
+            policy: self,
+            truncation_indicator: None,
+        }
     }
 
     /// Apply the policy to a LazyNode instance, returning a serializable SerLazy.
@@ -67,20 +69,24 @@ impl SerPolicy {
     }
 
     /// Apply the policy to an OwnedNode instance, returning a serializable SerOwned.
-    pub fn on_owned<'p, 's>(
+    pub fn on_owned_with_truncation_indicator<'p, 's>(
         &'p self,
         node: &'p OwnedNode,
-        truncation_indicator: Option<&'s AtomicBool>,
+        truncation_indicator: &'s AtomicBool,
     ) -> SerOwned<'p, 's> {
         SerOwned {
             node,
             policy: self,
-            truncation_indicator,
+            truncation_indicator: Some(truncation_indicator),
         }
     }
 
-    pub fn on_owned_ignore_truncation<'p>(&'p self, node: &'p OwnedNode) -> SerOwned<'p, 'static> {
-        self.on_owned(node, None)
+    pub fn on_owned<'p>(&'p self, node: &'p OwnedNode) -> SerOwned<'p, 'static> {
+        SerOwned {
+            node,
+            policy: self,
+            truncation_indicator: None,
+        }
     }
 
     // Return a SerPolicy appropriate for error messages and other debugging cases.
@@ -98,8 +104,8 @@ impl SerPolicy {
         truncation_indicator: Option<&'b AtomicBool>,
     ) -> &'a str {
         if raw.len() > self.str_truncate_after {
-            if let Some(marker) = truncation_indicator {
-                marker.store(true, Ordering::SeqCst);
+            if let Some(indicator) = truncation_indicator {
+                indicator.store(true, Ordering::SeqCst);
             }
             // Find the greatest index that is <= `str_truncate_after` and falls at a utf8
             // character boundary
@@ -352,7 +358,8 @@ mod test {
             "a": "foo"
         });
         let indicator = AtomicBool::new(false);
-        let str_val = serde_json::to_string(&policy.on(&input, Some(&indicator))).unwrap();
+        let str_val =
+            serde_json::to_string(&policy.with_truncation_indicator(&input, &indicator)).unwrap();
         assert!(!indicator.load(Ordering::SeqCst));
         assert_eq!(r#"{"a":"foo"}"#, &str_val);
 
@@ -360,7 +367,8 @@ mod test {
             "a": big_str(9),
         });
         let indicator = AtomicBool::new(false);
-        let str_val = serde_json::to_string(&policy.on(&input, Some(&indicator))).unwrap();
+        let str_val =
+            serde_json::to_string(&policy.with_truncation_indicator(&input, &indicator)).unwrap();
         assert!(indicator.load(Ordering::SeqCst));
         assert_eq!(r#"{"a":"长"}"#, &str_val);
     }
@@ -430,7 +438,8 @@ mod test {
             !indicator.load(Ordering::SeqCst),
             "indicator must start out false"
         );
-        let str_val = serde_json::to_string(&policy.on(&input, Some(indicator))).unwrap();
+        let str_val =
+            serde_json::to_string(&policy.with_truncation_indicator(&input, indicator)).unwrap();
         serde_json::from_str(&str_val).expect("failed to deserialize round tripped doc")
     }
 

@@ -115,9 +115,7 @@ pub async fn do_materialize_fixture(
                         loads.push(Request {
                             load: Some(request::Load {
                                 binding: binding_index as u32,
-                                key_packed: doc::Extractor::extract_all_ignore_truncation(
-                                    doc, &key_ex, buf,
-                                ),
+                                key_packed: doc::Extractor::extract_all(doc, &key_ex, buf),
                                 ..Default::default()
                             }),
                             ..Default::default()
@@ -126,12 +124,8 @@ pub async fn do_materialize_fixture(
                     stores.push(Request {
                         store: Some(request::Store {
                             binding: binding_index as u32,
-                            key_packed: doc::Extractor::extract_all_ignore_truncation(
-                                doc, &key_ex, buf,
-                            ),
-                            values_packed: doc::Extractor::extract_all_ignore_truncation(
-                                doc, &values_ex, buf,
-                            ),
+                            key_packed: doc::Extractor::extract_all(doc, &key_ex, buf),
+                            values_packed: doc::Extractor::extract_all(doc, &values_ex, buf),
                             doc_json: doc.to_string(),
                             exists: *exists && !delta_updates,
                             ..Default::default()

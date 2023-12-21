@@ -172,8 +172,7 @@ pub fn recv_client_load_or_flush(
 
             // Encode the binding index and then the packed key as a single Bytes.
             buf.put_u32(binding_index);
-            let mut key_packed =
-                doc::Extractor::extract_all_ignore_truncation(&doc, &binding.key_extractors, buf);
+            let mut key_packed = doc::Extractor::extract_all(&doc, &binding.key_extractors, buf);
             let key_hash: u128 = xxh3_128(&key_packed);
             key_packed.advance(4); // Advance past 4-byte binding index.
 
@@ -313,29 +312,29 @@ pub fn send_connector_store(
     // extract the values last, so that the sentinel can account for truncations
     // in both the keys and the flow document.
     let truncation_sentinel = AtomicBool::new(false);
-    let key_packed = doc::Extractor::extract_all_owned(
+    let key_packed = doc::Extractor::extract_all_owned_indicate_truncation(
         &root,
         &binding.key_extractors,
         buf,
-        Some(&truncation_sentinel),
+        &truncation_sentinel,
     );
 
     let doc_json = if binding.store_document {
         serde_json::to_string(
             &binding
                 .ser_policy
-                .on_owned(&root, Some(&truncation_sentinel)),
+                .on_owned_with_truncation_indicator(&root, &truncation_sentinel),
         )
         .expect("document serialization cannot fail")
     } else {
         String::new()
     };
 
-    let values_packed = doc::Extractor::extract_all_owned(
+    let values_packed = doc::Extractor::extract_all_owned_indicate_truncation(
         &root,
         &binding.value_extractors,
         buf,
-        Some(&truncation_sentinel),
+        &truncation_sentinel,
     );
 
     // Accumulate metrics over reads for our transforms.

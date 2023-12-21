@@ -226,7 +226,7 @@ fn walk_collection_projections(
                     partition,
                 } => (location, *partition),
             };
-            if ptr.as_str() == doc::TRUNCATION_SENTINEL_PTR {
+            if ptr.as_str() == doc::TRUNCATION_INDICATOR_PTR {
                 Error::ProjectionRemapsSyntheticPointer {
                     field: field.to_string(),
                     pointer: ptr.to_string(),
@@ -313,7 +313,7 @@ fn walk_collection_projections(
 
     // No conditional because we don't allow re-naming this projection
     projections.push(flow::Projection {
-        ptr: doc::TRUNCATION_SENTINEL_PTR.to_string(),
+        ptr: doc::TRUNCATION_INDICATOR_PTR.to_string(),
         field: FLOW_TRUNCATED.to_string(),
         inference: Some(assemble::inference_truncation_sentinel()),
         ..Default::default()
@@ -336,7 +336,7 @@ fn walk_collection_projections(
         });
     }
 
-    let truncation_sentinel_pointer = doc::Pointer::from_str(doc::TRUNCATION_SENTINEL_PTR);
+    let truncation_sentinel_pointer = doc::Pointer::from_str(doc::TRUNCATION_INDICATOR_PTR);
     // Now add all statically inferred locations from the read-time JSON schema
     // which are not patterns or the document root.
     for (ptr, pattern, r_shape, r_exists) in effective_read_schema.shape.locations() {

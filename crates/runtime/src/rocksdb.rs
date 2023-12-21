@@ -324,8 +324,7 @@ fn do_merge(
         if index != 0 {
             out.push(b'\n');
         }
-        serde_json::to_writer(&mut out, &doc::SerPolicy::noop().on_ignore_truncation(node))
-            .unwrap();
+        serde_json::to_writer(&mut out, &doc::SerPolicy::noop().on(node)).unwrap();
     }
 
     Ok(out)
