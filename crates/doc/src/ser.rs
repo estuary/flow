@@ -22,7 +22,7 @@ pub struct SerPolicy {
 }
 
 impl SerPolicy {
-    pub const fn unrestricted() -> Self {
+    pub const fn noop() -> Self {
         Self {
             str_truncate_after: usize::MAX,
             array_truncate_after: usize::MAX,
@@ -33,7 +33,7 @@ impl SerPolicy {
     pub fn truncate_strings(str_truncate_after: usize) -> Self {
         Self {
             str_truncate_after,
-            ..SerPolicy::unrestricted()
+            ..SerPolicy::noop()
         }
     }
 
@@ -346,7 +346,7 @@ mod test {
     fn test_ser_policy_truncation_indicator_strings() {
         let policy = SerPolicy {
             str_truncate_after: 3,
-            ..SerPolicy::unrestricted()
+            ..SerPolicy::noop()
         };
         let input = json!({
             "a": "foo"
@@ -369,7 +369,7 @@ mod test {
     fn test_ser_policy_truncation_indicator_nested_objects() {
         let policy = SerPolicy {
             nested_obj_truncate_after: 3,
-            ..SerPolicy::unrestricted()
+            ..SerPolicy::noop()
         };
         let input = json!({
             "a": big_obj(3),
@@ -406,7 +406,7 @@ mod test {
     fn test_ser_policy_truncation_indicator_arrays() {
         let policy = SerPolicy {
             array_truncate_after: 3,
-            ..SerPolicy::unrestricted()
+            ..SerPolicy::noop()
         };
         let input = json!({
             "a": big_array(3),

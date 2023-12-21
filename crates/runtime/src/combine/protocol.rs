@@ -102,10 +102,8 @@ pub fn recv_client_add(
             .with_context(|| {
                 format!(
                     "invalid document UUID {}",
-                    serde_json::to_string(
-                        &doc::SerPolicy::unrestricted().on_ignore_truncation(uuid)
-                    )
-                    .unwrap()
+                    serde_json::to_string(&doc::SerPolicy::noop().on_ignore_truncation(uuid))
+                        .unwrap()
                 )
             })?;
 

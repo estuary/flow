@@ -266,7 +266,7 @@ async fn do_combine(
             extractors::for_key(
                 &collection.spec.key,
                 &collection.spec.projections,
-                &doc::SerPolicy::unrestricted(),
+                &doc::SerPolicy::noop(),
             )?,
             None,
             doc::Validator::new(schema).unwrap(),
@@ -301,7 +301,7 @@ async fn do_combine(
         str_truncate_after: 1 << 16,
         array_truncate_after: 1000,
         nested_obj_truncate_after: 1000,
-        ..doc::SerPolicy::unrestricted()
+        ..doc::SerPolicy::noop()
     };
     while let Some(drained) = drainer.next() {
         let drained = drained?;

@@ -170,18 +170,16 @@ mod test {
         // which exactly matches our original fixture.
         let archived_doc = ArchivedNode::from_archive(&archive_buf);
         let recovered =
-            serde_json::to_value(SerPolicy::unrestricted().on_ignore_truncation(archived_doc))
-                .unwrap();
+            serde_json::to_value(SerPolicy::noop().on_ignore_truncation(archived_doc)).unwrap();
         assert_eq!(fixture, recovered);
 
         // The live document also serializes to an identical Value.
-        let recovered =
-            serde_json::to_value(SerPolicy::unrestricted().on_ignore_truncation(&doc)).unwrap();
+        let recovered = serde_json::to_value(SerPolicy::noop().on_ignore_truncation(&doc)).unwrap();
         assert_eq!(fixture, recovered);
 
         // A serde_json::Value can also be serialized as an AsNode.
         let recovered =
-            serde_json::to_value(SerPolicy::unrestricted().on_ignore_truncation(&fixture)).unwrap();
+            serde_json::to_value(SerPolicy::noop().on_ignore_truncation(&fixture)).unwrap();
         assert_eq!(fixture, recovered);
 
         // Confirm number of bump-allocated bytes doesn't regress.
@@ -192,8 +190,7 @@ mod test {
     fn test_data_serialization() {
         let alloc = bumpalo::Bump::new();
         let doc = HeapNode::Bytes(super::BumpVec::from_slice(&[8, 6, 7, 5, 3, 0, 9], &alloc));
-        let human_doc =
-            serde_json::to_value(SerPolicy::unrestricted().on_ignore_truncation(&doc)).unwrap();
+        let human_doc = serde_json::to_value(SerPolicy::noop().on_ignore_truncation(&doc)).unwrap();
 
         insta::assert_debug_snapshot!(human_doc, @r###"String("CAYHBQMACQ==")"###);
     }

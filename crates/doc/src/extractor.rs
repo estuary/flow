@@ -52,7 +52,7 @@ impl Extractor {
     pub fn for_uuid_v1_date_time(ptr: &str) -> Self {
         Self {
             ptr: Pointer::from(ptr),
-            policy: SerPolicy::unrestricted(),
+            policy: SerPolicy::noop(),
             default: serde_json::Value::Null,
             magic: Some(Magic::UuidV1DateTime),
         }
@@ -61,7 +61,7 @@ impl Extractor {
     pub fn for_truncation_sentinel() -> Self {
         Self {
             ptr: Pointer::empty(),
-            policy: SerPolicy::unrestricted(),
+            policy: SerPolicy::noop(),
             default: serde_json::Value::Null,
             magic: Some(Magic::TruncationSentinel),
         }
@@ -323,7 +323,7 @@ mod test {
     fn test_setting_truncation_sentinel() {
         let policy = SerPolicy {
             str_truncate_after: 7,
-            ..SerPolicy::unrestricted()
+            ..SerPolicy::noop()
         };
 
         let doc = json!({
@@ -363,7 +363,7 @@ mod test {
         let d1 = &json!({"a": 1, "b": 2, "c": 3});
         let d2 = &json!({"a": 2, "b": 1});
 
-        let policy = SerPolicy::unrestricted();
+        let policy = SerPolicy::noop();
         let empty = || Extractor::new("", &policy);
         let a = || Extractor::new("/a", &policy);
         let b = || Extractor::new("/b", &policy);
@@ -398,7 +398,7 @@ mod test {
         let d1 = &json!([1, 2, 3]);
         let d2 = &json!([2, 1]);
 
-        let policy = SerPolicy::unrestricted();
+        let policy = SerPolicy::noop();
         let empty = || Extractor::new("", &policy);
         let zero = || Extractor::new("/0", &policy);
         let one = || Extractor::new("/1", &policy);
@@ -435,7 +435,7 @@ mod test {
         let d1 = &json!({"a": null, "c": 3});
         let d2 = &json!({"b": 2});
 
-        let policy = SerPolicy::unrestricted();
+        let policy = SerPolicy::noop();
         let missing = || Extractor::new("/does/not/exist", &policy);
         let a = || Extractor::new("/a", &policy);
         let b = || Extractor::new("/b", &policy);

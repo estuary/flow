@@ -110,7 +110,7 @@ impl cgo::Service for API {
                     extractors: extractors::for_key(
                         &field_ptrs,
                         &projections,
-                        &doc::SerPolicy::unrestricted(),
+                        &doc::SerPolicy::noop(),
                     )?,
                     validator,
                 });

@@ -578,7 +578,7 @@ mod test {
                     true, // Full reduction.
                     vec![Extractor::with_default(
                         "/key",
-                        &SerPolicy::unrestricted(),
+                        &SerPolicy::noop(),
                         json!("def"),
                     )],
                     None,
@@ -630,8 +630,7 @@ mod test {
             .map_ok(|doc| {
                 (
                     doc.meta.binding(),
-                    serde_json::to_value(SerPolicy::unrestricted().on_owned(&doc.root, None))
-                        .unwrap(),
+                    serde_json::to_value(SerPolicy::noop().on_owned(&doc.root, None)).unwrap(),
                     doc.meta.front(),
                 )
             })
@@ -725,7 +724,7 @@ mod test {
 
                 (
                     true, // Full reduction.
-                    vec![Extractor::new("/key", &SerPolicy::unrestricted())],
+                    vec![Extractor::new("/key", &SerPolicy::noop())],
                     None,
                     Validator::new(schema).unwrap(),
                 )

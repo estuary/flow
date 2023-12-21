@@ -173,7 +173,7 @@ pub fn recv_client_load_or_flush(
             // Encode the binding index and then the packed key as a single Bytes.
             buf.put_u32(binding_index);
             let mut key_packed =
-                doc::Extractor::extract_all(&doc, &binding.key_extractors, buf, None);
+                doc::Extractor::extract_all_ignore_truncation(&doc, &binding.key_extractors, buf);
             let key_hash: u128 = xxh3_128(&key_packed);
             key_packed.advance(4); // Advance past 4-byte binding index.
 

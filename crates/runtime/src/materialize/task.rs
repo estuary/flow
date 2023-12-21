@@ -39,13 +39,13 @@ impl Task {
         .any(|image| config_json.contains(image))
         {
             doc::SerPolicy {
-                str_truncate_after: 1 << 16, // Truncate at 64KB.
-                nested_obj_truncate_after: 1000,
-                array_truncate_after: 1000,
-                ..doc::SerPolicy::unrestricted()
+                str_truncate_after: 256, // 1 << 16, // Truncate at 64KB.
+                nested_obj_truncate_after: 25,
+                array_truncate_after: 30,
+                ..doc::SerPolicy::noop()
             }
         } else {
-            doc::SerPolicy::unrestricted()
+            doc::SerPolicy::noop()
         };
 
         let bindings = bindings
