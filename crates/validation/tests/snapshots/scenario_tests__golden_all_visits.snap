@@ -122,7 +122,7 @@ All {
                                         ),
                                     },
                                     Projection {
-                                        ptr: "/_meta/uuid",
+                                        ptr: "/_meta/uuid/date-time",
                                         field: "flow_published_at",
                                         explicit: false,
                                         is_partition_key: false,
@@ -514,7 +514,7 @@ All {
                                         ),
                                     },
                                     Projection {
-                                        ptr: "/_meta/uuid",
+                                        ptr: "/_meta/uuid/date-time",
                                         field: "flow_published_at",
                                         explicit: false,
                                         is_partition_key: false,
@@ -720,7 +720,7 @@ All {
                                         ),
                                     },
                                     Projection {
-                                        ptr: "/_meta/uuid",
+                                        ptr: "/_meta/uuid/date-time",
                                         field: "flow_published_at",
                                         explicit: false,
                                         is_partition_key: false,
@@ -1106,7 +1106,7 @@ All {
                         ),
                     },
                     Projection {
-                        ptr: "/_meta/uuid",
+                        ptr: "/_meta/uuid/date-time",
                         field: "flow_published_at",
                         explicit: false,
                         is_partition_key: false,
@@ -1253,7 +1253,7 @@ All {
                         ),
                     },
                     Projection {
-                        ptr: "/_meta/uuid",
+                        ptr: "/_meta/uuid/date-time",
                         field: "flow_published_at",
                         explicit: false,
                         is_partition_key: false,
@@ -1468,7 +1468,7 @@ All {
                                                 ),
                                             },
                                             Projection {
-                                                ptr: "/_meta/uuid",
+                                                ptr: "/_meta/uuid/date-time",
                                                 field: "flow_published_at",
                                                 explicit: false,
                                                 is_partition_key: false,
@@ -1693,7 +1693,7 @@ All {
                                                 ),
                                             },
                                             Projection {
-                                                ptr: "/_meta/uuid",
+                                                ptr: "/_meta/uuid/date-time",
                                                 field: "flow_published_at",
                                                 explicit: false,
                                                 is_partition_key: false,
@@ -2093,7 +2093,7 @@ All {
                         ),
                     },
                     Projection {
-                        ptr: "/_meta/uuid",
+                        ptr: "/_meta/uuid/date-time",
                         field: "flow_published_at",
                         explicit: false,
                         is_partition_key: false,
@@ -2436,7 +2436,7 @@ All {
                                                 ),
                                             },
                                             Projection {
-                                                ptr: "/_meta/uuid",
+                                                ptr: "/_meta/uuid/date-time",
                                                 field: "flow_published_at",
                                                 explicit: false,
                                                 is_partition_key: false,
@@ -2820,7 +2820,7 @@ All {
                                                 ),
                                             },
                                             Projection {
-                                                ptr: "/_meta/uuid",
+                                                ptr: "/_meta/uuid/date-time",
                                                 field: "flow_published_at",
                                                 explicit: false,
                                                 is_partition_key: false,
@@ -3228,7 +3228,7 @@ All {
                         ),
                     },
                     Projection {
-                        ptr: "/_meta/uuid",
+                        ptr: "/_meta/uuid/date-time",
                         field: "flow_published_custom",
                         explicit: true,
                         is_partition_key: false,
@@ -3452,7 +3452,7 @@ All {
                                                 ),
                                             },
                                             Projection {
-                                                ptr: "/_meta/uuid",
+                                                ptr: "/_meta/uuid/date-time",
                                                 field: "flow_published_at",
                                                 explicit: false,
                                                 is_partition_key: false,
@@ -3817,7 +3817,7 @@ All {
                         ),
                     },
                     Projection {
-                        ptr: "/_meta/uuid",
+                        ptr: "/_meta/uuid/date-time",
                         field: "flow_published_at",
                         explicit: false,
                         is_partition_key: false,
@@ -4019,7 +4019,7 @@ All {
                         ),
                     },
                     Projection {
-                        ptr: "/_meta/uuid",
+                        ptr: "/_meta/uuid/date-time",
                         field: "flow_published_at",
                         explicit: false,
                         is_partition_key: false,
@@ -4293,7 +4293,7 @@ All {
                         ),
                     },
                     Projection {
-                        ptr: "/_meta/uuid",
+                        ptr: "/_meta/uuid/date-time",
                         field: "flow_published_at",
                         explicit: false,
                         is_partition_key: false,
@@ -4584,7 +4584,7 @@ All {
                         ),
                     },
                     Projection {
-                        ptr: "/_meta/uuid",
+                        ptr: "/_meta/uuid/date-time",
                         field: "flow_published_at",
                         explicit: false,
                         is_partition_key: false,
@@ -4833,7 +4833,7 @@ All {
                         ),
                     },
                     Projection {
-                        ptr: "/_meta/uuid",
+                        ptr: "/_meta/uuid/date-time",
                         field: "flow_published_at",
                         explicit: false,
                         is_partition_key: false,
@@ -5085,7 +5085,7 @@ All {
                                         ),
                                     },
                                     Projection {
-                                        ptr: "/_meta/uuid",
+                                        ptr: "/_meta/uuid/date-time",
                                         field: "flow_published_at",
                                         explicit: false,
                                         is_partition_key: false,
@@ -5521,7 +5521,7 @@ All {
                                         ),
                                     },
                                     Projection {
-                                        ptr: "/_meta/uuid",
+                                        ptr: "/_meta/uuid/date-time",
                                         field: "flow_published_at",
                                         explicit: false,
                                         is_partition_key: false,
@@ -5866,7 +5866,7 @@ All {
                                         ),
                                     },
                                     Projection {
-                                        ptr: "/_meta/uuid",
+                                        ptr: "/_meta/uuid/date-time",
                                         field: "flow_published_at",
                                         explicit: false,
                                         is_partition_key: false,

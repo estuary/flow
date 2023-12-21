@@ -76,7 +76,7 @@ fn test_golden_all_visits() {
 }
 
 #[test]
-fn test_collection_schema_contains_truncation_sentinel() {
+fn test_projection_not_created_for_empty_properties() {
     let fixture = serde_yaml::from_str(
         r##"
 test://example/catalog.yaml:
@@ -85,13 +85,58 @@ test://example/catalog.yaml:
       schema:
         type: object
         properties:
+          id: { type: string }
+          "": { type: string }
+          a:
+            type: object
+            properties:
+              "": { type: string }
+        required: [id]
+      key: [/id]
+  storageMappings:
+    testing/:
+      stores: [{provider: S3, bucket: a-bucket}]
+    recovery/:
+      stores: [{provider: S3, bucket: a-bucket}]
+driver:
+  captures: {}
+  derivations: {}
+  materializations: {}
+    "##,
+    )
+    .unwrap();
+
+    let ((_, validations), errors) = run_test(fixture, "remapping_flow_truncated");
+
+    assert!(errors.is_empty(), "got errors: {errors:?}");
+    assert_eq!(1, validations.built_collections.len());
+    // Expect not to see any projections for the empty properties
+    insta::assert_debug_snapshot!(validations.built_collections[0].spec.projections);
+}
+
+#[test]
+fn test_custom_magic_projections() {
+    let fixture = serde_yaml::from_str(
+        r##"
+test://example/catalog.yaml:
+  collections:
+    testing/with_truncation_sentinel:
+      schema:
+        type: object
+        properties:
+          id: { type: string }
           _meta:
             type: object
             properties:
               flow_truncated: { type: boolean }
-          id: { type: string }
+          "_meta/flow_truncated": { type: boolean }
+          flow_document: { type: object }
         required: [id]
       key: [/id]
+      projections:
+        custom_truncation: /_meta/flow_truncated
+        custom_flow_document: ""
+        custom_uuid_ts: /_meta/uuid/date-time
   storageMappings:
     testing/:
       stores: [{provider: S3, bucket: a-bucket}]
@@ -105,13 +150,15 @@ driver:
     )
     .unwrap();
 
-    let errors = run_test_errors(&fixture, "{}");
+    let ((_, validations), errors) = run_test(fixture, "remapping_flow_truncated");
 
-    insta::assert_debug_snapshot!(errors);
+    assert!(errors.is_empty());
+    assert_eq!(1, validations.built_collections.len());
+    insta::assert_debug_snapshot!(validations.built_collections[0].spec.projections);
 }
 
 #[test]
-fn test_collection_projections_contains_truncation_sentinel() {
+fn test_validate_partition_on_magic_projection() {
     let fixture = serde_yaml::from_str(
         r##"
 test://example/catalog.yaml:
@@ -121,12 +168,18 @@ test://example/catalog.yaml:
         type: object
         properties:
           id: { type: string }
-          bad: { type: string }
         required: [id]
       key: [/id]
       projections:
-        should_fail: /_meta/flow_truncated
-        '_meta/flow_truncated': /bad
+        flow_truncated:
+          location: /_meta/flow_truncated
+          partition: true
+        flow_document:
+          location: ""
+          partition: true
+        custom_uuid_ts:
+          location: /_meta/uuid/date-time
+          partition: true
   storageMappings:
     testing/:
       stores: [{provider: S3, bucket: a-bucket}]
@@ -141,7 +194,6 @@ driver:
     .unwrap();
 
     let errors = run_test_errors(&fixture, "{}");
-
     insta::assert_debug_snapshot!(errors);
 }
 

@@ -1,7 +1,7 @@
 use super::{indexed, schema, storage_mapping, Error, InferredSchema, Scope};
 use json::schema::types;
 use proto_flow::flow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 pub fn walk_all_collections(
     build_id: &str,
@@ -210,8 +210,7 @@ fn walk_collection_projections(
         errors,
     );
 
-    let mut saw_root_projection = false;
-    let mut saw_uuid_timestamp_projection = false;
+    let magic_projections = MagicProjections::new(&effective_read_schema.shape);
 
     // Map explicit projections into built flow::Projection instances.
     let mut projections = projections
@@ -226,14 +225,6 @@ fn walk_collection_projections(
                     partition,
                 } => (location, *partition),
             };
-            if ptr.as_str() == doc::TRUNCATION_INDICATOR_PTR {
-                Error::ProjectionRemapsSyntheticPointer {
-                    field: field.to_string(),
-                    pointer: ptr.to_string(),
-                }
-                .push(scope, errors);
-                return None;
-            }
 
             if partition {
                 indexed::walk_name(
@@ -245,35 +236,31 @@ fn walk_collection_projections(
                 );
             }
 
-            if ptr.as_str() == "" {
-                saw_root_projection = true;
-            } else if ptr.as_str() == UUID_DATE_TIME_PTR && !partition {
-                saw_uuid_timestamp_projection = true;
-
-                // UUID_DATE_TIME_PTR is not a location that actually exists.
-                // Return a synthetic projection because walk_ptr() will fail.
-                return Some(flow::Projection {
-                    ptr: UUID_PTR.to_string(),
-                    field: field.to_string(),
-                    explicit: true,
-                    inference: Some(assemble::inference_uuid_v1_date_time()),
-                    ..Default::default()
-                });
-            }
-
-            if let Err(err) = effective_read_schema.walk_ptr(ptr, partition) {
-                Error::from(err).push(scope, errors);
-            }
-            if matches!(read_schema_bundle, Some(_) if partition) {
-                // Partitioned projections must also be key-able within the write schema.
-                if let Err(err) = write_schema.walk_ptr(ptr, true) {
+            let inference = if let Some(inf) = magic_projections.magic_pointer(&ptr) {
+                if partition {
+                    Error::PartitionOnSyntheticProjection {
+                        field: field.to_string(),
+                        pointer: ptr.to_string(),
+                    }
+                    .push(scope, errors);
+                }
+                inf
+            } else {
+                if let Err(err) = effective_read_schema.walk_ptr(ptr, partition) {
                     Error::from(err).push(scope, errors);
                 }
-            }
+                if matches!(read_schema_bundle, Some(_) if partition) {
+                    // Partitioned projections must also be key-able within the write schema.
+                    if let Err(err) = write_schema.walk_ptr(ptr, true) {
+                        Error::from(err).push(scope, errors);
+                    }
+                }
 
-            let (r_shape, r_exists) = effective_read_schema
-                .shape
-                .locate(&doc::Pointer::from_str(ptr));
+                let (r_shape, r_exists) = effective_read_schema
+                    .shape
+                    .locate(&doc::Pointer::from_str(ptr));
+                assemble::inference(r_shape, r_exists)
+            };
 
             Some(flow::Projection {
                 ptr: ptr.to_string(),
@@ -281,43 +268,10 @@ fn walk_collection_projections(
                 explicit: true,
                 is_primary_key: key.iter().any(|k| k == ptr),
                 is_partition_key: partition,
-                inference: Some(assemble::inference(r_shape, r_exists)),
+                inference: Some(inference),
             })
         })
         .collect::<Vec<_>>();
-
-    // If we didn't see an explicit projection of the root document,
-    // add an implicit projection with field "flow_document".
-    if !saw_root_projection {
-        let (r_shape, r_exists) = effective_read_schema
-            .shape
-            .locate(&doc::Pointer::from_str(""));
-
-        projections.push(flow::Projection {
-            ptr: "".to_string(),
-            field: FLOW_DOCUMENT.to_string(),
-            inference: Some(assemble::inference(r_shape, r_exists)),
-            ..Default::default()
-        });
-    }
-    // If we didn't see an explicit projection of the UUID timestamp,
-    // and an implicit projection with field "flow_published_at".
-    if !saw_uuid_timestamp_projection {
-        projections.push(flow::Projection {
-            ptr: UUID_PTR.to_string(),
-            field: FLOW_PUBLISHED_AT.to_string(),
-            inference: Some(assemble::inference_uuid_v1_date_time()),
-            ..Default::default()
-        })
-    }
-
-    // No conditional because we don't allow re-naming this projection
-    projections.push(flow::Projection {
-        ptr: doc::TRUNCATION_INDICATOR_PTR.to_string(),
-        field: FLOW_TRUNCATED.to_string(),
-        inference: Some(assemble::inference_truncation_sentinel()),
-        ..Default::default()
-    });
 
     // Now add implicit projections for the collection key.
     // These may duplicate explicit projections -- that's okay, we'll dedup them later.
@@ -336,25 +290,18 @@ fn walk_collection_projections(
         });
     }
 
-    let truncation_sentinel_pointer = doc::Pointer::from_str(doc::TRUNCATION_INDICATOR_PTR);
-    // Now add all statically inferred locations from the read-time JSON schema
-    // which are not patterns or the document root.
+    // Now add statically inferred locations from the read-time JSON schema.
     for (ptr, pattern, r_shape, r_exists) in effective_read_schema.shape.locations() {
-        if pattern || ptr.0.is_empty() {
-            continue;
-        }
-        if ptr == truncation_sentinel_pointer {
-            Error::SchemaLocationNotAllowed {
-                disallowed_pointer: ptr.to_string(),
-            }
-            .push(scope, errors);
+        // Skip properties for pattern locations, the root document, or anything where the
+        // JSON property name is an empty string.
+        if pattern || ptr.0.is_empty() || ptr.0.ends_with(EMPTY_KEY) {
             continue;
         }
         // Canonical-ize by stripping the leading "/".
         let field = ptr.to_string()[1..].to_string();
         // Special case to avoid creating a conflicting projection when the collection
-        // schema contains a field with the same name as the default root projection.
-        if field == FLOW_DOCUMENT {
+        // schema contains a field with the same name as one of the magic projections.
+        if magic_projections.field_is_magic(&field) {
             continue;
         }
         projections.push(flow::Projection {
@@ -366,6 +313,9 @@ fn walk_collection_projections(
             inference: Some(assemble::inference(r_shape, r_exists)),
         });
     }
+
+    let additional = magic_projections.into_projections(&projections);
+    projections.extend(additional);
 
     // Stable-sort on ascending projection field, which preserves the
     // construction order on a per-field basis:
@@ -461,6 +411,93 @@ pub fn walk_selector(
     }
 }
 
+/// Magic projections are added automatically and have special handling.
+/// Users may rename them by providing an explicit projection of the magic pointer.
+/// But each magic projection pointer must appear in the final set of projections.
+/// Magic projections always "win" in conflicts with implicit projections. In other words,
+/// an explicit projection of `/_meta/uuid/date-time` is always considered to refer to the
+/// "magic" projection, even in the (extremely unusual) scenario where the collection schema
+/// includes a literal property with the same pointer.
+struct MagicProjections {
+    by_pointer: BTreeMap<String, flow::Projection>,
+    field_names: HashSet<String>,
+}
+
+impl MagicProjections {
+    fn new(root_shape: &doc::Shape) -> Self {
+        // This lookup is just so we can produce an accurate `Exists` in the
+        // unlikely case that the collection schema doesn't permit anything at all.
+        let (r_shape, r_exists) = root_shape.locate(&doc::Pointer::from_str(""));
+        Self::of(vec![
+            flow::Projection {
+                ptr: String::new(),
+                field: FLOW_DOCUMENT.to_string(),
+                inference: Some(assemble::inference(r_shape, r_exists)),
+                ..Default::default()
+            },
+            flow::Projection {
+                ptr: UUID_DATE_TIME_PTR.to_string(),
+                field: FLOW_PUBLISHED_AT.to_string(),
+                inference: Some(assemble::inference_uuid_v1_date_time()),
+
+                ..Default::default()
+            },
+            flow::Projection {
+                ptr: doc::TRUNCATION_INDICATOR_PTR.to_string(),
+                field: FLOW_TRUNCATED.to_string(),
+                inference: Some(assemble::inference_truncation_sentinel()),
+                ..Default::default()
+            },
+        ])
+    }
+
+    fn of(projections: Vec<flow::Projection>) -> Self {
+        let field_names = projections.iter().map(|p| p.field.clone()).collect();
+        let by_pointer = projections
+            .into_iter()
+            .map(|p| (p.ptr.clone(), p))
+            .collect();
+        Self {
+            field_names,
+            by_pointer,
+        }
+    }
+
+    /// Returns true if the given `field` is the same as the field name for any of the
+    /// magic projections.
+    fn field_is_magic(&self, field: &str) -> bool {
+        self.field_names.contains(field)
+    }
+
+    /// If the given `pointer` corresponds to one of the magic projections, then
+    /// return an inference for it. Otherwise, return None.
+    fn magic_pointer(&self, pointer: &str) -> Option<flow::Inference> {
+        self.by_pointer
+            .get(pointer)
+            .and_then(|p| p.inference.clone())
+    }
+
+    fn into_projections<'a>(
+        mut self,
+        projections: &'a [flow::Projection],
+    ) -> impl Iterator<Item = flow::Projection> + 'static {
+        for existing in projections {
+            // Is there an existing projection with the same pointer?
+            // If so, then there's no need to add a magic one.
+            if let Some(magic) = self.by_pointer.remove(existing.ptr.as_str()) {
+                tracing::debug!(
+                    ptr = %magic.ptr,
+                    magic_field = %magic.field,
+                    ex_field = %existing.field,
+                    ex_explicit = %existing.explicit,
+                    ex_inference = ?existing.inference,
+                    "not adding magic projection because there is already a projection for the same pointer");
+            }
+        }
+        self.by_pointer.into_values()
+    }
+}
+
 /// The default field name for the root document projection.
 const FLOW_DOCUMENT: &str = "flow_document";
 /// The default field name for the document publication time.
@@ -472,3 +509,6 @@ const UUID_PTR: &str = "/_meta/uuid";
 /// The JSON Pointer of the synthetic document publication time.
 /// This pointer typically pairs with the FLOW_PUBLISHED_AT field.
 const UUID_DATE_TIME_PTR: &str = "/_meta/uuid/date-time";
+
+/// Used to check if a pointer ends with an empty key, so we can skip projecting those fields.
+const EMPTY_KEY: &'static [doc::ptr::Token] = &[doc::ptr::Token::Property(String::new())];
