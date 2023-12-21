@@ -362,8 +362,8 @@ pub struct ReadResponse {
     #[prost(string, tag = "6")]
     pub fragment_url: ::prost::alloc::string::String,
     /// Content chunks of the read.
-    #[prost(bytes = "vec", tag = "7")]
-    pub content: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "bytes", tag = "7")]
+    pub content: ::prost::bytes::Bytes,
 }
 /// AppendRequest is the streamed request message of the broker Append RPC.
 /// Append request streams consist of an initial message having all parameters

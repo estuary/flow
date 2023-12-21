@@ -1811,6 +1811,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "gazette"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "async-compression",
+ "bytes",
+ "coroutines",
+ "futures",
+ "futures-core",
+ "memchr",
+ "pin-project-lite",
+ "proto-gazette",
+ "proto-grpc",
+ "reqwest",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
