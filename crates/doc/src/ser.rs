@@ -122,22 +122,22 @@ impl SerPolicy {
 
 pub struct Root;
 pub struct Nested;
-trait PolicyHelper {
-    fn get_object_property_limit(policy: &SerPolicy) -> usize;
+trait DepthIndicator {
+    fn is_nested() -> bool;
 }
-impl PolicyHelper for Root {
-    fn get_object_property_limit(_: &SerPolicy) -> usize {
-        usize::MAX
+impl DepthIndicator for Root {
+    fn is_nested() -> bool {
+        false
     }
 }
-impl PolicyHelper for Nested {
-    fn get_object_property_limit(policy: &SerPolicy) -> usize {
-        policy.nested_obj_truncate_after
+impl DepthIndicator for Nested {
+    fn is_nested() -> bool {
+        true
     }
 }
 
-pub struct SerNode<'p, 'n, 's, N: AsNode, T> {
-    _marker: std::marker::PhantomData<T>,
+pub struct SerNode<'p, 'n, 's, N: AsNode, Depth> {
+    _marker: std::marker::PhantomData<Depth>,
     truncation_indicator: Option<&'s AtomicBool>,
     node: &'n N,
     policy: &'p SerPolicy,
@@ -154,7 +154,9 @@ pub struct SerOwned<'p, 's> {
     policy: &'p SerPolicy,
 }
 
-impl<'p, 'n, 's, N: AsNode, T: PolicyHelper> serde::Serialize for SerNode<'p, 'n, 's, N, T> {
+impl<'p, 'n, 's, N: AsNode, Depth: DepthIndicator> serde::Serialize
+    for SerNode<'p, 'n, 's, N, Depth>
+{
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: ::serde::Serializer,
@@ -191,7 +193,11 @@ impl<'p, 'n, 's, N: AsNode, T: PolicyHelper> serde::Serialize for SerNode<'p, 'n
             Node::NegInt(n) => serializer.serialize_i64(n),
             Node::PosInt(n) => serializer.serialize_u64(n),
             Node::Object(fields) => {
-                let key_limit = T::get_object_property_limit(self.policy);
+                let key_limit = if Depth::is_nested() {
+                    self.policy.nested_obj_truncate_after
+                } else {
+                    usize::MAX
+                };
                 if let Some(indicator) = self.truncation_indicator {
                     if fields.len() > key_limit {
                         indicator.store(true, Ordering::SeqCst);
