@@ -328,10 +328,14 @@ fn walk_collection_projections(
         });
     }
 
-    // Now add all statically inferred locations from the read-time JSON schema
-    // which are not patterns or the document root.
+    // Now add statically inferred locations from the read-time JSON schema. We'll do this for
+    // all locations except for:
+    // - pattern properties
+    // - the root location
+    // - locations for object properties with empty keys
+    // - a `/flow_document` location (if someone captures a table we materialized)
     for (ptr, pattern, r_shape, r_exists) in effective_read_schema.shape.locations() {
-        if pattern || ptr.0.is_empty() {
+        if pattern || ptr.0.is_empty() || ptr.0.ends_with(EMPTY_KEY) {
             continue;
         }
         // Canonical-ize by stripping the leading "/".
@@ -456,3 +460,6 @@ const UUID_PTR: &str = "/_meta/uuid";
 /// The JSON Pointer of the synthetic document publication time.
 /// This pointer typically pairs with the FLOW_PUBLISHED_AT field.
 const UUID_DATE_TIME_PTR: &str = "/_meta/uuid/date-time";
+
+/// Used to check if a pointer ends with an empty key, so we can skip projecting those fields.
+const EMPTY_KEY: &'static [doc::ptr::Token] = &[doc::ptr::Token::Property(String::new())];

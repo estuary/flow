@@ -76,6 +76,45 @@ fn test_golden_all_visits() {
 }
 
 #[test]
+fn test_projection_not_created_for_empty_properties() {
+    let fixture = serde_yaml::from_str(
+        r##"
+test://example/catalog.yaml:
+  collections:
+    testing/schema_with_empty_properties:
+      schema:
+        type: object
+        properties:
+          id: { type: string }
+          "": { type: string }
+          a:
+            type: object
+            properties:
+              "": { type: string }
+        required: [id]
+      key: [/id]
+  storageMappings:
+    testing/:
+      stores: [{provider: S3, bucket: a-bucket}]
+    recovery/:
+      stores: [{provider: S3, bucket: a-bucket}]
+driver:
+  captures: {}
+  derivations: {}
+  materializations: {}
+    "##,
+    )
+    .unwrap();
+
+    let ((_, validations), errors) = run_test(fixture, "remapping_flow_truncated");
+
+    assert!(errors.is_empty(), "got errors: {errors:?}");
+    assert_eq!(1, validations.built_collections.len());
+    // Expect not to see any projections for the empty properties
+    insta::assert_debug_snapshot!(validations.built_collections[0].spec.projections);
+}
+
+#[test]
 fn connector_validation_is_skipped_when_shards_are_disabled() {
     let fixture =
         serde_yaml::from_slice(include_bytes!("validation_skipped_when_disabled.yaml")).unwrap();
