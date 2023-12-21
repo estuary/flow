@@ -139,11 +139,16 @@ func RunTransactions(
 			close(awaitDoneCh)
 		}()
 
+		var ackState *pf.ConnectorState = nil
+
 		// Wait for commit to complete, with cancellation checks.
 		select {
 		case <-ourCommitOp.Done():
 			if err := ourCommitOp.Err(); err != nil {
 				return err
+			}
+			if op, ok := ourCommitOp.(pf.OpFutureWithState); ok {
+				ackState = op.State()
 			}
 		case <-loadDoneCh:
 			// load() must have error'd, as it otherwise cannot
@@ -151,7 +156,7 @@ func RunTransactions(
 			return nil
 		}
 
-		return WriteAcknowledged(stream, &txResponse)
+		return WriteAcknowledged(stream, ackState, &txResponse)
 	}
 
 	// load is a closure for async execution of Transactor.Load.

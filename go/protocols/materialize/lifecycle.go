@@ -329,12 +329,14 @@ func WriteOpened(stream ResponseTx, opened *Response_Opened) (Response, error) {
 	return response, nil
 }
 
-func WriteAcknowledged(stream ResponseTx, response *Response) error {
+func WriteAcknowledged(stream ResponseTx, state *pf.ConnectorState, response *Response) error {
 	if response.Opened == nil && response.StartedCommit == nil {
 		panic(fmt.Sprintf("expected prior response is Opened or StartedCommit, got %#v", response))
 	}
 	*response = Response{
-		Acknowledged: &Response_Acknowledged{},
+		Acknowledged: &Response_Acknowledged{
+			State: state,
+		},
 	}
 	if err := stream.Send(response); err != nil {
 		return fmt.Errorf("sending Acknowledged response: %w", err)
