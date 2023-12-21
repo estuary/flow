@@ -3,6 +3,7 @@ target/
 .build/
 .build-ci/
 
+
 # Typical IDE stuff.
 .vim
 *.swp
@@ -18,3 +19,6 @@ Session.vim
 .venv/
 __pycache__
 .pytest_cache
+
+# OS generated files
+.DS_Store

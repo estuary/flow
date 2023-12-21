@@ -234,7 +234,7 @@ pub enum Error {
     #[error("failed to parse character-separated content: {0}")]
     InvalidContent(#[from] csv::Error),
 
-    #[error("row {0} has {1} columns, but the headers only define {2} columns. See: https://go.estuary.dev/QRKf3x for help with configuring the parser")]
+    #[error("row {0} has {1} columns, but the headers only define {2} columns. See: https://go.estuary.dev/Pgy3nf for help with configuring the parser")]
     ExtraColumn(u64, usize, usize),
 }
 
