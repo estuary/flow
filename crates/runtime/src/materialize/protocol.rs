@@ -319,16 +319,16 @@ pub fn send_connector_store(
         &truncation_indicator,
     );
 
-    let doc_json = if binding.store_document {
-        serde_json::to_string(
-            &binding
-                .ser_policy
-                .on_owned_with_truncation_indicator(&root, &truncation_indicator),
-        )
-        .expect("document serialization cannot fail")
-    } else {
-        String::new()
-    };
+    // Serialize the root document regardless of whether delta-updates is
+    // enabled. We do this so that we can count the number of bytes on the
+    // stats. If delta updates is enabled, we'll clear out this string before
+    // sending the response.
+    let mut doc_json = serde_json::to_string(
+        &binding
+            .ser_policy
+            .on_owned_with_truncation_indicator(&root, &truncation_indicator),
+    )
+    .expect("document serialization cannot fail");
 
     let values_packed = doc::Extractor::extract_all_owned_indicate_truncation(
         &root,
@@ -341,6 +341,10 @@ pub fn send_connector_store(
     let stats = &mut txn.stats.entry(binding_index as u32).or_default();
     stats.2.docs_total += 1;
     stats.2.bytes_total += doc_json.len() as u64;
+
+    if !binding.store_document {
+        doc_json.clear(); // see comment above
+    }
 
     Request {
         store: Some(request::Store {
