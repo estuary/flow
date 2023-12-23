@@ -248,7 +248,31 @@ Sources {
                         "$ref": "#/$defs/docsAndBytes"
                       },
                       "out": {
-                        "$ref": "#/$defs/docsAndBytes"
+                        "type": "object",
+                        "properties": {
+                          "docsTotal": {
+                            "description": "Total number of documents",
+                            "type": "integer",
+                            "default": 0,
+                            "reduce": {
+                              "strategy": "sum"
+                            }
+                          },
+                          "bytesTotal": {
+                            "description": "Total number of bytes representing the JSON encoded documents",
+                            "type": "integer",
+                            "default": 0,
+                            "reduce": {
+                              "strategy": "sum"
+                            }
+                          }
+                        },
+                        "reduce": {
+                          "strategy": "merge"
+                        },
+                        "required": [
+                          "docsTotal"
+                        ]
                       }
                     },
                     "reduce": {
@@ -301,7 +325,9 @@ Sources {
                       "default": 0
                     }
                   },
-                  "required": ["uptimeSeconds"],
+                  "required": [
+                    "uptimeSeconds"
+                  ],
                   "reduce": {
                     "strategy": "merge"
                   }
