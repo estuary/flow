@@ -146,7 +146,8 @@ func (s *TaskService) Drop() {
 		// Block until log read loop reads error or EOF.
 		// This happens only after all Rust references of the Pipe have been
 		// dropped and the descriptor has been closed.
-		<-s.lwaCh
+		// TODO: uncomment after fixing #1326
+		// <-s.lwaCh
 		s.lwaCh = nil
 	}
 	_ = os.Remove(s.config.UdsPath) // Best effort.
