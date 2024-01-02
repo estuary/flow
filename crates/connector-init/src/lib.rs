@@ -1,7 +1,6 @@
 use anyhow::Context;
 pub use codec::Codec;
-use std::io::Write;
-use tokio::signal::unix;
+use std::{io::Write, sync::atomic};
 use tonic::transport::server::TcpIncoming;
 
 mod capture;
@@ -75,23 +74,11 @@ pub async fn run(
         .max_decoding_message_size(usize::MAX) // Up from 4MB. Accept whatever the runtime sends.
         .max_encoding_message_size(usize::MAX); // The default, made explicit.
 
-    // Gracefully exit on either SIGINT (ctrl-c) or SIGTERM.
-    let mut sigint = unix::signal(unix::SignalKind::interrupt()).unwrap();
-    let mut sigterm = unix::signal(unix::SignalKind::terminate()).unwrap();
-
-    let signal = async move {
-        tokio::select! {
-            _ = sigint.recv() => (),
-            _ = sigterm.recv() => (),
-        }
-        tracing::info!("caught signal to exit");
-    };
-
     let () = tonic::transport::Server::builder()
         .add_service(capture)
         .add_service(derive)
         .add_service(materialize)
-        .serve_with_incoming_shutdown(incoming, signal)
+        .serve_with_incoming_shutdown(incoming, watchdog())
         .await?;
 
     Ok(())
@@ -122,5 +109,37 @@ async fn check_protocol(entrypoint: &[String], codec: Codec) -> anyhow::Result<(
     }
     Ok(())
 }
+
+// IncOnDrop defers an increment of a metric until it's dropped.
+struct IncOnDrop(&'static atomic::AtomicUsize);
+
+impl Drop for IncOnDrop {
+    fn drop(&mut self) {
+        inc(self.0)
+    }
+}
+
+fn inc(metric: &'static atomic::AtomicUsize) {
+    metric.fetch_add(1, atomic::Ordering::SeqCst);
+}
+
+// watchdog returns when no RPCs are started or are still running for a period of time.
+async fn watchdog() {
+    let mut prev_handled = 0;
+
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+        // Stop if no RPCs are running or have been started since our last iteration.
+        if GRPC_SERVER_STARTED_TOTAL.load(atomic::Ordering::SeqCst) == prev_handled {
+            return;
+        }
+        prev_handled = GRPC_SERVER_HANDLED_TOTAL.load(atomic::Ordering::SeqCst);
+    }
+}
+
+// TODO(johnny): Integrate with prometheus crate and export as metrics.
+static GRPC_SERVER_STARTED_TOTAL: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
+static GRPC_SERVER_HANDLED_TOTAL: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
 
 const EXPECT_PROTOCOL: u32 = 3032023;
