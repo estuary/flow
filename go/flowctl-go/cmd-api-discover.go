@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/estuary/flow/go/bindings"
@@ -83,9 +84,16 @@ func (cmd apiDiscover) execute(ctx context.Context) (*pc.Response_Discovered, er
 func (cmd apiDiscover) Execute(_ []string) error {
 	defer mbp.InitDiagnosticsAndRecover(cmd.Diagnostics)()
 	mbp.InitLog(cmd.Log)
-	// TODO(whb): Change this timeout back to 30 seconds. Temporarily bumping it up to allow
-	// longer-running discoveries to succeed.
-	var ctx, cancelFn = context.WithTimeout(context.Background(), time.Second*60)
+
+	var timeout = time.Second * 30
+
+	// Temporary exception for the Netsuite connector.
+	// TODO(johnny): Allow larger timeouts across the board, after resolving
+	// progress and UX issues of long-running discover operations.
+	if strings.HasPrefix(cmd.Image, "ghcr.io/estuary/source-netsuite") {
+		timeout = time.Minute * 5
+	}
+	var ctx, cancelFn = context.WithTimeout(context.Background(), timeout)
 	defer cancelFn()
 
 	logrus.WithFields(logrus.Fields{
