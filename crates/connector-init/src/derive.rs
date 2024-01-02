@@ -16,6 +16,9 @@ impl proto_grpc::derive::connector_server::Connector for Proxy {
         &self,
         request: tonic::Request<tonic::Streaming<Request>>,
     ) -> Result<tonic::Response<Self::DeriveStream>, tonic::Status> {
+        crate::inc(&crate::GRPC_SERVER_STARTED_TOTAL);
+        let guard = crate::IncOnDrop(&crate::GRPC_SERVER_HANDLED_TOTAL);
+
         Ok(tonic::Response::new(
             rpc::bidi::<Request, Response, _, _>(
                 rpc::new_command(&self.entrypoint),
@@ -26,6 +29,10 @@ impl proto_grpc::derive::connector_server::Connector for Proxy {
                 }),
                 ops::stderr_log_handler,
             )?
+            .map(move |response| {
+                let _ = &guard; // Owned by closure.
+                response
+            })
             .boxed(),
         ))
     }
