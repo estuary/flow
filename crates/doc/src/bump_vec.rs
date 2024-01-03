@@ -70,6 +70,14 @@ impl<'alloc, T> BumpVec<'alloc, T> {
         }
     }
 
+    pub unsafe fn set_len(&mut self, len: usize) {
+        match self.raw() {
+            Some(raw) if raw.cap as usize >= len => raw.len = len as u32,
+            Some(raw) => panic!("cannot set_len({len}) for BumpVec of capacity {}", raw.cap),
+            None => panic!("cannot set_len({len}) for zero-valued BumpVec"),
+        }
+    }
+
     pub fn len(&self) -> usize {
         match self.raw() {
             Some(raw) => raw.len as usize,

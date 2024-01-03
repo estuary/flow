@@ -41,6 +41,10 @@ pub trait Field<'a, N: AsNode> {
     fn value(&self) -> &'a N;
 }
 
+// Documents are built on the heap using a bump allocator.
+// Re-export the concrete allocator type, as most clients don't care.
+pub use bumpalo::Bump as Allocator;
+
 // This crate has three implementations of AsNode: a mutable HeapNode,
 // an ArchivedNode serialized by the `rkyv` crate,
 // and an implementation upon serde_json::Value.
