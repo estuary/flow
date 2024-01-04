@@ -201,6 +201,24 @@ impl Invoice {
                 bail!("Should not create Stripe invoices for preview invoices")
             }
             (InvoiceType::Final, Some(extra)) if !self.has_payment_method.unwrap_or(false) => {
+                // The Stripe capture in the database has been known to be unreliable.
+                // Let's double-check with Stripe to make sure it agrees that we really
+                // do not have a payment method set.
+                if let Some(customer) = get_or_create_customer_for_tenant(
+                    client,
+                    db_client,
+                    self.billed_prefix.to_owned(),
+                    false, // If there's no customer, there's no way there can be a payment method
+                )
+                .await?
+                {
+                    if let Some(_) = customer
+                        .invoice_settings
+                        .and_then(|i| i.default_payment_method)
+                    {
+                        bail!("Stripe reports customer {} ({}) has a payment method set, database disagrees.", customer.id.to_string(), self.billed_prefix.to_owned());
+                    }
+                }
                 let unwrapped_extra = extra.clone().0.expect(
                     "This is just a sqlx quirk, if the outer Option is Some then this will be Some",
                 );
@@ -428,10 +446,12 @@ impl Invoice {
         // Let's double-check that the invoice total matches the desired total
         let check_invoice = stripe::Invoice::retrieve(client, &invoice.id, &[]).await?;
 
-        if !check_invoice
-            .amount_due
-            .eq(&Some(self.subtotal + (diff.ceil() as i64)))
-        {
+        // Customers can have an invoice credit balance, so let's make sure we take that into account.
+        let credit_balance = customer.balance.unwrap_or(0);
+
+        let expected = (self.subtotal + (diff.ceil() as i64) + credit_balance).max(0);
+
+        if !check_invoice.amount_due.eq(&Some(expected)) {
             bail!(
                 "The correct bill is ${our_bill:.2}, but the invoice's total is ${their_bill:.2}",
                 our_bill = self.subtotal as f64 / 100.0,
