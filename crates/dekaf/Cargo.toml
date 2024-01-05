@@ -1,6 +1,6 @@
 
 [package]
-name = "simd-doc"
+name = "dekaf"
 version.workspace = true
 rust-version.workspace = true
 edition.workspace = true
@@ -11,20 +11,12 @@ license.workspace = true
 
 [dependencies]
 doc = { path = "../doc" }
+gazette = { path = "../gazette" }
+simd-doc = { path = "../simd-doc" }
 
-cxx = "1.0"
 memchr = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tracing = { workspace = true }
-rkyv = { workspace = true }
 
 [build-dependencies]
 cxx-build = "1.0"
-
-[dev-dependencies]
-allocator = { path = "../allocator" }
-
-quickcheck = { workspace = true }
-hexdump = { workspace = true }
-insta = { workspace = true }

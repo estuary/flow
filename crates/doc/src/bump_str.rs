@@ -22,21 +22,28 @@ struct RawStr {
 }
 
 impl<'alloc> BumpStr<'alloc> {
+    //#[inline]
     pub fn from_str(s: &str, alloc: &'alloc bumpalo::Bump) -> Self {
-        let size_of_header = 4; // u32.
+        unsafe { Self::from_raw_parts(s.as_ptr(), s.len().try_into().expect("too large"), alloc) }
+    }
+
+    #[inline]
+    pub unsafe fn from_raw_parts(buf: *const u8, len: usize, alloc: &'alloc bumpalo::Bump) -> Self {
+        const SIZE_OF_HEADER: usize = 4; // u32.
+        const ALIGN: usize = mem::align_of::<u32>(); // Must align to u32 of RawStr::len
 
         // Allocate space for a RawStr with the correct size and alignment.
-        let size = size_of_header + s.len(); // `len` header plus string length in bytes.
-        let align = mem::align_of::<u32>(); // Must align to u32 of RawStr::len
-        let layout = unsafe { std::alloc::Layout::from_size_align_unchecked(size, align) };
+        let size = SIZE_OF_HEADER + len; // `len` header plus string length in bytes.
+        let layout = unsafe { std::alloc::Layout::from_size_align_unchecked(size, ALIGN) };
         let ptr = alloc.alloc_layout(layout);
 
         // Initialize the allocated RawStr.
-        let raw =
-            unsafe { std::mem::transmute::<(NonNull<u8>, usize), &mut RawStr>((ptr, s.len())) };
+        let raw = unsafe { std::mem::transmute::<(NonNull<u8>, usize), &mut RawStr>((ptr, len)) };
 
-        raw.len = u32::try_from(s.len()).expect("string is too large");
-        raw.data.copy_from_slice(s.as_bytes());
+        raw.len = len as u32; // Truncates at 4GB.
+        unsafe {
+            std::ptr::copy_nonoverlapping(buf, raw.data.as_mut_ptr(), len);
+        }
 
         Self {
             ptr,

@@ -486,29 +486,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bindgen"
-version = "0.66.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2b84e06fc203107bfbad243f4aba2af864eb7db3b1cf46ea0a023b0b433d2a7"
-dependencies = [
- "bitflags 2.4.1",
- "cexpr",
- "clang-sys",
- "lazy_static",
- "lazycell",
- "log",
- "peeking_take_while",
- "prettyplease",
- "proc-macro2",
- "quote",
- "regex",
- "rustc-hash",
- "shlex",
- "syn 2.0.39",
- "which",
-]
-
-[[package]]
 name = "bindings"
 version = "0.0.0"
 dependencies = [
@@ -1258,6 +1235,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7e962a19be5cfc3f3bf6dd8f61eb50107f356ad6270fbb3ed41476571db78be5"
 
 [[package]]
+name = "dekaf"
+version = "0.0.0"
+dependencies = [
+ "cxx-build",
+ "doc",
+ "gazette",
+ "memchr",
+ "serde",
+ "serde_json",
+ "simd-doc",
+]
+
+[[package]]
 name = "derivative"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1904,7 +1894,6 @@ dependencies = [
  "proto-grpc",
  "reqwest",
  "serde_json",
- "simdjson-rust",
  "thiserror",
  "tokio",
  "tokio-util",
@@ -2611,7 +2600,7 @@ name = "librocksdb-sys"
 version = "6.20.3"
 source = "git+https://github.com/jgraettinger/rust-rocksdb#e9f28e778b94914da7b7ce0177a74c79936946d7"
 dependencies = [
- "bindgen 0.64.0",
+ "bindgen",
  "cc",
  "glob",
  "libc",
@@ -4430,9 +4419,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.108"
+version = "1.0.109"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d1c7e3eac408d115102c4c24ad393e0821bb3a5df4d506a80f85f7a742a526b"
+checksum = "cb0652c533506ad7a2e353cce269330d6afd8bdfb6d75e0ace5b35aacbd7b9e9"
 dependencies = [
  "itoa",
  "ryu",
@@ -4592,27 +4581,18 @@ dependencies = [
 name = "simd-doc"
 version = "0.0.0"
 dependencies = [
+ "allocator",
  "cxx",
  "cxx-build",
  "doc",
+ "hexdump",
+ "insta",
+ "memchr",
+ "quickcheck",
+ "rkyv",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "simdjson-rust"
-version = "0.3.0-alpha.3"
-dependencies = [
- "simdjson-sys",
- "thiserror",
-]
-
-[[package]]
-name = "simdjson-sys"
-version = "0.1.0-alpha.2"
-dependencies = [
- "bindgen 0.66.1",
- "cc",
+ "tracing",
 ]
 
 [[package]]

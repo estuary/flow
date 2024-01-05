@@ -27,7 +27,6 @@ async-compression = { workspace = true }
 
 [dev-dependencies]
 doc = { path = "../doc" }
-simdjson-rust = { path = "../../../../simdjson-rust" }
 
 anyhow = { workspace = true }
 serde_json = { workspace = true }

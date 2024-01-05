@@ -5,35 +5,36 @@
 
 using namespace simdjson;
 
-#include "simd-doc/src/lib.rs.h"
+#include "simd-doc/src/ffi/mod.rs.h"
 
-inline std::unique_ptr<dom::parser> new_parser()
+inline std::unique_ptr<dom::parser> new_parser(size_t capacity)
 {
-    return std::make_unique<dom::parser>();
+    return std::make_unique<dom::parser>(capacity);
 }
 
-void walk_element(Context &ctx, dom::element elem, Node &node);
+void walk_element(const Allocator &alloc, dom::element elem, HeapNode &node);
 
 // Parse many JSON documents from `padded_vec`, calling back with each before starting the next.
 // Return the number of unconsumed remainder bytes.
 inline size_t parse_many(
-    Context &ctx,
-    Node &node,
-    rust::Slice<uint8_t> padded_vec,
+    const Allocator &alloc,
+    Docs &docs,
+    HeapNode &node,
+    rust::Slice<uint8_t> input,
     std::unique_ptr<dom::parser> &parser)
 {
-    dom::document_stream stream = parser->parse_many(padded_vec.data(), padded_vec.size(), padded_vec.size());
+    dom::document_stream stream = parser->parse_many(input.data(), input.size(), input.size());
 
     for (dom::document_stream::iterator it = stream.begin(); it != stream.end(); ++it)
     {
-        walk_element(ctx, *it, node);
-        complete(ctx, it.current_index(), node);
+        walk_element(alloc, *it, node);
+        complete(docs, it.current_index(), node);
     }
     return stream.size_in_bytes() - stream.truncated_bytes();
 }
 
 // Recursively walk a `dom::element`, initializing `node` with its structure.
-void walk_element(Context &ctx, dom::element elem, Node &node)
+void walk_element(const Allocator &alloc, dom::element elem, HeapNode &node)
 {
     switch (elem.type())
     {
@@ -45,12 +46,12 @@ void walk_element(Context &ctx, dom::element elem, Node &node)
         {
             throw std::out_of_range("array is too large");
         }
-        rust::Slice<Node> items = set_array(ctx, node, arr.size());
-        rust::Slice<Node>::iterator it = items.begin();
+        rust::Slice<HeapNode> items = set_array(alloc, node, arr.size());
+        rust::Slice<HeapNode>::iterator it = items.begin();
 
         for (dom::element child : arr)
         {
-            walk_element(ctx, child, *(it++));
+            walk_element(alloc, child, *(it++));
         }
         break;
     }
@@ -62,24 +63,21 @@ void walk_element(Context &ctx, dom::element elem, Node &node)
         {
             throw std::out_of_range("object is too large");
         }
-        rust::Slice<Field> fields = set_object(ctx, node, obj.size());
-        rust::Slice<Field>::iterator it = fields.begin();
+        rust::Slice<HeapField> fields = set_object(alloc, node, obj.size());
+        rust::Slice<HeapField>::iterator it = fields.begin();
 
         // Track whether field properties are already sorted.
-        rust::Str last_property;
+        std::string_view last_key;
         bool must_sort = false;
 
         for (dom::key_value_pair child : obj)
         {
-            rust::Str property(child.key.data(), child.key.size());
-
-            if (property < last_property)
+            if (child.key < last_key)
             {
                 must_sort = true;
             }
-
-            walk_element(ctx, child.value, set_field(ctx, *(it++), property));
-            last_property = property;
+            walk_element(alloc, child.value, set_field(alloc, *(it++), child.key.data(), child.key.size()));
+            last_key = child.key;
         }
 
         // Restore the sorted invariant of doc::HeapNode::Object fields.
@@ -101,7 +99,7 @@ void walk_element(Context &ctx, dom::element elem, Node &node)
     case dom::element_type::STRING:
     {
         std::string_view str = elem;
-        set_string(ctx, node, rust::Str(str.data(), str.size()));
+        set_string(alloc, node, str.data(), str.size());
         break;
     }
     case dom::element_type::BOOL:
