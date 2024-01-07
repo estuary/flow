@@ -41,3 +41,28 @@ fn test_number_regression() {
     assert_eq!(docs1, docs2);
     assert_eq!(buf1, buf2);
 }
+
+#[test]
+fn test_foobar() {
+    use serde_json::json;
+
+    let a = json!({
+        "a\ta": { "b\tb": 9.007199254740997e16, "z\tz": true},
+        "c\tc": "string!",
+        "d\td": { "e\te": 1234, "zz\tzz": false, "s\ts": "other string!"},
+        "last": false
+    });
+    let b = json!(["one", ["two", ["three"], "four"]]);
+
+    let fixture = format!("{}\n{}\n", a.to_string(), b.to_string());
+
+    let mut parser = simd_doc::Parser::new();
+
+    let mut buf = fixture.as_bytes().to_vec();
+    let alloc = doc::Allocator::new();
+    let mut docs = Vec::new();
+
+    () = parser.parse_simd(&alloc, &mut docs, &mut buf).unwrap();
+
+    eprintln!("{docs:?}");
+}

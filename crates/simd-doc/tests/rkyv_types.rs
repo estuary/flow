@@ -94,6 +94,14 @@ pub fn rkyv_types() {
             &alloc,
             [doc::HeapNode::Bool(true), doc::HeapNode::Bool(false)].into_iter(),
         )),
+        doc::HeapNode::Array(doc::BumpVec::with_contents(
+            &alloc,
+            [
+                doc::HeapNode::String(doc::BumpStr::from_str("aaaaaaaaa", &alloc)),
+                doc::HeapNode::String(doc::BumpStr::from_str("bbbbbbbbb", &alloc)),
+            ]
+            .into_iter(),
+        )),
         doc::HeapNode::Bool(false),
         doc::HeapNode::Bool(true),
         doc::HeapNode::Bytes(doc::BumpVec::new()),
@@ -123,6 +131,20 @@ pub fn rkyv_types() {
             ]
             .into_iter(),
         )),
+        doc::HeapNode::Object(doc::BumpVec::with_contents(
+            &alloc,
+            [
+                doc::HeapField {
+                    property: doc::BumpStr::from_str("aaaaaaaaa", &alloc),
+                    value: doc::HeapNode::String(doc::BumpStr::from_str("bbbbbbbbb", &alloc)),
+                },
+                doc::HeapField {
+                    property: doc::BumpStr::from_str("ccccccccc", &alloc),
+                    value: doc::HeapNode::String(doc::BumpStr::from_str("ddddddddd", &alloc)),
+                },
+            ]
+            .into_iter(),
+        )),
         doc::HeapNode::PosInt(0),
         doc::HeapNode::PosInt(u64::MAX),
         doc::HeapNode::String(doc::BumpStr::from_str("", &alloc)),
@@ -139,6 +161,13 @@ pub fn rkyv_types() {
      |01000000 00000000 00000000 00000000| ................ 00000010
      |00000000 dcffffff 02000000 00000000| ................ 00000020
                                                             00000030
+    case: Array([String("aaaaaaaaa"), String("bbbbbbbbb")]):
+     |61616161 61616161 61626262 62626262| aaaaaaaaabbbbbbb 00000000
+     |62620000 00000000 08000000 09000000| bb.............. 00000010
+     |e4ffffff 00000000 08000000 09000000| ................ 00000020
+     |ddffffff 00000000 00000000 dcffffff| ................ 00000030
+     |02000000 00000000|                   ........         00000040
+                                                            00000048
     case: Bool(false):
      |01000000 00000000 00000000 00000000| ................ 00000000
                                                             00000010
@@ -182,6 +211,15 @@ pub fn rkyv_types() {
      |01010000 00000000 00000000 00000000| ................ 00000020
      |06000000 ccffffff 02000000 00000000| ................ 00000030
                                                             00000040
+    case: Object([HeapField { property: "aaaaaaaaa", value: String("bbbbbbbbb") }, HeapField { property: "ccccccccc", value: String("ddddddddd") }]):
+     |61616161 61616161 61626262 62626262| aaaaaaaaabbbbbbb 00000000
+     |62626363 63636363 63636364 64646464| bbcccccccccddddd 00000010
+     |64646464 00000000 09000000 d8ffffff| dddd............ 00000020
+     |08000000 09000000 d5ffffff 00000000| ................ 00000030
+     |09000000 d2ffffff 08000000 09000000| ................ 00000040
+     |cfffffff 00000000 06000000 ccffffff| ................ 00000050
+     |02000000 00000000|                   ........         00000060
+                                                            00000068
     case: PosInt(0):
      |07000000 00000000 00000000 00000000| ................ 00000000
                                                             00000010

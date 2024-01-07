@@ -7,9 +7,10 @@ fn main() {
 
     cxx_build::bridge("src/ffi/mod.rs")
         .cargo_metadata(true)
+        .define("NDEBUG", None)
         .define("SIMDJSON_DISABLE_DEPRECATED_API", "1")
         .define("SIMDJSON_EXCEPTIONS", "1")
         .file("src/ffi/simdjson.cpp")
-        .std("c++17")
+        .std("c++20")
         .compile("simdjson");
 }
