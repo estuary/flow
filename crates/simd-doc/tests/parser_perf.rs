@@ -38,9 +38,7 @@ pub fn parser_perf() {
 
     let chunks: Vec<_> = fixture.chunks(CHUNK_SIZE).collect();
 
-    let mut alloc = doc::Allocator::new();
     let mut input = Vec::new();
-    let mut output: Vec<(usize, doc::HeapNode<'static>)> = Vec::new();
     let mut parser = simd_doc::Parser::new();
 
     let mut docs: usize = 0;

@@ -1,4 +1,5 @@
 use quickcheck::quickcheck;
+use serde_json::{json, Value};
 
 mod arbitrary_value;
 use arbitrary_value::ArbitraryValue;
@@ -8,40 +9,83 @@ quickcheck! {
         let mut buf = Vec::new();
 
         for doc in input {
-            serde_json::to_writer(&mut buf, &doc.0).unwrap();
+            let doc = match doc.0 {
+                doc @ Value::Object(_) | doc @ Value::Array(_) => doc,
+                doc => Value::Array(vec![doc]),
+            };
+            serde_json::to_writer(&mut buf, &doc).unwrap();
             buf.push(b'\n');
         }
-        let ((docs1, docs2), (buf1, buf2)) = round_trip(&buf);
+        let (docs1, docs2, buf1, buf2) = parse_case(&buf);
 
         return docs1 == docs2 && buf1 == buf2;
     }
 }
 
-fn round_trip(input: &[u8]) -> ((String, String), (Vec<u8>, Vec<u8>)) {
+fn parse_case(input: &[u8]) -> (String, String, String, String) {
     let mut parser = simd_doc::Parser::new();
 
     let (mut buf1, mut buf2) = (input.to_vec(), input.to_vec());
-    let (alloc1, alloc2) = (doc::Allocator::new(), doc::Allocator::new());
-    let (mut docs1, mut docs2) = (Vec::new(), Vec::new());
+    let out1 = parser.parse_serde(&mut buf1).unwrap();
+    let out2 = parser.parse_simd(&mut buf2).unwrap();
 
-    () = parser.parse_serde(&alloc1, &mut docs1, &mut buf1).unwrap();
-    () = parser.parse_simd(&alloc2, &mut docs2, &mut buf2).unwrap();
+    let m = |v: Vec<u8>| {
+        hexdump::hexdump_iter(&v)
+            .map(|line| format!(" {line}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
 
-    let docs1 = format!("{docs1:?}");
-    let docs2 = format!("{docs2:?}");
+    (m(out1), m(out2), m(buf1), m(buf2))
+}
 
-    ((docs1, docs2), (buf1, buf2))
+#[test]
+fn test_wizzle() {
+    let cases = [
+        json!([]),
+        json!([true]),
+        json!([true, false]),
+        json!([true, [false], true]),
+        json!([123, -456, 78.910]),
+        json!([
+            "aaaaaaaaaa",
+            "bbbbbbbb",
+            ["inline", "big big big big"],
+            ["ccccccccc"]
+        ]),
+        json!({
+            "hello": {"big": "worldddddd", "wide": true}, "aaaaaaaaa": 1, "bbbbbbbbb": 2,
+        }),
+        //json!([false]),
+        //json!([null]),
+    ];
+
+    for case in cases {
+        let mut input = case.to_string();
+        input.push('\n');
+        let (out1, out2, rem1, rem2) = parse_case(input.as_bytes());
+
+        if out1 != out2 || rem1 != rem2 {
+            eprintln!("out1:\n{out1}\n");
+            eprintln!("out2:\n{out2}\n");
+
+            assert!(false);
+        }
+        //eprintln!("out1:\n{out1}\n");
+        //eprintln!("out2:\n{out2}\n");
+    }
 }
 
 #[test]
 fn test_number_regression() {
     let fixture = b"{\"\":{\"\":9.007199254740997e16}}\n";
-    let ((docs1, docs2), (buf1, buf2)) = round_trip(fixture);
+    let (docs1, docs2, buf1, buf2) = parse_case(fixture);
 
     assert_eq!(docs1, docs2);
     assert_eq!(buf1, buf2);
 }
 
+/*
 #[test]
 fn test_foobar() {
     use serde_json::json;
@@ -66,3 +110,4 @@ fn test_foobar() {
 
     eprintln!("{docs:?}");
 }
+*/
