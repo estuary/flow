@@ -198,6 +198,10 @@ To mitigate this, we recommend a two-pronged approach:
 For example, if you set the warehouse to auto-suspend after 60 seconds and set the materialization's
 update delay to 30 minutes, you can incur as little as 48 minutes per day of active time in the warehouse.
 
+## Timestamp Data Type Mapping
+
+Flow uses the `TIMESTAMP` type alias in Snowflake for materializing timestamp data types. This type alias points to either `TIMESTAMP_NTZ` (default), `TIMESTAMP_TZ` or `TIMESTAMP_LTZ`. The default `TIMESTAMP_NTZ` mapping means timestamps are normalised to UTC upon materialization. If you want to have timezone data as part of the timestamp, set the `TIMESTAMP_TYPE_MAPPING` configuration to `TIMESTAMP_TZ`. See [Snowflake documentation on `TIMESTAMP_TYPE_MAPPING` for more information](https://docs.snowflake.com/en/sql-reference/parameters#timestamp-type-mapping).
+
 ## Reserved words
 
 Snowflake has a list of reserved words that must be quoted in order to be used as an identifier. Flow automatically quotes fields that are in the reserved words list. You can find this list in Snowflake's documentation [here](https://docs.snowflake.com/en/sql-reference/reserved-keywords.html) and in the table below.
