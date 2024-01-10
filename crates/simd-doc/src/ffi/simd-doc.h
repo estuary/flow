@@ -5,7 +5,7 @@
 
 using namespace simdjson::ondemand;
 
-// #include "simd-doc/src/ffi/mod.rs.h"
+#include "simd-doc/src/ffi/mod.rs.h"
 
 inline std::unique_ptr<parser> new_parser(size_t capacity)
 {
@@ -181,28 +181,35 @@ anode walk_node(value &doc, output &out);
 inline size_t
 parse_many(
     rust::Slice<uint8_t> input,
-    std::unique_ptr<parser> &parser,
-    rust::Vec<uint64_t> &v)
+    rust::Vec<uint64_t> &v,
+    std::unique_ptr<parser> &parser)
 {
+    output out = {v, {0}, 0};
+
     const bool allow_comma_separated = false;
     document_stream stream = parser->iterate_many(input.data(), input.size(), input.size(), allow_comma_separated);
 
-    output out = {v, {0}, 0};
-
     for (document_stream::iterator it = stream.begin(); it != stream.end(); ++it)
     {
-        // size_t offset = it.current_index();
+        size_t header = out.v.size();
+        out.v.push_back(static_cast<uint64_t>(it.current_index()) << 32);
+
         document_reference doc = *it;
         value root = doc.get_value();
         anode node = walk_node(root, out);
 
+        /*
         if (out.partial_len != 0)
         {
             out.v.push_back(out.partial.word);
             out.partial_len = 0;
         }
+        */
         emplace_node(node, out);
+
+        out.v[header] |= static_cast<uint64_t>(out.v.size() - header - 1);
     }
+
     return stream.size_in_bytes() - stream.truncated_bytes();
 }
 

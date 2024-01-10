@@ -10,6 +10,10 @@ fn main() {
         .define("NDEBUG", None)
         .define("SIMDJSON_DISABLE_DEPRECATED_API", "1")
         .define("SIMDJSON_EXCEPTIONS", "1")
+        // Build implementations for ICELAKE, HASWELL, and ARM64 the (default).
+        .define("SIMDJSON_IMPLEMENTATION_WESTMERE", "0")
+        .define("SIMDJSON_IMPLEMENTATION_PPC64", "0")
+        .define("SIMDJSON_IMPLEMENTATION_FALLBACK", "0")
         .file("src/ffi/simdjson.cpp")
         .std("c++20")
         .compile("simdjson");

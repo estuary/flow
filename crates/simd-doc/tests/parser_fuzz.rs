@@ -1,5 +1,6 @@
 use quickcheck::quickcheck;
 use serde_json::{json, Value};
+use std::fmt::Write;
 
 mod arbitrary_value;
 use arbitrary_value::ArbitraryValue;
@@ -16,32 +17,56 @@ quickcheck! {
             serde_json::to_writer(&mut buf, &doc).unwrap();
             buf.push(b'\n');
         }
-        let (docs1, docs2, buf1, buf2) = parse_case(&buf);
+        let (d1, d2) = parse_case(&buf);
 
-        return docs1 == docs2 && buf1 == buf2;
+        return d1 == d2;
     }
 }
 
-fn parse_case(input: &[u8]) -> (String, String, String, String) {
+fn parse_case(input: &[u8]) -> (String, String) {
     let mut parser = simd_doc::Parser::new();
 
     let (mut buf1, mut buf2) = (input.to_vec(), input.to_vec());
-    let out1 = parser.parse_serde(&mut buf1).unwrap();
-    let out2 = parser.parse_simd(&mut buf2).unwrap();
+    let (mut out1, mut out2) = (Vec::new(), Vec::new());
+    () = parser.parse_serde(&mut buf1, &mut out1).unwrap();
+    () = parser.parse_simd(&mut buf2, &mut out2).unwrap();
 
-    let m = |v: Vec<u8>| {
-        hexdump::hexdump_iter(&v)
+    (to_desc(out1, buf1), to_desc(out2, buf2))
+}
+
+fn to_desc(docs: Vec<(u32, doc::OwnedArchivedNode)>, rem: Vec<u8>) -> String {
+    let mut w = String::new();
+
+    for (offset, doc) in docs {
+        writeln!(
+            &mut w,
+            "offset {offset}:\n{}",
+            hexdump::hexdump_iter(doc.bytes())
+                .map(|line| format!(" {line}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+        .unwrap();
+    }
+
+    writeln!(
+        &mut w,
+        "remainder:\n{}",
+        hexdump::hexdump_iter(&rem)
             .map(|line| format!(" {line}"))
             .collect::<Vec<_>>()
             .join("\n")
-    };
+    )
+    .unwrap();
 
-    (m(out1), m(out2), m(buf1), m(buf2))
+    w
 }
 
 #[test]
 fn test_wizzle() {
-    let cases = [
+    let mut b = Vec::new();
+
+    for fixture in [
         json!([]),
         json!([true]),
         json!([true, false]),
@@ -53,61 +78,28 @@ fn test_wizzle() {
             ["inline", "big big big big"],
             ["ccccccccc"]
         ]),
+        json!({"":{"":9.007199254740997e16}}),
         json!({
             "hello": {"big": "worldddddd", "wide": true}, "aaaaaaaaa": 1, "bbbbbbbbb": 2,
         }),
-        //json!([false]),
-        //json!([null]),
-    ];
+        json!({
+            "a\ta": { "b\tb": -9007, "z\tz": true},
+            "c\tc": "string!",
+            "d\td": { "e\te": 1234, "zz\tzz": false, "s\ts": "other string!"},
+            "last": false
+        }),
+        json!(["one", ["two", ["three"], "four"]]),
+    ] {
+        serde_json::to_writer(&mut b, &fixture).unwrap();
+        b.push(b'\n');
+    }
+    b.extend_from_slice(b"[{\"remainder\":\"");
 
-    for case in cases {
-        let mut input = case.to_string();
-        input.push('\n');
-        let (out1, out2, rem1, rem2) = parse_case(input.as_bytes());
+    let (serde, simd) = parse_case(&b);
 
-        if out1 != out2 || rem1 != rem2 {
-            eprintln!("out1:\n{out1}\n");
-            eprintln!("out2:\n{out2}\n");
-
-            assert!(false);
-        }
-        //eprintln!("out1:\n{out1}\n");
-        //eprintln!("out2:\n{out2}\n");
+    if serde != simd {
+        eprintln!("serde:\n{serde}\n");
+        eprintln!("simd:\n{simd}\n");
+        assert!(false);
     }
 }
-
-#[test]
-fn test_number_regression() {
-    let fixture = b"{\"\":{\"\":9.007199254740997e16}}\n";
-    let (docs1, docs2, buf1, buf2) = parse_case(fixture);
-
-    assert_eq!(docs1, docs2);
-    assert_eq!(buf1, buf2);
-}
-
-/*
-#[test]
-fn test_foobar() {
-    use serde_json::json;
-
-    let a = json!({
-        "a\ta": { "b\tb": 9.007199254740997e16, "z\tz": true},
-        "c\tc": "string!",
-        "d\td": { "e\te": 1234, "zz\tzz": false, "s\ts": "other string!"},
-        "last": false
-    });
-    let b = json!(["one", ["two", ["three"], "four"]]);
-
-    let fixture = format!("{}\n{}\n", a.to_string(), b.to_string());
-
-    let mut parser = simd_doc::Parser::new();
-
-    let mut buf = fixture.as_bytes().to_vec();
-    let alloc = doc::Allocator::new();
-    let mut docs = Vec::new();
-
-    () = parser.parse_simd(&alloc, &mut docs, &mut buf).unwrap();
-
-    eprintln!("{docs:?}");
-}
-*/

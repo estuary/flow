@@ -14,7 +14,7 @@ const CITI_RIDES_SCHEMA: &[u8] =
     include_bytes!("../../json/benches/testdata/citi-rides.schema.json");
 const CITI_RIDES: &[u8] = include_bytes!("../../json/benches/testdata/citi-rides1.json");
 
-const TOTAL_ROUNDS: usize = 5_000;
+const TOTAL_ROUNDS: usize = 2_000;
 const CHUNK_SIZE: usize = 1 << 17; // 128K.
 
 #[test]
@@ -40,6 +40,7 @@ pub fn parser_perf() {
 
     let mut input = Vec::new();
     let mut parser = simd_doc::Parser::new();
+    let mut output = Vec::new();
 
     let mut docs: usize = 0;
     let mut bytes: usize = 0;
@@ -51,42 +52,9 @@ pub fn parser_perf() {
     for _ in 0..TOTAL_ROUNDS {
         for chunk in &chunks {
             output.clear();
-            alloc.reset();
             input.extend_from_slice(*chunk);
 
-            () = parser
-                .parse_simd(
-                    &alloc,
-                    unsafe { std::mem::transmute(&mut output) },
-                    &mut input,
-                )
-                .unwrap();
-
-            use rkyv::ser::Serializer;
-
-            let wiz =
-                rkyv::AlignedVec::with_capacity(alloc.allocated_bytes() - alloc.chunk_capacity());
-
-            let mut serializer = rkyv::ser::serializers::AllocSerializer::<4096>::new(
-                rkyv::ser::serializers::AlignedSerializer::new(wiz),
-                Default::default(),
-                Default::default(),
-            );
-
-            for (_offset, doc) in &output {
-                let _pos = serializer.serialize_value(doc).unwrap();
-            }
-            let mut wiz = serializer.into_serializer().into_inner();
-            wiz.shrink_to_fit();
-
-            /*
-            eprintln!(
-                "docs {} alloc {} wiz {}",
-                output.len(),
-                alloc.allocated_bytes() - alloc.chunk_capacity(),
-                wiz.len()
-            );
-            */
+            () = parser.parse_simd(&mut input, &mut output).unwrap();
 
             bytes += chunk.len();
             docs += output.len();
