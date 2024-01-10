@@ -45,8 +45,8 @@ pub enum ParseError {
     #[error("unable to decompress input: {0}")]
     Decompression(#[from] CompressionError),
 
-    #[error("error limit exceeded")]
-    ErrorLimitExceeded(ErrorThreshold),
+    #[error("error limit exceeded: {1}")]
+    ErrorLimitExceeded(ErrorThreshold, String),
 
     #[error("failed to sanitize documents: {0}")]
     SanitizeError(#[from] sanitize::SanitizeError),
