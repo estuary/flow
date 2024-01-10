@@ -332,7 +332,7 @@ anode walk_node(value &elem, output &out)
                 node.w1.tag = 0x07;
                 node.w2.u64 = v;
             }
-            return node;
+            break;
         }
         case number_type::unsigned_integer:
         {
@@ -341,7 +341,7 @@ anode walk_node(value &elem, output &out)
 
             node.w1.tag = 0x07;
             node.w2.u64 = v;
-            return node;
+            break;
         }
         case number_type::floating_point_number:
         {
@@ -350,9 +350,10 @@ anode walk_node(value &elem, output &out)
 
             node.w1.tag = 0x03;
             node.w2.f64 = v;
-            return node;
+            break;
         }
         }
+        return node;
     }
     case json_type::string:
     {

@@ -17,9 +17,14 @@ quickcheck! {
             serde_json::to_writer(&mut buf, &doc).unwrap();
             buf.push(b'\n');
         }
-        let (d1, d2) = parse_case(&buf);
+        let (serde, simd) = parse_case(&buf);
 
-        return d1 == d2;
+        if serde != simd {
+            eprintln!("serde:\n{serde}\n");
+            eprintln!("simd:\n{simd}\n");
+        }
+
+        return serde == simd;
     }
 }
 
@@ -67,6 +72,8 @@ fn test_wizzle() {
     let mut b = Vec::new();
 
     for fixture in [
+        json!({"\u{80}ࠀ\0\0\0": "ࠀ\u{80}ࠀ"}),
+        /*
         json!([]),
         json!([true]),
         json!([true, false]),
@@ -89,6 +96,7 @@ fn test_wizzle() {
             "last": false
         }),
         json!(["one", ["two", ["three"], "four"]]),
+        */
     ] {
         serde_json::to_writer(&mut b, &fixture).unwrap();
         b.push(b'\n');
