@@ -1,13 +1,12 @@
 use super::{draft, Handler, HandlerStatus, Id};
 use agent_sql::{
-    evolutions::{DraftSpecRow, Row},
+    evolutions::{Row, SpecRow},
     Capability,
 };
 use anyhow::Context;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 
 #[cfg(test)]
 mod test;
@@ -99,37 +98,29 @@ async fn process_row(
         return error_status("evolution collections parameter is empty");
     }
 
-    // collect the requests into a map of old_name to new_name
-    let collections: BTreeMap<String, Option<String>> = collections_requests
-        .into_iter()
-        .map(
-            |EvolveRequest {
-                 current_name,
-                 new_name,
-             }| (current_name, new_name),
-        )
-        .collect();
-
-    // Fetch all the specs from the draft that we're operating on
-    let draft_specs = agent_sql::evolutions::fetch_draft_specs(draft_id, user_id, txn)
-        .await
-        .context("fetching draft specs")?;
-    if draft_specs.is_empty() {
-        return error_status("draft is either empty or owned by another user");
-    }
-    if let Err(error) = validate_evolving_collections(&draft_specs, &collections) {
-        return error_status(error);
-    }
-
-    // Get the live_spec.id of each collection that's requested to be re-created.
-    let seed_ids = draft_specs
+    let collection_names: Vec<String> = collections_requests
         .iter()
-        .filter_map(|row| {
-            if collections.contains_key(&row.catalog_name) {
-                row.live_spec_id // may still be None, and that's OK
-            } else {
-                None
-            }
+        .map(|r| r.current_name.clone())
+        .collect();
+    // We're expecting to have a spec_row for each collection that's evolving,
+    // regardless of whether it's in the draft. We should also have a row for
+    // every spec that's in the draft, so that we can mutate the drafted version
+    // instead of the live version if we need to update the bindings.
+    let spec_rows: Vec<SpecRow> =
+        agent_sql::evolutions::resolve_specs(user_id, draft_id, collection_names, txn).await?;
+
+    if let Err(err) = validate_evolving_collections(&spec_rows, &collections_requests) {
+        return error_status(err);
+    }
+
+    // Get the live_spec.id of each collection that's requested to be evolved.
+    let seed_ids = collections_requests
+        .iter()
+        .filter_map(|req| {
+            spec_rows
+                .iter()
+                .find(|r| r.catalog_name == req.current_name)
+                .and_then(|r| r.live_spec_id)
         })
         .collect::<Vec<Id>>();
 
@@ -138,24 +129,11 @@ async fn process_row(
         .await
         .context("expanding specifications")?;
 
-    // Build up a `models::Catalog` that includes all of the non-deleted specs in the current
-    // draft, as well as all of the connected `live_specs` that the user has admin capability for.
+    // Build up catalog of all the possibly affected entities, for easy lookups.
+    // Note that we put `expanded_rows` first so that `spec_rows` will overwrite
+    // them, so that the resulting catalog will include the drafted specs, if
+    // present, and otherwise the `live_specs` version.
     let mut before_catalog = models::Catalog::default();
-    let errors = draft::extend_catalog(
-        &mut before_catalog,
-        draft_specs.iter().filter_map(|r| {
-            r.draft_type.map(|t| {
-                (
-                    t,
-                    r.catalog_name.as_str(),
-                    r.draft_spec.as_ref().unwrap().0.as_ref(),
-                )
-            })
-        }),
-    );
-    if !errors.is_empty() {
-        anyhow::bail!("unexpected errors from live specs: {errors:?}");
-    }
     let errors = draft::extend_catalog(
         &mut before_catalog,
         expanded_rows.iter().filter_map(|row| {
@@ -175,19 +153,56 @@ async fn process_row(
         anyhow::bail!("unexpected errors from extended live specs: {errors:?}");
     }
 
+    let errors = draft::extend_catalog(
+        &mut before_catalog,
+        spec_rows.iter().filter_map(|r| {
+            r.spec_type.map(|t| {
+                (
+                    t,
+                    r.catalog_name.as_str(),
+                    r.spec.as_ref().unwrap().0.as_ref(),
+                )
+            })
+        }),
+    );
+    if !errors.is_empty() {
+        anyhow::bail!("unexpected errors from drafted specs: {errors:?}");
+    }
+
     // Create our helper for updating resource specs of affected materialization
     // bindings. This needs to fetch all of the resource_spec_schemas for each
     // of the  materialization connectors involved
     let update_helper = match ResourceSpecUpdater::for_catalog(txn, &before_catalog).await {
         Ok(help) => help,
-        Err(err) => return error_status(format!("processing resource spec schemas: {err}")),
+        Err(err) => {
+            tracing::warn!(error=%err, "failed to create ResourceSpecUpdater during evolution");
+            return error_status(err.to_string());
+        }
     };
 
-    let EvolvedCollections {
-        draft_catalog,
-        changed_collections,
-    } = evolve_collections(&before_catalog, &collections, &update_helper)?;
-    draft::upsert_specs(draft_id, draft_catalog, txn)
+    let mut new_catalog = models::Catalog::default();
+    let mut changed_collections = Vec::new();
+    for req in collections_requests.iter() {
+        let result = evolve_collection(
+            &mut new_catalog,
+            &before_catalog,
+            req.current_name.as_str(),
+            req.new_name.as_deref(),
+            &update_helper,
+        );
+        match result {
+            Ok(summary) => {
+                changed_collections.push(summary);
+            }
+            Err(err) => {
+                return error_status(err.to_string());
+            }
+        }
+    }
+
+    tracing::info!(changes=?changed_collections, "evolved catalog");
+
+    draft::upsert_specs(draft_id, new_catalog, txn)
         .await
         .context("inserting draft specs")?;
 
@@ -195,15 +210,21 @@ async fn process_row(
     // new versions of them. The old draft specs are likely to be rejected
     // during publication due to having incompatible changes, so removing
     // them is likely necessary in order to allow publication to proceed after
-    // evolution. We only remove specs that have been re-added with new names,
-    // though. If the collection is _not_ being re-created, then the draft spec
-    // is left in place since it may contain desired schema updates.
-    for ds in draft_specs.iter().filter(|ds| {
-        changed_collections
+    // evolution. We only remove specs that have been re-added with new names.
+    // It's possible that there is no draft spec to delete, even if we're re-creating
+    // the collection, if the collection spec wasn't in the draft to begin with.
+    for prev_name in changed_collections
+        .iter()
+        .filter(|c| c.old_name != c.new_name)
+        .map(|c| c.old_name.as_str())
+    {
+        let delete_id = spec_rows
             .iter()
-            .any(|cc| cc.old_name == ds.catalog_name && cc.old_name != cc.new_name)
-    }) {
-        agent_sql::drafts::delete_spec(ds.draft_spec_id, txn).await?;
+            .find(|r| r.catalog_name == prev_name)
+            .and_then(|r| r.draft_spec_id);
+        if let Some(draft_spec_id) = delete_id {
+            agent_sql::drafts::delete_spec(draft_spec_id, txn).await?;
+        }
     }
 
     // TODO: Update the `expect_pub_id` of any specs that we've added to the draft.
@@ -232,92 +253,65 @@ async fn process_row(
 }
 
 fn validate_evolving_collections(
-    spec_rows: &Vec<DraftSpecRow>,
-    evolving_collections: &BTreeMap<String, Option<String>>,
+    spec_rows: &Vec<SpecRow>,
+    reqs: &[EvolveRequest],
 ) -> Result<(), String> {
     let collection_name_regex = models::Collection::regex();
     let mut seen = BTreeSet::new();
-    for row in spec_rows
-        .iter()
-        .filter(|r| evolving_collections.contains_key(r.catalog_name.as_str()))
-    {
-        let old_name = row.catalog_name.as_str();
-        seen.insert(old_name.to_owned());
+    for req in reqs {
+        // Make sure there's only one request per collection
+        let old_name = req.current_name.as_str();
+        if !seen.insert(old_name) {
+            return Err(format!("duplicate request for collection '{old_name}'"));
+        }
+
+        // ensure that there's a corresponding spec row for each evolving collection
+        let spec_row = spec_rows
+            .iter()
+            .find(|r| r.catalog_name == req.current_name)
+            .ok_or_else(|| {
+                format!(
+                    "the collection '{}' does not exist or you do not have access to it",
+                    req.current_name
+                )
+            })?;
+        // This validation isn't technically necessary. Nothing will break if we re-create a collection
+        // that only exists in the draft. But it seems likely to be unintentional, so probably good to
+        // error out here.
+        if spec_row.live_spec_id.is_none() {
+            return Err(format!(
+                "cannot evolve collection '{old_name}' because it has never been published"
+            ));
+        }
 
         // Validate that the new collection name is a valid catalog name.
         // This results in a better error message, since an invalid name could
         // otherwise result in a database error due to a constraint violation.
-        if let Some(new_name) = evolving_collections
-            .get(old_name)
-            .expect("already checked contains_key")
-        {
-            if !collection_name_regex.is_match(new_name.as_str()) {
+        if let Some(new_name) = req.new_name.as_deref() {
+            if !collection_name_regex.is_match(new_name) {
                 return Err(format!("requested collection name '{new_name}' is invalid"));
             }
         }
 
-        // We have to validate that the collection has not been deleted in the draft because
-        // deletions cannot currently be represented in a `models::Catalog`. But other validations
-        // of the type will be handled later, when we try to re-name the collections.
-        if row.draft_type.is_none() {
+        // Validate that the collection has not already been deleted, because we need the spec if
+        // we're re-creating the collection (and it's non-sensical to increment backfill counters
+        // for deleted collections).
+        if spec_row.spec.is_none() {
+            // Was the live_spec deleted already, or is the deletion still pending in the draft?
+            let in_draft = spec_row
+                .draft_spec_id
+                .map(|_| " in the draft")
+                .unwrap_or_default();
             return Err(format!(
-                "cannot re-create collection '{old_name}' which was already deleted in the draft"
-            ));
-        }
-        // This validation isn't technically necessary. Nothing will break if we re-create a collection
-        // that only exists in the draft. But it seems likely to be unintentional, so probably good to
-        // error out here.
-        if row.live_spec_id.is_none() {
-            return Err(format!(
-                "cannot re-create collection '{old_name}' because it has never been published"
+                "cannot evolve collection '{old_name}' which was already deleted{in_draft}"
             ));
         }
     }
 
-    if seen.len() != evolving_collections.len() {
-        let mut missing = evolving_collections
-            .keys()
-            .filter(|n| !seen.contains(n.as_str()));
-        return Err(format!(
-            "the collections: {} are not present in the draft",
-            missing.join(", ")
-        ));
-    }
     Ok(())
 }
 
-pub struct EvolvedCollections {
-    /// A new draft catalog that reflects all the changes required to evolve the collections.
-    pub draft_catalog: models::Catalog,
-    /// A structured summary of all the changes that were applied.
-    pub changed_collections: Vec<EvolvedCollection>,
-}
-
-fn evolve_collections(
-    catalog: &models::Catalog,
-    collections: &BTreeMap<String, Option<String>>,
-    update_helper: &ResourceSpecUpdater,
-) -> anyhow::Result<EvolvedCollections> {
-    let mut new_catalog = models::Catalog::default();
-    let mut changed_collections = Vec::new();
-    for (old_name, new_name) in collections.iter() {
-        let result = evolve_collection(
-            &mut new_catalog,
-            catalog,
-            old_name.as_str(),
-            new_name.as_deref(),
-            update_helper,
-        )
-        .with_context(|| format!("processing collection '{old_name}'"))?;
-        changed_collections.push(result);
-    }
-
-    Ok(EvolvedCollections {
-        draft_catalog: new_catalog,
-        changed_collections,
-    })
-}
-
+#[tracing::instrument(skip(new_catalog, prev_catalog, update_helper))]
 fn evolve_collection(
     new_catalog: &mut models::Catalog,
     prev_catalog: &models::Catalog,
@@ -326,9 +320,6 @@ fn evolve_collection(
     update_helper: &ResourceSpecUpdater,
 ) -> anyhow::Result<EvolvedCollection> {
     let old_collection = models::Collection::new(old_collection_name);
-    let Some(draft_collection_spec) = prev_catalog.collections.get(&old_collection) else {
-        anyhow::bail!("catalog does not contain a collection named '{old_collection_name}'");
-    };
 
     // We only re-create collections if explicitly requested.
     let (re_create_collection, new_name) = match new_collection_name {
@@ -338,9 +329,13 @@ fn evolve_collection(
     let new_name = models::Collection::new(new_name);
 
     if re_create_collection {
+        let Some(collection_spec) = prev_catalog.collections.get(&old_collection) else {
+            panic!("prev_catalog does not contain a collection named '{old_collection_name}'");
+        };
+
         new_catalog
             .collections
-            .insert(new_name.clone(), draft_collection_spec.clone());
+            .insert(new_name.clone(), collection_spec.clone());
     }
 
     let mut updated_materializations = Vec::new();
@@ -373,39 +368,29 @@ fn evolve_collection(
             // Next we need to update the resource spec of the binding. This updates, for instance,
             // a sql materialization to point to a new table name.
             let models::MaterializationEndpoint::Connector(conn) = &mat_spec.endpoint else {
+                tracing::warn!(
+                    materialization = %mat_name,
+                    "evolutions handler encountered a non-connector materialization");
                 continue;
             };
 
             // Don't update resources for disabled bindings.
             if binding.disable {
+                tracing::debug!(materialization = %mat_name,
+                    "skipping materialization because the binding is disabled");
                 continue;
             }
-            // Parse the current resource spec into a `Value` that we can mutate
-            let mut resource_spec: Value = serde_json::from_str(binding.resource.get())
-                .with_context(|| {
-                    format!(
-                        "parsing materialization resource spec of '{}' binding for '{}",
-                        mat_name, &new_name
-                    )
-                })?;
+
             update_helper
-                .update_resource_spec(
+                .update_binding(
                     &conn.image,
                     mat_name.as_str(),
                     new_collection_name.map(|s| s.to_owned()),
-                    &mut resource_spec,
+                    binding,
                 )
                 .with_context(|| {
                     format!("updating resource spec of '{mat_name}' binding '{old_collection}'")
                 })?;
-            binding.resource = models::RawValue::from_value(&resource_spec);
-            tracing::debug!(
-                %mat_name,
-                %old_collection_name,
-                %re_create_collection,
-                ?new_collection_name,
-                new_resource_spec = %resource_spec,
-                "updated materialization binding");
         }
     }
 
@@ -481,26 +466,49 @@ impl ResourceSpecUpdater {
         Ok(ResourceSpecUpdater { pointers_by_image })
     }
 
-    /// Updates the given resource spec in place based on the x-collection-name annotation.
-    /// The new name
-    fn update_resource_spec(
+    fn update_binding(
         &self,
         image_name: &str,
         materialization_name: &str,
         new_collection_name: Option<String>,
-        resource_spec: &mut Value,
+        binding: &mut models::MaterializationBinding,
     ) -> anyhow::Result<()> {
-        if let Some(pointer) = self.pointers_by_image.get(image_name) {
-            crate::resource_configs::update_materialization_resource_spec(
-                materialization_name,
-                resource_spec,
+        if let Some(new_name) = new_collection_name {
+            // Since we're re-creating the collection, we'll need to parse the
+            // current resource spec into a `Value` that we can mutate
+            let mut resource_spec: Value = serde_json::from_str(binding.resource.get())
+                .with_context(|| {
+                    format!(
+                        "parsing materialization resource spec of '{}' binding for '{}",
+                        materialization_name, &new_name
+                    )
+                })?;
+
+            let Some(pointer) = self.pointers_by_image.get(image_name) else {
+                anyhow::bail!(
+                    "no resource spec x-collection-name location exists for image '{image_name}'"
+                )
+            };
+
+            let previous_value = crate::resource_configs::update_materialization_resource_spec(
+                &mut resource_spec,
                 pointer,
-                new_collection_name,
-            )
+                &new_name,
+            )?;
+
+            tracing::info!(
+                %materialization_name,
+                %new_name,
+                %previous_value,
+                "updated materialization resource spec"
+            );
+            binding.resource = models::RawValue::from_value(&resource_spec);
+            Ok(())
         } else {
-            Err(anyhow::anyhow!(
-                "no resource spec x-collection-name location exists for image '{image_name}'"
-            ))
+            // More commonly, all we need to do is increment the backfill counter
+            binding.backfill += 1;
+            // TODO: logit
+            Ok(())
         }
     }
 }

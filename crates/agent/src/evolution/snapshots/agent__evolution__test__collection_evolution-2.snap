@@ -121,11 +121,12 @@ expression: new_draft
             Object {
                 "bindings": Array [
                     Object {
+                        "backfill": Number(1),
                         "fields": Object {
                             "recommended": Bool(true),
                         },
                         "resource": Object {
-                            "targetThingy": String("aThing_v2"),
+                            "targetThingy": String("aThing"),
                         },
                         "source": String("evolution/CollectionA"),
                     },
@@ -157,11 +158,12 @@ expression: new_draft
             Object {
                 "bindings": Array [
                     Object {
+                        "backfill": Number(10),
                         "fields": Object {
                             "recommended": Bool(true),
                         },
                         "resource": Object {
-                            "targetThingy": String("cThing_v2"),
+                            "targetThingy": String("cThing"),
                         },
                         "source": String("evolution/CollectionC"),
                     },
