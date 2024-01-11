@@ -1,4 +1,3 @@
-use doc::Pointer;
 use serde_json::{value::RawValue, Value};
 
 pub async fn fetch_resource_spec_schema(
@@ -21,48 +20,28 @@ pub async fn fetch_resource_spec_schema(
     Ok(schema_json.0)
 }
 
-#[tracing::instrument(level = "debug")]
+///
+/// # Panics
+/// If the `full_collection_name` doesn't contain any `/` characters, which should never
+/// be the case since we should have already validated the collection name.
 pub fn update_materialization_resource_spec(
-    materialization_name: &str,
     resource_spec: &mut Value,
-    collection_name_ptr: &Pointer,
-    new_collection_name: Option<String>,
-) -> anyhow::Result<()> {
-    let maybe_new_name = new_collection_name
-        .as_ref()
-        .map(|n| {
-            n.rsplit('/')
-                .next()
-                .expect("collection name must contain a slash")
-                .to_owned()
-        })
-        .or_else(|| {
+    collection_name_ptr: &doc::Pointer,
+    full_collection_name: &str,
+) -> anyhow::Result<Value> {
+    let resource_name = full_collection_name
+        .rsplit_once('/')
+        .expect("collection name is invalid (does not contain '/')")
+        .1
+        .to_owned();
 
-            // If no explicit name was given, then just add or increment a
-            // version suffix to the resource config.
-            let nn = collection_name_ptr
-                .query(&*resource_spec)
-                .and_then(|v| v.as_str())
-                .map(crate::next_name);
-            tracing::debug!(%resource_spec, next_name = ?nn, ptr = %collection_name_ptr, "determined next name");
-            nn
-        });
-    let Some(new_val) = maybe_new_name else {
-        // This may or may not be something we should consider an error. The
-        // question comes down to whether or not it's acceptable to have an
-        // empty resource config. As far as I know, we've yet to really make a
-        // decision one way or the other, as this situation has not come up yet.
-        tracing::warn!(%materialization_name, ?new_collection_name, %collection_name_ptr, "not updating resource spec because there is no existing value at that location and no new collection name was provided");
-        return Ok(());
+    let Some(prev) = collection_name_ptr.create_value(resource_spec) else {
+        anyhow::bail!(
+            "cannot create location '{collection_name_ptr}' in resource spec '{resource_spec}'"
+        );
     };
 
-    if let Some(prev_val) = collection_name_ptr.create_value(resource_spec) {
-        tracing::info!(%prev_val, %new_val, %materialization_name, "updating resource spec");
-        *prev_val = Value::String(new_val);
-    } else {
-        anyhow::bail!("creating x-collection-name JSON location failed");
-    }
-    Ok(())
+    Ok(std::mem::replace(prev, resource_name.into()))
 }
 
 /// Runs inference on the given schema and searches for a location within the resource spec

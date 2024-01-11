@@ -1,0 +1,135 @@
+---
+source: crates/agent/src/evolution/test.rs
+expression: draft_specs
+---
+[
+    Record {
+        catalog_name: "evolution/CaptureB",
+        spec_type: Some(
+            Capture,
+        ),
+        spec: Some(
+            Object {
+                "bindings": Array [
+                    Object {
+                        "resource": Object {
+                            "thingy": String("baz"),
+                        },
+                        "target": String("evolution/CollectionC_v2"),
+                    },
+                    Object {
+                        "resource": Object {
+                            "thingy": String("qux"),
+                        },
+                        "target": String("evolution/CollectionD"),
+                    },
+                ],
+                "endpoint": Object {
+                    "connector": Object {
+                        "config": Object {},
+                        "image": String("captureImage:v1"),
+                    },
+                },
+            },
+        ),
+    },
+    Record {
+        catalog_name: "evolution/CollectionC_v2",
+        spec_type: Some(
+            Collection,
+        ),
+        spec: Some(
+            Object {
+                "key": Array [
+                    String("id"),
+                ],
+                "schema": Object {
+                    "properties": Object {
+                        "id": Object {
+                            "type": String("string"),
+                        },
+                    },
+                    "required": Array [
+                        String("id"),
+                    ],
+                    "type": String("object"),
+                    "x-infer-schema": Bool(true),
+                },
+            },
+        ),
+    },
+    Record {
+        catalog_name: "evolution/MaterializationA",
+        spec_type: Some(
+            Materialization,
+        ),
+        spec: Some(
+            Object {
+                "bindings": Array [
+                    Object {
+                        "backfill": Number(1),
+                        "fields": Object {
+                            "recommended": Bool(true),
+                        },
+                        "resource": Object {
+                            "targetThingy": String("aThing"),
+                        },
+                        "source": String("evolution/CollectionA"),
+                    },
+                    Object {
+                        "fields": Object {
+                            "recommended": Bool(true),
+                        },
+                        "resource": Object {
+                            "targetThingy": String("bThing"),
+                        },
+                        "source": String("evolution/CollectionB"),
+                    },
+                ],
+                "endpoint": Object {
+                    "connector": Object {
+                        "config": Object {},
+                        "image": String("matImage:v1"),
+                    },
+                },
+            },
+        ),
+    },
+    Record {
+        catalog_name: "evolution/MaterializationB",
+        spec_type: Some(
+            Materialization,
+        ),
+        spec: Some(
+            Object {
+                "bindings": Array [
+                    Object {
+                        "backfill": Number(9),
+                        "fields": Object {
+                            "recommended": Bool(true),
+                        },
+                        "resource": Object {
+                            "targetThingy": String("CollectionC_v2"),
+                        },
+                        "source": String("evolution/CollectionC_v2"),
+                    },
+                    Object {
+                        "fields": Object {
+                            "recommended": Bool(true),
+                        },
+                        "resource": Object {
+                            "targetThingy": String("dThing"),
+                        },
+                        "source": String("evolution/CollectionD"),
+                    },
+                ],
+                "endpoint": Object {
+                    "connector": Object {
+                        "config": Object {},
+                        "image": String("matImage:v1"),
+                    },
+                },
+            },
+        ),
+    },
+]
