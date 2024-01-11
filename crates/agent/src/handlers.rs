@@ -28,9 +28,10 @@ pub struct AgentNotification {
 }
 
 /// Handler is the principal trait implemented by the various task-specific
-/// event handlers that the agent runs.
+/// event handlers that the agent runs. They need to be `Send` because we
+/// spawn the handler invocations on a multithreaded runtime.
 #[async_trait::async_trait]
-pub trait Handler {
+pub trait Handler: Send {
     async fn handle(&mut self, pg_pool: &sqlx::PgPool) -> anyhow::Result<HandlerStatus>;
 
     fn table_name(&self) -> &'static str;
