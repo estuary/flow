@@ -48,8 +48,7 @@ struct Args {
     allow_local: bool,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), anyhow::Error> {
+fn main() -> Result<(), anyhow::Error> {
     // Use reasonable defaults for printing structured logs to stderr.
     let subscriber = tracing_subscriber::FmtSubscriber::builder()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -59,6 +58,19 @@ async fn main() -> Result<(), anyhow::Error> {
     let args = Args::parse();
     tracing::info!(?args, "started!");
 
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+
+    let task = runtime.spawn(async move { async_main(args).await });
+    let result = runtime.block_on(task);
+
+    tracing::info!(?result, "main function completed, shutting down runtime");
+    runtime.shutdown_timeout(std::time::Duration::from_secs(5));
+    result?
+}
+
+async fn async_main(args: Args) -> Result<(), anyhow::Error> {
     let bindir = std::fs::canonicalize(args.bindir)
         .context("canonicalize --bin-dir")?
         .into_os_string()
