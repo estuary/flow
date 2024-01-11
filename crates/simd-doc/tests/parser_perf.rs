@@ -14,7 +14,7 @@ const CITI_RIDES_SCHEMA: &[u8] =
     include_bytes!("../../json/benches/testdata/citi-rides.schema.json");
 const CITI_RIDES: &[u8] = include_bytes!("../../json/benches/testdata/citi-rides1.json");
 
-const TOTAL_ROUNDS: usize = 2_000;
+const TOTAL_ROUNDS: usize = 3_000;
 const CHUNK_SIZE: usize = 1 << 17; // 128K.
 
 #[test]

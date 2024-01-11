@@ -72,8 +72,6 @@ fn test_wizzle() {
     let mut b = Vec::new();
 
     for fixture in [
-        json!({"\u{80}ࠀ\0\0\0": "ࠀ\u{80}ࠀ"}),
-        /*
         json!([]),
         json!([true]),
         json!([true, false]),
@@ -96,7 +94,7 @@ fn test_wizzle() {
             "last": false
         }),
         json!(["one", ["two", ["three"], "four"]]),
-        */
+        json!({"\u{80}111abc": "ࠀ\u{80}222"}),
     ] {
         serde_json::to_writer(&mut b, &fixture).unwrap();
         b.push(b'\n');

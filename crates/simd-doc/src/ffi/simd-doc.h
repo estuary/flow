@@ -12,19 +12,6 @@ inline std::unique_ptr<parser> new_parser(size_t capacity)
     return std::make_unique<parser>(capacity);
 }
 
-typedef struct
-{
-    rust::Vec<uint64_t> &v;
-
-    union
-    {
-        uint64_t word;
-        uint8_t data[8];
-    } partial;
-
-    uint8_t partial_len;
-} output;
-
 typedef union
 {
     struct
@@ -47,17 +34,6 @@ typedef union
         uint8_t len;
     } inline_;
 } astr;
-
-// Example inline:
-// |08000000 68656c6c 6f000005 00000000| ....hello....... 00000000
-//  (tag)    (data and len)    (zeros)
-// Example out-of-line:
-// |08000000 13000000 e4ffffff 00000000|
-//  (tag)    (len)    (pos)    (zeros)
-inline bool astr_is_inline(const astr &str)
-{
-    return str.indirect.pos >= 0;
-}
 
 typedef struct
 {
@@ -92,6 +68,21 @@ typedef struct
         } parts;
     } w2;
 } anode;
+
+typedef struct
+{
+    rust::Vec<uint64_t> &v;
+
+    union
+    {
+        uint64_t word;
+        uint8_t data[8];
+    } partial;
+
+    uint8_t partial_len;
+
+    std::vector<std::vector<std::pair<astr, anode>>> tmp;
+} output;
 
 inline astr emplace_string(
     output &out,
@@ -174,7 +165,7 @@ inline void emplace_node(anode &node, output &out)
     // std::cout << "out.v.size is now " << (out.v.size() << 3) << std::endl;
 }
 
-anode walk_node(value &doc, output &out);
+anode walk_node(uint32_t depth, value &doc, output &out);
 
 // Parse many JSON documents from `padded_vec`, calling back with each before starting the next.
 // Return the number of unconsumed remainder bytes.
@@ -184,7 +175,8 @@ parse_many(
     rust::Vec<uint64_t> &v,
     std::unique_ptr<parser> &parser)
 {
-    output out = {v, {0}, 0};
+    output out = {v, {0}, 0, {}};
+    out.tmp.reserve(16);
 
     const bool allow_comma_separated = false;
     document_stream stream = parser->iterate_many(input.data(), input.size(), input.size(), allow_comma_separated);
@@ -196,7 +188,7 @@ parse_many(
 
         document_reference doc = *it;
         value root = doc.get_value();
-        anode node = walk_node(root, out);
+        anode node = walk_node(0, root, out);
 
         /*
         if (out.partial_len != 0)
@@ -214,9 +206,12 @@ parse_many(
 }
 
 // Recursively walk a `dom::element`, initializing `node` with its structure.
-anode walk_node(value &elem, output &out)
+anode walk_node(uint32_t depth, value &elem, output &out)
 {
-    std::vector<std::pair<astr, anode>> children;
+    if (out.tmp.size() <= depth)
+    {
+        out.tmp.push_back({});
+    }
 
     anode node = {};
 
@@ -224,16 +219,17 @@ anode walk_node(value &elem, output &out)
     {
     case json_type::array:
     {
+        auto &children = out.tmp[depth];
+        children.clear();
+        children.reserve(16);
+
         array arr = elem;
         // std::cout << "starting array" << std::endl;
 
         for (value child : arr)
         {
             // std::cout << "next array elem" << std::endl;
-            astr empty = {};
-
-            children.push_back(
-                std::make_pair(empty, walk_node(child, out)));
+            children.push_back(std::make_pair<astr, anode>({}, walk_node(depth + 1, child, out)));
         }
 
         if (out.partial_len != 0)
@@ -257,6 +253,10 @@ anode walk_node(value &elem, output &out)
     }
     case json_type::object:
     {
+        auto &children = out.tmp[depth];
+        children.clear();
+        children.reserve(16);
+
         object obj = elem;
         // std::cout << "starting obj" << std::endl;
 
@@ -275,9 +275,8 @@ anode walk_node(value &elem, output &out)
             }
             last_key = key;
 
-            children.push_back(std::make_pair(
-                emplace_string(out, key),
-                walk_node(child.value(), out)));
+            astr child_key = emplace_string(out, key);
+            children.push_back(std::make_pair(child_key, walk_node(depth + 1, child.value(), out)));
         }
 
         // Restore the sorted invariant of doc::HeapNode::Object fields.
@@ -295,12 +294,14 @@ anode walk_node(value &elem, output &out)
 
         for (auto &child : children)
         {
+            // Resolve relative offset of property.
             if (child.first.indirect.pos < 0)
             {
                 // Switch `pos` from a negative, absolute location to negative, relative offset.
                 child.first.indirect.pos = -(1 + (out.v.size() << 3) + child.first.indirect.pos);
             }
             out.v.push_back(child.first.word);
+
             emplace_node(child.second, out);
         }
 
