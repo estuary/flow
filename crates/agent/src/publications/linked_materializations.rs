@@ -300,10 +300,9 @@ async fn update_linked_materialization(
         let mut resource_spec = serde_json::json!({});
         let collection_name_ptr = resource_pointer_cache.get_pointer(txn, &conn.image).await?;
         crate::resource_configs::update_materialization_resource_spec(
-            materialization_name,
             &mut resource_spec,
             &collection_name_ptr,
-            Some(collection_name.to_string()),
+            collection_name,
         )?;
 
         let binding = MaterializationBinding {

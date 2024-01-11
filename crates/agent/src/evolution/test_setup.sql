@@ -83,7 +83,7 @@ with s1 as (
       'a900000000000000', 'evolution/MaterializationB', 
       '{
             "bindings": [
-                {"source": "evolution/CollectionC", "resource": {"targetThingy": "cThing"}},
+                {"source": "evolution/CollectionC", "backfill": 9, "resource": {"targetThingy": "cThing"}},
                 {"source": "evolution/CollectionD", "resource": {"targetThingy": "dThing"}}
             ],
             "endpoint": {"connector": {"image": "matImage:v1", "config": {}}}
