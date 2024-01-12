@@ -71,7 +71,7 @@ impl<I: Iterator<Item = ParseResult>> ParseErrorBuffer<I> {
     fn buffer_next(&mut self) -> bool {
         if let Some(item) = self.inner.next() {
             if let Err(err) = item.as_ref() {
-                tracing::warn!(error=err.to_string(), "failed to parse row");
+                tracing::warn!(error=err.to_string(), "failed to parse row, but ignoring due to error threshold");
                 self.errors_in_buffer += 1;
             }
             self.total_records += 1;
@@ -105,7 +105,7 @@ impl<I: Iterator<Item = ParseResult>> Iterator for ParseErrorBuffer<I> {
             } else {
                 let item = self.advance()?;
                 if let Err(err) = item.as_ref() {
-                    tracing::warn!(error=err.to_string(), "failed to parse row");
+                    tracing::warn!(error=err.to_string(), "failed to parse row, but ignoring due to error threshold");
                     continue;
                 } else {
                     return Some(item);
