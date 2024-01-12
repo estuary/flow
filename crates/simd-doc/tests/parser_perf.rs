@@ -39,8 +39,8 @@ pub fn parser_perf() {
     let chunks: Vec<_> = fixture.chunks(CHUNK_SIZE).collect();
 
     let mut input = Vec::new();
+    let mut output = simd_doc::Out::with_capacity(CHUNK_SIZE);
     let mut parser = simd_doc::Parser::new();
-    let mut output = Vec::new();
 
     let mut docs: usize = 0;
     let mut bytes: usize = 0;
@@ -57,7 +57,7 @@ pub fn parser_perf() {
             () = parser.parse_simd(&mut input, &mut output).unwrap();
 
             bytes += chunk.len();
-            docs += output.len();
+            docs += output.iter().count();
         }
     }
 

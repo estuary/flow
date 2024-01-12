@@ -32,21 +32,21 @@ fn parse_case(input: &[u8]) -> (String, String) {
     let mut parser = simd_doc::Parser::new();
 
     let (mut buf1, mut buf2) = (input.to_vec(), input.to_vec());
-    let (mut out1, mut out2) = (Vec::new(), Vec::new());
+    let (mut out1, mut out2) = (simd_doc::Out::new(), simd_doc::Out::new());
     () = parser.parse_serde(&mut buf1, &mut out1).unwrap();
     () = parser.parse_simd(&mut buf2, &mut out2).unwrap();
 
     (to_desc(out1, buf1), to_desc(out2, buf2))
 }
 
-fn to_desc(docs: Vec<(u32, doc::OwnedArchivedNode)>, rem: Vec<u8>) -> String {
+fn to_desc(docs: simd_doc::Out, rem: Vec<u8>) -> String {
     let mut w = String::new();
 
-    for (offset, doc) in docs {
+    for (offset, doc) in docs.iter() {
         writeln!(
             &mut w,
             "offset {offset}:\n{}",
-            hexdump::hexdump_iter(doc.bytes())
+            hexdump::hexdump_iter(doc)
                 .map(|line| format!(" {line}"))
                 .collect::<Vec<_>>()
                 .join("\n")
@@ -77,6 +77,9 @@ fn test_wizzle() {
         json!([true, false]),
         json!([true, [false], true]),
         json!([123, -456, 78.910]),
+        json!(["inline"]),
+        json!(["out of line"]),
+        json!(["aaa", "bbb"]),
         json!([
             "aaaaaaaaaa",
             "bbbbbbbb",
@@ -85,7 +88,7 @@ fn test_wizzle() {
         ]),
         json!({"":{"":9.007199254740997e16}}),
         json!({
-            "hello": {"big": "worldddddd", "wide": true}, "aaaaaaaaa": 1, "bbbbbbbbb": 2,
+            "hello": {"big": "worldddddd", "wide": true, "big big key": "smol"}, "aaaaaaaaa": 1, "bbbbbbbbb": 2,
         }),
         json!({
             "a\ta": { "b\tb": -9007, "z\tz": true},

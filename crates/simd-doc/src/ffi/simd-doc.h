@@ -3,37 +3,34 @@
 #include "simdjson.h"
 #include "rust/cxx.h"
 
-using namespace simdjson::ondemand;
+using namespace simdjson;
+
+class SimdParser;
 
 #include "simd-doc/src/ffi/mod.rs.h"
 
-inline std::unique_ptr<parser> new_parser(size_t capacity)
-{
-    return std::make_unique<parser>(capacity);
-}
-
 typedef union
 {
+    struct
+    {
+        char data[7];
+        uint8_t len;
+    } in;
+
+    struct
+    {
+        uint32_t len;
+        int32_t pos;
+    } out;
+
     struct
     {
         uint32_t p1;
         uint32_t p2;
     } parts;
 
-    uint64_t word;
-
-    struct
-    {
-        uint32_t len;
-        int32_t pos;
-    } indirect;
-
-    struct
-    {
-        uint8_t data[7];
-        uint8_t len;
-    } inline_;
-} astr;
+    void resolve(const size_t offset);
+} pstr;
 
 typedef struct
 {
@@ -67,216 +64,203 @@ typedef struct
             uint32_t zero;
         } parts;
     } w2;
-} anode;
+
+    void resolve(const size_t offset);
+} pnode;
 
 typedef struct
 {
-    rust::Vec<uint64_t> &v;
+    pstr property;
+    pnode node;
+} pfield;
 
-    union
-    {
-        uint64_t word;
-        uint8_t data[8];
-    } partial;
-
-    uint8_t partial_len;
-
-    std::vector<std::vector<std::pair<astr, anode>>> tmp;
-} output;
-
-inline astr emplace_string(
-    output &out,
-    const std::string_view &view)
+class SimdParser
 {
-    astr str = {};
-    const char *data = view.data();
-    size_t rem = view.length();
+public:
+    SimdParser(size_t capacity) : parser(capacity), out(NULL){};
+    size_t parse_many(rust::Slice<uint8_t> input, Out &next_out);
 
-    // Small string optimization.
-    if (rem < 8)
-    {
-        str.inline_.len = rem;
-        memcpy(&str.inline_.data[0], data, rem);
-        return str;
-    }
+private:
+    pstr place_string(const char *const d, const size_t len);
+    pnode place_array(pnode *const d, const size_t len);
+    pnode place_object(pfield *const d, const size_t len);
 
-    // Store as negative so that the MSB is set.
-    // This allows for distinguishing inline vs indirect representations,
-    // since inline never sets the high bit of length (maximum of 7).
-    str.indirect.pos = -1 - (out.v.size() << 3) - out.partial_len;
-    str.indirect.len = view.length();
+    void pad();
+    pnode walk_node(dom::element elem);
 
-    memcpy(&out.partial.data[out.partial_len], data, 8 - out.partial_len);
-    out.v.push_back(out.partial.word);
+    std::vector<std::vector<pfield>> fields_pool;
+    std::vector<std::vector<pnode>> items_pool;
 
-    data += 8 - out.partial_len;
-    rem -= 8 - out.partial_len;
+    dom::parser parser;
+    Out *out;
+};
 
-    while (rem >= 8)
-    {
-        out.v.push_back(*reinterpret_cast<const uint64_t *>(data));
-        data += 8;
-        rem -= 8;
-    }
-
-    out.partial.word = 0;
-    memcpy(&out.partial.data[0], data, rem);
-    out.partial_len = rem;
-
-    return str;
+inline std::unique_ptr<SimdParser> new_parser(size_t capacity)
+{
+    return std::make_unique<SimdParser>(capacity);
 }
 
-inline void emplace_node(anode &node, output &out)
+inline void SimdParser::pad()
 {
-    int32_t pos = out.v.size() << 3;
+    size_t n = (8 - (out->len() % 8)) % 8;
+    static const uint8_t ZEROS[8] = {};
+    out->extend(ZEROS, n);
+}
 
-    switch (node.w1.tag)
+inline pstr SimdParser::place_string(const char *const d, const size_t len)
+{
+    switch (len)
+    {
+    case 7:
+        return {.in = {.data = {d[0], d[1], d[2], d[3], d[4], d[5], d[6]}, .len = 7}};
+    case 6:
+        return {.in = {.data = {d[0], d[1], d[2], d[3], d[4], d[5], 0}, .len = 6}};
+    case 5:
+        return {.in = {.data = {d[0], d[1], d[2], d[3], d[4], 0, 0}, .len = 5}};
+    case 4:
+        return {.in = {.data = {d[0], d[1], d[2], d[3], 0, 0, 0}, .len = 4}};
+    case 3:
+        return {.in = {.data = {d[0], d[1], d[2], 0, 0, 0, 0}, .len = 3}};
+    case 2:
+        return {.in = {.data = {d[0], d[1], 0, 0, 0, 0, 0}, .len = 2}};
+    case 1:
+        return {.in = {.data = {d[0], 0, 0, 0, 0, 0, 0}, .len = 1}};
+    case 0:
+        return {.in = {.data = {}, .len = 0}};
+    default:
+    {
+        // Store `pos` as negative and offset by -1 so that the MSB is set.
+        // This allows for distinguishing inline vs indirect representations,
+        // since inline never sets the high bit of length (maximum of 7).
+        pstr ret = {.out = {.len = len, .pos = -1 - static_cast<int32_t>(out->len())}};
+        out->extend(reinterpret_cast<const uint8_t *>(d), len);
+        return ret;
+    }
+    }
+}
+
+inline pnode SimdParser::place_array(pnode *const d, const size_t len)
+{
+    pad();
+    static_assert(sizeof(pnode) == 16);
+
+    const size_t offset = out->len();
+    for (size_t i = 0; i != len; ++i)
+    {
+        d[i].resolve(offset + i * 16);
+    }
+    out->extend(reinterpret_cast<const uint8_t *>(d), len * 16);
+
+    return pnode{
+        .w1 = {.tag = 0x00, .boolean = {}, .zeros = {}, .p2 = {.i32 = static_cast<int32_t>(offset)}},
+        .w2 = {.parts = {.p3 = {.u32 = static_cast<uint32_t>(len)}, .zero = {}}},
+    };
+}
+
+inline pnode SimdParser::place_object(pfield *const d, const size_t len)
+{
+    pad();
+    static_assert(sizeof(pfield) == 24);
+
+    const size_t offset = out->len();
+    for (size_t i = 0; i != len; ++i)
+    {
+        d[i].property.resolve(offset + i * 24);
+        d[i].node.resolve(offset + i * 24 + 8);
+    }
+    out->extend(reinterpret_cast<const uint8_t *>(d), len * 24);
+
+    return pnode{
+        .w1 = {.tag = 0x06, .boolean = {}, .zeros = {}, .p2 = {.i32 = static_cast<int32_t>(offset)}},
+        .w2 = {.parts = {.p3 = {.u32 = static_cast<uint32_t>(len)}, .zero = {}}},
+    };
+}
+
+inline void pstr::resolve(const size_t offset)
+{
+    // If `pos` is negative (out-of-line representation, switch from a negative,
+    // absolute location to negative, relative offset.
+    if (out.pos < 0)
+    {
+        // Switch `pos` from a negative, absolute location to negative, relative offset.
+        out.pos = -out.pos - offset - 1;
+    }
+}
+
+inline void pnode::resolve(const size_t offset)
+{
+    switch (w1.tag)
     {
     case 0x00: // Array.
     {
-        node.w1.p2.i32 = -(4 + pos + node.w1.p2.i32);
+        w1.p2.i32 = w1.p2.i32 - (offset + 4);
         break;
     }
     case 0x06: // Object.
     {
-        node.w1.p2.i32 = -(4 + pos + node.w1.p2.i32);
+        w1.p2.i32 = w1.p2.i32 - (offset + 4);
         break;
     }
     case 0x08: // String.
     {
-        if (node.w2.parts.p3.i32 < 0)
-        {
-            // Switch `pos` from a negative, absolute location to negative, relative offset.
-            node.w2.parts.p3.i32 = -(5 + pos + node.w2.parts.p3.i32);
-        }
+        reinterpret_cast<pstr *>(&w1.p2)->resolve(offset + 4);
         break;
     }
     }
-
-    union
-    {
-        anode node;
-        uint64_t words[2];
-    } foo = {node};
-
-    out.v.push_back(foo.words[0]);
-    out.v.push_back(foo.words[1]);
-
-    // std::cout << "out.v.size is now " << (out.v.size() << 3) << std::endl;
 }
 
-anode walk_node(uint32_t depth, value &doc, output &out);
-
-// Parse many JSON documents from `padded_vec`, calling back with each before starting the next.
-// Return the number of unconsumed remainder bytes.
-inline size_t
-parse_many(
-    rust::Slice<uint8_t> input,
-    rust::Vec<uint64_t> &v,
-    std::unique_ptr<parser> &parser)
+pnode SimdParser::walk_node(dom::element elem)
 {
-    output out = {v, {0}, 0, {}};
-    out.tmp.reserve(16);
-
-    const bool allow_comma_separated = false;
-    document_stream stream = parser->iterate_many(input.data(), input.size(), input.size(), allow_comma_separated);
-
-    for (document_stream::iterator it = stream.begin(); it != stream.end(); ++it)
-    {
-        size_t header = out.v.size();
-        out.v.push_back(static_cast<uint64_t>(it.current_index()) << 32);
-
-        document_reference doc = *it;
-        value root = doc.get_value();
-        anode node = walk_node(0, root, out);
-
-        /*
-        if (out.partial_len != 0)
-        {
-            out.v.push_back(out.partial.word);
-            out.partial_len = 0;
-        }
-        */
-        emplace_node(node, out);
-
-        out.v[header] |= static_cast<uint64_t>(out.v.size() - header - 1);
-    }
-
-    return stream.size_in_bytes() - stream.truncated_bytes();
-}
-
-// Recursively walk a `dom::element`, initializing `node` with its structure.
-anode walk_node(uint32_t depth, value &elem, output &out)
-{
-    if (out.tmp.size() <= depth)
-    {
-        out.tmp.push_back({});
-    }
-
-    anode node = {};
-
     switch (elem.type())
     {
-    case json_type::array:
+    case dom::element_type::ARRAY:
     {
-        auto &children = out.tmp[depth];
-        children.clear();
-        children.reserve(16);
-
-        array arr = elem;
-        // std::cout << "starting array" << std::endl;
-
-        for (value child : arr)
+        std::vector<pnode> items;
+        if (!items_pool.empty())
         {
-            // std::cout << "next array elem" << std::endl;
-            children.push_back(std::make_pair<astr, anode>({}, walk_node(depth + 1, child, out)));
+            items_pool.back().swap(items);
+            items_pool.pop_back();
         }
+        items.reserve(8);
 
-        if (out.partial_len != 0)
+        for (dom::element child : elem.get_array())
         {
-            out.v.push_back(out.partial.word);
-            out.partial_len = 0;
+            items.emplace_back(walk_node(child));
         }
-        int32_t pos = out.v.size() << 3;
+        pnode ret = place_array(items.data(), items.size());
 
-        for (auto &child : children)
-        {
-            emplace_node(child.second, out);
-        }
+        items.clear();
+        items_pool.emplace_back(std::move(items));
 
-        // std::cout << "array done" << std::endl;
-
-        node.w1.tag = 0x00000000;
-        node.w1.p2.i32 = -pos;
-        node.w2.parts.p3.u32 = children.size();
-        return node;
+        return ret;
     }
-    case json_type::object:
+    case dom::element_type::OBJECT:
     {
-        auto &children = out.tmp[depth];
-        children.clear();
-        children.reserve(16);
-
-        object obj = elem;
-        // std::cout << "starting obj" << std::endl;
+        std::vector<pfield> children;
+        if (!fields_pool.empty())
+        {
+            fields_pool.back().swap(children);
+            fields_pool.pop_back();
+        }
+        children.reserve(8);
 
         // Track whether field properties are already sorted.
         std::string_view last_key;
         bool must_sort = false;
 
-        for (field child : obj)
+        for (dom::key_value_pair field : elem.get_object())
         {
-            std::string_view key = child.unescaped_key(false);
-            // std::cout << "key: " << key << " last_key: " << last_key << std::endl;
+            pstr property = place_string(field.key.data(), field.key.length());
 
-            if (key < last_key)
+            if (field.key < last_key)
             {
                 must_sort = true;
             }
-            last_key = key;
+            last_key = field.key;
 
-            astr child_key = emplace_string(out, key);
-            children.push_back(std::make_pair(child_key, walk_node(depth + 1, child.value(), out)));
+            children.emplace_back(
+                std::move(property),
+                walk_node(field.value));
         }
 
         // Restore the sorted invariant of doc::HeapNode::Object fields.
@@ -285,98 +269,70 @@ anode walk_node(uint32_t depth, value &elem, output &out)
         // sort_fields(fields);
         //}
 
-        if (out.partial_len != 0)
-        {
-            out.v.push_back(out.partial.word);
-            out.partial_len = 0;
-        }
-        int32_t pos = out.v.size() << 3;
+        pnode ret = place_object(children.data(), children.size());
 
-        for (auto &child : children)
-        {
-            // Resolve relative offset of property.
-            if (child.first.indirect.pos < 0)
-            {
-                // Switch `pos` from a negative, absolute location to negative, relative offset.
-                child.first.indirect.pos = -(1 + (out.v.size() << 3) + child.first.indirect.pos);
-            }
-            out.v.push_back(child.first.word);
+        children.clear();
+        fields_pool.emplace_back(std::move(children));
 
-            emplace_node(child.second, out);
-        }
-
-        // std::cout << "obj done " << must_sort << std::endl;
-
-        node.w1.tag = 0x06;
-        node.w1.p2.i32 = -pos;
-        node.w2.parts.p3.u32 = children.size();
-        return node;
+        return ret;
     }
-    case json_type::number:
+    case dom::element_type::INT64:
     {
-        number num = elem.get_number();
-
-        switch (num.get_number_type())
+        int64_t v = elem.get_int64();
+        if (v < 0)
         {
-        case number_type::signed_integer:
+            return pnode{.w1 = {.tag = 0x04}, .w2 = {.i64 = v}};
+        }
+        else
         {
-            int64_t v = num.get_int64();
-            // std::cout << "i64 " << v << std::endl;
-
-            if (v < 0)
-            {
-                node.w1.tag = 0x04;
-                node.w2.i64 = v;
-            }
-            else
-            {
-                node.w1.tag = 0x07;
-                node.w2.u64 = v;
-            }
-            break;
+            return pnode{.w1 = {.tag = 0x07}, .w2 = {.u64 = static_cast<uint64_t>(v)}};
         }
-        case number_type::unsigned_integer:
-        {
-            uint64_t v = num.get_int64();
-            // std::cout << "u64 " << v << std::endl;
-
-            node.w1.tag = 0x07;
-            node.w2.u64 = v;
-            break;
-        }
-        case number_type::floating_point_number:
-        {
-            double v = num.get_double();
-            // std::cout << "f64 " << v << std::endl;
-
-            node.w1.tag = 0x03;
-            node.w2.f64 = v;
-            break;
-        }
-        }
-        return node;
     }
-    case json_type::string:
+    case dom::element_type::UINT64:
     {
-        std::string_view view = elem;
-        // std::cout << "str " << view << std::endl;
-
-        astr str = emplace_string(out, view);
-        node.w1.tag = 0x08;
-        node.w1.p2.u32 = str.parts.p1;
-        node.w2.parts.p3.u32 = str.parts.p2;
-        return node;
+        return pnode{.w1 = {.tag = 0x07}, .w2 = {.u64 = elem.get_uint64()}};
     }
-    case json_type::boolean:
+    case dom::element_type::DOUBLE:
     {
-        bool b = elem;
-        // std::cout << "bool " << b << std::endl;
-        node.w1.tag = 0x01;
-        node.w1.boolean = b;
-        return node;
+        return pnode{.w1 = {.tag = 0x03}, .w2 = {.f64 = elem.get_double()}};
+    }
+    case dom::element_type::STRING:
+    {
+        pstr s = place_string(elem.get_c_str(), elem.get_string_length());
+        return pnode{
+            .w1 = {.tag = 0x08, .p2 = {.u32 = s.parts.p1}},
+            .w2 = {.parts = {.p3 = {.u32 = s.parts.p2}}},
+        };
+    }
+    case dom::element_type::BOOL:
+    {
+        return pnode{.w1 = {.tag = 0x01, .boolean = elem.get_bool()}};
     }
     default:
-        node.w1.tag = 0x05;
-        return node;
+        return pnode{.w1 = {.tag = 0x05}};
     }
+}
+
+inline size_t
+SimdParser::parse_many(rust::Slice<uint8_t> input, Out &next_out)
+{
+    out = &next_out;
+
+    dom::document_stream stream = parser.parse_many(input.data(), input.size(), input.size());
+
+    for (dom::document_stream::iterator it = stream.begin(); it != stream.end(); ++it)
+    {
+        out->begin(it.current_index());
+
+        pnode node = walk_node(*it);
+        place_array(&node, 1);
+
+        out->finish();
+    }
+
+    size_t consumed = stream.size_in_bytes() - stream.truncated_bytes();
+
+    out = NULL;
+
+    return consumed;
 }

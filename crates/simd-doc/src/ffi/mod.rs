@@ -1,68 +1,50 @@
+use super::Out;
+
 #[cxx::bridge]
 mod ffi {
+
+    extern "Rust" {
+        type Out;
+        fn len(&self) -> usize;
+        unsafe fn extend(&mut self, data: *const u8, len: usize);
+        fn begin(&mut self, source_offset: usize);
+        fn finish(&mut self);
+    }
 
     unsafe extern "C++" {
         include!("simd-doc/src/ffi/simd-doc.h");
 
-        type parser;
-
-        fn new_parser(capacity: usize) -> UniquePtr<parser>;
+        type SimdParser;
+        fn new_parser(capacity: usize) -> UniquePtr<SimdParser>;
 
         fn parse_many<'a>(
+            self: Pin<&mut SimdParser>,
             input: &mut [u8],
-            output: &mut Vec<u64>,
-            parser: &mut UniquePtr<parser>,
+            output: &mut Out,
         ) -> Result<usize>;
     }
 }
 
-use bytes::Buf;
-pub(crate) use ffi::{new_parser, parser};
+pub(crate) use ffi::{new_parser, SimdParser};
 
 impl super::Parser {
     pub fn parse_simd<'a>(
         &mut self,
         input: &mut Vec<u8>,
-        output: &mut Vec<(u32, doc::OwnedArchivedNode)>,
+        output: &mut Out,
     ) -> Result<(), cxx::Exception> {
-        // We must pad `input` with requisite extra bytes.
-        let input_len = input.len();
-        input.extend_from_slice(&[0; 64]);
-        input.truncate(input_len);
+        static PAD: [u8; 64] = [0; 64];
 
-        if input_len == 0 {
+        // We must pad `input` with requisite extra bytes.
+        input.extend_from_slice(&PAD);
+        input.truncate(input.len() - PAD.len());
+
+        if input.is_empty() {
             return Ok(());
         }
-        let mut buf = Vec::with_capacity(input.len() / 6);
 
-        let consumed = ffi::parse_many(&mut *input, &mut buf, &mut self.0)?;
+        let consumed = self.0.pin_mut().parse_many(&mut *input, output)?;
         input.drain(..consumed);
-
-        // Swizzle `buf` from Vec<u64> => Vec<u8>.
-        let mut buf = unsafe {
-            let v = Vec::from_raw_parts(
-                buf.as_mut_ptr() as *mut u8,
-                buf.len() * 8,
-                buf.capacity() * 8,
-            );
-            std::mem::forget(buf);
-            v
-        };
-        // And again into bytes::Bytes after shrinking.
-        buf.shrink_to_fit();
-        let mut buf: bytes::Bytes = buf.into();
-
-        while !buf.is_empty() {
-            let header = u64::from_le_bytes(buf[0..8].try_into().unwrap());
-            buf.advance(8); // Consume header.
-
-            let offset = (header >> 32) as u32;
-            let len = (header & 0xffffffff) as usize; // Length in 64-bit words.
-
-            output.push((offset, unsafe {
-                doc::OwnedArchivedNode::new(buf.split_to(len * 8))
-            }));
-        }
 
         Ok(())
     }
