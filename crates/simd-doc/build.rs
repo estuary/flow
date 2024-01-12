@@ -1,7 +1,7 @@
 fn main() {
     // Tell cargo to invalidate the built crate whenever the wrapper changes
     println!("cargo:rerun-if-changed=src/ffi/mod.rs");
-    println!("cargo:rerun-if-changed=src/ffi/simd-doc.h");
+    println!("cargo:rerun-if-changed=src/ffi/simd-doc.hpp");
     println!("cargo:rerun-if-changed=src/ffi/simdjson.cpp");
     println!("cargo:rerun-if-changed=src/ffi/simdjson.h");
 

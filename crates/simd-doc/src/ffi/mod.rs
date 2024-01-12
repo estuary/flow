@@ -12,7 +12,7 @@ mod ffi {
     }
 
     unsafe extern "C++" {
-        include!("simd-doc/src/ffi/simd-doc.h");
+        include!("simd-doc/src/ffi/simd-doc.hpp");
 
         type SimdParser;
         fn new_parser(capacity: usize) -> UniquePtr<SimdParser>;

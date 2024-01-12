@@ -9,7 +9,7 @@ class SimdParser;
 
 #include "simd-doc/src/ffi/mod.rs.h"
 
-typedef union
+union pstr
 {
     struct
     {
@@ -30,9 +30,9 @@ typedef union
     } parts;
 
     void resolve(const size_t offset);
-} pstr;
+};
 
-typedef struct
+struct pnode
 {
     struct
     {
@@ -66,13 +66,15 @@ typedef struct
     } w2;
 
     void resolve(const size_t offset);
-} pnode;
+};
 
-typedef struct
+struct pfield
 {
     pstr property;
     pnode node;
-} pfield;
+
+    pfield(pstr property, pnode node) : property(property), node(node) {}
+};
 
 class SimdParser
 {
@@ -132,7 +134,7 @@ inline pstr SimdParser::place_string(const char *const d, const size_t len)
         // Store `pos` as negative and offset by -1 so that the MSB is set.
         // This allows for distinguishing inline vs indirect representations,
         // since inline never sets the high bit of length (maximum of 7).
-        pstr ret = {.out = {.len = len, .pos = -1 - static_cast<int32_t>(out->len())}};
+        pstr ret = {.out = {.len = static_cast<uint32_t>(len), .pos = -1 - static_cast<int32_t>(out->len())}};
         out->extend(reinterpret_cast<const uint8_t *>(d), len);
         return ret;
     }
