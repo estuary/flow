@@ -7,7 +7,7 @@ pub mod sanitize;
 use crate::config::ErrorThreshold;
 use crate::decorate::{AddFieldError, Decorator};
 use crate::input::{detect_compression, CompressionError, Input};
-use crate::{Compression, Format, ParseConfig};
+use crate::{Compression, Format, ParseConfig, JsonPointer};
 
 use serde_json::Value;
 use std::io::{self, Write};
@@ -106,6 +106,10 @@ pub fn parse(
 ) -> Result<(), ParseError> {
     let (resolved_format, resolved_compression, content) = resolve_config(config, content)?;
     tracing::debug!(format = ?resolved_format, compression = %resolved_compression, "resolved config");
+    
+    // Add the /_meta/filename to the span so we can track which files are associated with logs
+    let span = tracing::span!(tracing::Level::ERROR, "parsing", filename = config.add_values.get(&JsonPointer("/_meta/file".to_string())).and_then(|v| v.as_str()));
+    let _enter = span.enter();
 
     let parser = parser_for(resolved_format);
 
