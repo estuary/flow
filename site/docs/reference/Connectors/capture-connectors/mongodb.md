@@ -32,7 +32,9 @@ You'll need:
       reliability, and possibility of capturing multiple databases in the same
       task. However, if access to all databases is not possible, you can
       give us access to a single database and we will watch a change stream on
-      that specific database.
+      that specific database. Note that we require access on the _database_ and
+      not individual collections. This is to so that we can run a change stream on
+      the database which allows for better consistency guarantees.
     
     In order to create a user with access to all databases, use a command like so:
     ```
@@ -44,7 +46,7 @@ You'll need:
    })
     ```
     
-    If you are using a userw ith access to all databases, then in your mongodb
+    If you are using a user with access to all databases, then in your mongodb
     address, you must specify `?authSource=admin` parameter so that
     authentication is done through your admin database.
 
