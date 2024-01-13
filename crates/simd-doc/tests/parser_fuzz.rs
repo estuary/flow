@@ -1,6 +1,5 @@
 use quickcheck::quickcheck;
-use serde_json::{json, Value};
-use std::fmt::Write;
+use serde_json::json;
 
 mod arbitrary_value;
 use arbitrary_value::ArbitraryValue;
@@ -10,65 +9,33 @@ quickcheck! {
         let mut buf = Vec::new();
 
         for doc in input {
-            let doc = match doc.0 {
-                doc @ Value::Object(_) | doc @ Value::Array(_) => doc,
-                doc => Value::Array(vec![doc]),
-            };
-            serde_json::to_writer(&mut buf, &doc).unwrap();
+            serde_json::to_writer(&mut buf, &doc.0).unwrap();
             buf.push(b'\n');
         }
-        let (serde, simd) = parse_case(&buf);
+        let ((docs1, docs2), (buf1, buf2)) = round_trip(&buf);
 
-        if serde != simd {
-            eprintln!("serde:\n{serde}\n");
-            eprintln!("simd:\n{simd}\n");
-        }
-
-        return serde == simd;
+        return docs1 == docs2 && buf1 == buf2;
     }
 }
 
-fn parse_case(input: &[u8]) -> (String, String) {
+fn round_trip(input: &[u8]) -> ((String, String), (Vec<u8>, Vec<u8>)) {
     let mut parser = simd_doc::Parser::new();
 
     let (mut buf1, mut buf2) = (input.to_vec(), input.to_vec());
-    let (mut out1, mut out2) = (simd_doc::Out::new(), simd_doc::Out::new());
-    () = parser.parse_serde(&mut buf1, &mut out1).unwrap();
-    () = parser.parse_simd(&mut buf2, &mut out2).unwrap();
+    let (alloc1, alloc2) = (doc::Allocator::new(), doc::Allocator::new());
+    let (mut docs1, mut docs2) = (Vec::new(), Vec::new());
 
-    (to_desc(out1, buf1), to_desc(out2, buf2))
-}
+    () = parser.parse_serde(&alloc1, &mut docs1, &mut buf1).unwrap();
+    () = parser.parse_simd(&alloc2, &mut docs2, &mut buf2).unwrap();
 
-fn to_desc(docs: simd_doc::Out, rem: Vec<u8>) -> String {
-    let mut w = String::new();
+    let docs1 = format!("{docs1:?}");
+    let docs2 = format!("{docs2:?}");
 
-    for (offset, doc) in docs.iter() {
-        writeln!(
-            &mut w,
-            "offset {offset}:\n{}",
-            hexdump::hexdump_iter(doc)
-                .map(|line| format!(" {line}"))
-                .collect::<Vec<_>>()
-                .join("\n")
-        )
-        .unwrap();
-    }
-
-    writeln!(
-        &mut w,
-        "remainder:\n{}",
-        hexdump::hexdump_iter(&rem)
-            .map(|line| format!(" {line}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    )
-    .unwrap();
-
-    w
+    ((docs1, docs2), (buf1, buf2))
 }
 
 #[test]
-fn test_wizzle() {
+fn test_fixture_cases() {
     let mut b = Vec::new();
 
     for fixture in [
@@ -104,11 +71,7 @@ fn test_wizzle() {
     }
     b.extend_from_slice(b"[{\"remainder\":\"");
 
-    let (serde, simd) = parse_case(&b);
-
-    if serde != simd {
-        eprintln!("serde:\n{serde}\n");
-        eprintln!("simd:\n{simd}\n");
-        assert!(false);
-    }
+    let ((docs1, docs2), (buf1, buf2)) = round_trip(&b);
+    assert_eq!(docs1, docs2);
+    assert_eq!(buf1, buf2);
 }

@@ -16,6 +16,7 @@ const CITI_RIDES: &[u8] = include_bytes!("../../json/benches/testdata/citi-rides
 
 const TOTAL_ROUNDS: usize = 3_000;
 const CHUNK_SIZE: usize = 1 << 17; // 128K.
+const MEASURE_RKYV: bool = false;
 
 #[test]
 pub fn parser_perf() {
@@ -38,9 +39,14 @@ pub fn parser_perf() {
 
     let chunks: Vec<_> = fixture.chunks(CHUNK_SIZE).collect();
 
+    let mut alloc = doc::Allocator::with_capacity(CHUNK_SIZE);
     let mut input = Vec::new();
-    let mut output = simd_doc::Out::with_capacity(CHUNK_SIZE);
+    let mut output: Vec<(usize, doc::HeapNode<'static>)> = Vec::new();
     let mut parser = simd_doc::Parser::new();
+
+    let mut rkyv_ser =
+        rkyv::ser::serializers::AlignedSerializer::new(rkyv::AlignedVec::with_capacity(CHUNK_SIZE));
+    let mut rkyv_scratch = Default::default();
 
     let mut docs: usize = 0;
     let mut bytes: usize = 0;
@@ -52,12 +58,40 @@ pub fn parser_perf() {
     for _ in 0..TOTAL_ROUNDS {
         for chunk in &chunks {
             output.clear();
+            alloc.reset();
             input.extend_from_slice(*chunk);
 
-            () = parser.parse_simd(&mut input, &mut output).unwrap();
+            () = parser
+                .parse(
+                    &alloc,
+                    unsafe { std::mem::transmute(&mut output) },
+                    &mut input,
+                )
+                .unwrap();
+
+            use rkyv::ser::Serializer;
+
+            if MEASURE_RKYV {
+                let mut serializer = rkyv::ser::serializers::AllocSerializer::<1024>::new(
+                    rkyv_ser,
+                    rkyv_scratch,
+                    Default::default(),
+                );
+
+                for (_offset, doc) in &output {
+                    let _pos = serializer.serialize_value(doc).unwrap();
+                }
+                (rkyv_ser, rkyv_scratch, _) = serializer.into_components();
+
+                rkyv_ser = {
+                    let mut v = rkyv_ser.into_inner();
+                    v.clear();
+                    rkyv::ser::serializers::AlignedSerializer::new(v)
+                };
+            }
 
             bytes += chunk.len();
-            docs += output.iter().count();
+            docs += output.len();
         }
     }
 

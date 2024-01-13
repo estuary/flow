@@ -4582,7 +4582,6 @@ name = "simd-doc"
 version = "0.0.0"
 dependencies = [
  "allocator",
- "bytes",
  "cxx",
  "cxx-build",
  "doc",
