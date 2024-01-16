@@ -86,6 +86,13 @@ func (cmd apiDiscover) Execute(_ []string) error {
 	mbp.InitLog(cmd.Log)
 
 	var timeout = time.Second * 30
+	if timeoutStr := os.Getenv("FLOW_DISCOVER_TIMEOUT"); timeoutStr != "" {
+		if to, err := time.ParseDuration(timeoutStr); err != nil {
+			return fmt.Errorf("failed to parse FLOW_DISCOVER_TIMEOUT value: %w", err)
+		} else {
+			timeout = to
+		}
+	}
 
 	// Temporary exceptions for connectors that are known to have very slow discover
 	// operations.
@@ -95,7 +102,7 @@ func (cmd apiDiscover) Execute(_ []string) error {
 		"ghcr.io/estuary/source-salesforce",
 		"ghcr.io/estuary/source-netsuite",
 	} {
-		if strings.HasPrefix(cmd.Image, image) {
+		if strings.HasPrefix(cmd.Image, image) && timeout < (time.Minute*5) {
 			timeout = time.Minute * 5
 		}
 	}
@@ -104,9 +111,10 @@ func (cmd apiDiscover) Execute(_ []string) error {
 	defer cancelFn()
 
 	logrus.WithFields(logrus.Fields{
-		"config":    cmd,
-		"version":   mbp.Version,
-		"buildDate": mbp.BuildDate,
+		"config":          cmd,
+		"version":         mbp.Version,
+		"buildDate":       mbp.BuildDate,
+		"discoverTimeout": timeout,
 	}).Debug("flowctl configuration")
 	pb.RegisterGRPCDispatcher("local")
 
