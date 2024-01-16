@@ -87,12 +87,19 @@ func (cmd apiDiscover) Execute(_ []string) error {
 
 	var timeout = time.Second * 30
 
-	// Temporary exception for the Netsuite connector.
+	// Temporary exceptions for connectors that are known to have very slow discover
+	// operations.
 	// TODO(johnny): Allow larger timeouts across the board, after resolving
 	// progress and UX issues of long-running discover operations.
-	if strings.HasPrefix(cmd.Image, "ghcr.io/estuary/source-netsuite") {
-		timeout = time.Minute * 5
+	for _, image := range []string{
+		"ghcr.io/estuary/source-salesforce",
+		"ghcr.io/estuary/source-netsuite",
+	} {
+		if strings.HasPrefix(cmd.Image, image) {
+			timeout = time.Minute * 5
+		}
 	}
+
 	var ctx, cancelFn = context.WithTimeout(context.Background(), timeout)
 	defer cancelFn()
 
