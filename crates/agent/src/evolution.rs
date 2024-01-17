@@ -5,8 +5,7 @@ use agent_sql::{
 };
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 
 #[cfg(test)]
 mod test;
@@ -169,17 +168,6 @@ async fn process_row(
         anyhow::bail!("unexpected errors from drafted specs: {errors:?}");
     }
 
-    // Create our helper for updating resource specs of affected materialization
-    // bindings. This needs to fetch all of the resource_spec_schemas for each
-    // of the  materialization connectors involved
-    let update_helper = match ResourceSpecUpdater::for_catalog(txn, &before_catalog).await {
-        Ok(help) => help,
-        Err(err) => {
-            tracing::warn!(error=%err, "failed to create ResourceSpecUpdater during evolution");
-            return error_status(err.to_string());
-        }
-    };
-
     let mut new_catalog = models::Catalog::default();
     let mut changed_collections = Vec::new();
     for req in collections_requests.iter() {
@@ -188,7 +176,6 @@ async fn process_row(
             &before_catalog,
             req.current_name.as_str(),
             req.new_name.as_deref(),
-            &update_helper,
         );
         match result {
             Ok(summary) => {
@@ -311,13 +298,12 @@ fn validate_evolving_collections(
     Ok(())
 }
 
-#[tracing::instrument(skip(new_catalog, prev_catalog, update_helper))]
+#[tracing::instrument(skip(new_catalog, prev_catalog))]
 fn evolve_collection(
     new_catalog: &mut models::Catalog,
     prev_catalog: &models::Catalog,
     old_collection_name: &str,
     new_collection_name: Option<&str>,
-    update_helper: &ResourceSpecUpdater,
 ) -> anyhow::Result<EvolvedCollection> {
     let old_collection = models::Collection::new(old_collection_name);
 
@@ -365,15 +351,6 @@ fn evolve_collection(
                     .set_collection(models::Collection::new(new_name.clone()));
             }
 
-            // Next we need to update the resource spec of the binding. This updates, for instance,
-            // a sql materialization to point to a new table name.
-            let models::MaterializationEndpoint::Connector(conn) = &mat_spec.endpoint else {
-                tracing::warn!(
-                    materialization = %mat_name,
-                    "evolutions handler encountered a non-connector materialization");
-                continue;
-            };
-
             // Don't update resources for disabled bindings.
             if binding.disable {
                 tracing::debug!(materialization = %mat_name,
@@ -381,16 +358,12 @@ fn evolve_collection(
                 continue;
             }
 
-            update_helper
-                .update_binding(
-                    &conn.image,
-                    mat_name.as_str(),
-                    new_collection_name.map(|s| s.to_owned()),
-                    binding,
-                )
-                .with_context(|| {
-                    format!("updating resource spec of '{mat_name}' binding '{old_collection}'")
-                })?;
+            // Finally, we need to increment the backfill counter of the binding.
+            // This is not _technically_ required for materializations when
+            // re-creating the collection, since they'll backfill when the
+            // collection name changes, anyway. But it may help to make it more
+            // obvious and explicit, and certainly won't hurt anything.
+            binding.backfill += 1;
         }
     }
 
@@ -434,81 +407,4 @@ fn has_mat_binding(spec: &models::MaterializationDef, collection: &models::Colle
     spec.bindings
         .iter()
         .any(|b| b.source.collection() == collection)
-}
-
-/// A helper that's specially suited for the purpose of evolutions.
-struct ResourceSpecUpdater {
-    pointers_by_image: HashMap<String, doc::Pointer>,
-}
-
-impl ResourceSpecUpdater {
-    async fn for_catalog(
-        txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        catalog: &models::Catalog,
-    ) -> anyhow::Result<ResourceSpecUpdater> {
-        let mut pointers_by_image = HashMap::new();
-        for mat_spec in catalog.materializations.values() {
-            let models::MaterializationEndpoint::Connector(conn) = &mat_spec.endpoint else {
-                continue;
-            };
-            if pointers_by_image.contains_key(&conn.image) {
-                continue;
-            }
-            let image = conn.image.clone();
-            let schema_json =
-                crate::resource_configs::fetch_resource_spec_schema(&conn.image, txn).await?;
-            let pointer = crate::resource_configs::pointer_for_schema(schema_json.get())
-                .with_context(|| format!("inspecting resource_spec_schema for image '{image}'"))?;
-
-            tracing::debug!(%image, %pointer, "parsed resource spec schema");
-            pointers_by_image.insert(image, pointer);
-        }
-        Ok(ResourceSpecUpdater { pointers_by_image })
-    }
-
-    fn update_binding(
-        &self,
-        image_name: &str,
-        materialization_name: &str,
-        new_collection_name: Option<String>,
-        binding: &mut models::MaterializationBinding,
-    ) -> anyhow::Result<()> {
-        if let Some(new_name) = new_collection_name {
-            // Since we're re-creating the collection, we'll need to parse the
-            // current resource spec into a `Value` that we can mutate
-            let mut resource_spec: Value = serde_json::from_str(binding.resource.get())
-                .with_context(|| {
-                    format!(
-                        "parsing materialization resource spec of '{}' binding for '{}",
-                        materialization_name, &new_name
-                    )
-                })?;
-
-            let Some(pointer) = self.pointers_by_image.get(image_name) else {
-                anyhow::bail!(
-                    "no resource spec x-collection-name location exists for image '{image_name}'"
-                )
-            };
-
-            let previous_value = crate::resource_configs::update_materialization_resource_spec(
-                &mut resource_spec,
-                pointer,
-                &new_name,
-            )?;
-
-            tracing::info!(
-                %materialization_name,
-                %new_name,
-                %previous_value,
-                "updated materialization resource spec"
-            );
-            binding.resource = models::RawValue::from_value(&resource_spec);
-            Ok(())
-        } else {
-            // More commonly, all we need to do is increment the backfill counter
-            binding.backfill += 1;
-            // TODO: logit
-            Ok(())
-        }
-    }
 }
