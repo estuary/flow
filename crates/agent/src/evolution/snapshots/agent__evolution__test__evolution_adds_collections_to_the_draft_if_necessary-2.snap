@@ -12,6 +12,7 @@ expression: draft_specs
             Object {
                 "bindings": Array [
                     Object {
+                        "backfill": Number(1),
                         "resource": Object {
                             "thingy": String("baz"),
                         },
