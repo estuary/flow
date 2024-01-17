@@ -423,6 +423,12 @@ fn evolve_collection(
             for binding in new_spec.bindings.iter_mut() {
                 if &binding.target == &old_collection {
                     binding.target = new_name.clone();
+                    // When re-creating collections, it's quite likely that
+                    // users will also want to trigger a new backfill. Unlike
+                    // materializations, capture connectors will only backfill
+                    // when the counter is incremented, not when only the
+                    // collection name is changed.
+                    binding.backfill += 1;
                 }
             }
         }
