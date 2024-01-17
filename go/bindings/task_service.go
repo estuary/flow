@@ -81,11 +81,14 @@ func NewTaskService(
 		}
 	}
 
-	// Unix sockets are limited to 108 characters in length.
+	// Unix sockets are limited to 104 characters in length on mac. Linux allows 107, but we
+	// respect the slightly lower limit here instead of having separate limits per OS.
 	// TODO(johnny): Remove hashing after pet-set migration, when we know there's a bound on directory length.
-	if len(config.UdsPath) > 107 {
+	if len(config.UdsPath) > 104 {
 		config.UdsPath = path.Join(os.TempDir(), fmt.Sprintf("task-svc-%x", md5.Sum([]byte(config.UdsPath))))
-
+		// 107 is intentional here. If we're on mac and the path is still longer than 104, we'll still raise
+		// an error from the rust runtime. But we tend to have paths that are still very close to the limit,
+		// so this ensures that we don't return errors unnecessarily on linux.
 		if len(config.UdsPath) > 107 {
 			return nil, fmt.Errorf("config.UdsPath still too long after hashing: %s", config.UdsPath)
 		}
