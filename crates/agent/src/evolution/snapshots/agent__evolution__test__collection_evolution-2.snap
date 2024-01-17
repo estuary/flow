@@ -18,6 +18,7 @@ expression: new_draft
                         "target": String("evolution/CollectionA"),
                     },
                     Object {
+                        "backfill": Number(1),
                         "resource": Object {
                             "thingy": String("bar"),
                         },
@@ -48,6 +49,7 @@ expression: new_draft
                         "target": String("evolution/CollectionC"),
                     },
                     Object {
+                        "backfill": Number(1),
                         "resource": Object {
                             "thingy": String("qux"),
                         },
