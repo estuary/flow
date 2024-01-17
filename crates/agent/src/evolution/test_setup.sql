@@ -266,44 +266,6 @@ s8 as (
       '43a18a3e-5a59-11ed-9b6a-0242ac188888', 
       'evolution/', 'admin'
     )
-), 
-s9 as (
-  insert into connectors (
-    id, external_url, image_name, title, 
-    short_description, logo_url
-  ) 
-  values 
-    (
-      '5555555555555555', 'http://example.com', 
-      'captureImage', '{"en-US": "foo"}' :: json, 
-      '{"en-US": "foo"}' :: json, '{"en-US": "foo"}' :: json
-    ), 
-    (
-      '6666666666666666', 'http://example.com', 
-      'matImage', '{"en-US": "foo"}' :: json, 
-      '{"en-US": "foo"}' :: json, '{"en-US": "foo"}' :: json
-    )
-),
-s10 as (
-  -- Evolution requires the resource_spec_schema in order to get the location
-  -- of the `x-collection-name` annotation.
-  insert into connector_tags (
-    connector_id, image_tag, protocol, 
-    resource_spec_schema
-  ) 
-  values 
-    (
-      '6666666666666666', ':v1', 'materialize', 
-      '{
-            "type": "object",
-            "properties": {
-                "targetThingy": {
-                    "type": "string",
-                    "x-collection-name": true
-                }
-            }
-      }'
-    )
-) 
+)
 select 1;
 

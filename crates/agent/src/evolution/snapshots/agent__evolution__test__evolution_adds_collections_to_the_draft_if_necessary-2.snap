@@ -104,12 +104,12 @@ expression: draft_specs
             Object {
                 "bindings": Array [
                     Object {
-                        "backfill": Number(9),
+                        "backfill": Number(10),
                         "fields": Object {
                             "recommended": Bool(true),
                         },
                         "resource": Object {
-                            "targetThingy": String("CollectionC_v2"),
+                            "targetThingy": String("cThing"),
                         },
                         "source": String("evolution/CollectionC_v2"),
                     },

@@ -131,11 +131,12 @@ expression: new_draft
                         "source": String("evolution/CollectionA"),
                     },
                     Object {
+                        "backfill": Number(1),
                         "fields": Object {
                             "recommended": Bool(true),
                         },
                         "resource": Object {
-                            "targetThingy": String("NewCollectionB"),
+                            "targetThingy": String("bThing"),
                         },
                         "source": String("evolution/NewCollectionB"),
                     },
@@ -168,11 +169,12 @@ expression: new_draft
                         "source": String("evolution/CollectionC"),
                     },
                     Object {
+                        "backfill": Number(1),
                         "fields": Object {
                             "recommended": Bool(true),
                         },
                         "resource": Object {
-                            "targetThingy": String("NewCollectionD"),
+                            "targetThingy": String("dThing"),
                         },
                         "source": String("evolution/NewCollectionD"),
                     },
@@ -195,11 +197,12 @@ expression: new_draft
             Object {
                 "bindings": Array [
                     Object {
+                        "backfill": Number(1),
                         "fields": Object {
                             "recommended": Bool(true),
                         },
                         "resource": Object {
-                            "targetThingy": String("NewCollectionB"),
+                            "targetThingy": String("CollectionB"),
                         },
                         "source": String("evolution/NewCollectionB"),
                     },
