@@ -98,22 +98,8 @@ pub enum Command {
     /// They can be edited, developed, and tested while still a draft.
     /// Then when you're ready, publish your draft to make your changes live.
     Draft(draft::Draft),
-    /// This command does not (yet) work for end users
-    ///
-    /// Note: We're still working on allowing users access to task logs, and this command will not work until we do.
-    /// Prints the runtime logs of a task (capture, derivation, or materialization).
-    /// Reads contents from the `ops.<data-plane>/logs` collection, selecting the partition
-    /// that corresponds to the selected task. This command is essentially equivalent to the much longer:
-    /// `flowctl collections read --collection ops.<data-plane>/logs --include-partition estuary.dev/field/name=<task> --uncommitted`
+    /// Read operational logs of your tasks (captures, derivations, and materializations).
     Logs(ops::Logs),
-    /// This command does not (yet) work for end users
-    ///
-    /// Note: We're still working on allowing users access to task stats, and this command will not work until we do.
-    /// Prints the runtime stats of a task (capture, derivation, or materialization).
-    /// Reads contents from the `ops.<data-plane>/stats` collection, selecting the partition
-    /// that corresponds to the selected task. This command is essentially equivalent to the much longer:
-    /// `flowctl collections read --collection ops.<data-plane>/stats --include-partition estuary.dev/field/name=<task>`
-    Stats(ops::Stats),
     /// Advanced, low-level, and experimental commands which are less common.
     Raw(raw::Advanced),
 }
@@ -194,7 +180,6 @@ impl Cli {
             Command::Preview(preview) => preview.run(&mut context).await,
             Command::Draft(draft) => draft.run(&mut context).await,
             Command::Logs(logs) => logs.run(&mut context).await,
-            Command::Stats(stats) => stats.run(&mut context).await,
             Command::Raw(advanced) => advanced.run(&mut context).await,
         }?;
 

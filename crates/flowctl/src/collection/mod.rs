@@ -21,23 +21,8 @@ pub struct CollectionJournalSelector {
     /// The selector is provided as JSON matching the same shape that's used
     /// in Flow catalog specs. For example:
     /// '{"include": {"myField1":["value1", "value2"]}}'
-    #[clap(
-        long,
-        value_parser(parse_partition_selector),
-        conflicts_with_all(&["include-partition", "exclude-partition"])
-    )]
+    #[clap(long, value_parser(parse_partition_selector))]
     pub partitions: Option<models::PartitionSelector>,
-
-    /// Deprecated, use --partitions instead
-    #[clap(long = "include-partition", value_parser(parse_deprecated_selector))]
-    pub include_partitions: Vec<String>,
-    /// Deprecated, use --partitions instead
-    #[clap(long = "exclude-partition", value_parser(parse_deprecated_selector))]
-    pub exclude_partitions: Vec<String>,
-}
-
-fn parse_deprecated_selector(_: &str) -> Result<String, anyhow::Error> {
-    anyhow::bail!("this argument has been deprecated, and replaced by --partitions")
 }
 
 fn parse_partition_selector(arg: &str) -> Result<models::PartitionSelector, anyhow::Error> {

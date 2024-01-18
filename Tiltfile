@@ -92,8 +92,13 @@ DPG_TLS_KEY_PATH='%s/local-tls-private-key.pem' % DPG_REPO
 
 local_resource('dpg-tls-cert',
     dir='%s/data-plane-gateway' % REPO_BASE,
+    # These incantations create a non-CA self-signed certificate which is
+    # valid for localhost and its subdomains. rustls is quite fiddly about
+    # accepting self-signed certificates so all of these are required.
     cmd='[ -f %s ] || openssl req -x509 -nodes -days 365 \
-        -subj  "/C=CA/ST=QC/O=Estuary/CN=localhost:28318" \
+        -subj  "/ST=QC/O=Estuary/CN=localhost" \
+        -addext basicConstraints=critical,CA:FALSE,pathlen:1 \
+        -addext "subjectAltName=DNS:localhost,DNS:*.localhost,IP:127.0.0.1" \
         -newkey rsa:2048 -keyout "%s" \
         -out "%s"' % (DPG_TLS_KEY_PATH, DPG_TLS_KEY_PATH, DPG_TLS_CERT_PATH))
 
