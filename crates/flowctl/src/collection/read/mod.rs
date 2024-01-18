@@ -23,7 +23,6 @@ pub struct ReadArgs {
     pub selector: CollectionJournalSelector,
     #[clap(flatten)]
     pub bounds: ReadBounds,
-
     /// Read all journal data, including messages from transactions which were
     /// rolled back or never committed. Due to the current limitations of the Rust
     /// Gazette client library, this is the only mode that's currently supported,
@@ -31,6 +30,8 @@ pub struct ReadArgs {
     /// the default.
     #[clap(long)]
     pub uncommitted: bool,
+    #[clap(skip)]
+    pub auth_prefixes: Vec<String>,
 }
 
 /// Common definition for arguments specifying the begin and and bounds of a read command.
@@ -50,9 +51,13 @@ pub async fn journal_reader(
     ctx: &mut crate::CliContext,
     args: &ReadArgs,
 ) -> anyhow::Result<Reader<ExponentialBackoff>> {
+    let auth_prefixes = if args.auth_prefixes.is_empty() {
+        vec![args.selector.collection.clone()]
+    } else {
+        args.auth_prefixes.clone()
+    };
     let cp_client = ctx.controlplane_client().await?;
-    let mut data_plane_client =
-        dataplane::journal_client_for(cp_client, vec![args.selector.collection.clone()]).await?;
+    let mut data_plane_client = dataplane::journal_client_for(cp_client, auth_prefixes).await?;
 
     let selector = args.selector.build_label_selector();
     tracing::debug!(?selector, "build label selector");

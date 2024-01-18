@@ -28,38 +28,9 @@ impl Logs {
     }
 }
 
-#[derive(clap::Args, Debug)]
-pub struct Stats {
-    #[clap(flatten)]
-    pub task: TaskSelector,
-
-    #[clap(flatten)]
-    pub bounds: ReadBounds,
-
-    /// Read raw data from stats journals, including possibly uncommitted or rolled back transactions.
-    /// This flag is currently required, but will be made optional in the future as we add support for
-    /// committed reads, which will become the default.
-    #[clap(long)]
-    pub uncommitted: bool,
-}
-
-impl Stats {
-    pub async fn run(&self, ctx: &mut crate::CliContext) -> anyhow::Result<()> {
-        let read_args = read_args(
-            &self.task.task,
-            OpsCollection::Stats,
-            &self.bounds,
-            self.uncommitted,
-        );
-        read_collection(ctx, &read_args).await?;
-        Ok(())
-    }
-}
-
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum OpsCollection {
     Logs,
-    Stats,
 }
 
 pub fn read_args(
@@ -70,7 +41,6 @@ pub fn read_args(
 ) -> ReadArgs {
     let logs_or_stats = match collection {
         OpsCollection::Logs => "logs",
-        OpsCollection::Stats => "stats",
     };
     // Once we implement federated data planes, we'll need to update this to
     // fetch the name of the data plane based on the tenant.
@@ -93,6 +63,7 @@ pub fn read_args(
         selector,
         uncommitted,
         bounds: bounds.clone(),
+        auth_prefixes: vec![task_name.to_string()],
     }
 }
 
