@@ -66,17 +66,17 @@ Alternatively, you could manually update all the specs to agree to your edit, bu
 
 Evolutions can prevent errors resulting from mismatched specs in two ways:
 
-* **Materialize data to a new resource in the endpoint system**: The evolution updates all materialization binding that from the collection to write to a new resource (database table, for example) in the endpoint system. This is done by updating the materialization's *binding specification*. For example, if the collection was previously materialized into a database table called `my_table`, the evolution would update it to instead materialize into `my_table_v2`. The Flow collection itself remains unchanged.
+* **Materialize data to a new resource in the endpoint system**: The evolution updates the affected materialization bindings to increment their `backfill` counter, which causes the materialization to re-create the resource (database table, for example) and backfill it from the beginning.
 
    This is a simpler change, and how evolutions work in most cases.
 
-* **Re-create the Flow collection with a new name**: The evolution creates a completely new collection with numerical suffix, such as `_v2`. This collection starts out empty and backfills from the source. The evolution also updates all captures and materializations that reference the old collection to instead reference the new collection. This also updates any materializations to materialize the new collection into a new resource.
+* **Re-create the Flow collection with a new name**: The evolution creates a completely new collection with numerical suffix, such as `_v2`. This collection starts out empty and backfills from the source. The evolution also updates all captures and materializations that reference the old collection to instead reference the new collection, and increments their `backfill` counters.
 
    This is a more complicated change, and evolutions only work this way when necessary: when the collection key or logical partition changes, or when a schema change would cause the endpoint system to reject the materialized data.
 
-:::info
-Evolutions will soon support the re-creation of materialization resources, such as tables, while keeping the same names.
-:::
+In either case, the names of the destination resources will remain the same. For example, a materialization to Postgres would drop and re-create the affected tables with the same names they had previously. (Previously, it used to add version suffixes, but not any longer)
+
+Also in either case, only the specific bindings that had incompatible changes will be affected. Other bindings will remain untouched, and will not re-backfill.
 
 ## What causes breaking schema changes?
 
