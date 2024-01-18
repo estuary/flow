@@ -4,6 +4,7 @@ use agent_sql::{
     Capability,
 };
 use anyhow::Context;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -14,7 +15,7 @@ pub struct EvolutionHandler;
 
 /// Rust struct corresponding to each array element of the `collections` JSON
 /// input of an `evolutions` row.
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct EvolveRequest {
     /// The current name of the collection.
     #[serde(alias = "old_name")]
@@ -24,6 +25,10 @@ pub struct EvolveRequest {
     /// Otherwise, only materialization bindings will be updated.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub new_name: Option<String>,
+    /// Optionally restrict updates to only the provided materializations. This conflicts with
+    /// `new_name`, and at most one of the two may be provided.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub materializations: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
@@ -171,11 +176,17 @@ async fn process_row(
     let mut new_catalog = models::Catalog::default();
     let mut changed_collections = Vec::new();
     for req in collections_requests.iter() {
+        let specific_materializations = req
+            .materializations
+            .iter()
+            .map(|m| m.as_str())
+            .collect::<BTreeSet<_>>();
         let result = evolve_collection(
             &mut new_catalog,
             &before_catalog,
             req.current_name.as_str(),
             req.new_name.as_deref(),
+            &specific_materializations,
         );
         match result {
             Ok(summary) => {
@@ -252,6 +263,10 @@ fn validate_evolving_collections(
             return Err(format!("duplicate request for collection '{old_name}'"));
         }
 
+        if req.new_name.is_some() && !req.materializations.is_empty() {
+            return Err(format!("cannot specify both materializations and new_name"));
+        }
+
         // ensure that there's a corresponding spec row for each evolving collection
         let spec_row = spec_rows
             .iter()
@@ -304,6 +319,7 @@ fn evolve_collection(
     prev_catalog: &models::Catalog,
     old_collection_name: &str,
     new_collection_name: Option<&str>,
+    specific_materializations: &BTreeSet<&str>,
 ) -> anyhow::Result<EvolvedCollection> {
     let old_collection = models::Collection::new(old_collection_name);
 
@@ -315,6 +331,11 @@ fn evolve_collection(
     let new_name = models::Collection::new(new_name);
 
     if re_create_collection {
+        // We also validate this when we validate the request
+        assert!(
+            specific_materializations.is_empty(),
+            "specific_materializations argument must be empty if collection is being re-created"
+        );
         let Some(collection_spec) = prev_catalog.collections.get(&old_collection) else {
             panic!("prev_catalog does not contain a collection named '{old_collection_name}'");
         };
@@ -331,6 +352,12 @@ fn evolve_collection(
         .iter()
         .filter(|m| has_mat_binding(m.1, &old_collection))
     {
+        if !specific_materializations.is_empty()
+            && !specific_materializations.contains(mat_name.as_str())
+        {
+            tracing::debug!(materialization = %mat_name, "skipping materialization because it was not requested to be updated");
+            continue;
+        }
         updated_materializations.push(mat_name.as_str().to_owned());
         let new_spec = new_catalog
             .materializations
@@ -365,6 +392,18 @@ fn evolve_collection(
             // obvious and explicit, and certainly won't hurt anything.
             binding.backfill += 1;
         }
+    }
+    // If specific materializations were requested to be updated, ensure that
+    // we were actually able to update all of the given materializations.
+    if !specific_materializations.is_empty()
+        && specific_materializations.len() != updated_materializations.len()
+    {
+        let actual = updated_materializations
+            .iter()
+            .map(|u| u.as_str())
+            .collect::<BTreeSet<_>>();
+        let diff = specific_materializations.difference(&actual).format(", ");
+        anyhow::bail!("requested to update the materialization(s) [{diff}], but no such materializations were found that source from the collection '{old_collection_name}'");
     }
 
     let mut updated_captures = Vec::new();

@@ -474,7 +474,7 @@ async fn stop_with_errors(
     } = &mut job_status
     {
         if !incompatible_collections.is_empty() && row.auto_evolve {
-            let collections = to_evolutions_collections(&incompatible_collections);
+            let collections = create_evolutions_requests(&incompatible_collections);
             let detail = format!(
                 "system created in response to failed publication: {}",
                 row.pub_id
@@ -496,24 +496,95 @@ async fn stop_with_errors(
     Ok((row.pub_id, job_status))
 }
 
-fn to_evolutions_collections(
+fn create_evolutions_requests(
     incompatible_collections: &[IncompatibleCollection],
 ) -> Vec<serde_json::Value> {
     incompatible_collections
         .iter()
         .map(|ic| {
             // Do we need to re-create the whole collection, or can we just re-create materialization bindings?
-            let new_name = if ic.requires_recreation.is_empty() {
-                None
+            let (new_name, materializations) = if ic.requires_recreation.is_empty() {
+                // Since we're not re-creating the collection, restrict the
+                // evolution to only those materializations that have actually
+                // failed validation.
+                (None, ic.affected_materializations.iter().map(|m| m.name.clone()).collect())
             } else {
                 tracing::debug!(reasons = ?ic.requires_recreation, collection = %ic.collection, "will attempt to re-create collection");
-                Some(crate::next_name(&ic.collection))
+                (Some(crate::next_name(&ic.collection)), Vec::new())
             };
             serde_json::to_value(crate::evolution::EvolveRequest {
                 current_name: ic.collection.clone(),
                 new_name,
+                materializations,
             })
             .unwrap()
         })
         .collect()
+}
+
+#[cfg(test)]
+mod test {
+    use super::{
+        builds::{AffectedConsumer, ReCreateReason},
+        *,
+    };
+    use crate::evolution::EvolveRequest;
+
+    #[test]
+    fn test_create_evolutions_requests() {
+        let input = &[
+            IncompatibleCollection {
+                collection: "test/collectionA".to_string(),
+                requires_recreation: vec![ReCreateReason::KeyChange],
+                affected_materializations: vec![AffectedConsumer {
+                    name: "test/materializationA".to_string(),
+                    fields: Vec::new(),
+                }],
+            },
+            IncompatibleCollection {
+                collection: "test/collectionB".to_string(),
+                requires_recreation: Vec::new(),
+                affected_materializations: vec![
+                    AffectedConsumer {
+                        name: "test/materializationB".to_string(),
+                        fields: Vec::new(),
+                    },
+                    AffectedConsumer {
+                        name: "test/materializationB2".to_string(),
+                        fields: Vec::new(),
+                    },
+                ],
+            },
+            IncompatibleCollection {
+                collection: "test/collectionC".to_string(),
+                requires_recreation: Vec::new(),
+                affected_materializations: Vec::new(),
+            },
+        ];
+
+        let result = serde_json::to_string(&create_evolutions_requests(input)).unwrap();
+        let requests: Vec<EvolveRequest> = serde_json::from_str(&result).unwrap();
+
+        let expected = vec![
+            EvolveRequest {
+                current_name: "test/collectionA".to_string(),
+                new_name: Some("test/collectionA_v2".to_string()),
+                materializations: Vec::new(),
+            },
+            EvolveRequest {
+                current_name: "test/collectionB".to_string(),
+                new_name: None,
+                materializations: vec![
+                    "test/materializationB".to_string(),
+                    "test/materializationB2".to_string(),
+                ],
+            },
+            EvolveRequest {
+                current_name: "test/collectionC".to_string(),
+                new_name: None,
+                materializations: Vec::new(),
+            },
+        ];
+        assert_eq!(expected, requests);
+    }
 }
