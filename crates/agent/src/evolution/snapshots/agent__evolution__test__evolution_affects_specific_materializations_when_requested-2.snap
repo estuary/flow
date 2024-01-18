@@ -39,6 +39,8 @@ expression: draft_specs
                 },
             },
         ),
-        expect_pub_id: None,
+        expect_pub_id: Some(
+            bbbbbbbbbbbbbbbb,
+        ),
     },
 ]

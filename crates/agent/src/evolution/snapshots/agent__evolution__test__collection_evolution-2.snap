@@ -33,6 +33,9 @@ expression: new_draft
                 },
             },
         ),
+        expect_pub_id: Some(
+            bbbbbbbbbbbbbbbb,
+        ),
     },
     Record {
         catalog_name: "evolution/CaptureB",
@@ -64,6 +67,9 @@ expression: new_draft
                 },
             },
         ),
+        expect_pub_id: Some(
+            bbbbbbbbbbbbbbbb,
+        ),
     },
     Record {
         catalog_name: "evolution/CollectionA",
@@ -88,6 +94,7 @@ expression: new_draft
                 },
             },
         ),
+        expect_pub_id: None,
     },
     Record {
         catalog_name: "evolution/CollectionC",
@@ -113,6 +120,7 @@ expression: new_draft
                 },
             },
         ),
+        expect_pub_id: None,
     },
     Record {
         catalog_name: "evolution/MaterializationA",
@@ -150,6 +158,9 @@ expression: new_draft
                     },
                 },
             },
+        ),
+        expect_pub_id: Some(
+            bbbbbbbbbbbbbbbb,
         ),
     },
     Record {
@@ -189,6 +200,9 @@ expression: new_draft
                 },
             },
         ),
+        expect_pub_id: Some(
+            bbbbbbbbbbbbbbbb,
+        ),
     },
     Record {
         catalog_name: "evolution/MaterializationC",
@@ -217,6 +231,7 @@ expression: new_draft
                 },
             },
         ),
+        expect_pub_id: None,
     },
     Record {
         catalog_name: "evolution/NewCollectionB",
@@ -241,6 +256,7 @@ expression: new_draft
                 },
             },
         ),
+        expect_pub_id: None,
     },
     Record {
         catalog_name: "evolution/NewCollectionD",
@@ -266,5 +282,6 @@ expression: new_draft
                 },
             },
         ),
+        expect_pub_id: None,
     },
 ]
