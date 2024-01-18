@@ -1,4 +1,4 @@
-FROM denoland/deno:distroless-1.36.3
+FROM denoland/deno:distroless-1.39.4
 
 COPY target/x86_64-unknown-linux-musl/release/derive-typescript /
 

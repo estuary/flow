@@ -49,6 +49,5 @@ jobs:
         run: docker build -t ghcr.io/estuary/derive-typescript:dev crates/derive-typescript/
 
       - name: push docker image
-        # TODO(johnny): Uncomment once merged.
-        # if: ${{ github.ref == 'refs/heads/master' }}
+        if: ${{ github.ref == 'refs/heads/master' }}
         run: docker push ghcr.io/estuary/derive-typescript:dev
