@@ -133,6 +133,7 @@ fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::respo
         shuffle_key_types: _,
         project_root,
         import_map,
+        ..
     } = &validate;
 
     let collection = collection.as_ref().unwrap();
@@ -148,6 +149,7 @@ fn validate(validate: derive::request::Validate) -> anyhow::Result<derive::respo
                 collection,
                 name,
                 shuffle_lambda_config_json,
+                ..
             } = transform;
 
             let lambda = if lambda_config_json == "null" {
