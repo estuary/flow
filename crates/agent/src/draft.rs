@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use super::Id;
 use agent_sql::{drafts as drafts_sql, CatalogType};
 use anyhow::Context;
@@ -9,7 +11,10 @@ pub struct Error {
     pub detail: String,
 }
 
-// upsert_specs updates the given draft with specifications of the catalog.
+/// upsert_specs updates the given draft with specifications of the catalog.
+/// The `expect_pub_ids` parameter is used to lookup the `last_pub_id` by catalog name.
+/// For each item in the catalog, if an entry exists in `expect_pub_ids`, then it will
+/// be used as the `expect_pub_id` column.
 pub async fn upsert_specs(
     draft_id: Id,
     models::Catalog {
@@ -19,6 +24,7 @@ pub async fn upsert_specs(
         tests,
         ..
     }: models::Catalog,
+    expect_pub_ids: &BTreeMap<&str, Id>,
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(), sqlx::Error> {
     for (collection, spec) in collections {
@@ -27,7 +33,7 @@ pub async fn upsert_specs(
             collection.as_str(),
             spec,
             CatalogType::Collection,
-            None,
+            expect_pub_ids.get(collection.as_str()).copied(),
             txn,
         )
         .await?;
@@ -38,7 +44,7 @@ pub async fn upsert_specs(
             capture.as_str(),
             spec,
             CatalogType::Capture,
-            None,
+            expect_pub_ids.get(capture.as_str()).copied(),
             txn,
         )
         .await?;
@@ -49,14 +55,21 @@ pub async fn upsert_specs(
             materialization.as_str(),
             spec,
             CatalogType::Materialization,
-            None,
+            expect_pub_ids.get(materialization.as_str()).copied(),
             txn,
         )
         .await?;
     }
     for (test, steps) in tests {
-        drafts_sql::upsert_spec(draft_id, test.as_str(), steps, CatalogType::Test, None, txn)
-            .await?;
+        drafts_sql::upsert_spec(
+            draft_id,
+            test.as_str(),
+            steps,
+            CatalogType::Test,
+            expect_pub_ids.get(test.as_str()).copied(),
+            txn,
+        )
+        .await?;
     }
 
     agent_sql::drafts::touch(draft_id, txn).await?;

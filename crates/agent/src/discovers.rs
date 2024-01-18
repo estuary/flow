@@ -177,7 +177,7 @@ impl DiscoverHandler {
         };
 
         let drafted_spec_count = catalog.spec_count();
-        draft::upsert_specs(row.draft_id, catalog, txn)
+        draft::upsert_specs(row.draft_id, catalog, &Default::default(), txn)
             .await
             .context("inserting draft specs")?;
 

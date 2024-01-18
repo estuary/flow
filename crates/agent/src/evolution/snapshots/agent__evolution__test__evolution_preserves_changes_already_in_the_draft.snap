@@ -44,5 +44,8 @@ expression: draft_specs
                 },
             },
         ),
+        expect_pub_id: Some(
+            cccccccccccccccc,
+        ),
     },
 ]
