@@ -33,6 +33,9 @@ expression: draft_specs
                 },
             },
         ),
+        expect_pub_id: Some(
+            bbbbbbbbbbbbbbbb,
+        ),
     },
     Record {
         catalog_name: "evolution/CollectionC_v2",
@@ -58,6 +61,7 @@ expression: draft_specs
                 },
             },
         ),
+        expect_pub_id: None,
     },
     Record {
         catalog_name: "evolution/MaterializationA",
@@ -95,6 +99,9 @@ expression: draft_specs
                 },
             },
         ),
+        expect_pub_id: Some(
+            bbbbbbbbbbbbbbbb,
+        ),
     },
     Record {
         catalog_name: "evolution/MaterializationB",
@@ -131,6 +138,9 @@ expression: draft_specs
                     },
                 },
             },
+        ),
+        expect_pub_id: Some(
+            bbbbbbbbbbbbbbbb,
         ),
     },
 ]

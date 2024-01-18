@@ -54,7 +54,7 @@ async fn test_collection_evolution() {
 
     let new_draft = sqlx::query!(
         r#"
-        select catalog_name, spec_type as "spec_type: CatalogType", spec
+        select catalog_name, spec_type as "spec_type: CatalogType", spec, expect_pub_id as "expect_pub_id: Id"
         from draft_specs
         where draft_id = '2230000000000000'
         order by catalog_name asc
@@ -192,7 +192,7 @@ async fn evolution_adds_collections_to_the_draft_if_necessary() {
 
     let draft_specs = sqlx::query!(
         r#"
-        select catalog_name, spec_type as "spec_type: CatalogType", spec
+        select catalog_name, spec_type as "spec_type: CatalogType", spec, expect_pub_id as "expect_pub_id: Id"
         from draft_specs
         where draft_id = '2230000000000000'
         order by catalog_name asc
@@ -224,9 +224,10 @@ async fn evolution_preserves_changes_already_in_the_draft() {
         .execute(&mut txn)
         .await
         .unwrap();
-    sqlx::query(r##"insert into draft_specs (draft_id, catalog_name, spec_type, spec) values (
+    sqlx::query(r##"insert into draft_specs (draft_id, catalog_name, expect_pub_id, spec_type, spec) values (
             '2230000000000000',
             'evolution/MaterializationA',
+            'cccccccccccccccc',
             'materialization',
             '{
                 "bindings": [
@@ -271,7 +272,7 @@ async fn evolution_preserves_changes_already_in_the_draft() {
 
     let draft_specs = sqlx::query!(
         r#"
-        select catalog_name, spec_type as "spec_type: CatalogType", spec
+        select catalog_name, spec_type as "spec_type: CatalogType", spec, expect_pub_id as "expect_pub_id: Id"
         from draft_specs
         where draft_id = '2230000000000000'
         order by catalog_name asc
@@ -283,7 +284,8 @@ async fn evolution_preserves_changes_already_in_the_draft() {
 
     // We're looking for the new endpoint and resource configs, which ought to
     // be preserved, and for the backfill counter to have been incremented still
-    // (even though it's already larger than the value in live_specs).
+    // (even though it's already larger than the value in live_specs). Also looking
+    // for the expect_pub_id from the draft spec to be preserved.
     insta::assert_debug_snapshot!(draft_specs);
 }
 

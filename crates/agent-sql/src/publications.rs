@@ -338,6 +338,8 @@ pub struct ExpandedRow {
     pub catalog_name: String,
     // Last build ID of the live spec.
     pub last_build_id: Id,
+    // Last publication ID of the live spec.
+    pub last_pub_id: Id,
     // Current live specification of this expansion.
     // It won't be changed by this publication.
     pub live_spec: Json<Box<RawValue>>,
@@ -419,6 +421,7 @@ pub async fn resolve_expanded_rows(
             l.id as "live_spec_id!: Id",
             l.catalog_name as "catalog_name!",
             l.last_build_id as "last_build_id!: Id",
+            l.last_pub_id as "last_pub_id!: Id",
             l.spec as "live_spec!: Json<Box<RawValue>>",
             l.spec_type as "live_type!: CatalogType",
             (
