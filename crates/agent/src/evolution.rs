@@ -6,7 +6,7 @@ use agent_sql::{
 use anyhow::Context;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[cfg(test)]
 mod test;
@@ -200,7 +200,23 @@ async fn process_row(
 
     tracing::info!(changes=?changed_collections, "evolved catalog");
 
-    draft::upsert_specs(draft_id, new_catalog, txn)
+    // Determine the value of `expect_pub_id` to use for each draft spec.
+    // For existing draft specs that already have an `expect_pub_id`, we'll
+    // use that value exactly. Otherwise, we'll use the `last_pub_id` from the live spec.
+    let mut expect_pub_ids = BTreeMap::new();
+    for row in expanded_rows.iter() {
+        expect_pub_ids.insert(row.catalog_name.as_str(), row.last_build_id);
+    }
+    for row in spec_rows.iter() {
+        // It's possible for spec rows to have neither of these values, since
+        // they may include drafted specs that are new and unaffected by this
+        // evolution
+        if let Some(id) = row.expect_pub_id.or(row.last_pub_id) {
+            expect_pub_ids.insert(row.catalog_name.as_str(), id);
+        }
+    }
+
+    draft::upsert_specs(draft_id, new_catalog, &expect_pub_ids, txn)
         .await
         .context("inserting draft specs")?;
 
@@ -224,10 +240,6 @@ async fn process_row(
             agent_sql::drafts::delete_spec(draft_spec_id, txn).await?;
         }
     }
-
-    // TODO: Update the `expect_pub_id` of any specs that we've added to the draft.
-    // This is important to do, but is something that I think we can safely defer
-    // until a future commit.
 
     // Create a publication of the draft, if desired.
     let publication_id = if row.auto_publish {

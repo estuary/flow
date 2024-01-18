@@ -90,6 +90,7 @@ where
     Ok(())
 }
 
+#[derive(Debug)]
 pub struct SpecRow {
     pub catalog_name: String,
     /// The id of the draft spec, or None if it is not already in the draft
