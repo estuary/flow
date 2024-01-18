@@ -465,7 +465,7 @@ async fn inspect_image_and_copy(
 }
 
 // TODO(johnny): Consider better packaging and versioning of `flow-connector-init`.
-const CONNECTOR_INIT_IMAGE: &str = "ghcr.io/estuary/flow:v0.3.9-12-g1bf50ba62";
+const CONNECTOR_INIT_IMAGE: &str = "ghcr.io/estuary/flow:v0.3.11-60-gfc3f40ac5";
 const CONNECTOR_INIT_IMAGE_PATH: &str = "/usr/local/bin/flow-connector-init";
 
 #[cfg(test)]
