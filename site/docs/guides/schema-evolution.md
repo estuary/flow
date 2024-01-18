@@ -104,6 +104,7 @@ captures:
           namespace: public
           stream: anvils
           mode: Normal
+        backfill: 1
         target: acmeCo/inventory/anvils_v2
 
 collections:
@@ -125,20 +126,15 @@ materializations:
         config: encrypted-snowflake-config.sops.yaml
     bindings:
       - source: acmeCo/inventory/anvils_v2
+        backfill: 1
         resource:
-          table: anvils_v2
+          table: anvils
           schema: inventory
 ```
 
 The existing `acmeCo/inventory/anvils` collection will not be modified and will remain in place, but won't update because no captures are writing to it.
 
-Note that the collection is now being materialized into a new Snowflake table, `anvils_v2`. This is because the primary key of the `anvils` table doesn't match the new collection key. New data going forward will be added to `anvils_v2` in the data warehouse.
-
-:::warning
-Currently, changing the `target` collection in the capture spec will _not_ cause the capture to perform another backfill. This means that the `anvils_v2` table will get all of the _new_ data going forward, but will not contain the existing data from `anvils`.
-
-We will soon release updates that make it much easier to keep your destination tables fully in sync without needing to change the names. In the meantime, feel free to [reach out on Slack](https://join.slack.com/t/gazette-dev/shared_invite/enQtNjQxMzgyNTEzNzk1LTU0ZjZlZmY5ODdkOTEzZDQzZWU5OTk3ZTgyNjY1ZDE1M2U1ZTViMWQxMThiMjU1N2MwOTlhMmVjYjEzMjEwMGQ) for help.
-:::
+ Also note the addition of the `backfill` property. If the `backfill` property already exists, just increment its value. For the materialization, this will ensure that the destination table in Snowflake gets dropped and re-created, and that the materialization will backfill it from the beginning. In the capture, it similarly causes it to start over from the beginning, writing the captured data into the new collection.
 
 **Auto-Discovers:**
 
@@ -159,6 +155,10 @@ To manually add a field:
 * **In the Flow web app,** [edit the materialization](./edit-data-flows.md#edit-a-materialization), find the affected binding, and click **Show Fields**.
 * **Using flowctl,** add the field to `fields.include` in the materialization specification as shown [here](../concepts/materialization.md#projected-fields).
 
+:::info
+Newly added fields will not be set for rows that have already been materialized. If you want to ensure that all rows have the new field, just increment the `backfill` counter in the affected binding to have it re-start from the beginning.
+:::
+
 ### A field's data type has changed
 
 *Scenario: this is one way in which the schema can change.*
@@ -177,7 +177,7 @@ The best way to find out whether a change is acceptable to a given connector is 
 
 **Web app workflow**
 
-If you're working in the Flow web app, and attempt to publish a change that's unacceptable to the connector, you'll see an error message and an option to materialize to a new table, or, in rare cases, to re-create the collection..
+If you're working in the Flow web app, and attempt to publish a change that's unacceptable to the connector, you'll see an error message and an offer to increment the necessary `backfill` counters, or, in rare cases, to re-create the collection.
 
 Click **Apply** to to accept this solution and continue to publish.
 
@@ -207,6 +207,7 @@ materializations:
         config: encrypted-snowflake-config.sops.yaml
     bindings:
       - source: acmeCo/inventory/anvils
+        backfill: 3
         resource:
           table: anvils
           schema: inventory
@@ -234,12 +235,13 @@ materializations:
         config: encrypted-snowflake-config.sops.yaml
     bindings:
       - source: acmeCo/inventory/anvils
+        backfill: 4
         resource:
-          table: anvils_v2
+          table: anvils
           schema: inventory
 ```
 
-Note that the collection name is the same. Only the materialization `resource` is updated to write to a new table, which will backfill from the existing collection data.
+Note that the only change was to increment the `backfill` counter. If the previous binding spec did not specify `backfill`, then just add `backfill: 1`.
 
 This works because the type is broadened, so existing values will still validate against the new schema. If this were not the case, then you'd likely need to [re-create the whole collection](#re-creating-a-collection).
 
