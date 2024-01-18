@@ -8,9 +8,9 @@ name = "derive-typescript"
 path = "src/main.rs"
 
 [dependencies]
-doc = { git = "https://github.com/estuary/flow", branch = "johnny/rust-connectors" }
-json = { git = "https://github.com/estuary/flow", branch = "johnny/rust-connectors" }
-proto-flow = { git = "https://github.com/estuary/flow", branch = "johnny/rust-connectors" }
+doc = { git = "https://github.com/estuary/flow", branch = "master" }
+json = { git = "https://github.com/estuary/flow", branch = "master" }
+proto-flow = { git = "https://github.com/estuary/flow", branch = "master" }
 
 anyhow = "1"
 itertools = "0.11"
@@ -29,9 +29,9 @@ tracing-subscriber = { version = "0.3", features = [
 url = "2"
 
 [dev-dependencies]
-models = { git = "https://github.com/estuary/flow", branch = "johnny/rust-connectors" }
-sources = { git = "https://github.com/estuary/flow", branch = "johnny/rust-connectors" }
-tables = { git = "https://github.com/estuary/flow", branch = "johnny/rust-connectors" }
+models = { git = "https://github.com/estuary/flow", branch = "master" }
+sources = { git = "https://github.com/estuary/flow", branch = "master" }
+tables = { git = "https://github.com/estuary/flow", branch = "master" }
 
 insta = "1"
 serde_yaml = "0.9"
