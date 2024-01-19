@@ -24,6 +24,12 @@ tokio-util = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 
+# For use with doc parsing (make a feature-flag?).
+doc = { path = "../doc" }
+simd-doc = { path = "../simd-doc" }
+pin-project-lite = { workspace = true }
+serde_json = { workspace = true }
+
 # [dev-dependencies]
 # doc = { path = "../doc" }
 

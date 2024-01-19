@@ -19,6 +19,9 @@ pub enum Error {
     #[error("failed to read fetched fragment from storage URL")]
     ReadFragment(#[source] std::io::Error),
 
+    #[error("failed to parse document near journal offset {0}")]
+    Json(i64, #[source] serde_json::Error),
+
     //#[error("{}", .0.as_str_name())]
     //Broker(proto_gazette::broker::Status),
     //#[error("{}", .0.as_str_name())]
@@ -26,3 +29,5 @@ pub enum Error {
     #[error("{0}")]
     Protocol(&'static str),
 }
+
+pub type Result<T> = std::result::Result<T, Error>;

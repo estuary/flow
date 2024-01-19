@@ -18,7 +18,7 @@ type DialFuture<Client> =
     futures::future::BoxFuture<'static, Result<Client, tonic::transport::Error>>;
 
 pub struct Router<Client> {
-    dialer: Box<dyn Fn(tonic::transport::Endpoint) -> DialFuture<Client>>,
+    dialer: Box<dyn Fn(tonic::transport::Endpoint) -> DialFuture<Client> + Send + Sync>,
     states: std::sync::Mutex<HashMap<MemberId, DialState<Client>>>,
     service_endpoint: String,
     zone: String,
@@ -29,7 +29,7 @@ where
     Client: Clone,
 {
     pub(crate) fn delegated_new(
-        dialer: impl Fn(tonic::transport::Endpoint) -> DialFuture<Client> + 'static,
+        dialer: impl Fn(tonic::transport::Endpoint) -> DialFuture<Client> + Send + Sync + 'static,
         endpoint: &str,
         zone: &str,
     ) -> Result<Self, Error> {
@@ -51,21 +51,7 @@ where
         route: Option<&broker::Route>,
         primary: bool,
     ) -> Result<Client, Error> {
-        let default_id = MemberId::default();
-        let default_route = broker::Route::default();
-        let route = route.unwrap_or(&default_route);
-
-        // Acquire non-async lock which is *not* held across an await point.
-        let mut states = self.states.lock().unwrap();
-        let (id, endpoint) = pick(route, primary, &self.zone, &states)
-            .unwrap_or((&default_id, &self.service_endpoint));
-
-        let state = if let Some(value) = states.get(id) {
-            value.clone()
-        } else {
-            states.entry(id.clone()).or_default().clone()
-        };
-        std::mem::drop(states);
+        let (index, state) = self.pick(route, primary);
 
         // Acquire `id`-specific, async-aware lock.
         let mut state = state.lock().await;
@@ -76,6 +62,11 @@ where
             return Ok(client.clone());
         }
 
+        // Slow path: start dialing the endpoint.
+        let endpoint = match index {
+            Some(index) => &route.unwrap().endpoints[index],
+            None => &self.service_endpoint,
+        };
         let endpoint = tonic::transport::Endpoint::from_shared(endpoint.clone())
             .map_err(|_err| Error::InvalidEndpoint(endpoint.clone()))?;
 
@@ -83,6 +74,31 @@ where
         *state = Some((client.clone(), 1));
 
         Ok(client)
+    }
+
+    fn pick(
+        &self,
+        route: Option<&broker::Route>,
+        primary: bool,
+    ) -> (Option<usize>, DialState<Client>) {
+        // Acquire non-async lock which *cannot* be held across an await point.
+        let mut states = self.states.lock().unwrap();
+        let index = pick(route, primary, &self.zone, &states);
+        //.unwrap_or((&default_id, &self.service_endpoint));
+
+        let default_id = MemberId::default();
+
+        let id = match index {
+            Some(index) => &route.unwrap().members[index],
+            None => &default_id,
+        };
+
+        let state = match states.get(id) {
+            Some(value) => value.clone(),
+            None => states.entry(id.clone()).or_default().clone(),
+        };
+
+        (index, state)
     }
 
     pub fn sweep(&self) {
@@ -108,21 +124,24 @@ where
     }
 }
 
-fn pick<'r, Client>(
-    route: &'r broker::Route,
+fn pick<Client>(
+    route: Option<&broker::Route>,
     primary: bool,
     zone: &str,
     states: &HashMap<MemberId, DialState<Client>>,
-) -> Option<(&'r MemberId, &'r String)> {
+) -> Option<usize> {
+    let default_route = broker::Route::default();
+    let route = route.unwrap_or(&default_route);
+
     route
         .members
         .iter()
         .zip(route.endpoints.iter())
         .enumerate()
         .max_by_key(|(index, (id, _endpoint))| {
-            let connected = if let Some(foo) = states.get(id) {
-                if let Some(foo) = foo.try_lock() {
-                    if let Some(_foo) = foo.as_ref() {
+            let connected = if let Some(state) = states.get(id) {
+                if let Some(state) = state.try_lock() {
+                    if let Some(_conn) = state.as_ref() {
                         true // Transport is ready.
                     } else {
                         false // Transport is not ready and no task is starting it.
@@ -144,5 +163,5 @@ fn pick<'r, Client>(
                 connected,
             )
         })
-        .map(|(_index, (id, endpoint))| (id, endpoint))
+        .map(|(index, _)| index)
 }

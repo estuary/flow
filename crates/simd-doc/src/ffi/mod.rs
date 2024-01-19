@@ -50,3 +50,6 @@ impl super::Parser {
         Ok(())
     }
 }
+
+// Parser is safe to Send across threads (but is not Sync).
+unsafe impl Send for Parser {}

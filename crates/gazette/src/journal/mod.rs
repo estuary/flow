@@ -1,7 +1,11 @@
 use futures::FutureExt;
+use proto_gazette::broker;
 use std::sync::Arc;
 
 mod read;
+
+mod read_docs;
+pub use read_docs::{Doc, Docs};
 
 // Sub is the routed sub-client of Client.
 type Sub = proto_grpc::broker::journal_client::JournalClient<
@@ -24,6 +28,18 @@ impl Client {
             http,
             router: Arc::new(router),
         }
+    }
+
+    pub async fn list(
+        &self,
+        req: broker::ListRequest,
+    ) -> Result<broker::ListResponse, crate::Error> {
+        let mut client = self.router.route(None, false).await?;
+        Ok(client
+            .list(req)
+            .await
+            .map_err(crate::Error::Grpc)?
+            .into_inner())
     }
 }
 

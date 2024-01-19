@@ -1,0 +1,33 @@
+
+[package]
+name = "dekaf"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+coroutines = { path = "../coroutines" }
+doc = { path = "../doc" }
+gazette = { path = "../gazette" }
+labels = { path = "../labels" }
+ops = { path = "../ops" }
+proto-gazette = { path = "../proto-gazette" }
+simd-doc = { path = "../simd-doc" }
+
+anyhow = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+hexdump = { workspace = true }
+kafka-protocol = { workspace = true }
+postgrest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }

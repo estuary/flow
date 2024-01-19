@@ -4,10 +4,10 @@ use futures::TryStreamExt;
 use proto_gazette::broker;
 
 impl Client {
-    pub fn read<'s>(
-        &'s self,
+    pub fn read(
+        self,
         mut req: broker::ReadRequest,
-    ) -> impl futures::Stream<Item = Result<broker::ReadResponse, Error>> + 's {
+    ) -> impl futures::Stream<Item = Result<broker::ReadResponse, Error>> + 'static {
         coroutines::try_coroutine(move |mut co| async move {
             let mut write_head = i64::MAX;
             loop {

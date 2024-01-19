@@ -45,21 +45,22 @@ impl Out {
     }
 
     #[inline]
+    pub fn clear(&mut self) {
+        self.v.clear()
+    }
+
+    #[inline]
     pub fn iter<'s>(&'s self) -> IterOut<'s> {
         IterOut {
             v: self.v.as_slice(),
         }
     }
 
-    #[inline]
-    pub fn clear(&mut self) {
-        self.v.clear()
+    pub fn into_iter(self) -> OwnedIterOut {
+        OwnedIterOut {
+            v: self.v.into_vec().into(),
+        }
     }
-
-    /*
-    pub fn into_owned_iter(self) -> impl Iterator<Item = (u32, doc::OwnedArchivedNode)> {
-    }
-    */
 
     #[inline]
     fn begin(&mut self, source_offset: usize) {
@@ -97,6 +98,38 @@ impl<'s> Iterator for IterOut<'s> {
     }
 }
 
+pub struct OwnedIterOut {
+    v: bytes::Bytes,
+}
+
+impl OwnedIterOut {
+    pub fn empty() -> Self {
+        Self {
+            v: bytes::Bytes::new(),
+        }
+    }
+}
+
+impl Iterator for OwnedIterOut {
+    type Item = (u32, doc::OwnedArchivedNode);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        use bytes::Buf;
+
+        if self.v.is_empty() {
+            return None;
+        }
+
+        let offset = u32::from_le_bytes(self.v[0..4].try_into().unwrap());
+        let len = u32::from_le_bytes(self.v[4..8].try_into().unwrap()) as usize;
+
+        self.v.advance(8);
+        let doc = self.v.split_to(len);
+
+        Some((offset, unsafe { doc::OwnedArchivedNode::new(doc) }))
+    }
+}
+
 pub struct Parser(cxx::UniquePtr<ffi::Parser>);
 
 impl Parser {
@@ -107,6 +140,10 @@ impl Parser {
         // something of a sweet spot. Inputs larger than this capacity will
         // trigger the fallback handler.
         Self(ffi::new_parser(1_000_000))
+    }
+
+    pub fn contains_newline(chunk: &[u8]) -> bool {
+        memchr::memrchr(b'\n', chunk).is_some()
     }
 
     pub fn parse<'a>(
