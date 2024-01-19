@@ -216,7 +216,7 @@ fn check_status(resp: &broker::ReadResponse) -> Result<(), Error> {
 /// interface. Also handles discarding unneeded bytes at the beginning of fragment files in cases
 /// where the requested offset falls in between the begin and end offsets of the fragment.
 enum Content {
-    Resp(Cursor<Vec<u8>>),
+    Resp(Cursor<bytes::Bytes>),
     Fragment {
         /// The number of bytes to be discarded from the beginning of the fragment.
         // This value is mutated towards 0 as bytes are discarded.

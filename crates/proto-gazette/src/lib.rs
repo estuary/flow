@@ -36,3 +36,12 @@ pub mod message_flags {
     /// which are now considered to have committed.
     pub const ACK_TXN: u64 = 0x2;
 }
+
+impl std::hash::Hash for broker::process_spec::Id {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write(self.suffix.as_bytes());
+        state.write(self.zone.as_bytes());
+    }
+}
+
+impl Eq for broker::process_spec::Id {}
