@@ -6,7 +6,7 @@ expression: json!(out)
   {
     "autoDiscover": {
       "addNewBindings": true,
-      "evolveIncompatibleCollections": false
+      "evolveIncompatibleCollections": true
     },
     "bindings": [
       {
