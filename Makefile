@@ -4,8 +4,6 @@
 # Git version & date which are injected into built binaries.
 export FLOW_VERSION = $(shell git describe --dirty --tags)
 DATE    = $(shell date +%F-%T-%Z)
-# Number of available processors for parallel builds.
-NPROC := $(if ${NPROC},${NPROC},$(shell sysctl -n hw.logicalcpu))
 # Configured Rust installation path of built release targets.
 # Caller may override with a CARGO_TARGET_DIR environment variable.
 # See: https://doc.rust-lang.org/cargo/reference/environment-variables.html
@@ -305,13 +303,13 @@ rust-musl-test:
 .PHONY: go-test-fast
 go-test-fast: $(GO_BUILD_DEPS) | ${PKGDIR}/bin/deno ${PKGDIR}/bin/etcd ${PKGDIR}/bin/sops
 	PATH=${PKGDIR}/bin:$$PATH ;\
-	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --count=1 ./go/...
+	./go.sh test --tags "${GO_BUILD_TAGS}" --count=1 ./go/...
 
 .PHONY: go-test-ci
 go-test-ci:
 	PATH=${PKGDIR}/bin:$$PATH ;\
 	GORACE="halt_on_error=1" ;\
-	./go.sh test -p ${NPROC} --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./go/...
+	./go.sh test --tags "${GO_BUILD_TAGS}" --race --count=15 --failfast ./go/...
 
 .PHONY: data-plane-test-setup
 data-plane-test-setup:
