@@ -132,7 +132,7 @@ pub fn merge_capture(
             models::ShardTemplate::default(),
             Some(models::AutoDiscover {
                 add_new_bindings: true,
-                evolve_incompatible_collections: false,
+                evolve_incompatible_collections: true,
             }),
         ),
     };
