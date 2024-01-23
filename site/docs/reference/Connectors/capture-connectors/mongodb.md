@@ -62,6 +62,8 @@ You'll need:
     })
     ```
 
+* If you are using MongoDB Atlas, this requires adding a "specific privilege".
+
 * ReplicaSet enabled on your database, see [Deploy a Replica
   Set](https://www.mongodb.com/docs/manual/tutorial/deploy-replica-set/).
 
