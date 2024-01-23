@@ -76,9 +76,9 @@ func (s *SegmentSuite) TestSegmentReductionCases(c *gc.C) {
 		},
 		// Overlap, and preceding Segment is missing LastOffset.
 		{
-			a:   Segment{Author: 0x1, FirstSeqNo: 2, LastSeqNo: 7, FirstOffset: 200, LastOffset: 000, FirstChecksum: 0x22, Log: A},
-			b:   Segment{Author: 0x1, FirstSeqNo: 4, LastSeqNo: 9, FirstOffset: 400, LastOffset: 901, FirstChecksum: 0x44, Log: A},
-			err: "expected preceding Segment to also include LastOffset: .*",
+			a: Segment{Author: 0x1, FirstSeqNo: 2, LastSeqNo: 7, FirstOffset: 200, LastOffset: 000, FirstChecksum: 0x22, Log: A},
+			b: Segment{Author: 0x1, FirstSeqNo: 4, LastSeqNo: 9, FirstOffset: 400, LastOffset: 901, FirstChecksum: 0x44, Log: A},
+			e: Segment{Author: 0x1, FirstSeqNo: 2, LastSeqNo: 9, FirstOffset: 200, LastOffset: 901, FirstChecksum: 0x22, Log: A},
 		},
 		// Overlap, mismatched authors.
 		{
@@ -97,6 +97,12 @@ func (s *SegmentSuite) TestSegmentReductionCases(c *gc.C) {
 			a: Segment{Author: 0x1, FirstSeqNo: 2, LastSeqNo: 7, FirstOffset: 200, LastOffset: 701, FirstChecksum: 0x22, Log: A},
 			b: Segment{Author: 0x1, FirstSeqNo: 3, LastSeqNo: 6, FirstOffset: 300, LastOffset: 000, FirstChecksum: 0x33, Log: A},
 			e: Segment{Author: 0x1, FirstSeqNo: 2, LastSeqNo: 7, FirstOffset: 200, LastOffset: 701, FirstChecksum: 0x22, Log: A},
+		},
+		// Covered, with 0 LastOffset
+		{
+			a: Segment{Author: 0x1, FirstSeqNo: 2, LastSeqNo: 7, FirstOffset: 200, LastOffset: 701, FirstChecksum: 0x22, Log: A},
+			b: Segment{Author: 0x1, FirstSeqNo: 1, LastSeqNo: 8, FirstOffset: 2, LastOffset: 0, FirstChecksum: 0x33, Log: A},
+			e: Segment{Author: 0x1, FirstSeqNo: 1, LastSeqNo: 8, FirstOffset: 2, LastOffset: 0, FirstChecksum: 0x33, Log: A},
 		},
 		// Disjoint.
 		{
@@ -121,6 +127,12 @@ func (s *SegmentSuite) TestSegmentReductionCases(c *gc.C) {
 			a: Segment{Author: 0x1, FirstSeqNo: 2, LastSeqNo: 7, FirstOffset: 200, LastOffset: 701, FirstChecksum: 0x22, Log: A},
 			b: Segment{Author: 0x1, FirstSeqNo: 2, LastSeqNo: 9, FirstOffset: 210, LastOffset: 901, FirstChecksum: 0x22, Log: A},
 			e: Segment{Author: 0x1, FirstSeqNo: 2, LastSeqNo: 9, FirstOffset: 210, LastOffset: 901, FirstChecksum: 0x22, Log: A},
+		},
+		// Equal-left, with LastOffset: 0
+		{
+			a: Segment{Author: 0x1, FirstSeqNo: 2, LastSeqNo: 7, FirstOffset: 200, LastOffset: 701, FirstChecksum: 0x22, Log: A},
+			b: Segment{Author: 0x1, FirstSeqNo: 2, LastSeqNo: 9, FirstOffset: 200, LastOffset: 000, FirstChecksum: 0x22, Log: A},
+			e: Segment{Author: 0x1, FirstSeqNo: 2, LastSeqNo: 9, FirstOffset: 200, LastOffset: 000, FirstChecksum: 0x22, Log: A},
 		},
 		// Equal-left, but checksum mismatch.
 		{
@@ -254,9 +266,6 @@ func (s *SegmentSuite) TestSetConsistencyChecks(c *gc.C) {
 		// Overlapping, incorrect log.
 		{Segment{Author: 0xa, FirstSeqNo: 4, LastSeqNo: 5, FirstOffset: 400, LastOffset: 501, Log: "wrong"},
 			"expected Segment Log equality: .*"},
-		// Missing LastOffset.
-		{Segment{Author: 0xb, FirstSeqNo: 12, LastSeqNo: 12, FirstOffset: 1200, LastOffset: 000, Log: A},
-			"expected preceding Segment to also include LastOffset: .*"},
 		// Non-monotonic offsets.
 		{Segment{Author: 0xb, FirstSeqNo: 12, LastSeqNo: 12, FirstOffset: 1050, LastOffset: 1200, Log: A},
 			"expected monotonic FirstOffset: .*"},

@@ -141,8 +141,6 @@ func reduceSegment(a, b Segment) (Segment, error) {
 	// Offset ordering constraint checks.
 	case a.FirstSeqNo < b.FirstSeqNo && a.Log == b.Log && a.FirstOffset > b.FirstOffset:
 		return a, fmt.Errorf("expected monotonic FirstOffset: %#v vs %#v", a, b)
-	case a.FirstSeqNo < b.FirstSeqNo && a.LastOffset == 0 && b.LastOffset != 0:
-		return a, fmt.Errorf("expected preceding Segment to also include LastOffset: %#v vs %#v", a, b)
 
 	case a.LastOffset == 0 && a.Log != b.Log:
 		// This cases isn't strictly required, but it's true of the intended
