@@ -104,6 +104,16 @@ Through this process, you'll obtain the client ID, client secret, and refresh to
 You configure connectors either in the Flow web app, or by directly editing the Flow specification file.
 See [connectors](../../../concepts/connectors.md#using-connectors) to learn more about using connectors. The values and specification sample below provide configuration details specific to the batch Salesforce source connector.
 
+### Formula Fields
+
+Estuary is able to capture Salesforce formula fields, however, regular full syncs must be configured in order to ensure up to date formula fields. Given the batch processing of this connecter, if formula field values are updated in between syncs, Estuary will not be aware of any changes.
+
+In order to ensure data freshness, it is recommended that you configure your capture to regularly initiate full refreshes of your source. Once a historical backfill is complete, updated formula field values will be reflected within Estuary.
+
+### Slowly Changing Dimensions Type 2
+
+Estuary is capable of capturing a stream of your Salesforce data as it changes through a feature called Delta Updates. To read more about how Delta Updates works visit our [docs](https://docs.estuary.dev/concepts/materialization/#delta-updates).
+
 ### Properties
 
 #### Endpoint
