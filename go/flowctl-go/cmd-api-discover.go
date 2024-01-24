@@ -101,6 +101,7 @@ func (cmd apiDiscover) Execute(_ []string) error {
 	for _, image := range []string{
 		"ghcr.io/estuary/source-salesforce",
 		"ghcr.io/estuary/source-netsuite",
+		"ghcr.io/estuary/source-redshift",
 	} {
 		if strings.HasPrefix(cmd.Image, image) && timeout < (time.Minute*5) {
 			timeout = time.Minute * 5
