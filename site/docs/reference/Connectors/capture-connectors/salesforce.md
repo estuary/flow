@@ -106,7 +106,7 @@ See [connectors](../../../concepts/connectors.md#using-connectors) to learn more
 
 ### Formula Fields
 
-Estuary is able to capture Salesforce formula fields, however, regular full syncs must be configured in order to ensure up to date formula fields. Given the batch processing of this connecter, if formula field values are updated in between syncs, Estuary will not be aware of any changes.
+Estuary is able to capture Salesforce formula fields, however, regular full syncs must be configured in order to ensure up to date formula fields. Given the batch processing of this connector, if formula field values are updated in between syncs, Estuary will not be aware of any changes.
 
 In order to ensure data freshness, it is recommended that you configure your capture to regularly initiate full refreshes of your source. Once a historical backfill is complete, updated formula field values will be reflected within Estuary.
 
@@ -132,7 +132,7 @@ This step requires using [flowctl](https://docs.estuary.dev/concepts/flowctl/), 
 
 1. Pull down your active specifications into your local environment using the command `flowctl catalog pull-specs --prefix Tenant/Salesforce`
 
-2. This command will generate a folder for each subtree of your tenant. Using the above example tenant, you would end up with a top level folder struture named Tenant and a sub folder named Salesforce.
+2. This command will generate a folder for each subtree of your tenant. Using the above example tenant, you would end up with a top level folder structure named Tenant and a sub folder named Salesforce.
 
 3. Within the sub folder for your Salesforce capture you will find yaml specification files for your each of your collections that follow the naming convention `BindingName.schema.yaml`.
 
@@ -141,7 +141,7 @@ This step requires using [flowctl](https://docs.estuary.dev/concepts/flowctl/), 
 ```yaml
 ---
 type: object
-additonalProperties: true
+additionalProperties: true
 properties:
   Id:
     type:
