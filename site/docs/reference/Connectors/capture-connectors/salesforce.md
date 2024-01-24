@@ -114,6 +114,48 @@ In order to ensure data freshness, it is recommended that you configure your cap
 
 Estuary is capable of capturing a stream of your Salesforce data as it changes through a feature called Delta Updates. To read more about how Delta Updates works visit our [docs](https://docs.estuary.dev/concepts/materialization/#delta-updates).
 
+### Merging Real Time and Batch Data
+
+Estuary offers connectors for both batch and real time capture. It is possible to create collections that reflect both batch and real time data capture using the following steps:
+
+1. Create a new capture using the batch capture connector.
+
+2. Create a new capture using the real time capture connector.
+
+3. Both captures should share the same namespace in order to write to the same collection. For example, you would end up with a batch connector named `Tenant/Salesforce/source-salesforce` and a real time capture named `Tenant/Salesforce/source-salesforce-real-time`.
+
+4. If configured correctly, both captures will read data into the same collections that are titled `Tenant/Salesforce/your-stream`.
+
+Estuary should automatically merge your documents, ensuring that duplicates are not produced when pulling from two captures with the same source. Before continuing, it is important to make sure that a reduction strategy has been implemented for your collections.
+
+This step requires using [flowctl](https://docs.estuary.dev/concepts/flowctl/), please visit our documentation for more information.
+
+1. Pull down your active specifications into your local environment using the command `flowctl catalog pull-specs --prefix Tenant/Salesforce`
+
+2. This command will generate a folder for each subtree of your tenant. Using the above example tenant, you would end up with a top level folder struture named Tenant and a sub folder named Salesforce.
+
+3. Within the sub folder for your Salesforce capture you will find yaml specification files for your each of your collections that follow the naming convention `BindingName.schema.yaml`.
+
+4. For each newly created collection, make sure that it contains the following reduction strategy:
+
+```yaml
+---
+type: object
+additonalProperties: true
+properties:
+  Id:
+    type:
+      - string
+  ...
+required:
+  - Id
+# Your collection must include this line. If missing, please add below
+reduce:
+  strategy: merge
+```
+
+5. If the above line was missing you must also run the command `flowctl catalog publish --source flow.yaml` at the root level of your local folder structure to publish the changes to Flow.
+
 ### Properties
 
 #### Endpoint
