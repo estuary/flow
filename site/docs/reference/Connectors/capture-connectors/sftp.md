@@ -50,7 +50,8 @@ You configure connectors either in the Flow web app, or by directly editing the 
 |---|---|---|---|---|
 | **`/address`** | Address | Host and port of the SFTP server. Example: `myserver.com:22` | string | Required |
 | **`/username`** | Username | Username for authentication. | string | Required |
-| **`/password`** | Password | Password for authentication. | string | Required |
+| `/password`     | Password | Password for authentication. Only one of Password or SSHKey must be provided. | string | |
+| `/sshKey`       | SSH Key  | SSH Key for authentication. Only one of Password or SSHKey must be provided. | string | |
 | **`/directory`** | Directory | Directory to capture files from. All files in this directory and any subdirectories will be included. | string | Required |
 | `/matchFiles` | Match Files Regex | Filter applied to all file names in the directory. If provided, only files whose path (relative to the directory) matches this regex will be captured. For example, you can use `.*\.json` to only capture json files. | string | |
 | `/advanced` | | Options for advanced users. You should not typically need to modify these. | object | |
