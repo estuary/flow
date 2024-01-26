@@ -38,8 +38,7 @@ pub fn parser_perf() {
 
     let chunks: Vec<_> = fixture.chunks(CHUNK_SIZE).collect();
 
-    let mut input = Vec::new();
-    let mut output = simd_doc::Out::with_capacity(CHUNK_SIZE);
+    let mut scratch = rkyv::AlignedVec::with_capacity(CHUNK_SIZE);
     let mut parser = simd_doc::Parser::new();
 
     let mut docs: usize = 0;
@@ -51,13 +50,12 @@ pub fn parser_perf() {
 
     for _ in 0..TOTAL_ROUNDS {
         for chunk in &chunks {
-            output.clear();
-            input.extend_from_slice(*chunk);
-
-            () = parser.parse_simd(&mut input, &mut output).unwrap();
+            let output = parser.parse(chunk, bytes as i64, scratch).unwrap();
 
             bytes += chunk.len();
             docs += output.iter().count();
+
+            scratch = output.into_inner();
         }
     }
 

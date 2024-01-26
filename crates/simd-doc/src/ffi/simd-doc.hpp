@@ -28,6 +28,7 @@ union pword
         uint32_t h; // High u32 bits of the word.
     } u32;
 };
+static_assert(sizeof(pword) == 8);
 
 // pnode is a doc::ArchivedNode representation placed in an rkyv buffer.
 struct pnode
@@ -51,7 +52,7 @@ struct pbuffer
     uint8_t *data;                        // Raw output buffer.
     uint64_t len, cap;                    // Buffer length and capacity.
     std::vector<std::vector<pword>> pool; // Idle scratch buffers.
-    Out *ffi;                             // Backing Rust struct.
+    Output *ffi;                          // Backing Rust struct.
 
     // Write `len` instances of `src` into the buffer.
     template <typename T>
@@ -379,7 +380,7 @@ class Parser
 {
 public:
     Parser(size_t capacity) : parser(capacity){};
-    size_t transcode_many(rust::Slice<uint8_t> input, Out &out);
+    void parse(const rust::Slice<const uint8_t> input, Output &output);
 
 private:
     std::vector<std::vector<pword>> pool;
@@ -391,36 +392,40 @@ inline std::unique_ptr<Parser> new_parser(size_t capacity)
     return std::make_unique<Parser>(capacity);
 }
 
-inline size_t Parser::transcode_many(rust::Slice<uint8_t> input, Out &out)
+inline void Parser::parse(const rust::Slice<const uint8_t> input, Output &output)
 {
     dom::document_stream stream = parser.parse_many(input.data(), input.size(), input.size());
 
     pbuffer buf = pbuffer{
-        .data = out.as_mut_ptr(),
-        .len = out.len(),
-        .cap = out.capacity(),
+        .data = output.as_mut_ptr(),
+        .len = output.len(),
+        .cap = output.capacity(),
         .pool = {},
-        .ffi = &out,
+        .ffi = &output,
     };
     this->pool.swap(buf.pool);
 
     for (dom::document_stream::iterator it = stream.begin(); it != stream.end(); ++it)
     {
-        uint64_t offset = buf.len;
+        // Write the document header (offset and length placeholder).
         pword header = {.u32 = {.l = static_cast<uint32_t>(it.current_index()), .h = 0}};
         buf.extend(&header, 1);
+        uint64_t start_len = buf.len;
 
         dom::element elem = *it;
         pnode root = walk_node(buf, elem.type(), elem);
         place_array(buf, &root, 1);
 
         // Update and re-write header now that we know the length.
-        header.u32.h = buf.len - offset - sizeof(header);
-        memcpy(buf.data + offset, &header, sizeof(header));
+        header.u32.h = buf.len - start_len;
+        memcpy(buf.data + start_len - sizeof(pword), &header, sizeof(header));
     }
 
-    out.set_len(buf.len);
+    output.set_len(buf.len);
     this->pool.swap(buf.pool);
 
-    return stream.size_in_bytes() - stream.truncated_bytes();
+    if (stream.truncated_bytes() != 0 && input.size() != 0)
+    {
+        throw std::out_of_range("extra bytes remain after processing all documents");
+    }
 }

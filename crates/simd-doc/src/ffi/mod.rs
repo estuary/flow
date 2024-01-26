@@ -1,10 +1,29 @@
-use super::Out;
+use super::Output;
+
+// Implement Output delegates for use from C++.
+impl Output {
+    fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.v.as_mut_ptr()
+    }
+    fn capacity(&self) -> usize {
+        self.v.capacity()
+    }
+    fn len(&self) -> usize {
+        self.v.len()
+    }
+    fn reserve(&mut self, additional: usize) {
+        self.v.reserve(additional);
+    }
+    unsafe fn set_len(&mut self, len: usize) {
+        self.v.set_len(len)
+    }
+}
 
 #[cxx::bridge]
 mod ffi {
 
     extern "Rust" {
-        type Out;
+        type Output;
         fn as_mut_ptr(&mut self) -> *mut u8;
         fn capacity(&self) -> usize;
         fn len(&self) -> usize;
@@ -17,39 +36,11 @@ mod ffi {
 
         type Parser;
         fn new_parser(capacity: usize) -> UniquePtr<Parser>;
-
-        fn transcode_many<'a>(
-            self: Pin<&mut Parser>,
-            input: &mut [u8],
-            output: &mut Out,
-        ) -> Result<usize>;
+        fn parse<'a>(self: Pin<&mut Parser>, input: &[u8], output: &mut Output) -> Result<()>;
     }
 }
+
+// ffi::Parser is safe to Send across threads (but is not Sync).
+unsafe impl Send for ffi::Parser {}
 
 pub(crate) use ffi::{new_parser, Parser};
-
-impl super::Parser {
-    pub fn parse_simd<'a>(
-        &mut self,
-        input: &mut Vec<u8>,
-        output: &mut Out,
-    ) -> Result<(), cxx::Exception> {
-        static PAD: [u8; 64] = [0; 64];
-
-        // We must pad `input` with requisite extra bytes.
-        input.extend_from_slice(&PAD);
-        input.truncate(input.len() - PAD.len());
-
-        if input.is_empty() {
-            return Ok(());
-        }
-
-        let consumed = self.0.pin_mut().transcode_many(&mut *input, output)?;
-        input.drain(..consumed);
-
-        Ok(())
-    }
-}
-
-// Parser is safe to Send across threads (but is not Sync).
-unsafe impl Send for Parser {}

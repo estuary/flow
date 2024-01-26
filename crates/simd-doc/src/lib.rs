@@ -1,195 +1,231 @@
 use rkyv::ser::Serializer;
 
 mod ffi;
+pub mod output;
+pub use output::Output;
 
-pub struct Out {
-    v: rkyv::AlignedVec,
-    header: usize,
+#[cfg(test)]
+mod tests;
+
+pub struct Parser {
+    buf: Vec<u8>,
+    ffi: cxx::UniquePtr<ffi::Parser>,
+    offset: i64,
 }
-
-impl Out {
-    pub fn new() -> Self {
-        Self::with_capacity(0)
-    }
-
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            v: rkyv::AlignedVec::with_capacity(capacity),
-            header: 0,
-        }
-    }
-
-    #[inline]
-    fn as_mut_ptr(&mut self) -> *mut u8 {
-        self.v.as_mut_ptr()
-    }
-
-    #[inline]
-    fn capacity(&self) -> usize {
-        self.v.capacity()
-    }
-
-    #[inline]
-    fn len(&self) -> usize {
-        self.v.len()
-    }
-
-    #[inline]
-    fn reserve(&mut self, additional: usize) {
-        self.v.reserve(additional);
-    }
-
-    #[inline]
-    unsafe fn set_len(&mut self, len: usize) {
-        self.v.set_len(len)
-    }
-
-    #[inline]
-    pub fn clear(&mut self) {
-        self.v.clear()
-    }
-
-    #[inline]
-    pub fn iter<'s>(&'s self) -> IterOut<'s> {
-        IterOut {
-            v: self.v.as_slice(),
-        }
-    }
-
-    pub fn into_iter(self) -> OwnedIterOut {
-        OwnedIterOut {
-            v: self.v.into_vec().into(),
-        }
-    }
-
-    #[inline]
-    fn begin(&mut self, source_offset: usize) {
-        self.v
-            .extend_from_slice(&(source_offset as u32).to_le_bytes());
-        self.header = self.v.len();
-        self.v.extend_from_slice(&[0; 4]);
-    }
-
-    #[inline]
-    fn finish(&mut self) {
-        let v = ((self.len() - self.header - 4) as u32).to_le_bytes();
-        (&mut self.v[self.header..self.header + 4]).copy_from_slice(&v)
-    }
-}
-
-pub struct IterOut<'s> {
-    v: &'s [u8],
-}
-
-impl<'s> Iterator for IterOut<'s> {
-    type Item = (u32, &'s [u8]);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.v.is_empty() {
-            return None;
-        }
-
-        let offset = u32::from_le_bytes(self.v[0..4].try_into().unwrap());
-        let len = u32::from_le_bytes(self.v[4..8].try_into().unwrap()) as usize;
-        let doc = &self.v[8..len + 8];
-
-        self.v = &self.v[8 + len..];
-        Some((offset, doc))
-    }
-}
-
-pub struct OwnedIterOut {
-    v: bytes::Bytes,
-}
-
-impl OwnedIterOut {
-    pub fn empty() -> Self {
-        Self {
-            v: bytes::Bytes::new(),
-        }
-    }
-}
-
-impl Iterator for OwnedIterOut {
-    type Item = (u32, doc::OwnedArchivedNode);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        use bytes::Buf;
-
-        if self.v.is_empty() {
-            return None;
-        }
-
-        let offset = u32::from_le_bytes(self.v[0..4].try_into().unwrap());
-        let len = u32::from_le_bytes(self.v[4..8].try_into().unwrap()) as usize;
-
-        self.v.advance(8);
-        let doc = self.v.split_to(len);
-
-        Some((offset, unsafe { doc::OwnedArchivedNode::new(doc) }))
-    }
-}
-
-pub struct Parser(cxx::UniquePtr<ffi::Parser>);
 
 impl Parser {
     pub fn new() -> Self {
-        // We must choose what the maximum capacity (and document size) of the
-        // parser will be. This value shouldn't be too large, or it negatively
-        // impacts parser performance. According to the simdjson docs, 1MB is
-        // something of a sweet spot. Inputs larger than this capacity will
-        // trigger the fallback handler.
-        Self(ffi::new_parser(1_000_000))
-    }
-
-    pub fn contains_newline(chunk: &[u8]) -> bool {
-        memchr::memrchr(b'\n', chunk).is_some()
-    }
-
-    pub fn parse<'a>(
-        &mut self,
-        input: &mut Vec<u8>,
-        output: &mut Out,
-    ) -> Result<(), serde_json::Error> {
-        if let Err(err) = self.parse_simd(input, output) {
-            tracing::debug!(%err, "simdjson JSON parsing failed; trying serde");
-            return self.parse_serde(input, output);
+        Self {
+            buf: Vec::new(),
+            // We must choose what the maximum capacity (and document size) of the
+            // parser will be. This value shouldn't be too large, or it negatively
+            // impacts parser performance. According to the simdjson docs, 1MB is
+            // something of a sweet spot. Inputs larger than this capacity will
+            // trigger the fallback handler.
+            ffi: ffi::new_parser(1_000_000),
+            offset: 0,
         }
-        Ok(())
     }
 
-    pub fn parse_serde<'a>(
+    pub fn parse(
         &mut self,
-        input: &mut Vec<u8>,
-        output: &mut Out,
-    ) -> Result<(), serde_json::Error> {
-        let mut alloc = doc::HeapNode::allocator_with_capacity(input.len());
-        let mut offset = 0;
+        input: &[u8],
+        offset: i64,
+        scratch: rkyv::AlignedVec,
+    ) -> Result<Output, std::io::Error> {
+        if self.buf.is_empty() {
+            self.offset = offset;
+        } else if self.offset + self.buf.len() as i64 != offset {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "parser has {} bytes of document prefix at offset {}, but got unexpected input offset {offset}",
+                    self.buf.len(), self.offset
+                ),
+            ));
+        };
 
-        while let Some(mut pivot) = memchr::memchr(b'\n', &input[offset..]) {
-            pivot += 1;
+        let mut output = Output {
+            v: scratch,
+            offset: self.offset,
+        };
+        output.v.clear();
 
-            let mut deser = serde_json::Deserializer::from_slice(&input[offset..offset + pivot]);
-            let node = doc::HeapNode::from_serde(&mut deser, &alloc)?;
+        // Look for a *last* newline in `input`.
+        let Some(pivot) = memchr::memrchr(b'\n', &input) else {
+            self.buf.extend_from_slice(input); // Buffer this partial line.
+            return Ok(output); // Nothing to parse yet.
+        };
 
-            output.begin(offset);
-            let mut ser = rkyv::ser::serializers::AllocSerializer::<512>::new(
-                rkyv::ser::serializers::AlignedSerializer::new(std::mem::take(&mut output.v)),
-                Default::default(),
-                Default::default(),
-            );
+        // Complete a series of whole documents by appending through the newline.
+        // The remainder is held back for now.
+        self.buf.extend_from_slice(&input[..pivot + 1]);
 
-            ser.serialize_value(&node)
-                .expect("rkyv serialization cannot fail");
-            output.v = ser.into_serializer().into_inner();
-
-            output.finish();
-            alloc.reset();
-
-            offset += pivot;
+        if let Err(err) = parse_simd(&mut self.buf, &mut output, &mut self.ffi) {
+            tracing::debug!(%err, "simdjson JSON parsing failed; using fallback");
+            output.v = parse_fallback(&mut self.buf, std::mem::take(&mut output.v))?;
         }
-        input.drain(..offset);
+
+        self.offset += self.buf.len() as i64;
+        self.buf.clear();
+        self.buf.extend_from_slice(&input[pivot + 1..]);
+
+        Ok(output)
+    }
+}
+
+fn parse_simd(
+    input: &mut Vec<u8>,
+    output: &mut Output,
+    parser: &mut cxx::UniquePtr<ffi::Parser>,
+) -> Result<(), cxx::Exception> {
+    let rollback_len = output.v.len();
+
+    // We must pad `input` with requisite extra bytes.
+    static PAD: [u8; 64] = [0; 64];
+    input.extend_from_slice(&PAD);
+    input.truncate(input.len() - PAD.len());
+
+    match parser.pin_mut().parse(input, output) {
+        Err(err) => {
+            // `output` may contain partial messages that must be considered
+            // undefined. Roll back to its initial length.
+            unsafe { output.v.set_len(rollback_len) };
+            Err(err)
+        }
+        Ok(()) => Ok(()),
+    }
+}
+
+fn parse_fallback(
+    input: &[u8],
+    mut v: rkyv::AlignedVec,
+) -> Result<rkyv::AlignedVec, serde_json::Error> {
+    let mut alloc = doc::HeapNode::allocator_with_capacity(input.len());
+    let mut offset = 0;
+
+    // For each input newline...
+    while let Some(pivot) = memchr::memchr(b'\n', &input[offset..]) {
+        // Parse the line into  HeapNode.
+        let mut deser = serde_json::Deserializer::from_slice(&input[offset..offset + pivot + 1]);
+        let node = doc::HeapNode::from_serde(&mut deser, &alloc)?;
+        deser.end()?;
+
+        // Write the document header (offset and length placeholder).
+        v.extend_from_slice(&(offset as u32).to_le_bytes());
+        v.extend_from_slice(&[0; 4]); // Length placeholder.
+        let start_len = v.len();
+
+        // Serialize HeapNode into ArchivedNode by extending our `output.v` buffer.
+        let mut ser = rkyv::ser::serializers::AllocSerializer::<512>::new(
+            rkyv::ser::serializers::AlignedSerializer::new(v),
+            Default::default(),
+            Default::default(),
+        );
+        ser.serialize_value(&node)
+            .expect("rkyv serialization cannot fail");
+        v = ser.into_serializer().into_inner();
+
+        // Update the document header, now that we know the actual length.
+        let len = ((v.len() - start_len) as u32).to_le_bytes();
+        (&mut v[start_len - 4..start_len]).copy_from_slice(&len);
+
+        alloc.reset();
+
+        offset += pivot + 1;
+    }
+    assert_eq!(input.len(), offset, "input does not end with newline");
+
+    Ok(v)
+}
+
+/*
+pub struct Incremental {
+    offset: i64,
+    parser: Parser,
+    rem: Vec<u8>,
+}
+
+impl Incremental {
+    pub fn new() -> Self {
+        Self {
+            offset: 0,
+            parser: Parser::new(),
+            rem: Vec::new(),
+        }
+    }
+
+    pub fn parse<'s, 'i, 'o>(
+        &'s mut self,
+        mut input: &'i [u8],
+        input_offset: i64,
+        output: &'o mut Output,
+    ) -> Result<(), std::io::Error> {
+        if self.rem.is_empty() {
+            self.offset = input_offset;
+        } else if self.offset + self.rem.len() as i64 != input_offset {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "incremental parser has document prefix at expected offset {}, but input_offset is {}",
+                    self.offset + self.rem.len() as i64, input_offset
+                ),
+            ));
+        };
+
+        // Step 1: parse a left-over document prefix that's been completed by `input`.
+        if !self.rem.is_empty() {
+            // Look for *first* newline in `input`.
+            if let Some(pivot) = memchr::memchr(b'\n', input) {
+                self.rem.extend_from_slice(&input[..pivot + 1]);
+                input = &input[pivot + 1..];
+
+                () = self
+                    .parser
+                    .parse(Padded::wrap(&mut self.rem), self.offset, output)?;
+
+                self.offset += self.rem.len() as i64;
+                self.rem.clear();
+            } else {
+                // There is no newline in `input`, so we don't have a full document to parse.
+                self.rem.extend_from_slice(input);
+                return Ok(());
+            };
+        }
+
+        // Step 2: parse `chunk` of documents which are fully contained within `input`,
+        // even after adjusting for required padding.
+        let mut padded_len = input.len().saturating_sub(Padded::BYTES.len());
+
+        // Look for *last* newline in `input`, holding back sufficient bytes for padding.
+        if let Some(pivot) = memchr::memrchr(b'\n', &input[..padded_len]) {
+            // SAFETY: We scanned a held-back portion of `input` known to be padded.
+            let chunk = unsafe { Padded::new_unchecked(&input[..pivot + 1]) };
+            input = &input[pivot + 1..];
+
+            () = self.parser.parse(chunk, self.offset, output)?;
+            self.offset += chunk.len() as i64;
+            padded_len -= chunk.len();
+        };
+
+        // Step 3: parse document(s) which end in the portion of `input` held
+        // back for padding. These must be copied and padded.
+        if let Some(pivot) = memchr::memrchr(b'\n', &input[padded_len..]) {
+            self.rem.extend_from_slice(&input[..padded_len + pivot + 1]);
+            input = &input[self.rem.len()..];
+
+            () = self
+                .parser
+                .parse(Padded::wrap(&mut self.rem), self.offset, output)?;
+
+            self.offset += self.rem.len() as i64;
+            self.rem.clear();
+        }
+
+        // Step 4: save `input` remainder -- which contains only a document prefix -- for next time.
+        self.rem.extend_from_slice(input);
 
         Ok(())
     }
 }
+*/

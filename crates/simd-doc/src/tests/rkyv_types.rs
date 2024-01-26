@@ -1,25 +1,3 @@
-use std::fmt::Write;
-
-fn to_snap<S>(things: &[S]) -> String
-where
-    S: rkyv::Serialize<rkyv::ser::serializers::AllocSerializer<256>> + std::fmt::Debug,
-{
-    let mut out = String::new();
-
-    for thing in things {
-        let b = rkyv::to_bytes::<_, 256>(thing).unwrap();
-
-        let dump = hexdump::hexdump_iter(&b)
-            .map(|line| format!(" {line}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        write!(&mut out, "case: {thing:?}:\n{dump}\n").unwrap();
-    }
-
-    out
-}
-
 #[test]
 pub fn rkyv_types() {
     let alloc = doc::HeapNode::new_allocator();
@@ -238,4 +216,19 @@ pub fn rkyv_types() {
      |e4ffffff 00000000|                   ........         00000020
                                                             00000028
     "###);
+}
+
+fn to_snap<S>(things: &[S]) -> String
+where
+    S: rkyv::Serialize<rkyv::ser::serializers::AllocSerializer<256>> + std::fmt::Debug,
+{
+    use std::fmt::Write;
+    let mut out = String::new();
+
+    for thing in things {
+        let b = rkyv::to_bytes::<_, 256>(thing).unwrap();
+        write!(&mut out, "case: {thing:?}:\n{}\n", super::to_hex(&b)).unwrap();
+    }
+
+    out
 }
