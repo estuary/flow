@@ -131,22 +131,7 @@ async fn start_topic_stream(
         metadata_only: false,
     });
 
-    let mut stream = std::pin::pin!(stream);
-    while let Some(doc) = stream.try_next().await? {
-        use gazette::journal::Doc;
-
-        match doc {
-            Doc::Doc { offset, root } => {
-                tracing::info!(offset, root=?ops::DebugJson(doc::SerPolicy::noop().on(root.get())), "doc");
-            }
-            Doc::Fragment(fragment) => {
-                tracing::info!(fragment=?ops::DebugJson(fragment), "started reading a new fragment");
-            }
-        }
-    }
-
-    todo!();
-    //Ok(stream)
+    Ok(stream)
 }
 
 struct Dekaf {
@@ -369,10 +354,62 @@ impl Dekaf {
             .unwrap())
     }
 
+    async fn build_record_batch(
+        stream: &mut gazette::journal::Docs,
+    ) -> Result<bytes::Bytes, gazette::Error> {
+        use kafka_protocol::records::{
+            Compression, Record, RecordBatchEncoder, RecordEncodeOptions, TimestampType,
+        };
+        let mut records: Vec<Record> = Vec::new();
+
+        while let Some(doc) = stream.try_next().await? {
+            let gazette::journal::Doc::Doc { offset, root } = doc else {
+                continue;
+            };
+            let ser = serde_json::to_string(&doc::SerPolicy::noop().on(root.get())).unwrap();
+
+            records.push(Record {
+                transactional: true,
+                control: false,
+                partition_leader_epoch: 1,
+                producer_id: 1234, // TODO(johnny): map from UUID.
+                producer_epoch: 1,
+                timestamp_type: TimestampType::LogAppend,
+                offset,
+                sequence: offset as i32, // TODO(johnny): map from UUID Clock.
+                timestamp: 1234,         // TODO(johnny): map from UUID Clock.
+                key: None,
+                value: Some(ser.into()),
+                headers: Default::default(),
+            });
+            if records.len() == 500 {
+                break;
+            }
+        }
+
+        let opts = RecordEncodeOptions {
+            version: 2,
+            compression: Compression::None,
+        };
+
+        let mut b = bytes::BytesMut::new();
+        RecordBatchEncoder::encode(&mut b, records.iter(), &opts)
+            .expect("record encoding cannot fail");
+
+        tracing::info!(
+            first = records[0].offset,
+            last = records[records.len() - 1].offset,
+            "returning records with offset range"
+        );
+
+        Ok(b.freeze())
+    }
+
     pub async fn fetch(
         &mut self,
         req: messages::FetchRequest,
     ) -> anyhow::Result<messages::FetchResponse> {
+        use kafka_protocol::records::{Record, RecordBatchEncoder};
         use messages::fetch_request::{FetchPartition, FetchTopic};
         use messages::fetch_response::{FetchableTopicResponse, PartitionData};
 
@@ -381,8 +418,11 @@ impl Dekaf {
             max_bytes,
             max_wait_ms,
             min_bytes,
+            session_id,
             ..
         } = req;
+
+        let mut topic_responses = Vec::new();
 
         for topic in topics {
             let FetchTopic {
@@ -395,27 +435,49 @@ impl Dekaf {
                 anyhow::bail!("expected a single fetched partition");
             }
             let FetchPartition {
+                partition,
                 fetch_offset,
                 partition_max_bytes,
                 ..
             } = partitions.pop().unwrap();
 
             let (cur_offset, stream) = match self.streams.get_mut(&*topic.0) {
-                Some(entry) if entry.0 == fetch_offset => entry,
+                Some(entry) /* if entry.0 == fetch_offset */ => entry,
                 _ => {
                     let client = build_journal_client(&self.client, &*topic.0).await?;
                     let stream = start_topic_stream(client, &*topic.0, fetch_offset).await?;
+
                     self.streams
                         .entry(topic.0.to_string())
                         .or_insert((fetch_offset, stream))
                 }
             };
+
+            let data = PartitionData::builder()
+                .partition_index(partition)
+                .records(Some(Self::build_record_batch(stream).await?))
+                .high_watermark(1 << 40) // TODO
+                .last_stable_offset(1 << 40) // TODO
+                .build()
+                .unwrap();
+
+            topic_responses.push(
+                FetchableTopicResponse::builder()
+                    .topic(topic)
+                    .partitions(vec![data])
+                    .build()
+                    .unwrap(),
+            );
         }
 
         //let topic = req.topics.pop().unwrap();
         //let collection = topic.topic.0.to_string();
 
-        Ok(messages::FetchResponse::builder().build().unwrap())
+        Ok(messages::FetchResponse::builder()
+            .session_id(session_id)
+            .responses(topic_responses)
+            .build()
+            .unwrap())
     }
 
     pub async fn offset_commit(
@@ -669,7 +731,7 @@ fn enc_resp<
     let len = (b.len() - offset) as u32;
     b[(offset - 4)..offset].copy_from_slice(&len.to_be_bytes());
 
-    tracing::debug!(?response, "encoded response");
+    // tracing::debug!(?response, "encoded response");
 }
 
 #[tracing::instrument(level = "debug", ret, err(level = "warn"), skip(dekaf, socket, _stop), fields(?addr))]
@@ -710,5 +772,5 @@ fn string_bytes(s: String) -> StrBytes {
 pub const PUBLIC_TOKEN: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV5cmNubXV6enlyaXlwZGFqd2RrIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDg3NTA1NzksImV4cCI6MTk2NDMyNjU3OX0.y1OyXD3-DYMz10eGxzo1eeamVMMUwIIeOoMryTRAoco";
 pub const PUBLIC_ENDPOINT: &str = "https://eyrcnmuzzyriypdajwdk.supabase.co/rest/v1";
 
-pub const ADVERTISE_HOST: &str = "host.docker.internal"; // 127.0.0.1";
+pub const ADVERTISE_HOST: &str = "127.0.0.1";
 pub const ADVERTISE_PORT: u16 = 9092;
