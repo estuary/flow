@@ -42,12 +42,18 @@ async fn read(
     let _eof = stream.try_next().await?; // Broker sends EOF.
     std::mem::drop(stream);
 
+    tracing::trace!(req=?ops::DebugJson(&req), meta=?ops::DebugJson(&metadata), "fetched read metadata");
+
     // Can we directly read the fragment from cloud storage?
     if let (broker::Status::Ok, false, Some(fragment)) = (
         metadata.status(),
         metadata.fragment_url.is_empty(),
         &metadata.fragment,
     ) {
+        if req.offset != metadata.offset {
+            tracing::debug!(req.offset, metadata.offset, "offset jump");
+            req.offset = metadata.offset;
+        }
         *write_head = metadata.write_head;
         let (fragment, fragment_url) = (fragment.clone(), metadata.fragment_url.clone());
         () = co.yield_(metadata).await;
@@ -163,7 +169,7 @@ async fn read_fragment_url_body(
     // We may need to discard a leading portion of fragment content through the requested offset.
     let mut discard = req.offset.max(0) - fragment.begin;
     tracing::trace!(
-        ?fragment,
+        fragment=?ops::DebugJson(fragment),
         req.offset,
         discard,
         "started direct fragment read"

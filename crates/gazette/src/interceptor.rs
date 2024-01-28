@@ -2,11 +2,13 @@
 pub struct Interceptor(Option<tonic::metadata::AsciiMetadataValue>);
 
 impl Interceptor {
-    pub fn new(
-        bearer_token: Option<String>,
-    ) -> Result<Self, tonic::metadata::errors::InvalidMetadataValue> {
+    pub fn new(bearer_token: Option<String>) -> crate::Result<Self> {
         let auth_header = if let Some(token) = bearer_token {
-            Some(format!("Bearer {}", &token).parse()?)
+            Some(
+                format!("Bearer {}", &token)
+                    .parse()
+                    .map_err(crate::Error::BearerToken)?,
+            )
         } else {
             None
         };

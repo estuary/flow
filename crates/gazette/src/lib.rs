@@ -18,9 +18,11 @@ pub enum Error {
     FetchFragment(#[source] reqwest::Error),
     #[error("failed to read fetched fragment from storage URL")]
     ReadFragment(#[source] std::io::Error),
+    #[error("invalid bearer token")]
+    BearerToken(#[source] tonic::metadata::errors::InvalidMetadataValue),
 
     #[error("failed to parse document near journal offset {0}")]
-    Json(i64, #[source] serde_json::Error),
+    Parsing(i64, #[source] std::io::Error),
 
     //#[error("{}", .0.as_str_name())]
     //Broker(proto_gazette::broker::Status),
