@@ -31,6 +31,7 @@ criterion = { workspace = true }
 csv = { workspace = true }
 encoding_rs = { workspace = true }
 flate2 = { workspace = true }
+itertools = { workspace = true }
 mime = { workspace = true }
 num-bigint = { workspace = true }
 protobuf = { workspace = true }
