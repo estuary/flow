@@ -584,10 +584,12 @@ message ListResponse {
   // Journals of the response.
   message Journal {
     JournalSpec spec = 1 [ (gogoproto.nullable) = false ];
-    // Current ModRevision of the JournalSpec.
+    // Current Etcd ModRevision of the JournalSpec.
     int64 mod_revision = 2;
     // Route of the journal, including endpoints.
     Route route = 3 [ (gogoproto.nullable) = false ];
+    // Etcd CreateRevision of the JournalSpec.
+    int64 create_revision = 4;
   }
   repeated Journal journals = 3 [ (gogoproto.nullable) = false ];
 }

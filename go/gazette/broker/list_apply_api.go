@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-	"go.etcd.io/etcd/client/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.gazette.dev/core/allocator"
 	pb "go.gazette.dev/core/broker/protocol"
 	pbx "go.gazette.dev/core/broker/protocol/ext"
@@ -61,6 +61,7 @@ func (svc *Service) List(ctx context.Context, req *pb.ListRequest) (resp *pb.Lis
 			continue
 		}
 		journal.ModRevision = s.Items[cur.Left].Raw.ModRevision
+		journal.CreateRevision = s.Items[cur.Left].Raw.CreateRevision
 		pbx.Init(&journal.Route, s.Assignments[cur.RightBegin:cur.RightEnd])
 		pbx.AttachEndpoints(&journal.Route, s.KS)
 

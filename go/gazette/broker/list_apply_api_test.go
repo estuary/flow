@@ -40,6 +40,7 @@ func TestListCases(t *testing.T) {
 	}
 
 	var broker = newTestBroker(t, etcd, pb.ProcessSpec_ID{Zone: "local", Suffix: "broker"})
+	var fixtureRevision int64
 	{
 		var resp, err = broker.client().Apply(ctx, &pb.ApplyRequest{
 			Changes: []pb.ApplyRequest_Change{
@@ -50,6 +51,7 @@ func TestListCases(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, pb.Status_OK, resp.Status)
+		fixtureRevision = resp.Header.Etcd.Revision
 	}
 
 	// Assign |specC| to |bk|, to verify its returned non-empty Route.
@@ -71,6 +73,9 @@ func TestListCases(t *testing.T) {
 
 		for i, exp := range expect {
 			require.Equal(t, *exp, resp.Journals[i].Spec)
+
+			require.Equal(t, fixtureRevision, resp.Journals[i].CreateRevision)
+			require.Equal(t, fixtureRevision, resp.Journals[i].ModRevision)
 
 			if exp == specC {
 				require.Equal(t, []pb.ProcessSpec_ID{{Zone: "local", Suffix: "broker"}},

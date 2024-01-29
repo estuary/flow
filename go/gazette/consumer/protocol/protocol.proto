@@ -332,12 +332,14 @@ message ListResponse {
   // Shards of the response.
   message Shard {
     ShardSpec spec = 1 [ (gogoproto.nullable) = false ];
-    // Current ModRevision of the ShardSpec.
+    // Current Etcd ModRevision of the ShardSpec.
     int64 mod_revision = 2;
     // Route of the shard, including endpoints.
     protocol.Route route = 3 [ (gogoproto.nullable) = false ];
     // Status of each replica. Cardinality and ordering matches |route|.
     repeated ReplicaStatus status = 4 [ (gogoproto.nullable) = false ];
+    // Etcd CreateRevision of the JournalSpec.
+    int64 create_revision = 5;
   }
   repeated Shard shards = 3 [ (gogoproto.nullable) = false ];
   // Optional extension of the ListResponse.

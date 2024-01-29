@@ -69,6 +69,9 @@ func TestAPIListCases(t *testing.T) {
 		for i, exp := range expect {
 			require.Equal(t, *exp, resp.Shards[i].Spec)
 
+			require.NotZero(t, resp.Shards[i].ModRevision)
+			require.NotZero(t, resp.Shards[i].CreateRevision)
+
 			var numAsn int
 			if exp == specB {
 				numAsn = 1

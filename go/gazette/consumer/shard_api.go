@@ -82,6 +82,7 @@ func ShardList(ctx context.Context, srv *Service, req *pc.ListRequest) (*pc.List
 			continue
 		}
 		shard.ModRevision = s.Items[cur.Left].Raw.ModRevision
+		shard.CreateRevision = s.Items[cur.Left].Raw.CreateRevision
 		pbx.Init(&shard.Route, s.Assignments[cur.RightBegin:cur.RightEnd])
 		pbx.AttachEndpoints(&shard.Route, s.KS)
 
