@@ -1,20 +1,17 @@
 //! Parsers for character-separated formats like csv.
 
+mod detection;
 mod error_buffer;
 mod w3c_extended_log;
 
 use self::error_buffer::ParseErrorBuffer;
-use crate::config::{
-    character_separated::{AdvancedCsvConfig, Delimiter, Escape, LineEnding, Quote},
-    EnumSelection,
-};
+use crate::config::character_separated::{AdvancedCsvConfig, Delimiter, Escape, LineEnding, Quote};
 use crate::format::{Output, ParseError, ParseResult, Parser};
 use crate::input::{detect_encoding, Input};
 use csv::{Reader, StringRecord, Terminator};
 use json::schema::types;
 use serde_json::Value;
 use std::io;
-use strum::IntoEnumIterator;
 
 /// Returns a parser for the [W3C extended log format](https://www.w3.org/TR/WD-logfile.html)
 pub use self::w3c_extended_log::new_w3c_extended_log_parser;
@@ -28,69 +25,12 @@ struct CsvParser {
     config: AdvancedCsvConfig,
 }
 
-// There's definitely some room for improvement in this function, but it doesn't seem worth the
-// time right now. This detection is only to provide a best-effort guess of the quote character in
-// the case that the config doesn't specifiy one.
-fn detect_quote_char(delimiter: u8, peeked: &[u8]) -> Option<Quote> {
-    let mut n_double = 0;
-    let mut n_single = 0;
-
-    for subslice in peeked.split(|&b| b == delimiter) {
-        match subslice.first() {
-            Some(b'"') => n_double += 1,
-            Some(b'\'') => n_single += 1,
-            _ => {}
-        }
-        match subslice.last() {
-            Some(b'"') => n_double += 1,
-            Some(b'\'') => n_single += 1,
-            _ => {}
-        }
-    }
-
-    if n_double < 2 && n_single < 2 {
-        None
-    } else if n_double >= n_single {
-        // If there's a tie, then I guess double quotes win?
-        Some(Quote::DoubleQuote)
-    } else {
-        Some(Quote::SingleQuote)
-    }
-}
-
-/// Applies a not-quite-best-effort heuristic to determine a delimiter character that can hopefully
-/// work to parse the CSV file that has a prefix of `peeked` bytes. This implementation is super
-/// basic. It just counts the occurrences of common delimiters and returns the one with the most.
-/// A more sophisticated method would be to split on the line ending and look at the frequency of
-/// characters per line.
-///
-/// This function never returns an error, even if no delimiter characters are observed. This is to
-/// deal with the case of a CSV with a single column, which would never contain a delimiter. In
-/// this case, we will return the null delimiter because we need to use _something_. But the goal
-/// is to allow parsing a single-column csv without any special configuration.
-fn detect_delimiter(peeked: &[u8]) -> Delimiter {
-    let mut delims = Vec::<(Delimiter, usize)>::new();
-    for candidate in Delimiter::iter() {
-        let n = bytecount::count(peeked, candidate.byte_value());
-        delims.push((candidate, n));
-    }
-
-    // Sort by the number of observed matches, and then by the byte value of the delimiter. This
-    // means that lower numbered delimiters, such as control characters, will take precedence over
-    // those with higher byte values such as printable characters. This only serves to break a tie
-    // in the number of observed values, though, so that the selected delimiter in such cases is
-    // deterministic.
-    delims.sort_by_key(|elem| (peeked.len() - elem.1 as usize, elem.0.byte_value()));
-
-    let best = delims.first().unwrap();
-    tracing::debug!(delimiter = best.0.string_title(), "detected delimiter");
-    best.0
-}
+const PEEK_PREFIX_LEN: usize = 8096;
 
 impl Parser for CsvParser {
     fn parse(&self, content: Input) -> Result<Output, ParseError> {
-        // Peek at the input so we can detect the delimiter, quote character, and encoding.
-        let (peek, input) = content.peek(8096)?;
+        // Peek at the input so we can detect the encoding.
+        let (raw_peek, raw_input) = content.peek(PEEK_PREFIX_LEN)?;
 
         // Transcode into UTF-8 before attempting to parse the CSV. This simplifies a lot, since
         // our ultimate target is JSON in UTF-8, and we'd otherwise need to transcode every parsed
@@ -100,12 +40,14 @@ impl Parser for CsvParser {
             .config
             .encoding
             .as_option()
-            .unwrap_or_else(|| detect_encoding(peek.as_ref()));
+            .unwrap_or_else(|| detect_encoding(raw_peek.as_ref()));
 
-        let input = if input_encoding.is_utf8() {
-            input
+        let (peek, input) = if input_encoding.is_utf8() {
+            (raw_peek, raw_input)
         } else {
-            input.transcode_non_utf8(Some(input_encoding), 0)?
+            // If we transcoded the input, then re-peek before we try to detect the CSV dialect
+            let utf8_input = raw_input.transcode_non_utf8(Some(input_encoding), 0)?;
+            utf8_input.peek(PEEK_PREFIX_LEN)?
         };
 
         // line ending _detection_ is not yet implemented, but CRLF is a pretty reasonable default
@@ -116,61 +58,33 @@ impl Parser for CsvParser {
             .as_option()
             .unwrap_or(LineEnding::CRLF);
 
-        let delimiter = if let Some(delim) = self.config.delimiter.as_ref().cloned() {
-            tracing::debug!(delimiter = %delim, "using delimiter provided by configuration");
-            delim
-        } else {
-            detect_delimiter(peek.as_ref())
-        };
-
-        let mut builder = csv::ReaderBuilder::new();
-        // Configure the underlying parser to allow rows to have more columns than the header row.
-        // This is needed in order to properly parse files using explicitly configured headers
-        // instead of reading the column names from the first row. `CsvOutput` will explicitly check
-        // each row to ensure that it has no more columns than there are headers, which will account
-        // for explicitly configured headers.
-        builder.flexible(true);
-        builder.delimiter(delimiter.byte_value());
-
-        let terminator = match line_ending {
-            LineEnding::CRLF => Terminator::CRLF,
-            LineEnding::CR => Terminator::Any(b'\r'),
-            LineEnding::LF => Terminator::Any(b'\n'),
-            LineEnding::RecordSeparator => Terminator::Any(0x1E),
-        };
-        builder.terminator(terminator);
-
-        // If the user hasn't specified a quote character, then we'll try to detect it.
-        // Default to double quote unless the user explicitly disables quoting. This is more
-        // robust, since it's common for some CSV formatters to only conditionally quote values
-        // containing certain characters, so detection may not observe any quote characters within the
-        // limited prefix of the input.
-        let quote = self
-            .config
-            .quote
-            .as_option()
-            .or_else(|| {
-                let detected = detect_quote_char(delimiter.byte_value(), &peek);
-                tracing::debug!(quote_char = ?detected, "detected quote char");
-                detected
-            })
-            .unwrap_or(Quote::DoubleQuote);
-
-        match quote {
-            Quote::DoubleQuote => builder.quote(b'"'),
-            Quote::SingleQuote => builder.quote(b'\''),
-            Quote::None => builder.quoting(false),
-        };
-
         // It's not clear to me that escapes are common enough to try to detect, so for now we'll
         // only enable escape sequences if the config explicitly provides a character. The default
         // behavior is for the csv parser to only interpred doubled quotes within a quoted string,
         // but not to process any other escapes like "\n" or "\"".
-        let escape = self.config.escape.as_option().and_then(|e| match e {
-            Escape::Backslash => Some(b'\\'),
-            Escape::None => None,
-        });
-        builder.escape(escape);
+        let escape = self.config.escape.as_option().unwrap_or(Escape::None);
+        let config_quote = self.config.quote.as_option();
+        let config_delimiter = self.config.delimiter.as_option();
+
+        // Unless the configuration explicitly provides both a quote and delimiter,
+        // we'll try to detect whichever values are missing. Note that we don't currently
+        // try to detect line endings or escape characters, though we may wish to in the future.
+        let (quote, delimiter) = match config_quote.zip(config_delimiter) {
+            Some(qd) => qd,
+            None => {
+                let dialect = detection::detect_dialect(
+                    line_ending,
+                    escape,
+                    peek,
+                    config_quote,
+                    config_delimiter,
+                );
+                tracing::debug!(?dialect, "detected CSV dialect");
+                (dialect.quote, dialect.delimiter)
+            }
+        };
+
+        let mut builder = new_read_builder(line_ending, quote, delimiter, escape);
 
         // If headers were specified in the config, then we'll use those and tell the parser to
         // interpret the first row as data. Otherwise, we'll try to read headers from the file.
@@ -202,6 +116,45 @@ impl Parser for CsvParser {
         };
         Ok(iterator)
     }
+}
+
+/// Returns a new ReaderBuilder that configured with the given options
+fn new_read_builder(
+    line_ending: LineEnding,
+    quote: Quote,
+    delimiter: Delimiter,
+    escape: Escape,
+) -> csv::ReaderBuilder {
+    let mut builder = csv::ReaderBuilder::new();
+    // Configure the underlying parser to allow rows to have more or fewer columns than the header row.
+    // This is needed in order to properly parse files using explicitly configured headers
+    // instead of reading the column names from the first row. `CsvOutput` will explicitly check
+    // each row to ensure that it has no more columns than there are headers, which will account
+    // for explicitly configured headers.
+    builder.flexible(true);
+    builder.delimiter(delimiter.byte_value());
+
+    let terminator = match line_ending {
+        LineEnding::CRLF => Terminator::CRLF,
+        LineEnding::CR => Terminator::Any(b'\r'),
+        LineEnding::LF => Terminator::Any(b'\n'),
+        LineEnding::RecordSeparator => Terminator::Any(0x1E),
+    };
+    builder.terminator(terminator);
+
+    match quote {
+        Quote::DoubleQuote => builder.quote(b'"'),
+        Quote::SingleQuote => builder.quote(b'\''),
+        Quote::None => builder.quoting(false),
+    };
+
+    match escape {
+        Escape::Backslash => {
+            builder.escape(Some(b'\\'));
+        }
+        Escape::None => { /* default ignores special escapes, but handles doubled quote chars */ }
+    };
+    builder
 }
 
 /// Associates each column header with projection information. This is needed in order to construct
@@ -419,6 +372,7 @@ impl Iterator for CsvOutput {
 
 #[cfg(test)]
 mod test {
+
     use super::*;
     use serde_json::json;
 
@@ -481,31 +435,6 @@ mod test {
             ],
             results
         );
-    }
-
-    #[test]
-    fn detects_single_quote_with_pipe_delimiter() {
-        let csv = test_input("a|b|c\n'fo,o'|'bar'|'b''az'");
-        let results = new_csv_parser(Default::default())
-            .parse(csv)
-            .expect("parse failed")
-            .collect::<Result<Vec<_>, ParseError>>()
-            .expect("output fail");
-        assert_eq!(
-            vec![json!({"a": "fo,o", "b": "bar", "c": "b'az"}),],
-            results
-        );
-    }
-
-    #[test]
-    fn detects_tab_delimiter() {
-        let csv = test_input("a\tb\tc\nfo,o\tbar\tbaz");
-        let results = new_csv_parser(Default::default())
-            .parse(csv)
-            .expect("parse failed")
-            .collect::<Result<Vec<_>, ParseError>>()
-            .expect("output fail");
-        assert_eq!(vec![json!({"a": "fo,o", "b": "bar", "c": "baz"}),], results);
     }
 
     #[test]

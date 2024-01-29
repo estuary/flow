@@ -1,0 +1,4 @@
+{"quote": "'", "delimiter": "|" }
+w | i | d | t | h
+'contains|pipes|'|'.[] | select(.foo == "bar")'|c|d|e
+'a"|;'|'yes | head -n 50'|'moar|pipes'|'"foo"'|bar

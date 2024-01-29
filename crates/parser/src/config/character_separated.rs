@@ -95,7 +95,7 @@ impl EnumSelection for Escape {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, EnumIter)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Serialize, Deserialize, EnumIter)]
 pub enum Quote {
     #[serde(rename = "\"")]
     DoubleQuote,
