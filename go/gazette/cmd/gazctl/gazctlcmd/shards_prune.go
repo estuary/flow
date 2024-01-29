@@ -152,8 +152,11 @@ func foldHintsIntoSegments(hints recoverylog.FSMHints, sets map[pb.Journal]recov
 	for _, segment := range segments {
 		var set = sets[segment.Log]
 
-		// If FirstSeqNo is equal, set.Add will replace a zero LastOffset with a
-		// non-zero one (which is not what we want in this case).
+		// set.Add() will return an error if we attempt to add a segment having a
+		// greater SeqNo and LastOffset != 0, to a set already having a lesser
+		// SeqNo and LastOffset == 0. Or, if FirstSeqNo is equal, it will replace
+		// a zero LastOffset with a non-zero one (which is not what we want
+		// in this case).
 		//
 		// So, zero LastOffset here if |segment| isn't strictly less than
 		// and non-overlapping with a pre-existing last LastOffset==0 element.
