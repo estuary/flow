@@ -9,7 +9,7 @@ interface DataProcessingArguments {
     spec_type: string;
 }
 
-type DataNotProcessedRecord = AlertRecord<"data_not_processed_in_interval", DataProcessingArguments>;
+type DataNotProcessedRecord = AlertRecord<"data_not_processed_in_interval_v2", DataProcessingArguments>;
 
 const getTaskDetailsPageURL = (catalogName: string, specType: string) =>
     `https://dashboard.estuary.dev/${specType}s/details/overview?catalogName=${catalogName}`;
