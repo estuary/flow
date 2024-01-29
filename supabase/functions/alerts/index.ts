@@ -76,14 +76,7 @@ const emailNotifications = (
                     from: senderAddress,
                     to: email,
                     subject,
-                    html: `
-                    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
-                    ${content}
-
-                    <p style="margin-bottom: 0;">Thanks,</p>
-                    <p style="margin-top: 0;">Estuary Team</p>
-                    </div>
-                `,
+                    html: content,
                 }),
             });
         })
