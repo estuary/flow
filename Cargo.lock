@@ -3057,6 +3057,7 @@ dependencies = [
  "encoding_rs",
  "flate2",
  "insta",
+ "itertools 0.10.5",
  "json",
  "lazy_static",
  "mime",

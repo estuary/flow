@@ -1,0 +1,6 @@
+{"quote": "\"", "delimiter": ","}
+,,,,,,,,,,,,,
+id,fleet,country,ship_type,ship_class,name,description,start_date,sunk_date,sunk_report,losses,source,x,y
+,0,46,5,,Blücher,,1939-09-20,1940-04-09,Sunk in the Battle of Drøbak Soundon 9 April 1940 ,,http://upload.wikimedia.org/wikipedia/commons/d/d5/Bundesarchiv_DVM_10_Bild-23-63-09%2C_Kreuzer_%22Bl%C3%BCcher%22.jpg,59.7,10.591667
+,0,46,5,,Königsberg,,1929-04-17,1940-04-10,"Sunk 10 April 1940 at Bergen, Norway ",,http://upload.wikimedia.org/wikipedia/commons/4/40/K%C3%B6nigsberg_3.jpg,60.4,5.316667
+,0,46,6,,Karlsruhe,,1929-11-06,1940-04-09,Damaged by torpedoes fired byHMS Truant and later sunk on 9 April 1940 ,,http://upload.wikimedia.org/wikipedia/commons/c/ca/Bundesarchiv_Bild_102-12746%2C_Kaiser-Wilhelm-Kanal%2C_Kreuzer_%22Karlsruhe%22.jpg ,57.574779,7.976074

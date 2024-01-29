@@ -7,7 +7,7 @@ pub mod sanitize;
 use crate::config::ErrorThreshold;
 use crate::decorate::{AddFieldError, Decorator};
 use crate::input::{detect_compression, CompressionError, Input};
-use crate::{Compression, Format, ParseConfig, JsonPointer};
+use crate::{Compression, Format, JsonPointer, ParseConfig};
 
 use serde_json::Value;
 use std::io::{self, Write};
@@ -99,17 +99,20 @@ pub fn resolve_config(
 /// Drives the parsing process using the given configuration, input, and output streams. The
 /// `content` will be parsed according to the `config` and written in JSONL format to `dest`.
 /// The given `config` will be used to override any default or recommended values.
+#[tracing::instrument(skip_all, fields(filename), err)]
 pub fn parse(
     config: &ParseConfig,
     content: Input,
     dest: &mut impl io::Write,
 ) -> Result<(), ParseError> {
+    let filename = config
+        .add_values
+        .get(&JsonPointer("/_meta/file".to_string()))
+        .and_then(|v| v.as_str());
+    tracing::Span::current().record("filename", filename);
+
     let (resolved_format, resolved_compression, content) = resolve_config(config, content)?;
     tracing::debug!(format = ?resolved_format, compression = %resolved_compression, "resolved config");
-    
-    // Add the /_meta/filename to the span so we can track which files are associated with logs
-    let span = tracing::span!(tracing::Level::ERROR, "parsing", filename = config.add_values.get(&JsonPointer("/_meta/file".to_string())).and_then(|v| v.as_str()));
-    let _enter = span.enter();
 
     let parser = parser_for(resolved_format);
 
