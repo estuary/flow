@@ -25,7 +25,7 @@ struct CsvParser {
     config: AdvancedCsvConfig,
 }
 
-const PEEK_PREFIX_LEN: usize = 8096;
+const PEEK_PREFIX_LEN: usize = 1 << 16; // 64KiB
 
 impl Parser for CsvParser {
     fn parse(&self, content: Input) -> Result<Output, ParseError> {
