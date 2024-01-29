@@ -95,6 +95,9 @@ fn assert_file_is_parsed_with_config(file: PathBuf, mut config: ParseConfig) {
     config
         .add_values
         .insert(JsonPointer::from(canary_ptr), json!(true));
+    config
+        .add_values
+        .insert(JsonPointer::from("/_meta/file"), json!(file));
     config.add_record_offset = Some(JsonPointer::from(offset_ptr));
     config.filename = Some(file.display().to_string());
     let input = input_for_file(&file);
