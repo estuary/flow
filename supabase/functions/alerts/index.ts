@@ -6,6 +6,7 @@ import { freeTierExceededEmail } from "./alert_types/free_tier_exceeded.ts";
 import { freeTrialEndedEmail } from "./alert_types/free_trial_ended.ts";
 import { freeTrialEndingEmail } from "./alert_types/free_trial_ending.ts";
 import { freeTrialGracePeriodOverEmail } from "./alert_types/free_trial_grace_period_over.ts";
+import { ProvidedPaymentMethodEmail } from "./alert_types/provided_payment_method.ts";
 
 export interface AlertRecord<T extends keyof typeof emailTemplates, A> {
     alert_type: T;
@@ -27,6 +28,7 @@ const emailTemplates = {
     "free_trial_ended": freeTrialEndedEmail,
     "free_trial_ending": freeTrialEndingEmail,
     "free_trial_grace_period_over": freeTrialGracePeriodOverEmail,
+    "provided_payment_method": ProvidedPaymentMethodEmail,
 };
 
 // This is a temporary type guard for the POST request that provides shallow validation
@@ -157,6 +159,9 @@ serve(async (rawRequest: Request): Promise<Response> => {
             pendingEmails = emailTemplates[request.alert_type](request);
             break;
         case "free_trial_grace_period_over":
+            pendingEmails = emailTemplates[request.alert_type](request);
+            break;
+        case "provided_payment_method":
             pendingEmails = emailTemplates[request.alert_type](request);
             break;
         default: {
