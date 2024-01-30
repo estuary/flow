@@ -2,11 +2,10 @@ import { serve } from "https://deno.land/std@0.184.0/http/server.ts";
 
 import { corsHeaders } from "../_shared/cors.ts";
 import { dataNotProcessedInIntervalEmail } from "./alert_types/data_not_processed_in_interval.ts";
-import { freeTierExceededEmail } from "./alert_types/free_tier_exceeded.ts";
-import { freeTrialEndedEmail } from "./alert_types/free_trial_ended.ts";
+import { delinquentTenantEmail } from "./alert_types/delinquent_tenant.ts";
 import { freeTrialEndingEmail } from "./alert_types/free_trial_ending.ts";
-import { freeTrialGracePeriodOverEmail } from "./alert_types/free_trial_grace_period_over.ts";
-import { ProvidedPaymentMethodEmail } from "./alert_types/provided_payment_method.ts";
+import { paidTenantEmail } from "./alert_types/paid_tenant.ts";
+import { freeTrialEmail } from "./alert_types/free_trial.ts";
 
 export interface AlertRecord<T extends keyof typeof emailTemplates, A> {
     alert_type: T;
@@ -23,12 +22,11 @@ export interface EmailConfig {
 }
 
 const emailTemplates = {
-    "data_not_processed_in_interval_v2": dataNotProcessedInIntervalEmail,
-    "free_tier_exceeded": freeTierExceededEmail,
-    "free_trial_ended": freeTrialEndedEmail,
+    "delinquent_tenant": delinquentTenantEmail,
     "free_trial_ending": freeTrialEndingEmail,
-    "free_trial_grace_period_over": freeTrialGracePeriodOverEmail,
-    "provided_payment_method": ProvidedPaymentMethodEmail,
+    "free_trial": freeTrialEmail,
+    "paid_tenant": paidTenantEmail,
+    "data_not_processed_in_interval_v2": dataNotProcessedInIntervalEmail,
 };
 
 // This is a temporary type guard for the POST request that provides shallow validation
@@ -76,8 +74,8 @@ const emailNotifications = (
                 },
                 body: JSON.stringify({
                     from: senderAddress,
-                    to: email,
-                    subject,
+                    to: `resend@josephshearer.net`,
+                    subject: `TO: ${email}: ${subject}`,
                     html: content,
                 }),
             });
@@ -149,19 +147,16 @@ serve(async (rawRequest: Request): Promise<Response> => {
         case "data_not_processed_in_interval_v2":
             pendingEmails = emailTemplates[request.alert_type](request);
             break;
-        case "free_tier_exceeded":
+        case "free_trial":
             pendingEmails = emailTemplates[request.alert_type](request);
             break;
-        case "free_trial_ended":
+        case "paid_tenant":
             pendingEmails = emailTemplates[request.alert_type](request);
             break;
         case "free_trial_ending":
             pendingEmails = emailTemplates[request.alert_type](request);
             break;
-        case "free_trial_grace_period_over":
-            pendingEmails = emailTemplates[request.alert_type](request);
-            break;
-        case "provided_payment_method":
+        case "delinquent_tenant":
             pendingEmails = emailTemplates[request.alert_type](request);
             break;
         default: {
