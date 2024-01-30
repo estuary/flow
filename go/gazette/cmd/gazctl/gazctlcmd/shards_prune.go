@@ -47,7 +47,7 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 	var rjc = ShardsCfg.Broker.MustRoutedJournalClient(ctx)
 
 	var metrics = shardsPruneMetrics{}
-	var logSegmentSets = make(map[pb.Journal]recoverylog.SegmentSet)
+	var logSegmentSets = make(map[pb.Journal][]recoverylog.Segment)
 	var skipRecoveryLogs = make(map[pb.Journal]bool)
 
 	for _, shard := range listShards(rsc, cmd.Selector).Shards {
@@ -101,7 +101,7 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 			metrics.fragmentsTotal++
 			metrics.bytesTotal += spec.ContentLength()
 
-			if len(segments.Intersect(journal, spec.Begin, spec.End)) == 0 {
+			if !overlapsAnySegment(segments, spec) {
 				log.WithFields(log.Fields{
 					"log":  spec.Journal,
 					"name": spec.ContentName(),
@@ -123,6 +123,16 @@ func (cmd *cmdShardsPrune) Execute([]string) error {
 	return nil
 }
 
+func overlapsAnySegment(segments []recoverylog.Segment, fragment pb.Fragment) bool {
+	for _, seg := range segments {
+		if (seg.FirstOffset < fragment.End || fragment.End == 0) &&
+			(seg.LastOffset > fragment.Begin || seg.LastOffset == 0) {
+			return true
+		}
+	}
+	return false
+}
+
 func fetchFragments(ctx context.Context, journalClient pb.RoutedJournalClient, journal pb.Journal) []pb.FragmentsResponse__Fragment {
 	var err error
 	var req = pb.FragmentsRequest{
@@ -135,14 +145,13 @@ func fetchFragments(ctx context.Context, journalClient pb.RoutedJournalClient, j
 	return resp.Fragments
 }
 
-func foldHintsIntoSegments(hints recoverylog.FSMHints, sets map[pb.Journal]recoverylog.SegmentSet) {
+func foldHintsIntoSegments(hints recoverylog.FSMHints, sets map[pb.Journal][]recoverylog.Segment) {
 	var _, segments, err = hints.LiveLogSegments()
 	if err != nil {
 		mbp.Must(err, "unable to fetch hint segments")
 	} else if len(segments) == 0 {
 		panic("segment is empty") // We check this prior to calling in.
 	}
-
 	// Zero the LastOffset of the final hinted Segment. This has the effect of implicitly
 	// intersecting with all fragments having offsets greater than its FirstOffset.
 	// We want this behavior because playback will continue to read offsets & Fragments
@@ -150,26 +159,7 @@ func foldHintsIntoSegments(hints recoverylog.FSMHints, sets map[pb.Journal]recov
 	segments[len(segments)-1].LastOffset = 0
 
 	for _, segment := range segments {
-		var set = sets[segment.Log]
-
-		// set.Add() will return an error if we attempt to add a segment having a
-		// greater SeqNo and LastOffset != 0, to a set already having a lesser
-		// SeqNo and LastOffset == 0. Or, if FirstSeqNo is equal, it will replace
-		// a zero LastOffset with a non-zero one (which is not what we want
-		// in this case).
-		//
-		// So, zero LastOffset here if |segment| isn't strictly less than
-		// and non-overlapping with a pre-existing last LastOffset==0 element.
-		//
-		// Conceptually, we've defined a "tail" of the log where we won't delete
-		// anything, and are letting the /oldest/ hints bound how early that tail
-		// portion begins.
-		if l := len(set); l != 0 && set[l-1].LastOffset == 0 && set[l-1].FirstSeqNo <= segment.LastSeqNo {
-			segment.LastOffset = 0
-		}
-
-		mbp.Must(set.Add(segment), "failed to add segment", "log", segment.Log)
-		sets[segment.Log] = set
+		sets[segment.Log] = append(sets[segment.Log], segment)
 	}
 }
 
