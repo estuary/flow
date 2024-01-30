@@ -73,13 +73,13 @@ impl Parser for CsvParser {
             Some(qd) => qd,
             None => {
                 let dialect = detection::detect_dialect(
+                    Some(self.config.headers.len()).filter(|n| *n > 0),
                     line_ending,
                     escape,
                     peek,
                     config_quote,
                     config_delimiter,
                 );
-                tracing::debug!(?dialect, "detected CSV dialect");
                 (dialect.quote, dialect.delimiter)
             }
         };
