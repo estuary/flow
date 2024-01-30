@@ -81,22 +81,48 @@ pub fn detect_dialect(
     config_quote: Option<Quote>,
     config_delimiter: Option<Delimiter>,
 ) -> Dialect {
-    let mut best_score = DetectionScore::default();
-    let mut best_index = 0usize;
     let permutations = get_dialect_candidates(config_quote, config_delimiter);
-    for (i, (quote, delimiter)) in permutations.iter().enumerate() {
-        let score = compute_score(peeked.clone(), *quote, *delimiter, line_separator, escape);
-        tracing::trace!(?quote, ?delimiter, ?score, "computed score for dialect");
-        if score > best_score {
-            best_score = score;
-            best_index = i;
-        }
-    }
+    let mut dialects = permutations
+        .iter()
+        .copied()
+        .map(|(quote, delimiter)| {
+            let score = compute_score(peeked.clone(), quote, delimiter, line_separator, escape);
+            Dialect {
+                quote,
+                delimiter,
+                score,
+            }
+        })
+        .collect::<Vec<Dialect>>();
 
-    Dialect {
-        quote: permutations[best_index].0,
-        delimiter: permutations[best_index].1,
-        score: best_score,
+    dialects.sort_by(|l, r| {
+        l.score
+            .partial_cmp(&r.score)
+            .expect("invalid dialect score")
+            .then_with(|| sort_order(l.quote).cmp(&sort_order(r.quote)))
+    });
+
+    let winning_dialect = dialects
+        .pop()
+        .expect("must have at least one candidate dialect");
+    // Log the top few candidates, as it's helpful to see the runner up when detection doesn't go as we expected
+    let runners_up = &dialects[0..(dialects.len().min(3))];
+
+    tracing::debug!(?winning_dialect, ?runners_up, "detected CSV dialect");
+    winning_dialect
+}
+
+/// When comparing dialects, we use the quote character to break ties in the scores.
+/// This is because we detect the dialect based on a prefix of the CSV input, which
+/// might not contain any quoted fields. (It's common for CSV writers to only quote
+/// fields that need it.) So if we haven't seen any difference between dialect scores,
+/// then we always want to prefer double quotes, as they're the most common. And disabled
+/// quoting should always be last, since we might still see quote characters used later on.
+fn sort_order(q: Quote) -> usize {
+    match q {
+        Quote::DoubleQuote => 2,
+        Quote::SingleQuote => 1,
+        Quote::None => 0,
     }
 }
 
@@ -113,7 +139,7 @@ fn get_dialect_candidates(
     let all_quotes: Vec<Quote> = if let Some(q) = config_quote {
         vec![q]
     } else {
-        vec![Quote::DoubleQuote, Quote::SingleQuote]
+        vec![Quote::DoubleQuote, Quote::SingleQuote, Quote::None]
     };
     let all_delims: Vec<Delimiter> = if let Some(d) = config_delimiter {
         vec![d]
